@@ -1,0 +1,32 @@
+[package]
+name = "obsidian-tc-native"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Native perf module for obsidian-tc"
+repository = "https://github.com/The-40-Thieves/obsidian-tc"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", features = ["napi8"] }
+napi-derive = "2"
+
+# Vector and matrix ops (pinned in G2.5)
+# ndarray = "0.16"
+# nalgebra = "0.33"
+
+# SQLite extension (pinned in G2.3)
+# sqlite-vec = "0.1"
+
+# V2-only — commented until V2 work begins
+# petgraph = "0.6"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
