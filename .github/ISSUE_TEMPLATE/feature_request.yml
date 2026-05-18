@@ -1,0 +1,55 @@
+name: Feature request
+description: Suggest a new capability for obsidian-tc
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement.
+
+        Before submitting, search existing issues and the design documents in the project README to ensure this isn't already planned.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the use case, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should obsidian-tc do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else have you tried or considered?
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      description: Which part of obsidian-tc would this affect?
+      options:
+        - label: Server tool surface
+        - label: Companion plugin
+        - label: Multi-vault registry
+        - label: Embedding providers
+        - label: Auth / ACL / security
+        - label: Observability
+        - label: Documentation
+        - label: Build / release engineering
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow the [Code of Conduct](https://github.com/The-40-Thieves/obsidian-tc/blob/main/CODE_OF_CONDUCT.md)
+          required: true
