@@ -1,0 +1,18 @@
+{
+  "name": "@obsidian-tc/plugin",
+  "version": "0.0.0-pre",
+  "description": "Companion Obsidian plugin for obsidian-tc — extends Local REST API with command dispatch and plugin firepower bridges",
+  "license": "Apache-2.0",
+  "private": true,
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.24.0",
+    "obsidian": "^1.7.0",
+    "tslib": "^2.8.0"
+  }
+}
