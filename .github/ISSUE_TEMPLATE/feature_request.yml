@@ -47,7 +47,7 @@ body:
         - label: Build / release engineering
 
   - type: checkboxes
-    id: scope
+    id: code-of-conduct
     attributes:
       label: Code of Conduct
       options:
