@@ -1,0 +1,42 @@
+{
+  "name": "obsidian-tc",
+  "version": "0.0.0-pre",
+  "description": "MCP server for Obsidian — comprehensive tool surface for humans and autonomous agents",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "obsidian-tc": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "test": "vitest run",
+    "dev": "bun run --watch ./src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@obsidian-tc/native": "workspace:*",
+    "@obsidian-tc/shared": "workspace:*",
+    "better-sqlite3": "^11.5.0",
+    "hono": "^4.6.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "vitest": "^2.1.0"
+  },
+  "keywords": [
+    "obsidian",
+    "mcp",
+    "model-context-protocol",
+    "knowledge-management",
+    "agent",
+    "ai"
+  ]
+}
