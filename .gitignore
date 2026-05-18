@@ -1,0 +1,56 @@
+# Node
+node_modules/
+dist/
+build/
+*.log
+.env
+.env.local
+.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Bun lockfile is COMMITTED (reproducible installs) — do not ignore bun.lockb
+
+# TypeScript
+*.tsbuildinfo
+
+# Rust
+target/
+**/*.rs.bk
+# Cargo.lock is COMMITTED (reproducible binary builds via napi-rs)
+
+# napi-rs build outputs
+*.node
+prebuilds/
+
+# Python (V2 sidecar)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+.bun/
