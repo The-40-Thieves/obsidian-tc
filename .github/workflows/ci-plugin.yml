@@ -1,0 +1,31 @@
+name: ci-plugin
+on:
+  pull_request:
+    paths:
+      - 'packages/plugin/**'
+      - 'packages/shared/**'
+      - 'bun.lock'
+      - '.github/workflows/ci-plugin.yml'
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter=plugin lint
+      - run: bun run --filter=plugin typecheck
+      - run: bun run --filter=plugin build
+      - name: verify manifest
+        run: bun run --filter=plugin verify-manifest
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: obsidian-tc-plugin
+          path: |
+            packages/plugin/dist/main.js
+            packages/plugin/dist/manifest.json
+            packages/plugin/dist/styles.css
