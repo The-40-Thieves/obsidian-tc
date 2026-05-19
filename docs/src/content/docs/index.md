@@ -1,0 +1,23 @@
+---
+title: obsidian-tc
+description: A turbocharged Model Context Protocol server for Obsidian.
+template: splash
+hero:
+  tagline: A turbocharged MCP server for Obsidian.
+  actions:
+    - text: Getting Started
+      link: /getting-started/install/
+      icon: right-arrow
+    - text: GitHub
+      link: https://github.com/the-40-thieves/obsidian-tc
+      icon: external
+      variant: minimal
+---
+
+## What is obsidian-tc?
+
+obsidian-tc is a Model Context Protocol server that exposes an Obsidian vault to AI agents through 109 typed tools. It runs locally or remotely, supports multi-vault setups, signed-JWT auth, and ships a companion plugin that powers tool-call delivery via the Obsidian Local REST API.
+
+v1.0 ships Q3 2026.
+
+See [Getting Started](/getting-started/install/) for install instructions, or browse the [Tool Reference](/tools/).
