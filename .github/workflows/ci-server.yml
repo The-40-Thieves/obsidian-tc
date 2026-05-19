@@ -1,0 +1,46 @@
+name: ci-server
+on:
+  pull_request:
+    paths:
+      - 'packages/server/**'
+      - 'packages/shared/**'
+      - 'bun.lock'
+      - '.github/workflows/ci-server.yml'
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        bun-version: ['1.1.x', 'latest']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun-version }}
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter=shared lint
+      - run: bun run --filter=shared typecheck
+      - run: bun run --filter=shared test
+      - run: bun run --filter=server lint
+      - run: bun run --filter=server typecheck
+      - run: bun run --filter=server test
+      - run: bun run --filter=server build
+      - name: bench
+        run: bun run --filter=server bench
+        if: matrix.os == 'ubuntu-latest' && matrix.bun-version == 'latest'
+
+  fallback-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: force pure-JS fallback
+        env:
+          OBSIDIAN_TC_FORCE_FALLBACK: 'true'
+        run: bun run --filter=server test
