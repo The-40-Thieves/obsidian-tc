@@ -1,0 +1,64 @@
+name: ci-native
+on:
+  pull_request:
+    paths:
+      - 'packages/native/**'
+      - '.github/workflows/ci-native.yml'
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            triple: linux-x64-gnu
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            triple: linux-arm64-gnu
+            cross: true
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            triple: darwin-x64
+          - host: macos-14
+            target: aarch64-apple-darwin
+            triple: darwin-arm64
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            triple: win32-x64-msvc
+    runs-on: ${{ matrix.host }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/native
+      - name: install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+      - run: bun install --frozen-lockfile
+      - name: build
+        working-directory: packages/native
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            bun run build:cross -- --target ${{ matrix.target }}
+          else
+            bun run build -- --target ${{ matrix.target }}
+          fi
+        shell: bash
+      - name: test
+        if: matrix.host != 'ubuntu-latest' || matrix.target == 'x86_64-unknown-linux-gnu'
+        working-directory: packages/native
+        run: cargo test --release --target ${{ matrix.target }}
+      - name: upload prebuild
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.triple }}
+          path: packages/native/*.node
+          if-no-files-found: error
