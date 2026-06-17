@@ -29,3 +29,5 @@ export type { McpServerOptions } from "./mcp/server";
 export { connectStdio } from "./transports/stdio";
 export { openDatabase } from "./db/open";
 export { loadConfig } from "./config/load";
+export { createHttpApp, startHttp } from "./transports/http";
+export type { HttpAppOptions, HttpHandle } from "./transports/http";

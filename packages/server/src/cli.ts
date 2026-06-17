@@ -7,6 +7,7 @@ import { openDatabase } from "./db/open";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { createHealthTool } from "./tools/admin/health";
+import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 
 const VERSION = "0.0.0-pre";
@@ -49,6 +50,23 @@ async function main(): Promise<void> {
   });
 
   const server = createMcpServer({ name: "obsidian-tc", version: VERSION, registry, context });
+
+  if (config.transports.http.enabled) {
+    const http = await startHttp({
+      name: "obsidian-tc",
+      version: VERSION,
+      registry,
+      auth: config.auth,
+      db,
+      vaultId: firstVault.id,
+      host: config.transports.http.host,
+      port: config.transports.http.port,
+    });
+    process.stderr.write(
+      `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,
+    );
+  }
+
   await connectStdio(server);
   process.stderr.write(`obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id})\n`);
 }
