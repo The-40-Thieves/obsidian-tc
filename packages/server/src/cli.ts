@@ -1,9 +1,11 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FolderAcl } from "./acl";
 import { loadConfig } from "./config/load";
 import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
+import { elicitVerifier } from "./elicit";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { createHealthTool } from "./tools/admin/health";
@@ -34,10 +36,14 @@ async function main(): Promise<void> {
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
   runMigrations(db, [{ version: "20260519_001", sql: initialMigrationSql }], { version: VERSION });
 
-  const registry = new ToolRegistry({ maxResponseBytes: config.governor.maxResponseBytes });
+  const registry = new ToolRegistry({
+    maxResponseBytes: config.governor.maxResponseBytes,
+    verifyElicit: elicitVerifier,
+  });
   registry.register(
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
   );
+  const acl = new FolderAcl(config.acl);
 
   // stdio is the trusted local transport: the operator runs the binary against
   // their own vault, so calls are authenticated with full local scope.
@@ -47,6 +53,7 @@ async function main(): Promise<void> {
     grantedScopes: new Set(["*"]),
     vaultId: firstVault.id,
     db,
+    acl,
   });
 
   const server = createMcpServer({ name: "obsidian-tc", version: VERSION, registry, context });
@@ -59,6 +66,7 @@ async function main(): Promise<void> {
       auth: config.auth,
       db,
       vaultId: firstVault.id,
+      acl,
       host: config.transports.http.host,
       port: config.transports.http.port,
     });

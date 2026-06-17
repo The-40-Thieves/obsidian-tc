@@ -2,9 +2,11 @@ import {
   ObsidianTcError,
   type ToolResult,
   grantsAll,
+  isMutatingScope,
   scopeRequiresHitl,
 } from "@obsidian-tc/shared";
 import type { z } from "zod";
+import type { FolderAcl } from "../acl";
 import { type AuditEvent, writeEvent } from "../audit";
 import type { Database } from "../db/types";
 import { argsHash } from "../hash";
@@ -16,6 +18,7 @@ export interface CallerContext {
   vaultId: string;
   db: Database;
   elicitToken?: string | null;
+  acl?: FolderAcl;
   now?: () => number;
 }
 
@@ -102,6 +105,10 @@ export class ToolRegistry {
         throw new ObsidianTcError("forbidden", "missing required scope(s)", {
           required: def.requiredScopes,
         });
+
+      const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
+      if (mutating && ctx.acl?.readOnly)
+        throw new ObsidianTcError("forbidden", "vault is read-only (acl.readOnly)");
 
       const needsHitl = def.destructive === true || def.requiredScopes.some(scopeRequiresHitl);
       if (needsHitl) {
