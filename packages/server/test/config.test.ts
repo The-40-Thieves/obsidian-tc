@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
 import { ServerConfigSchema } from "@obsidian-tc/shared";
+import { describe, expect, it } from "vitest";
 
 describe("config schema", () => {
   it("applies defaults from a minimal config", () => {
@@ -13,8 +13,14 @@ describe("config schema", () => {
     expect(ServerConfigSchema.safeParse({ vaults: [] }).success).toBe(false);
   });
   it("rejects jwt mode without a secret and accepts it with one", () => {
-    expect(ServerConfigSchema.safeParse({ vaults: [{ id: "m", path: "/v" }], auth: { mode: "jwt" } }).success).toBe(false);
-    const ok = ServerConfigSchema.safeParse({ vaults: [{ id: "m", path: "/v" }], auth: { mode: "jwt", jwtSecret: "x".repeat(32) } });
+    expect(
+      ServerConfigSchema.safeParse({ vaults: [{ id: "m", path: "/v" }], auth: { mode: "jwt" } })
+        .success,
+    ).toBe(false);
+    const ok = ServerConfigSchema.safeParse({
+      vaults: [{ id: "m", path: "/v" }],
+      auth: { mode: "jwt", jwtSecret: "x".repeat(32) },
+    });
     expect(ok.success).toBe(true);
   });
 });

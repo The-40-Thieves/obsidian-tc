@@ -1,9 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { openMemoryDb } from "./helpers";
-import { runMigrations, checksum } from "../src/db/migrate";
 import { ObsidianTcError } from "@obsidian-tc/shared";
+import { describe, expect, it } from "vitest";
+import { checksum, runMigrations } from "../src/db/migrate";
+import { openMemoryDb } from "./helpers";
 
-function db() { return openMemoryDb(); }
+function db() {
+  return openMemoryDb();
+}
 
 describe("migration runner", () => {
   it("applies pending migrations in version order", () => {
@@ -13,7 +15,9 @@ describe("migration runner", () => {
       { version: "20260519_002", sql: "CREATE TABLE b(y);" },
     ]);
     expect(applied).toEqual(["20260519_001", "20260519_002"]);
-    const rows = d.prepare("SELECT version, checksum FROM schema_migrations ORDER BY version").all();
+    const rows = d
+      .prepare("SELECT version, checksum FROM schema_migrations ORDER BY version")
+      .all();
     expect(rows.map((r: any) => r.version)).toEqual(["20260519_001", "20260519_002"]);
   });
   it("is idempotent on re-run", () => {
@@ -35,7 +39,11 @@ describe("migration runner", () => {
   });
   it("rolls back a failing migration", () => {
     const d = db();
-    expect(() => runMigrations(d, [{ version: "20260519_001", sql: "CREATE TABLE ok(x); CREATE TABLE oops(" }])).toThrow();
+    expect(() =>
+      runMigrations(d, [
+        { version: "20260519_001", sql: "CREATE TABLE ok(x); CREATE TABLE oops(" },
+      ]),
+    ).toThrow();
     const rows = d.prepare("SELECT count(*) c FROM schema_migrations").get();
     expect(rows.c).toBe(0);
   });

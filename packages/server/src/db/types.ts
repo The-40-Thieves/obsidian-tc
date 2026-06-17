@@ -1,6 +1,9 @@
 // Minimal synchronous DB surface shared by the runtime adapters
 // (better-sqlite3 in Node, bun:sqlite in Bun) and node:sqlite in tests.
-export interface RunResult { changes: number; lastInsertRowid?: number | bigint; }
+export interface RunResult {
+  changes: number;
+  lastInsertRowid?: number | bigint;
+}
 export interface Statement {
   run(...params: unknown[]): RunResult;
   get(...params: unknown[]): unknown;

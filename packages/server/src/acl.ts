@@ -1,6 +1,13 @@
 // Glob folder ACL, last-match-wins (G2.4 A.2).
-export interface AclRuleT { glob: string; scopes: string[]; }
-export interface AclConfigT { readOnly: boolean; defaultScopes: string[]; rules: AclRuleT[]; }
+export interface AclRuleT {
+  glob: string;
+  scopes: string[];
+}
+export interface AclConfigT {
+  readOnly: boolean;
+  defaultScopes: string[];
+  rules: AclRuleT[];
+}
 
 const NUL = " ";
 
@@ -13,7 +20,7 @@ export function globToRegExp(glob: string): RegExp {
     else if (c === "?") re += "[^/]";
     else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   }
-  return new RegExp("^" + re + "$");
+  return new RegExp(`^${re}$`);
 }
 
 export function globMatch(glob: string, path: string): boolean {
@@ -29,5 +36,7 @@ export class FolderAcl {
     }
     return scopes;
   }
-  get readOnly(): boolean { return this.cfg.readOnly; }
+  get readOnly(): boolean {
+    return this.cfg.readOnly;
+  }
 }

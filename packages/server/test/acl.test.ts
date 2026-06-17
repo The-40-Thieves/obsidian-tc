@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { globMatch, FolderAcl } from "../src/acl";
+import { describe, expect, it } from "vitest";
+import { FolderAcl, globMatch } from "../src/acl";
 
 describe("glob matcher", () => {
   it("matches single and double star semantics", () => {

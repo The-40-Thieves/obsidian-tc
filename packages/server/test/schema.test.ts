@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import { openMemoryDb } from "./helpers";
 
@@ -19,8 +19,15 @@ describe("committed V1 schema (packages/server/src/schema.sql)", () => {
       .all()
       .map((r: any) => r.name);
     for (const t of [
-      "chunks", "chunk_embeddings", "workspace_sessions", "capture_queue",
-      "memory_entities", "memory_relations", "idempotency_keys", "elicit_tokens", "event_log",
+      "chunks",
+      "chunk_embeddings",
+      "workspace_sessions",
+      "capture_queue",
+      "memory_entities",
+      "memory_relations",
+      "idempotency_keys",
+      "elicit_tokens",
+      "event_log",
     ]) {
       expect(tables).toContain(t);
     }

@@ -5,11 +5,7 @@
   "license": "Apache-2.0",
   "main": "index.js",
   "types": "index.d.ts",
-  "files": [
-    "index.js",
-    "index.d.ts",
-    "*.node"
-  ],
+  "files": ["index.js", "index.d.ts", "*.node"],
   "napi": {
     "name": "obsidian-tc-native",
     "triples": {

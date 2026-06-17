@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { grantsScope, grantsAll, scopeRequiresHitl } from "@obsidian-tc/shared";
+import { grantsAll, grantsScope, scopeRequiresHitl } from "@obsidian-tc/shared";
+import { describe, expect, it } from "vitest";
 
 describe("scope matching", () => {
   it("honors exact, family-wildcard and global-wildcard grants", () => {

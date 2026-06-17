@@ -19,8 +19,15 @@ export function writeEvent(db: Database, e: AuditEvent): void {
       (ts, vault_id, tool_name, caller, duration_ms, result_size, status, error_code, args_hash, event_type)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
-    e.ts, e.vault_id ?? null, e.tool_name ?? null, e.caller ?? null,
-    e.duration_ms ?? null, e.result_size ?? null, e.status,
-    e.error_code ?? null, e.args_hash ?? null, e.event_type ?? "tool_invocation",
+    e.ts,
+    e.vault_id ?? null,
+    e.tool_name ?? null,
+    e.caller ?? null,
+    e.duration_ms ?? null,
+    e.result_size ?? null,
+    e.status,
+    e.error_code ?? null,
+    e.args_hash ?? null,
+    e.event_type ?? "tool_invocation",
   );
 }

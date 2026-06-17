@@ -9,10 +9,15 @@ export interface HealthInfo {
   uptime_ms: number;
 }
 
-export function createHealthTool(opts: { version: string; vaults: string[]; startedAt: number }): ToolDefinition<Record<string, never>, HealthInfo> {
+export function createHealthTool(opts: {
+  version: string;
+  vaults: string[];
+  startedAt: number;
+}): ToolDefinition<Record<string, never>, HealthInfo> {
   return {
     name: "server_health",
-    description: "Liveness + build info. Round-trips the full transport -> auth -> acl -> audit path.",
+    description:
+      "Liveness + build info. Round-trips the full transport -> auth -> acl -> audit path.",
     inputSchema: z.object({}).strict(),
     requiredScopes: [],
     handler: () => ({

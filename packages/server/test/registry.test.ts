@@ -1,25 +1,37 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { openMemoryDb } from "./helpers";
 import { runMigrations } from "../src/db/migrate";
-import { ToolRegistry, type CallerContext } from "../src/mcp/registry";
-import { createHealthTool } from "../src/tools/admin/health";
 import { argsHash } from "../src/hash";
+import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { createHealthTool } from "../src/tools/admin/health";
+import { openMemoryDb } from "./helpers";
 
 function freshDb(): any {
   const d = openMemoryDb();
-  runMigrations(d, [{ version: "001", sql: "CREATE TABLE event_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, vault_id TEXT, tool_name TEXT, caller TEXT, duration_ms INTEGER, result_size INTEGER, status TEXT NOT NULL, error_code TEXT, args_hash TEXT, event_type TEXT);" }]);
+  runMigrations(d, [
+    {
+      version: "001",
+      sql: "CREATE TABLE event_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, vault_id TEXT, tool_name TEXT, caller TEXT, duration_ms INTEGER, result_size INTEGER, status TEXT NOT NULL, error_code TEXT, args_hash TEXT, event_type TEXT);",
+    },
+  ]);
   return d;
 }
 
 function ctx(db: any, over: Partial<CallerContext> = {}): CallerContext {
-  return { caller: "tester", authenticated: true, grantedScopes: new Set(["read:notes"]), vaultId: "main", db, ...over };
+  return {
+    caller: "tester",
+    authenticated: true,
+    grantedScopes: new Set(["read:notes"]),
+    vaultId: "main",
+    db,
+    ...over,
+  };
 }
 
 function reg() {
   const r = new ToolRegistry({
     maxResponseBytes: 256,
-    verifyElicit: (token, hash) => token === "good:" + hash,
+    verifyElicit: (token, hash) => token === `good:${hash}`,
   });
   r.register(createHealthTool({ version: "0.0.0-test", vaults: ["main"], startedAt: Date.now() }));
   r.register({
@@ -49,13 +61,17 @@ function reg() {
 
 describe("dispatch pipeline", () => {
   let db: any;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   it("runs a no-scope tool end to end and writes an audit row", async () => {
     const res = await reg().dispatch("server_health", {}, ctx(db, { grantedScopes: new Set() }));
     expect(res.ok).toBe(true);
     if (res.ok) expect((res.data as any).status).toBe("ok");
-    const row = db.prepare("SELECT status, tool_name FROM event_log ORDER BY id DESC LIMIT 1").get();
+    const row = db
+      .prepare("SELECT status, tool_name FROM event_log ORDER BY id DESC LIMIT 1")
+      .get();
     expect(row).toMatchObject({ status: "ok", tool_name: "server_health" });
   });
 
@@ -72,13 +88,21 @@ describe("dispatch pipeline", () => {
   });
 
   it("returns unauthorized when a scoped tool is called unauthenticated", async () => {
-    const res = await reg().dispatch("read_thing", { path: "a.md" }, ctx(db, { authenticated: false, grantedScopes: new Set() }));
+    const res = await reg().dispatch(
+      "read_thing",
+      { path: "a.md" },
+      ctx(db, { authenticated: false, grantedScopes: new Set() }),
+    );
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("unauthorized");
   });
 
   it("returns forbidden when scope is missing", async () => {
-    const res = await reg().dispatch("danger", {}, ctx(db, { grantedScopes: new Set(["read:notes"]) }));
+    const res = await reg().dispatch(
+      "danger",
+      {},
+      ctx(db, { grantedScopes: new Set(["read:notes"]) }),
+    );
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("forbidden");
   });
@@ -90,7 +114,11 @@ describe("dispatch pipeline", () => {
     if (!first.ok) expect(first.error.code).toBe("elicit_required");
 
     const hash = argsHash("danger", {});
-    const second = await reg().dispatch("danger", {}, ctx(db, { grantedScopes: scopes, elicitToken: "good:" + hash }));
+    const second = await reg().dispatch(
+      "danger",
+      {},
+      ctx(db, { grantedScopes: scopes, elicitToken: `good:${hash}` }),
+    );
     expect(second.ok).toBe(true);
   });
 

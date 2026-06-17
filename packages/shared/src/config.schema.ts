@@ -60,7 +60,10 @@ export const ObservabilityConfigSchema = z.object({
     .object({ enabled: z.boolean().default(false), port: z.number().int().default(9464) })
     .default({}),
   morgiana: z
-    .object({ mode: z.enum(["off", "jsonl", "http"]).default("jsonl"), endpoint: z.string().url().optional() })
+    .object({
+      mode: z.enum(["off", "jsonl", "http"]).default("jsonl"),
+      endpoint: z.string().url().optional(),
+    })
     .default({}),
 });
 

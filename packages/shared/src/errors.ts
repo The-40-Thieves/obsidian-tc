@@ -53,8 +53,10 @@ export class ObsidianTcError extends Error {
 }
 
 type Mk = (message?: string, details?: Record<string, unknown>) => ObsidianTcError;
-const mk = (code: ErrorCode, fallback: string): Mk =>
-  (message = fallback, details?) => new ObsidianTcError(code, message, details);
+const mk =
+  (code: ErrorCode, fallback: string): Mk =>
+  (message = fallback, details?) =>
+    new ObsidianTcError(code, message, details);
 
 export const err = {
   unauthorized: mk("unauthorized", "authentication required"),

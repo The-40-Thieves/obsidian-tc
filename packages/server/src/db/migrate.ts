@@ -2,8 +2,14 @@ import { createHash } from "node:crypto";
 import { ObsidianTcError } from "@obsidian-tc/shared";
 import type { Database } from "./types";
 
-export interface Migration { version: string; sql: string; }
-export interface MigrateOptions { version?: string; now?: () => number; }
+export interface Migration {
+  version: string;
+  sql: string;
+}
+export interface MigrateOptions {
+  version?: string;
+  now?: () => number;
+}
 
 export function checksum(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex");
@@ -21,7 +27,11 @@ function ensureMigrationsTable(db: Database): void {
   );
 }
 
-export function runMigrations(db: Database, migrations: Migration[], opts: MigrateOptions = {}): string[] {
+export function runMigrations(
+  db: Database,
+  migrations: Migration[],
+  opts: MigrateOptions = {},
+): string[] {
   const now = opts.now ?? Date.now;
   const appVersion = opts.version ?? "0.0.0-pre";
   ensureMigrationsTable(db);
@@ -37,7 +47,9 @@ export function runMigrations(db: Database, migrations: Migration[], opts: Migra
     if (existing) {
       if (existing.checksum !== sum) {
         throw new ObsidianTcError("conflict", `migration ${m.version} checksum mismatch`, {
-          version: m.version, recorded: existing.checksum, current: sum,
+          version: m.version,
+          recorded: existing.checksum,
+          current: sum,
         });
       }
       continue;
@@ -51,7 +63,11 @@ export function runMigrations(db: Database, migrations: Migration[], opts: Migra
     } catch (e) {
       db.exec("ROLLBACK");
       if (e instanceof ObsidianTcError) throw e;
-      throw new ObsidianTcError("internal", `migration ${m.version} failed: ${(e as Error).message}`, { version: m.version });
+      throw new ObsidianTcError(
+        "internal",
+        `migration ${m.version} failed: ${(e as Error).message}`,
+        { version: m.version },
+      );
     }
     applied.push(m.version);
   }
