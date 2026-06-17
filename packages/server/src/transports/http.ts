@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { ServerConfig } from "@obsidian-tc/shared";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
+import type { FolderAcl } from "../acl";
 import { verifyJwt } from "../auth/jwt";
 import type { Database } from "../db/types";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
@@ -16,6 +17,7 @@ export interface HttpAppOptions {
   registry: ToolRegistry;
   auth: AuthConfig;
   db: Database;
+  acl: FolderAcl;
   vaultId: string;
 }
 
@@ -84,6 +86,7 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       grantedScopes: authz.scopes,
       vaultId: opts.vaultId,
       db: opts.db,
+      acl: opts.acl,
     });
 
     const server = createMcpServer({
