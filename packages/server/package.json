@@ -10,18 +10,22 @@
   },
   "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "dev": "bun run --watch ./src/index.ts"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.5",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@obsidian-tc/native": "workspace:*",
     "@obsidian-tc/shared": "workspace:*",
     "better-sqlite3": "^11.5.0",
+    "fetch-to-node": "^2.1.0",
     "hono": "^4.6.0",
-    "zod": "^3.23.0"
+    "jose": "^6.2.3",
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.24.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",

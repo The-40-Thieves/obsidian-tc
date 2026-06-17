@@ -22,7 +22,10 @@
 -- Migrations tracking
 -- ----------------------------------------------------------------------------
 
-CREATE TABLE schema_migrations (
+-- Owned by the migration runner (ensureMigrationsTable pre-creates this before
+-- applying any migration); IF NOT EXISTS so applying this file via the runner
+-- or standalone never collides.
+CREATE TABLE IF NOT EXISTS schema_migrations (
   version             TEXT PRIMARY KEY,
   applied_at          INTEGER NOT NULL,
   obsidian_tc_version TEXT NOT NULL,
