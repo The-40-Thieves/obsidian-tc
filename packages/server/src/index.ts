@@ -27,3 +27,5 @@ export type { HealthInfo } from "./tools/admin/health";
 export { createMcpServer } from "./mcp/server";
 export type { McpServerOptions } from "./mcp/server";
 export { connectStdio } from "./transports/stdio";
+export { openDatabase } from "./db/open";
+export { loadConfig } from "./config/load";
