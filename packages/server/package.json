@@ -8,13 +8,10 @@
   "bin": {
     "obsidian-tc": "./dist/cli.js"
   },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
+  "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "dev": "bun run --watch ./src/index.ts"
   },
@@ -31,12 +28,5 @@
     "@types/node": "^22.0.0",
     "vitest": "^2.1.0"
   },
-  "keywords": [
-    "obsidian",
-    "mcp",
-    "model-context-protocol",
-    "knowledge-management",
-    "agent",
-    "ai"
-  ]
+  "keywords": ["obsidian", "mcp", "model-context-protocol", "knowledge-management", "agent", "ai"]
 }

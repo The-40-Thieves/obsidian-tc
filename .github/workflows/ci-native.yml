@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
 
+# M0 verifies the napi-rs build pipeline on all three OSes (Linux, macOS,
+# Windows) via native-host builds. Cross-compiled prebuilds (e.g. aarch64-linux)
+# and the full release prebuild matrix land in G2.5 (Release engineering).
 jobs:
   build:
     strategy:
@@ -16,10 +19,6 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             triple: linux-x64-gnu
-          - host: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            triple: linux-arm64-gnu
-            cross: true
           - host: macos-latest
             target: x86_64-apple-darwin
             triple: darwin-x64
@@ -33,29 +32,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.13'
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/native
-      - name: install cross
-        if: matrix.cross
-        run: cargo install cross --locked
-      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile --ignore-scripts
       - name: build
         working-directory: packages/native
-        run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            bun run build:cross -- --target ${{ matrix.target }}
-          else
-            bun run build -- --target ${{ matrix.target }}
-          fi
+        run: bun run build -- --target ${{ matrix.target }}
         shell: bash
       - name: test
-        if: matrix.host != 'ubuntu-latest' || matrix.target == 'x86_64-unknown-linux-gnu'
         working-directory: packages/native
         run: cargo test --release --target ${{ matrix.target }}
+        shell: bash
       - name: upload prebuild
         uses: actions/upload-artifact@v4
         with:

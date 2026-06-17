@@ -1,0 +1,14 @@
+# Normalize all text files to LF in the repo and on checkout (all platforms).
+# Biome formats to LF; without this, Windows checkouts get CRLF and lint fails.
+* text=auto eol=lf
+
+# Binary files: never normalize.
+*.node binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+bun.lock -text

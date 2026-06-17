@@ -2,19 +2,21 @@
 
 use napi_derive::napi;
 
-/// Cosine similarity between two equal-length f32 vectors.
+/// Cosine similarity between two equal-length vectors.
 ///
-/// Placeholder implementation. The full vector primitives land in G2.3 (Storage
-/// schema) and G2.5 (Release engineering). This exists only to verify the
-/// napi-rs build pipeline works end-to-end.
+/// Placeholder implementation. Inputs are plain JS number arrays (f64); the
+/// zero-copy `Float32Array` path lands with the real vector primitives in G2.3
+/// (Storage schema) and G2.5 (Release engineering). napi-rs does not implement
+/// `FromNapiValue` for `Vec<f32>` (JS numbers are f64), so the binding takes
+/// `Vec<f64>`. This exists only to verify the napi-rs build pipeline end-to-end.
 #[napi]
-pub fn cosine_similarity(a: Vec<f32>, b: Vec<f32>) -> f32 {
+pub fn cosine_similarity(a: Vec<f64>, b: Vec<f64>) -> f64 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
-    let mut dot = 0.0_f32;
-    let mut norm_a = 0.0_f32;
-    let mut norm_b = 0.0_f32;
+    let mut dot = 0.0_f64;
+    let mut norm_a = 0.0_f64;
+    let mut norm_b = 0.0_f64;
     for i in 0..a.len() {
         dot += a[i] * b[i];
         norm_a += a[i] * a[i];

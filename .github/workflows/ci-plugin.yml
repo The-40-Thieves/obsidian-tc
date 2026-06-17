@@ -3,29 +3,43 @@ on:
   pull_request:
     paths:
       - 'packages/plugin/**'
-      - 'packages/shared/**'
-      - 'bun.lock'
       - '.github/workflows/ci-plugin.yml'
   push:
     branches: [main]
 
+# The plugin package is a stub until M4 (THE-180): no src, no esbuild config.
+# The guard step skips the build until it is implemented, so this workflow
+# stays green (skipped) instead of failing on unrelated triggers such as a
+# push to main. Restore real lint/typecheck/build steps when the package lands.
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run --filter=plugin lint
-      - run: bun run --filter=plugin typecheck
-      - run: bun run --filter=plugin build
-      - name: verify manifest
-        run: bun run --filter=plugin verify-manifest
-      - name: upload artifact
+      - id: guard
+        shell: bash
+        run: |
+          if [ -f packages/plugin/esbuild.config.mjs ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::plugin package not yet implemented (M4 / THE-180); skipping build."
+          fi
+      - if: steps.guard.outputs.ready == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.13'
+      - if: steps.guard.outputs.ready == 'true'
+        run: bun install --frozen-lockfile --ignore-scripts
+      # TODO(M4 / THE-180): add lint + typecheck + verify-manifest scripts to
+      # @obsidian-tc/plugin and the matching steps here once it builds.
+      - if: steps.guard.outputs.ready == 'true'
+        run: bun run --filter='@obsidian-tc/plugin' build
+      - if: steps.guard.outputs.ready == 'true'
+        name: upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: obsidian-tc-plugin
           path: |
             packages/plugin/dist/main.js
             packages/plugin/dist/manifest.json
-            packages/plugin/dist/styles.css

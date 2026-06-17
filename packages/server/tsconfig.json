@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@obsidian-tc/shared": ["../shared/src/index.ts"]
+    }
+  },
+  "include": ["src", "test"]
+}

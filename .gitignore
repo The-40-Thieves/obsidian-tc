@@ -11,7 +11,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Bun lockfile is COMMITTED (reproducible installs) — do not ignore bun.lockb
+# Bun lockfile is COMMITTED (reproducible installs) — do not ignore bun.lock (text lockfile, Bun >= 1.2)
 
 # TypeScript
 *.tsbuildinfo
