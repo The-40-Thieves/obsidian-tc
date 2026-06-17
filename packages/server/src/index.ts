@@ -9,10 +9,18 @@
 // intentionally NOT wired here: the concrete DB adapters (better-sqlite3 /
 // bun:sqlite), the MCP SDK STDIO + Hono Streamable-HTTP transports, and the
 // napi-rs native binding. They bind against the interfaces re-exported below.
-export * from "./db/types";
-export * from "./db/migrate";
-export * from "./acl";
-export * from "./audit";
-export * from "./hash";
-export * from "./mcp/registry";
-export * from "./tools/admin/health";
+//
+// Explicit named exports define the M0 public API. Internal helpers
+// (glob compilation, migration checksum) stay module-private.
+export type { Database, Statement, RunResult } from "./db/types";
+export { runMigrations } from "./db/migrate";
+export type { Migration, MigrateOptions } from "./db/migrate";
+export { FolderAcl } from "./acl";
+export type { AclRuleT, AclConfigT } from "./acl";
+export { writeEvent } from "./audit";
+export type { AuditEvent } from "./audit";
+export { argsHash } from "./hash";
+export { ToolRegistry } from "./mcp/registry";
+export type { CallerContext, ToolDefinition, RegistryOptions } from "./mcp/registry";
+export { createHealthTool } from "./tools/admin/health";
+export type { HealthInfo } from "./tools/admin/health";
