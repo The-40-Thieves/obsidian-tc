@@ -13,12 +13,7 @@
   "bugs": {
     "url": "https://github.com/The-40-Thieves/obsidian-tc/issues"
   },
-  "workspaces": [
-    "packages/server",
-    "packages/plugin",
-    "packages/native",
-    "packages/shared"
-  ],
+  "workspaces": ["packages/server", "packages/plugin", "packages/native", "packages/shared"],
   "scripts": {
     "build": "bun run --filter='*' build",
     "test": "bun run --filter='*' test",
