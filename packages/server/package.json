@@ -21,7 +21,8 @@
     "@obsidian-tc/shared": "workspace:*",
     "better-sqlite3": "^11.5.0",
     "hono": "^4.6.0",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.24.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
