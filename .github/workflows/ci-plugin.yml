@@ -3,7 +3,9 @@ on:
   pull_request:
     paths:
       - 'packages/plugin/**'
-      - 'packages/shared/**'
+      # TODO(M4 / THE-180): re-add 'packages/shared/**' once the plugin package
+      # builds, so shared changes re-test it. Removed for now so the
+      # not-yet-implemented plugin job does not fire on shared-only PRs.
       - 'bun.lock'
       - '.github/workflows/ci-plugin.yml'
   push:
