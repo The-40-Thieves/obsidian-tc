@@ -14,8 +14,9 @@ import { connectStdio } from "./transports/stdio";
 
 const VERSION = "0.0.0-pre";
 
-// NOTE (release packaging): when bundled to dist/cli.js the migration SQL must
-// ship alongside it. For now the bin runs from source under Bun. Tracked for M5.
+// The migration SQL is read relative to this module; the build copies
+// src/migrations -> dist/migrations (scripts/copy-assets.mjs) so the bundled
+// dist/cli.js resolves it the same way it does from source.
 const initialMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260519_001_initial.sql", import.meta.url)),
   "utf8",
