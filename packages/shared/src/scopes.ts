@@ -40,3 +40,10 @@ export function scopeRequiresHitl(scope: Scope): boolean {
   if (HITL_FLOOR_SCOPES.has(scope)) return true;
   return HITL_FLOOR_FAMILIES.includes(parseScope(scope).family);
 }
+
+// Scope families that mutate the vault; denied when an ACL is read-only.
+export const MUTATING_FAMILIES: readonly string[] = ["write", "delete", "bulk", "execute"];
+
+export function isMutatingScope(scope: Scope): boolean {
+  return MUTATING_FAMILIES.includes(parseScope(scope).family);
+}

@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { type ServerConfig, ServerConfigSchema } from "@obsidian-tc/shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
+import { FolderAcl } from "../src/acl";
 import { ToolRegistry } from "../src/mcp/registry";
 import { createHealthTool } from "../src/tools/admin/health";
 import { startHttp } from "../src/transports/http";
@@ -33,6 +34,7 @@ async function boot(auth: ServerConfig["auth"]) {
     auth,
     db,
     vaultId: "v1",
+    acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
     host: "127.0.0.1",
     port: 0,
   });

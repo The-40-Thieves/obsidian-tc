@@ -6,9 +6,9 @@
 // dispatch pipeline, and the server_health admin tool.
 //
 // The MCP server assembly (registry -> SDK Server) and the stdio transport are
-// wired below (THE-184). Still deferred to follow-on work: the concrete DB
-// adapters (better-sqlite3 / bun:sqlite), the Streamable-HTTP transport + JWT
-// edge, and the napi-rs native binding. They bind against these interfaces.
+// wired below (THE-184 / THE-176): the DB adapters (better-sqlite3 / bun:sqlite),
+// the Streamable-HTTP transport + JWT edge, folder-ACL enforcement, and the HITL
+// elicit store are all implemented and exported here.
 //
 // Explicit named exports define the M0 public API. Internal helpers
 // (glob compilation, migration checksum) stay module-private.
@@ -17,6 +17,8 @@ export { runMigrations } from "./db/migrate";
 export type { Migration, MigrateOptions } from "./db/migrate";
 export { FolderAcl } from "./acl";
 export type { AclRuleT, AclConfigT } from "./acl";
+export { issueElicitToken, verifyAndConsumeElicit, elicitVerifier } from "./elicit";
+export type { IssueElicitInput } from "./elicit";
 export { writeEvent } from "./audit";
 export type { AuditEvent } from "./audit";
 export { argsHash } from "./hash";

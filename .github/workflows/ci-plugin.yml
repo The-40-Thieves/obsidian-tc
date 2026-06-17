@@ -15,7 +15,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - id: guard
         shell: bash
         run: |
@@ -37,7 +37,7 @@ jobs:
         run: bun run --filter='@obsidian-tc/plugin' build
       - if: steps.guard.outputs.ready == 'true'
         name: upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: obsidian-tc-plugin
           path: |
