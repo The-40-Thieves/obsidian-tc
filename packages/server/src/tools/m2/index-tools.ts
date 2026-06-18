@@ -1,0 +1,44 @@
+// index_vault — chunk + embed the vault into the search store (retrieval
+// substrate, not one of the six Domain-6 search tools). admin:vault scope; reads
+// notes through the read ACL (per-source), writes only the index DB.
+import { VaultId, VaultPath } from "@obsidian-tc/shared";
+import { z } from "zod";
+import { type FolderAcl, globMatch } from "../../acl";
+import type { ToolDefinition } from "../../mcp/registry";
+import { indexVault } from "../../search/indexer";
+import { enforcePathAcl } from "../../vault/acl-path";
+import { normalizeVaultPath } from "../../vault/paths";
+import { defineTool } from "../m1/define";
+import type { M2Deps } from "./index";
+
+function isReadable(acl: FolderAcl | undefined, rel: string): boolean {
+  if (!acl || acl.readPaths === undefined) return true;
+  return acl.readPaths.some((g) => globMatch(g, rel));
+}
+
+export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
+  return [
+    defineTool({
+      name: "index_vault",
+      description:
+        "Chunk and embed the vault (or a folder) into the search index. Incremental: chunks whose content hash is unchanged are skipped; removed chunks are pruned.",
+      inputSchema: z.object({ vault: VaultId, folder: VaultPath.optional() }).strict(),
+      requiredScopes: ["admin:vault"],
+      handler: async (input, ctx) => {
+        const v = deps.vaultRegistry.resolve(input.vault);
+        const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
+        if (sub) enforcePathAcl(ctx.acl, "read", sub);
+        const stats = await indexVault({
+          db: ctx.db,
+          provider: deps.embeddingProvider,
+          vaultId: v.id,
+          root: v.root,
+          sub,
+          isReadable: (rel) => isReadable(ctx.acl, rel),
+          now: ctx.now,
+        });
+        return { vault: v.id, ...stats };
+      },
+    }),
+  ];
+}
