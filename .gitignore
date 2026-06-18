@@ -54,3 +54,7 @@ coverage/
 # Cache
 .cache/
 .bun/
+
+# Agent tooling (local only — never committed)
+.omc/
+.claude/

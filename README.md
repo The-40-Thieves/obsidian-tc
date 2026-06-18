@@ -3,7 +3,7 @@
 > Obsidian Turbocharged — the comprehensive, model-agnostic, agent-ready Obsidian MCP server.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![Status: G2 Design](https://img.shields.io/badge/Status-G2_Design-orange)
+![Status: G4 Implement](https://img.shields.io/badge/Status-G4_Implement_M0--M5-yellow)
 
 ## What it is
 
@@ -17,9 +17,20 @@ Three pillars:
 
 ## Status
 
-🔧 **In design.** G1 (Clarify) closed 2026-05-18. G2 (Design) open. Targeting v1.0 ship in Q3 2026.
+🚧 **In active implementation (G4).** G1 (Clarify), G2 (Design — 5 sub-docs), and G3 (Simplicity Check) are closed. G4 (Implement) is underway across 8 milestones (M0–M7); **M0–M5 are merged to `main`.** Targeting v1.0 ship in Q3 2026.
 
-This repository will be transferred to [`The-40-Thieves`](https://github.com/The-40-Thieves) once scaffolding lands.
+| Milestone | Scope | Status |
+|---|---|---|
+| M0 | Walking skeleton: dispatch pipeline, folder ACL, HITL elicit, migrations | ✅ Merged |
+| M1 | Core vault access — 30 tools (CRUD, frontmatter, tags, links) | ✅ Merged |
+| M2 | Search + embeddings — 6 tools + retrieval substrate | ✅ Merged |
+| M3 | Structured formats — 23 tools (Bases, Canvas, Periodic, Attachments, Bookmarks, Workspaces) | ✅ Merged |
+| M4 | Plugin bridges + companion plugin — 20 tools across 9 domains | ✅ Merged |
+| M5 | Memory + capture substrate — 15 tools (capture queue, memory entities + `[[link]]` graph, workspace sessions + JSONL traces, plur read proxy) | ✅ Merged |
+| M6 | Bulk + admin + URI — 7 tools | ⏳ Next |
+| M7 | Harden + ship v1.0 | ⏳ Planned |
+
+This repository will be transferred to [`The-40-Thieves`](https://github.com/The-40-Thieves) at the v1.0 public launch.
 
 ## Architecture
 
