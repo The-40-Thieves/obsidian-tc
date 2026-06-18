@@ -3,40 +3,39 @@ on:
   pull_request:
     paths:
       - 'packages/plugin/**'
+      - 'biome.json'
+      - 'tsconfig.base.json'
+      - 'bun.lock'
       - '.github/workflows/ci-plugin.yml'
   push:
     branches: [main]
 
-# The plugin package is a stub until M4 (THE-180): no src, no esbuild config.
-# The guard step skips the build until it is implemented, so this workflow
-# stays green (skipped) instead of failing on unrelated triggers such as a
-# push to main. Restore real lint/typecheck/build steps when the package lands.
+# The companion plugin (THE-180 / G4.M4) is a standalone esbuild bundle that
+# externalizes the Obsidian runtime; it has no @obsidian-tc/shared dependency, so
+# lint + typecheck + build run without compiling the other packages first. The
+# build artifact (dist/main.js + manifest.json) is what a user drops into a vault's
+# .obsidian/plugins/obsidian-tc folder. Live-Obsidian behavior is verified manually
+# (see the PR's verification section); CI proves the bundle lints, typechecks, and
+# builds — it cannot exercise a running Obsidian.
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - id: guard
-        shell: bash
-        run: |
-          if [ -f packages/plugin/esbuild.config.mjs ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::plugin package not yet implemented (M4 / THE-180); skipping build."
-          fi
-      - if: steps.guard.outputs.ready == 'true'
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.13'
-      - if: steps.guard.outputs.ready == 'true'
+      - name: install
         run: bun install --frozen-lockfile --ignore-scripts
-      # TODO(M4 / THE-180): add lint + typecheck + verify-manifest scripts to
-      # @obsidian-tc/plugin and the matching steps here once it builds.
-      - if: steps.guard.outputs.ready == 'true'
-        run: bun run --filter='@obsidian-tc/plugin' build
-      - if: steps.guard.outputs.ready == 'true'
-        name: upload artifact
+      - name: biome check
+        run: bun run lint
+      - name: typecheck plugin
+        run: bun run typecheck
+        working-directory: packages/plugin
+      - name: build plugin
+        run: bun run build
+        working-directory: packages/plugin
+      - name: upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: obsidian-tc-plugin

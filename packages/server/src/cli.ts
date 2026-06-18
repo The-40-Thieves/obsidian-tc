@@ -2,6 +2,12 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FolderAcl } from "./acl";
+import {
+  type BridgeClient,
+  CapabilityCache,
+  buildVaultCapabilities,
+  createBridgeClient,
+} from "./bridge";
 import { loadConfig } from "./config/load";
 import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
@@ -13,6 +19,14 @@ import { createHealthTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
 import { registerM2Tools } from "./tools/m2";
 import { registerM3Tools } from "./tools/m3";
+import {
+  type BridgeTimeouts,
+  DEFAULT_BRIDGE_TIMEOUTS,
+  type M4Deps,
+  bridgeTimeouts,
+  openBridge,
+  registerM4Tools,
+} from "./tools/m4";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { VaultRegistry } from "./vault/registry";
@@ -57,9 +71,68 @@ async function main(): Promise<void> {
     embeddings: { provider: config.embeddings.provider, model: config.embeddings.model },
     configPath,
   });
+  // M4 plugin bridges (THE-180): per vault, build a bridge client to the companion
+  // plugin's Local REST API surface (base URL + bearer key from vault config/env,
+  // never logged) and probe it once at startup for its plugin-capability map. A
+  // vault with no restApiUrl gets no client; its bridge tools then degrade to
+  // plugin_unreachable. The probe never throws — a missing or unreachable companion
+  // degrades only the bridge tools, leaving startup and the filesystem tools intact.
+  // Built before M2 so search_dql can share the same Dataview bridge.
+  const bridgeClients = new Map<string, BridgeClient>();
+  const timeoutsByVault = new Map<string, BridgeTimeouts>();
+  const commandsByVault = new Map<string, { enabled: boolean; allowlist: string[] }>();
+  const capabilities = new CapabilityCache();
+  for (const v of config.vaults) {
+    commandsByVault.set(v.id, {
+      enabled: v.commands?.enabled ?? false,
+      allowlist: v.commands?.allowlist ?? [],
+    });
+    if (v.bridges)
+      timeoutsByVault.set(v.id, {
+        timeoutMs: v.bridges.timeoutMs,
+        ocrTimeoutMs: v.bridges.ocrTimeoutMs,
+        templaterTimeoutMs: v.bridges.templaterTimeoutMs,
+      });
+    const client = v.restApiUrl
+      ? createBridgeClient({
+          baseUrl: v.restApiUrl,
+          apiKey: v.restApiKey,
+          timeoutMs: v.bridges?.timeoutMs,
+        })
+      : undefined;
+    if (client) bridgeClients.set(v.id, client);
+    capabilities.set(
+      v.id,
+      await buildVaultCapabilities(client, {
+        probeSkip: v.plugins?.probeSkip,
+        forceEnabled: v.plugins?.forceEnabled,
+        forceDisabled: v.plugins?.forceDisabled,
+        timeoutMs: v.bridges?.probeTimeoutMs,
+      }),
+    );
+  }
+  const m4Deps: M4Deps = {
+    vaultRegistry,
+    capabilities,
+    bridgeFor: (vaultId) => bridgeClients.get(vaultId),
+    timeouts: (vaultId) => timeoutsByVault.get(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS,
+    commandPolicy: (vaultId) => commandsByVault.get(vaultId) ?? { enabled: false, allowlist: [] },
+  };
+
   const embeddingProvider = createEmbeddingProvider(config.embeddings);
-  registerM2Tools(registry, { vaultRegistry, embeddingProvider });
+  registerM2Tools(registry, {
+    vaultRegistry,
+    embeddingProvider,
+    // search_dql / search_vault(mode:dql) share the Dataview bridge; openBridge
+    // applies the same degradation gate (plugin_missing / plugin_unreachable).
+    dataviewBridge: (vaultId) => ({
+      client: openBridge(m4Deps, vaultId, "dataview").client,
+      timeoutMs: bridgeTimeouts(m4Deps, vaultId).timeoutMs,
+    }),
+  });
   registerM3Tools(registry, { vaultRegistry });
+  registerM4Tools(registry, m4Deps);
+
   const acl = new FolderAcl(config.acl);
 
   // stdio is the trusted local transport: the operator runs the binary against

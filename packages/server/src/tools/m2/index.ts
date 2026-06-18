@@ -1,5 +1,6 @@
 // M2 tool registration. Registered onto the same shared ToolRegistry assembled in
 // cli.ts, so M2 lights up on both the stdio and HTTP edges alongside M0/M1.
+import type { BridgeClient } from "../../bridge";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { ToolRegistry } from "../../mcp/registry";
 import type { VaultRegistry } from "../../vault/registry";
@@ -9,6 +10,14 @@ import { buildSearchTools } from "./search-tools";
 export interface M2Deps {
   vaultRegistry: VaultRegistry;
   embeddingProvider: EmbeddingProvider;
+  /**
+   * Optional Dataview-bridge accessor (wired by cli.ts from the M4 substrate).
+   * Returns a connected client + the per-vault timeout, or throws a degraded
+   * error (plugin_missing / plugin_unreachable). When absent, search_dql and
+   * search_vault(mode:dql) report plugin_missing — the honest "bridge not
+   * configured" state, so M2-only harnesses need no bridge.
+   */
+  dataviewBridge?: (vaultId: string) => { client: BridgeClient; timeoutMs: number };
 }
 
 export function registerM2Tools(registry: ToolRegistry, deps: M2Deps): void {
