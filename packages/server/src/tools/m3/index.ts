@@ -8,6 +8,7 @@ import type { ToolRegistry } from "../../mcp/registry";
 import type { VaultRegistry } from "../../vault/registry";
 import { buildBaseTools } from "./base-tools";
 import { buildCanvasTools } from "./canvas-tools";
+import { buildPeriodicTools } from "./periodic-tools";
 
 export interface M3Deps {
   vaultRegistry: VaultRegistry;
@@ -16,4 +17,5 @@ export interface M3Deps {
 export function registerM3Tools(registry: ToolRegistry, deps: M3Deps): void {
   for (const tool of buildCanvasTools(deps)) registry.register(tool);
   for (const tool of buildBaseTools(deps)) registry.register(tool);
+  for (const tool of buildPeriodicTools(deps)) registry.register(tool);
 }
