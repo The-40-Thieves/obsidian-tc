@@ -2,6 +2,12 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FolderAcl } from "./acl";
+import {
+  type BridgeClient,
+  CapabilityCache,
+  buildVaultCapabilities,
+  createBridgeClient,
+} from "./bridge";
 import { loadConfig } from "./config/load";
 import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
@@ -13,6 +19,7 @@ import { createHealthTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
 import { registerM2Tools } from "./tools/m2";
 import { registerM3Tools } from "./tools/m3";
+import { type BridgeTimeouts, DEFAULT_BRIDGE_TIMEOUTS, registerM4Tools } from "./tools/m4";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { VaultRegistry } from "./vault/registry";
@@ -60,6 +67,48 @@ async function main(): Promise<void> {
   const embeddingProvider = createEmbeddingProvider(config.embeddings);
   registerM2Tools(registry, { vaultRegistry, embeddingProvider });
   registerM3Tools(registry, { vaultRegistry });
+
+  // M4 plugin bridges (THE-180): per vault, build a bridge client to the companion
+  // plugin's Local REST API surface (base URL + bearer key from vault config/env,
+  // never logged) and probe it once at startup for its plugin-capability map. A
+  // vault with no restApiUrl gets no client; its bridge tools then degrade to
+  // plugin_unreachable. The probe never throws — a missing or unreachable companion
+  // degrades only the bridge tools, leaving startup and the filesystem tools intact.
+  const bridgeClients = new Map<string, BridgeClient>();
+  const bridgeTimeouts = new Map<string, BridgeTimeouts>();
+  const capabilities = new CapabilityCache();
+  for (const v of config.vaults) {
+    if (v.bridges)
+      bridgeTimeouts.set(v.id, {
+        timeoutMs: v.bridges.timeoutMs,
+        ocrTimeoutMs: v.bridges.ocrTimeoutMs,
+        templaterTimeoutMs: v.bridges.templaterTimeoutMs,
+      });
+    const client = v.restApiUrl
+      ? createBridgeClient({
+          baseUrl: v.restApiUrl,
+          apiKey: v.restApiKey,
+          timeoutMs: v.bridges?.timeoutMs,
+        })
+      : undefined;
+    if (client) bridgeClients.set(v.id, client);
+    capabilities.set(
+      v.id,
+      await buildVaultCapabilities(client, {
+        probeSkip: v.plugins?.probeSkip,
+        forceEnabled: v.plugins?.forceEnabled,
+        forceDisabled: v.plugins?.forceDisabled,
+        timeoutMs: v.bridges?.probeTimeoutMs,
+      }),
+    );
+  }
+  registerM4Tools(registry, {
+    vaultRegistry,
+    capabilities,
+    bridgeFor: (vaultId) => bridgeClients.get(vaultId),
+    timeouts: (vaultId) => bridgeTimeouts.get(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS,
+  });
+
   const acl = new FolderAcl(config.acl);
 
   // stdio is the trusted local transport: the operator runs the binary against
