@@ -84,8 +84,7 @@ describe("M6 live-vault integration", () => {
       metrics: { name: string; labels: Record<string, string>; value: number }[];
     }>(await v.call("get_metrics", { vault: "test" }));
     const createCounter = metrics.metrics.find(
-      (m) =>
-        m.name === "obsidian_tc_tool_invocations_total" && m.labels.tool === "bulk_create_notes",
+      (m) => m.name === "obsidian_tc_tool_calls_total" && m.labels.tool === "bulk_create_notes",
     );
     expect((createCounter?.value ?? 0) >= 1).toBe(true);
 

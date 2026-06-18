@@ -178,8 +178,7 @@ describe("get_metrics", () => {
       metrics: { name: string; type: string; value: number; labels: Record<string, string> }[];
     }>(await v.call("get_metrics", {}));
     const inv = out.metrics.find(
-      (m) =>
-        m.name === "obsidian_tc_tool_invocations_total" && m.labels.tool === "get_server_config",
+      (m) => m.name === "obsidian_tc_tool_calls_total" && m.labels.tool === "get_server_config",
     );
     expect(inv?.value).toBe(2);
     expect(out.metrics.find((m) => m.name === "obsidian_tc_vaults_registered")?.value).toBe(1);

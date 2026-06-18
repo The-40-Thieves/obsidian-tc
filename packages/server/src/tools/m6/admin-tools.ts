@@ -39,7 +39,10 @@ function invocationCounters(db: Database, vault?: string): Metric[] {
           .all()
   ) as Array<{ vault_id: string | null; tool_name: string | null; status: string; n: number }>;
   return rows.map((r) => ({
-    name: "obsidian_tc_tool_invocations_total",
+    // Catalog-aligned name (G2.4 / THE-211): get_metrics is the persistent event_log JSON view
+    // of the same tool-call counter the in-memory /metrics recorder exposes. The M6 name
+    // (obsidian_tc_tool_invocations_total) predated the finalized catalog.
+    name: "obsidian_tc_tool_calls_total",
     type: "counter",
     value: r.n,
     labels: { vault: r.vault_id ?? "", tool: r.tool_name ?? "", status: r.status },
