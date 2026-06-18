@@ -50,11 +50,18 @@ export function createMcpServer(opts: McpServerOptions): Server {
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {
-    const result = await opts.registry.dispatch(
-      req.params.name,
-      req.params.arguments ?? {},
-      opts.context(),
-    );
+    // Bridge the HITL elicit token from tool arguments into the caller context,
+    // stripping it from the args so it never perturbs args_hash — the token is
+    // bound to the hash of the call WITHOUT the token (see elicit.ts / hitl.ts).
+    const rawArgs = (req.params.arguments ?? {}) as Record<string, unknown>;
+    let args: Record<string, unknown> = rawArgs;
+    let ctx = opts.context();
+    if (typeof rawArgs.elicit_token === "string") {
+      const { elicit_token, ...rest } = rawArgs;
+      args = rest;
+      ctx = { ...ctx, elicitToken: elicit_token };
+    }
+    const result = await opts.registry.dispatch(req.params.name, args, ctx);
     if (!result.ok) {
       return {
         content: [{ type: "text", text: JSON.stringify(result.error) }],
