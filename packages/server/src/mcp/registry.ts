@@ -1,4 +1,6 @@
 import {
+  type MorgianaEventData,
+  type MorgianaEventType,
   ObsidianTcError,
   type ToolResult,
   grantsAll,
@@ -79,6 +81,8 @@ export interface RegistryOptions {
   metrics?: MetricsRecorder;
   /** OTEL tool tracer (G2.4). Optional: dispatch emits no spans when it is absent. */
   tracer?: Tracer;
+  /** MORGIANA event sink (G2.4). Optional: dispatch emits no CloudEvents when it is absent. */
+  emit?: (vaultId: string, type: MorgianaEventType, data: Partial<MorgianaEventData>) => void;
 }
 
 export class ToolRegistry {
@@ -88,12 +92,18 @@ export class ToolRegistry {
   private readonly verifyElicit?: VerifyElicit;
   private readonly metrics?: MetricsRecorder;
   private readonly tracer?: Tracer;
+  private readonly emit?: (
+    vaultId: string,
+    type: MorgianaEventType,
+    data: Partial<MorgianaEventData>,
+  ) => void;
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
     this.verifyElicit = opts.verifyElicit;
     this.metrics = opts.metrics;
     this.tracer = opts.tracer;
+    this.emit = opts.emit;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -104,6 +114,58 @@ export class ToolRegistry {
       fn(m);
     } catch {
       /* observability must never block tool execution */
+    }
+  }
+
+  /** Emit one MORGIANA CloudEvent; a sink error must never break dispatch (G2.4 fail-soft). */
+  private relay(vaultId: string, type: MorgianaEventType, data: Partial<MorgianaEventData>): void {
+    if (!this.emit) return;
+    try {
+      this.emit(vaultId, type, data);
+    } catch {
+      /* MORGIANA emission must never block tool execution */
+    }
+  }
+
+  /** The shared CloudEvents data payload for a completed call. */
+  private morgianaData(
+    name: string,
+    ctx: CallerContext,
+    result: ToolResult,
+  ): Partial<MorgianaEventData> {
+    return {
+      tool: name,
+      caller_hash: callerHash(ctx.caller),
+      scopes_required: this.tools.get(name)?.requiredScopes ?? [],
+      status: result.ok ? "ok" : callStatusForError(result.error.code),
+      duration_ms: result.meta.duration_ms,
+      elicit_token: ctx.elicitToken ?? null,
+      result_size: result.meta.result_size,
+      overflow_bytes: result.meta.overflow_bytes ?? null,
+      error: result.ok ? null : { code: result.error.code, message: result.error.message },
+    };
+  }
+
+  /** Per-call MORGIANA events: always tc.tool.call.completed, plus the specific signal if any. */
+  private emitCompletion(name: string, ctx: CallerContext, result: ToolResult): void {
+    if (!this.emit) return;
+    const data = this.morgianaData(name, ctx, result);
+    this.relay(ctx.vaultId, "tc.tool.call.completed", data);
+    if (result.ok) {
+      if (name === "reset_vault_cache") this.relay(ctx.vaultId, "tc.vault.cache_reset", data);
+      return;
+    }
+    switch (result.error.code) {
+      case "forbidden":
+        this.relay(ctx.vaultId, "tc.acl.denied", data);
+        break;
+      case "overflow":
+        this.relay(ctx.vaultId, "tc.governor.overflow", data);
+        break;
+      case "elicit_required":
+        this.relay(ctx.vaultId, "tc.elicit.requested", data);
+        break;
+      // tc.rate_limit.hit (throttled) is emitted by the dispatch limiter (THE-210 / Phase B).
     }
   }
 
@@ -124,7 +186,11 @@ export class ToolRegistry {
   // ToolResult, so runDispatch's internals stay untouched.
   async dispatch(name: string, rawInput: unknown, ctx: CallerContext): Promise<ToolResult> {
     const tracer = this.tracer;
-    if (!tracer) return this.runDispatch(name, rawInput, ctx);
+    if (!tracer) {
+      const result = await this.runDispatch(name, rawInput, ctx);
+      this.emitCompletion(name, ctx, result);
+      return result;
+    }
     return tracer.startActiveSpan(
       `obsidian_tc.${name}`,
       { kind: SpanKind.SERVER },
@@ -140,6 +206,7 @@ export class ToolRegistry {
           span.setAttribute(SPAN_ATTR.elicitUsed, !!ctx.elicitToken);
           const result = await this.runDispatch(name, rawInput, ctx);
           annotateSpanResult(span, result);
+          this.emitCompletion(name, ctx, result);
           return result;
         } finally {
           span.end();
@@ -214,6 +281,11 @@ export class ToolRegistry {
             args_hash: hash,
           });
         }
+        this.relay(ctx.vaultId, "tc.elicit.consumed", {
+          tool: name,
+          caller_hash: callerHash(ctx.caller),
+          elicit_token: ctx.elicitToken ?? null,
+        });
       }
 
       const out = await def.handler(parsed.data, ctx);

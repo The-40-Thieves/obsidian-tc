@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FolderAcl } from "./acl";
+import { writeEvent } from "./audit";
 import {
   type BridgeClient,
   CapabilityCache,
@@ -17,6 +18,7 @@ import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { startMetricsEndpoint } from "./metrics/endpoint";
 import { MetricsRecorder } from "./metrics/registry";
+import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import { createPlurClient } from "./plur/client";
 import { RateLimiter } from "./throttle";
@@ -69,11 +71,32 @@ async function main(): Promise<void> {
   // OTEL tracing (G2.4) — no-op unless observability.otel.endpoint is set.
   const otel = initOtel(config.observability, VERSION);
   const metrics = new MetricsRecorder();
+  // MORGIANA CloudEvents spool (G2.4) — JSONL by default; a dropped event feeds
+  // morgiana_emit_dropped_total + the event_log and never blocks a tool call.
+  const morgiana = new MorgianaEmitter({
+    cacheDir: config.cacheDir,
+    spool: config.observability.morgiana.spool,
+    onDropped: (vaultId, reason) => {
+      metrics.incMorgianaDropped(vaultId, reason);
+      try {
+        writeEvent(db, {
+          ts: Date.now(),
+          vault_id: vaultId,
+          status: "skipped",
+          error_code: reason,
+          event_type: "morgiana_emit_dropped",
+        });
+      } catch {
+        /* event_log is best-effort */
+      }
+    },
+  });
   const registry = new ToolRegistry({
     maxResponseBytes: config.governor.maxResponseBytes,
     verifyElicit: elicitVerifier,
     metrics,
     tracer: otel.tracer,
+    emit: (vaultId, type, data) => morgiana.emit(vaultId, type, data),
   });
   registry.register(
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
@@ -229,6 +252,20 @@ async function main(): Promise<void> {
       `obsidian-tc /metrics on ${config.observability.prometheus.bind}:${m.port}\n`,
     );
   }
+
+  morgiana.emit(firstVault.id, "tc.server.start");
+
+  const shutdown = async (): Promise<void> => {
+    morgiana.emit(firstVault.id, "tc.server.shutdown");
+    try {
+      await otel.shutdown();
+    } catch {
+      /* shutdown is best-effort */
+    }
+    process.exit(0);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 
   await connectStdio(server);
   process.stderr.write(`obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id})\n`);
