@@ -4,6 +4,7 @@
 import type { ToolRegistry } from "../../mcp/registry";
 import type { VaultRegistry } from "../../vault/registry";
 import { buildFrontmatterTools } from "./frontmatter-tools";
+import { buildLinksTools } from "./links-tools";
 import { buildNotesTools } from "./notes-tools";
 import { buildRegistryTools } from "./registry-tools";
 import { buildTagsTools } from "./tags-tools";
@@ -21,4 +22,5 @@ export function registerM1Tools(registry: ToolRegistry, deps: M1Deps): void {
   for (const tool of buildNotesTools(deps)) registry.register(tool);
   for (const tool of buildFrontmatterTools(deps)) registry.register(tool);
   for (const tool of buildTagsTools(deps)) registry.register(tool);
+  for (const tool of buildLinksTools(deps)) registry.register(tool);
 }
