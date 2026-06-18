@@ -9,6 +9,7 @@ import type { ToolRegistry } from "../../mcp/registry";
 import { buildDataviewTools } from "./dataview-tools";
 import { buildExcalidrawTools } from "./excalidraw-tools";
 import type { M4Deps } from "./shared";
+import { buildTasksTools } from "./tasks-tools";
 
 export type { BridgeTimeouts, M4Deps } from "./shared";
 export { bridgeTimeouts, DEFAULT_BRIDGE_TIMEOUTS, openBridge } from "./shared";
@@ -16,4 +17,5 @@ export { bridgeTimeouts, DEFAULT_BRIDGE_TIMEOUTS, openBridge } from "./shared";
 export function registerM4Tools(registry: ToolRegistry, deps: M4Deps): void {
   for (const tool of buildExcalidrawTools(deps)) registry.register(tool);
   for (const tool of buildDataviewTools(deps)) registry.register(tool);
+  for (const tool of buildTasksTools(deps)) registry.register(tool);
 }
