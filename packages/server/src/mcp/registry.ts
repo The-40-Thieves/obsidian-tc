@@ -6,12 +6,15 @@ import {
   scopeClassOf,
   scopeRequiresHitl,
 } from "@obsidian-tc/shared";
+import { type Span, SpanKind, SpanStatusCode, type Tracer } from "@opentelemetry/api";
 import type { z } from "zod";
 import type { FolderAcl } from "../acl";
 import { type AuditEvent, writeEvent } from "../audit";
 import type { Database } from "../db/types";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
+import { SPAN_ATTR } from "../otel/tracing";
+import { callerHash } from "../throttle";
 
 export interface CallerContext {
   caller: string | null;
@@ -49,11 +52,33 @@ function callStatusForError(code: string): ToolCallStatus {
   }
 }
 
+/** Set the G2.4 result attributes + span status on the root span from a dispatch outcome. */
+function annotateSpanResult(span: Span, result: ToolResult): void {
+  span.setAttribute(SPAN_ATTR.durationMs, result.meta.duration_ms);
+  if (result.ok) {
+    span.setAttribute(SPAN_ATTR.status, "ok");
+    span.setAttribute(SPAN_ATTR.rateLimitHit, false);
+    span.setStatus({ code: SpanStatusCode.OK });
+    return;
+  }
+  const code = result.error.code;
+  span.setAttribute(SPAN_ATTR.status, callStatusForError(code));
+  span.setAttribute(SPAN_ATTR.errorCode, code);
+  span.setAttribute(SPAN_ATTR.rateLimitHit, code === "throttled");
+  if (typeof result.meta.overflow_bytes === "number") {
+    span.setAttribute(SPAN_ATTR.overflowB, result.meta.overflow_bytes);
+  }
+  // Error spans are always recorded (G2.4: sampled regardless of trace rate).
+  span.setStatus({ code: SpanStatusCode.ERROR, message: code });
+}
+
 export interface RegistryOptions {
   maxResponseBytes?: number;
   verifyElicit?: VerifyElicit;
   /** Prometheus recorder (G2.4). Optional: dispatch records nothing when it is absent. */
   metrics?: MetricsRecorder;
+  /** OTEL tool tracer (G2.4). Optional: dispatch emits no spans when it is absent. */
+  tracer?: Tracer;
 }
 
 export class ToolRegistry {
@@ -62,11 +87,13 @@ export class ToolRegistry {
   private readonly maxResponseBytes: number;
   private readonly verifyElicit?: VerifyElicit;
   private readonly metrics?: MetricsRecorder;
+  private readonly tracer?: Tracer;
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
     this.verifyElicit = opts.verifyElicit;
     this.metrics = opts.metrics;
+    this.tracer = opts.tracer;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -92,8 +119,41 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
-  // Full invocation pipeline: validate -> auth -> scope/ACL -> HITL -> execute -> governor -> audit.
+  // One OTEL root span per tool call (G2.4) wraps the pipeline when a tracer is configured;
+  // otherwise the tracer-less fast path runs unchanged. Span attributes come from ctx + the
+  // ToolResult, so runDispatch's internals stay untouched.
   async dispatch(name: string, rawInput: unknown, ctx: CallerContext): Promise<ToolResult> {
+    const tracer = this.tracer;
+    if (!tracer) return this.runDispatch(name, rawInput, ctx);
+    return tracer.startActiveSpan(
+      `obsidian_tc.${name}`,
+      { kind: SpanKind.SERVER },
+      async (span) => {
+        try {
+          span.setAttribute(SPAN_ATTR.vaultId, ctx.vaultId);
+          span.setAttribute(SPAN_ATTR.tool, name);
+          span.setAttribute(SPAN_ATTR.callerHash, callerHash(ctx.caller));
+          span.setAttribute(
+            SPAN_ATTR.scopesRequired,
+            (this.tools.get(name)?.requiredScopes ?? []).join(","),
+          );
+          span.setAttribute(SPAN_ATTR.elicitUsed, !!ctx.elicitToken);
+          const result = await this.runDispatch(name, rawInput, ctx);
+          annotateSpanResult(span, result);
+          return result;
+        } finally {
+          span.end();
+        }
+      },
+    );
+  }
+
+  // Full invocation pipeline: validate -> auth -> scope/ACL -> HITL -> execute -> governor -> audit.
+  private async runDispatch(
+    name: string,
+    rawInput: unknown,
+    ctx: CallerContext,
+  ): Promise<ToolResult> {
     const now = ctx.now ?? Date.now;
     const start = now();
     const hash = argsHash(name, rawInput ?? {});

@@ -17,6 +17,7 @@ import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { startMetricsEndpoint } from "./metrics/endpoint";
 import { MetricsRecorder } from "./metrics/registry";
+import { initOtel } from "./otel/tracing";
 import { createPlurClient } from "./plur/client";
 import { RateLimiter } from "./throttle";
 import { createHealthTool } from "./tools/admin/health";
@@ -65,11 +66,14 @@ async function main(): Promise<void> {
   // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
   // share the same in-memory counters. The scrape endpoint is started below only when
   // observability.prometheus.enabled (default off / `:0`).
+  // OTEL tracing (G2.4) — no-op unless observability.otel.endpoint is set.
+  const otel = initOtel(config.observability, VERSION);
   const metrics = new MetricsRecorder();
   const registry = new ToolRegistry({
     maxResponseBytes: config.governor.maxResponseBytes,
     verifyElicit: elicitVerifier,
     metrics,
+    tracer: otel.tracer,
   });
   registry.register(
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
