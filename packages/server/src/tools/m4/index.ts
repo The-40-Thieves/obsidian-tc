@@ -8,6 +8,7 @@
 import type { ToolRegistry } from "../../mcp/registry";
 import { buildDataviewTools } from "./dataview-tools";
 import { buildExcalidrawTools } from "./excalidraw-tools";
+import { buildQuickAddTools } from "./quickadd-tools";
 import type { M4Deps } from "./shared";
 import { buildTasksTools } from "./tasks-tools";
 import { buildTemplaterTools } from "./templater-tools";
@@ -20,4 +21,5 @@ export function registerM4Tools(registry: ToolRegistry, deps: M4Deps): void {
   for (const tool of buildDataviewTools(deps)) registry.register(tool);
   for (const tool of buildTasksTools(deps)) registry.register(tool);
   for (const tool of buildTemplaterTools(deps)) registry.register(tool);
+  for (const tool of buildQuickAddTools(deps)) registry.register(tool);
 }
