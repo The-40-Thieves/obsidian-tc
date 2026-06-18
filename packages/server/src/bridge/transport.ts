@@ -122,8 +122,11 @@ export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
 
       if (env && env.ok === false) throw mapBridgeError(env, r.plugin);
       if (res.ok && env && env.ok === true) return (env.result ?? null) as T;
+      // A non-2xx with no usable envelope: surface the HTTP status so the probe
+      // can tell "companion not installed" (404) from a transient failure.
       throw err.pluginUnreachable(`bridge HTTP ${res.status}`, {
         ...(r.plugin ? { plugin: r.plugin } : {}),
+        http_status: res.status,
       });
     },
   };

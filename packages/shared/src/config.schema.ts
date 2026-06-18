@@ -1,11 +1,33 @@
 import { z } from "zod";
 
+// Per-vault plugin-bridge timeouts (M4 / THE-180, G2.2 §3.1 + §6). Inner fields
+// carry defaults; the whole block is optional so a vault that predates M4
+// validates unchanged (consumers read `vault.bridges?.x ?? <default>`).
+export const VaultBridgesConfigSchema = z.object({
+  timeoutMs: z.number().int().positive().default(5000),
+  probeTimeoutMs: z.number().int().positive().default(500),
+  ocrTimeoutMs: z.number().int().positive().default(30000),
+  templaterTimeoutMs: z.number().int().positive().default(30000),
+});
+
+// Per-vault probe overrides (M4 / THE-180, G2.2 §6). force_enabled/disabled treat
+// a plugin as installed/missing regardless of the probe; probe_skip skips the
+// startup probe entirely (force_enabled is then the source of truth) — the seam
+// CI uses to assert tool behavior without a live Obsidian.
+export const VaultPluginsConfigSchema = z.object({
+  forceEnabled: z.array(z.string()).default([]),
+  forceDisabled: z.array(z.string()).default([]),
+  probeSkip: z.boolean().default(false),
+});
+
 export const VaultConfigSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).optional(),
   path: z.string().min(1),
   restApiUrl: z.string().url().optional(),
   restApiKey: z.string().optional(),
+  bridges: VaultBridgesConfigSchema.optional(),
+  plugins: VaultPluginsConfigSchema.optional(),
 });
 export type VaultConfig = z.infer<typeof VaultConfigSchema>;
 
