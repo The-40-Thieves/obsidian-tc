@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cd \\\"E:/Projects/obsidian-tc\\\" && echo \\\"=== git status ===\\\" && git status --porcelain && echo \\\"=== PlurConfigSchema in config.schema.ts? ===\\\" && grep -c \\\"PlurConfigSchema\\\" packages/s...",
-  "error": "Exit code 1\n=== git status ===\n?? .claude/\n=== PlurConfigSchema in config.schema.ts? ===\n0",
-  "timestamp": "2026-06-18T18:32:02.083Z",
-  "retry_count": 1
-}
