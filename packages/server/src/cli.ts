@@ -6,10 +6,12 @@ import { loadConfig } from "./config/load";
 import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
 import { elicitVerifier } from "./elicit";
+import { createEmbeddingProvider } from "./embeddings";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { createHealthTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
+import { registerM2Tools } from "./tools/m2";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { VaultRegistry } from "./vault/registry";
@@ -54,6 +56,8 @@ async function main(): Promise<void> {
     embeddings: { provider: config.embeddings.provider, model: config.embeddings.model },
     configPath,
   });
+  const embeddingProvider = createEmbeddingProvider(config.embeddings);
+  registerM2Tools(registry, { vaultRegistry, embeddingProvider });
   const acl = new FolderAcl(config.acl);
 
   // stdio is the trusted local transport: the operator runs the binary against

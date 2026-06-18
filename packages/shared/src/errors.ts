@@ -24,7 +24,14 @@ export type ErrorCode =
   | "note_exists"
   | "concurrent_modification"
   | "invalid_input"
-  | "internal_error";
+  | "internal_error"
+  // M2 (G2.1 Domain 6 search + retrieval substrate) codes — additive, do not rename.
+  | "embedding_provider_error"
+  | "operation_timeout"
+  | "dql_error"
+  | "jsonlogic_error"
+  | "plugin_missing"
+  | "plugin_unreachable";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -33,6 +40,10 @@ const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "internal_error",
   // G2.1: a CAS miss is retryable after the caller re-reads the note.
   "concurrent_modification",
+  // M2: transient embedding-backend, timeout, and plugin-unreachable failures are retryable.
+  "embedding_provider_error",
+  "operation_timeout",
+  "plugin_unreachable",
 ]);
 
 export interface ErrorJSON {
@@ -96,4 +107,11 @@ export const err = {
   concurrentModification: mk("concurrent_modification", "note changed since it was read"),
   invalidInput: mk("invalid_input", "invalid input"),
   internalError: mk("internal_error", "internal error"),
+  // M2 — G2.1 Domain 6 search + retrieval substrate.
+  embeddingProviderError: mk("embedding_provider_error", "embedding provider failed"),
+  operationTimeout: mk("operation_timeout", "operation timed out"),
+  dqlError: mk("dql_error", "Dataview DQL error"),
+  jsonlogicError: mk("jsonlogic_error", "JSONLogic expression invalid"),
+  pluginMissing: mk("plugin_missing", "required Obsidian plugin not detected"),
+  pluginUnreachable: mk("plugin_unreachable", "plugin detected but REST endpoint failed"),
 } as const;
