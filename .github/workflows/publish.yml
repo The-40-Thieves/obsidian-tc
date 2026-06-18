@@ -9,6 +9,12 @@ permissions:
   id-token: write
   attestations: write
 
+# Reconciled in M7 (THE-183): 4-platform native matrix (linux-arm64 deferred to v1.1 per the G3
+# amendment, THE-141); no cosign/SBOM (also deferred to v1.1); text bun.lock. Fires only on a
+# human-pushed v* tag — it is config-verified here, not executed. NOTE (R5): the workspace
+# packages are still scoped @obsidian-tc/*; the spec's published scope is
+# @the-40-thieves/obsidian-tc-*. Renaming is a flagged pre-publish follow-up (config-only this
+# milestone), so the npm-publish jobs require that rename + the NPM_TOKEN secret before the tag.
 jobs:
   build-native:
     strategy:
@@ -18,10 +24,6 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             triple: linux-x64-gnu
-          - host: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            triple: linux-arm64-gnu
-            cross: true
           - host: macos-latest
             target: x86_64-apple-darwin
             triple: darwin-x64
@@ -39,18 +41,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: install cross
-        if: matrix.cross
-        run: cargo install cross --locked
       - run: bun install --frozen-lockfile
-      - name: build native
+      - name: build native (.node)
         working-directory: packages/native
-        run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            bun run build:release:cross -- --target ${{ matrix.target }}
-          else
-            bun run build:release -- --target ${{ matrix.target }}
-          fi
+        run: bun run build -- --target ${{ matrix.target }}
         shell: bash
       - uses: actions/upload-artifact@v4
         with:
@@ -72,17 +66,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: packages/native/artifacts
-      - name: assemble platform packages
+      - name: collect prebuilt .node files (napi)
         working-directory: packages/native
-        run: bun run prepare-platform-packages
+        run: bunx napi artifacts --dir artifacts
       - run: bun run --filter=shared build
       - run: bun run --filter=server build
-      # The package.json files in packages/{native,shared,server} carry the canonical
-      # @the-40-thieves/obsidian-tc-{native,shared} and obsidian-tc names respectively.
-      # The defensive stub @the-40-thieves/obsidian-tc is NOT published here.
-      - name: publish platform packages
+      # Platform sub-packages (one per built triple) + the umbrella optionalDependencies are
+      # generated and published by `napi prepublish`. Requires the @the-40-thieves rename (R5).
+      - name: publish platform sub-packages (napi)
         working-directory: packages/native
-        run: bun run publish-platform-packages
+        run: bunx napi prepublish -t npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - run: cd packages/native && npm publish --provenance --access public
@@ -103,8 +96,6 @@ jobs:
         include:
           - host: ubuntu-latest
             target: bun-linux-x64
-          - host: ubuntu-latest
-            target: bun-linux-arm64
           - host: macos-latest
             target: bun-darwin-x64
           - host: macos-14
@@ -116,7 +107,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun run --filter=server build:standalone -- --target=${{ matrix.target }}
+      - run: bun run --filter=shared build
+      - name: compile standalone binary
+        run: bun build packages/server/src/cli.ts --compile --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
+        shell: bash
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.target }}
@@ -128,11 +122,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun run --filter=plugin build:release
+      - run: bun run --filter=plugin build
       - name: zip plugin
         run: |
           cd packages/plugin/dist
           zip -r ../obsidian-tc-plugin-${GITHUB_REF_NAME#v}.zip main.js manifest.json styles.css
+        shell: bash
       - uses: actions/upload-artifact@v4
         with:
           name: plugin
@@ -187,18 +182,7 @@ jobs:
         run: |
           cd artifacts
           find . -type f \( -name 'obsidian-tc-*' -o -name '*.zip' \) -exec sha256sum {} \; > SHASUMS256.txt
-      - name: generate SBOM
-        run: |
-          bunx @cyclonedx/cdxgen -o obsidian-tc.cdx.json
-      - uses: sigstore/cosign-installer@v3
-      - name: cosign sign
-        run: |
-          cd artifacts
-          for f in $(find . -type f \( -name 'obsidian-tc-*' -o -name '*.zip' \)); do
-            cosign sign-blob --yes --output-signature "${f}.sig" "$f"
-          done
-        env:
-          COSIGN_EXPERIMENTAL: '1'
+        shell: bash
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
@@ -207,5 +191,3 @@ jobs:
             artifacts/**/obsidian-tc-*
             artifacts/**/*.zip
             artifacts/SHASUMS256.txt
-            artifacts/**/*.sig
-            obsidian-tc.cdx.json
