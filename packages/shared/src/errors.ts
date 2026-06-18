@@ -33,7 +33,10 @@ export type ErrorCode =
   | "plugin_missing"
   | "plugin_unreachable"
   // M3 (G2.1 Domains 7-8,12,18-20 structured formats) codes — additive, do not rename.
-  | "bases_syntax_error";
+  | "bases_syntax_error"
+  // M4 (G2.1 Domain 26 command palette) codes — additive, do not rename.
+  | "execute_command_disabled"
+  | "command_not_allowlisted";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -118,4 +121,10 @@ export const err = {
   pluginUnreachable: mk("plugin_unreachable", "plugin detected but REST endpoint failed"),
   // M3 — G2.1 structured-format domains (Bases).
   basesSyntaxError: mk("bases_syntax_error", "invalid .base YAML or filter syntax"),
+  // M4 — G2.1 Domain 26 command palette (deny-by-default command execution).
+  executeCommandDisabled: mk(
+    "execute_command_disabled",
+    "command execution is disabled for this vault",
+  ),
+  commandNotAllowlisted: mk("command_not_allowlisted", "command is not in the vault allowlist"),
 } as const;

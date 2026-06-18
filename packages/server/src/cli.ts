@@ -80,8 +80,13 @@ async function main(): Promise<void> {
   // Built before M2 so search_dql can share the same Dataview bridge.
   const bridgeClients = new Map<string, BridgeClient>();
   const timeoutsByVault = new Map<string, BridgeTimeouts>();
+  const commandsByVault = new Map<string, { enabled: boolean; allowlist: string[] }>();
   const capabilities = new CapabilityCache();
   for (const v of config.vaults) {
+    commandsByVault.set(v.id, {
+      enabled: v.commands?.enabled ?? false,
+      allowlist: v.commands?.allowlist ?? [],
+    });
     if (v.bridges)
       timeoutsByVault.set(v.id, {
         timeoutMs: v.bridges.timeoutMs,
@@ -111,6 +116,7 @@ async function main(): Promise<void> {
     capabilities,
     bridgeFor: (vaultId) => bridgeClients.get(vaultId),
     timeouts: (vaultId) => timeoutsByVault.get(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS,
+    commandPolicy: (vaultId) => commandsByVault.get(vaultId) ?? { enabled: false, allowlist: [] },
   };
 
   const embeddingProvider = createEmbeddingProvider(config.embeddings);

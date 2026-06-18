@@ -7,6 +7,7 @@
 // list/update) need no plugin and always work.
 import type { ToolRegistry } from "../../mcp/registry";
 import { buildBundleTools } from "./bundle-tools";
+import { buildCommandTools } from "./command-tools";
 import { buildDataviewTools } from "./dataview-tools";
 import { buildExcalidrawTools } from "./excalidraw-tools";
 import { buildMakeMdTools } from "./makemd-tools";
@@ -28,4 +29,5 @@ export function registerM4Tools(registry: ToolRegistry, deps: M4Deps): void {
   for (const tool of buildOcrTools(deps)) registry.register(tool);
   for (const tool of buildBundleTools(deps)) registry.register(tool);
   for (const tool of buildMakeMdTools(deps)) registry.register(tool);
+  for (const tool of buildCommandTools(deps)) registry.register(tool);
 }

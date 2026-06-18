@@ -20,6 +20,15 @@ export const VaultPluginsConfigSchema = z.object({
   probeSkip: z.boolean().default(false),
 });
 
+// Per-vault command-palette execution policy (M4 / THE-180, G2.1 Domain 26).
+// Deny-by-default: execute_command is disabled unless `enabled` is explicitly true,
+// and even then only ids in `allowlist` may be fired (and only with a HITL token —
+// execute:command is a scope floor). Arbitrary command execution is never silent.
+export const VaultCommandsConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  allowlist: z.array(z.string()).default([]),
+});
+
 export const VaultConfigSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).optional(),
@@ -28,6 +37,7 @@ export const VaultConfigSchema = z.object({
   restApiKey: z.string().optional(),
   bridges: VaultBridgesConfigSchema.optional(),
   plugins: VaultPluginsConfigSchema.optional(),
+  commands: VaultCommandsConfigSchema.optional(),
 });
 export type VaultConfig = z.infer<typeof VaultConfigSchema>;
 
