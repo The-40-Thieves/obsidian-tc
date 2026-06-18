@@ -6,6 +6,7 @@
 // plugin or the companion is absent; filesystem tools (Smart Context, Tasks
 // list/update) need no plugin and always work.
 import type { ToolRegistry } from "../../mcp/registry";
+import { buildBundleTools } from "./bundle-tools";
 import { buildDataviewTools } from "./dataview-tools";
 import { buildExcalidrawTools } from "./excalidraw-tools";
 import { buildOcrTools } from "./ocr-tools";
@@ -24,4 +25,5 @@ export function registerM4Tools(registry: ToolRegistry, deps: M4Deps): void {
   for (const tool of buildTemplaterTools(deps)) registry.register(tool);
   for (const tool of buildQuickAddTools(deps)) registry.register(tool);
   for (const tool of buildOcrTools(deps)) registry.register(tool);
+  for (const tool of buildBundleTools(deps)) registry.register(tool);
 }
