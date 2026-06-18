@@ -15,6 +15,8 @@ import { elicitVerifier } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
+import { startMetricsEndpoint } from "./metrics/endpoint";
+import { MetricsRecorder } from "./metrics/registry";
 import { createPlurClient } from "./plur/client";
 import { RateLimiter } from "./throttle";
 import { createHealthTool } from "./tools/admin/health";
@@ -60,9 +62,14 @@ async function main(): Promise<void> {
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
   runMigrations(db, [{ version: "20260519_001", sql: initialMigrationSql }], { version: VERSION });
 
+  // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
+  // share the same in-memory counters. The scrape endpoint is started below only when
+  // observability.prometheus.enabled (default off / `:0`).
+  const metrics = new MetricsRecorder();
   const registry = new ToolRegistry({
     maxResponseBytes: config.governor.maxResponseBytes,
     verifyElicit: elicitVerifier,
+    metrics,
   });
   registry.register(
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
@@ -204,6 +211,18 @@ async function main(): Promise<void> {
     });
     process.stderr.write(
       `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,
+    );
+  }
+
+  if (config.observability.prometheus.enabled) {
+    const m = await startMetricsEndpoint({
+      recorder: metrics,
+      bind: config.observability.prometheus.bind,
+      port: config.observability.prometheus.port,
+      auth: config.auth,
+    });
+    process.stderr.write(
+      `obsidian-tc /metrics on ${config.observability.prometheus.bind}:${m.port}\n`,
     );
   }
 
