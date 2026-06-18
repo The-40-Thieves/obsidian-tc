@@ -6,6 +6,7 @@
 // plugin or the companion is absent; filesystem tools (Smart Context, Tasks
 // list/update) need no plugin and always work.
 import type { ToolRegistry } from "../../mcp/registry";
+import { buildDataviewTools } from "./dataview-tools";
 import { buildExcalidrawTools } from "./excalidraw-tools";
 import type { M4Deps } from "./shared";
 
@@ -14,4 +15,5 @@ export { DEFAULT_BRIDGE_TIMEOUTS } from "./shared";
 
 export function registerM4Tools(registry: ToolRegistry, deps: M4Deps): void {
   for (const tool of buildExcalidrawTools(deps)) registry.register(tool);
+  for (const tool of buildDataviewTools(deps)) registry.register(tool);
 }
