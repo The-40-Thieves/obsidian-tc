@@ -19,7 +19,14 @@ import { createHealthTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
 import { registerM2Tools } from "./tools/m2";
 import { registerM3Tools } from "./tools/m3";
-import { type BridgeTimeouts, DEFAULT_BRIDGE_TIMEOUTS, registerM4Tools } from "./tools/m4";
+import {
+  type BridgeTimeouts,
+  DEFAULT_BRIDGE_TIMEOUTS,
+  type M4Deps,
+  bridgeTimeouts,
+  openBridge,
+  registerM4Tools,
+} from "./tools/m4";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { VaultRegistry } from "./vault/registry";
@@ -64,22 +71,19 @@ async function main(): Promise<void> {
     embeddings: { provider: config.embeddings.provider, model: config.embeddings.model },
     configPath,
   });
-  const embeddingProvider = createEmbeddingProvider(config.embeddings);
-  registerM2Tools(registry, { vaultRegistry, embeddingProvider });
-  registerM3Tools(registry, { vaultRegistry });
-
   // M4 plugin bridges (THE-180): per vault, build a bridge client to the companion
   // plugin's Local REST API surface (base URL + bearer key from vault config/env,
   // never logged) and probe it once at startup for its plugin-capability map. A
   // vault with no restApiUrl gets no client; its bridge tools then degrade to
   // plugin_unreachable. The probe never throws — a missing or unreachable companion
   // degrades only the bridge tools, leaving startup and the filesystem tools intact.
+  // Built before M2 so search_dql can share the same Dataview bridge.
   const bridgeClients = new Map<string, BridgeClient>();
-  const bridgeTimeouts = new Map<string, BridgeTimeouts>();
+  const timeoutsByVault = new Map<string, BridgeTimeouts>();
   const capabilities = new CapabilityCache();
   for (const v of config.vaults) {
     if (v.bridges)
-      bridgeTimeouts.set(v.id, {
+      timeoutsByVault.set(v.id, {
         timeoutMs: v.bridges.timeoutMs,
         ocrTimeoutMs: v.bridges.ocrTimeoutMs,
         templaterTimeoutMs: v.bridges.templaterTimeoutMs,
@@ -102,12 +106,26 @@ async function main(): Promise<void> {
       }),
     );
   }
-  registerM4Tools(registry, {
+  const m4Deps: M4Deps = {
     vaultRegistry,
     capabilities,
     bridgeFor: (vaultId) => bridgeClients.get(vaultId),
-    timeouts: (vaultId) => bridgeTimeouts.get(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS,
+    timeouts: (vaultId) => timeoutsByVault.get(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS,
+  };
+
+  const embeddingProvider = createEmbeddingProvider(config.embeddings);
+  registerM2Tools(registry, {
+    vaultRegistry,
+    embeddingProvider,
+    // search_dql / search_vault(mode:dql) share the Dataview bridge; openBridge
+    // applies the same degradation gate (plugin_missing / plugin_unreachable).
+    dataviewBridge: (vaultId) => ({
+      client: openBridge(m4Deps, vaultId, "dataview").client,
+      timeoutMs: bridgeTimeouts(m4Deps, vaultId).timeoutMs,
+    }),
   });
+  registerM3Tools(registry, { vaultRegistry });
+  registerM4Tools(registry, m4Deps);
 
   const acl = new FolderAcl(config.acl);
 

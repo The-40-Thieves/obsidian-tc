@@ -11,7 +11,7 @@ import { buildExcalidrawTools } from "./excalidraw-tools";
 import type { M4Deps } from "./shared";
 
 export type { BridgeTimeouts, M4Deps } from "./shared";
-export { DEFAULT_BRIDGE_TIMEOUTS } from "./shared";
+export { bridgeTimeouts, DEFAULT_BRIDGE_TIMEOUTS, openBridge } from "./shared";
 
 export function registerM4Tools(registry: ToolRegistry, deps: M4Deps): void {
   for (const tool of buildExcalidrawTools(deps)) registry.register(tool);

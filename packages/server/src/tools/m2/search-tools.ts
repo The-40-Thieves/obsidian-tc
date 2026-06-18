@@ -5,7 +5,7 @@
 // string query text -> semantic (fallback on zero hits) and an object query to
 // jsonlogic. search_dql is surfaced but reports plugin_missing until the Dataview
 // bridge (REST hybrid, THE-196) lands — honest rather than a silent empty result.
-import { VaultId, VaultPath, err } from "@obsidian-tc/shared";
+import { ObsidianTcError, VaultId, VaultPath, err, grantsAll } from "@obsidian-tc/shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { Database } from "../../db/types";
@@ -68,6 +68,37 @@ function jsonlogicMatches(
     if (evaluatesTruthy(logic, data)) out.push(rel);
   }
   return out;
+}
+
+interface DqlResult {
+  headers?: string[];
+  rows: unknown[][];
+  note_paths: string[];
+}
+
+// Execute a DQL query via the shared Dataview bridge (wired by cli.ts). Absent
+// bridge => plugin_missing (honest "not configured"); a live but degraded bridge
+// surfaces plugin_missing / plugin_unreachable / dql_error from openBridge + the
+// transport. Read-only by contract; the companion rejects non-read DQL.
+async function runDql(
+  deps: M2Deps,
+  vaultId: string,
+  dql: string,
+  format: string,
+): Promise<DqlResult> {
+  if (!deps.dataviewBridge)
+    throw err.pluginMissing(
+      "DQL requires the Dataview companion-plugin bridge, which is not configured",
+      { plugin: "dataview" },
+    );
+  const { client, timeoutMs } = deps.dataviewBridge(vaultId);
+  return client.request<DqlResult>({
+    method: "POST",
+    path: "/dataview/dql",
+    body: { dql, format },
+    plugin: "dataview",
+    timeoutMs,
+  });
 }
 
 const Cursor = {
@@ -234,7 +265,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
     defineTool({
       name: "search_dql",
       description:
-        "Run a Dataview DQL query via the companion plugin. Requires the Dataview bridge; reports plugin_missing until it is configured.",
+        "Run a Dataview DQL query via the companion plugin bridge. Returns headers/rows and the matched note paths. Requires the Dataview bridge; reports plugin_missing when it is not configured.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -242,13 +273,11 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           format: z.enum(["table", "list", "task", "calendar"]).default("table"),
         })
         .strict(),
-      requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
-        scope(ctx, input.vault);
-        throw err.pluginMissing(
-          "search_dql requires the Dataview companion-plugin bridge, which is not configured",
-          { plugin: "dataview" },
-        );
+      requiredScopes: ["read:notes", "read:dataview"],
+      handler: async (input, ctx) => {
+        const s = scope(ctx, input.vault);
+        const result = await runDql(deps, s.id, input.dql, input.format);
+        return { vault: s.id, ...result };
       },
     }),
 
@@ -336,11 +365,20 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
               mode_used: "jsonlogic",
             }));
             break;
-          case "dql":
-            throw err.pluginMissing(
-              "search_dql requires the Dataview companion-plugin bridge, which is not configured",
-              { plugin: "dataview" },
-            );
+          case "dql": {
+            // The router's static scope is read:notes; the dql path additionally
+            // touches the Dataview bridge, so enforce read:dataview inline
+            // (deny-by-default) rather than weakening every other mode's scope.
+            if (!grantsAll(ctx.grantedScopes, ["read:dataview"]))
+              throw new ObsidianTcError(
+                "forbidden",
+                "search mode 'dql' requires the read:dataview scope",
+                { required: ["read:dataview"] },
+              );
+            tried.push("dql");
+            const dql = await runDql(deps, s.id, asString(), "table");
+            return { vault: s.id, mode_used: "dql", ...dql };
+          }
           default: {
             // auto: object -> jsonlogic; string -> text, then semantic on zero hits.
             if (typeof input.query !== "string") {
