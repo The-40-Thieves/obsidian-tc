@@ -1,6 +1,6 @@
 {
   "name": "@obsidian-tc/native",
-  "version": "0.0.0-pre",
+  "version": "1.0.0",
   "description": "Native perf module for obsidian-tc — vector ops, BM25, sqlite-vec, V2 clustering hooks",
   "license": "Apache-2.0",
   "main": "index.js",
@@ -30,5 +30,17 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-40-Thieves/obsidian-tc.git",
+    "directory": "packages/native"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
   }
 }

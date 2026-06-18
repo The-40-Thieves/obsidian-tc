@@ -40,7 +40,7 @@ import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { VaultRegistry } from "./vault/registry";
 
-const VERSION = "0.0.0-pre";
+const VERSION = "1.0.0";
 
 // The migration SQL is read relative to this module; the build copies
 // src/migrations -> dist/migrations (scripts/copy-assets.mjs) so the bundled

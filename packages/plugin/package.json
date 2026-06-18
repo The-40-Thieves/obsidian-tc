@@ -1,6 +1,6 @@
 {
   "name": "@obsidian-tc/plugin",
-  "version": "0.0.0-pre",
+  "version": "1.0.0",
   "description": "Companion Obsidian plugin for obsidian-tc — extends Local REST API with command dispatch and plugin firepower bridges",
   "license": "Apache-2.0",
   "private": true,

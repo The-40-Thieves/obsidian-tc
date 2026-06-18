@@ -1,6 +1,6 @@
 {
   "name": "@obsidian-tc/shared",
-  "version": "0.0.0-pre",
+  "version": "1.0.0",
   "description": "Shared Zod schemas and types for obsidian-tc",
   "license": "Apache-2.0",
   "type": "module",
@@ -18,5 +18,17 @@
   "devDependencies": {
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-40-Thieves/obsidian-tc.git",
+    "directory": "packages/shared"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   }
 }
