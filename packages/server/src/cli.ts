@@ -164,9 +164,9 @@ async function main(): Promise<void> {
     authMode: config.auth.mode,
     throttle: config.throttle,
     observability: {
-      otel: config.observability.otel,
+      otel: !!config.observability.otel.endpoint,
       prometheus: config.observability.prometheus.enabled,
-      morgiana: config.observability.morgiana.mode !== "off",
+      morgiana: config.observability.morgiana.spool || !!config.observability.morgiana.httpEndpoint,
     },
     embeddingsProvider: config.embeddings.provider,
     governorMaxResponseBytes: config.governor.maxResponseBytes,
