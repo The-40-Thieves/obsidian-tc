@@ -13,6 +13,7 @@
     "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node && bun scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "dev": "bun run --watch ./src/index.ts"
   },
   "dependencies": {
