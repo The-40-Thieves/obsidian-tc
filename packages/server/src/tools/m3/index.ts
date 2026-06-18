@@ -8,6 +8,7 @@ import type { ToolRegistry } from "../../mcp/registry";
 import type { VaultRegistry } from "../../vault/registry";
 import { buildAttachmentTools } from "./attachment-tools";
 import { buildBaseTools } from "./base-tools";
+import { buildBookmarkTools } from "./bookmark-tools";
 import { buildCanvasTools } from "./canvas-tools";
 import { buildPeriodicTools } from "./periodic-tools";
 
@@ -20,4 +21,5 @@ export function registerM3Tools(registry: ToolRegistry, deps: M3Deps): void {
   for (const tool of buildBaseTools(deps)) registry.register(tool);
   for (const tool of buildPeriodicTools(deps)) registry.register(tool);
   for (const tool of buildAttachmentTools(deps)) registry.register(tool);
+  for (const tool of buildBookmarkTools(deps)) registry.register(tool);
 }
