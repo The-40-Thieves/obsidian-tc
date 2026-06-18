@@ -16,6 +16,7 @@ import { createEmbeddingProvider } from "./embeddings";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { createPlurClient } from "./plur/client";
+import { RateLimiter } from "./throttle";
 import { createHealthTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
 import { registerM2Tools } from "./tools/m2";
@@ -29,6 +30,7 @@ import {
   registerM4Tools,
 } from "./tools/m4";
 import { DEFAULT_MEMORY_FOLDER, DEFAULT_TRACE_FOLDER, registerM5Tools } from "./tools/m5";
+import { type M6Deps, registerM6Tools } from "./tools/m6";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { VaultRegistry } from "./vault/registry";
@@ -149,6 +151,29 @@ async function main(): Promise<void> {
     memoryFolder: (vaultId) => memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
     traceFolder: (vaultId) => traceFolderByVault.get(vaultId) ?? DEFAULT_TRACE_FOLDER,
   });
+
+  // M6 bulk + URI + admin (THE-182): the remaining G2.1 domains (25/27/28), which
+  // complete the v1.0 tool surface. One shared RateLimiter (G2.4 tiers from config)
+  // is consumed by the bulk tools and snapshotted by get_metrics; the admin tools
+  // read non-secret config/ACL/metrics; URI generation is a pure builder.
+  const m6Deps: M6Deps = {
+    vaultRegistry,
+    rateLimiter: new RateLimiter(config.throttle.tiers),
+    version: VERSION,
+    startedAt,
+    authMode: config.auth.mode,
+    throttle: config.throttle,
+    observability: {
+      otel: config.observability.otel,
+      prometheus: config.observability.prometheus.enabled,
+      morgiana: config.observability.morgiana.mode !== "off",
+    },
+    embeddingsProvider: config.embeddings.provider,
+    governorMaxResponseBytes: config.governor.maxResponseBytes,
+    capabilities: (vaultId) => capabilities.get(vaultId),
+    registeredTools: () => registry.list().length,
+  };
+  registerM6Tools(registry, m6Deps);
 
   const acl = new FolderAcl(config.acl);
 
