@@ -77,7 +77,12 @@ describe("plur request mapping via the fake transport", () => {
     // Drive it again to capture and stringify the surfaced error for a leak check.
     let surfaced = "";
     try {
-      await client.request({ method: "POST", path: "/recall", body: { query: "x" }, plugin: "plur" });
+      await client.request({
+        method: "POST",
+        path: "/recall",
+        body: { query: "x" },
+        plugin: "plur",
+      });
     } catch (e) {
       surfaced = JSON.stringify((e as ObsidianTcError).toJSON());
     }
