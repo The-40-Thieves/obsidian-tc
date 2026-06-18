@@ -3,6 +3,7 @@ import {
   type MorgianaEventType,
   ObsidianTcError,
   type ToolResult,
+  err,
   grantsAll,
   isMutatingScope,
   scopeClassOf,
@@ -16,7 +17,7 @@ import type { Database } from "../db/types";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/tracing";
-import { callerHash } from "../throttle";
+import { type RateLimiter, callerHash } from "../throttle";
 
 export interface CallerContext {
   caller: string | null;
@@ -83,6 +84,8 @@ export interface RegistryOptions {
   tracer?: Tracer;
   /** MORGIANA event sink (G2.4). Optional: dispatch emits no CloudEvents when it is absent. */
   emit?: (vaultId: string, type: MorgianaEventType, data: Partial<MorgianaEventData>) => void;
+  /** Dispatch-wide rate limiter (THE-210). Optional: no rate gate when it is absent. */
+  rateLimiter?: RateLimiter;
 }
 
 export class ToolRegistry {
@@ -97,6 +100,7 @@ export class ToolRegistry {
     type: MorgianaEventType,
     data: Partial<MorgianaEventData>,
   ) => void;
+  private readonly rateLimiter?: RateLimiter;
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
@@ -104,6 +108,7 @@ export class ToolRegistry {
     this.metrics = opts.metrics;
     this.tracer = opts.tracer;
     this.emit = opts.emit;
+    this.rateLimiter = opts.rateLimiter;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -165,7 +170,9 @@ export class ToolRegistry {
       case "elicit_required":
         this.relay(ctx.vaultId, "tc.elicit.requested", data);
         break;
-      // tc.rate_limit.hit (throttled) is emitted by the dispatch limiter (THE-210 / Phase B).
+      case "throttled":
+        this.relay(ctx.vaultId, "tc.rate_limit.hit", data);
+        break;
     }
   }
 
@@ -286,6 +293,27 @@ export class ToolRegistry {
           caller_hash: callerHash(ctx.caller),
           elicit_token: ctx.elicitToken ?? null,
         });
+      }
+
+      // Dispatch-wide rate-limit policy gate (THE-210, G2.4 §Rate limits). Per
+      // (caller_hash, scope_class, vault); an unknown scope class is unlimited. Placed in the
+      // policy layer (after scope/ACL/HITL), so it covers every tool, not just bulk.
+      if (this.rateLimiter) {
+        const decision = this.rateLimiter.check(
+          callerHash(ctx.caller),
+          scopeClass,
+          ctx.vaultId,
+          now(),
+        );
+        if (!decision.ok) {
+          this.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
+          throw err.throttled("rate limit exceeded", {
+            scope_class: decision.scopeClass,
+            retry_after_seconds: decision.retryAfterSeconds,
+            current_burst: decision.currentBurst,
+            current_rate: decision.currentRate,
+          });
+        }
       }
 
       const out = await def.handler(parsed.data, ctx);

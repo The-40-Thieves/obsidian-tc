@@ -4,6 +4,7 @@
 import type { ToolResult } from "@obsidian-tc/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolRegistry } from "../src/mcp/registry";
+import { RateLimiter } from "../src/throttle";
 import { buildAdminTools } from "../src/tools/m6/admin-tools";
 import type { M6Deps } from "../src/tools/m6/shared";
 import { type M6Vault, makeM6Vault } from "./m6-helpers";
@@ -188,7 +189,7 @@ describe("get_metrics", () => {
   });
 
   it("includes live rate-limiter hit counters", async () => {
-    v = makeM6Vault({ register });
+    v = makeM6Vault({ register, rateLimiter: new RateLimiter() });
     // Exhaust the bulk burst directly to seed a hit (3 ok, 1 throttled).
     for (let i = 0; i < 4; i++) v.rateLimiter.check("c0ffee00", "bulk", "test", 0);
     const out = data<{

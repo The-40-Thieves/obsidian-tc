@@ -91,12 +91,15 @@ async function main(): Promise<void> {
       }
     },
   });
+  // Shared rate limiter (G2.4 tiers) — the dispatch gate (THE-210) and get_metrics share it.
+  const rateLimiter = new RateLimiter(config.throttle.tiers);
   const registry = new ToolRegistry({
     maxResponseBytes: config.governor.maxResponseBytes,
     verifyElicit: elicitVerifier,
     metrics,
     tracer: otel.tracer,
     emit: (vaultId, type, data) => morgiana.emit(vaultId, type, data),
+    rateLimiter,
   });
   registry.register(
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
@@ -192,7 +195,7 @@ async function main(): Promise<void> {
   // read non-secret config/ACL/metrics; URI generation is a pure builder.
   const m6Deps: M6Deps = {
     vaultRegistry,
-    rateLimiter: new RateLimiter(config.throttle.tiers),
+    rateLimiter,
     version: VERSION,
     startedAt,
     authMode: config.auth.mode,
