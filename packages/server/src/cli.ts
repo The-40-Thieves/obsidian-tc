@@ -9,8 +9,10 @@ import { elicitVerifier } from "./elicit";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { createHealthTool } from "./tools/admin/health";
+import { registerM1Tools } from "./tools/m1";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
+import { VaultRegistry } from "./vault/registry";
 
 const VERSION = "0.0.0-pre";
 
@@ -44,6 +46,14 @@ async function main(): Promise<void> {
   registry.register(
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
   );
+  const vaultRegistry = new VaultRegistry(config.vaults, process.env.OBSIDIAN_TC_DEFAULT_VAULT);
+  registerM1Tools(registry, {
+    vaultRegistry,
+    version: VERSION,
+    startedAt,
+    embeddings: { provider: config.embeddings.provider, model: config.embeddings.model },
+    configPath,
+  });
   const acl = new FolderAcl(config.acl);
 
   // stdio is the trusted local transport: the operator runs the binary against
