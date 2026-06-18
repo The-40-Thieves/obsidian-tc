@@ -9,6 +9,24 @@ describe("config schema", () => {
     expect(c.transports.stdio).toBe(true);
     expect(c.governor.maxResponseBytes).toBe(1_000_000);
   });
+
+  it("applies the G2.4 throttle tier defaults (M6 back-compat)", () => {
+    const c = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }] });
+    expect(c.throttle.enabled).toBe(true);
+    expect(c.throttle.tiers.bulk).toEqual({ perMinute: 10, burst: 3 });
+    expect(c.throttle.tiers.read).toEqual({ perMinute: 600, burst: 100 });
+    expect(c.throttle.maxConcurrentWritesPerVault).toBe(16);
+  });
+
+  it("accepts a throttle override and fills the rest from defaults", () => {
+    const c = ServerConfigSchema.parse({
+      vaults: [{ id: "m", path: "/v" }],
+      throttle: { tiers: { bulk: { perMinute: 5, burst: 2 } } },
+    });
+    expect(c.throttle.tiers.bulk).toEqual({ perMinute: 5, burst: 2 });
+    expect(c.throttle.tiers.write).toEqual({ perMinute: 60, burst: 20 });
+  });
+
   it("requires at least one vault", () => {
     expect(ServerConfigSchema.safeParse({ vaults: [] }).success).toBe(false);
   });

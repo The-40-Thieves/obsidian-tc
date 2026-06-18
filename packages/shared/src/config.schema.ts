@@ -113,6 +113,37 @@ export const GovernorConfigSchema = z.object({
   maxResponseBytes: z.number().int().positive().default(1_000_000),
 });
 
+// Per-scope-class throttle tiers + write-concurrency ceiling (THE-182 / M6, G2.4
+// §Rate limits). Additive + fully defaulted, so a config predating M6 validates
+// unchanged. The M6 bulk tools enforce the `bulk` tier (10/min, burst 3); the
+// other tiers are reported by get_server_config and reserved for the M7
+// dispatch-wide rate-limit gate. get_server_config surfaces these as its `limits`
+// block (non-secret).
+const throttleTier = (perMinute: number, burst: number) =>
+  z
+    .object({
+      perMinute: z.number().int().positive().default(perMinute),
+      burst: z.number().int().positive().default(burst),
+    })
+    .default({});
+
+export const ThrottleConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    tiers: z
+      .object({
+        read: throttleTier(600, 100),
+        write: throttleTier(60, 20),
+        bulk: throttleTier(10, 3),
+        execute: throttleTier(5, 1),
+        admin: throttleTier(5, 1),
+      })
+      .default({}),
+    maxConcurrentWritesPerVault: z.number().int().positive().default(16),
+  })
+  .default({});
+export type ThrottleConfig = z.infer<typeof ThrottleConfigSchema>;
+
 export const ObservabilityConfigSchema = z.object({
   otel: z.boolean().default(false),
   prometheus: z
@@ -151,6 +182,7 @@ export const ServerConfigSchema = z.object({
   embeddings: EmbeddingsConfigSchema.default({}),
   transports: TransportsConfigSchema.default({}),
   governor: GovernorConfigSchema.default({}),
+  throttle: ThrottleConfigSchema,
   observability: ObservabilityConfigSchema.default({}),
   idempotencyTtlSeconds: z.number().int().positive().default(86400),
   elicitTtlSeconds: z.number().int().positive().default(300),
