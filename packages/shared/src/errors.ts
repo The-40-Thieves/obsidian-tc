@@ -1,4 +1,5 @@
 export type ErrorCode =
+  // M0 dispatch + foundation codes (locked by M0 tests; do not rename).
   | "unauthorized"
   | "forbidden"
   | "validation_error"
@@ -13,12 +14,25 @@ export type ErrorCode =
   | "throttled"
   | "read_only"
   | "plugin_unavailable"
-  | "internal";
+  | "internal"
+  // M1 (G2.1 tool-surface) codes — thrown by tool handlers.
+  | "note_not_found"
+  | "path_invalid"
+  | "path_ambiguous"
+  | "acl_denied"
+  | "read_only_mode"
+  | "note_exists"
+  | "concurrent_modification"
+  | "invalid_input"
+  | "internal_error";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
   "throttled",
   "internal",
+  "internal_error",
+  // G2.1: a CAS miss is retryable after the caller re-reads the note.
+  "concurrent_modification",
 ]);
 
 export interface ErrorJSON {
@@ -59,6 +73,7 @@ const mk =
     new ObsidianTcError(code, message, details);
 
 export const err = {
+  // M0
   unauthorized: mk("unauthorized", "authentication required"),
   forbidden: mk("forbidden", "scope or ACL denied"),
   validation: mk("validation_error", "input validation failed"),
@@ -71,4 +86,14 @@ export const err = {
   throttled: mk("throttled", "rate limit exceeded"),
   readOnly: mk("read_only", "server is in read-only mode"),
   internal: mk("internal", "internal error"),
+  // M1
+  noteNotFound: mk("note_not_found", "note not found"),
+  pathInvalid: mk("path_invalid", "path is invalid"),
+  pathAmbiguous: mk("path_ambiguous", "path resolves to multiple notes"),
+  aclDenied: mk("acl_denied", "path denied by folder ACL"),
+  readOnlyMode: mk("read_only_mode", "vault is in read-only mode"),
+  noteExists: mk("note_exists", "note already exists"),
+  concurrentModification: mk("concurrent_modification", "note changed since it was read"),
+  invalidInput: mk("invalid_input", "invalid input"),
+  internalError: mk("internal_error", "internal error"),
 } as const;
