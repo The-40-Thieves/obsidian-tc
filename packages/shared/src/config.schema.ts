@@ -29,6 +29,13 @@ export const AclConfigSchema = z.object({
   readOnly: z.boolean().default(false),
   defaultScopes: z.array(z.string()).default([]),
   rules: z.array(AclRuleSchema).default([]),
+  // Per-path operation ACL (G2.2 section 5 / G2.4). Optional and back-compatible:
+  // when a field is omitted that operation kind is unrestricted (M0 behavior);
+  // when present it is a glob whitelist — a path must match at least one entry.
+  // camelCase mirrors the rest of the config (readOnly, defaultScopes).
+  readPaths: z.array(z.string()).optional(),
+  writePaths: z.array(z.string()).optional(),
+  deletePaths: z.array(z.string()).optional(),
 });
 
 export const EmbeddingsConfigSchema = z.object({
