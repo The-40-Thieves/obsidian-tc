@@ -90,7 +90,7 @@ export function serializeCanvas(
   raw: Record<string, unknown>,
   indent: string | number = "\t",
 ): string {
-  return JSON.stringify(raw, null, indent) + "\n";
+  return `${JSON.stringify(raw, null, indent)}\n`;
 }
 
 /** Project a raw node onto the G2.1 read_canvas output shape. */

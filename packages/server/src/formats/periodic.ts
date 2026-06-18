@@ -207,6 +207,7 @@ export function resolvePeriodicPath(
   const { config, source } = resolvePeriodicConfig(root, period);
   const name = formatMoment(date, config.format);
   const folder = config.folder ? normalizeVaultPath(config.folder) : "";
-  const path = (folder ? `${folder}/` : "") + `${name}.md`;
+  const prefix = folder ? `${folder}/` : "";
+  const path = `${prefix}${name}.md`;
   return { path, format: config.format, folder, template: config.template, source };
 }
