@@ -29,6 +29,24 @@ export const VaultCommandsConfigSchema = z.object({
   allowlist: z.array(z.string()).default([]),
 });
 
+// Per-vault memory-entity materialization config (M5 / THE-181, G2.1 Domain 22).
+// Optional + back-compat: a vault predating M5 validates unchanged (consumers read
+// `vault.memory?.folder ?? "memory"`). `folder` is where create_entity(materialize)
+// writes the regenerable .md projection — a normal vault folder so the [[link]]
+// graph resolves in Obsidian. SQLite stays the source of truth.
+export const VaultMemoryConfigSchema = z.object({
+  folder: z.string().min(1).default("memory"),
+});
+
+// Per-vault workspace-session trace config (M5 / THE-181, G2.1 Domain 23). Session
+// traces are append-only JSONL written vault-relative (path-safe via resolveVaultPath
+// + ACL-checked via enforcePathAcl) under this folder; default a dot-folder so they
+// stay out of Obsidian's graph view. (G2.3 sketched cache_dir; THE-181's DoD requires
+// ACL-checked, hence vault-relative.)
+export const VaultWorkspaceConfigSchema = z.object({
+  traceFolder: z.string().min(1).default(".obsidian-tc/traces"),
+});
+
 export const VaultConfigSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).optional(),
@@ -38,6 +56,8 @@ export const VaultConfigSchema = z.object({
   bridges: VaultBridgesConfigSchema.optional(),
   plugins: VaultPluginsConfigSchema.optional(),
   commands: VaultCommandsConfigSchema.optional(),
+  memory: VaultMemoryConfigSchema.optional(),
+  workspace: VaultWorkspaceConfigSchema.optional(),
 });
 export type VaultConfig = z.infer<typeof VaultConfigSchema>;
 
@@ -106,9 +126,26 @@ export const ObservabilityConfigSchema = z.object({
     .default({}),
 });
 
+// plur read-API proxy config (M5 / THE-181, G2.1 Domain 24). GLOBAL, not per-vault:
+// the plur engram store is global and the plur tools take no `vault` argument, so
+// this lives at the server root. endpoint/apiKey come from config or the
+// OBSIDIAN_TC_PLUR_ENDPOINT / OBSIDIAN_TC_PLUR_TOKEN env vars (resolved in
+// config/load.ts); the bearer is placed solely in the Authorization header by the
+// bridge transport — never logged, never in an error/audit payload. Optional with
+// inner defaults: when `endpoint` is absent the plur tools degrade to plugin_missing
+// with NO network call.
+export const PlurConfigSchema = z.object({
+  endpoint: z.string().url().optional(),
+  apiKey: z.string().optional(),
+  apiPrefix: z.string().default(""),
+  timeoutMs: z.number().int().positive().default(5000),
+});
+export type PlurConfig = z.infer<typeof PlurConfigSchema>;
+
 export const ServerConfigSchema = z.object({
   cacheDir: z.string().default(".obsidian-tc"),
   vaults: z.array(VaultConfigSchema).min(1),
+  plur: PlurConfigSchema.optional(),
   auth: AuthConfigSchema.default({ mode: "none" }),
   acl: AclConfigSchema.default({}),
   embeddings: EmbeddingsConfigSchema.default({}),
