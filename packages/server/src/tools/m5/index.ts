@@ -7,6 +7,7 @@
 import type { ToolRegistry } from "../../mcp/registry";
 import { buildCaptureTools } from "./capture-tools";
 import { buildMemoryTools } from "./memory-tools";
+import { buildPlurTools } from "./plur-tools";
 import { buildSessionTools } from "./session-tools";
 import type { M5Deps } from "./shared";
 
@@ -22,4 +23,5 @@ export function registerM5Tools(registry: ToolRegistry, deps: M5Deps): void {
   for (const tool of buildCaptureTools(deps)) registry.register(tool);
   for (const tool of buildMemoryTools(deps)) registry.register(tool);
   for (const tool of buildSessionTools(deps)) registry.register(tool);
+  for (const tool of buildPlurTools(deps)) registry.register(tool);
 }
