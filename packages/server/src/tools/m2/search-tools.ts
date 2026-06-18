@@ -217,10 +217,12 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
-        const matched = jsonlogicMatches(s.rootPath, s.sub, s.readable, input.logic).map((path) => ({
-          path,
-          matched: true as const,
-        }));
+        const matched = jsonlogicMatches(s.rootPath, s.sub, s.readable, input.logic).map(
+          (path) => ({
+            path,
+            matched: true as const,
+          }),
+        );
         return {
           vault: s.id,
           mode_used: "jsonlogic",
