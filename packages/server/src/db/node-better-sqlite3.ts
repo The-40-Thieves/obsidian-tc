@@ -21,6 +21,9 @@ export function openBetterSqlite3(path: string): Db {
         all: (...params: unknown[]): unknown[] => st.all(...params),
       };
     },
+    loadExtension: (extPath: string): void => {
+      db.loadExtension(extPath);
+    },
     close: (): void => {
       db.close();
     },
