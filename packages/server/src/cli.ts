@@ -15,6 +15,7 @@ import { elicitVerifier } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
+import { createPlurClient } from "./plur/client";
 import { createHealthTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
 import { registerM2Tools } from "./tools/m2";
@@ -27,6 +28,7 @@ import {
   openBridge,
   registerM4Tools,
 } from "./tools/m4";
+import { DEFAULT_MEMORY_FOLDER, DEFAULT_TRACE_FOLDER, registerM5Tools } from "./tools/m5";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { VaultRegistry } from "./vault/registry";
@@ -81,12 +83,16 @@ async function main(): Promise<void> {
   const bridgeClients = new Map<string, BridgeClient>();
   const timeoutsByVault = new Map<string, BridgeTimeouts>();
   const commandsByVault = new Map<string, { enabled: boolean; allowlist: string[] }>();
+  const memoryFolderByVault = new Map<string, string>();
+  const traceFolderByVault = new Map<string, string>();
   const capabilities = new CapabilityCache();
   for (const v of config.vaults) {
     commandsByVault.set(v.id, {
       enabled: v.commands?.enabled ?? false,
       allowlist: v.commands?.allowlist ?? [],
     });
+    if (v.memory) memoryFolderByVault.set(v.id, v.memory.folder);
+    if (v.workspace) traceFolderByVault.set(v.id, v.workspace.traceFolder);
     if (v.bridges)
       timeoutsByVault.set(v.id, {
         timeoutMs: v.bridges.timeoutMs,
@@ -132,6 +138,17 @@ async function main(): Promise<void> {
   });
   registerM3Tools(registry, { vaultRegistry });
   registerM4Tools(registry, m4Deps);
+
+  // M5 memory/capture substrate (THE-181): capture/memory/workspace are in-process
+  // SQLite (+ vault file writes via the M1 path primitives); plur is a global read-only
+  // proxy over a config/env endpoint that degrades to plugin_missing when unconfigured.
+  const plurClient = createPlurClient(config.plur);
+  registerM5Tools(registry, {
+    vaultRegistry,
+    plur: plurClient,
+    memoryFolder: (vaultId) => memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
+    traceFolder: (vaultId) => traceFolderByVault.get(vaultId) ?? DEFAULT_TRACE_FOLDER,
+  });
 
   const acl = new FolderAcl(config.acl);
 
