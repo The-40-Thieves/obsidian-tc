@@ -4,6 +4,7 @@ import type { EmbeddingProvider } from "../../embeddings";
 import type { ToolRegistry } from "../../mcp/registry";
 import type { VaultRegistry } from "../../vault/registry";
 import { buildIndexTools } from "./index-tools";
+import { buildSearchTools } from "./search-tools";
 
 export interface M2Deps {
   vaultRegistry: VaultRegistry;
@@ -12,4 +13,5 @@ export interface M2Deps {
 
 export function registerM2Tools(registry: ToolRegistry, deps: M2Deps): void {
   for (const tool of buildIndexTools(deps)) registry.register(tool);
+  for (const tool of buildSearchTools(deps)) registry.register(tool);
 }
