@@ -31,7 +31,9 @@ export type ErrorCode =
   | "dql_error"
   | "jsonlogic_error"
   | "plugin_missing"
-  | "plugin_unreachable";
+  | "plugin_unreachable"
+  // M3 (G2.1 Domains 7-8,12,18-20 structured formats) codes — additive, do not rename.
+  | "bases_syntax_error";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -114,4 +116,6 @@ export const err = {
   jsonlogicError: mk("jsonlogic_error", "JSONLogic expression invalid"),
   pluginMissing: mk("plugin_missing", "required Obsidian plugin not detected"),
   pluginUnreachable: mk("plugin_unreachable", "plugin detected but REST endpoint failed"),
+  // M3 — G2.1 structured-format domains (Bases).
+  basesSyntaxError: mk("bases_syntax_error", "invalid .base YAML or filter syntax"),
 } as const;

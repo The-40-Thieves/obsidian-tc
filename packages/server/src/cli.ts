@@ -12,6 +12,7 @@ import { createMcpServer } from "./mcp/server";
 import { createHealthTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
 import { registerM2Tools } from "./tools/m2";
+import { registerM3Tools } from "./tools/m3";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { VaultRegistry } from "./vault/registry";
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
   });
   const embeddingProvider = createEmbeddingProvider(config.embeddings);
   registerM2Tools(registry, { vaultRegistry, embeddingProvider });
+  registerM3Tools(registry, { vaultRegistry });
   const acl = new FolderAcl(config.acl);
 
   // stdio is the trusted local transport: the operator runs the binary against
