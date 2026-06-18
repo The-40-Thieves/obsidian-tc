@@ -21,7 +21,6 @@ const schemaSql = readFileSync(
   "utf8",
 );
 
-// biome-ignore lint/suspicious/noExplicitAny: test reads heterogeneous payloads
 function dataOf(res: ToolResult): any {
   if (!res.ok) throw new Error(`expected ok, got ${res.error.code}`);
   return res.data;

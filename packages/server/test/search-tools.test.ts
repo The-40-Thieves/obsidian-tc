@@ -2,7 +2,6 @@ import type { ToolResult } from "@obsidian-tc/shared";
 import { describe, expect, it } from "vitest";
 import { makeM2Vault } from "./m2-helpers";
 
-// biome-ignore lint/suspicious/noExplicitAny: test reads heterogeneous tool payloads
 function payload(res: ToolResult): any {
   if (!res.ok) throw new Error(`expected ok, got ${res.error.code}`);
   return res.data;
