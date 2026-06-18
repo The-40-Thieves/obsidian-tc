@@ -1,0 +1,49 @@
+---
+title: First Run
+description: Write a minimal config, start the server, and connect an MCP client.
+---
+
+## 1. Write a config
+
+obsidian-tc is launched with a path to a config file (JSON or YAML). A minimal
+single-vault config:
+
+```yaml
+vaults:
+  - id: primary
+    path: /home/user/vaults/primary
+cacheDir: /home/user/.cache/obsidian-tc
+auth:
+  mode: none        # stdio is trusted-local; see Security for HTTP + JWT
+```
+
+## 2. Start it
+
+```sh
+obsidian-tc ./config.yaml
+# obsidian-tc 1.0.0 ready on stdio (vault primary)
+```
+
+By default the server speaks the Model Context Protocol over **stdio**, the
+trusted local transport: the operator runs the binary against their own vault, so
+calls are authenticated with full local scope.
+
+## 3. Connect a client
+
+Point any MCP client (Claude Desktop, an IDE extension, or your own agent) at the
+command. For Claude Desktop, add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "obsidian-tc": {
+      "command": "obsidian-tc",
+      "args": ["/home/user/.config/obsidian-tc/config.yaml"]
+    }
+  }
+}
+```
+
+The server exposes its full tool surface immediately. To serve over HTTP for
+remote agents, enable the HTTP transport and JWT auth — see
+[Authentication](/security/auth-model/) and [Configuration](/configuration/config-yaml/).

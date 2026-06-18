@@ -7,10 +7,9 @@ export default defineConfig({
     starlight({
       title: 'obsidian-tc',
       description: 'A turbocharged Model Context Protocol server for Obsidian.',
-      logo: { src: './public/logo.svg' },
-      social: {
-        github: 'https://github.com/the-40-thieves/obsidian-tc',
-      },
+      social: [
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/the-40-thieves/obsidian-tc' },
+      ],
       sidebar: [
         { label: 'Getting Started', autogenerate: { directory: 'getting-started' } },
         { label: 'Tools', autogenerate: { directory: 'tools' } },
@@ -19,7 +18,7 @@ export default defineConfig({
         { label: 'Observability', autogenerate: { directory: 'observability' } },
         { label: 'Configuration', autogenerate: { directory: 'configuration' } },
         { label: 'Contributing', autogenerate: { directory: 'contributing' } },
-        { label: 'Roadmap', link: '/roadmap' },
+        { label: 'Roadmap', link: '/roadmap/' },
         { label: 'V2 Preview', autogenerate: { directory: 'v2-preview' } },
       ],
       editLink: {
