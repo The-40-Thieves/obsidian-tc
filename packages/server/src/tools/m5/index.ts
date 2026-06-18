@@ -6,6 +6,7 @@
 // only the plur proxy reaches an external service and it degrades when unconfigured.
 import type { ToolRegistry } from "../../mcp/registry";
 import { buildCaptureTools } from "./capture-tools";
+import { buildMemoryTools } from "./memory-tools";
 import type { M5Deps } from "./shared";
 
 export type { M5Deps } from "./shared";
@@ -18,4 +19,5 @@ export {
 
 export function registerM5Tools(registry: ToolRegistry, deps: M5Deps): void {
   for (const tool of buildCaptureTools(deps)) registry.register(tool);
+  for (const tool of buildMemoryTools(deps)) registry.register(tool);
 }
