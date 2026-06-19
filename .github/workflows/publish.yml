@@ -11,10 +11,11 @@ permissions:
 
 # Reconciled in M7 (THE-183): 4-platform native matrix (linux-arm64 deferred to v1.1 per the G3
 # amendment, THE-141); no cosign/SBOM (also deferred to v1.1); text bun.lock. Fires only on a
-# human-pushed v* tag — it is config-verified here, not executed. NOTE (R5): the workspace
-# packages are still scoped @the-40-thieves/obsidian-tc-*; the spec's published scope is
-# @the-40-thieves/obsidian-tc-*. Renaming is a flagged pre-publish follow-up (config-only this
-# milestone), so the npm-publish jobs require that rename + the NPM_TOKEN secret before the tag.
+# human-pushed v* tag — it is config-verified here, not executed. R5/THE-214: the sub-packages
+# now publish under the owned @the-40-thieves scope (obsidian-tc-shared / obsidian-tc-native);
+# the server stays the owned unscoped obsidian-tc. The pin-workspace-deps step below rewrites
+# workspace:* to concrete versions (npm publish does not), so the published obsidian-tc carries
+# real dep versions. The npm-publish jobs still require the NPM_TOKEN secret before a tag.
 jobs:
   build-native:
     strategy:
@@ -71,8 +72,13 @@ jobs:
         run: bunx napi artifacts --dir artifacts
       - run: bun run --filter=shared build
       - run: bun run --filter=server build
-      # Platform sub-packages (one per built triple) + the umbrella optionalDependencies are
-      # generated and published by `napi prepublish`. Requires the @the-40-thieves rename (R5).
+      # npm publish does NOT rewrite the workspace: protocol, so pin workspace:* deps to concrete
+      # versions before publishing — otherwise the published obsidian-tc would ship
+      # "@the-40-thieves/obsidian-tc-shared": "workspace:*" and fail to install (THE-214).
+      - name: pin workspace deps to concrete versions
+        run: bun scripts/pin-workspace-deps.mjs
+      # Platform sub-packages (one per built triple, @the-40-thieves/obsidian-tc-native-<triple>)
+      # + the umbrella optionalDependencies are generated and published by `napi prepublish`.
       - name: publish platform sub-packages (napi)
         working-directory: packages/native
         run: bunx napi prepublish -t npm
