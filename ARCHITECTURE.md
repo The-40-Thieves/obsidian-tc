@@ -19,6 +19,8 @@ tags:
 
 # obsidian-tc — G2.2 Architecture and Topology (Draft)
 
+> **Scope note (2026-06-19):** obsidian-tc is an *access* MCP — vault read/write, search, and control. Retrieval intelligence (GraphRAG, clustering, hybrid retrieval fusion) is **out of scope**; pair obsidian-tc with an external retrieval/RAG service. The Python ML sidecar (component 14 and the § 3.3 IPC contract) and the native `kmeansAssign` / `actrDecayScore` reservations described below are **deprecated and being removed** — treat those sections as historical.
+
 **Gate state:** G2.2 (Architecture) — DRAFT 2026-05-18 across one engineering-partner session
 **Repo destination:** `ARCHITECTURE.md` in private repo (deferred until staged for commit)
 **Source decisions:** [[2026-05-18-obsidian-tc-v1-locked]], [[2026-05-18-obsidian-tc-private-development]], [[2026-05-18-obsidian-tc-g2.1-conventions]]

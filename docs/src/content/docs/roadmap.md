@@ -1,6 +1,6 @@
 ---
 title: Roadmap
-description: What ships in v1.0, what is deferred to v1.1, and what is reserved for V2.
+description: What ships in v1.0, what is deferred to v1.1, and what is out of scope.
 ---
 
 ## v1.0 (current)
@@ -19,6 +19,6 @@ documentation site.
   config-path launcher).
 - Per-tool reference pages auto-generated from the live tool registry.
 
-## V2
+## Out of scope
 
-Clustering and advanced retrieval — see the [V2 Preview](/v2-preview/).
+Retrieval intelligence — clustering, graph ML, hybrid retrieval fusion — is **not** part of obsidian-tc. It is an access MCP; pair it with an external retrieval/RAG service for ranking and reasoning. An earlier reserved "V2 intelligence layer" (Python ML sidecar, k-means, ACT-R decay) has been dropped, and the remaining hooks are being removed.

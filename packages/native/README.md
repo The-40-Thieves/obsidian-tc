@@ -9,7 +9,7 @@ Handles perf-critical primitives that would be too slow in JavaScript:
 - BM25 scoring
 - Tokenization
 - `sqlite-vec` extension wrapper
-- *(V2)* K-means clustering, ACT-R decay scoring
+- ~~K-means clustering, ACT-R decay scoring~~ *(deprecated — reserved for an out-of-scope intelligence layer; `kmeansAssign` / `actrDecayScore` are being removed)*
 
 Ships as cross-platform prebuilt binaries inside the npm package. **No Rust toolchain required for end users.**
 
