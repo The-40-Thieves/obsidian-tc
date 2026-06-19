@@ -1,6 +1,6 @@
 {
   "name": "@the-40-thieves/obsidian-tc-native",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Native perf module for obsidian-tc — vector ops, BM25, sqlite-vec, V2 clustering hooks",
   "license": "Apache-2.0",
   "main": "index.js",
@@ -23,7 +23,6 @@
     "build:debug": "napi build --platform",
     "typecheck": "tsc -p tsconfig.json",
     "test": "cargo test",
-    "prepublishOnly": "napi prepublish -t npm",
     "version": "napi version"
   },
   "devDependencies": {
