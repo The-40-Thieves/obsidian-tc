@@ -20,13 +20,13 @@ obsidian-tc is a polyglot monorepo. The packages are:
 - `packages/plugin/` — TypeScript Obsidian companion plugin.
 - `packages/native/` — Rust native module via napi-rs.
 - `packages/shared/` — Shared TypeScript types and Zod schemas.
-- `packages/sidecar/` — Python ML sidecar. V2 only, optional.
+- `packages/sidecar/` — Python ML sidecar. **Deprecated and being removed** (retrieval intelligence is out of scope for obsidian-tc).
 - `docs/` — Astro Starlight documentation site.
 - `examples/` — Example integrations (Claude Desktop, Claude Code, Cursor, Docker, agents).
 
 ## Development Setup
 
-You need three toolchains for full development. You can skip Rust if you only work on server/plugin code; you can skip Python entirely unless you touch the V2 sidecar.
+You need up to three toolchains for full development. You can skip Rust if you only work on server/plugin code, and you can skip Python entirely (the sidecar is deprecated and being removed).
 
 ### Required
 
@@ -40,7 +40,7 @@ You need three toolchains for full development. You can skip Rust if you only wo
 - **napi-rs CLI** `>=2`. Auto-installed via `bun install`.
 - For Linux ARM cross-compilation: `cargo install cross --locked`.
 
-### Required for V2 sidecar work
+### Python (deprecated — sidecar is being removed)
 
 - **Python** `>=3.11`.
 - **Maturin** `>=1.5`. `pipx install maturin`.

@@ -43,7 +43,7 @@ Polyglot monorepo:
 | `packages/native` | Rust (via napi-rs) | Perf-critical primitives: vector ops, BM25, sqlite-vec wrapper |
 | `packages/shared` | TypeScript | Shared Zod schemas and types |
 
-V2 (post-v1.0) adds an opt-in Python ML sidecar for clustering and graph ML.
+obsidian-tc is an **access** MCP: vault read/write, search, and control. Retrieval intelligence (clustering, graph ML, hybrid retrieval fusion) is out of scope; pair obsidian-tc with an external retrieval/RAG service for ranking and reasoning. An earlier reserved "V2 ML sidecar" (and the native `kmeansAssign` / `actrDecayScore` hooks) is deprecated and being removed.
 
 ## Quick start
 
