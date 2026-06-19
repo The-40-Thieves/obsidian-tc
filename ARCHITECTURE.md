@@ -64,7 +64,7 @@ Fourteen named components in V1 (excluding the optional V2 sidecar, which gets a
 
 **(8) Embedding provider interface.** TypeScript. `EmbeddingProvider` interface plus per-provider implementations (Ollama, OpenAI, Voyage, Cohere, Custom HTTP). Each provider owns its API specifics, dimensions, cost estimation. NOT responsible for chunk storage, retrieval logic, or provider selection (per-vault config decides).
 
-**(9) Native module.** Rust via napi-rs, packaged at `@obsidian-tc/native`. Owns cosine, dot product, RRF, BM25, sqlite-vec wrapper, tokenization. V2-reserved exports (`kmeansAssign`, `actrDecayScore`) ship as stubs in V1. NOT responsible for SQLite schema, transport, business logic.
+**(9) Native module.** Rust via napi-rs, packaged at `@the-40-thieves/obsidian-tc-native`. Owns cosine, dot product, RRF, BM25, sqlite-vec wrapper, tokenization. V2-reserved exports (`kmeansAssign`, `actrDecayScore`) ship as stubs in V1. NOT responsible for SQLite schema, transport, business logic.
 
 **(10) SQLite cache.** `better-sqlite3` + `sqlite-vec` extension. One DB file per vault at `<vault.cache_dir>/cache.db`. Owns chunks, embeddings, idempotency keys, capture queue, memory entities, event log, workspace_sessions, elicit_tokens (new in G2.2). NOT responsible for vault files — those live in the vault and the server reads them via REST or filesystem.
 
@@ -330,16 +330,16 @@ POST   /obsidian-tc/v1/makemd/query                → query make.md space
 
 ### 3.2 TypeScript core ↔ Rust native (napi-rs)
 
-**ABI:** napi-rs version pinned in `packages/native/package.json`. Compatible with Node 18+ / Bun 1.0+. Server consumes via Bun workspace link as `@obsidian-tc/native`.
+**ABI:** napi-rs version pinned in `packages/native/package.json`. Compatible with Node 18+ / Bun 1.0+. Server consumes via Bun workspace link as `@the-40-thieves/obsidian-tc-native`.
 
 **Prebuild distribution:** napi-rs convention. `packages/native/package.json` declares optional platform-specific deps:
 
 ```
-@obsidian-tc/native-linux-x64-gnu
-@obsidian-tc/native-linux-arm64-gnu
-@obsidian-tc/native-darwin-x64
-@obsidian-tc/native-darwin-arm64
-@obsidian-tc/native-win32-x64
+@the-40-thieves/obsidian-tc-native-linux-x64-gnu
+@the-40-thieves/obsidian-tc-native-linux-arm64-gnu
+@the-40-thieves/obsidian-tc-native-darwin-x64
+@the-40-thieves/obsidian-tc-native-darwin-arm64
+@the-40-thieves/obsidian-tc-native-win32-x64
 ```
 
 Bun/npm installs the matching one on `bun install`. If platform missed (unusual arch, or install on a platform without prebuilds), TS fallback registers and logs `[obsidian-tc:fallback] native unavailable for $arch — using pure-JS impl, expect 10-50x slower vector ops`.
@@ -456,7 +456,7 @@ Recommendation surfaces in docs (G2.5).
 
 Override via `OBSIDIAN_TC_CONFIG=/path/to/config.yaml` env. Missing file: server logs `[obsidian-tc:config] no config found, expected at <path>` and refuses to start (no implicit defaults — vault paths must be explicit).
 
-### Full schema (Zod, exported from `@obsidian-tc/shared`)
+### Full schema (Zod, exported from `@the-40-thieves/obsidian-tc-shared`)
 
 ```typescript
 const ServerConfig = z.object({
@@ -898,7 +898,7 @@ Architectural hooks baked into V1 so V2 is an upgrade, not a rewrite:
 
 - **Dispatch layer is sidecar-aware.** Tool impl helpers include `sidecar.call(endpoint, payload)`. V1 throws if `sidecar.enabled: false` in config. V2 flips the flag.
 - **Plugin bridge URL space versioned (`/v1/`).** Companion plugin can ship `/v2/` routes alongside `/v1/` without breaking V1 server. Server selects version based on its compiled-in expectation.
-- **Native module exports V2-reserved stubs.** `kmeansAssign` and `actrDecayScore` exist in V1's `@obsidian-tc/native` package — they throw `"v2-feature-not-enabled"`. V2 enables them by swapping stub for real impl in a minor version bump; no ABI change.
+- **Native module exports V2-reserved stubs.** `kmeansAssign` and `actrDecayScore` exist in V1's `@the-40-thieves/obsidian-tc-native` package — they throw `"v2-feature-not-enabled"`. V2 enables them by swapping stub for real impl in a minor version bump; no ABI change.
 - **SQLite schema has V2-reserved columns** (chunks.cluster_id, chunks.decay_score, chunks.activation_count, chunks.last_accessed_at — per G2-architecture parent). V2 lights them up without migration.
 - **Config schema has `sidecar:` block already**, `enabled: false` as V1 default. No config-schema migration on V2.
 - **ACL/Policy layers are scope-aware.** V2 may add scope `agent:autonomous-l3` for restricted scopes. Handler already exists in the ACL parser; G2.4 commits scope grammar that V2 extends.

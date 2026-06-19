@@ -1,4 +1,4 @@
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 // Per-path ACL enforcement — activates the dormant M0 FolderAcl seam.
 // Every path-based tool calls this with the operation kind and the resolved
 // vault-relative path. Membership is "matches at least one glob in the op's

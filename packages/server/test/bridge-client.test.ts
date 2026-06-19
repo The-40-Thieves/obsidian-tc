@@ -1,4 +1,4 @@
-import type { ObsidianTcError } from "@obsidian-tc/shared";
+import type { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type FakeRequestInfo, fakeBridgeTransport } from "../src/bridge/fake";
 import { createBridgeClient } from "../src/bridge/transport";

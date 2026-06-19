@@ -6,7 +6,7 @@
 // (write family — readOnly kill-switch applies, no execute HITL floor; spec hitl:never).
 // Materialization funnels through resolveVaultPath + enforcePathAcl; the write ACL is
 // pre-checked before the SQLite insert so an ACL denial leaves no orphan row.
-import { Pagination, VaultId, err } from "@obsidian-tc/shared";
+import { Pagination, VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {

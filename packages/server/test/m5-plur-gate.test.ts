@@ -4,7 +4,7 @@
 // configured-but-down -> plugin_unreachable), the spec error mapping for a missing
 // engram (invalid_input), and the security invariant that the bearer token reaches
 // the transport header but never an error payload.
-import { ObsidianTcError } from "@obsidian-tc/shared";
+import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type FakeRequestInfo, fakeBridgeTransport } from "../src/bridge";
 import { createPlurClient, openPlur } from "../src/plur/client";

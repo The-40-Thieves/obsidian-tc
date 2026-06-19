@@ -2,7 +2,7 @@
 // "spaces" model and run queries against them. Read scope only (read:makemd, no
 // HITL). The community plugin id is "make-md" (note the hyphen), distinct from the
 // makemd_ tool-name prefix.
-import { VaultId } from "@obsidian-tc/shared";
+import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";

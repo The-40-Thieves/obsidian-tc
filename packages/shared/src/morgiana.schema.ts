@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // MORGIANA event schema (G2.4 §MORGIANA events — THE-183). CloudEvents 1.0 envelope plus the
-// shared data shape. Lives in @obsidian-tc/shared so the server emitter AND MORGIANA itself
+// shared data shape. Lives in @the-40-thieves/obsidian-tc-shared so the server emitter AND MORGIANA itself
 // validate against one source of truth; the `specversion` field is the schema version, so a
 // breaking change bumps it. Spool/HTTP transport + emission live server-side (src/morgiana/).
 

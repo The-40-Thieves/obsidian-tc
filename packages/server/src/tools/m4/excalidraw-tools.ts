@@ -4,7 +4,7 @@
 // degrade to plugin_missing/plugin_unreachable when Excalidraw or the companion is
 // absent). Reads take read:excalidraw; create/update take write:excalidraw (write
 // family, conditional HITL on overwrite — not the always-elicit execute floor).
-import { VaultId, VaultPath } from "@obsidian-tc/shared";
+import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";

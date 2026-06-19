@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ObsidianTcError } from "@obsidian-tc/shared";
+import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "./types";
 
 export interface Migration {

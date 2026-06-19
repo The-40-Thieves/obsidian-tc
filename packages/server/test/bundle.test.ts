@@ -1,7 +1,7 @@
 // Domain 16 — Smart Context bundling. Filesystem-only, pure: aggregate notes into a
 // single markdown/XML blob, ACL-filtered, with file-count + byte budgets surfaced via
 // an explicit truncated flag and missing_paths.
-import type { ToolResult } from "@obsidian-tc/shared";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { type M4Vault, makeM4Vault } from "./m4-helpers";
 

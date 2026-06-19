@@ -1,4 +1,4 @@
-import { AclConfigSchema, ObsidianTcError, VaultId, VaultPath, err } from "@obsidian-tc/shared";
+import { AclConfigSchema, ObsidianTcError, VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 
 describe("M1 error taxonomy", () => {

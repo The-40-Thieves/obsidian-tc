@@ -5,7 +5,7 @@
 // 200ms before the vault is marked bridges-unavailable; a 404 / explicit
 // plugin_missing means the companion is not installed. The probe never throws —
 // failure degrades the vault's bridge tools, it does not crash startup.
-import { ObsidianTcError } from "@obsidian-tc/shared";
+import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import {
   type CapabilitySnapshot,
   type PluginCapability,

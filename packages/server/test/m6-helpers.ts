@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ServerConfigSchema, type ToolResult } from "@obsidian-tc/shared";
+import { ServerConfigSchema, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import type { CapabilitySnapshot } from "../src/bridge";
 import type { Database } from "../src/db/types";

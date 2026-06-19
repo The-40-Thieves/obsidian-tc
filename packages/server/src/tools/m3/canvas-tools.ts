@@ -6,7 +6,7 @@
 // object in place so unknown node/edge/top-level fields survive. Confirmation is
 // conditional: overwriting an existing canvas and removing >10 nodes require a HITL
 // elicit token; ordinary creates and edits do not.
-import { Pagination, VaultId, VaultPath, WriteOptions, err } from "@obsidian-tc/shared";
+import { Pagination, VaultId, VaultPath, WriteOptions, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import {

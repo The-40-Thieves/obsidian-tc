@@ -2,7 +2,7 @@
 // task lines, no plugin); tasks_filter proxies the Tasks DSL through the bridge.
 // Covers parsing/filtering, in-place edit with content_hash + prev/new state, the
 // reopen-stale conditional HITL, line/not-found errors, ACL, and bridge degradation.
-import type { ToolResult } from "@obsidian-tc/shared";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { type M4Vault, makeM4Vault } from "./m4-helpers";
 

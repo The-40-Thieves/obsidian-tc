@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 const here = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   // Dev: resolve the shared workspace package to source (not built to dist in dev).
-  resolve: { alias: { "@obsidian-tc/shared": resolve(here, "../shared/src/index.ts") } },
+  resolve: { alias: { "@the-40-thieves/obsidian-tc-shared": resolve(here, "../shared/src/index.ts") } },
   test: {
     include: ["test/**/*.test.ts"],
     environment: "node",

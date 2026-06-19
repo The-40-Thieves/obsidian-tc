@@ -1,4 +1,4 @@
-import type { MorgianaEventData, MorgianaEventType } from "@obsidian-tc/shared";
+import type { MorgianaEventData, MorgianaEventType } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { Database } from "../src/db/types";

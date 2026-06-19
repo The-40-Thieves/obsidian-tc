@@ -12,7 +12,7 @@ import {
   CloudEventSchema,
   type MorgianaEventData,
   type MorgianaEventType,
-} from "@obsidian-tc/shared";
+} from "@the-40-thieves/obsidian-tc-shared";
 
 export interface MorgianaEmitterOptions {
   /** Spool root; events go to <cacheDir>/<vault>/morgiana-events-<date>.jsonl. */

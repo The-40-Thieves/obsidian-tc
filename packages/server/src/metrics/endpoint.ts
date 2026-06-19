@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import type { ServerConfig } from "@obsidian-tc/shared";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { Hono } from "hono";
 import { verifyJwt } from "../auth/jwt";
 import type { MetricsRecorder } from "./registry";

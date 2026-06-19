@@ -6,7 +6,7 @@
 // run under a read-only ACL. They are non-secret by construction: this module only
 // ever reads counts, booleans, names, and config limits — never the JWT secret,
 // REST API keys, or embedding API keys (those are not even in M6Deps).
-import { VaultId, VaultPath, parseScope } from "@obsidian-tc/shared";
+import { VaultId, VaultPath, parseScope } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { globMatch } from "../../acl";
 import type { Database } from "../../db/types";

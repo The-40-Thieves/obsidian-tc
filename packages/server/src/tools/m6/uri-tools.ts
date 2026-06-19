@@ -6,7 +6,7 @@
 // passes the vault's display name) so the builder stays pure — it does not consult
 // the registry. Every value is percent-encoded so paths, queries, and fragments
 // round-trip safely.
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";

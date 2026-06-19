@@ -4,7 +4,7 @@
 // existing keys keep their position, new keys append. Comments inside the
 // frontmatter block are not preserved (best-effort; full Document-level fidelity
 // is a later enhancement) — bodies, which carry the prose, are byte-exact.
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import YAML from "yaml";
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(\r?\n|$)/;

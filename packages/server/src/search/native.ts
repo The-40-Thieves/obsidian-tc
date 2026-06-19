@@ -1,5 +1,5 @@
 // Native-optional vector + lexical primitives. The Rust module
-// (@obsidian-tc/native) accelerates cosine similarity, tokenization, and BM25
+// (@the-40-thieves/obsidian-tc-native) accelerates cosine similarity, tokenization, and BM25
 // scoring. When it is not built for the host — the clean-room install, the
 // vitest suite, an unsupported platform — we fall back to pure-JS equivalents.
 // This boundary is required by the M2 design and sanctioned by G2.2 (component
@@ -66,7 +66,7 @@ function loadNative(): NativeOps | null {
   // Computed specifier so the bundler (bun build) does not resolve and inline the
   // platform-specific napi package; it stays a runtime require that throws
   // cleanly (-> JS fallback) when the binary is absent.
-  const pkg = ["@obsidian-tc", "native"].join("/");
+  const pkg = ["@the-40-thieves", "obsidian-tc-native"].join("/");
   try {
     const mod = createRequire(import.meta.url)(pkg) as Partial<NativeOps>;
     if (

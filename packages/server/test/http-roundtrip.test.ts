@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { type ServerConfig, ServerConfigSchema } from "@obsidian-tc/shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";

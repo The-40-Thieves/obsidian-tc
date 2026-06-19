@@ -1,7 +1,7 @@
 // M6 Domain 28 admin tools through real dispatch (THE-182): get_server_config,
 // inspect_acl, get_metrics. Proves the admin surface is complete, leaks no secrets,
 // faithfully mirrors ACL enforcement, and snapshots real event_log + limiter data.
-import type { ToolResult } from "@obsidian-tc/shared";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolRegistry } from "../src/mcp/registry";
 import { RateLimiter } from "../src/throttle";

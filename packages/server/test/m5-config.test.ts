@@ -5,7 +5,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@obsidian-tc/shared";
+import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config/load";
 

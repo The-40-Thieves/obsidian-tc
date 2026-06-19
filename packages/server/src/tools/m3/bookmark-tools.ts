@@ -6,7 +6,7 @@
 // like any vault file, and edits round-trip through json-config: parse to the raw
 // object, mutate only items in place, re-serialize with the file's own indentation,
 // so unknown keys and on-disk key order survive. add/remove are deduped/idempotent.
-import { VaultId, err } from "@obsidian-tc/shared";
+import { VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";

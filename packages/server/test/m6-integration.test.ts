@@ -4,7 +4,7 @@
 // per-item report, the bulk HITL floor, read-only ACL denial, the token-bucket
 // throttle, a generated URI, the admin tools, and event_log audit rows. No live
 // Obsidian, no network.
-import type { ToolResult } from "@obsidian-tc/shared";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { RateLimiter } from "../src/throttle";
 import { registerM6Tools } from "../src/tools/m6";

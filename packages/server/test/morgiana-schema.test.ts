@@ -2,7 +2,7 @@ import {
   CloudEventSchema,
   MORGIANA_EVENT_TYPES,
   MorgianaEventDataSchema,
-} from "@obsidian-tc/shared";
+} from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 
 describe("MORGIANA CloudEvents schema (G2.4)", () => {

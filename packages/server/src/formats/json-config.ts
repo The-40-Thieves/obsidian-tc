@@ -5,7 +5,7 @@
 // then re-serialize with the file's original indentation. A missing file yields a
 // caller-supplied empty default; a malformed file throws invalid_input.
 import { existsSync, readFileSync } from "node:fs";
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { writeNoteAtomic } from "../vault/notes-io";
 import { contentHash } from "../vault/paths";
 

@@ -8,7 +8,7 @@ import {
   isMutatingScope,
   scopeClassOf,
   scopeRequiresHitl,
-} from "@obsidian-tc/shared";
+} from "@the-40-thieves/obsidian-tc-shared";
 import { type Span, SpanKind, SpanStatusCode, type Tracer } from "@opentelemetry/api";
 import type { z } from "zod";
 import type { FolderAcl } from "../acl";

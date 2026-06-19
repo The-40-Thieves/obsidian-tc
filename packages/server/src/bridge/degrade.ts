@@ -3,7 +3,7 @@
 // absent degrades to plugin_missing, a companion that did not answer degrades to
 // plugin_unreachable, and an available plugin returns its reported version. Only
 // the plugin name (never a token) is surfaced in the error details.
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { type CapabilitySnapshot, pluginStatus } from "./capabilities";
 
 export function requirePlugin(snap: CapabilitySnapshot, plugin: string): { version?: string } {

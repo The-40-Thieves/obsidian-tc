@@ -12,7 +12,7 @@ permissions:
 # Reconciled in M7 (THE-183): 4-platform native matrix (linux-arm64 deferred to v1.1 per the G3
 # amendment, THE-141); no cosign/SBOM (also deferred to v1.1); text bun.lock. Fires only on a
 # human-pushed v* tag — it is config-verified here, not executed. NOTE (R5): the workspace
-# packages are still scoped @obsidian-tc/*; the spec's published scope is
+# packages are still scoped @the-40-thieves/obsidian-tc-*; the spec's published scope is
 # @the-40-thieves/obsidian-tc-*. Renaming is a flagged pre-publish follow-up (config-only this
 # milestone), so the npm-publish jobs require that rename + the NPM_TOKEN secret before the tag.
 jobs:

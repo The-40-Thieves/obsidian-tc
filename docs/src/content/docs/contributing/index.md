@@ -26,7 +26,7 @@ obsidian-tc is a Bun workspace monorepo:
 ```sh
 bun install
 bun run lint
-bun run --filter=@obsidian-tc/shared build
+bun run --filter=@the-40-thieves/obsidian-tc-shared build
 bun run --filter=obsidian-tc test          # vitest, with a v8 coverage gate (>80%)
 ```
 
