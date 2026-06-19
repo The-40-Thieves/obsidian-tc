@@ -144,18 +144,45 @@ export const ThrottleConfigSchema = z
   .default({});
 export type ThrottleConfig = z.infer<typeof ThrottleConfigSchema>;
 
+// Observability config (G2.4 §Observability — finalized in M7/THE-183). Three opt-in
+// export streams plus retention, all fully defaulted so a config predating M7 validates
+// unchanged. OTEL is a no-op unless `otel.endpoint` is set; the Prometheus `/metrics`
+// endpoint stays disabled until `prometheus.enabled`; MORGIANA spools CloudEvents JSONL
+// by default and HTTP-pushes only when `morgiana.httpEndpoint` is set. camelCase mirrors
+// the rest of the config. (M6 shipped a placeholder `otel: boolean` / `morgiana: {mode}`
+// shape; M7 finalizes it to the G2.4 shape before the v1.0 additive-only freeze.)
 export const ObservabilityConfigSchema = z.object({
-  otel: z.boolean().default(false),
+  traceDetail: z.enum(["standard", "verbose"]).default("standard"),
+  tracesSampleRate: z.number().min(0).max(1).default(1),
+  otel: z
+    .object({
+      endpoint: z.string().url().optional(),
+      headers: z.record(z.string()).default({}),
+    })
+    .default({}),
   prometheus: z
-    .object({ enabled: z.boolean().default(false), port: z.number().int().default(9464) })
+    .object({
+      enabled: z.boolean().default(false),
+      port: z.number().int().min(0).max(65535).default(9464),
+      bind: z.string().default("127.0.0.1"),
+    })
     .default({}),
   morgiana: z
     .object({
-      mode: z.enum(["off", "jsonl", "http"]).default("jsonl"),
-      endpoint: z.string().url().optional(),
+      spool: z.boolean().default(true),
+      httpEndpoint: z.string().url().optional(),
+      httpHeaders: z.record(z.string()).default({}),
+    })
+    .default({}),
+  retention: z
+    .object({
+      morgianaEventsDays: z.number().int().positive().default(90),
+      tracesDays: z.number().int().positive().default(90),
+      eventLogDays: z.number().int().positive().default(30),
     })
     .default({}),
 });
+export type ObservabilityConfig = z.infer<typeof ObservabilityConfigSchema>;
 
 // plur read-API proxy config (M5 / THE-181, G2.1 Domain 24). GLOBAL, not per-vault:
 // the plur engram store is global and the plur tools take no `vault` argument, so

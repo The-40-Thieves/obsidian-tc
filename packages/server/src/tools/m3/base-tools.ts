@@ -8,7 +8,13 @@
 // { ...frontmatter, path, name, tags, content }; `formulas` whose value is a
 // JSONLogic object are computed per row and added as columns. Non-object filters
 // (e.g. a real Bases filter string) match all rows — documented, no silent failure.
-import { Pagination, VaultId, VaultPath, WriteOptions, err } from "@obsidian-tc/shared";
+import {
+  Pagination,
+  VaultId,
+  VaultPath,
+  WriteOptions,
+  err,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import { BaseDoc, baseViews, parseBase, selectView, serializeBase } from "../../formats/base";

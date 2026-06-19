@@ -7,20 +7,19 @@ export default defineConfig({
     starlight({
       title: 'obsidian-tc',
       description: 'A turbocharged Model Context Protocol server for Obsidian.',
-      logo: { src: './public/logo.svg' },
-      social: {
-        github: 'https://github.com/the-40-thieves/obsidian-tc',
-      },
+      social: [
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/the-40-thieves/obsidian-tc' },
+      ],
       sidebar: [
-        { label: 'Getting Started', autogenerate: { directory: 'getting-started' } },
-        { label: 'Tools', autogenerate: { directory: 'tools' } },
-        { label: 'Deployment', autogenerate: { directory: 'deployment' } },
-        { label: 'Security', autogenerate: { directory: 'security' } },
-        { label: 'Observability', autogenerate: { directory: 'observability' } },
-        { label: 'Configuration', autogenerate: { directory: 'configuration' } },
-        { label: 'Contributing', autogenerate: { directory: 'contributing' } },
-        { label: 'Roadmap', link: '/roadmap' },
-        { label: 'V2 Preview', autogenerate: { directory: 'v2-preview' } },
+        { label: 'Getting Started', items: [{ autogenerate: { directory: 'getting-started' } }] },
+        { label: 'Tools', items: [{ autogenerate: { directory: 'tools' } }] },
+        { label: 'Deployment', items: [{ autogenerate: { directory: 'deployment' } }] },
+        { label: 'Security', items: [{ autogenerate: { directory: 'security' } }] },
+        { label: 'Observability', items: [{ autogenerate: { directory: 'observability' } }] },
+        { label: 'Configuration', items: [{ autogenerate: { directory: 'configuration' } }] },
+        { label: 'Contributing', items: [{ autogenerate: { directory: 'contributing' } }] },
+        { label: 'Roadmap', link: '/roadmap/' },
+        { label: 'V2 Preview', items: [{ autogenerate: { directory: 'v2-preview' } }] },
       ],
       editLink: {
         baseUrl: 'https://github.com/the-40-thieves/obsidian-tc/edit/main/docs/',

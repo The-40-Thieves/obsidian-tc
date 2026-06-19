@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FolderAcl } from "./acl";
+import { writeEvent } from "./audit";
 import {
   type BridgeClient,
   CapabilityCache,
@@ -15,6 +16,10 @@ import { elicitVerifier } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
+import { startMetricsEndpoint } from "./metrics/endpoint";
+import { MetricsRecorder } from "./metrics/registry";
+import { MorgianaEmitter } from "./morgiana/emitter";
+import { initOtel } from "./otel/tracing";
 import { createPlurClient } from "./plur/client";
 import { RateLimiter } from "./throttle";
 import { createHealthTool } from "./tools/admin/health";
@@ -35,7 +40,7 @@ import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { VaultRegistry } from "./vault/registry";
 
-const VERSION = "0.0.0-pre";
+const VERSION = "1.0.0";
 
 // The migration SQL is read relative to this module; the build copies
 // src/migrations -> dist/migrations (scripts/copy-assets.mjs) so the bundled
@@ -60,9 +65,41 @@ async function main(): Promise<void> {
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
   runMigrations(db, [{ version: "20260519_001", sql: initialMigrationSql }], { version: VERSION });
 
+  // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
+  // share the same in-memory counters. The scrape endpoint is started below only when
+  // observability.prometheus.enabled (default off / `:0`).
+  // OTEL tracing (G2.4) — no-op unless observability.otel.endpoint is set.
+  const otel = initOtel(config.observability, VERSION);
+  const metrics = new MetricsRecorder();
+  // MORGIANA CloudEvents spool (G2.4) — JSONL by default; a dropped event feeds
+  // morgiana_emit_dropped_total + the event_log and never blocks a tool call.
+  const morgiana = new MorgianaEmitter({
+    cacheDir: config.cacheDir,
+    spool: config.observability.morgiana.spool,
+    onDropped: (vaultId, reason) => {
+      metrics.incMorgianaDropped(vaultId, reason);
+      try {
+        writeEvent(db, {
+          ts: Date.now(),
+          vault_id: vaultId,
+          status: "skipped",
+          error_code: reason,
+          event_type: "morgiana_emit_dropped",
+        });
+      } catch {
+        /* event_log is best-effort */
+      }
+    },
+  });
+  // Shared rate limiter (G2.4 tiers) — the dispatch gate (THE-210) and get_metrics share it.
+  const rateLimiter = new RateLimiter(config.throttle.tiers);
   const registry = new ToolRegistry({
     maxResponseBytes: config.governor.maxResponseBytes,
     verifyElicit: elicitVerifier,
+    metrics,
+    tracer: otel.tracer,
+    emit: (vaultId, type, data) => morgiana.emit(vaultId, type, data),
+    rateLimiter,
   });
   registry.register(
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
@@ -158,15 +195,15 @@ async function main(): Promise<void> {
   // read non-secret config/ACL/metrics; URI generation is a pure builder.
   const m6Deps: M6Deps = {
     vaultRegistry,
-    rateLimiter: new RateLimiter(config.throttle.tiers),
+    rateLimiter,
     version: VERSION,
     startedAt,
     authMode: config.auth.mode,
     throttle: config.throttle,
     observability: {
-      otel: config.observability.otel,
+      otel: !!config.observability.otel.endpoint,
       prometheus: config.observability.prometheus.enabled,
-      morgiana: config.observability.morgiana.mode !== "off",
+      morgiana: config.observability.morgiana.spool || !!config.observability.morgiana.httpEndpoint,
     },
     embeddingsProvider: config.embeddings.provider,
     governorMaxResponseBytes: config.governor.maxResponseBytes,
@@ -206,6 +243,32 @@ async function main(): Promise<void> {
       `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,
     );
   }
+
+  if (config.observability.prometheus.enabled) {
+    const m = await startMetricsEndpoint({
+      recorder: metrics,
+      bind: config.observability.prometheus.bind,
+      port: config.observability.prometheus.port,
+      auth: config.auth,
+    });
+    process.stderr.write(
+      `obsidian-tc /metrics on ${config.observability.prometheus.bind}:${m.port}\n`,
+    );
+  }
+
+  morgiana.emit(firstVault.id, "tc.server.start");
+
+  const shutdown = async (): Promise<void> => {
+    morgiana.emit(firstVault.id, "tc.server.shutdown");
+    try {
+      await otel.shutdown();
+    } catch {
+      /* shutdown is best-effort */
+    }
+    process.exit(0);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 
   await connectStdio(server);
   process.stderr.write(`obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id})\n`);

@@ -4,7 +4,7 @@
 // hardcoded HITL floor (scopes.ts) — meaning dispatch ALWAYS requires a human
 // elicit token before the handler runs. Template expansion is never silently
 // executable. Uses the longer templater timeout (expansion can be slow).
-import { VaultId, VaultPath } from "@obsidian-tc/shared";
+import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";

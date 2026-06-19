@@ -1,4 +1,4 @@
-import type { ToolResult } from "@obsidian-tc/shared";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { makeM2Vault } from "./m2-helpers";
 

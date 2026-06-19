@@ -1,18 +1,17 @@
 {
-  "name": "@obsidian-tc/native",
-  "version": "0.0.0-pre",
+  "name": "@the-40-thieves/obsidian-tc-native",
+  "version": "1.0.0",
   "description": "Native perf module for obsidian-tc — vector ops, BM25, sqlite-vec, V2 clustering hooks",
   "license": "Apache-2.0",
   "main": "index.js",
   "types": "index.d.ts",
-  "files": ["index.js", "index.d.ts", "*.node"],
+  "files": ["index.js", "index.d.ts", "fallback.js", "*.node"],
   "napi": {
     "name": "obsidian-tc-native",
     "triples": {
       "defaults": false,
       "additional": [
         "x86_64-unknown-linux-gnu",
-        "aarch64-unknown-linux-gnu",
         "x86_64-apple-darwin",
         "aarch64-apple-darwin",
         "x86_64-pc-windows-msvc"
@@ -22,6 +21,7 @@
   "scripts": {
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
+    "typecheck": "tsc -p tsconfig.json",
     "test": "cargo test",
     "prepublishOnly": "napi prepublish -t npm",
     "version": "napi version"
@@ -31,5 +31,17 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-40-Thieves/obsidian-tc.git",
+    "directory": "packages/native"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
   }
 }

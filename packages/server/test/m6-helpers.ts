@@ -9,14 +9,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ServerConfigSchema, type ToolResult } from "@obsidian-tc/shared";
+import { ServerConfigSchema, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import type { CapabilitySnapshot } from "../src/bridge";
 import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
-import { RateLimiter } from "../src/throttle";
+import { RateLimiter, type ThrottleTiers } from "../src/throttle";
 import { registerM1Tools } from "../src/tools/m1";
 import type { M6Deps } from "../src/tools/m6/shared";
 import { VaultRegistry } from "../src/vault/registry";
@@ -28,6 +28,17 @@ const schemaSql = readFileSync(
 );
 
 const DEFAULT_THROTTLE = ServerConfigSchema.parse({ vaults: [{ id: "x", path: "/x" }] }).throttle;
+
+// Tests that do not exercise throttling get an effectively-unlimited limiter; throttle tests
+// pass their own RateLimiter (default G2.4 tiers) explicitly. (THE-210 made every scope class
+// rate-limited, so the prior unthrottled assumption no longer holds for the default.)
+const NO_THROTTLE: ThrottleTiers = {
+  read: { perMinute: 1_000_000, burst: 1_000_000 },
+  write: { perMinute: 1_000_000, burst: 1_000_000 },
+  bulk: { perMinute: 1_000_000, burst: 1_000_000 },
+  execute: { perMinute: 1_000_000, burst: 1_000_000 },
+  admin: { perMinute: 1_000_000, burst: 1_000_000 },
+};
 
 export interface M6VaultOptions {
   files?: Record<string, string>;
@@ -89,9 +100,9 @@ export function makeM6Vault(opts: M6VaultOptions): M6Vault {
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([{ id, name: id, path: root }]);
-  const rateLimiter = opts.rateLimiter ?? new RateLimiter();
+  const rateLimiter = opts.rateLimiter ?? new RateLimiter(NO_THROTTLE);
 
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({ verifyElicit: elicitVerifier, rateLimiter });
   const deps: M6Deps = {
     vaultRegistry,
     rateLimiter,

@@ -6,7 +6,7 @@
 // mutations take write:workspace (write family — readOnly kill-switch applies, no
 // execute HITL floor; spec hitl:never). The append contract (appendTrace) is what the
 // ambient capture worker (THE-175) targets to add tool-invocation records over time.
-import { Pagination, VaultId, err } from "@obsidian-tc/shared";
+import { Pagination, VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";

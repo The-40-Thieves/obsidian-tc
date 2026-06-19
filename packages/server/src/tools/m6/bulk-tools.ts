@@ -4,8 +4,8 @@
 // auto-floors a HITL elicit token (bulk is in HITL_FLOOR_FAMILIES) AND denies the
 // call under a read-only ACL (bulk is in MUTATING_FAMILIES) — no per-tool floor
 // logic needed. Every sub-operation still funnels through resolveVaultPath +
-// enforcePathAcl per target. Each call consumes one token from the shared `bulk`
-// rate-limiter bucket (throttled -> err.throttled with the G2.4 detail fields).
+// enforcePathAcl per target. Rate limiting is enforced once, dispatch-wide, by the policy
+// gate (THE-210): bulk tools resolve to the `bulk` tier there, not here.
 //
 // Partial-failure contract:
 //   - bulk_create_notes / bulk_set_property: best-effort-continue by default
@@ -16,10 +16,15 @@
 //
 // idempotency_key / bulk_idempotency_key are accepted as forward-compat surface
 // (replay dedup is THE-197, Policy layer) — same stance as M1 WriteOptions.
-import { ElicitToken, ObsidianTcError, VaultId, VaultPath, err } from "@obsidian-tc/shared";
+import {
+  ElicitToken,
+  ObsidianTcError,
+  VaultId,
+  VaultPath,
+  err,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import type { CallerContext, ToolDefinition } from "../../mcp/registry";
-import { type RateLimiter, callerHash } from "../../throttle";
+import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { runBulk } from "../../vault/bulk";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
@@ -29,21 +34,6 @@ import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "..
 import { rewriteLinks } from "../../vault/rewrite";
 import { defineTool } from "../m1/define";
 import type { M6Deps } from "./shared";
-
-// ── throttle ──────────────────────────────────────────────────────────────────
-
-/** Consume one token from the shared `bulk` bucket; throttled -> err.throttled. */
-function enforceBulkThrottle(rl: RateLimiter, ctx: CallerContext, vaultId: string): void {
-  const now = (ctx.now ?? Date.now)();
-  const d = rl.check(callerHash(ctx.caller), "bulk", vaultId, now);
-  if (!d.ok)
-    throw err.throttled("bulk rate limit exceeded", {
-      scope_class: d.scopeClass,
-      retry_after_seconds: d.retryAfterSeconds,
-      current_burst: d.currentBurst,
-      current_rate: d.currentRate,
-    });
-}
 
 // ── move helpers ────────────────────────────────────────────────────────────────
 
@@ -171,7 +161,6 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       requiredScopes: ["write:notes", "bulk:notes"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        enforceBulkThrottle(deps.rateLimiter, ctx, v.id);
         const report = await runBulk(
           input.items,
           {
@@ -211,7 +200,6 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       requiredScopes: ["write:notes", "bulk:notes"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        enforceBulkThrottle(deps.rateLimiter, ctx, v.id);
         const report = await runBulk(
           input.paths,
           {
@@ -247,8 +235,6 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       requiredScopes: ["write:notes", "delete:notes", "bulk:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        enforceBulkThrottle(deps.rateLimiter, ctx, v.id);
-
         interface MoveRow {
           from: string;
           to: string;

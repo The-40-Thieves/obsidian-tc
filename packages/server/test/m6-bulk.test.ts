@@ -3,7 +3,7 @@
 // throttle, the per-item partial-failure report, and the bulk_move dry_run/real +
 // all-or-nothing backlink rewrite. The RateLimiter clock is pinned via ctx.now so
 // the throttle assertions are deterministic.
-import type { ToolResult } from "@obsidian-tc/shared";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { RateLimiter } from "../src/throttle";
 import { buildBulkTools } from "../src/tools/m6/bulk-tools";

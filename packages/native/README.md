@@ -1,4 +1,4 @@
-# @obsidian-tc/native
+# @the-40-thieves/obsidian-tc-native
 
 Native perf module for obsidian-tc. Rust via [napi-rs](https://napi.rs).
 

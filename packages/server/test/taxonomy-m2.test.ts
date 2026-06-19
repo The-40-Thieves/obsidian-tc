@@ -1,4 +1,4 @@
-import { ObsidianTcError, err } from "@obsidian-tc/shared";
+import { ObsidianTcError, err } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 
 // M2 (G4.M2 / THE-178) extends the M1 taxonomy with the G2.1 Domain-6 search +

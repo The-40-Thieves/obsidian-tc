@@ -1,5 +1,5 @@
 // Embedding provider abstraction (G2.2 component 8).
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 export interface EmbeddingProvider {
   readonly id: string;
   readonly provider: string;

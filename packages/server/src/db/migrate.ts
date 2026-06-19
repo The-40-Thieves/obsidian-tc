@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ObsidianTcError } from "@obsidian-tc/shared";
+import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "./types";
 
 export interface Migration {
@@ -33,7 +33,7 @@ export function runMigrations(
   opts: MigrateOptions = {},
 ): string[] {
   const now = opts.now ?? Date.now;
-  const appVersion = opts.version ?? "0.0.0-pre";
+  const appVersion = opts.version ?? "1.0.0";
   ensureMigrationsTable(db);
   const sorted = [...migrations].sort((a, b) => a.version.localeCompare(b.version));
   const getRow = db.prepare("SELECT checksum FROM schema_migrations WHERE version = ?");

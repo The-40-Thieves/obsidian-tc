@@ -3,7 +3,7 @@
 // both the stdio and HTTP edges. openBridge is the gate every bridge-proxy tool
 // runs first: it degrades (plugin_missing / plugin_unreachable) via the probed
 // capability snapshot before any network call, and yields the per-vault client.
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { type BridgeClient, type CapabilityCache, requirePlugin } from "../../bridge";
 import type { VaultRegistry } from "../../vault/registry";
 

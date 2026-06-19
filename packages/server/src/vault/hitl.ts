@@ -5,7 +5,7 @@
 // never demand confirmation. The token is bound to argsHash(toolName, input);
 // callers obtain one via issueElicitToken and resubmit. Single-use is enforced
 // by verifyAndConsumeElicit (the UPDATE ... WHERE consumed_at IS NULL).
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { verifyAndConsumeElicit } from "../elicit";
 import { argsHash } from "../hash";
 import type { CallerContext } from "../mcp/registry";

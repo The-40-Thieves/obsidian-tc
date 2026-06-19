@@ -3,7 +3,7 @@
 // fallback is the contract). Line/col are 1-based against the raw file so they
 // line up with what the editor shows. search_text ranks files by BM25 over the
 // query terms using the native module (JS fallback when the binary is absent).
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVault } from "../vault/paths";
 import { bm25Score, tokenize } from "./native";

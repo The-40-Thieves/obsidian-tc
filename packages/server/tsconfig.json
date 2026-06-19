@@ -6,7 +6,7 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@obsidian-tc/shared": ["../shared/src/index.ts"]
+      "@the-40-thieves/obsidian-tc-shared": ["../shared/src/index.ts"]
     }
   },
   "include": ["src", "test"]

@@ -1,0 +1,18 @@
+# gitleaks configuration for obsidian-tc.
+#
+# Extends the upstream default ruleset (useDefault = true) and adds ONE narrow
+# allowlist entry for the single known false positive surfaced by the M7
+# pre-public history scan: an illustrative, fake token ID inside a CLI-transcript
+# code block in docs/G2.5-release-engineering.md ("[auth] minted token
+# jti=tok_a1b2c3d4"). It is a documentation placeholder, NOT a real credential.
+# Scoped to the exact literal so it cannot mask a genuine secret elsewhere.
+# See the G4.M7 ship PR (THE-183) and decision note for the triage record.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Illustrative fake token ID in a design-doc CLI transcript (placeholder, not a real secret)"
+regexes = [
+  '''tok_a1b2c3d4''',
+]

@@ -6,7 +6,7 @@
 // not answer (plugin_unreachable); a bridge envelope reporting a plugin is not
 // installed maps to plugin_missing. The bearer token comes from vault config/env
 // only and is never logged or placed in an error/audit payload.
-import { type ErrorCode, ObsidianTcError, err } from "@obsidian-tc/shared";
+import { type ErrorCode, ObsidianTcError, err } from "@the-40-thieves/obsidian-tc-shared";
 
 /** Injectable transport: the global `fetch` in production, a fake in tests. */
 export type BridgeFetch = typeof fetch;

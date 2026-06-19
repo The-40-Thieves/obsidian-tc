@@ -11,7 +11,7 @@ on:
     branches: [main]
 
 # The companion plugin (THE-180 / G4.M4) is a standalone esbuild bundle that
-# externalizes the Obsidian runtime; it has no @obsidian-tc/shared dependency, so
+# externalizes the Obsidian runtime; it has no @the-40-thieves/obsidian-tc-shared dependency, so
 # lint + typecheck + build run without compiling the other packages first. The
 # build artifact (dist/main.js + manifest.json) is what a user drops into a vault's
 # .obsidian/plugins/obsidian-tc folder. Live-Obsidian behavior is verified manually

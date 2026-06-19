@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { type ServerConfig, ServerConfigSchema } from "@obsidian-tc/shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 
 /**
  * Load and validate server config from a JSON file. The JWT secret may be

@@ -1,4 +1,4 @@
-import { ServerConfigSchema } from "@obsidian-tc/shared";
+import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 
 describe("config schema", () => {
@@ -25,6 +25,50 @@ describe("config schema", () => {
     });
     expect(c.throttle.tiers.bulk).toEqual({ perMinute: 5, burst: 2 });
     expect(c.throttle.tiers.write).toEqual({ perMinute: 60, burst: 20 });
+  });
+
+  it("applies observability defaults (export streams off/local by default, M7)", () => {
+    const c = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }] });
+    expect(c.observability.traceDetail).toBe("standard");
+    expect(c.observability.tracesSampleRate).toBe(1);
+    // OTEL is a no-op until an endpoint is set.
+    expect(c.observability.otel.endpoint).toBeUndefined();
+    expect(c.observability.otel.headers).toEqual({});
+    // /metrics endpoint disabled by default; bind localhost only.
+    expect(c.observability.prometheus).toEqual({ enabled: false, port: 9464, bind: "127.0.0.1" });
+    // MORGIANA JSONL spool on by default; HTTP push off.
+    expect(c.observability.morgiana.spool).toBe(true);
+    expect(c.observability.morgiana.httpEndpoint).toBeUndefined();
+    expect(c.observability.morgiana.httpHeaders).toEqual({});
+    expect(c.observability.retention).toEqual({
+      morgianaEventsDays: 90,
+      tracesDays: 90,
+      eventLogDays: 30,
+    });
+  });
+
+  it("accepts the full G2.4 observability shape and fills inner gaps", () => {
+    const c = ServerConfigSchema.parse({
+      vaults: [{ id: "m", path: "/v" }],
+      observability: {
+        traceDetail: "verbose",
+        tracesSampleRate: 0.5,
+        otel: { endpoint: "http://localhost:4318", headers: { Authorization: "Bearer x" } },
+        prometheus: { enabled: true, port: 9999, bind: "0.0.0.0" },
+        morgiana: { spool: false, httpEndpoint: "https://morgiana.internal/events" },
+        retention: { eventLogDays: 7 },
+      },
+    });
+    expect(c.observability.traceDetail).toBe("verbose");
+    expect(c.observability.tracesSampleRate).toBe(0.5);
+    expect(c.observability.otel.endpoint).toBe("http://localhost:4318");
+    expect(c.observability.otel.headers).toEqual({ Authorization: "Bearer x" });
+    expect(c.observability.prometheus).toEqual({ enabled: true, port: 9999, bind: "0.0.0.0" });
+    expect(c.observability.morgiana.spool).toBe(false);
+    expect(c.observability.morgiana.httpEndpoint).toBe("https://morgiana.internal/events");
+    // Unspecified inner retention fields still fill their defaults.
+    expect(c.observability.retention.tracesDays).toBe(90);
+    expect(c.observability.retention.eventLogDays).toBe(7);
   });
 
   it("requires at least one vault", () => {

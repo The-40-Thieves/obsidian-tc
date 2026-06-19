@@ -4,7 +4,7 @@
 // rows the pipeline writes — including the HITL elicit cycle and a folder-ACL
 // denial. It is the proof that the M1 tool surface composes through the full M0
 // pipeline (validate → auth → scope/ACL → HITL → execute → audit).
-import type { ToolResult } from "@obsidian-tc/shared";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { makeTestVault } from "./m1-helpers";

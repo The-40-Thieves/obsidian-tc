@@ -11,7 +11,7 @@
 // are documented choices so resolution is deterministic without a live Obsidian.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { normalizeVaultPath } from "../vault/paths";
 
 export type Period = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";

@@ -6,7 +6,7 @@
 // reused YAML engine does not preserve comments (a documented limitation it shares
 // with the M1 frontmatter engine); keys and values are preserved. Malformed YAML or
 // a non-mapping root throws bases_syntax_error.
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import YAML from "yaml";
 import { z } from "zod";
 

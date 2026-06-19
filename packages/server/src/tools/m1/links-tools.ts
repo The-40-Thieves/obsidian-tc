@@ -5,7 +5,7 @@
 // invisible to the graph. rewrite_link and prune_hub_links default to dry_run
 // (preview, no write, no confirmation); a real run (dry_run:false) enforces write
 // ACL and gates on requireConfirmation.
-import { VaultId, VaultPath, err } from "@obsidian-tc/shared";
+import { VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";

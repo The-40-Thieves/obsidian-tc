@@ -4,7 +4,7 @@
 // expression used something unsupported. Faithful to jsonlogic.com semantics for
 // the implemented subset: a rule object has exactly one operator key; arrays and
 // primitives evaluate to themselves; `var` does dotted-path lookup with a default.
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 
 export type JsonLogic = unknown;
 
