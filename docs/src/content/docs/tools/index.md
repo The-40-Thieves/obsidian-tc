@@ -1,9 +1,9 @@
 ---
 title: Tool Reference
-description: The 105-tool, 28-domain surface obsidian-tc exposes to MCP clients.
+description: The 103-tool, 28-domain surface obsidian-tc exposes to MCP clients.
 ---
 
-obsidian-tc exposes **105 tools across 28 domains**. Every tool has a
+obsidian-tc exposes **103 tools across 28 domains**. Every tool has a
 Zod-validated input schema, a structured result, a declared scope set, and a
 scope class that selects its rate-limit tier.
 
