@@ -7,7 +7,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ## [1.0.1] - 2026-06-19
 
 First public release: a comprehensive, model-agnostic, agent-ready Obsidian MCP server —
-the full v1.0 tool surface (G2.1 Domains 1–28, ~105 tools) plus the M7 hardening gate.
+the full v1.0 tool surface (G2.1 Domains 1–28, 103 tools) plus the M7 hardening gate.
 
 ### Added
 

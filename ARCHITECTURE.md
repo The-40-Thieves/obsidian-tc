@@ -22,12 +22,12 @@ tags:
 **Gate state:** G2.2 (Architecture) — DRAFT 2026-05-18 across one engineering-partner session
 **Repo destination:** `ARCHITECTURE.md` in private repo (deferred until staged for commit)
 **Source decisions:** [[2026-05-18-obsidian-tc-v1-locked]], [[2026-05-18-obsidian-tc-private-development]], [[2026-05-18-obsidian-tc-g2.1-conventions]]
-**Inherits:** [[02-projects/obsidian-tc/G2.1-tools-draft]] r2 (105 tools), [[02-projects/obsidian-tc/G2-architecture]] overview
+**Inherits:** [[02-projects/obsidian-tc/G2.1-tools-draft]] r2 (103 tools), [[02-projects/obsidian-tc/G2-architecture]] overview
 **Linear:** THE-115 (3pt)
 
 ## Scope and inheritance
 
-This sub-doc commits the topology, IPC contracts, and dispatch pipeline for V1. It inherits the 105-tool surface from G2.1 r2 and the polyglot architecture from G1.
+This sub-doc commits the topology, IPC contracts, and dispatch pipeline for V1. It inherits the 103-tool surface from G2.1 r2 and the polyglot architecture from G1.
 
 **Resolved here:**
 - G2 architecture parent's open question 3 (plugin discovery) — precise probe contract in §6.
@@ -771,7 +771,7 @@ The ACL layer is the natural home for declarative access decisions. It already e
 
 ### Why not the other layers
 
-- **Tool implementations.** Scattering scope checks across 105 tools means: (a) every new scope class requires touching every tool that uses it; (b) scope-check bugs are tool-local; (c) the security audit surface grows by 105×. Rejected.
+- **Tool implementations.** Scattering scope checks across 103 tools means: (a) every new scope class requires touching every tool that uses it; (b) scope-check bugs are tool-local; (c) the security audit surface grows by 103×. Rejected.
 - **Policy.** Policy handles HITL/throttle/idempotency — operational concerns. Mixing access control into the same layer violates separation. Rejected.
 - **Transport.** Transport is pre-auth. Scope checks require `AuthContext`. Rejected.
 
@@ -832,7 +832,7 @@ Source: modelcontextprotocol.io spec endpoint and the official 2026 roadmap blog
 
 ### Server-advertised capabilities
 
-- **`tools`**: yes (105 tools).
+- **`tools`**: yes (103 tools).
 - **`resources`**: deferred to V1.x. MCP resources (vault notes as listed, fetchable URIs) is a natural addition but adds a primitive surface and changes how clients discover content. V1 ships tool-only to keep the surface bounded.
 - **`prompts`**: no. Out of scope for V1 — obsidian-tc is not a prompt library.
 - **`elicitation`**: yes. HITL pattern uses MCP's elicitation primitive (server returns an elicit response with a token; client surfaces to user; user response carries token back).
@@ -924,7 +924,7 @@ Pickup signal: "open G2.3" or "obsidian-tc storage."
 - [[2026-05-18-obsidian-tc-v1-locked]] — G1 close, 8 locked decisions
 - [[2026-05-18-obsidian-tc-private-development]] — repo private through v1.0
 - [[2026-05-18-obsidian-tc-g2.1-conventions]] — G2.1 conventions (naming, auto mode, plugin discovery hybrid)
-- [[02-projects/obsidian-tc/G2.1-tools-draft]] — G2.1 r2, 105-tool surface
+- [[02-projects/obsidian-tc/G2.1-tools-draft]] — G2.1 r2, 103-tool surface
 - [[02-projects/obsidian-tc/G2-architecture]] — G2 overview parent
 - [[02-projects/obsidian-tc/README]] — project tracking
 - MCP spec 2025-11-25 — https://modelcontextprotocol.io/specification/2025-11-25
