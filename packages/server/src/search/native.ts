@@ -62,13 +62,34 @@ export function jsBm25Score(
   return (idf * (tf * (k1 + 1))) / denom;
 }
 
-function loadNative(): NativeOps | null {
-  // Computed specifier so the bundler (bun build) does not resolve and inline the
-  // platform-specific napi package; it stays a runtime require that throws
-  // cleanly (-> JS fallback) when the binary is absent.
-  const pkg = ["@the-40-thieves", "obsidian-tc-native"].join("/");
+/** Runtime `require` shape; injectable so unit tests can supply a fake native module. */
+type NativeRequire = (specifier: string) => unknown;
+
+// Computed specifier so the bundler (bun build) does not resolve and inline the
+// platform-specific napi package; it stays a runtime require that throws
+// cleanly (-> JS fallback) when the binary is absent.
+const NATIVE_PKG = ["@the-40-thieves", "obsidian-tc-native"].join("/");
+
+/**
+ * Select the search backend: the compiled native module, or `null` to signal the
+ * pure-JS fallback. Returns `null` when either:
+ *   - `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` is set — a deterministic escape hatch the
+ *     pure-JS fallback CI job (ci-native.yml) uses to exercise the JS path even on
+ *     a host where the .node IS built, so the fallback stays correct as the native
+ *     API evolves; or
+ *   - the native module is absent or incomplete (`require` throws, or an expected
+ *     export is missing).
+ *
+ * @internal Exported for unit tests; production code uses the bound exports
+ * (`cosineSimilarity` / `tokenize` / `bm25Score` / `nativeLoaded`) below.
+ */
+export function loadNative(
+  env: NodeJS.ProcessEnv = process.env,
+  requireFn: NativeRequire = createRequire(import.meta.url),
+): NativeOps | null {
+  if (env.OBSIDIAN_TC_FORCE_JS_FALLBACK === "1") return null;
   try {
-    const mod = createRequire(import.meta.url)(pkg) as Partial<NativeOps>;
+    const mod = requireFn(NATIVE_PKG) as Partial<NativeOps>;
     if (
       typeof mod.cosineSimilarity === "function" &&
       typeof mod.tokenize === "function" &&
