@@ -79,6 +79,8 @@ export type ThrottleTiers = Record<string, ThrottleTier>;
 export const DEFAULT_THROTTLE_TIERS: ThrottleTiers = {
   read: { perMinute: 600, burst: 100 },
   write: { perMinute: 60, burst: 20 },
+  // Single destructive deletes share the write tier (THE-212); bulk_delete resolves to `bulk`.
+  delete: { perMinute: 60, burst: 20 },
   bulk: { perMinute: 10, burst: 3 },
   execute: { perMinute: 5, burst: 1 },
   admin: { perMinute: 5, burst: 1 },

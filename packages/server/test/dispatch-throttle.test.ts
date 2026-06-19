@@ -90,19 +90,18 @@ describe("dispatch-wide rate limiter (THE-210)", () => {
     }
   });
 
-  it("leaves an untiered scope class (delete-only) unlimited", async () => {
+  it("throttles a delete-only tool at the delete tier (burst 20, THE-212)", async () => {
     const r = reg();
     r.register(tool("delete_thing", ["delete:notes"]));
-    for (let i = 0; i < 50; i++) {
-      expect(
-        (
-          await r.dispatch(
-            "delete_thing",
-            {},
-            ctx(() => 0),
-          )
-        ).ok,
-      ).toBe(true);
+    const now = () => 0; // frozen -> no refill
+    for (let i = 0; i < 20; i++) {
+      expect((await r.dispatch("delete_thing", {}, ctx(now))).ok).toBe(true);
+    }
+    const res = await r.dispatch("delete_thing", {}, ctx(now));
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("throttled");
+      expect(res.error.details).toMatchObject({ scope_class: "delete", current_rate: 60 });
     }
   });
 });

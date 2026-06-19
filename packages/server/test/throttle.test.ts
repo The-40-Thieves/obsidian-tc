@@ -67,6 +67,18 @@ describe("RateLimiter", () => {
     expect(d.currentBurst).toBe(0);
   });
 
+  it("enforces the delete tier: 20 burst then throttled (THE-212)", () => {
+    const rl = new RateLimiter(DEFAULT_THROTTLE_TIERS);
+    for (let i = 0; i < 20; i++) {
+      expect(rl.check("deadbeef", "delete", "v1", 0).ok).toBe(true);
+    }
+    const d = rl.check("deadbeef", "delete", "v1", 0);
+    expect(d.ok).toBe(false);
+    expect(d.scopeClass).toBe("delete");
+    expect(d.currentRate).toBe(60);
+    expect(d.currentBurst).toBe(0);
+  });
+
   it("keys buckets independently by (caller, scope_class, vault)", () => {
     const rl = new RateLimiter(DEFAULT_THROTTLE_TIERS);
     for (let i = 0; i < 3; i++) rl.check("cafe", "bulk", "v1", 0);
