@@ -99,6 +99,23 @@ export interface ThrottleDecision {
 
 const INTERVAL_MS = 60_000;
 
+interface BucketEntry {
+  bucket: TokenBucket;
+  /** ms for an empty bucket of this tier to refill to capacity; idle past this => full. */
+  fullRefillMs: number;
+  /** Injected-clock timestamp of the most recent check for this key. */
+  lastSeenMs: number;
+}
+
+export interface RateLimiterOptions {
+  /** Drop buckets idle at least this long (default 600_000 = 10 min). */
+  idleTtlMs?: number;
+  /** Soft ceiling on live buckets; only guaranteed-full idle buckets are reclaimed (default 10_000). */
+  maxBuckets?: number;
+  /** Minimum gap between idle sweeps (default 60_000 = 1 min). */
+  sweepIntervalMs?: number;
+}
+
 /**
  * Per-(caller, scope_class, vault) token-bucket rate limiter. An unknown scope
  * class is unlimited (no tier configured). Throttle hits are counted per
@@ -106,11 +123,25 @@ const INTERVAL_MS = 60_000;
  */
 export class RateLimiter {
   private readonly tiers: ThrottleTiers;
-  private readonly buckets = new Map<string, TokenBucket>();
+  private readonly buckets = new Map<string, BucketEntry>();
   private readonly hits = new Map<string, number>();
+  // Idle-bucket reclamation (THE-213). A bucket is evicted only once it is
+  // guaranteed full (idle past its full-refill time), so re-creating it on the
+  // next call yields an identical full bucket and grants no burst — eviction can
+  // never be used to bypass the limit. The TTL bounds the map under long uptime;
+  // the size cap is an early-reclaim optimization for idle-full buckets when the
+  // map is large, NOT a flood defense (a burst of concurrent *active* callers is
+  // intentionally never evicted and may exceed maxBuckets until they go idle).
+  private readonly idleTtlMs: number;
+  private readonly maxBuckets: number;
+  private readonly sweepIntervalMs: number;
+  private lastSweepMs: number | null = null;
 
-  constructor(tiers: ThrottleTiers = DEFAULT_THROTTLE_TIERS) {
+  constructor(tiers: ThrottleTiers = DEFAULT_THROTTLE_TIERS, opts: RateLimiterOptions = {}) {
     this.tiers = tiers;
+    this.idleTtlMs = opts.idleTtlMs ?? 600_000; // 10 min >> max full-refill (~20s)
+    this.maxBuckets = opts.maxBuckets ?? 10_000;
+    this.sweepIntervalMs = opts.sweepIntervalMs ?? 60_000;
   }
 
   check(
@@ -125,20 +156,27 @@ export class RateLimiter {
       return { ok: true, scopeClass, retryAfterSeconds: 0, currentBurst: -1, currentRate: -1 };
     }
     const key = `${callerHashValue}|${scopeClass}|${vaultId}`;
-    let bucket = this.buckets.get(key);
-    if (!bucket) {
-      bucket = new TokenBucket({
-        capacity: tier.burst,
-        refillTokens: tier.perMinute,
-        intervalMs: INTERVAL_MS,
-      });
-      this.buckets.set(key, bucket);
+    let entry = this.buckets.get(key);
+    if (!entry) {
+      entry = {
+        bucket: new TokenBucket({
+          capacity: tier.burst,
+          refillTokens: tier.perMinute,
+          intervalMs: INTERVAL_MS,
+        }),
+        fullRefillMs:
+          tier.perMinute > 0 ? Math.ceil((tier.burst * INTERVAL_MS) / tier.perMinute) : 0,
+        lastSeenMs: nowMs,
+      };
+      this.buckets.set(key, entry);
     }
-    const res = bucket.tryRemove(n, nowMs);
+    entry.lastSeenMs = nowMs;
+    const res = entry.bucket.tryRemove(n, nowMs);
     if (!res.ok) {
       const hk = `${vaultId}|${scopeClass}`;
       this.hits.set(hk, (this.hits.get(hk) ?? 0) + 1);
     }
+    this.sweep(nowMs);
     return {
       ok: res.ok,
       scopeClass,
@@ -146,6 +184,36 @@ export class RateLimiter {
       currentBurst: res.tokens,
       currentRate: tier.perMinute,
     };
+  }
+
+  /**
+   * Idle-bucket reclamation (THE-213). Rate-limited to once per `sweepIntervalMs`
+   * and driven entirely by the injected clock — no timers. Phase 1 drops buckets
+   * idle past `idleTtlMs` (which exceeds every tier's full-refill time, so they are
+   * always full and safe to drop). Phase 2, only when over `maxBuckets`, evicts the
+   * most-idle buckets that are *guaranteed full* (idle >= their own full-refill
+   * time), oldest first; a sub-full bucket is never evicted, so a caller mid-burst
+   * cannot reset its allowance by forcing eviction.
+   */
+  private sweep(nowMs: number): void {
+    if (this.lastSweepMs !== null && nowMs - this.lastSweepMs < this.sweepIntervalMs) return;
+    this.lastSweepMs = nowMs;
+    for (const [key, e] of this.buckets) {
+      if (nowMs - e.lastSeenMs >= this.idleTtlMs) this.buckets.delete(key);
+    }
+    if (this.buckets.size <= this.maxBuckets) return;
+    const evictable = [...this.buckets.entries()]
+      .filter(([, e]) => nowMs - e.lastSeenMs >= e.fullRefillMs)
+      .sort((a, b) => a[1].lastSeenMs - b[1].lastSeenMs);
+    for (const [key] of evictable) {
+      if (this.buckets.size <= this.maxBuckets) break;
+      this.buckets.delete(key);
+    }
+  }
+
+  /** Live bucket count, exposed for eviction tests (THE-213). */
+  get bucketCount(): number {
+    return this.buckets.size;
   }
 
   /** Throttle-hit counters for the metrics snapshot, one row per (vault, scope_class). */
