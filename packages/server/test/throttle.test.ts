@@ -104,6 +104,52 @@ describe("RateLimiter", () => {
   });
 });
 
+describe("RateLimiter bucket eviction (THE-213)", () => {
+  it("drops buckets idle past the TTL on the next sweep", () => {
+    const rl = new RateLimiter(DEFAULT_THROTTLE_TIERS, {
+      idleTtlMs: 1_000,
+      sweepIntervalMs: 100,
+      maxBuckets: 10_000,
+    });
+    rl.check("a", "read", "v1", 0); // bucket A; first sweep sets lastSweep=0
+    rl.check("b", "read", "v1", 0); // bucket B; sweep skipped (0 - 0 < 100)
+    expect(rl.bucketCount).toBe(2);
+    // At t=2000 the next check sweeps: A and B are idle 2000ms >= 1000 TTL -> dropped.
+    rl.check("c", "read", "v1", 2_000);
+    expect(rl.bucketCount).toBe(1);
+  });
+
+  it("sweeps at most once per sweepIntervalMs", () => {
+    const rl = new RateLimiter(DEFAULT_THROTTLE_TIERS, {
+      idleTtlMs: 1,
+      sweepIntervalMs: 1_000,
+      maxBuckets: 10_000,
+    });
+    rl.check("a", "read", "v1", 0); // lastSweep=0
+    rl.check("b", "read", "v1", 10); // 10 - 0 < 1000 -> no sweep, A survives despite idle>=ttl
+    expect(rl.bucketCount).toBe(2);
+    rl.check("c", "read", "v1", 1_000); // 1000 - 0 >= 1000 -> sweep; A and B evicted, C stays
+    expect(rl.bucketCount).toBe(1);
+  });
+
+  it("keeps a sub-full bucket over the soft cap, reclaiming it only once full", () => {
+    // read tier: burst 100 @ 600/min -> full-refill = 10_000ms. TTL disabled here.
+    const rl = new RateLimiter(DEFAULT_THROTTLE_TIERS, {
+      idleTtlMs: 10_000_000,
+      sweepIntervalMs: 1,
+      maxBuckets: 1,
+    });
+    rl.check("a", "read", "v1", 0); // A now sub-full (99/100), lastSeen=0
+    // B at t=5 pushes over the cap, but A is idle only 5ms (< 10_000) so it is NOT
+    // guaranteed full and must not be evicted — the cap cannot bypass an active bucket.
+    rl.check("b", "read", "v1", 5);
+    expect(rl.bucketCount).toBe(2);
+    // At t=10_005 A has been idle >= its full-refill time, so it is full and reclaimable.
+    rl.check("c", "read", "v1", 10_005);
+    expect(rl.bucketCount).toBe(1);
+  });
+});
+
 describe("callerHash", () => {
   it("is a deterministic 8-hex digest", () => {
     expect(callerHash("agent-claude")).toMatch(/^[a-f0-9]{8}$/);
