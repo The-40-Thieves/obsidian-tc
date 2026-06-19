@@ -11,7 +11,7 @@ memory folder, command allowlist). Every tool call targets one vault.
 
 ## Tools
 
-The server exposes **109 typed tools across 28 domains** — notes, metadata, links,
+The server exposes **105 typed tools across 28 domains** — notes, metadata, links,
 search, embeddings, structured formats (Bases, Canvas, periodic notes), plugin
 bridges, memory, capture, bulk operations, URI generation, and server admin. Each
 tool has a Zod-validated input schema and a structured result. See the
