@@ -1,6 +1,6 @@
 {
   "name": "obsidian-tc-monorepo",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Obsidian Turbocharged — comprehensive, model-agnostic, agent-ready Obsidian MCP server",
   "license": "Apache-2.0",
