@@ -16,7 +16,13 @@
 //
 // idempotency_key / bulk_idempotency_key are accepted as forward-compat surface
 // (replay dedup is THE-197, Policy layer) — same stance as M1 WriteOptions.
-import { ElicitToken, ObsidianTcError, VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  ElicitToken,
+  ObsidianTcError,
+  VaultId,
+  VaultPath,
+  err,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";

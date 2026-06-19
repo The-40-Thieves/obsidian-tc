@@ -9,7 +9,13 @@
 // notes that still reference it so the caller can see what it is about to break.
 import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { Pagination, VaultId, VaultPath, WriteOptions, err } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  Pagination,
+  VaultId,
+  VaultPath,
+  WriteOptions,
+  err,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import {

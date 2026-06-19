@@ -1,4 +1,3 @@
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 // OTEL tracing (G2.4 §OTEL traces — THE-183). Conditional by construction: when
 // observability.otel.endpoint is unset, initOtel registers NO provider and returns no tracer,
 // so the dispatch pipeline takes its tracer-less fast path and nothing is exported (the spec's
@@ -20,6 +19,7 @@ import {
   ATTR_SERVICE_NAME,
   ATTR_SERVICE_VERSION,
 } from "@opentelemetry/semantic-conventions";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 
 export const TRACER_NAME = "obsidian-tc";
 

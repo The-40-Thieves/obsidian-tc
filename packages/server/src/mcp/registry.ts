@@ -1,3 +1,4 @@
+import { type Span, SpanKind, SpanStatusCode, type Tracer } from "@opentelemetry/api";
 import {
   type MorgianaEventData,
   type MorgianaEventType,
@@ -9,7 +10,6 @@ import {
   scopeClassOf,
   scopeRequiresHitl,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { type Span, SpanKind, SpanStatusCode, type Tracer } from "@opentelemetry/api";
 import type { z } from "zod";
 import type { FolderAcl } from "../acl";
 import { type AuditEvent, writeEvent } from "../audit";
