@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "main": "index.js",
   "types": "index.d.ts",
-  "files": ["index.js", "index.d.ts", "*.node"],
+  "files": ["index.js", "index.d.ts", "fallback.js", "*.node"],
   "napi": {
     "name": "@the-40-thieves/obsidian-tc-native",
     "triples": {
@@ -21,6 +21,7 @@
   "scripts": {
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
+    "typecheck": "tsc -p tsconfig.json",
     "test": "cargo test",
     "prepublishOnly": "napi prepublish -t npm",
     "version": "napi version"
