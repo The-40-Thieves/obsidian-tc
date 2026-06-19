@@ -1,0 +1,47 @@
+name: release-image
+# Build + push the GHCR image for a given version, decoupled from npm. publish.yml builds the
+# image only on a v* tag (which also publishes npm). After a release where npm is already live,
+# re-firing the tag would conflict on the immutable npm versions, so this dispatch rebuilds and
+# pushes just the image for an existing version. Runs on the default branch (current Dockerfile).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image version without leading v (e.g. 1.0.1)"
+        required: true
+        type: string
+      latest:
+        description: "Also tag :latest"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/the-40-thieves/obsidian-tc:${{ inputs.version }}
+            ${{ inputs.latest && format('ghcr.io/the-40-thieves/obsidian-tc:latest') || '' }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
+            org.opencontainers.image.version=${{ inputs.version }}
+            org.opencontainers.image.licenses=Apache-2.0
