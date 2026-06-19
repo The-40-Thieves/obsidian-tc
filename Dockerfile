@@ -6,8 +6,8 @@ FROM oven/bun:1-alpine
 WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile --ignore-scripts \
- && bun run --filter=shared build \
- && bun run --filter=server build
+ && (cd packages/shared && bun run build) \
+ && (cd packages/server && bun run build)
 # The v1.0 CLI launches from a config path (OBSIDIAN_TC_CONFIG env or argv[2]). The richer
 # `obsidian-tc serve/init/auth/...` subcommand surface (G2.5 §5) is a documented follow-up, so
 # there is no `serve` CMD yet — pass a config path or set OBSIDIAN_TC_CONFIG when running.
