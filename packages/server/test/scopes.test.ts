@@ -1,4 +1,9 @@
-import { grantsAll, grantsScope, scopeRequiresHitl } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  grantsAll,
+  grantsScope,
+  scopeClassOf,
+  scopeRequiresHitl,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 
 describe("scope matching", () => {
@@ -21,5 +26,25 @@ describe("scope matching", () => {
     expect(scopeRequiresHitl("admin:auth")).toBe(true);
     expect(scopeRequiresHitl("read:notes")).toBe(false);
     expect(scopeRequiresHitl("write:notes")).toBe(false);
+  });
+});
+
+describe("scopeClassOf precedence (THE-210 / THE-212)", () => {
+  it("maps a delete-only tool to the delete class", () => {
+    expect(scopeClassOf(["delete:notes"])).toBe("delete");
+  });
+  it("ranks bulk and execute above delete", () => {
+    expect(scopeClassOf(["delete:notes", "bulk:notes"])).toBe("bulk");
+    expect(scopeClassOf(["execute:dataview", "delete:notes"])).toBe("execute");
+  });
+  it("ranks admin above delete", () => {
+    expect(scopeClassOf(["admin:server", "delete:notes"])).toBe("admin");
+  });
+  it("ranks delete above write and read", () => {
+    expect(scopeClassOf(["write:notes", "delete:notes"])).toBe("delete");
+    expect(scopeClassOf(["read:notes", "delete:notes"])).toBe("delete");
+  });
+  it("returns unknown for an empty scope list", () => {
+    expect(scopeClassOf([])).toBe("unknown");
   });
 });
