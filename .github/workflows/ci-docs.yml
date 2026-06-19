@@ -1,0 +1,30 @@
+name: ci-docs
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', '.github/workflows/ci-docs.yml']
+  pull_request:
+    paths: ['docs/**', '.github/workflows/ci-docs.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build docs (headless)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Build (astro check && astro build)
+        run: bun run build
+      # The site is built headlessly to verify it compiles. It is NOT deployed
+      # here; publishing the docs site is a separate, human-gated runbook step.

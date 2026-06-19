@@ -1,4 +1,4 @@
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 export type FetchFn = typeof fetch;
 export interface PostJsonOptions {
   url: string;

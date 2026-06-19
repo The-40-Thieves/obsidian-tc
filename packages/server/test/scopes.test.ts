@@ -1,4 +1,4 @@
-import { grantsAll, grantsScope, scopeRequiresHitl } from "@obsidian-tc/shared";
+import { grantsAll, grantsScope, scopeRequiresHitl } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 
 describe("scope matching", () => {

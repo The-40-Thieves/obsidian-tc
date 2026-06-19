@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@obsidian-tc/shared";
+import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { applyLogic, evaluatesTruthy } from "../src/search/jsonlogic";
 

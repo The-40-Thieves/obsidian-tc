@@ -1,4 +1,4 @@
-# @obsidian-tc/plugin
+# @the-40-thieves/obsidian-tc-plugin
 
 Companion Obsidian plugin for the obsidian-tc MCP server.
 

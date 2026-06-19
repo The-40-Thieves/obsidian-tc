@@ -3,7 +3,7 @@
 // companion bridge using the longer OCR timeout. ocr_bulk resolves its candidate
 // set server-side and ACL-filters it before the bridge call, and requires human
 // confirmation past 20 files (OCR is expensive). Plugin id is "text-extractor".
-import { VaultId, VaultPath, err } from "@obsidian-tc/shared";
+import { VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";

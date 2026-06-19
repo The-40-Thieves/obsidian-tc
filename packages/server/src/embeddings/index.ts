@@ -1,4 +1,4 @@
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { FetchFn } from "./http";
 import { type EmbeddingProvider, resolveApiKey } from "./provider";
 import { cohereProvider, ollamaProvider, openaiProvider, voyageProvider } from "./providers";

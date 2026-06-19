@@ -3,7 +3,7 @@
 // proxies the Tasks plugin's own DSL filter through the companion bridge. Reopening
 // a long-closed task (done -> open, completed >7d ago) is the one conditional-HITL
 // path; ordinary edits are not gated.
-import { VaultId, VaultPath, err } from "@obsidian-tc/shared";
+import { VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";

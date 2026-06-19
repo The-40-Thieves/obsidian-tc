@@ -7,7 +7,7 @@
 // only the modeled keys, re-serialize with the file's indentation), so other
 // workspaces and unknown top-level keys survive. Overwriting a saved workspace
 // requires HITL confirmation; listing/opening never do.
-import { VaultId, err } from "@obsidian-tc/shared";
+import { VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";

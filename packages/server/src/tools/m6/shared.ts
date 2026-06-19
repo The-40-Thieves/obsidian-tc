@@ -5,7 +5,7 @@
 // shared instance: the bulk tools consume its `bulk` tier and get_metrics reads its
 // hit counters. All admin-reporting fields are non-secret by construction (no JWT
 // secret, no REST/embedding API keys).
-import type { ThrottleConfig } from "@obsidian-tc/shared";
+import type { ThrottleConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { CapabilitySnapshot } from "../../bridge";
 import type { RateLimiter } from "../../throttle";
 import type { VaultRegistry } from "../../vault/registry";

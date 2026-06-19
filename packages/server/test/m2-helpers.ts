@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ToolResult } from "@obsidian-tc/shared";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import type { Database } from "../src/db/types";
 import { type EmbeddingProvider, fakeEmbeddingProvider } from "../src/embeddings";

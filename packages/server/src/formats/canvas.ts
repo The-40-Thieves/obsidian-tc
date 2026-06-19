@@ -4,7 +4,7 @@
 // via passthrough schemas), and all mutations operate on the parsed object in place
 // so unknown node/edge/top-level fields survive serialization unchanged. Malformed
 // JSON, a non-object root, or a structurally invalid canvas throws invalid_input.
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 
 const Side = z.enum(["top", "right", "bottom", "left"]);

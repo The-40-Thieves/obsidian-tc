@@ -4,7 +4,7 @@
 // per-item report, the bulk HITL floor, read-only ACL denial, the token-bucket
 // throttle, a generated URI, the admin tools, and event_log audit rows. No live
 // Obsidian, no network.
-import type { ToolResult } from "@obsidian-tc/shared";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { RateLimiter } from "../src/throttle";
 import { registerM6Tools } from "../src/tools/m6";
@@ -84,8 +84,7 @@ describe("M6 live-vault integration", () => {
       metrics: { name: string; labels: Record<string, string>; value: number }[];
     }>(await v.call("get_metrics", { vault: "test" }));
     const createCounter = metrics.metrics.find(
-      (m) =>
-        m.name === "obsidian_tc_tool_invocations_total" && m.labels.tool === "bulk_create_notes",
+      (m) => m.name === "obsidian_tc_tool_calls_total" && m.labels.tool === "bulk_create_notes",
     );
     expect((createCounter?.value ?? 0) >= 1).toBe(true);
 

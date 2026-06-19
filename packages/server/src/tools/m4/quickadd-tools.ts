@@ -3,7 +3,7 @@
 // actions can create/modify notes broadly and run macros, so it carries
 // execute:quickadd — the execute family is a hardcoded HITL floor, so dispatch
 // ALWAYS requires a human elicit token first. Never silently executable.
-import { VaultId } from "@obsidian-tc/shared";
+import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";

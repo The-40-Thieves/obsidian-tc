@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { ServerConfig } from "@obsidian-tc/shared";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";

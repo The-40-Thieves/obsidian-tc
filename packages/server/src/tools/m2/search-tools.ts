@@ -5,7 +5,13 @@
 // string query text -> semantic (fallback on zero hits) and an object query to
 // jsonlogic. search_dql is surfaced but reports plugin_missing until the Dataview
 // bridge (REST hybrid, THE-196) lands — honest rather than a silent empty result.
-import { ObsidianTcError, VaultId, VaultPath, err, grantsAll } from "@obsidian-tc/shared";
+import {
+  ObsidianTcError,
+  VaultId,
+  VaultPath,
+  err,
+  grantsAll,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { Database } from "../../db/types";

@@ -7,7 +7,7 @@
 // so duration_ms is deterministic in tests. No vault/IO here — the per-item
 // callback does the work (resolveVaultPath + enforcePathAcl + write), so this
 // stays pure orchestration.
-import { type ErrorJSON, ObsidianTcError } from "@obsidian-tc/shared";
+import { type ErrorJSON, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 
 export interface BulkOptions {
   /** Maximum sub-operations in flight at once (clamped to >= 1). */

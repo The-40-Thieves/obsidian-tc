@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { err } from "@obsidian-tc/shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 
 /** Full SHA-256 hex of UTF-8 content. Used for content_hash / CAS (prev_hash). */
 export function contentHash(content: string): string {

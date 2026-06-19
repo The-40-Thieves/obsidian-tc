@@ -7,7 +7,7 @@
 //   2. the vault must explicitly enable command execution (config, default off);
 //   3. the command id must be on the vault allowlist.
 // Arbitrary command execution is therefore never silently runnable.
-import { VaultId, err } from "@obsidian-tc/shared";
+import { VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";

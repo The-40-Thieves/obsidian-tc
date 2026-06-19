@@ -4,7 +4,7 @@
 // /dataview/* routes and degrade via the capability gate. Read scope only
 // (read:dataview, no HITL floor) — neither mutates the vault. The DQL *query*
 // executor lives in Domain 6 as search_dql, sharing the same bridge.
-import { VaultId, VaultPath } from "@obsidian-tc/shared";
+import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";

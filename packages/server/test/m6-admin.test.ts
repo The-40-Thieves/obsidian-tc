@@ -1,9 +1,10 @@
 // M6 Domain 28 admin tools through real dispatch (THE-182): get_server_config,
 // inspect_acl, get_metrics. Proves the admin surface is complete, leaks no secrets,
 // faithfully mirrors ACL enforcement, and snapshots real event_log + limiter data.
-import type { ToolResult } from "@obsidian-tc/shared";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolRegistry } from "../src/mcp/registry";
+import { RateLimiter } from "../src/throttle";
 import { buildAdminTools } from "../src/tools/m6/admin-tools";
 import type { M6Deps } from "../src/tools/m6/shared";
 import { type M6Vault, makeM6Vault } from "./m6-helpers";
@@ -178,8 +179,7 @@ describe("get_metrics", () => {
       metrics: { name: string; type: string; value: number; labels: Record<string, string> }[];
     }>(await v.call("get_metrics", {}));
     const inv = out.metrics.find(
-      (m) =>
-        m.name === "obsidian_tc_tool_invocations_total" && m.labels.tool === "get_server_config",
+      (m) => m.name === "obsidian_tc_tool_calls_total" && m.labels.tool === "get_server_config",
     );
     expect(inv?.value).toBe(2);
     expect(out.metrics.find((m) => m.name === "obsidian_tc_vaults_registered")?.value).toBe(1);
@@ -189,7 +189,7 @@ describe("get_metrics", () => {
   });
 
   it("includes live rate-limiter hit counters", async () => {
-    v = makeM6Vault({ register });
+    v = makeM6Vault({ register, rateLimiter: new RateLimiter() });
     // Exhaust the bulk burst directly to seed a hit (3 ok, 1 throttled).
     for (let i = 0; i < 4; i++) v.rateLimiter.check("c0ffee00", "bulk", "test", 0);
     const out = data<{

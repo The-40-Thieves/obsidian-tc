@@ -2,7 +2,7 @@
 // contract: best-effort-continue by default (every item attempted, per-item report
 // with ok/error and stable identity), stop-on-first-error halts the queue, and a
 // concurrency cap bounds in-flight sub-ops. No vault, no IO — pure orchestration.
-import { ObsidianTcError } from "@obsidian-tc/shared";
+import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { runBulk } from "../src/vault/bulk";
 

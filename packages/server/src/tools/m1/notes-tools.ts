@@ -16,7 +16,7 @@ import {
   VaultPath,
   WriteOptions,
   err,
-} from "@obsidian-tc/shared";
+} from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";

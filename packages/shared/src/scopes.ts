@@ -47,3 +47,17 @@ export const MUTATING_FAMILIES: readonly string[] = ["write", "delete", "bulk", 
 export function isMutatingScope(scope: Scope): boolean {
   return MUTATING_FAMILIES.includes(parseScope(scope).family);
 }
+
+// Scope-class precedence for the dispatch rate-limiter gate (THE-210) and the `scope_class`
+// metric label (G2.4). A tool's governing class is the most operationally significant family
+// among its required scopes: a bulk_* tool (write:notes + bulk:notes) is governed by `bulk`,
+// an execute tool by `execute`, an admin tool by `admin`, and so on. Tools whose families
+// carry no throttle tier (e.g. a delete-only tool) resolve to their first declared family and
+// are treated as unlimited by the limiter (an unknown tier is never throttled).
+const SCOPE_CLASS_PRECEDENCE = ["bulk", "execute", "admin", "write", "read"] as const;
+
+export function scopeClassOf(requiredScopes: readonly Scope[]): string {
+  const families = new Set(requiredScopes.map((s) => parseScope(s).family));
+  for (const cls of SCOPE_CLASS_PRECEDENCE) if (families.has(cls)) return cls;
+  return requiredScopes[0] ? parseScope(requiredScopes[0]).family : "unknown";
+}
