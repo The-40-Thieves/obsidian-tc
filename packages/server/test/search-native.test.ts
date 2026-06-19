@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  type NativeOps,
   bm25Score,
   cosineSimilarity,
   jsBm25Score,
   jsCosineSimilarity,
   jsTokenize,
+  loadNative,
   nativeLoaded,
   tokenize,
 } from "../src/search/native";
@@ -46,5 +48,40 @@ describe("active backend (native when built, else JS) matches the JS reference",
     );
     expect(tokenize("Alpha, beta_gamma 42")).toEqual(jsTokenize("Alpha, beta_gamma 42"));
     expect(bm25Score(3, 120, 95, 2, 50)).toBeCloseTo(jsBm25Score(3, 120, 95, 2, 50), 6);
+  });
+});
+
+describe("loadNative selector — OBSIDIAN_TC_FORCE_JS_FALLBACK escape hatch", () => {
+  // A complete fake native module lets us prove the flag forces the JS path even
+  // when a compiled binary IS present — the property the pure-JS fallback CI job
+  // (ci-native.yml) relies on. We inject env + require rather than mutating the
+  // process or deleting build artifacts, so the selector is tested deterministically.
+  const fakeNative: NativeOps = {
+    cosineSimilarity: () => 1,
+    tokenize: () => ["native"],
+    bm25Score: () => 1,
+  };
+  const requireOk = (): NativeOps => fakeNative;
+
+  it("loads the native module when present and the flag is unset", () => {
+    expect(loadNative({}, requireOk)).toBe(fakeNative);
+  });
+
+  it("forces the JS fallback (null) when the flag is '1', even though native is present", () => {
+    expect(loadNative({ OBSIDIAN_TC_FORCE_JS_FALLBACK: "1" }, requireOk)).toBeNull();
+  });
+
+  it("treats any value other than '1' as unset (flag not tripped)", () => {
+    expect(loadNative({ OBSIDIAN_TC_FORCE_JS_FALLBACK: "0" }, requireOk)).toBe(fakeNative);
+    expect(loadNative({ OBSIDIAN_TC_FORCE_JS_FALLBACK: "" }, requireOk)).toBe(fakeNative);
+  });
+
+  it("falls back (null) when the native require throws or an export is missing", () => {
+    expect(
+      loadNative({}, () => {
+        throw new Error("missing .node");
+      }),
+    ).toBeNull();
+    expect(loadNative({}, () => ({ cosineSimilarity: () => 0 }))).toBeNull();
   });
 });
