@@ -1,8 +1,8 @@
 ---
 created: 2026-05-18
-updated: 2026-05-18
+updated: 2026-06-19
 type: design
-status: draft
+status: shipped
 project: obsidian-tc
 gate: G2.2
 linear: THE-115
@@ -14,18 +14,16 @@ tags:
   - architecture
   - topology
   - ipc
-  - draft
+  - shipped
 ---
 
-# obsidian-tc — G2.2 Architecture and Topology (Draft)
+# obsidian-tc — Architecture and Topology
 
 > **Scope note (2026-06-19):** obsidian-tc is an *access* MCP — vault read/write, search, and control. Retrieval intelligence (GraphRAG, clustering, hybrid retrieval fusion) is **out of scope**; pair obsidian-tc with an external retrieval/RAG service. The Python ML sidecar (component 14 and the § 3.3 IPC contract) and the native `kmeansAssign` / `actrDecayScore` reservations described below are **deprecated and being removed** — treat those sections as historical.
 
-**Gate state:** G2.2 (Architecture) — DRAFT 2026-05-18 across one engineering-partner session
-**Repo destination:** `ARCHITECTURE.md` in private repo (deferred until staged for commit)
-**Source decisions:** [[2026-05-18-obsidian-tc-v1-locked]], [[2026-05-18-obsidian-tc-private-development]], [[2026-05-18-obsidian-tc-g2.1-conventions]]
-**Inherits:** [[02-projects/obsidian-tc/G2.1-tools-draft]] r2 (103 tools), [[02-projects/obsidian-tc/G2-architecture]] overview
-**Linear:** THE-115 (3pt)
+**Status:** shipped in v1.0.1 (2026-06-19). This document records the architecture and topology committed for the v1.0 line.
+**Tool surface:** 103 tools across 28 domains — see [`docs/G2.1-tools.md`](docs/G2.1-tools.md).
+**Linear:** THE-115
 
 ## Scope and inheritance
 
@@ -910,25 +908,12 @@ Architectural hooks baked into V1 so V2 is an upgrade, not a rewrite:
 
 ## Status
 
-- Engineering-partner gate state: **G2 (Design) — G2.2 sub-doc DRAFT complete 2026-05-18**
-- G2 sub-doc progress: G2.1 ✅ (r2 drafted), G2.2 ✅ (this doc, draft), G2.3 ⏳, G2.4 ⏳, G2.5 ⏳
-- Linear: THE-115 — pending commit + close
-- Repo destination: `ARCHITECTURE.md` in private repo, when staged
-
-## Pickup signal for next sub-doc
-
-**G2.3 Storage and schema** (THE-116). Full SQLite schema (chunks, embeddings, idempotency_keys, elicit_tokens, capture_queue, memory_entities, memory_relations, workspace_sessions, event_log), JSONL trace format spec, config schema validation rules, cross-platform path resolution, retention policies, V2-reserved column finalization. Estimated 1-2 sessions.
-
-Pickup signal: "open G2.3" or "obsidian-tc storage."
+Shipped in v1.0.1 (2026-06-19). The full design (G2.1–G2.5) is committed and implemented; this document is the architecture record for the v1.0 line.
 
 ## References
 
-- [[2026-05-18-obsidian-tc-v1-locked]] — G1 close, 8 locked decisions
-- [[2026-05-18-obsidian-tc-private-development]] — repo private through v1.0
-- [[2026-05-18-obsidian-tc-g2.1-conventions]] — G2.1 conventions (naming, auto mode, plugin discovery hybrid)
-- [[02-projects/obsidian-tc/G2.1-tools-draft]] — G2.1 r2, 103-tool surface
-- [[02-projects/obsidian-tc/G2-architecture]] — G2 overview parent
-- [[02-projects/obsidian-tc/README]] — project tracking
-- MCP spec 2025-11-25 — https://modelcontextprotocol.io/specification/2025-11-25
+- [`docs/G2.1-tools.md`](docs/G2.1-tools.md) — the 103-tool surface specification
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — development setup and conventions
+- MCP specification 2025-11-25 — https://modelcontextprotocol.io/specification/2025-11-25
 - MCP 2026 roadmap — https://blog.modelcontextprotocol.io/posts/2026-mcp-roadmap/
 - Linear epic: THE-113. G2.2 ticket: THE-115.
