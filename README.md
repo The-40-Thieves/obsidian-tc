@@ -17,7 +17,7 @@ Three pillars:
 
 ## Status
 
-🚧 **In active implementation (G4).** G1 (Clarify), G2 (Design — 5 sub-docs), and G3 (Simplicity Check) are closed. G4 (Implement) is underway across 8 milestones (M0–M7); **M0–M5 are merged to `main`.** Targeting v1.0 ship in Q3 2026.
+✅ **Shipped — v1.0.1** (2026-06-19). The full G4 implementation (milestones M0–M7) is merged to `main`, published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.0.1`. The surface is **103 tools across 28 domains**.
 
 | Milestone | Scope | Status |
 |---|---|---|
@@ -27,10 +27,10 @@ Three pillars:
 | M3 | Structured formats — 23 tools (Bases, Canvas, Periodic, Attachments, Bookmarks, Workspaces) | ✅ Merged |
 | M4 | Plugin bridges + companion plugin — 20 tools across 9 domains | ✅ Merged |
 | M5 | Memory + capture substrate — 15 tools (capture queue, memory entities + `[[link]]` graph, workspace sessions + JSONL traces, plur read proxy) | ✅ Merged |
-| M6 | Bulk + admin + URI — 7 tools | ⏳ Next |
-| M7 | Harden + ship v1.0 | ⏳ Planned |
+| M6 | Bulk + admin + URI — 7 tools | ✅ Merged |
+| M7 | Harden + ship: OpenTelemetry tracing, Prometheus `/metrics`, CloudEvents spool, rate limiter, 4-platform native prebuilds, release workflow | ✅ Shipped (v1.0.1) |
 
-This repository will be transferred to [`The-40-Thieves`](https://github.com/The-40-Thieves) at the v1.0 public launch.
+This repository is public under [`The-40-Thieves`](https://github.com/The-40-Thieves), licensed Apache-2.0.
 
 ## Architecture
 
@@ -48,10 +48,7 @@ obsidian-tc is an **access** MCP: vault read/write, search, and control. Retriev
 ## Quick start
 
 ```bash
-# Not yet available — v1.0 ships Q3 2026.
-
-# When ready:
-npm install obsidian-tc
+npm install -g obsidian-tc
 obsidian-tc serve --vault /path/to/vault
 ```
 

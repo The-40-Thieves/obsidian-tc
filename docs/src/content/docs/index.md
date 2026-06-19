@@ -18,6 +18,6 @@ hero:
 
 obsidian-tc is a Model Context Protocol server that exposes an Obsidian vault to AI agents through 103 typed tools. It runs locally or remotely, supports multi-vault setups, signed-JWT auth, and ships a companion plugin that powers tool-call delivery via the Obsidian Local REST API.
 
-v1.0 ships Q3 2026.
+v1.0.1 is published to npm, with a container image on GHCR.
 
 See [Getting Started](/getting-started/install/) for install instructions, or browse the [Tool Reference](/tools/).
