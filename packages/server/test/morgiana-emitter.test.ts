@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MorgianaEmitter } from "../src/morgiana/emitter";
+import { MorgianaEmitter, safeVault } from "../src/morgiana/emitter";
 
 let dirs: string[] = [];
 function tmp(): string {
@@ -75,6 +75,24 @@ describe("MorgianaEmitter spool (G2.4)", () => {
     const entries = readdirSync(cacheDir);
     expect(entries).toHaveLength(1);
     expect(entries[0]).not.toMatch(/[\\/]/); // one contained segment, no path separators
+    expect(resolve(cacheDir, entries[0] ?? "").startsWith(resolve(cacheDir))).toBe(true);
+  });
+
+  it("maps dot-only vault ids to a safe segment so they cannot escape the cache dir", () => {
+    expect(safeVault("..")).toBe("_");
+    expect(safeVault(".")).toBe("_");
+    expect(safeVault("...")).toBe("_");
+    expect(safeVault("")).toBe("_");
+    expect(safeVault("ok.vault-1")).toBe("ok.vault-1");
+    const cacheDir = tmp();
+    new MorgianaEmitter({
+      cacheDir,
+      spool: true,
+      now: () => new Date("2026-06-18T00:00:00.000Z"),
+      uuid: () => "id",
+    }).emit("..", "tc.server.start");
+    const entries = readdirSync(cacheDir);
+    expect(entries).toEqual(["_"]);
     expect(resolve(cacheDir, entries[0] ?? "").startsWith(resolve(cacheDir))).toBe(true);
   });
 });

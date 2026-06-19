@@ -27,9 +27,16 @@ export interface MorgianaEmitterOptions {
   onDropped?: (vaultId: string, reason: string) => void;
 }
 
-/** Reduce a vault id to a single safe path segment so the spool can never escape cacheDir. */
-function safeVault(vaultId: string): string {
-  return vaultId.replace(/[^a-zA-Z0-9._-]/g, "_") || "_";
+/**
+ * Reduce a vault id to a single safe path segment so the spool can never escape cacheDir.
+ * Besides collapsing path separators and other unsafe characters, a sanitized segment of
+ * only dots (".", "..", ...) - or the empty string - is mapped to "_" so it can never
+ * resolve as a relative path component (e.g. join(cacheDir, "..") escaping a level up).
+ * Exported for unit testing.
+ */
+export function safeVault(vaultId: string): string {
+  const s = vaultId.replace(/[^a-zA-Z0-9._-]/g, "_");
+  return [...s].some((c) => c !== ".") ? s : "_";
 }
 
 export class MorgianaEmitter {
