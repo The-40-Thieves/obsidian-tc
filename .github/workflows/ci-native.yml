@@ -45,6 +45,12 @@ jobs:
         working-directory: packages/native
         run: bun run build -- --target ${{ matrix.target }}
         shell: bash
+      # F1 guard: napi must not regenerate/overwrite the committed hand-written
+      # umbrella loader. `bun run build` passes --js false --dts false; if a future
+      # change drops those flags (or napi clobbers anyway), this diff fails CI.
+      - name: verify committed loader survived the build (F1 guard)
+        run: git diff --exit-code -- packages/native/index.js packages/native/index.d.ts
+        shell: bash
       - name: test
         working-directory: packages/native
         run: cargo test --release --target ${{ matrix.target }}
