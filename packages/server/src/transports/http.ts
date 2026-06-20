@@ -130,13 +130,73 @@ export interface HttpHandle {
 }
 
 /**
+ * Loopback hosts that are safe to bind without authentication. Covers the IPv4
+ * loopback block 127.0.0.0/8, IPv6 `::1` (with or without brackets), the
+ * IPv4-mapped loopback form, and the `localhost` name. Anything else (0.0.0.0,
+ * `::`, a LAN/public IP, a hostname) is non-loopback and reachable off-box.
+ */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  if (h === "localhost" || h === "::1") return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  return false;
+}
+
+export type BindSafety = { ok: true; warning?: string } | { ok: false; error: string };
+
+/**
+ * Decide whether the HTTP edge may bind (F2). With auth.mode "none" the edge
+ * grants scope `["*"]` to every caller (see resolveAuth), so a non-loopback bind
+ * exposes unauthenticated vault read/write/create to the network. Refuse that
+ * unless the operator explicitly opts into insecure mode, in which case bind but
+ * return a warning. Any non-"none" mode (e.g. "jwt") is unaffected, as is any
+ * loopback bind. This is authentication-posture only; scope/ACL/HITL enforcement
+ * in dispatch is unchanged.
+ */
+export function checkHttpBindSafety(p: {
+  authMode: AuthConfig["mode"];
+  host: string;
+  insecure?: boolean;
+}): BindSafety {
+  if (p.authMode !== "none") return { ok: true };
+  if (isLoopbackHost(p.host)) return { ok: true };
+  if (p.insecure)
+    return {
+      ok: true,
+      warning: `[SECURITY] obsidian-tc HTTP bound to non-loopback host "${p.host}" with auth.mode "none" and insecure opt-in: the MCP endpoint is UNAUTHENTICATED and grants full vault access (read/write/create) to anyone who can reach it. Use auth.mode "jwt" for any shared or remote deployment.`,
+    };
+  return {
+    ok: false,
+    error: `refusing to start: HTTP bind host "${p.host}" is not loopback while auth.mode is "none". An unauthenticated non-loopback bind exposes the vault (read/write/create) to the network. Fix one of: (a) set auth.mode "jwt" with a jwtSecret, or (b) explicitly opt in with transports.http.insecure: true (or the --insecure flag) to bind anyway.`,
+  };
+}
+
+/**
  * Serve the HTTP app on host:port via @hono/node-server (Node-first). Pass
  * port 0 for an ephemeral port; the resolved handle reports the actual port.
- * Bun-native serving is a follow-up.
+ * Enforces the F2 bind-safety gate first: throws before binding when auth.mode
+ * is "none" on a non-loopback host without an insecure opt-in; emits one warning
+ * (via `onWarn`, default stderr) when the opt-in is set. Bun-native serving is a
+ * follow-up.
  */
 export function startHttp(
-  opts: HttpAppOptions & { host: string; port: number },
+  opts: HttpAppOptions & {
+    host: string;
+    port: number;
+    insecure?: boolean;
+    onWarn?: (line: string) => void;
+  },
 ): Promise<HttpHandle> {
+  const safety = checkHttpBindSafety({
+    authMode: opts.auth.mode,
+    host: opts.host,
+    insecure: opts.insecure,
+  });
+  if (!safety.ok) throw new Error(safety.error);
+  if (safety.warning)
+    (opts.onWarn ?? ((line) => process.stderr.write(`${line}\n`)))(safety.warning);
+
   const app = createHttpApp(opts);
   return new Promise((resolve) => {
     const server = serve({ fetch: app.fetch, hostname: opts.host, port: opts.port }, (info) => {

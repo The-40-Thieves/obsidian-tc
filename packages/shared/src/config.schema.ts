@@ -102,6 +102,13 @@ export const HttpConfigSchema = z.object({
   enabled: z.boolean().default(false),
   host: z.string().default("127.0.0.1"),
   port: z.number().int().min(1).max(65535).default(8765),
+  // Opt-in to binding a non-loopback host while auth.mode is "none" (F2). Default
+  // false: the server refuses such an unauthenticated, network-exposed bind because
+  // auth.mode "none" grants full scope to every caller. Set true (or pass --insecure)
+  // only on a trusted network where unauthenticated full-scope vault access is
+  // acceptable; the server then binds and emits one loud warning. No effect when
+  // auth.mode is "jwt" or when the host is loopback.
+  insecure: z.boolean().default(false),
 });
 
 export const TransportsConfigSchema = z.object({

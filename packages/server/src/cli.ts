@@ -50,9 +50,15 @@ const initialMigrationSql = readFileSync(
   "utf8",
 );
 async function main(): Promise<void> {
-  const configPath = process.argv[2] ?? process.env.OBSIDIAN_TC_CONFIG;
+  const args = process.argv.slice(2);
+  // --insecure opts into a non-loopback HTTP bind while auth.mode is "none" (F2);
+  // the configPath is the first non-flag argument so flag order does not matter.
+  const insecureFlag = args.includes("--insecure");
+  const configPath = args.find((a) => !a.startsWith("-")) ?? process.env.OBSIDIAN_TC_CONFIG;
   if (!configPath) {
-    process.stderr.write("usage: obsidian-tc <config.json> (or set OBSIDIAN_TC_CONFIG)\n");
+    process.stderr.write(
+      "usage: obsidian-tc <config.json> [--insecure] (or set OBSIDIAN_TC_CONFIG)\n",
+    );
     process.exit(2);
   }
 
@@ -238,6 +244,7 @@ async function main(): Promise<void> {
       acl,
       host: config.transports.http.host,
       port: config.transports.http.port,
+      insecure: config.transports.http.insecure || insecureFlag,
     });
     process.stderr.write(
       `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,
