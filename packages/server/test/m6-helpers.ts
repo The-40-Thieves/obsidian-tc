@@ -47,7 +47,7 @@ export interface M6VaultOptions {
   rateLimiter?: RateLimiter;
   now?: () => number;
   capabilities?: (vaultId: string) => CapabilitySnapshot;
-  authMode?: "none" | "jwt" | "oauth";
+  authMode?: "none" | "jwt";
   observability?: { otel: boolean; prometheus: boolean; morgiana: boolean };
   /** Which M6 tools to register; receives the registry and the built deps. */
   register: (registry: ToolRegistry, deps: M6Deps) => void;

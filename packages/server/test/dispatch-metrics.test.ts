@@ -1,3 +1,4 @@
+import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { Database } from "../src/db/types";
@@ -53,6 +54,24 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
     );
     expect(text).toContain(
       'obsidian_tc_acl_denied_total{vault="main",scope_class="write",reason="forbidden"} 1',
+    );
+  });
+
+  it("records denied + acl_denied(reason=acl_denied) when a handler throws acl_denied (F4)", async () => {
+    const metrics = new MetricsRecorder();
+    const reg = new ToolRegistry({ metrics });
+    reg.register(
+      tool("acl_thrower", ["read:notes"], () => {
+        throw new ObsidianTcError("acl_denied", "path denied by folder ACL");
+      }),
+    );
+    await reg.dispatch("acl_thrower", {}, ctx());
+    const text = await metrics.metrics();
+    expect(text).toContain(
+      'obsidian_tc_tool_calls_total{vault="main",tool="acl_thrower",status="denied"} 1',
+    );
+    expect(text).toMatch(
+      /obsidian_tc_acl_denied_total\{vault="main",scope_class="[a-z_]+",reason="acl_denied"\} 1/,
     );
   });
 
