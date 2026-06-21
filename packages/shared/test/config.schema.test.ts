@@ -44,6 +44,27 @@ describe("ServerConfigSchema", () => {
     });
     expect(r.success).toBe(true);
   });
+
+  // F2 (review hardening): a malformed 127.x.x.x address has invalid octets and is
+  // NOT loopback, so an unauthenticated bind to it must still be refused.
+  it("rejects a malformed 127.x host with auth.mode 'none' (F2)", () => {
+    const r = ServerConfigSchema.safeParse({
+      ...base,
+      auth: { mode: "none" },
+      transports: { http: { enabled: true, host: "127.999.999.999" } },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  // F2 (review hardening): bracketed IPv6 loopback normalizes to ::1 and is allowed.
+  it("allows unauthenticated HTTP on a bracketed IPv6 loopback host (F2)", () => {
+    const r = ServerConfigSchema.safeParse({
+      ...base,
+      auth: { mode: "none" },
+      transports: { http: { enabled: true, host: "[::1]" } },
+    });
+    expect(r.success).toBe(true);
+  });
 });
 
 describe("ObsidianTcError", () => {

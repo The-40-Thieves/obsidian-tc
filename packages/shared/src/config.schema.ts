@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isLoopbackHost } from "./net-host";
 
 // Per-vault plugin-bridge timeouts (M4 / THE-180, G2.2 §3.1 + §6). Inner fields
 // carry defaults; the whole block is optional so a vault that predates M4
@@ -199,17 +200,6 @@ export const PlurConfigSchema = z.object({
   timeoutMs: z.number().int().positive().default(5000),
 });
 export type PlurConfig = z.infer<typeof PlurConfigSchema>;
-
-// F2: loopback detection for the fail-closed unauthenticated-HTTP guard below. 0.0.0.0
-// (all interfaces) and any LAN/public address are intentionally NOT loopback.
-function isLoopbackHost(host: string): boolean {
-  const h = host
-    .trim()
-    .toLowerCase()
-    .replace(/^\[|\]$/g, "");
-  if (h === "localhost" || h === "::1" || h === "::ffff:127.0.0.1") return true;
-  return /^127(?:\.\d{1,3}){3}$/.test(h);
-}
 
 const ServerConfigObject = z.object({
   cacheDir: z.string().default(".obsidian-tc"),

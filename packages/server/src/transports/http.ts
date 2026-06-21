@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, normalizeHostForBind } from "@the-40-thieves/obsidian-tc-shared";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
@@ -139,14 +139,17 @@ export function startHttp(
 ): Promise<HttpHandle> {
   const app = createHttpApp(opts);
   return new Promise((resolve) => {
-    const server = serve({ fetch: app.fetch, hostname: opts.host, port: opts.port }, (info) => {
-      resolve({
-        port: info.port,
-        close: () =>
-          new Promise<void>((done) => {
-            server.close(() => done());
-          }),
-      });
-    });
+    const server = serve(
+      { fetch: app.fetch, hostname: normalizeHostForBind(opts.host), port: opts.port },
+      (info) => {
+        resolve({
+          port: info.port,
+          close: () =>
+            new Promise<void>((done) => {
+              server.close(() => done());
+            }),
+        });
+      },
+    );
   });
 }
