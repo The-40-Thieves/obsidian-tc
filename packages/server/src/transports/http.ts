@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, normalizeHostForBind } from "@the-40-thieves/obsidian-tc-shared";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
@@ -23,7 +23,7 @@ export interface HttpAppOptions {
 
 type AuthOutcome =
   | { ok: true; caller: string | null; scopes: Set<string> }
-  | { ok: false; status: 401 | 500 | 501; reason: string };
+  | { ok: false; status: 401 | 500; reason: string };
 
 function bearer(header: string | undefined): string | null {
   const m = header ? /^Bearer\s+(.+)$/i.exec(header) : null;
@@ -34,21 +34,21 @@ function bearer(header: string | undefined): string | null {
 // scopes. Authorization (scope/ACL/HITL) stays in registry.dispatch.
 async function resolveAuth(header: string | undefined, auth: AuthConfig): Promise<AuthOutcome> {
   if (auth.mode === "none") {
+    // Unauthenticated mode is only reachable on a loopback bind: ServerConfigSchema
+    // fail-closes when HTTP is exposed on a non-loopback host with auth.mode "none".
     return { ok: true, caller: "http-local", scopes: new Set(["*"]) };
   }
-  if (auth.mode === "jwt") {
-    const token = bearer(header);
-    if (!token) return { ok: false, status: 401, reason: "missing bearer token" };
-    if (!auth.jwtSecret)
-      return { ok: false, status: 500, reason: "jwt mode misconfigured: no secret" };
-    try {
-      const id = await verifyJwt(token, auth.jwtSecret);
-      return { ok: true, caller: id.caller, scopes: id.scopes };
-    } catch {
-      return { ok: false, status: 401, reason: "invalid or expired token" };
-    }
+  // auth.mode === "jwt" — the only other mode the config schema admits.
+  const token = bearer(header);
+  if (!token) return { ok: false, status: 401, reason: "missing bearer token" };
+  if (!auth.jwtSecret)
+    return { ok: false, status: 500, reason: "jwt mode misconfigured: no secret" };
+  try {
+    const id = await verifyJwt(token, auth.jwtSecret);
+    return { ok: true, caller: id.caller, scopes: id.scopes };
+  } catch {
+    return { ok: false, status: 401, reason: "invalid or expired token" };
   }
-  return { ok: false, status: 501, reason: `auth mode '${auth.mode}' is not implemented` };
 }
 
 /**
@@ -139,14 +139,17 @@ export function startHttp(
 ): Promise<HttpHandle> {
   const app = createHttpApp(opts);
   return new Promise((resolve) => {
-    const server = serve({ fetch: app.fetch, hostname: opts.host, port: opts.port }, (info) => {
-      resolve({
-        port: info.port,
-        close: () =>
-          new Promise<void>((done) => {
-            server.close(() => done());
-          }),
-      });
-    });
+    const server = serve(
+      { fetch: app.fetch, hostname: normalizeHostForBind(opts.host), port: opts.port },
+      (info) => {
+        resolve({
+          port: info.port,
+          close: () =>
+            new Promise<void>((done) => {
+              server.close(() => done());
+            }),
+        });
+      },
+    );
   });
 }

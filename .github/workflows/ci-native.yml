@@ -45,6 +45,13 @@ jobs:
         working-directory: packages/native
         run: bun run build -- --target ${{ matrix.target }}
         shell: bash
+      # F1 guard: napi build must not regenerate/clobber the committed hand-written loader
+      # (index.js/index.d.ts); its generated output is redirected to gitignored napi-generated.*
+      # files. A non-empty diff here means that redirect regressed.
+      - name: assert build did not clobber committed loader (F1)
+        working-directory: packages/native
+        run: git diff --exit-code -- index.js index.d.ts
+        shell: bash
       - name: test
         working-directory: packages/native
         run: cargo test --release --target ${{ matrix.target }}

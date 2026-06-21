@@ -47,6 +47,7 @@ function callStatusForError(code: string): ToolCallStatus {
   switch (code) {
     case "unauthorized":
     case "forbidden":
+    case "acl_denied":
     case "elicit_required":
     case "throttled":
       return "denied";
@@ -162,6 +163,7 @@ export class ToolRegistry {
     }
     switch (result.error.code) {
       case "forbidden":
+      case "acl_denied":
         this.relay(ctx.vaultId, "tc.acl.denied", data);
         break;
       case "overflow":
@@ -351,7 +353,8 @@ export class ToolRegistry {
       const duration = Math.max(0, now() - start);
       audit("error", duration, 0, error.code);
       this.meter((m) => {
-        if (error.code === "forbidden") m.incAclDenied(ctx.vaultId, scopeClass, error.code);
+        if (error.code === "forbidden" || error.code === "acl_denied")
+          m.incAclDenied(ctx.vaultId, scopeClass, error.code);
         m.observeToolCall(ctx.vaultId, name, callStatusForError(error.code), duration / 1000, 0);
       });
       return { ok: false, error: error.toJSON(), meta: { duration_ms: duration, result_size: 0 } };

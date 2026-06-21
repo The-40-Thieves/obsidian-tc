@@ -24,6 +24,8 @@ target/
 # napi-rs build outputs
 *.node
 prebuilds/
+# napi's generated JS binding is disabled (--js false) and its generated .d.ts is redirected to
+# target/ (ignored above); the committed loader is the hand-written index.js/index.d.ts (F1).
 
 # Python (V2 sidecar)
 __pycache__/
