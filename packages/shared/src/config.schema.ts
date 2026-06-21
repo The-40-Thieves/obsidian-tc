@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isLoopbackHost } from "./net-host";
 
 // Per-vault plugin-bridge timeouts (M4 / THE-180, G2.2 §3.1 + §6). Inner fields
 // carry defaults; the whole block is optional so a vault that predates M4
@@ -63,7 +64,7 @@ export type VaultConfig = z.infer<typeof VaultConfigSchema>;
 
 export const AuthConfigSchema = z
   .object({
-    mode: z.enum(["none", "jwt", "oauth"]).default("none"),
+    mode: z.enum(["none", "jwt"]).default("none"),
     jwtSecret: z.string().min(32).optional(),
     tokenTtlSeconds: z.number().int().positive().default(86400),
   })
@@ -200,7 +201,7 @@ export const PlurConfigSchema = z.object({
 });
 export type PlurConfig = z.infer<typeof PlurConfigSchema>;
 
-export const ServerConfigSchema = z.object({
+const ServerConfigObject = z.object({
   cacheDir: z.string().default(".obsidian-tc"),
   vaults: z.array(VaultConfigSchema).min(1),
   plur: PlurConfigSchema.optional(),
@@ -213,5 +214,19 @@ export const ServerConfigSchema = z.object({
   observability: ObservabilityConfigSchema.default({}),
   idempotencyTtlSeconds: z.number().int().positive().default(86400),
   elicitTtlSeconds: z.number().int().positive().default(300),
+});
+
+// F2 fail-closed interlock: never run an unauthenticated server on a routable host. When the
+// HTTP transport is enabled on a non-loopback host with auth.mode "none", every request would
+// resolve to full wildcard scopes (see transports/http.ts resolveAuth) — refuse the config.
+export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
+  const http = cfg.transports.http;
+  if (http.enabled && cfg.auth.mode === "none" && !isLoopbackHost(http.host)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["transports", "http", "host"],
+      message: `refusing to expose an unauthenticated server: transports.http.enabled is true with host "${http.host}" (non-loopback) while auth.mode is "none". Set auth.mode to "jwt" (with jwtSecret) or bind transports.http.host to a loopback address (127.0.0.1, ::1, localhost).`,
+    });
+  }
 });
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;

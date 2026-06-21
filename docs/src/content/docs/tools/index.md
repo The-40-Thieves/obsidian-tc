@@ -11,13 +11,13 @@ scope class that selects its rate-limit tier.
 
 | Group | Domains | Examples |
 | --- | --- | --- |
-| **Notes & metadata** | notes, frontmatter, properties, tags, links, headings | `read_note`, `write_note`, `patch_note`, `set_frontmatter`, `get_backlinks` |
-| **Search & retrieval** | text search, DQL, vector / hybrid search, embeddings | `search_vault`, `search_dql`, `semantic_search` |
-| **Structured formats** | Bases, Canvas, periodic notes, tasks, outlines | `read_base`, `edit_canvas`, `daily_note`, `list_tasks` |
-| **Plugin bridges** | Dataview, Templater, OCR, command execution, workspace | `run_dql`, `execute_template`, `run_command` |
-| **Memory & capture** | memory store, capture queue, workspace traces, PLUR proxy | `memory_write`, `capture`, `recall` |
-| **Bulk & URI** | bulk read/write/move/delete, `obsidian://` URI generation | `bulk_read`, `bulk_write`, `bulk_delete`, `build_uri` |
-| **Server admin** | health, config, ACL, metrics introspection | `get_health`, `get_server_config`, `get_metrics` |
+| **Notes & metadata** | notes, frontmatter, properties, tags, links, headings | `read_note`, `write_note`, `patch_note`, `update_frontmatter`, `get_backlinks` |
+| **Search & retrieval** | text search, DQL, vector / hybrid search, embeddings | `search_vault`, `search_dql`, `search_semantic` |
+| **Structured formats** | Bases, Canvas, periodic notes, tasks, outlines | `read_base`, `update_canvas`, `create_periodic_note`, `list_tasks` |
+| **Plugin bridges** | Dataview, Templater, OCR, command execution, workspace | `eval_dataview_field`, `execute_template`, `execute_command` |
+| **Memory & capture** | memory store, capture queue, workspace traces, PLUR proxy | `add_observation`, `enqueue_capture`, `plur_recall` |
+| **Bulk & URI** | bulk note create / move / set-property, `obsidian://` URI generation | `bulk_create_notes`, `bulk_move_notes`, `bulk_set_property`, `generate_uri` |
+| **Server admin** | health, config, ACL, metrics introspection | `server_health`, `get_server_config`, `inspect_acl`, `get_metrics` |
 
 ## Degradation
 

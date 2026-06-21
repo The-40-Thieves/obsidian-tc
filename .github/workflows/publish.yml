@@ -89,6 +89,30 @@ jobs:
       # "@the-40-thieves/obsidian-tc-shared": "workspace:*" and fail to install (THE-214).
       - name: pin workspace deps to concrete versions
         run: bun scripts/pin-workspace-deps.mjs
+      # F3 preflight: npm publish is immutable and this job publishes 3 packages (+ napi
+      # sub-packages) sequentially with no rollback. If any target version is already on npm,
+      # fail BEFORE the first publish so a re-run cannot half-publish a version-skewed release.
+      # (Checks the umbrella packages; platform sub-packages track the native version.)
+      - name: preflight — assert target versions are unpublished (F3)
+        run: |
+          set -euo pipefail
+          fail=0
+          check() {
+            local dir="$1" name version
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "::error::$name@$version is already published; bump the version before tagging."
+              fail=1
+            else
+              echo "ok: $name@$version is unpublished"
+            fi
+          }
+          check packages/native
+          check packages/shared
+          check packages/server
+          [ "$fail" -eq 0 ]
+        shell: bash
       # Platform sub-packages (one per built triple, @the-40-thieves/obsidian-tc-native-<triple>)
       # + the umbrella optionalDependencies are generated and published by `napi prepublish`.
       - name: publish platform sub-packages (napi)

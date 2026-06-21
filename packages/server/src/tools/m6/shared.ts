@@ -19,7 +19,7 @@ export interface M6Deps {
   /** Process start epoch ms (get_metrics uptime gauge). */
   startedAt: number;
   /** Configured auth mode (get_server_config) — never the secret itself. */
-  authMode: "none" | "jwt" | "oauth";
+  authMode: "none" | "jwt";
   /** Throttle config block; get_server_config reports its limits. */
   throttle: ThrottleConfig;
   /** Observability toggles (get_server_config) — booleans only, no endpoints/tokens. */
