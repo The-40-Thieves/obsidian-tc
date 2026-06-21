@@ -4,6 +4,37 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/) and the spirit of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.0.2] - 2026-06-21
+
+Security patch. Closes the unauthenticated-bind exposure present in 1.0.1 and
+rolls up the post-1.0.1 rate-limiter and housekeeping work already on `main`.
+
+### Security
+
+- **F2: the HTTP transport now refuses to bind a non-loopback host when
+  `auth.mode` is `none`.** Enforced fail-closed at config load with no insecure
+  override; loopback detection is centralized in a shared `net-host` helper with
+  strict IPv4 octet validation and bracket-normalized IPv6 binding. 1.0.1 could
+  serve an unauthenticated vault on a non-loopback address. (THE-113 audit, F2.)
+
+### Fixed
+
+- **F1: the native build no longer clobbers its prebuild output directory.**
+- **F4 / F8 and audit hygiene** from the THE-113 end-to-end audit; the committed
+  audit report is removed from the tree.
+- Rate limiter: single deletes tier at the `delete` scope class (THE-212) and
+  idle buckets are reclaimed (THE-213).
+
+### Changed
+
+- Docs reconciled to the access-only V2 framing and freshened post-1.0.1;
+  tool-surface count corrected to 103 across 28 domains (THE-217).
+
+### CI
+
+- Pure-JS native fallback test job (THE-216) and a decoupled `release-image`
+  workflow for GHCR-only image re-releases.
+
 ## [1.0.1] - 2026-06-19
 
 First public release: a comprehensive, model-agnostic, agent-ready Obsidian MCP server —
