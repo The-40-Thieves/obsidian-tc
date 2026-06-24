@@ -4,6 +4,39 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/) and the spirit of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+Post-1.0.2 work merged to `main`: a granular security-audit remediation pass and a
+dependency-currency sweep. Not yet tagged/released.
+
+### Security
+
+- **Read-ACL bypass closed:** `search_dql` / `search_vault(mode:dql)` returned whole-vault
+  Dataview rows with no read-ACL intersection; now refused under a read whitelist
+  (fail-closed), mirroring the other bridge tools.
+- **ReDoS guard hardened:** the regex guard now also rejects a quantifier applied to an
+  alternation (e.g. `(a|a)+`), closing the previous bypass.
+- **Delete-class tools are now rate-limited** (a `delete` throttle tier was missing).
+- **Internal errors no longer leak the absolute vault path** to MCP callers.
+
+### Fixed
+
+- **Frontmatter fidelity:** writes preserve untouched YAML keys byte-for-byte, so
+  leading/trailing-zero values (zip codes, ISBNs, semver) survive any write, including
+  body-only `patch_note` edits.
+- **`bulk_move_notes`:** in-batch destination collisions and chained moves are rejected
+  instead of silently clobbering/losing content.
+- Tokenizer parity (Rust `is_alphanumeric` vs JS `\p{Alphabetic}`), `reset_vault_cache`
+  drops orphaned sqlite-vec vectors, a corrupt idempotency cache self-heals, jsonlogic
+  has a depth cap, and embedding vectors are finite-checked.
+
+### Changed
+
+- **Dependency-currency sweep:** Zod 3 → **4** (dropped the deprecated `zod-to-json-schema`
+  for native `z.toJSONSchema`), Biome 1.9 → **2.5**, napi-rs 2 → **3**, better-sqlite3 11 → **12**,
+  @types/node 22 → **24**, esbuild 0.24 → **0.25**.
+- **Standardized on Node 24 LTS:** `engines.node >=24` and CI on Node 24 across the board.
+
 ## [1.0.2] - 2026-06-21
 
 Security patch. Closes the unauthenticated-bind exposure present in 1.0.1 and

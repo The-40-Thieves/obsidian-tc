@@ -1,16 +1,19 @@
 # @the-40-thieves/obsidian-tc-native
 
-Native perf module for obsidian-tc. Rust via [napi-rs](https://napi.rs).
+Native perf module for obsidian-tc. Rust via [napi-rs](https://napi.rs) (v3).
 
-Handles perf-critical primitives that would be too slow in JavaScript:
+As shipped it exposes three pure primitives, each with a numerically identical
+pure-JS fallback so the server runs without a compiled binary:
 
-- Vector similarity (cosine, dot product)
-- Reciprocal Rank Fusion
-- BM25 scoring
-- Tokenization
-- `sqlite-vec` extension wrapper
-- ~~K-means clustering, ACT-R decay scoring~~ *(deprecated — reserved for an out-of-scope intelligence layer; `kmeansAssign` / `actrDecayScore` are being removed)*
+- `cosineSimilarity` — cosine similarity between two equal-length `f64` vectors
+- `tokenize` — Unicode (alphabetic + numeric) lowercase tokenizer
+- `bm25Score` — BM25 term-scoring contribution
 
-Ships as cross-platform prebuilt binaries inside the npm package. **No Rust toolchain required for end users.**
+Reciprocal Rank Fusion and a `sqlite-vec` wrapper are deferred (sqlite-vec is loaded
+as a SQLite extension at the TS/db layer). The earlier V2-reserved `kmeansAssign` /
+`actrDecayScore` hooks were removed with the V2 ML scope.
+
+Ships as cross-platform prebuilt binaries inside the npm package. **No Rust toolchain
+required for end users.**
 
 See the [repo root README](../../README.md) for project overview.

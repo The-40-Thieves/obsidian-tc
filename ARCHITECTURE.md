@@ -19,9 +19,9 @@ tags:
 
 # obsidian-tc — Architecture and Topology
 
-> **Scope note (2026-06-19):** obsidian-tc is an *access* MCP — vault read/write, search, and control. Retrieval intelligence (GraphRAG, clustering, hybrid retrieval fusion) is **out of scope**; pair obsidian-tc with an external retrieval/RAG service. The Python ML sidecar (component 14 and the § 3.3 IPC contract) and the native `kmeansAssign` / `actrDecayScore` reservations described below are **deprecated and being removed** — treat those sections as historical.
+> **Scope note (2026-06-19):** obsidian-tc is an *access* MCP — vault read/write, search, and control. Retrieval intelligence (GraphRAG, clustering, hybrid retrieval fusion) is **out of scope**; pair obsidian-tc with an external retrieval/RAG service. The Python ML sidecar (component 14 and the § 3.3 IPC contract) and the native `kmeansAssign` / `actrDecayScore` reservations described below have been **removed** — treat those sections as historical.
 
-**Status:** shipped in v1.0.1 (2026-06-19). This document records the architecture and topology committed for the v1.0 line.
+**Status:** shipped in v1.0.2 (2026-06-21). This document records the architecture and topology committed for the v1.0 line.
 **Tool surface:** 103 tools across 28 domains — see [`docs/G2.1-tools.md`](docs/G2.1-tools.md).
 **Linear:** THE-115
 
@@ -330,7 +330,7 @@ POST   /obsidian-tc/v1/makemd/query                → query make.md space
 
 ### 3.2 TypeScript core ↔ Rust native (napi-rs)
 
-**ABI:** napi-rs v2 (`napi8`) pinned in `packages/native/package.json` (`engines.node >= 22`). Server consumes via Bun workspace link as `@the-40-thieves/obsidian-tc-native`.
+**ABI:** napi-rs v3 (`napi8`) pinned in `packages/native/package.json` (`engines.node >= 24`). Server consumes via Bun workspace link as `@the-40-thieves/obsidian-tc-native`.
 
 **Prebuild distribution (as shipped):** the umbrella package stays **unscoped at the napi level** (`napi.name = "obsidian-tc-native"`) while `napi prepublish` generates and publishes one scoped platform sub-package per built triple into the umbrella's `optionalDependencies`. v1.0 ships **four** triples (linux-arm64 deferred to v1.1; the pure-JS fallback covers it):
 
@@ -822,7 +822,7 @@ Architectural hooks baked into V1 so V2 is an upgrade, not a rewrite:
 
 - **Dispatch layer is sidecar-aware.** Tool impl helpers include `sidecar.call(endpoint, payload)`. V1 throws if `sidecar.enabled: false` in config. V2 flips the flag.
 - **Plugin bridge URL space versioned (`/v1/`).** Companion plugin can ship `/v2/` routes alongside `/v1/` without breaking V1 server. Server selects version based on its compiled-in expectation.
-- **Native module exports V2-reserved stubs.** `kmeansAssign` and `actrDecayScore` exist in V1's `@the-40-thieves/obsidian-tc-native` package — they throw `"v2-feature-not-enabled"`. V2 enables them by swapping stub for real impl in a minor version bump; no ABI change.
+- **Native module V2 stubs removed.** The `kmeansAssign` / `actrDecayScore` reservations were removed with the V2 ML scope; the shipped `@the-40-thieves/obsidian-tc-native` exports only cosine similarity, a Unicode tokenizer, and BM25 term scoring.
 - **SQLite schema has V2-reserved columns** (chunks.cluster_id, chunks.decay_score, chunks.activation_count, chunks.last_accessed_at — per G2-architecture parent). V2 lights them up without migration.
 - **Config schema has `sidecar:` block already**, `enabled: false` as V1 default. No config-schema migration on V2.
 - **ACL/Policy layers are scope-aware.** V2 may add scope `agent:autonomous-l3` for restricted scopes. Handler already exists in the ACL parser; G2.4 commits scope grammar that V2 extends.
@@ -832,7 +832,7 @@ Architectural hooks baked into V1 so V2 is an upgrade, not a rewrite:
 
 ## Status
 
-Shipped in v1.0.1 (2026-06-19). The full design (G2.1–G2.5) is committed and implemented; this document is the architecture record for the v1.0 line.
+Shipped in v1.0.2 (2026-06-21). The full design (G2.1–G2.5) is committed and implemented; this document is the architecture record for the v1.0 line.
 
 ## References
 
