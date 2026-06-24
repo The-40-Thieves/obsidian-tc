@@ -26,6 +26,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.13'
+      - name: cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: biome check
         run: bun run lint
@@ -46,6 +52,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      - name: cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       # M0 tests use node:sqlite and do not need the native / better-sqlite3
       # compiles; --ignore-scripts mirrors the verified local + clean-room run.
       - name: install
@@ -62,10 +74,12 @@ jobs:
       - name: build server
         run: bun run build
         working-directory: packages/server
-      - name: test server (vitest under Node)
-        run: node ./node_modules/vitest/vitest.mjs run
+      # The v8 coverage gate is platform-independent, so it runs once here on Linux
+      # (folded in to avoid a separate full-suite job); macOS/Windows run the same
+      # suite without instrumentation for cross-platform verification.
+      - name: test server (vitest under Node; coverage gate on Linux)
+        run: node ./node_modules/vitest/vitest.mjs run ${{ matrix.os == 'ubuntu-latest' && '--coverage' || '' }}
         working-directory: packages/server
-
 
   bun-smoke:
     runs-on: ubuntu-latest
@@ -74,24 +88,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.13'
+      - name: cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: bun:sqlite adapter smoke (bun test)
         run: bun test bun-smoke
-        working-directory: packages/server
-
-  coverage:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.13'
-      # vitest forks Node workers (node:sqlite + --experimental-sqlite need Node >=22 on PATH).
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - run: bun install --frozen-lockfile --ignore-scripts
-      # v8 coverage gate: thresholds in vitest.config.ts fail the job under the floor.
-      - name: coverage gate
-        run: node ./node_modules/vitest/vitest.mjs run --coverage
         working-directory: packages/server

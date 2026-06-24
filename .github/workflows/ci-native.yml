@@ -14,9 +14,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# M0 verifies the napi-rs build pipeline on all three OSes (Linux, macOS,
-# Windows) via native-host builds. Cross-compiled prebuilds (e.g. aarch64-linux)
-# and the full release prebuild matrix land in G2.5 (Release engineering).
+# M0 verifies the napi-rs build pipeline on the host OSes (Linux, macOS, Windows).
+# PR runs build + cargo test in DEBUG for speed; push to main builds + tests in
+# RELEASE (and uploads the prebuild). Cross-compiled prebuilds and the full release
+# prebuild matrix land in G2.5 (Release engineering).
 jobs:
   build:
     strategy:
@@ -47,10 +48,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/native
+      - name: cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile --ignore-scripts
+      # PR builds debug (fast compile); push to main builds release for the prebuild.
       - name: build
         working-directory: packages/native
-        run: bun run build -- --target ${{ matrix.target }}
+        run: bun run ${{ github.event_name == 'push' && 'build' || 'build:debug' }} -- --target ${{ matrix.target }}
         shell: bash
       # F1 guard: napi build must not regenerate/clobber the committed hand-written loader
       # (index.js/index.d.ts); its generated output is redirected to gitignored napi-generated.*
@@ -59,9 +67,10 @@ jobs:
         working-directory: packages/native
         run: git diff --exit-code -- index.js index.d.ts
         shell: bash
+      # PR tests in debug (fast); push to main tests in release.
       - name: test
         working-directory: packages/native
-        run: cargo test --release --target ${{ matrix.target }}
+        run: cargo test ${{ github.event_name == 'push' && '--release' || '' }} --target ${{ matrix.target }}
         shell: bash
       - name: upload prebuild
         uses: actions/upload-artifact@v7
@@ -87,6 +96,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      - name: cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - name: install (skip napi build -> no .node)
         run: bun install --frozen-lockfile --ignore-scripts
       - name: server tests on pure-JS fallback
