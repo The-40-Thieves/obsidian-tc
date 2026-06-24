@@ -295,6 +295,24 @@ describe("Domain 2: file/note CRUD", () => {
     }
   });
 
+  it("move_note refuses a folder destination instead of trashing it (review #4)", async () => {
+    const v = makeTestVault({ files: { "a.md": "A", "Documents/keep.md": "K" } });
+    try {
+      const r = await v.call("move_note", {
+        vault: "test",
+        from: "a.md",
+        to: "Documents",
+        overwrite: true,
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.code).toBe("invalid_input");
+      expect(v.exists("Documents/keep.md")).toBe(true);
+      expect(v.exists("a.md")).toBe(true);
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("move_note to an existing destination without overwrite still refuses (note_exists)", async () => {
     const v = makeTestVault({ files: { "a.md": "A", "b.md": "B" } });
     try {
