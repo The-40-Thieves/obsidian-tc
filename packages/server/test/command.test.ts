@@ -70,6 +70,18 @@ describe("execute_command (deny-by-default, triple-gated)", () => {
     expect(v.bridgeRequests).toHaveLength(0);
   });
 
+  it("a precheck rejection (disabled) does NOT consume the elicit token (E2/D5)", async () => {
+    v = makeM4Vault({ routes }); // disabled
+    const denied = await v.callConfirmed("execute_command", input);
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("execute_command_disabled");
+    // precheck runs before the HITL stage, so the minted token is left unconsumed.
+    const row = v.db
+      .prepare("SELECT consumed_at FROM elicit_tokens ORDER BY rowid DESC LIMIT 1")
+      .get() as { consumed_at: number | null } | undefined;
+    expect(row?.consumed_at).toBeNull();
+  });
+
   it("fires only when confirmed AND enabled AND allowlisted", async () => {
     v = makeM4Vault({ routes, commandPolicy: enabled(["editor:save-file"]) });
     const res = await v.callConfirmed("execute_command", input);

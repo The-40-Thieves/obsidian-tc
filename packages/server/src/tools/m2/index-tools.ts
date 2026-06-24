@@ -1,7 +1,7 @@
 // index_vault — chunk + embed the vault into the search store (retrieval
 // substrate, not one of the six Domain-6 search tools). admin:vault scope; reads
 // notes through the read ACL (per-source), writes only the index DB.
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
@@ -25,6 +25,11 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
       inputSchema: z.object({ vault: VaultId, folder: VaultPath.optional() }).strict(),
       requiredScopes: ["admin:vault"],
       handler: async (input, ctx) => {
+        // index_vault writes the index/cache DB. admin:vault is a non-mutating family,
+        // so dispatch's read-only kill switch does not cover it; refuse explicitly when
+        // the vault is read-only (D6/E3).
+        if (ctx.acl?.readOnly)
+          throw err.readOnly("vault is read-only; index_vault writes the search index");
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         if (sub) enforcePathAcl(ctx.acl, "read", sub);

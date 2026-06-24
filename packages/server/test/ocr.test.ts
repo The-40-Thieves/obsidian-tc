@@ -65,11 +65,18 @@ describe("ocr_bulk", () => {
     },
   };
 
-  it("processes a small explicit batch without confirmation", async () => {
+  it("requires confirmation even for a small batch (always a bulk HITL floor)", async () => {
     v = makeM4Vault({ installed: ["text-extractor"], routes });
-    const res = await v.call("ocr_bulk", { vault: "test", paths: ["Attach/a.png"] });
-    expect(res.ok).toBe(true);
-    if (res.ok) expect((res.data as Record<string, unknown>).requested).toBe(1);
+    const input = { vault: "test", paths: ["Attach/a.png"] };
+
+    const denied = await v.call("ocr_bulk", input);
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("elicit_required");
+    expect(v.bridgeRequests).toHaveLength(0);
+
+    const ok = await v.callConfirmed("ocr_bulk", input);
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect((ok.data as Record<string, unknown>).requested).toBe(1);
     const req = v.bridgeRequests[0];
     if (!req) throw new Error("expected a bridge request");
     expect((JSON.parse(req.body ?? "{}") as Record<string, unknown>).paths).toEqual([

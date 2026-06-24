@@ -2,10 +2,12 @@
 // Obsidian's commands, so these gate on companion reachability (openCompanionBridge,
 // plugin_unreachable) rather than a community plugin. list_commands is a read-side
 // enumeration. execute_command runs an arbitrary Obsidian command and is the most
-// dangerous tool in M4 — it is DENY-BY-DEFAULT and triple-gated:
-//   1. execute:command is a hardcoded HITL floor -> dispatch demands a human token;
-//   2. the vault must explicitly enable command execution (config, default off);
-//   3. the command id must be on the vault allowlist.
+// dangerous tool in M4 — it is DENY-BY-DEFAULT and triple-gated. The enable +
+// allowlist gates run in a dispatch `precheck` (after scope/ACL, before HITL), so a
+// rejected command never consumes the single-use elicit token:
+//   1. the vault must explicitly enable command execution (precheck; default off);
+//   2. the command id must be on the vault allowlist (precheck);
+//   3. execute:command is a hardcoded HITL floor -> dispatch then demands a human token.
 // Arbitrary command execution is therefore never silently runnable.
 import { VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
@@ -58,7 +60,10 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
         })
         .strict(),
       requiredScopes: ["execute:command"],
-      handler: async (input) => {
+      // Deny-by-default policy runs in precheck (D5): dispatch invokes it AFTER scope/ACL
+      // and BEFORE the HITL elicit consumption, so a disabled / not-allowlisted command is
+      // rejected without burning the single-use confirmation token.
+      precheck: (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const policy = commandPolicy(deps, v.id);
         if (!policy.enabled)
@@ -69,6 +74,9 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
           throw err.commandNotAllowlisted("command is not in the vault allowlist", {
             command_id: input.command_id,
           });
+      },
+      handler: async (input) => {
+        const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openCompanionBridge(deps, v.id);
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
