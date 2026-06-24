@@ -141,6 +141,27 @@ export function applyLogic(rule: JsonLogic, data: Record<string, unknown>): unkn
   }
 }
 
+const MAX_LOGIC_DEPTH = 64;
+
+/** Bounded depth walk (cannot overflow itself) used to reject over-nested expressions
+ *  before applyLogic would blow the call stack (audit). */
+function logicDepth(rule: unknown, d: number): number {
+  if (d > MAX_LOGIC_DEPTH) return d;
+  if (Array.isArray(rule)) {
+    let mx = d;
+    for (const r of rule) mx = Math.max(mx, logicDepth(r, d + 1));
+    return mx;
+  }
+  if (rule && typeof rule === "object") {
+    let mx = d;
+    for (const r of Object.values(rule)) mx = Math.max(mx, logicDepth(r, d + 1));
+    return mx;
+  }
+  return d;
+}
+
 export function evaluatesTruthy(rule: JsonLogic, data: Record<string, unknown>): boolean {
+  if (logicDepth(rule, 0) > MAX_LOGIC_DEPTH)
+    throw err.jsonlogicError("logic expression nested too deeply", { max_depth: MAX_LOGIC_DEPTH });
   return truthy(applyLogic(rule, data));
 }
