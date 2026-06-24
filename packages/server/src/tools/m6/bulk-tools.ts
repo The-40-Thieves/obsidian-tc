@@ -222,7 +222,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             // Store an explicitly-supplied null as null; only a truly-absent value
             // defaults to null (F5).
             fm[input.key] = "value" in input ? input.value : null;
-            writeNoteAtomic(abs, serializeNote(fm, parsed.body), false);
+            writeNoteAtomic(abs, serializeNote(fm, parsed.body, parsed.rawFrontmatter), false);
             return { prev_value: prev ?? null };
           },
         );

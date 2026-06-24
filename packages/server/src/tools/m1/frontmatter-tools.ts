@@ -143,6 +143,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         const ex = noteExists(abs);
         let body = "";
         let fm: Frontmatter = {};
+        let rawFm: string | null = null;
         let prevHash: string | null = null;
         if (ex.exists) {
           if (ex.type === "folder") throw err.invalidInput("path is a folder", { path: rel });
@@ -157,6 +158,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           const parsed = parseNote(cur.raw);
           fm = { ...(parsed.frontmatter ?? {}) };
           body = parsed.body;
+          rawFm = parsed.rawFrontmatter;
         } else if (!input.create_if_missing) {
           throw err.noteNotFound("note not found; set create_if_missing to create it", {
             path: rel,
@@ -201,7 +203,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         });
 
         const hasKeys = Object.keys(next).length > 0;
-        const content = serializeNote(hasKeys ? next : null, body);
+        const content = serializeNote(hasKeys ? next : null, body, rawFm);
         writeNoteAtomic(abs, content, true);
         return {
           vault: v.id,
