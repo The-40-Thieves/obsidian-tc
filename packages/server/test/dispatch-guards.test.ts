@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -81,5 +82,80 @@ describe("dispatch guards", () => {
     const reused = await reg.dispatch("purge", {}, ctx(db, { elicitToken: token }));
     expect(reused.ok).toBe(false);
     if (!reused.ok) expect(reused.error.code).toBe("elicit_required");
+  });
+});
+
+describe("dispatch precheck (D5)", () => {
+  it("runs after scope/ACL and before the HITL elicit consumption", async () => {
+    const db = freshDb();
+    const reg = new ToolRegistry({ verifyElicit: elicitVerifier });
+    reg.register({
+      name: "guarded",
+      description: "destructive with a precheck that always rejects",
+      inputSchema: z.object({}),
+      requiredScopes: [],
+      destructive: true,
+      precheck: () => {
+        throw new ObsidianTcError("forbidden", "blocked by precheck");
+      },
+      handler: () => ({ done: true }),
+    });
+    // A VALID elicit token is present, but precheck runs first and must reject
+    // WITHOUT consuming the token.
+    const token = issueElicitToken(db, {
+      vaultId: "v1",
+      toolName: "guarded",
+      argsHash: argsHash("guarded", {}),
+      caller: "t",
+    });
+    const r = await reg.dispatch("guarded", {}, ctx(db, { elicitToken: token }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("forbidden");
+    const row = db
+      .prepare("SELECT consumed_at FROM elicit_tokens WHERE token = ?")
+      .get(token) as { consumed_at: number | null } | undefined;
+    expect(row?.consumed_at).toBeNull();
+  });
+
+  it("is transparent when it resolves", async () => {
+    const db = freshDb();
+    const reg = new ToolRegistry();
+    let ran = false;
+    reg.register({
+      name: "ok_tool",
+      description: "no-op precheck",
+      inputSchema: z.object({}),
+      requiredScopes: [],
+      precheck: () => {
+        /* allow */
+      },
+      handler: () => {
+        ran = true;
+        return { ok: true };
+      },
+    });
+    const r = await reg.dispatch("ok_tool", {}, ctx(db));
+    expect(r.ok).toBe(true);
+    expect(ran).toBe(true);
+  });
+
+  it("runs after the scope gate (forbidden short-circuits before precheck)", async () => {
+    const db = freshDb();
+    const reg = new ToolRegistry();
+    let prechecked = false;
+    reg.register({
+      name: "scoped",
+      description: "requires a scope the caller lacks",
+      inputSchema: z.object({}),
+      requiredScopes: ["write:note"],
+      precheck: () => {
+        prechecked = true;
+      },
+      handler: () => ({ ok: true }),
+    });
+    const r = await reg.dispatch("scoped", {}, ctx(db, { grantedScopes: new Set(["read:note"]) }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("forbidden");
+    expect(prechecked).toBe(false);
   });
 });

@@ -36,6 +36,12 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   inputSchema: z.ZodType<I>;
   requiredScopes: string[];
   destructive?: boolean;
+  /** Tool-specific precondition gate. Runs AFTER scope+ACL and BEFORE the HITL/elicit
+   *  stage, so a rejection never consumes the single-use elicit token (D5). Throw an
+   *  ObsidianTcError to reject. */
+  precheck?: (input: I, ctx: CallerContext) => Promise<void> | void;
+  /** Override the governing throttle/metric scope class (E4). Defaults to scopeClassOf(requiredScopes). */
+  scopeClass?: string;
   handler: (input: I, ctx: CallerContext) => Promise<O> | O;
 }
 
@@ -361,7 +367,7 @@ export class ToolRegistry {
     try {
       const def = this.tools.get(name);
       if (!def) throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
-      scopeClass = scopeClassOf(def.requiredScopes);
+      scopeClass = def.scopeClass ?? scopeClassOf(def.requiredScopes);
 
       const parsed = def.inputSchema.safeParse(rawInput);
       if (!parsed.success)
@@ -380,6 +386,10 @@ export class ToolRegistry {
       const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
       if (mutating && ctx.acl?.readOnly)
         throw new ObsidianTcError("forbidden", "vault is read-only (acl.readOnly)");
+
+      // Tool-specific precondition gate (D5). After scope/ACL, before HITL, so a
+      // rejected precheck never consumes the single-use elicit token.
+      if (def.precheck) await def.precheck(parsed.data, ctx);
 
       const needsHitl = def.destructive === true || def.requiredScopes.some(scopeRequiresHitl);
       if (needsHitl) {
