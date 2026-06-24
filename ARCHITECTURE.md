@@ -1,6 +1,6 @@
 ---
 created: 2026-05-18
-updated: 2026-06-19
+updated: 2026-06-23
 type: design
 status: shipped
 project: obsidian-tc
@@ -64,7 +64,7 @@ Fourteen named components in V1 (excluding the optional V2 sidecar, which gets a
 
 **(8) Embedding provider interface.** TypeScript. `EmbeddingProvider` interface plus per-provider implementations (Ollama, OpenAI, Voyage, Cohere, Custom HTTP). Each provider owns its API specifics, dimensions, cost estimation. NOT responsible for chunk storage, retrieval logic, or provider selection (per-vault config decides).
 
-**(9) Native module.** Rust via napi-rs, packaged at `@the-40-thieves/obsidian-tc-native`. Owns cosine, dot product, RRF, BM25, sqlite-vec wrapper, tokenization. V2-reserved exports (`kmeansAssign`, `actrDecayScore`) ship as stubs in V1. NOT responsible for SQLite schema, transport, business logic.
+**(9) Native module.** Rust via napi-rs, packaged at `@the-40-thieves/obsidian-tc-native`. As shipped it owns three pure primitives: cosine similarity, a Unicode tokenizer, and BM25 term scoring. RRF and the sqlite-vec wrapper are deferred (sqlite-vec is loaded as a SQLite extension at the TS/db layer; RRF is a V2 hybrid-fusion input), and the V2-reserved `kmeansAssign` / `actrDecayScore` stubs were removed with the V2 ML scope. Every export has a numerically identical pure-JS fallback. NOT responsible for SQLite schema, transport, business logic.
 
 **(10) SQLite cache.** `better-sqlite3` + `sqlite-vec` extension. One DB file per vault at `<vault.cache_dir>/cache.db`. Owns chunks, embeddings, idempotency keys, capture queue, memory entities, event log, workspace_sessions, elicit_tokens (new in G2.2). NOT responsible for vault files — those live in the vault and the server reads them via REST or filesystem.
 
@@ -330,40 +330,33 @@ POST   /obsidian-tc/v1/makemd/query                → query make.md space
 
 ### 3.2 TypeScript core ↔ Rust native (napi-rs)
 
-**ABI:** napi-rs version pinned in `packages/native/package.json`. Compatible with Node 18+ / Bun 1.0+. Server consumes via Bun workspace link as `@the-40-thieves/obsidian-tc-native`.
+**ABI:** napi-rs v2 (`napi8`) pinned in `packages/native/package.json` (`engines.node >= 22`). Server consumes via Bun workspace link as `@the-40-thieves/obsidian-tc-native`.
 
-**Prebuild distribution:** napi-rs convention. `packages/native/package.json` declares optional platform-specific deps:
+**Prebuild distribution (as shipped):** the umbrella package stays **unscoped at the napi level** (`napi.name = "obsidian-tc-native"`) while `napi prepublish` generates and publishes one scoped platform sub-package per built triple into the umbrella's `optionalDependencies`. v1.0 ships **four** triples (linux-arm64 deferred to v1.1; the pure-JS fallback covers it):
 
 ```
 @the-40-thieves/obsidian-tc-native-linux-x64-gnu
-@the-40-thieves/obsidian-tc-native-linux-arm64-gnu
 @the-40-thieves/obsidian-tc-native-darwin-x64
 @the-40-thieves/obsidian-tc-native-darwin-arm64
-@the-40-thieves/obsidian-tc-native-win32-x64
+@the-40-thieves/obsidian-tc-native-win32-x64-msvc
 ```
 
-Bun/npm installs the matching one on `bun install`. If platform missed (unusual arch, or install on a platform without prebuilds), TS fallback registers and logs `[obsidian-tc:fallback] native unavailable for $arch — using pure-JS impl, expect 10-50x slower vector ops`.
+A hand-written `index.js` loader (replacing the napi-generated one) tries a locally-built `.node`, then the matching platform sub-package, and otherwise loads the numerically-identical pure-JS `fallback.ts`/`fallback.js`, exposing `module.exports.nativeLoaded` so callers can tell which backend is active. It never throws on a missing prebuild.
 
 **Calls (sync, CPU-bound):**
 
 ```typescript
-// packages/native/src/lib.rs → exposed as TS via napi-rs
-export function cosineSimilarity(a: Float32Array, b: Float32Array): number;
-export function dotProduct(a: Float32Array, b: Float32Array): number;
-export function reciprocalRankFusion(
-  rankings: number[][],     // list of rank lists from different sources
-  k: number                 // RRF constant, default 60
-): number[];
-export function bm25Score(
-  query: string[],          // tokenized query
-  doc: string[],            // tokenized doc
-  corpus_stats: { avgdl: number, df: Record<string, number>, N: number }
+// packages/native/src/lib.rs → exposed as TS via napi-rs (shipped surface: 3 exports)
+export function cosineSimilarity(a: number[], b: number[]): number;   // f64 arrays; 0 for empty/mismatched length
+export function tokenize(text: string): string[];                     // Unicode lowercase alphanumeric terms
+export function bm25Score(                                            // one query term's BM25 contribution (k1=1.2, b=0.75)
+  tf: number, docLen: number, avgDocLen: number, docFreq: number, docCount: number,
 ): number;
-export function tokenize(text: string, model: "bge-small" | "nomic-embed"): string[];
 
-// V2-reserved (V1 ships as stubs that throw "not enabled in V1")
-export function kmeansAssign(point: Float32Array, centroids: Float32Array[]): number;
-export function actrDecayScore(activations: ActivationEvent[], now: number): number;
+// Deferred / removed: dotProduct and reciprocalRankFusion are not implemented (RRF is a V2
+// hybrid-fusion input; the sqlite-vec wrapper lives at the TS/db layer, not here). The V2
+// stubs kmeansAssign / actrDecayScore were removed with the V2 ML scope (see top-of-doc note).
+// Inputs are plain f64 arrays in V1; a zero-copy Float32Array path is a later optimization.
 ```
 
 **Memory:** napi-rs copies typed arrays on the boundary. For 768-dim embeddings (3KB) the copy is ~100µs; for 1536-dim (6KB) ~200µs. Acceptable.
@@ -448,121 +441,56 @@ Recommendation surfaces in docs (G2.5).
 
 ### Config file location
 
-| OS | Path |
-|---|---|
-| Linux | `$XDG_CONFIG_HOME/obsidian-tc/config.yaml`, falling back to `~/.config/obsidian-tc/config.yaml` |
-| macOS | `~/Library/Application Support/obsidian-tc/config.yaml` |
-| Windows | `%APPDATA%\obsidian-tc\config.yaml` |
+**As shipped (v1.0):** config is a **JSON** file loaded from an explicit path — the `OBSIDIAN_TC_CONFIG` env var or the CLI's config-path argument — via `loadConfig(path)` (`packages/server/src/config/load.ts`), validated by `ServerConfigSchema`. There is no XDG / `%APPDATA%` auto-discovery yet (the richer `obsidian-tc serve / init / auth / …` launcher is a v1.1 follow-up). Secrets are kept off disk via env: `OBSIDIAN_TC_JWT_SECRET`, `OBSIDIAN_TC_PLUR_ENDPOINT`, `OBSIDIAN_TC_PLUR_TOKEN`.
 
-Override via `OBSIDIAN_TC_CONFIG=/path/to/config.yaml` env. Missing file: server logs `[obsidian-tc:config] no config found, expected at <path>` and refuses to start (no implicit defaults — vault paths must be explicit).
+### Schema (as shipped — `ServerConfigSchema`, exported from `@the-40-thieves/obsidian-tc-shared`)
 
-### Full schema (Zod, exported from `@the-40-thieves/obsidian-tc-shared`)
+The shipped v1.0 schema (`packages/shared/src/config.schema.ts`) is flatter than the G2.2 design sketch. Key reconciliations vs the original design: **auth is `none | jwt` only** (no `oauth` / DCR); **ACL is a single global block, not per-vault**; **embeddings providers are ollama / openai / voyage / cohere** (no `custom`); there is **no `sidecar` block** (the V2 ML scope was dropped); HITL is **hardcoded floors + per-scope**, not a per-vault `hitl_thresholds` table; and throttle / governor / observability are first-class top-level blocks.
 
 ```typescript
-const ServerConfig = z.object({
-  vaults: z.array(VaultConfig).min(1),
-  default_vault: VaultId.optional(),
-
-  auth: z.object({
-    mode: z.enum(["none", "jwt", "oauth"]).default("none"),
-    jwt_secret: z.string().min(32).optional(),               // required if mode=jwt
-    oauth_config: z.object({
-      issuer_url: z.string().url(),
-      audience: z.string(),
-      jwks_uri: z.string().url().optional(),
-      dcr_enabled: z.boolean().default(true),
-    }).optional(),                                            // required if mode=oauth
+const ServerConfigSchema = z.object({
+  cacheDir: z.string().default(".obsidian-tc"),
+  vaults: z.array(VaultConfig).min(1),       // VaultConfig: { id, name?, path, restApiUrl?, restApiKey?,
+                                             //   bridges?, plugins?, commands?, memory?, workspace? }
+  plur: PlurConfig.optional(),               // GLOBAL read proxy: { endpoint?, apiKey?, apiPrefix, timeoutMs }
+  auth: z.object({                           // none | jwt ONLY (no oauth)
+    mode: z.enum(["none", "jwt"]).default("none"),
+    jwtSecret: z.string().min(32).optional(),      // required when mode = "jwt"
+    tokenTtlSeconds: z.number().int().positive().default(86400),
+  }).default({ mode: "none" }),
+  acl: z.object({                            // GLOBAL, not per-vault
+    readOnly: z.boolean().default(false),          // kill switch
+    defaultScopes: z.array(z.string()).default([]),
+    rules: z.array(z.object({ glob: z.string(), scopes: z.array(z.string()) })).default([]),  // last-match-wins
+    readPaths: z.array(z.string()).optional(),     // per-op whitelist; OMITTED = unrestricted for that op kind
+    writePaths: z.array(z.string()).optional(),
+    deletePaths: z.array(z.string()).optional(),
   }).default({}),
-
-  limits: z.object({
-    max_concurrent_writes_per_vault: z.number().int().positive().default(4),
-    max_operations_per_second: z.number().int().positive().default(50),
-    max_operations_per_minute: z.number().int().positive().default(1000),
-    burst_window_seconds: z.number().int().positive().default(10),
-  }).default({}),
-
-  observability: z.object({
-    otlp_enabled: z.boolean().default(false),
-    otlp_endpoint: z.string().url().optional(),
-    prometheus_enabled: z.boolean().default(true),
-    prometheus_port: z.number().int().min(1).max(65535).default(9100),
-    morgiana_enabled: z.boolean().default(false),
-    morgiana_endpoint: z.string().url().optional(),
-    morgiana_api_key: z.string().optional(),
-  }).default({}),
-
-  sidecar: z.object({                                         // V2 only
-    enabled: z.boolean().default(false),
-    port: z.number().int().default(7891),
-    idle_timeout_seconds: z.number().int().default(300),
-    python_executable: z.string().default("python3"),
-    expected_version: z.string().optional(),
-  }).default({}),
-});
-
-const VaultConfig = z.object({
-  id: VaultId,                                                // primitive from G2.1
-  name: z.string().min(1),
-  path: z.string().min(1),                                    // absolute filesystem path
-
-  rest_api: z.object({
-    host: z.string().default("127.0.0.1"),
-    port: z.number().int().min(1).max(65535).default(27124),
-    api_key: z.string().min(16),
-  }),
-
-  acl: z.object({
-    read_paths: z.array(z.string()).default(["*"]),
-    write_paths: z.array(z.string()).default([]),             // empty = no writes
-    delete_paths: z.array(z.string()).default([]),
-    read_only: z.boolean().default(false),                    // global kill switch
-  }),
-
   embeddings: z.object({
-    provider: z.enum(["ollama", "openai", "voyage", "cohere", "custom"]).default("ollama"),
+    provider: z.enum(["ollama", "openai", "voyage", "cohere"]).default("ollama"),
     model: z.string().default("nomic-embed-text"),
-    endpoint: z.string().optional(),
-    api_key: z.string().optional(),
-    custom_provider_path: z.string().optional(),              // for provider=custom
-    dimensions: z.number().int().positive().optional(),       // override if model auto-detect fails
-  }),
-
-  cache_dir: z.string().default("~/.cache/obsidian-tc/<vault.id>"),
-
-  auto_mode_explain: z.enum(["always", "on_zero_hits", "optional"]).default("optional"),
-
-  hitl_thresholds: z.object({
-    delete_attachment_reference_count: z.number().int().nonnegative().default(0),
-    update_canvas_node_removal: z.number().int().positive().default(10),
-    bulk_create_notes_count: z.number().int().positive().default(50),
-    bulk_set_property_count: z.number().int().positive().default(50),
-    task_status_done_to_todo_age_days: z.number().int().positive().default(7),
-    move_attachment_reference_count: z.number().int().nonnegative().default(10),
-    copy_note_cross_folder: z.boolean().default(true),
-    move_note_cross_folder: z.boolean().default(true),
-    patch_note_cross_heading: z.boolean().default(true),
-    update_canvas_remove_node_threshold: z.number().int().positive().default(10),
-    ocr_bulk_file_count: z.number().int().positive().default(20),
+    dimensions: z.number().int().positive().default(768),
+    baseUrl: z.string().url().optional(), apiKey: z.string().optional(),
   }).default({}),
-
-  elicit: z.record(
-    z.string(),                                                // tool name
-    z.enum(["never", "optional", "required"])
-  ).default({}),                                               // overrides per-tool default; deny-only
-
-  plugins: z.object({
-    force_enabled: z.array(z.string()).default([]),
-    force_disabled: z.array(z.string()).default([]),
-    probe_skip: z.boolean().default(false),
+  transports: z.object({
+    stdio: z.boolean().default(true),
+    http: z.object({
+      enabled: z.boolean().default(false),
+      host: z.string().default("127.0.0.1"),
+      port: z.number().int().min(1).max(65535).default(8765),
+    }).default({}),
   }).default({}),
-
-  bridges: z.object({
-    timeout_ms: z.number().int().positive().default(5000),
-    ocr_timeout_ms: z.number().int().positive().default(30000),
-    templater_timeout_ms: z.number().int().positive().default(30000),
-  }).default({}),
-});
+  governor: z.object({ maxResponseBytes: z.number().int().positive().default(1_000_000) }).default({}),
+  throttle: ThrottleConfig,        // per-class tiers read/write/bulk/execute/admin + maxConcurrentWritesPerVault
+  observability: ObservabilityConfig,   // otel{} / prometheus{} / morgiana{} / retention{}
+  idempotencyTtlSeconds: z.number().int().positive().default(86400),
+  elicitTtlSeconds: z.number().int().positive().default(300),
+})
+// F2 fail-closed interlock (.superRefine): refuse the config when transports.http.enabled &&
+// auth.mode === "none" && host is non-loopback — never serve an unauthenticated routable host.
 ```
+
+> The later §5 subsections (vault resolution, per-vault isolation, reload semantics) describe the multi-vault model, which still holds; a few field names there (e.g. `hitl_thresholds`, `cache_dir`, `rest_api.api_key`) reflect the design-era schema above, not the shipped camelCase names.
 
 ### Vault resolution algorithm
 
@@ -832,29 +760,25 @@ Source: modelcontextprotocol.io spec endpoint and the official 2026 roadmap blog
 
 ### Server-advertised capabilities
 
-- **`tools`**: yes (103 tools).
+- **`tools`**: yes (103 tools). Advertised via the low-level `Server` with `capabilities: { tools: {} }`.
 - **`resources`**: deferred to V1.x. MCP resources (vault notes as listed, fetchable URIs) is a natural addition but adds a primitive surface and changes how clients discover content. V1 ships tool-only to keep the surface bounded.
 - **`prompts`**: no. Out of scope for V1 — obsidian-tc is not a prompt library.
-- **`elicitation`**: yes. HITL pattern uses MCP's elicitation primitive (server returns an elicit response with a token; client surfaces to user; user response carries token back).
+- **`elicitation`**: **as shipped, HITL does NOT use MCP's `elicitation` capability.** It uses a custom token pattern: a destructive / HITL-floor call returns an `elicit_required` error carrying `args_hash`; the client re-invokes the same tool with an `elicit_token` argument (single-use, 5-min TTL, bound to tool + args_hash, consumed via an atomic `UPDATE`). This works with any MCP client regardless of elicitation support. Adopting the native `elicitation` primitive is a possible V1.x change.
 - **`sampling`**: no. Server does not request LLM completions from clients.
 
 ### Tool annotations (MCP 2025-11-25 feature)
 
-obsidian-tc surfaces each tool's nature via MCP's `annotations` field. Mapping from G2.1 annotations:
+**As shipped, the `tools/list` handler emits only `name`, `description`, and `inputSchema`** (`packages/server/src/mcp/server.ts`) — it does **not** surface MCP `annotations` or `outputSchema`. Enforcement does not depend on them: the ACL + Policy layers in `registry.dispatch` are the source of truth (a tool's `requiredScopes` and `destructive` flag drive the read-only / HITL / throttle gates), and MCP annotations are hints only. Surfacing the G2.1 → MCP annotation mapping below to clients is a possible V1.x enhancement; it is the design intent, not the current behavior:
 
-| G2.1 annotation | MCP annotation |
+| G2.1 annotation | MCP annotation (intended) |
 |---|---|
 | `acl: read on ...` | `readOnlyHint: true`, `destructiveHint: false` |
 | `acl: write on ...` | `readOnlyHint: false`, `destructiveHint: false` |
 | `acl: delete on ...` | `readOnlyHint: false`, `destructiveHint: true` |
 | `acl: execute on ...` | depends — read-side execute (e.g. validate_dql) is `readOnlyHint: true`; write-side execute (e.g. trigger_quickadd) is `readOnlyHint: false`, `destructiveHint: true` |
-| `idem: pure` | `idempotentHint: true` |
-| `idem: natural` | `idempotentHint: true` |
-| `idem: keyed` | `idempotentHint: true` (when key supplied) |
+| `idem: pure` / `natural` / `keyed` | `idempotentHint: true` |
 | `idem: non-idem` | `idempotentHint: false` |
-| All tools | `openWorldHint: false` (no external network calls except embedding providers, which are caller-configured backends) |
-
-Note per MCP spec: annotations are **hints**, not enforcement. They affect client UX (some clients warn on destructive ops) but the server's ACL+Policy layers remain the source of truth for enforcement.
+| All tools | `openWorldHint: false` (no external network calls except caller-configured embedding providers) |
 
 ### Re-verification points
 

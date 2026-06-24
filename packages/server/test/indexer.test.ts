@@ -42,6 +42,14 @@ describe("index_vault (incremental chunk + embed)", () => {
     v.cleanup();
   });
 
+  it("refuses under a read-only ACL (E3/D6)", async () => {
+    const v = makeM2Vault({ files: { "a.md": "# A\n\nbody" }, acl: { readOnly: true } });
+    const res = await v.call("index_vault", { vault: "test" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("read_only");
+    v.cleanup();
+  });
+
   it("skips unchanged chunks on re-index and re-embeds a changed note", async () => {
     const v = makeM2Vault({ files: { "a.md": "# A\n\nfirst body" } });
     await v.call("index_vault", { vault: "test" });

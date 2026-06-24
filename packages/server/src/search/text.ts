@@ -103,6 +103,25 @@ export function searchText(root: string, opts: TextOptions): TextHit[] {
 
 export function searchRegex(root: string, opts: RegexOptions): RegexHit[] {
   const flags = opts.flags ?? "i";
+  // ReDoS / misuse guards (F2): bound pattern length, whitelist flags (g is added
+  // internally; sticky y would break the per-line scan), and reject obvious nested
+  // quantifiers that can cause catastrophic backtracking. JS has no per-exec regex
+  // timeout without a worker thread (a future hardening).
+  if (opts.pattern.length > 1000)
+    throw err.invalidInput("regex pattern too long", { max: 1000, length: opts.pattern.length });
+  for (const f of flags)
+    if (!"imsu".includes(f))
+      throw err.invalidInput("unsupported regex flag", { flag: f, allowed: ["i", "m", "s", "u"] });
+  if (
+    /\([^)]*[+*][^)]*\)[+*]/.test(opts.pattern) ||
+    /\([^)]*\{\d+,?\}[^)]*\)[+*{]/.test(opts.pattern)
+  )
+    throw err.invalidInput(
+      "regex rejected: nested quantifier may cause catastrophic backtracking",
+      {
+        pattern: opts.pattern,
+      },
+    );
   let re: RegExp;
   try {
     re = new RegExp(opts.pattern, flags.includes("g") ? flags : `${flags}g`);

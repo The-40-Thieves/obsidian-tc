@@ -112,6 +112,39 @@ describe("Domain 9: Attachments", () => {
     }
   });
 
+  it("move_attachment same-folder overwrite confirms and soft-deletes the clobbered file", async () => {
+    const v = makeM3Vault({ files: { "old.png": "NEW", "img.png": "OLD" } });
+    try {
+      const input = { vault: "test", from: "old.png", to: "img.png", overwrite: true };
+      const need = await v.call("move_attachment", input);
+      expect(need.ok).toBe(false);
+      if (!need.ok) expect(need.error.code).toBe("elicit_required");
+      const ok = await v.call("move_attachment", input, {
+        elicitToken: mint(v, "move_attachment", hashOf(need)),
+      });
+      expect(ok.ok).toBe(true);
+      expect(v.read("img.png")).toBe("NEW");
+      expect(v.exists("old.png")).toBe(false);
+      expect(v.read(".trash/img.png")).toBe("OLD");
+      if (ok.ok)
+        expect((ok.data as { trashed_dest_to: string }).trashed_dest_to).toBe(".trash/img.png");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("move_attachment to an existing destination without overwrite refuses (note_exists)", async () => {
+    const v = makeM3Vault({ files: { "a.png": "A", "b.png": "B" } });
+    try {
+      const r = await v.call("move_attachment", { vault: "test", from: "a.png", to: "b.png" });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.code).toBe("note_exists");
+      expect(v.read("b.png")).toBe("B");
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("delete_attachment is destructive: gates on HITL, trashes, and reports references", async () => {
     const v = makeM3Vault({ files: { "img.png": "x", "n.md": "![[img.png]]\n" } });
     try {

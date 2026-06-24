@@ -38,6 +38,32 @@ describe("Domain 6 search tools on the dispatch pipeline", () => {
     v.cleanup();
   });
 
+  it("search_regex rejects a nested-quantifier pattern (ReDoS guard) without hanging", async () => {
+    const v = await seeded();
+    const res = await v.call("search_regex", { vault: "test", pattern: "(a+)+$" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("invalid_input");
+    v.cleanup();
+  });
+
+  it("search_regex rejects an over-long pattern and an unsupported flag", async () => {
+    const v = await seeded();
+    const long = await v.call("search_regex", { vault: "test", pattern: "a".repeat(1001) });
+    expect(long.ok).toBe(false);
+    const badFlag = await v.call("search_regex", { vault: "test", pattern: "x", flags: "gz" });
+    expect(badFlag.ok).toBe(false);
+    v.cleanup();
+  });
+
+  it("search_regex still accepts a normal pattern with i+s flags", async () => {
+    const v = await seeded();
+    const d = payload(
+      await v.call("search_regex", { vault: "test", pattern: "la\\w+", flags: "is" }),
+    );
+    expect(d.items[0].match).toBe("lazy");
+    v.cleanup();
+  });
+
   it("search_semantic returns top-k chunks after indexing", async () => {
     const v = await seeded();
     const d = payload(await v.call("search_semantic", { vault: "test", query: "lazy dog", k: 2 }));

@@ -29,7 +29,7 @@ import { enforcePathAcl } from "../../vault/acl-path";
 import { runBulk } from "../../vault/bulk";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { type VaultIndex, buildVaultIndex, resolveTarget } from "../../vault/links";
-import { hardDelete, noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
+import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { rewriteLinks } from "../../vault/rewrite";
 import { defineTool } from "../m1/define";
@@ -140,6 +140,7 @@ const BulkMoveInput = z
       .min(1)
       .max(100),
     update_backlinks: z.boolean().default(true),
+    overwrite: z.boolean().default(false),
     dry_run: z.boolean().default(true),
     elicit_token: ElicitToken.optional(),
     idempotency_key: z.string().min(1).max(128).optional(),
@@ -218,7 +219,9 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const parsed = parseNote(readNote(abs).raw);
             const fm = { ...(parsed.frontmatter ?? {}) };
             const prev = Object.hasOwn(fm, input.key) ? fm[input.key] : null;
-            fm[input.key] = input.value ?? null;
+            // Store an explicitly-supplied null as null; only a truly-absent value
+            // defaults to null (F5).
+            fm[input.key] = "value" in input ? input.value : null;
             writeNoteAtomic(abs, serializeNote(fm, parsed.body), false);
             return { prev_value: prev ?? null };
           },
@@ -230,7 +233,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
     defineTool({
       name: "bulk_move_notes",
       description:
-        "Batch-move notes and rewrite backlinks across the whole link graph (rewrite phase is all-or-nothing). dry_run (default true) previews predicted backlink updates without touching disk. HITL-floored (bulk) and throttled.",
+        "Batch-move notes and rewrite backlinks across the whole link graph (rewrite phase is all-or-nothing). dry_run (default true) previews predicted backlink updates without touching disk. Set overwrite to clobber existing destinations (each is soft-deleted to .trash, recoverable). HITL-floored (bulk) and throttled.",
       inputSchema: BulkMoveInput,
       requiredScopes: ["write:notes", "delete:notes", "bulk:notes"],
       handler: (input, ctx) => {
@@ -240,6 +243,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           to: string;
           fromRel?: string;
           toRel?: string;
+          destExists?: boolean;
           ok: boolean;
           error?: ReturnType<ObsidianTcError["toJSON"]>;
         }
@@ -255,9 +259,10 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const fromEx = noteExists(resolveVaultPath(v.root, fromRel));
             if (!fromEx.exists || fromEx.type === "folder")
               throw err.noteNotFound("source note not found", { path: fromRel });
-            if (noteExists(resolveVaultPath(v.root, toRel)).exists)
-              throw err.noteExists("destination already exists", { path: toRel });
-            return { from: m.from, to: m.to, fromRel, toRel, ok: true };
+            const destExists = noteExists(resolveVaultPath(v.root, toRel)).exists;
+            if (destExists && !input.overwrite)
+              throw err.noteExists("destination already exists; set overwrite", { path: toRel });
+            return { from: m.from, to: m.to, fromRel, toRel, destExists, ok: true };
           } catch (e) {
             const error = (
               e instanceof ObsidianTcError
@@ -298,6 +303,8 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           try {
             const fromAbs = resolveVaultPath(v.root, r.fromRel);
             const toAbs = resolveVaultPath(v.root, r.toRel);
+            // On overwrite, soft-delete the clobbered destination first (recoverable).
+            if (r.destExists && input.overwrite) trashNote(v.root, r.toRel);
             const { raw } = readNote(fromAbs);
             writeNoteAtomic(toAbs, raw, true);
             hardDelete(fromAbs);

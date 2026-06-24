@@ -11,6 +11,8 @@ export interface ToolSpec<S extends z.ZodTypeAny, O> {
   inputSchema: S;
   requiredScopes: string[];
   destructive?: boolean;
+  precheck?: (input: z.infer<S>, ctx: CallerContext) => void | Promise<void>;
+  scopeClass?: string;
   handler: (input: z.infer<S>, ctx: CallerContext) => O | Promise<O>;
 }
 

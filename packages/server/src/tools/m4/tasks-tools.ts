@@ -8,6 +8,7 @@ import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { filterBridgeItemsByAcl } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import { readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -219,7 +220,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         })
         .strict(),
       requiredScopes: ["read:tasks"],
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "tasks");
         const result = await client.request<Record<string, unknown>>({
@@ -235,7 +236,12 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
           plugin: "tasks",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        // Intersect bridge-enumerated tasks with the read ACL; fail closed on an
+        // unattributable row when a read whitelist is configured (D2/B1). `groups`
+        // (aggregate counts) pass through untouched.
+        const rawItems = Array.isArray(result.items) ? (result.items as unknown[]) : [];
+        const items = filterBridgeItemsByAcl(ctx.acl, rawItems, { tool: "tasks_filter" });
+        return { vault: v.id, ...result, items, total: items.length };
       },
     }),
   ];

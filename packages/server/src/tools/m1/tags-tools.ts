@@ -217,6 +217,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel);
         const tag = normalizeTag(input.tag);
+        if (!isValidTag(tag)) throw err.invalidInput("invalid tag", { tag: input.tag });
 
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
@@ -233,13 +234,19 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         let fm: Frontmatter = { ...(parsed.frontmatter ?? {}) };
         let body = parsed.body;
         let removed = 0;
-        if (input.location !== "inline" && fm.tags !== undefined) {
-          const list = fieldTags(fm.tags);
-          const kept = list.filter((t) => t !== tag);
-          if (kept.length !== list.length) {
-            removed += list.length - kept.length;
-            if (kept.length === 0) fm = omitKey(fm, "tags");
-            else fm.tags = kept;
+        if (input.location !== "inline") {
+          // Readers (frontmatterTags) consume BOTH the plural `tags` and singular `tag`
+          // keys, so remove from both — otherwise a tag under `tag:` is reported by
+          // get_note_tags yet silently survives removal (F1).
+          for (const key of ["tags", "tag"] as const) {
+            if (fm[key] === undefined) continue;
+            const list = fieldTags(fm[key]);
+            const kept = list.filter((t) => t !== tag);
+            if (kept.length !== list.length) {
+              removed += list.length - kept.length;
+              if (kept.length === 0) fm = omitKey(fm, key);
+              else fm[key] = kept;
+            }
           }
         }
         if (input.location !== "frontmatter") {
@@ -252,14 +259,15 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
 
         const nextFm = Object.keys(fm).length > 0 ? fm : null;
         const content = serializeNote(nextFm, body);
-        writeNoteAtomic(abs, content, false);
+        // Skip the rewrite (and content-hash churn) when nothing was removed (F1).
+        if (removed > 0) writeNoteAtomic(abs, content, false);
         return {
           vault: v.id,
           path: rel,
           tag,
           location: input.location,
           removed,
-          content_hash: contentHash(content),
+          content_hash: removed > 0 ? contentHash(content) : hash,
           prev_hash: hash,
         };
       },

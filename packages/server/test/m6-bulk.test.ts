@@ -232,4 +232,51 @@ describe("bulk_move_notes", () => {
     expect(bad?.error?.code).toBe("note_not_found");
     expect(v.exists("C.md")).toBe(true);
   });
+
+  it("refuses an existing destination by default (overwrite off)", async () => {
+    v = makeM6Vault({ files: { "A.md": "AA", "C.md": "CC" }, register });
+    const out = data<{ results: { ok: boolean; error?: { code: string } }[] }>(
+      await v.callConfirmed("bulk_move_notes", {
+        vault: "test",
+        dry_run: false,
+        moves: [{ from: "A.md", to: "C.md" }],
+      }),
+    );
+    expect(out.results[0]?.ok).toBe(false);
+    expect(out.results[0]?.error?.code).toBe("note_exists");
+    expect(v.read("C.md")).toBe("CC");
+    expect(v.exists("A.md")).toBe(true);
+  });
+
+  it("overwrite:true clobbers and soft-deletes the destination", async () => {
+    v = makeM6Vault({ files: { "A.md": "AA", "C.md": "CC" }, register });
+    const out = data<{ results: { ok: boolean }[] }>(
+      await v.callConfirmed("bulk_move_notes", {
+        vault: "test",
+        dry_run: false,
+        overwrite: true,
+        moves: [{ from: "A.md", to: "C.md" }],
+      }),
+    );
+    expect(out.results[0]?.ok).toBe(true);
+    expect(v.read("C.md")).toBe("AA");
+    expect(v.exists("A.md")).toBe(false);
+    expect(v.read(".trash/C.md")).toBe("CC");
+  });
+
+  it("dry_run with overwrite:true and an existing dest does not touch disk", async () => {
+    v = makeM6Vault({ files: { "A.md": "AA", "C.md": "CC" }, register });
+    const out = data<{ dry_run: boolean; results: { ok: boolean }[] }>(
+      await v.callConfirmed("bulk_move_notes", {
+        vault: "test",
+        overwrite: true,
+        moves: [{ from: "A.md", to: "C.md" }],
+      }),
+    );
+    expect(out.dry_run).toBe(true);
+    expect(out.results[0]?.ok).toBe(true);
+    expect(v.read("C.md")).toBe("CC");
+    expect(v.exists("A.md")).toBe(true);
+    expect(v.exists(".trash/C.md")).toBe(false);
+  });
 });

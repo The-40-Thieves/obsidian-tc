@@ -274,6 +274,51 @@ describe("Domain 2: file/note CRUD", () => {
     }
   });
 
+  it("move_note same-folder overwrite requires confirmation and trashes the clobbered note", async () => {
+    const v = makeTestVault({ files: { "a.md": "A", "b.md": "B" } });
+    try {
+      const input = { vault: "test", from: "a.md", to: "b.md", overwrite: true };
+      const need = await v.call("move_note", input);
+      expect(need.ok).toBe(false);
+      if (!need.ok) expect(need.error.code).toBe("elicit_required");
+
+      const token = mint(v, "move_note", hashOf(need));
+      const ok = await v.call("move_note", input, { elicitToken: token });
+      expect(ok.ok).toBe(true);
+      expect(v.read("b.md")).toBe("A");
+      expect(v.exists("a.md")).toBe(false);
+      expect(v.read(".trash/b.md")).toBe("B");
+      if (ok.ok)
+        expect((ok.data as { trashed_dest_to: string }).trashed_dest_to).toBe(".trash/b.md");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("move_note to an existing destination without overwrite still refuses (note_exists)", async () => {
+    const v = makeTestVault({ files: { "a.md": "A", "b.md": "B" } });
+    try {
+      const r = await v.call("move_note", { vault: "test", from: "a.md", to: "b.md" });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.code).toBe("note_exists");
+      expect(v.read("b.md")).toBe("B");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("move_note pure rename creates no trash entry and reports trashed_dest_to null", async () => {
+    const v = makeTestVault({ files: { "a.md": "A" } });
+    try {
+      const r = await v.call("move_note", { vault: "test", from: "a.md", to: "renamed.md" });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { trashed_dest_to: string | null }).trashed_dest_to).toBeNull();
+      expect(v.exists(".trash/renamed.md")).toBe(false);
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("copy_note duplicates content and refuses to clobber without overwrite", async () => {
     const v = makeTestVault({ files: { "a.md": "data", "b.md": "other" } });
     try {
