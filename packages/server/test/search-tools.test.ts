@@ -46,6 +46,16 @@ describe("Domain 6 search tools on the dispatch pipeline", () => {
     v.cleanup();
   });
 
+  it("search_regex rejects nested-quantifier bypass variants (review #6)", async () => {
+    const v = await seeded();
+    for (const pattern of ["((a)+)+", "(a+){1,}", "(a*)*"]) {
+      const res = await v.call("search_regex", { vault: "test", pattern });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error.code).toBe("invalid_input");
+    }
+    v.cleanup();
+  });
+
   it("search_regex rejects an over-long pattern and an unsupported flag", async () => {
     const v = await seeded();
     const long = await v.call("search_regex", { vault: "test", pattern: "a".repeat(1001) });

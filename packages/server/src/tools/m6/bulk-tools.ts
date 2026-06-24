@@ -259,7 +259,10 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const fromEx = noteExists(resolveVaultPath(v.root, fromRel));
             if (!fromEx.exists || fromEx.type === "folder")
               throw err.noteNotFound("source note not found", { path: fromRel });
-            const destExists = noteExists(resolveVaultPath(v.root, toRel)).exists;
+            const toEx = noteExists(resolveVaultPath(v.root, toRel));
+            if (toEx.exists && toEx.type === "folder")
+              throw err.invalidInput("destination is a folder", { path: toRel });
+            const destExists = toEx.exists;
             if (destExists && !input.overwrite)
               throw err.noteExists("destination already exists; set overwrite", { path: toRel });
             return { from: m.from, to: m.to, fromRel, toRel, destExists, ok: true };
