@@ -186,14 +186,16 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           throw err.noteExists("destination already exists; set overwrite", { path: toRel });
 
         const crossFolder = dirOf(fromRel) !== dirOf(toRel);
-        requireConfirmation(
-          ctx,
-          "move_attachment",
-          input,
-          crossFolder || (toEx.exists && input.overwrite),
-          { from: fromRel, to: toRel },
-        );
+        const overwriteExisting = toEx.exists && input.overwrite;
+        requireConfirmation(ctx, "move_attachment", input, crossFolder || overwriteExisting, {
+          from: fromRel,
+          to: toRel,
+          overwrite: overwriteExisting,
+        });
 
+        // On overwrite, soft-delete the destination first so its prior bytes are recoverable.
+        let trashedDestTo: string | null = null;
+        if (overwriteExisting) trashedDestTo = trashNote(v.root, toRel);
         if (input.options.create_dirs) mkdirSync(dirname(toAbs), { recursive: true });
         copyFileSync(fromAbs, toAbs);
         hardDelete(fromAbs);
@@ -206,6 +208,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           to: toRel,
           moved: true,
           overwritten: toEx.exists,
+          trashed_dest_to: trashedDestTo,
           references_updated: references,
         };
       },

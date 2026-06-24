@@ -2,9 +2,10 @@
 // "spaces" model and run queries against them. Read scope only (read:makemd, no
 // HITL). The community plugin id is "make-md" (note the hyphen), distinct from the
 // makemd_ tool-name prefix.
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { filterBridgeItemsByAcl, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
 import { type M4Deps, bridgeTimeouts, openBridge } from "./shared";
 
@@ -16,8 +17,15 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
         "Enumerate make.md spaces (its alternative to folders) via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),
       requiredScopes: ["read:makemd"],
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        // Spaces are not vault-path-scopable; refuse blanket enumeration under a read
+        // whitelist rather than leak (D2/B2).
+        if (!readEnumerationUnrestricted(ctx.acl))
+          throw err.aclDenied(
+            "make.md space enumeration is not path-scopable; refused under a read whitelist",
+            { tool: "makemd_list_spaces" },
+          );
         const { client } = openBridge(deps, v.id, "make-md");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
@@ -44,7 +52,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
         })
         .strict(),
       requiredScopes: ["read:makemd"],
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "make-md");
         const result = await client.request<Record<string, unknown>>({
@@ -60,7 +68,14 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
           plugin: "make-md",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, space_id: input.space_id, ...result };
+        // Intersect make.md rows with the read ACL by note path; fail closed on an
+        // unattributable row under a read whitelist (D2/B2).
+        const rawItems = Array.isArray(result.items) ? (result.items as unknown[]) : [];
+        const items = filterBridgeItemsByAcl(ctx.acl, rawItems, {
+          tool: "makemd_query",
+          keys: ["note_path", "path", "file", "filePath"],
+        });
+        return { vault: v.id, space_id: input.space_id, ...result, items, total: items.length };
       },
     }),
   ];

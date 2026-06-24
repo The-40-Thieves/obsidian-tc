@@ -121,18 +121,55 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
 }
 
 /**
- * Repoint every link to a moved attachment, fenced-code aware. A bare-basename link
- * is rewritten to the new basename; a path link to the new vault-relative path, so
- * the link style is preserved. Returns the count of notes and links rewritten.
+ * Repoint every link that RESOLVES to a moved attachment, fenced-code aware. A
+ * path-style link is rewritten only when its vault-relative path matches the moved
+ * file exactly; a bare-basename link only when the moved file is the one that
+ * basename resolves to under Obsidian rules (unique basename, or shortest-path
+ * winner on a collision). This avoids corrupting a same-basename link that points
+ * at a DIFFERENT file in another folder. Link style is preserved (bare -> new
+ * basename, path -> new vault-relative path). Returns notes/links rewritten.
+ *
+ * Resolution uses the PRE-move attachment set: the caller relocates the file
+ * (fromRel -> toRel) before calling this, so the current toRel entry is mapped back
+ * to fromRel, and fromRel is always seeded even when no attachment file is on disk
+ * (e.g. a link to an attachment that was never materialized).
  */
 export function rewriteAttachmentReferences(
   root: string,
   fromRel: string,
   toRel: string,
 ): { notes: number; refs: number } {
-  const fromPath = fromRel.toLowerCase();
-  const fromBase = baseOf(fromRel).toLowerCase();
+  const fromPathLower = fromRel.toLowerCase();
   const toBase = baseOf(toRel);
+  const preSet = new Set(
+    walkVault(root, { extensions: DEFAULT_ATTACHMENT_EXTS })
+      .map((e) => e.relPath)
+      .map((p) => (p === toRel ? fromRel : p)),
+  );
+  preSet.add(fromRel);
+  const byBase = new Map<string, string[]>();
+  for (const p of preSet) {
+    const b = baseOf(p).toLowerCase();
+    const list = byBase.get(b);
+    if (list) list.push(p);
+    else byBase.set(b, [p]);
+  }
+
+  /** Does a normalized, lowercased link target resolve to fromRel? */
+  const resolvesToFrom = (t: string, hadSlash: boolean): boolean => {
+    if (hadSlash) return t === fromPathLower; // path link: exact vault-relative path only
+    const candidates = byBase.get(t);
+    if (!candidates || candidates.length === 0) return false;
+    if (candidates.length === 1) return candidates[0]?.toLowerCase() === fromPathLower;
+    // Collision: Obsidian's shortest-path winner (fewest segments, then lexicographic).
+    const winner = [...candidates].sort((a, b) => {
+      const da = a.split("/").length;
+      const db = b.split("/").length;
+      return da !== db ? da - db : a.localeCompare(b);
+    })[0];
+    return winner?.toLowerCase() === fromPathLower;
+  };
+
   let notes = 0;
   let refs = 0;
   for (const e of walkVault(root, { extensions: [".md"] })) {
@@ -142,10 +179,8 @@ export function rewriteAttachmentReferences(
       const t = normalizeTarget(targetRaw);
       if (t === "") return null;
       const hadSlash = t.includes("/");
-      const lb = hadSlash ? t.slice(t.lastIndexOf("/") + 1) : t;
-      if (t === fromPath) return hadSlash ? toRel : toBase;
-      if (lb === fromBase) return hadSlash ? toRel : toBase;
-      return null;
+      if (!resolvesToFrom(t, hadSlash)) return null;
+      return hadSlash ? toRel : toBase;
     });
     if (count > 0) {
       writeNoteAtomic(abs, text, false);

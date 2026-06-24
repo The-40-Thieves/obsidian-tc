@@ -82,4 +82,40 @@ describe("formats/attachments", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("does NOT repoint a same-basename path link to a different folder's file", () => {
+    const root = makeRoot({
+      "a/diagram.png": "A",
+      "b/diagram.png": "B",
+      "note.md": "bare ![[diagram.png]] and path [x](b/diagram.png)\n",
+    });
+    try {
+      const r = rewriteAttachmentReferences(root, "a/diagram.png", "a/renamed.png");
+      const txt = readFileSync(join(root, "note.md"), "utf8");
+      // bare-basename link resolves to a/diagram.png (shortest/lex winner) -> rewritten
+      expect(txt).toContain("![[renamed.png]]");
+      // path link to the OTHER file is left untouched (the bug this fixes)
+      expect(txt).toContain("[x](b/diagram.png)");
+      expect(r.notes).toBe(1);
+      expect(r.refs).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("repoints a path-style link only when it matches the moved file exactly", () => {
+    const root = makeRoot({
+      "a/diagram.png": "A",
+      "b/diagram.png": "B",
+      "note.md": "[x](a/diagram.png) and [y](b/diagram.png)\n",
+    });
+    try {
+      rewriteAttachmentReferences(root, "a/diagram.png", "a/renamed.png");
+      const txt = readFileSync(join(root, "note.md"), "utf8");
+      expect(txt).toContain("[x](a/renamed.png)");
+      expect(txt).toContain("[y](b/diagram.png)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

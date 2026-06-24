@@ -136,6 +136,40 @@ describe("Domain 4: tags", () => {
     }
   });
 
+  it("remove_tag strips a tag stored under the singular `tag` key (F1)", async () => {
+    const v = makeTestVault({ files: { "a.md": "---\ntag: drop\n---\nbody" } });
+    try {
+      const r = await v.call("remove_tag", { vault: "test", path: "a.md", tag: "drop" });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { removed: number }).removed).toBe(1);
+      const tags = await v.call("get_note_tags", { vault: "test", path: "a.md" });
+      if (tags.ok) expect((tags.data as { frontmatter: string[] }).frontmatter).toEqual([]);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("remove_tag rejects an invalid tag and is a no-op for an absent tag (F1)", async () => {
+    const v = makeTestVault({ files: { "a.md": "---\ntags: [keep]\n---\nbody" } });
+    try {
+      const bad = await v.call("remove_tag", { vault: "test", path: "a.md", tag: "!bad" });
+      expect(bad.ok).toBe(false);
+      if (!bad.ok) expect(bad.error.code).toBe("invalid_input");
+
+      const before = v.read("a.md");
+      const noop = await v.call("remove_tag", { vault: "test", path: "a.md", tag: "absent" });
+      expect(noop.ok).toBe(true);
+      if (noop.ok) {
+        const d = noop.data as { removed: number; content_hash: string; prev_hash: string };
+        expect(d.removed).toBe(0);
+        expect(d.content_hash).toBe(d.prev_hash);
+      }
+      expect(v.read("a.md")).toBe(before);
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("find_notes_by_tag matches hierarchically", async () => {
     const v = makeTestVault({
       files: {

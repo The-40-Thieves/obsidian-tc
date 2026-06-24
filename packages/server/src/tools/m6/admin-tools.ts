@@ -8,9 +8,9 @@
 // REST API keys, or embedding API keys (those are not even in M6Deps).
 import { VaultId, VaultPath, parseScope } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { globMatch } from "../../acl";
 import type { Database } from "../../db/types";
 import type { ToolDefinition } from "../../mcp/registry";
+import { evaluatePathAcl } from "../../vault/acl-path";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M6Deps } from "./shared";
@@ -74,7 +74,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
     defineTool({
       name: "get_server_config",
       description:
-        "Read the non-secret server config: auth mode, throttle limits, observability targets, and a per-vault summary (id, read_only, embeddings provider, detected plugins). Never returns secrets.",
+        "Read the non-secret server config: auth mode, server-global read_only + embeddings provider, throttle limits, observability targets, and a per-vault summary (id) plus a detected-plugins map. Never returns secrets.",
       inputSchema: z.object({}).strict(),
       requiredScopes: ["admin:config"],
       handler: (_input, ctx) => {
@@ -92,11 +92,11 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
         return {
           version: deps.version,
           auth_mode: deps.authMode,
-          vaults_summary: deps.vaultRegistry.list().map((v) => ({
-            id: v.id,
-            read_only: ctx.acl?.readOnly ?? false,
-            embeddings_provider: deps.embeddingsProvider,
-          })),
+          // Server-global: one FolderAcl + one embeddings provider for all vaults
+          // (cli.ts), so these are top-level rather than misleadingly per-vault.
+          read_only: ctx.acl?.readOnly ?? false,
+          embeddings_provider: deps.embeddingsProvider,
+          vaults_summary: deps.vaultRegistry.list().map((v) => ({ id: v.id })),
           // The three spec'd limits headline the bulk tier (the only class M6
           // enforces): per-minute = sustained rate, per-second = burst capacity.
           // Full per-class detail follows under throttle_tiers (additive).
@@ -120,49 +120,45 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
     defineTool({
       name: "inspect_acl",
       description:
-        "Test whether a (vault, path, op, scopes) tuple would be permitted. Mirrors the active enforcement: the read-only kill switch, the per-op path whitelist (readPaths/writePaths/deletePaths), and the op-family scope grant. Reports the matched path rule and what denied it.",
+        "Test whether a (vault, path, op, scopes) tuple would be permitted. Shares the live path evaluator (read-only kill switch + per-op whitelist) so it cannot drift from enforcement, then checks the op-family scope grant. Reports the matched path rule, the rule-based effective_scopes, and what denied it.",
       inputSchema: InspectAclInput,
       requiredScopes: ["admin:acl"],
       handler: (input, ctx) => {
         deps.vaultRegistry.resolve(input.vault); // vault_not_found if unknown
         const rel = normalizeVaultPath(input.path);
         const acl = ctx.acl;
+        const effective_scopes = acl?.scopesForPath(rel) ?? [];
 
-        // 1. read-only kill switch (dispatch denies any mutating op when readOnly).
-        if (acl?.readOnly && input.op !== "read")
-          return { allowed: false, denied_by: "read_only", kill_switch: true, matched_rule: null };
-
-        // 2. per-op path whitelist (enforcePathAcl). undefined = unrestricted.
-        const whitelist =
-          input.op === "read"
-            ? acl?.readPaths
-            : input.op === "write"
-              ? acl?.writePaths
-              : input.op === "delete"
-                ? acl?.deletePaths
-                : undefined; // execute is not path-scoped
+        // 1 + 2. read-only kill switch AND per-op path whitelist, via the SAME pure
+        //        evaluator enforcePathAcl delegates to (no reimplementation). execute
+        //        is not path-scoped, so only the scope grant below applies.
         let matchedRule: string | null = null;
-        if (whitelist !== undefined) {
-          matchedRule = whitelist.find((g) => globMatch(g, rel)) ?? null;
-          if (matchedRule === null)
+        if (input.op !== "execute") {
+          const decision = evaluatePathAcl(acl, input.op, rel);
+          matchedRule = decision.matchedGlob;
+          if (!decision.allowed) {
+            const killSwitch = decision.deniedBy === "read_only";
             return {
               allowed: false,
-              denied_by: `${input.op}_paths`,
-              kill_switch: false,
-              matched_rule: null,
+              denied_by: killSwitch ? "read_only" : `${input.op}_paths`,
+              kill_switch: killSwitch,
+              matched_rule: matchedRule,
+              effective_scopes,
             };
+          }
         }
 
-        // 3. op-family scope grant.
+        // 3. op-family scope grant (held scopes cover the op family or a wildcard).
         if (!scopeFamilyGranted(input.scopes, input.op))
           return {
             allowed: false,
             denied_by: "scope",
             kill_switch: false,
             matched_rule: matchedRule,
+            effective_scopes,
           };
 
-        return { allowed: true, matched_rule: matchedRule, kill_switch: false };
+        return { allowed: true, matched_rule: matchedRule, kill_switch: false, effective_scopes };
       },
     }),
 

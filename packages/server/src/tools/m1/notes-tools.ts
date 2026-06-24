@@ -512,7 +512,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "move_note",
       description:
-        "Move/rename a note and update backlinks. Crossing a folder boundary requires confirmation.",
+        "Move/rename a note and update backlinks. Crossing a folder boundary OR overwriting an existing destination requires confirmation; an overwritten destination is soft-deleted to .trash (recoverable).",
       inputSchema: MoveInput,
       requiredScopes: ["write:notes", "delete:notes"],
       handler: (input, ctx) => {
@@ -541,11 +541,18 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
             actual: hash,
           });
 
-        requireConfirmation(ctx, "move_note", input, dirOf(fromRel) !== dirOf(toRel), {
+        const crossFolder = dirOf(fromRel) !== dirOf(toRel);
+        const overwriteExisting = toEx.exists && input.overwrite;
+        requireConfirmation(ctx, "move_note", input, crossFolder || overwriteExisting, {
           from: fromRel,
           to: toRel,
+          overwrite: overwriteExisting,
         });
 
+        // On overwrite, soft-delete the destination first so its content is recoverable
+        // (the source is hardDelete'd below, but its content survives at toRel).
+        let trashedDestTo: string | null = null;
+        if (overwriteExisting) trashedDestTo = trashNote(v.root, toRel);
         writeNoteAtomic(toAbs, raw, input.options.create_dirs);
         hardDelete(fromAbs);
         const backlinks = input.update_backlinks
@@ -557,6 +564,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           to: toRel,
           moved: true,
           overwritten: toEx.exists,
+          trashed_dest_to: trashedDestTo,
           content_hash: hash,
           backlinks_updated: backlinks,
         };

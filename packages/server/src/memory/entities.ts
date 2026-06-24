@@ -9,6 +9,13 @@
 import { randomBytes } from "node:crypto";
 import type { Database } from "../db/types";
 
+/** True when an error is a SQLite UNIQUE-constraint violation (cross-driver: better-sqlite3
+ *  sets code SQLITE_CONSTRAINT_UNIQUE; bun:sqlite / node:sqlite carry the message). */
+export function isUniqueViolation(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /UNIQUE constraint failed/i.test(msg);
+}
+
 export interface EntityRow {
   id: string;
   vault_id: string;

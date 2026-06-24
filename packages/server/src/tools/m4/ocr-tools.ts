@@ -1,8 +1,9 @@
 // Domain 15 — OCR / Text Extractor (G2.1). Both tools are read-side (they extract
 // text, never mutate the vault) and proxy to the Text Extractor plugin via the
 // companion bridge using the longer OCR timeout. ocr_bulk resolves its candidate
-// set server-side and ACL-filters it before the bridge call, and requires human
-// confirmation past 20 files (OCR is expensive). Plugin id is "text-extractor".
+// set server-side and ACL-filters it before the bridge call; it overrides its
+// throttle scope class to `bulk` and ALWAYS requires human confirmation (a bulk HITL
+// floor: OCR is expensive). Plugin id is "text-extractor".
 import { VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
@@ -64,6 +65,10 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
         })
         .strict(),
       requiredScopes: ["read:ocr"],
+      // Bulk OCR is expensive: throttle at the bulk tier and floor it behind human
+      // confirmation like every other bulk tool, without making this read-side tool
+      // mutating (a bulk:* scope would). read:ocr still governs the grant + read ACL.
+      scopeClass: "bulk",
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.root ? normalizeVaultPath(input.root) : undefined;
@@ -80,7 +85,7 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
             .filter((rel) => readable(ctx.acl, rel));
         }
 
-        requireConfirmation(ctx, "ocr_bulk", input, candidates.length > 20, {
+        requireConfirmation(ctx, "ocr_bulk", input, true, {
           count: candidates.length,
         });
 
