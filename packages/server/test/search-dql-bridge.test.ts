@@ -10,9 +10,9 @@ import { fileURLToPath } from "node:url";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  createBridgeClient,
   type FakeRequestInfo,
   type FakeRoute,
-  createBridgeClient,
   fakeBridgeTransport,
 } from "../src/bridge";
 import { fakeEmbeddingProvider } from "../src/embeddings";

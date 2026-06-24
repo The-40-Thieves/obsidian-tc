@@ -6,11 +6,11 @@
 // jsonlogic. search_dql is surfaced but reports plugin_missing until the Dataview
 // bridge (REST hybrid, THE-196) lands — honest rather than a silent empty result.
 import {
+  err,
+  grantsAll,
   ObsidianTcError,
   VaultId,
   VaultPath,
-  err,
-  grantsAll,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
@@ -251,7 +251,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       inputSchema: z
         .object({
           vault: VaultId,
-          logic: z.record(z.unknown()),
+          logic: z.record(z.string(), z.unknown()),
           root: VaultPath.optional(),
           ...Cursor,
         })
@@ -304,7 +304,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       inputSchema: z
         .object({
           vault: VaultId,
-          query: z.union([z.string().min(1), z.record(z.unknown())]),
+          query: z.union([z.string().min(1), z.record(z.string(), z.unknown())]),
           mode: z.enum(["auto", "text", "regex", "dql", "jsonlogic", "semantic"]).default("auto"),
           root: VaultPath.optional(),
           explain: z.boolean().default(false),

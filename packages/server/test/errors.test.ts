@@ -1,4 +1,4 @@
-import { ObsidianTcError, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 
 describe("error taxonomy", () => {

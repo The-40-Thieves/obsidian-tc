@@ -5,8 +5,8 @@ import { FolderAcl } from "./acl";
 import { writeEvent } from "./audit";
 import {
   type BridgeClient,
-  CapabilityCache,
   buildVaultCapabilities,
+  CapabilityCache,
   createBridgeClient,
 } from "./bridge";
 import { loadConfig } from "./config/load";
@@ -28,9 +28,9 @@ import { registerM2Tools } from "./tools/m2";
 import { registerM3Tools } from "./tools/m3";
 import {
   type BridgeTimeouts,
+  bridgeTimeouts,
   DEFAULT_BRIDGE_TIMEOUTS,
   type M4Deps,
-  bridgeTimeouts,
   openBridge,
   registerM4Tools,
 } from "./tools/m4";

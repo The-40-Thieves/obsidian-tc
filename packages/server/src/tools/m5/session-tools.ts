@@ -6,21 +6,21 @@
 // mutations take write:workspace (write family — readOnly kill-switch applies, no
 // execute HITL floor; spec hitl:never). The append contract (appendTrace) is what the
 // ambient capture worker (THE-175) targets to add tool-invocation records over time.
-import { Pagination, VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { resolveVaultPath } from "../../vault/paths";
 import {
-  type SessionRow,
-  type TraceRecord,
   appendTrace,
   endSession,
   genSessionId,
   getSession,
   insertSession,
   readTrace,
+  type SessionRow,
   sessionsInWindow,
+  type TraceRecord,
   traceRelPath,
 } from "../../workspace/sessions";
 import { defineTool } from "../m1/define";
@@ -45,7 +45,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           caller: z.string().min(1),
-          session_metadata: z.record(z.unknown()).optional(),
+          session_metadata: z.record(z.string(), z.unknown()).optional(),
           idempotency_key: z.string().min(1).max(128).optional(),
         })
         .strict(),
@@ -84,7 +84,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           session_id: z.string().min(1),
-          end_metadata: z.record(z.unknown()).optional(),
+          end_metadata: z.record(z.string(), z.unknown()).optional(),
         })
         .strict(),
       requiredScopes: ["write:workspace"],

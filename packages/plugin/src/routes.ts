@@ -9,7 +9,7 @@
 // against installed community plugins is validated against a real vault, not in CI.
 // Any absent API or thrown error degrades to a typed envelope the server already
 // handles (plugin_missing / plugin_unreachable / invalid_input / dql_error).
-import { type App, type TFile, apiVersion, normalizePath } from "obsidian";
+import { type App, apiVersion, normalizePath, type TFile } from "obsidian";
 
 /** Bridge protocol version reported by /probe (matches the server's expectation). */
 const API_VERSION = "1";

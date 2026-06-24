@@ -6,13 +6,13 @@
 // (write family — readOnly kill-switch applies, no execute HITL floor; spec hitl:never).
 // Materialization funnels through resolveVaultPath + enforcePathAcl; the write ACL is
 // pre-checked before the SQLite insert so an ACL denial leaves no orphan row.
-import { Pagination, VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
-  type EntityRow,
   appendObservation,
   bfsGraph,
+  type EntityRow,
   findEntitiesByName,
   findEntity,
   getEntityById,
@@ -23,7 +23,7 @@ import {
   relationsForEntity,
   setEntityVaultPath,
 } from "../../memory/entities";
-import { type RelationLink, entityNotePath, materializeEntity } from "../../memory/materialize";
+import { entityNotePath, materializeEntity, type RelationLink } from "../../memory/materialize";
 import { enforcePathAcl } from "../../vault/acl-path";
 import type { ResolvedVault } from "../../vault/registry";
 import { defineTool } from "../m1/define";

@@ -5,7 +5,7 @@
 // concurrent_modification). update_frontmatter's `replace` operation discards all
 // existing metadata, so it gates on confirmation via requireConfirmation; set/remove/
 // merge do not. Property keys are top-level (nested traversal is a later enhancement).
-import { VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
@@ -50,7 +50,7 @@ const UpdateInput = z
     operation: z.enum(["set", "remove", "merge", "replace"]),
     key: z.string().min(1).optional(),
     value: z.unknown().optional(),
-    properties: z.record(z.unknown()).optional(),
+    properties: z.record(z.string(), z.unknown()).optional(),
     prev_hash: z.string().optional(),
     create_if_missing: z.boolean().default(false),
   })

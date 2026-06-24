@@ -5,7 +5,12 @@
   "license": "Apache-2.0",
   "main": "index.js",
   "types": "index.d.ts",
-  "files": ["index.js", "index.d.ts", "fallback.js", "*.node"],
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "fallback.js",
+    "*.node"
+  ],
   "napi": {
     "name": "obsidian-tc-native",
     "triples": {
@@ -26,10 +31,10 @@
     "version": "napi version"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.0"
+    "@napi-rs/cli": "^3.7.2"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "repository": {
     "type": "git",

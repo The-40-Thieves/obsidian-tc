@@ -32,7 +32,7 @@ export const BaseDoc = z
   .object({
     source: BaseSource.optional(),
     views: z.array(BaseView).optional(),
-    formulas: z.record(z.unknown()).optional(),
+    formulas: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
 

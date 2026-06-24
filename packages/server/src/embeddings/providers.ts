@@ -1,5 +1,5 @@
 import { type FetchFn, postJson } from "./http";
-import { type EmbeddingProvider, assertVectors } from "./provider";
+import { assertVectors, type EmbeddingProvider } from "./provider";
 export interface AdapterOpts {
   model: string;
   dimensions: number;

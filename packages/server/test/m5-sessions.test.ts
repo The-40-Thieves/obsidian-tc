@@ -2,8 +2,7 @@
 // lifecycle (insert/get/idempotent end), the windowed session listing, and the
 // append-only JSONL contract (round-trip, missing-file = empty, blank/torn-line
 // resilience, ordering preserved).
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -118,9 +118,9 @@ export function chunkNote(body: string, opts: ChunkOptions = {}): Chunk[] {
     if (estimateTokens(text) <= maxTokens) {
       chunks.push(makeChunk(`${sectionIdx}`, section.headings, text));
     } else {
-      splitByBudget(text, maxTokens).forEach((part, i) =>
-        chunks.push(makeChunk(`${sectionIdx}.${i}`, section.headings, part)),
-      );
+      for (const [i, part] of splitByBudget(text, maxTokens).entries()) {
+        chunks.push(makeChunk(`${sectionIdx}.${i}`, section.headings, part));
+      }
     }
   });
   return chunks;

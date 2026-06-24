@@ -37,6 +37,6 @@ export function createEmbeddingProvider(
       });
   }
 }
-export { fakeEmbeddingProvider, deterministicVector } from "./fake";
+export { deterministicVector, fakeEmbeddingProvider } from "./fake";
 export type { EmbeddingProvider } from "./provider";
 export { resolveApiKey } from "./provider";

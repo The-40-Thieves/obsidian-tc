@@ -107,7 +107,7 @@ export const HttpConfigSchema = z.object({
 
 export const TransportsConfigSchema = z.object({
   stdio: z.boolean().default(true),
-  http: HttpConfigSchema.default({}),
+  http: HttpConfigSchema.prefault({}),
 });
 
 export const GovernorConfigSchema = z.object({
@@ -126,7 +126,7 @@ const throttleTier = (perMinute: number, burst: number) =>
       perMinute: z.number().int().positive().default(perMinute),
       burst: z.number().int().positive().default(burst),
     })
-    .default({});
+    .prefault({});
 
 export const ThrottleConfigSchema = z
   .object({
@@ -140,10 +140,10 @@ export const ThrottleConfigSchema = z
         execute: throttleTier(5, 1),
         admin: throttleTier(5, 1),
       })
-      .default({}),
+      .prefault({}),
     maxConcurrentWritesPerVault: z.number().int().positive().default(16),
   })
-  .default({});
+  .prefault({});
 export type ThrottleConfig = z.infer<typeof ThrottleConfigSchema>;
 
 // Observability config (G2.4 §Observability — finalized in M7/THE-183). Three opt-in
@@ -159,30 +159,30 @@ export const ObservabilityConfigSchema = z.object({
   otel: z
     .object({
       endpoint: z.string().url().optional(),
-      headers: z.record(z.string()).default({}),
+      headers: z.record(z.string(), z.string()).prefault({}),
     })
-    .default({}),
+    .prefault({}),
   prometheus: z
     .object({
       enabled: z.boolean().default(false),
       port: z.number().int().min(0).max(65535).default(9464),
       bind: z.string().default("127.0.0.1"),
     })
-    .default({}),
+    .prefault({}),
   morgiana: z
     .object({
       spool: z.boolean().default(true),
       httpEndpoint: z.string().url().optional(),
-      httpHeaders: z.record(z.string()).default({}),
+      httpHeaders: z.record(z.string(), z.string()).prefault({}),
     })
-    .default({}),
+    .prefault({}),
   retention: z
     .object({
       morgianaEventsDays: z.number().int().positive().default(90),
       tracesDays: z.number().int().positive().default(90),
       eventLogDays: z.number().int().positive().default(30),
     })
-    .default({}),
+    .prefault({}),
 });
 export type ObservabilityConfig = z.infer<typeof ObservabilityConfigSchema>;
 
@@ -206,13 +206,13 @@ const ServerConfigObject = z.object({
   cacheDir: z.string().default(".obsidian-tc"),
   vaults: z.array(VaultConfigSchema).min(1),
   plur: PlurConfigSchema.optional(),
-  auth: AuthConfigSchema.default({ mode: "none" }),
-  acl: AclConfigSchema.default({}),
-  embeddings: EmbeddingsConfigSchema.default({}),
-  transports: TransportsConfigSchema.default({}),
-  governor: GovernorConfigSchema.default({}),
+  auth: AuthConfigSchema.prefault({ mode: "none" }),
+  acl: AclConfigSchema.prefault({}),
+  embeddings: EmbeddingsConfigSchema.prefault({}),
+  transports: TransportsConfigSchema.prefault({}),
+  governor: GovernorConfigSchema.prefault({}),
   throttle: ThrottleConfigSchema,
-  observability: ObservabilityConfigSchema.default({}),
+  observability: ObservabilityConfigSchema.prefault({}),
   idempotencyTtlSeconds: z.number().int().positive().default(86400),
   elicitTtlSeconds: z.number().int().positive().default(300),
 });

@@ -7,7 +7,7 @@
 // only the modeled keys, re-serialize with the file's indentation), so other
 // workspaces and unknown top-level keys survive. Overwriting a saved workspace
 // requires HITL confirmation; listing/opening never do.
-import { VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
@@ -88,7 +88,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           name: z.string().min(1),
-          layout: z.record(z.unknown()),
+          layout: z.record(z.string(), z.unknown()),
           set_active: z.boolean().default(false),
           overwrite: z.boolean().default(false),
         })

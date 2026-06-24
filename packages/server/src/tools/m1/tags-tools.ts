@@ -4,7 +4,7 @@
 // hierarchical — a query for `project` matches `project` and `project/sub`.
 // add_tag/remove_tag are content-addressed (prev_hash CAS); writes target the
 // frontmatter `tags` list or the body, per the `location` argument.
-import { VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
