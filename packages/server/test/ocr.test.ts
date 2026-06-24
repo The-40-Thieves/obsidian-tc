@@ -77,6 +77,11 @@ describe("ocr_bulk", () => {
     const ok = await v.callConfirmed("ocr_bulk", input);
     expect(ok.ok).toBe(true);
     if (ok.ok) expect((ok.data as Record<string, unknown>).requested).toBe(1);
+    // the bulk HITL floor consumed the single-use confirmation token
+    const tok = v.db
+      .prepare("SELECT consumed_at FROM elicit_tokens ORDER BY rowid DESC LIMIT 1")
+      .get() as { consumed_at: number | null } | undefined;
+    expect(tok?.consumed_at).not.toBeNull();
     const req = v.bridgeRequests[0];
     if (!req) throw new Error("expected a bridge request");
     expect((JSON.parse(req.body ?? "{}") as Record<string, unknown>).paths).toEqual([

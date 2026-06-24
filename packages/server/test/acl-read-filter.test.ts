@@ -46,5 +46,9 @@ describe("acl-read-filter (D2)", () => {
     expect(bridgeItemPath({})).toBeUndefined();
     expect(bridgeItemPath("nope")).toBeUndefined();
     expect(bridgeItemPath({ path: "../escape.md" })).toBeUndefined();
+    // a bad value for an earlier key falls through to a later valid key
+    expect(
+      bridgeItemPath({ path: "../escape.md", note_path: "Notes/ok.md" }, ["path", "note_path"]),
+    ).toBe("Notes/ok.md");
   });
 });

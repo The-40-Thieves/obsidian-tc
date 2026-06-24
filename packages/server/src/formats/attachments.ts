@@ -141,11 +141,9 @@ export function rewriteAttachmentReferences(
 ): { notes: number; refs: number } {
   const fromPathLower = fromRel.toLowerCase();
   const toBase = baseOf(toRel);
-  const attachExts = new Set(DEFAULT_ATTACHMENT_EXTS);
   const preSet = new Set(
-    walkVault(root, {})
+    walkVault(root, { extensions: DEFAULT_ATTACHMENT_EXTS })
       .map((e) => e.relPath)
-      .filter((p) => attachExts.has(extOf(p)))
       .map((p) => (p === toRel ? fromRel : p)),
   );
   preSet.add(fromRel);

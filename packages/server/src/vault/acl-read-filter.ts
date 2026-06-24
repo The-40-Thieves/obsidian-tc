@@ -28,7 +28,8 @@ export function bridgeItemPath(
       try {
         return normalizeVaultPath(val);
       } catch {
-        return undefined;
+        // An invalid value for this key (e.g. a traversal attempt) — keep trying the
+        // remaining keys before treating the item as unattributable.
       }
     }
   }
