@@ -26,7 +26,7 @@ function cosineSimilarity(a, b) {
 /** Lowercase tokenizer over Unicode alphabetic + numbers (matches Rust is_alphanumeric). Mirrors the Rust. */
 function tokenize(text) {
   const out = [];
-  for (const t of text.split(/[^\p{L}\p{N}]+/u)) {
+  for (const t of text.split(/[^\p{Alphabetic}\p{N}]+/u)) {
     if (t.length > 0) {
       out.push(t.toLowerCase());
     }
