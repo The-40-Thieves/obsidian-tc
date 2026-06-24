@@ -46,18 +46,18 @@ describe("get_server_config", () => {
     const cfg = data<{
       version: string;
       auth_mode: string;
-      vaults_summary: { id: string; read_only: boolean; embeddings_provider: string }[];
+      read_only: boolean;
+      embeddings_provider: string;
+      vaults_summary: { id: string }[];
       limits: Record<string, number>;
       observability: Record<string, boolean>;
       plugins_detected: Record<string, string[]>;
     }>(await v.call("get_server_config", {}));
 
     expect(cfg.auth_mode).toBe("jwt");
-    expect(cfg.vaults_summary[0]).toMatchObject({
-      id: "test",
-      read_only: false,
-      embeddings_provider: "ollama",
-    });
+    expect(cfg.read_only).toBe(false);
+    expect(cfg.embeddings_provider).toBe("ollama");
+    expect(cfg.vaults_summary[0]).toEqual({ id: "test" });
     expect(cfg.limits).toMatchObject({
       max_concurrent_writes_per_vault: 16,
       max_operations_per_minute: 10,
@@ -87,10 +87,8 @@ describe("get_server_config", () => {
 
   it("runs under a read-only ACL (admin is non-mutating)", async () => {
     v = makeM6Vault({ acl: { readOnly: true }, register });
-    const cfg = data<{ vaults_summary: { read_only: boolean }[] }>(
-      await v.call("get_server_config", {}),
-    );
-    expect(cfg.vaults_summary[0]?.read_only).toBe(true);
+    const cfg = data<{ read_only: boolean }>(await v.call("get_server_config", {}));
+    expect(cfg.read_only).toBe(true);
   });
 });
 
@@ -154,6 +152,20 @@ describe("inspect_acl", () => {
       }),
     );
     expect(out).toMatchObject({ allowed: true, kill_switch: false });
+  });
+
+  it("reports effective_scopes from the rule-based last-match-wins", async () => {
+    v = makeM6Vault({
+      acl: {
+        defaultScopes: ["read:notes"],
+        rules: [{ glob: "secret/**", scopes: ["admin:config"] }],
+      },
+      register,
+    });
+    const out = data<{ effective_scopes: string[] }>(
+      await v.call("inspect_acl", { vault: "test", path: "secret/x.md", op: "read", scopes: ["*"] }),
+    );
+    expect(out.effective_scopes).toEqual(["admin:config"]);
   });
 
   it("errors with vault_not_found for an unknown vault", async () => {
