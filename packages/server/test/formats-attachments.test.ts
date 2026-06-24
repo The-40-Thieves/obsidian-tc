@@ -118,4 +118,23 @@ describe("formats/attachments", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("emits a full path (not bare) when the moved basename stays ambiguous post-move", () => {
+    const root = makeRoot({
+      "a/diagram.png": "A",
+      "b/diagram.png": "B",
+      "note.md": "bare ![[diagram.png]]\n",
+    });
+    try {
+      // Move a/diagram.png -> c/diagram.png: the basename "diagram.png" is still shared
+      // with b/diagram.png, so a bare ![[diagram.png]] would now resolve to b/ — the
+      // rewrite must therefore emit the full path to stay pointed at the moved file.
+      rewriteAttachmentReferences(root, "a/diagram.png", "c/diagram.png");
+      const txt = readFileSync(join(root, "note.md"), "utf8");
+      expect(txt).toContain("![[c/diagram.png]]");
+      expect(txt).not.toContain("![[diagram.png]]");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

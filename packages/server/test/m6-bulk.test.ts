@@ -264,6 +264,22 @@ describe("bulk_move_notes", () => {
     expect(v.read(".trash/C.md")).toBe("CC");
   });
 
+  it("refuses a folder destination instead of trashing it (review #4)", async () => {
+    v = makeM6Vault({ files: { "A.md": "AA", "Docs/keep.md": "K" }, register });
+    const out = data<{ results: { ok: boolean; error?: { code: string } }[] }>(
+      await v.callConfirmed("bulk_move_notes", {
+        vault: "test",
+        dry_run: false,
+        overwrite: true,
+        moves: [{ from: "A.md", to: "Docs" }],
+      }),
+    );
+    expect(out.results[0]?.ok).toBe(false);
+    expect(out.results[0]?.error?.code).toBe("invalid_input");
+    expect(v.exists("Docs/keep.md")).toBe(true);
+    expect(v.exists("A.md")).toBe(true);
+  });
+
   it("dry_run with overwrite:true and an existing dest does not touch disk", async () => {
     v = makeM6Vault({ files: { "A.md": "AA", "C.md": "CC" }, register });
     const out = data<{ dry_run: boolean; results: { ok: boolean }[] }>(

@@ -101,6 +101,51 @@ export function searchText(root: string, opts: TextOptions): TextHit[] {
   return hits.slice(0, opts.limit);
 }
 
+/**
+ * Flag a pattern with a nested quantifier — a group that both CONTAINS a quantifier
+ * and is itself quantified — at any nesting depth (the classic catastrophic-
+ * backtracking signature). Conservative: bounded `{n}` repeats also trip it, an
+ * acceptable usability cost for a safety guard. Char classes are skipped so a literal
+ * `(`/`+`/`{` inside `[...]` is not mistaken for structure. The robust long-term fix
+ * is a regex-execution timeout (RE2 / worker thread); this closes the known heuristic
+ * bypasses (e.g. `((a)+)+`, `(a+){1,}`) in the meantime (review #6).
+ */
+function hasNestedQuantifier(p: string): boolean {
+  const groupHasQuant: boolean[] = []; // per open group: does it contain a quantifier?
+  let escaped = false;
+  let inClass = false;
+  for (let i = 0; i < p.length; i++) {
+    const c = p[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (inClass) {
+      if (c === "]") inClass = false;
+      continue;
+    }
+    if (c === "[") {
+      inClass = true;
+    } else if (c === "(") {
+      groupHasQuant.push(false);
+    } else if (c === ")") {
+      const inner = groupHasQuant.pop() ?? false;
+      const next = p[i + 1];
+      const quantAfter = next === "*" || next === "+" || next === "{";
+      if (inner && quantAfter) return true;
+      // a quantifier on this group also makes the enclosing group "quantified".
+      if (quantAfter && groupHasQuant.length) groupHasQuant[groupHasQuant.length - 1] = true;
+    } else if (c === "*" || c === "+" || c === "{") {
+      if (groupHasQuant.length) groupHasQuant[groupHasQuant.length - 1] = true;
+    }
+  }
+  return false;
+}
+
 export function searchRegex(root: string, opts: RegexOptions): RegexHit[] {
   const flags = opts.flags ?? "i";
   // ReDoS / misuse guards (F2): bound pattern length, whitelist flags (g is added
@@ -112,15 +157,10 @@ export function searchRegex(root: string, opts: RegexOptions): RegexHit[] {
   for (const f of flags)
     if (!"imsu".includes(f))
       throw err.invalidInput("unsupported regex flag", { flag: f, allowed: ["i", "m", "s", "u"] });
-  if (
-    /\([^)]*[+*][^)]*\)[+*]/.test(opts.pattern) ||
-    /\([^)]*\{\d+,?\}[^)]*\)[+*{]/.test(opts.pattern)
-  )
+  if (hasNestedQuantifier(opts.pattern))
     throw err.invalidInput(
       "regex rejected: nested quantifier may cause catastrophic backtracking",
-      {
-        pattern: opts.pattern,
-      },
+      { pattern: opts.pattern },
     );
   let re: RegExp;
   try {

@@ -154,6 +154,19 @@ describe("inspect_acl", () => {
     expect(out).toMatchObject({ allowed: true, kill_switch: false });
   });
 
+  it("flags read_only for an execute op on a read-only vault (review #3)", async () => {
+    v = makeM6Vault({ acl: { readOnly: true }, register });
+    const out = data<{ allowed: boolean; denied_by: string; kill_switch: boolean }>(
+      await v.call("inspect_acl", {
+        vault: "test",
+        path: "n/a",
+        op: "execute",
+        scopes: ["execute:command"],
+      }),
+    );
+    expect(out).toMatchObject({ allowed: false, denied_by: "read_only", kill_switch: true });
+  });
+
   it("reports effective_scopes from the rule-based last-match-wins", async () => {
     v = makeM6Vault({
       acl: {

@@ -155,6 +155,19 @@ export function rewriteAttachmentReferences(
     else byBase.set(b, [p]);
   }
 
+  // Post-move basename uniqueness for the OUTPUT form. preSet is the PRE-move set
+  // (toRel mapped back to fromRel); mapping fromRel forward to toRel yields the
+  // post-move set. A bare-basename link may only be emitted as a bare basename when
+  // that basename is unique post-move; otherwise it must be the full vault-relative
+  // path, or it would resolve to a DIFFERENT same-name attachment in another folder.
+  const toBaseLower = toBase.toLowerCase();
+  let toBaseCountPost = 0;
+  for (const p of preSet) {
+    const post = p === fromRel ? toRel : p;
+    if (baseOf(post).toLowerCase() === toBaseLower) toBaseCountPost++;
+  }
+  const toBaseUnique = toBaseCountPost <= 1;
+
   /** Does a normalized, lowercased link target resolve to fromRel? */
   const resolvesToFrom = (t: string, hadSlash: boolean): boolean => {
     if (hadSlash) return t === fromPathLower; // path link: exact vault-relative path only
@@ -180,7 +193,7 @@ export function rewriteAttachmentReferences(
       if (t === "") return null;
       const hadSlash = t.includes("/");
       if (!resolvesToFrom(t, hadSlash)) return null;
-      return hadSlash ? toRel : toBase;
+      return hadSlash ? toRel : toBaseUnique ? toBase : toRel;
     });
     if (count > 0) {
       writeNoteAtomic(abs, text, false);
