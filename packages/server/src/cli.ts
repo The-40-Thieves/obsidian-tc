@@ -95,6 +95,7 @@ async function main(): Promise<void> {
   const rateLimiter = new RateLimiter(config.throttle.tiers);
   const registry = new ToolRegistry({
     maxResponseBytes: config.governor.maxResponseBytes,
+    idempotencyTtlSeconds: config.idempotencyTtlSeconds,
     verifyElicit: elicitVerifier,
     metrics,
     tracer: otel.tracer,

@@ -76,6 +76,30 @@ function annotateSpanResult(span: Span, result: ToolResult): void {
   span.setStatus({ code: SpanStatusCode.ERROR, message: code });
 }
 
+/** The whole-operation idempotency key for a call, if any (D3). Reads a top-level
+ *  `idempotency_key`, the `bulk_idempotency_key` alias, or a nested
+ *  `options.idempotency_key`; never a per-item `items[].idempotency_key`. */
+function extractIdempotencyKey(data: unknown): string | undefined {
+  if (data === null || typeof data !== "object") return undefined;
+  const o = data as Record<string, unknown>;
+  const top = o.idempotency_key ?? o.bulk_idempotency_key;
+  if (typeof top === "string" && top.length > 0) return top;
+  const opts = o.options;
+  if (opts !== null && typeof opts === "object") {
+    const nested = (opts as Record<string, unknown>).idempotency_key;
+    if (typeof nested === "string" && nested.length > 0) return nested;
+  }
+  return undefined;
+}
+
+/** Coerce a SQLite result column (string | Buffer | Uint8Array) to a UTF-8 string. */
+function bufToString(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v instanceof Uint8Array)
+    return Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString("utf8");
+  return String(v ?? "");
+}
+
 export interface RegistryOptions {
   maxResponseBytes?: number;
   verifyElicit?: VerifyElicit;
@@ -87,6 +111,8 @@ export interface RegistryOptions {
   emit?: (vaultId: string, type: MorgianaEventType, data: Partial<MorgianaEventData>) => void;
   /** Dispatch-wide rate limiter (THE-210). Optional: no rate gate when it is absent. */
   rateLimiter?: RateLimiter;
+  /** Idempotency replay TTL in seconds (D3). Defaults to 86400 when absent. */
+  idempotencyTtlSeconds?: number;
 }
 
 export class ToolRegistry {
@@ -102,6 +128,7 @@ export class ToolRegistry {
     data: Partial<MorgianaEventData>,
   ) => void;
   private readonly rateLimiter?: RateLimiter;
+  private readonly idempotencyTtlMs: number;
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
@@ -110,6 +137,7 @@ export class ToolRegistry {
     this.tracer = opts.tracer;
     this.emit = opts.emit;
     this.rateLimiter = opts.rateLimiter;
+    this.idempotencyTtlMs = (opts.idempotencyTtlSeconds ?? 86400) * 1000;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -178,6 +206,75 @@ export class ToolRegistry {
     }
   }
 
+  /** Try to atomically claim the in-flight idempotency slot for (vault, key). */
+  private tryClaimIdempotency(
+    db: Database,
+    vaultId: string,
+    key: string,
+    tool: string,
+    argsHashValue: string,
+    nowMs: number,
+  ): "claimed" | "exists" {
+    try {
+      db.prepare(
+        "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
+      ).run(vaultId, key, tool, argsHashValue, nowMs, nowMs + this.idempotencyTtlMs);
+      return "claimed";
+    } catch (e) {
+      if (/UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test((e as Error).message)) return "exists";
+      throw e;
+    }
+  }
+
+  private readIdempotency(
+    db: Database,
+    vaultId: string,
+    key: string,
+  ):
+    | {
+        tool_name: string;
+        args_hash: string;
+        started_at: number;
+        completed_at: number | null;
+        result: unknown;
+        result_size: number | null;
+        expires_at: number;
+      }
+    | undefined {
+    return db
+      .prepare(
+        "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at FROM idempotency_keys WHERE vault_id = ? AND key = ?",
+      )
+      .get(vaultId, key) as
+      | {
+          tool_name: string;
+          args_hash: string;
+          started_at: number;
+          completed_at: number | null;
+          result: unknown;
+          result_size: number | null;
+          expires_at: number;
+        }
+      | undefined;
+  }
+
+  private finalizeIdempotency(
+    db: Database,
+    vaultId: string,
+    key: string,
+    json: string,
+    size: number,
+    nowMs: number,
+  ): void {
+    db.prepare(
+      "UPDATE idempotency_keys SET completed_at = ?, result = ?, result_size = ? WHERE vault_id = ? AND key = ?",
+    ).run(nowMs, json, size, vaultId, key);
+  }
+
+  private deleteIdempotency(db: Database, vaultId: string, key: string): void {
+    db.prepare("DELETE FROM idempotency_keys WHERE vault_id = ? AND key = ?").run(vaultId, key);
+  }
+
   // biome-ignore lint/suspicious/noExplicitAny: accepts any specific ToolDefinition for storage in the heterogeneous registry (see the tools map above).
   register(def: ToolDefinition<any, any>): void {
     if (this.tools.has(def.name)) throw new Error(`duplicate tool: ${def.name}`);
@@ -236,6 +333,10 @@ export class ToolRegistry {
     // Governing scope class for the limiter gate + `scope_class` metric label; resolved
     // once the tool definition is known (stays "unknown" for an unrecognized tool name).
     let scopeClass = "unknown";
+    // Idempotency gate state (D3): set when the call carries an idempotency key and
+    // we own its in-flight row, so the catch/overflow paths can release it.
+    let idemKey: string | undefined;
+    let idemClaimed = false;
 
     const audit = (status: Status, durationMs: number, resultSize: number, code?: string) => {
       try {
@@ -318,12 +419,74 @@ export class ToolRegistry {
         }
       }
 
+      // Idempotency gate (D3). A keyed call claims a row in idempotency_keys; a
+      // replay returns the cached result without re-running the handler. Runs after
+      // auth/scope/ACL/HITL/throttle, so authorization stays authoritative on replays.
+      idemKey = extractIdempotencyKey(parsed.data);
+      if (idemKey) {
+        if (this.tryClaimIdempotency(ctx.db, ctx.vaultId, idemKey, name, hash, now()) === "claimed") {
+          idemClaimed = true;
+        } else {
+          let row = this.readIdempotency(ctx.db, ctx.vaultId, idemKey);
+          // Reclaim an expired or crashed (in-flight past the 60s sweep) row, then retry once.
+          if (
+            row &&
+            (row.expires_at <= now() ||
+              (row.completed_at == null && row.started_at + 60_000 <= now()))
+          ) {
+            this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+            if (this.tryClaimIdempotency(ctx.db, ctx.vaultId, idemKey, name, hash, now()) === "claimed") {
+              idemClaimed = true;
+            } else {
+              row = this.readIdempotency(ctx.db, ctx.vaultId, idemKey);
+            }
+          }
+          if (!idemClaimed) {
+            if (!row)
+              throw new ObsidianTcError("idempotency_in_flight", "operation in progress", {
+                key: idemKey,
+              });
+            if (row.tool_name !== name || row.args_hash !== hash)
+              throw new ObsidianTcError(
+                "idempotency_key_mismatch",
+                "idempotency key reused with a different tool or arguments",
+                { key: idemKey },
+              );
+            if (row.completed_at != null) {
+              const cachedStr = bufToString(row.result);
+              const cached = JSON.parse(cachedStr) as unknown;
+              const resultSize = row.result_size ?? Buffer.byteLength(cachedStr, "utf8");
+              const duration = Math.max(0, now() - start);
+              audit("ok", duration, resultSize);
+              this.meter((m) =>
+                m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize),
+              );
+              return {
+                ok: true,
+                data: cached,
+                meta: { duration_ms: duration, result_size: resultSize },
+              };
+            }
+            throw new ObsidianTcError("idempotency_in_flight", "operation in progress", {
+              key: idemKey,
+            });
+          }
+        }
+      }
+
       const out = await def.handler(parsed.data, ctx);
       const json = JSON.stringify(out ?? null);
       const resultSize = Buffer.byteLength(json, "utf8");
       const duration = Math.max(0, now() - start);
 
       if (resultSize > this.maxResponseBytes) {
+        if (idemClaimed && idemKey) {
+          try {
+            this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+          } catch {
+            /* best-effort cleanup */
+          }
+        }
         const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
           result_size: resultSize,
           limit: this.maxResponseBytes,
@@ -344,10 +507,19 @@ export class ToolRegistry {
         };
       }
 
+      if (idemClaimed && idemKey)
+        this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, json, resultSize, now());
       audit("ok", duration, resultSize);
       this.meter((m) => m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize));
       return { ok: true, data: out, meta: { duration_ms: duration, result_size: resultSize } };
     } catch (e) {
+      if (idemClaimed && idemKey) {
+        try {
+          this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+        } catch {
+          /* cleanup best-effort; must not mask the original error */
+        }
+      }
       const error =
         e instanceof ObsidianTcError ? e : new ObsidianTcError("internal", (e as Error).message);
       const duration = Math.max(0, now() - start);
