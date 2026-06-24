@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 # M0 verifies the napi-rs build pipeline on all three OSes (Linux, macOS,
 # Windows) via native-host builds. Cross-compiled prebuilds (e.g. aarch64-linux)
 # and the full release prebuild matrix land in G2.5 (Release engineering).
