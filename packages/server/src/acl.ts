@@ -12,6 +12,10 @@ export interface AclConfigT {
   readPaths?: string[];
   writePaths?: string[];
   deletePaths?: string[];
+  /** When true, an UNDEFINED readPaths whitelist denies blanket read enumeration
+   *  (bridge tools must produce path-attributable results) instead of allowing all.
+   *  Default false = M0 allow-all (D2 hardening). */
+  strictReadDefault?: boolean;
 }
 
 // Sentinel for the `**` token. A NUL char (illegal in any vault-relative path)
@@ -49,6 +53,9 @@ export class FolderAcl {
   }
   get readPaths(): string[] | undefined {
     return this.cfg.readPaths;
+  }
+  get strictReadDefault(): boolean {
+    return this.cfg.strictReadDefault === true;
   }
   get writePaths(): string[] | undefined {
     return this.cfg.writePaths;
