@@ -167,7 +167,14 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         switch (input.operation) {
           case "set": {
             if (!input.key) throw err.invalidInput("key is required for set");
-            next = { ...fm, [input.key]: input.value ?? null };
+            // Branch on presence so an explicit null is stored as null, while an omitted
+            // value is a clear error rather than a silent null write (F5).
+            if (!("value" in input))
+              throw err.invalidInput(
+                "value is required for set (use null explicitly to store null)",
+                { key: input.key },
+              );
+            next = { ...fm, [input.key]: input.value };
             break;
           }
           case "remove": {

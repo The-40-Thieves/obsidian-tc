@@ -219,7 +219,9 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const parsed = parseNote(readNote(abs).raw);
             const fm = { ...(parsed.frontmatter ?? {}) };
             const prev = Object.hasOwn(fm, input.key) ? fm[input.key] : null;
-            fm[input.key] = input.value ?? null;
+            // Store an explicitly-supplied null as null; only a truly-absent value
+            // defaults to null (F5).
+            fm[input.key] = "value" in input ? input.value : null;
             writeNoteAtomic(abs, serializeNote(fm, parsed.body), false);
             return { prev_value: prev ?? null };
           },
