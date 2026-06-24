@@ -50,7 +50,7 @@ const UpdateInput = z
     operation: z.enum(["set", "remove", "merge", "replace"]),
     key: z.string().min(1).optional(),
     value: z.unknown().optional(),
-    properties: z.record(z.unknown()).optional(),
+    properties: z.record(z.string(), z.unknown()).optional(),
     prev_hash: z.string().optional(),
     create_if_missing: z.boolean().default(false),
   })

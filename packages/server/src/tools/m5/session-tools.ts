@@ -45,7 +45,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           caller: z.string().min(1),
-          session_metadata: z.record(z.unknown()).optional(),
+          session_metadata: z.record(z.string(), z.unknown()).optional(),
           idempotency_key: z.string().min(1).max(128).optional(),
         })
         .strict(),
@@ -84,7 +84,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           session_id: z.string().min(1),
-          end_metadata: z.record(z.unknown()).optional(),
+          end_metadata: z.record(z.string(), z.unknown()).optional(),
         })
         .strict(),
       requiredScopes: ["write:workspace"],

@@ -251,7 +251,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       inputSchema: z
         .object({
           vault: VaultId,
-          logic: z.record(z.unknown()),
+          logic: z.record(z.string(), z.unknown()),
           root: VaultPath.optional(),
           ...Cursor,
         })
@@ -304,7 +304,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       inputSchema: z
         .object({
           vault: VaultId,
-          query: z.union([z.string().min(1), z.record(z.unknown())]),
+          query: z.union([z.string().min(1), z.record(z.string(), z.unknown())]),
           mode: z.enum(["auto", "text", "regex", "dql", "jsonlogic", "semantic"]).default("auto"),
           root: VaultPath.optional(),
           explain: z.boolean().default(false),

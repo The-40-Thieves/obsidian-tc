@@ -42,7 +42,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           vault: VaultId,
           template: VaultPath,
           target: VaultPath,
-          args: z.record(z.unknown()).optional(),
+          args: z.record(z.string(), z.unknown()).optional(),
           overwrite: z.boolean().default(false),
         })
         .strict(),

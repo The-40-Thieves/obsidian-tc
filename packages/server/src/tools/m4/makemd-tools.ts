@@ -45,8 +45,8 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           space_id: z.string().min(1),
-          filter: z.record(z.unknown()).optional(),
-          sort: z.record(z.unknown()).optional(),
+          filter: z.record(z.string(), z.unknown()).optional(),
+          sort: z.record(z.string(), z.unknown()).optional(),
           limit: z.number().int().positive().max(1000).optional(),
           cursor: z.string().optional(),
         })

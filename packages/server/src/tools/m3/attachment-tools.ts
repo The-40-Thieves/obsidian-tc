@@ -70,7 +70,7 @@ const MoveInput = z
     to: VaultPath,
     overwrite: z.boolean().default(false),
     update_references: z.boolean().default(true),
-    options: WriteOptions.default({}),
+    options: WriteOptions.prefault({}),
   })
   .strict();
 

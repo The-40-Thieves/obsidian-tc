@@ -38,7 +38,7 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           action_name: z.string().min(1),
-          args: z.record(z.unknown()).optional(),
+          args: z.record(z.string(), z.unknown()).optional(),
         })
         .strict(),
       requiredScopes: ["execute:quickadd"],

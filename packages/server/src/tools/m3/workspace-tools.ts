@@ -88,7 +88,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           name: z.string().min(1),
-          layout: z.record(z.unknown()),
+          layout: z.record(z.string(), z.unknown()),
           set_active: z.boolean().default(false),
           overwrite: z.boolean().default(false),
         })

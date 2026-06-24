@@ -49,7 +49,7 @@ const ResetInput = z
         idempotency_keys: z.boolean().default(true),
         event_log: z.boolean().default(false),
       })
-      .default({}),
+      .prefault({}),
     elicit_token: ElicitToken.optional(),
   })
   .strict();

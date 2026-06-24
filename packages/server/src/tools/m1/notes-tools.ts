@@ -147,7 +147,7 @@ const WriteInput = z
     content: z.string(),
     mode: WriteMode.default("create"),
     prev_hash: z.string().optional(),
-    options: WriteOptions.default({}),
+    options: WriteOptions.prefault({}),
   })
   .strict();
 
@@ -159,7 +159,7 @@ const AppendInput = z
     create_if_missing: z.boolean().default(false),
     ensure_newline: z.boolean().default(true),
     prev_hash: z.string().optional(),
-    options: WriteOptions.default({}),
+    options: WriteOptions.prefault({}),
   })
   .strict();
 
@@ -182,7 +182,7 @@ const MoveInput = z
     overwrite: z.boolean().default(false),
     update_backlinks: z.boolean().default(true),
     prev_hash: z.string().optional(),
-    options: WriteOptions.default({}),
+    options: WriteOptions.prefault({}),
   })
   .strict();
 
@@ -192,7 +192,7 @@ const CopyInput = z
     from: VaultPath,
     to: VaultPath,
     overwrite: z.boolean().default(false),
-    options: WriteOptions.default({}),
+    options: WriteOptions.prefault({}),
   })
   .strict();
 

@@ -13,7 +13,7 @@ import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
-const ElementArray = z.array(z.record(z.unknown()));
+const ElementArray = z.array(z.record(z.string(), z.unknown()));
 
 export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -94,8 +94,8 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
           path: VaultPath,
           add_elements: ElementArray.optional(),
           remove_element_ids: z.array(z.string()).optional(),
-          update_elements: z.record(z.record(z.unknown())).optional(),
-          update_app_state: z.record(z.unknown()).optional(),
+          update_elements: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+          update_app_state: z.record(z.string(), z.unknown()).optional(),
         })
         .strict(),
       requiredScopes: ["write:excalidraw"],

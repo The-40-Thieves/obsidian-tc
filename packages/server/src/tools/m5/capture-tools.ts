@@ -138,7 +138,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
           vault: VaultId,
           capture_id: z.string().min(1),
           target_path: VaultPath,
-          frontmatter_overrides: z.record(z.unknown()).optional(),
+          frontmatter_overrides: z.record(z.string(), z.unknown()).optional(),
           delete_from_queue: z.boolean().default(true),
         })
         .strict(),

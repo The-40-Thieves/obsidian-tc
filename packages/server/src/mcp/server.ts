@@ -5,7 +5,7 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { z } from "zod";
 import type { CallerContext, ToolRegistry } from "./registry";
 
 export interface McpServerOptions {
@@ -41,9 +41,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const tools: Tool[] = opts.registry.list().map((def) => ({
       name: def.name,
       description: def.description,
-      inputSchema: zodToJsonSchema(def.inputSchema, {
-        target: "jsonSchema7",
-        $refStrategy: "none",
+      inputSchema: z.toJSONSchema(def.inputSchema, {
+        target: "draft-7",
+        reused: "inline",
+        unrepresentable: "any",
       }) as unknown as Tool["inputSchema"],
     }));
     return { tools };

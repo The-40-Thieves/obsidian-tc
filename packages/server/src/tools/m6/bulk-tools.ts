@@ -107,7 +107,7 @@ const BulkConcurrency = z.number().int().min(1).max(16).default(4);
 const CreateItem = z.object({
   path: VaultPath,
   content: z.string(),
-  frontmatter: z.record(z.unknown()).optional(),
+  frontmatter: z.record(z.string(), z.unknown()).optional(),
   mode: z.enum(["create", "overwrite", "upsert"]).default("create"),
   idempotency_key: z.string().min(1).max(128).optional(),
 });
