@@ -460,7 +460,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
             path: rel,
             target_heading: input.target_heading,
           });
-        const next = serializeNote(parsed.frontmatter, patchedBody);
+        const next = serializeNote(parsed.frontmatter, patchedBody, parsed.rawFrontmatter);
         writeNoteAtomic(abs, next, false);
         return {
           vault: v.id,
