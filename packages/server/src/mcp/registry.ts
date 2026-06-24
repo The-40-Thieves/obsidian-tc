@@ -468,19 +468,28 @@ export class ToolRegistry {
                 { key: idemKey },
               );
             if (row.completed_at != null) {
-              const cachedStr = bufToString(row.result);
-              const cached = JSON.parse(cachedStr) as unknown;
-              const resultSize = row.result_size ?? Buffer.byteLength(cachedStr, "utf8");
-              const duration = Math.max(0, now() - start);
-              audit("ok", duration, resultSize);
-              this.meter((m) =>
-                m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize),
-              );
-              return {
-                ok: true,
-                data: cached,
-                meta: { duration_ms: duration, result_size: resultSize },
-              };
+              try {
+                const cachedStr = bufToString(row.result);
+                const cached = JSON.parse(cachedStr) as unknown;
+                const resultSize = row.result_size ?? Buffer.byteLength(cachedStr, "utf8");
+                const duration = Math.max(0, now() - start);
+                audit("ok", duration, resultSize);
+                this.meter((m) =>
+                  m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize),
+                );
+                return {
+                  ok: true,
+                  data: cached,
+                  meta: { duration_ms: duration, result_size: resultSize },
+                };
+              } catch {
+                // Corrupt cached blob: drop it (so the next call re-executes) and fail this one cleanly.
+                this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+                throw new ObsidianTcError(
+                  "internal",
+                  "cached idempotent result was unreadable; retry",
+                );
+              }
             }
             throw new ObsidianTcError("idempotency_in_flight", "operation in progress", {
               key: idemKey,
@@ -536,7 +545,7 @@ export class ToolRegistry {
         }
       }
       const error =
-        e instanceof ObsidianTcError ? e : new ObsidianTcError("internal", (e as Error).message);
+        e instanceof ObsidianTcError ? e : new ObsidianTcError("internal", "internal error");
       const duration = Math.max(0, now() - start);
       audit("error", duration, 0, error.code);
       this.meter((m) => {
