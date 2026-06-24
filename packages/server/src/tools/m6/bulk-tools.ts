@@ -57,6 +57,9 @@ function newTargetFor(toRel: string, postIndex: VaultIndex): string {
  * runs after the files have moved and writes the rewrites. Returns per-move and
  * total link counts.
  */
+// ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
+// including notes outside the caller's write whitelist. Deliberate graph-integrity
+// invariant (a constrained link-text update, not arbitrary write access) — audit #12.
 function rewriteForMoves(
   root: string,
   moveMap: Map<string, string>,
@@ -275,6 +278,40 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             return { from: m.from, to: m.to, ok: false, error };
           }
         });
+
+        // In-batch hazards the per-row pass cannot see: a destination claimed by
+        // two moves (the 2nd clobbers the 1st, whose source is already hardDeleted
+        // -> permanent loss) and chained moves (a dest that is also a source) which
+        // corrupt order-dependently. Reject the offending rows so dry_run and the
+        // real run share outcomes (the all-or-nothing contract).
+        const okFrom = new Set<string>();
+        const okTo = new Set<string>();
+        for (const r of rows) {
+          if (r.ok && r.fromRel && r.toRel) {
+            okFrom.add(r.fromRel);
+            okTo.add(r.toRel);
+          }
+        }
+        const claimed = new Set<string>();
+        for (const r of rows) {
+          if (!r.ok || !r.fromRel || !r.toRel) continue;
+          let reason: string | null = null;
+          if (okFrom.has(r.toRel))
+            reason = "destination is also a source of another move in this batch (chained move)";
+          else if (okTo.has(r.fromRel))
+            reason = "source is also a destination of another move in this batch (chained move)";
+          else if (claimed.has(r.toRel))
+            reason = "destination already claimed by another move in this batch";
+          if (reason) {
+            r.ok = false;
+            r.error = new ObsidianTcError("invalid_input", reason, {
+              from: r.fromRel,
+              to: r.toRel,
+            }).toJSON();
+          } else {
+            claimed.add(r.toRel);
+          }
+        }
 
         const prePaths = walkVault(v.root, { extensions: [".md"] }).map((e) => e.relPath);
         const moveMap = new Map<string, string>();
