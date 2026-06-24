@@ -34,7 +34,7 @@
     "@napi-rs/cli": "^3.7.2"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "repository": {
     "type": "git",

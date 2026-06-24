@@ -61,5 +61,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

@@ -95,7 +95,7 @@ jobs:
       # vitest forks Node workers; node:sqlite + --experimental-sqlite need Node >=22.
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
       - name: cache bun install
         uses: actions/cache@v4
         with:
