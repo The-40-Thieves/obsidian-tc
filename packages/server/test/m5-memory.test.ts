@@ -4,6 +4,7 @@
 // gains the [[link]]), query_entity_graph BFS, every invalid_input path, the read-only
 // kill-switch, scope enforcement, and the materialization write ACL.
 import { describe, expect, it } from "vitest";
+import { insertEntity } from "../src/memory/entities";
 import { makeM5Vault } from "./m5-helpers";
 
 async function createEntity(
@@ -22,6 +23,25 @@ async function createEntity(
 }
 
 describe("create_entity", () => {
+  it("enforces the (type, name) natural key with a DB UNIQUE guard (F4)", async () => {
+    const v = makeM5Vault();
+    try {
+      await createEntity(v, "person", "Ada");
+      const other = await v.call(
+        "create_entity",
+        { vault: "test", type: "place", name: "Ada" },
+        { now: () => 100 },
+      );
+      expect(other.ok).toBe(true); // same name, different type is allowed
+      // DB-level guard: a direct duplicate insert (bypassing findEntity) throws UNIQUE.
+      expect(() =>
+        insertEntity(v.db, { vaultId: v.id, entityType: "person", name: "Ada", now: 100 }),
+      ).toThrow(/UNIQUE constraint failed/i);
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("creates an entity and materializes a vault note with frontmatter + H1", async () => {
     const v = makeM5Vault();
     try {

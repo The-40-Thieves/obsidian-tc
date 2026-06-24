@@ -49,6 +49,10 @@ const initialMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260519_001_initial.sql", import.meta.url)),
   "utf8",
 );
+const entityUniqueMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260519_002_entity_unique.sql", import.meta.url)),
+  "utf8",
+);
 async function main(): Promise<void> {
   const configPath = process.argv[2] ?? process.env.OBSIDIAN_TC_CONFIG;
   if (!configPath) {
@@ -63,7 +67,14 @@ async function main(): Promise<void> {
 
   mkdirSync(config.cacheDir, { recursive: true });
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
-  runMigrations(db, [{ version: "20260519_001", sql: initialMigrationSql }], { version: VERSION });
+  runMigrations(
+    db,
+    [
+      { version: "20260519_001", sql: initialMigrationSql },
+      { version: "20260519_002", sql: entityUniqueMigrationSql },
+    ],
+    { version: VERSION },
+  );
 
   // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
   // share the same in-memory counters. The scrape endpoint is started below only when

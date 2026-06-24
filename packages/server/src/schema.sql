@@ -139,6 +139,9 @@ CREATE TABLE memory_entities (
 
 CREATE INDEX idx_memory_entities_vault_type ON memory_entities(vault_id, entity_type);
 CREATE INDEX idx_memory_entities_name       ON memory_entities(vault_id, name);
+-- Natural key (F4): (vault_id, entity_type, name) is unique — closes the create_entity
+-- read-then-insert race. Migration 20260519_002 dedups + adds this on existing DBs.
+CREATE UNIQUE INDEX idx_memory_entities_natural_key ON memory_entities(vault_id, entity_type, name);
 
 CREATE TABLE memory_relations (
   source_id      TEXT NOT NULL,

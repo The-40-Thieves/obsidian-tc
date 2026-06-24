@@ -18,6 +18,7 @@ import {
   getEntityById,
   insertEntity,
   insertRelation,
+  isUniqueViolation,
   parseObservations,
   relationsForEntity,
   setEntityVaultPath,
@@ -84,14 +85,22 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         // Pre-check the materialization ACL so a denial leaves no orphan SQLite row.
         if (input.materialize)
           enforcePathAcl(ctx.acl, "write", entityNotePath(folder, input.type, input.name));
-        const e = insertEntity(ctx.db, {
-          vaultId: v.id,
-          entityType: input.type,
-          name: input.name,
-          observations: input.observations,
-          materialize: input.materialize,
-          now,
-        });
+        let e: EntityRow;
+        try {
+          e = insertEntity(ctx.db, {
+            vaultId: v.id,
+            entityType: input.type,
+            name: input.name,
+            observations: input.observations,
+            materialize: input.materialize,
+            now,
+          });
+        } catch (caught) {
+          // The UNIQUE natural-key index closes the findEntity read-then-insert race (F4).
+          if (isUniqueViolation(caught))
+            throw err.invalidInput("entity already exists", { type: input.type, name: input.name });
+          throw caught;
+        }
         const vaultPath = input.materialize ? rematerialize(deps, ctx, v, e, now) : null;
         return {
           entity_id: e.id,
