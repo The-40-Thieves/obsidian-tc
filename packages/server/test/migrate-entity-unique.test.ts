@@ -43,9 +43,10 @@ describe("migration 20260519_002 entity natural-key dedup (review #5)", () => {
 
     // the edge survived and was repointed ent2 -> ent1 (without the fix the ON DELETE
     // CASCADE would have dropped it when ent2 was deleted).
-    const rels = db
-      .prepare("SELECT source_id, target_id FROM memory_relations")
-      .all() as { source_id: string; target_id: string }[];
+    const rels = db.prepare("SELECT source_id, target_id FROM memory_relations").all() as {
+      source_id: string;
+      target_id: string;
+    }[];
     expect(rels).toEqual([{ source_id: "ent1", target_id: "entX" }]);
   });
 });
