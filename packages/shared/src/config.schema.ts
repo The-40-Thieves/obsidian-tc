@@ -135,6 +135,7 @@ export const ThrottleConfigSchema = z
       .object({
         read: throttleTier(600, 100),
         write: throttleTier(60, 20),
+        delete: throttleTier(60, 20),
         bulk: throttleTier(10, 3),
         execute: throttleTier(5, 1),
         admin: throttleTier(5, 1),

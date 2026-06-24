@@ -23,6 +23,10 @@ export function assertVectors(vectors: number[][], expected: number, count: numb
   for (const v of vectors) {
     if (!Array.isArray(v) || v.length !== expected)
       throw err.embeddingProviderError("unexpected dimension", { expected_dim: expected });
+    if (!v.every((x) => Number.isFinite(x)))
+      throw err.embeddingProviderError("non-finite embedding component", {
+        expected_dim: expected,
+      });
   }
   return vectors;
 }

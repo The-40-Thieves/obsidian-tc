@@ -20,6 +20,7 @@ import { evaluatesTruthy } from "../../search/jsonlogic";
 import { type SemanticHit, semanticSearch } from "../../search/semantic";
 import { searchRegex, searchText } from "../../search/text";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -286,6 +287,11 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       requiredScopes: ["read:notes", "read:dataview"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault);
+        if (!readEnumerationUnrestricted(ctx.acl))
+          throw err.aclDenied(
+            "search_dql enumerates the whole vault and cannot be read-ACL filtered; refused",
+            { tool: "search_dql" },
+          );
         const result = await runDql(deps, s.id, input.dql, input.format);
         return { vault: s.id, ...result };
       },
@@ -386,6 +392,11 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
                 { required: ["read:dataview"] },
               );
             tried.push("dql");
+            if (!readEnumerationUnrestricted(ctx.acl))
+              throw err.aclDenied(
+                "search mode dql enumerates the whole vault and cannot be read-ACL filtered; refused",
+                { tool: "search_vault" },
+              );
             const dql = await runDql(deps, s.id, asString(), "table");
             return { vault: s.id, mode_used: "dql", ...dql };
           }

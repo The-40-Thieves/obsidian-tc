@@ -112,6 +112,7 @@ export function searchText(root: string, opts: TextOptions): TextHit[] {
  */
 function hasNestedQuantifier(p: string): boolean {
   const groupHasQuant: boolean[] = []; // per open group: does it contain a quantifier?
+  const groupHasAlt: boolean[] = []; // per open group: contains a top-level alternation?
   let escaped = false;
   let inClass = false;
   for (let i = 0; i < p.length; i++) {
@@ -132,11 +133,15 @@ function hasNestedQuantifier(p: string): boolean {
       inClass = true;
     } else if (c === "(") {
       groupHasQuant.push(false);
+      groupHasAlt.push(false);
+    } else if (c === "|") {
+      if (groupHasAlt.length) groupHasAlt[groupHasAlt.length - 1] = true;
     } else if (c === ")") {
       const inner = groupHasQuant.pop() ?? false;
+      const alt = groupHasAlt.pop() ?? false;
       const next = p[i + 1];
       const quantAfter = next === "*" || next === "+" || next === "{";
-      if (inner && quantAfter) return true;
+      if ((inner || alt) && quantAfter) return true;
       // a quantifier on this group also makes the enclosing group "quantified".
       if (quantAfter && groupHasQuant.length) groupHasQuant[groupHasQuant.length - 1] = true;
     } else if (c === "*" || c === "+" || c === "{") {
@@ -159,7 +164,7 @@ export function searchRegex(root: string, opts: RegexOptions): RegexHit[] {
       throw err.invalidInput("unsupported regex flag", { flag: f, allowed: ["i", "m", "s", "u"] });
   if (hasNestedQuantifier(opts.pattern))
     throw err.invalidInput(
-      "regex rejected: nested quantifier may cause catastrophic backtracking",
+      "regex rejected: a quantifier on a nested quantifier or an alternation may cause catastrophic backtracking",
       { pattern: opts.pattern },
     );
   let re: RegExp;

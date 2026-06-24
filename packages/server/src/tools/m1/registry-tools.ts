@@ -128,15 +128,33 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const inc = input.include;
-        const rows_dropped = { chunks: 0, embeddings: 0, idempotency_keys: 0, event_log: 0 };
+        const rows_dropped = {
+          chunks: 0,
+          vec_chunks: 0,
+          embeddings: 0,
+          idempotency_keys: 0,
+          event_log: 0,
+        };
         if (inc.embeddings)
           rows_dropped.embeddings = del(
             ctx.db,
             "DELETE FROM chunk_embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE vault_id = ?)",
             v.id,
           );
-        if (inc.chunks)
+        if (inc.chunks) {
+          // Drop orphaned sqlite-vec vectors before their chunks (the subquery needs
+          // chunks to still exist); skip silently when the vec0 table/extension is absent.
+          try {
+            rows_dropped.vec_chunks = del(
+              ctx.db,
+              "DELETE FROM vec_chunks WHERE chunk_id IN (SELECT id FROM chunks WHERE vault_id = ?)",
+              v.id,
+            );
+          } catch {
+            /* vec_chunks absent (node:sqlite or extension not loaded) */
+          }
           rows_dropped.chunks = del(ctx.db, "DELETE FROM chunks WHERE vault_id = ?", v.id);
+        }
         if (inc.idempotency_keys)
           rows_dropped.idempotency_keys = del(
             ctx.db,

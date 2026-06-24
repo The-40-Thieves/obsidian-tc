@@ -101,6 +101,9 @@ function patchByHeading(
 /** Rewrite links in every other note that pointed at the moved note. Runs after
  *  the file has moved on disk; reconstructs the pre-move path set so old-target
  *  links still resolve to fromRel, then repoints them at the new location. */
+// ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
+// including notes outside the caller's write whitelist. Deliberate graph-integrity
+// invariant (a constrained link-text update, not arbitrary write access) — audit #12.
 function updateBacklinks(
   root: string,
   fromRel: string,
