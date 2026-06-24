@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # M0 verifies the napi-rs build pipeline on all three OSes (Linux, macOS,
 # Windows) via native-host builds. Cross-compiled prebuilds (e.g. aarch64-linux)
 # and the full release prebuild matrix land in G2.5 (Release engineering).
@@ -22,9 +26,9 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             triple: linux-x64-gnu
-          - host: macos-latest
-            target: x86_64-apple-darwin
-            triple: darwin-x64
+          # macOS CI builds arm64 only — the macOS hosted-runner pool is capped at 5
+          # concurrent jobs account-wide (GitHub Free), so the x64 darwin build is left
+          # to the G2.5 release prebuild matrix to keep PR queues from stalling.
           - host: macos-14
             target: aarch64-apple-darwin
             triple: darwin-arm64
