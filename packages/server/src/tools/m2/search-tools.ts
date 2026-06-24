@@ -184,12 +184,16 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
     defineTool({
       name: "search_regex",
       description:
-        "Regular-expression search across vault notes. Each match returns line/col + the matched text; capped per file.",
+        "Regular-expression search across vault notes. Each match returns line/col + the matched text; capped per file. Pattern length is bounded and patterns with nested quantifiers are rejected to prevent catastrophic backtracking; flags may only be i, m, s, u.",
       inputSchema: z
         .object({
           vault: VaultId,
-          pattern: z.string().min(1),
-          flags: z.string().default("i"),
+          pattern: z.string().min(1).max(1000),
+          flags: z
+            .string()
+            .regex(/^[imsu]*$/, "flags may only contain i, m, s, u")
+            .max(8)
+            .default("i"),
           root: VaultPath.optional(),
           max_matches_per_file: z.number().int().positive().max(1000).default(10),
           ...Cursor,
