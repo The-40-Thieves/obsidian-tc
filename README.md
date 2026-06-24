@@ -3,7 +3,7 @@
 > Obsidian Turbocharged — the comprehensive, model-agnostic, agent-ready Obsidian MCP server.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![Status: G4 Implement](https://img.shields.io/badge/Status-G4_Implement_M0--M5-yellow)
+![Status: Shipped v1.0.2](https://img.shields.io/badge/Status-Shipped_v1.0.2-success)
 
 ## What it is
 
@@ -17,7 +17,7 @@ Three pillars:
 
 ## Status
 
-✅ **Shipped — v1.0.1** (2026-06-19). The full G4 implementation (milestones M0–M7) is merged to `main`, published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.0.1`. The surface is **103 tools across 28 domains**.
+✅ **Shipped — v1.0.2** (2026-06-21). The full implementation (milestones M0–M7) is merged to `main`, published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.0.2`. The surface is **103 tools across 28 domains**. Since 1.0.2, `main` has taken a security-audit remediation pass and a dependency-currency sweep (Zod 4, Biome 2, napi-rs 3, Node 24) — see the [`[Unreleased]`](./CHANGELOG.md) changelog.
 
 | Milestone | Scope | Status |
 |---|---|---|
@@ -28,7 +28,7 @@ Three pillars:
 | M4 | Plugin bridges + companion plugin — 20 tools across 9 domains | ✅ Merged |
 | M5 | Memory + capture substrate — 15 tools (capture queue, memory entities + `[[link]]` graph, workspace sessions + JSONL traces, plur read proxy) | ✅ Merged |
 | M6 | Bulk + admin + URI — 7 tools | ✅ Merged |
-| M7 | Harden + ship: OpenTelemetry tracing, Prometheus `/metrics`, CloudEvents spool, rate limiter, 4-platform native prebuilds, release workflow | ✅ Shipped (v1.0.1) |
+| M7 | Harden + ship: OpenTelemetry tracing, Prometheus `/metrics`, CloudEvents spool, rate limiter, 4-platform native prebuilds, release workflow | ✅ Shipped (v1.0.2) |
 
 This repository is public under [`The-40-Thieves`](https://github.com/The-40-Thieves), licensed Apache-2.0.
 
@@ -43,7 +43,7 @@ Polyglot monorepo:
 | `packages/native` | Rust (via napi-rs) | Perf-critical primitives: vector ops, BM25, sqlite-vec wrapper |
 | `packages/shared` | TypeScript | Shared Zod schemas and types |
 
-obsidian-tc is an **access** MCP: vault read/write, search, and control. Retrieval intelligence (clustering, graph ML, hybrid retrieval fusion) is out of scope; pair obsidian-tc with an external retrieval/RAG service for ranking and reasoning. An earlier reserved "V2 ML sidecar" (and the native `kmeansAssign` / `actrDecayScore` hooks) is deprecated and being removed.
+obsidian-tc is an **access** MCP: vault read/write, search, and control. Retrieval intelligence (clustering, graph ML, hybrid retrieval fusion) is out of scope; pair obsidian-tc with an external retrieval/RAG service for ranking and reasoning. An earlier reserved "V2 ML sidecar" (and the native `kmeansAssign` / `actrDecayScore` hooks) has been removed.
 
 ## Quick start
 
