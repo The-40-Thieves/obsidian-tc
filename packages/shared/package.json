@@ -6,14 +6,18 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "zod": "^3.23.0"
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
@@ -30,5 +34,8 @@
       "import": "./dist/index.js"
     },
     "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

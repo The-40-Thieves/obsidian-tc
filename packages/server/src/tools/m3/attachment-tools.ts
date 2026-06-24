@@ -10,11 +10,11 @@
 import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+  err,
   Pagination,
   VaultId,
   VaultPath,
   WriteOptions,
-  err,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
@@ -70,7 +70,7 @@ const MoveInput = z
     to: VaultPath,
     overwrite: z.boolean().default(false),
     update_references: z.boolean().default(true),
-    options: WriteOptions.default({}),
+    options: WriteOptions.prefault({}),
   })
   .strict();
 

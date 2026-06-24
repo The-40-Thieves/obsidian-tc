@@ -10,7 +10,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { type M4Deps, bridgeTimeouts, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
 export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
   return [

@@ -6,8 +6,7 @@
 // back via the M1 read_note tool, proving the surfaces share the registry); append +
 // replay a workspace JSONL trace; a plur proxy call against the fake AND its degraded
 // path. Asserts DB/file state and event_log audit rows. No live plur, no live Obsidian.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -18,17 +18,17 @@
 // (replay dedup is THE-197, Policy layer) — same stance as M1 WriteOptions.
 import {
   ElicitToken,
+  err,
   ObsidianTcError,
   VaultId,
   VaultPath,
-  err,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { runBulk } from "../../vault/bulk";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
-import { type VaultIndex, buildVaultIndex, resolveTarget } from "../../vault/links";
+import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
 import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { rewriteLinks } from "../../vault/rewrite";
@@ -107,7 +107,7 @@ const BulkConcurrency = z.number().int().min(1).max(16).default(4);
 const CreateItem = z.object({
   path: VaultPath,
   content: z.string(),
-  frontmatter: z.record(z.unknown()).optional(),
+  frontmatter: z.record(z.string(), z.unknown()).optional(),
   mode: z.enum(["create", "overwrite", "upsert"]).default("create"),
   idempotency_key: z.string().min(1).max(128).optional(),
 });

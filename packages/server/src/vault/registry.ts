@@ -1,7 +1,7 @@
 // Multi-vault registry/resolver. Maps a tool's `vault` argument to a configured
 // vault root. Built once from config.vaults and closed over by tool factories.
 import { resolve } from "node:path";
-import { type VaultConfig, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type VaultConfig } from "@the-40-thieves/obsidian-tc-shared";
 
 export interface ResolvedVault {
   id: string;

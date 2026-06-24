@@ -10,7 +10,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { type M4Deps, bridgeTimeouts, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
 export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -42,7 +42,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           vault: VaultId,
           template: VaultPath,
           target: VaultPath,
-          args: z.record(z.unknown()).optional(),
+          args: z.record(z.string(), z.unknown()).optional(),
           overwrite: z.boolean().default(false),
         })
         .strict(),

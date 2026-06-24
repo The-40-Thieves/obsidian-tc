@@ -8,7 +8,7 @@
 // workspace:~ -> ~<version>, workspace:<range> -> <range>. Run from the repo root.
 // Pass --check to preview without writing.
 
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();

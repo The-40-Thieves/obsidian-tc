@@ -4,7 +4,7 @@
 // skipped. When removing a link leaves its line as only a list bullet / blank, the
 // whole line is dropped (the common MOC bullet-list case); otherwise the link
 // token is replaced by its display text (or removed). External URLs are kept.
-import { type VaultIndex, resolveTarget } from "./links";
+import { resolveTarget, type VaultIndex } from "./links";
 
 const FENCE = /^\s*(```|~~~)/;
 // One alternation so wikilinks and markdown links are visited left-to-right in a

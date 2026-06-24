@@ -4,7 +4,7 @@
 // set server-side and ACL-filters it before the bridge call; it overrides its
 // throttle scope class to `bulk` and ALWAYS requires human confirmation (a bulk HITL
 // floor: OCR is expensive). Plugin id is "text-extractor".
-import { VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
@@ -13,7 +13,7 @@ import { requireConfirmation } from "../../vault/hitl";
 import { noteExists } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { type M4Deps, bridgeTimeouts, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
 const DEFAULT_EXTS = [".pdf", ".png", ".jpg", ".jpeg", ".tiff"];
 

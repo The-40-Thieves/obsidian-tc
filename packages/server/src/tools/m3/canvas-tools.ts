@@ -7,11 +7,11 @@
 // conditional: overwriting an existing canvas and removing >10 nodes require a HITL
 // elicit token; ordinary creates and edits do not.
 import {
+  err,
   Pagination,
   VaultId,
   VaultPath,
   WriteOptions,
-  err,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
@@ -46,7 +46,7 @@ function readableAcl(acl: FolderAcl | undefined, rel: string): boolean {
 
 const NodeArray = z.array(CanvasNode);
 const EdgeArray = z.array(CanvasEdge);
-const PartialById = z.record(z.record(z.unknown()));
+const PartialById = z.record(z.string(), z.record(z.string(), z.unknown()));
 
 const CreateInput = z
   .object({
@@ -55,7 +55,7 @@ const CreateInput = z
     nodes: NodeArray.default([]),
     edges: EdgeArray.default([]),
     overwrite: z.boolean().default(false),
-    options: WriteOptions.default({}),
+    options: WriteOptions.prefault({}),
   })
   .strict();
 
@@ -86,7 +86,7 @@ const QueryInput = z
         text_contains: z.string().optional(),
         has_edge_to: z.string().optional(),
       })
-      .default({}),
+      .prefault({}),
   })
   .merge(Pagination)
   .strict();

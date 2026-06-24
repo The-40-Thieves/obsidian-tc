@@ -108,7 +108,7 @@ const GenerateUriInput = z
   .object({
     vault: z.string().min(1).optional(),
     action: z.enum(ACTIONS),
-    params: z.record(z.unknown()).default({}),
+    params: z.record(z.string(), z.unknown()).prefault({}),
   })
   .strict();
 

@@ -1,7 +1,7 @@
 // Domain 1 — Multi-vault registry (G2.1 r2). list_vaults / get_vault (read:vault)
 // and reload_vault / reset_vault_cache (admin:vault). reset_vault_cache is the
 // first destructive tool: destructive:true engages the dispatch HITL gate.
-import { ElicitToken, VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { loadConfig } from "../../config/load";
 import type { Database } from "../../db/types";
@@ -49,7 +49,7 @@ const ResetInput = z
         idempotency_keys: z.boolean().default(true),
         event_log: z.boolean().default(false),
       })
-      .default({}),
+      .prefault({}),
     elicit_token: ElicitToken.optional(),
   })
   .strict();

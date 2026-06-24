@@ -9,11 +9,11 @@
 // JSONLogic object are computed per row and added as columns. Non-object filters
 // (e.g. a real Bases filter string) match all rows — documented, no silent failure.
 import {
+  err,
   Pagination,
   VaultId,
   VaultPath,
   WriteOptions,
-  err,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
@@ -65,9 +65,9 @@ const CreateInput = z
   .object({
     vault: VaultId,
     path: VaultPath,
-    base: z.record(z.unknown()),
+    base: z.record(z.string(), z.unknown()),
     overwrite: z.boolean().default(false),
-    options: WriteOptions.default({}),
+    options: WriteOptions.prefault({}),
   })
   .strict();
 
@@ -78,10 +78,10 @@ const UpdateInput = z
     patch: z
       .object({
         source: z.unknown().optional(),
-        add_views: z.array(z.record(z.unknown())).optional(),
+        add_views: z.array(z.record(z.string(), z.unknown())).optional(),
         remove_views: z.array(z.string()).optional(),
-        update_views: z.record(z.record(z.unknown())).optional(),
-        formulas: z.record(z.unknown()).optional(),
+        update_views: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+        formulas: z.record(z.string(), z.unknown()).optional(),
       })
       .strict(),
     prev_hash: z.string().optional(),
@@ -93,7 +93,7 @@ const QueryInput = z
     vault: VaultId,
     path: VaultPath,
     view: z.string().optional(),
-    override_filters: z.record(z.unknown()).optional(),
+    override_filters: z.record(z.string(), z.unknown()).optional(),
   })
   .merge(Pagination)
   .strict();

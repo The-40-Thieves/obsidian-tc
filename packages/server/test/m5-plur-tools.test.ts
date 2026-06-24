@@ -4,7 +4,7 @@
 // (plugin_missing, NO network call), the configured-but-down degrade (plugin_unreachable),
 // the engram-not-found passthrough (invalid_input), and read:plur scope enforcement.
 import { describe, expect, it } from "vitest";
-import { PLUR_TOKEN, makeM5Vault } from "./m5-helpers";
+import { makeM5Vault, PLUR_TOKEN } from "./m5-helpers";
 
 describe("plur proxy — happy paths", () => {
   it("plur_recall proxies to /recall and returns the result with the bearer header", async () => {
