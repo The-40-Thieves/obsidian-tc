@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  type NativeOps,
   bm25Score,
   cosineSimilarity,
   jsBm25Score,
   jsCosineSimilarity,
   jsTokenize,
   loadNative,
+  type NativeOps,
   nativeLoaded,
   tokenize,
 } from "../src/search/native";

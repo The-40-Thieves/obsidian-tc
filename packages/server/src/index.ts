@@ -12,24 +12,25 @@
 //
 // Explicit named exports define the M0 public API. Internal helpers
 // (glob compilation, migration checksum) stay module-private.
-export type { Database, Statement, RunResult } from "./db/types";
-export { runMigrations } from "./db/migrate";
-export type { Migration, MigrateOptions } from "./db/migrate";
+
+export type { AclConfigT, AclRuleT } from "./acl";
 export { FolderAcl } from "./acl";
-export type { AclRuleT, AclConfigT } from "./acl";
-export { issueElicitToken, verifyAndConsumeElicit, elicitVerifier } from "./elicit";
-export type { IssueElicitInput } from "./elicit";
-export { writeEvent } from "./audit";
 export type { AuditEvent } from "./audit";
-export { argsHash } from "./hash";
-export { ToolRegistry } from "./mcp/registry";
-export type { CallerContext, ToolDefinition, RegistryOptions } from "./mcp/registry";
-export { createHealthTool } from "./tools/admin/health";
-export type { HealthInfo } from "./tools/admin/health";
-export { createMcpServer } from "./mcp/server";
-export type { McpServerOptions } from "./mcp/server";
-export { connectStdio } from "./transports/stdio";
-export { openDatabase } from "./db/open";
+export { writeEvent } from "./audit";
 export { loadConfig } from "./config/load";
-export { createHttpApp, startHttp } from "./transports/http";
+export type { MigrateOptions, Migration } from "./db/migrate";
+export { runMigrations } from "./db/migrate";
+export { openDatabase } from "./db/open";
+export type { Database, RunResult, Statement } from "./db/types";
+export type { IssueElicitInput } from "./elicit";
+export { elicitVerifier, issueElicitToken, verifyAndConsumeElicit } from "./elicit";
+export { argsHash } from "./hash";
+export type { CallerContext, RegistryOptions, ToolDefinition } from "./mcp/registry";
+export { ToolRegistry } from "./mcp/registry";
+export type { McpServerOptions } from "./mcp/server";
+export { createMcpServer } from "./mcp/server";
+export type { HealthInfo } from "./tools/admin/health";
+export { createHealthTool } from "./tools/admin/health";
 export type { HttpAppOptions, HttpHandle } from "./transports/http";
+export { createHttpApp, startHttp } from "./transports/http";
+export { connectStdio } from "./transports/stdio";

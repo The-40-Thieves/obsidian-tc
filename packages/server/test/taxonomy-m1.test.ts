@@ -1,9 +1,9 @@
 import {
   AclConfigSchema,
+  err,
   ObsidianTcError,
   VaultId,
   VaultPath,
-  err,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 

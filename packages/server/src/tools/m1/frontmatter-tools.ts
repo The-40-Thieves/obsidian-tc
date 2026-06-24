@@ -5,7 +5,7 @@
 // concurrent_modification). update_frontmatter's `replace` operation discards all
 // existing metadata, so it gates on confirmation via requireConfirmation; set/remove/
 // merge do not. Property keys are top-level (nested traversal is a later enhancement).
-import { VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";

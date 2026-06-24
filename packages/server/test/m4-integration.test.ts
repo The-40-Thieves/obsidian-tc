@@ -19,9 +19,9 @@ import { type AclConfigT, FolderAcl } from "../src/acl";
 import {
   CapabilityCache,
   type CapabilitySnapshot,
+  createBridgeClient,
   type FakeRequestInfo,
   type FakeRoute,
-  createBridgeClient,
   fakeBridgeTransport,
 } from "../src/bridge";
 import type { Database } from "../src/db/types";

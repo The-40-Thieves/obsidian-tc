@@ -2,7 +2,7 @@
 // limits). The clock is injected as an explicit `nowMs` argument — no wall-clock
 // sleeps — so refill, burst, and exhaustion are asserted deterministically.
 import { describe, expect, it } from "vitest";
-import { DEFAULT_THROTTLE_TIERS, RateLimiter, TokenBucket, callerHash } from "../src/throttle";
+import { callerHash, DEFAULT_THROTTLE_TIERS, RateLimiter, TokenBucket } from "../src/throttle";
 
 describe("TokenBucket", () => {
   it("starts full at capacity and drains the burst", () => {

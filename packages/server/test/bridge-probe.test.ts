@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyOverrides,
   CapabilityCache,
   type CapabilitySnapshot,
-  applyOverrides,
   pluginStatus,
 } from "../src/bridge/capabilities";
 import { type FakeRoute, fakeBridgeTransport } from "../src/bridge/fake";

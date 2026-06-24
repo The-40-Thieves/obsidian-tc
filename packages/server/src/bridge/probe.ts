@@ -7,10 +7,10 @@
 // failure degrades the vault's bridge tools, it does not crash startup.
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import {
+  applyOverrides,
   type CapabilitySnapshot,
   type PluginCapability,
   type PluginOverrides,
-  applyOverrides,
 } from "./capabilities";
 import type { BridgeClient } from "./transport";
 

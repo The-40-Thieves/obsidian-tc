@@ -11,7 +11,7 @@ import { enforcePathAcl } from "../../vault/acl-path";
 import { requireConfirmation } from "../../vault/hitl";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { type M4Deps, bridgeTimeouts, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
 const ElementArray = z.array(z.record(z.unknown()));
 

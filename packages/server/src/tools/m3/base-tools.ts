@@ -9,11 +9,11 @@
 // JSONLogic object are computed per row and added as columns. Non-object filters
 // (e.g. a real Bases filter string) match all rows — documented, no silent failure.
 import {
+  err,
   Pagination,
   VaultId,
   VaultPath,
   WriteOptions,
-  err,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";

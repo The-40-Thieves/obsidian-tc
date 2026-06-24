@@ -7,11 +7,11 @@
 // conditional: overwriting an existing canvas and removing >10 nodes require a HITL
 // elicit token; ordinary creates and edits do not.
 import {
+  err,
   Pagination,
   VaultId,
   VaultPath,
   WriteOptions,
-  err,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";

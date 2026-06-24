@@ -6,11 +6,11 @@
 // jsonlogic. search_dql is surfaced but reports plugin_missing until the Dataview
 // bridge (REST hybrid, THE-196) lands — honest rather than a silent empty result.
 import {
+  err,
+  grantsAll,
   ObsidianTcError,
   VaultId,
   VaultPath,
-  err,
-  grantsAll,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";

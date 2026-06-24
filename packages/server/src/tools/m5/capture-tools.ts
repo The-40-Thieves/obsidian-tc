@@ -6,7 +6,7 @@
 // family — ACL readOnly kill-switch applies, no always-elicit execute floor, matching
 // the spec's hitl:never). commit_capture is the only vault write; it funnels through
 // resolveVaultPath + enforcePathAcl and refuses to clobber an existing note.
-import { Pagination, VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, Pagination, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import {
   type CaptureRow,

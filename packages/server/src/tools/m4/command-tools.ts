@@ -9,11 +9,11 @@
 //   2. the command id must be on the vault allowlist (precheck);
 //   3. execute:command is a hardcoded HITL floor -> dispatch then demands a human token.
 // Arbitrary command execution is therefore never silently runnable.
-import { VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
-import { type M4Deps, bridgeTimeouts, commandPolicy, openCompanionBridge } from "./shared";
+import { bridgeTimeouts, commandPolicy, type M4Deps, openCompanionBridge } from "./shared";
 
 export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
   return [

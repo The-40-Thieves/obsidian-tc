@@ -10,12 +10,12 @@
 // the handler via requireConfirmation, so ordinary creates and dry moves never
 // demand a token.
 import {
+  err,
   ObsidianTcError,
   Pagination,
   VaultId,
   VaultPath,
   WriteOptions,
-  err,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";

@@ -6,7 +6,7 @@
 // probe then reports the companion unreachable and every bridge tool degrades. The
 // plugin holds no secrets and logs none.
 import { Plugin } from "obsidian";
-import { type RouteDef, buildRoutes } from "./routes";
+import { buildRoutes, type RouteDef } from "./routes";
 
 const LRA_ID = "obsidian-local-rest-api";
 

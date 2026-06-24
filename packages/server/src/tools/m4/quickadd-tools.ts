@@ -7,7 +7,7 @@ import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
-import { type M4Deps, bridgeTimeouts, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
 export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
   return [

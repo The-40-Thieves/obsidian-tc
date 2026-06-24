@@ -6,12 +6,12 @@
 // required, so missing config falls back to defaults rather than erroring. Template
 // content (template_override or the configured template) is copied verbatim;
 // Templater-style placeholder expansion is out of scope for M3 (no plugin bridge).
-import { Pagination, VaultId, VaultPath, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, Pagination, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import {
-  type Period,
   formatMoment,
+  type Period,
   parseDateInput,
   resolvePeriodicConfig,
   resolvePeriodicPath,

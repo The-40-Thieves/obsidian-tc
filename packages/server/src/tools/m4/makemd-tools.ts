@@ -2,12 +2,12 @@
 // "spaces" model and run queries against them. Read scope only (read:makemd, no
 // HITL). The community plugin id is "make-md" (note the hyphen), distinct from the
 // makemd_ tool-name prefix.
-import { VaultId, err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { filterBridgeItemsByAcl, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
-import { type M4Deps, bridgeTimeouts, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
 export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
   return [

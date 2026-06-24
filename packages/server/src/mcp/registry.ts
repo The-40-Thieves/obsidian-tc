@@ -1,14 +1,14 @@
 import { type Span, SpanKind, SpanStatusCode, type Tracer } from "@opentelemetry/api";
 import {
-  type MorgianaEventData,
-  type MorgianaEventType,
-  ObsidianTcError,
-  type ToolResult,
   err,
   grantsAll,
   isMutatingScope,
+  type MorgianaEventData,
+  type MorgianaEventType,
+  ObsidianTcError,
   scopeClassOf,
   scopeRequiresHitl,
+  type ToolResult,
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { z } from "zod";
 import type { FolderAcl } from "../acl";
@@ -17,7 +17,7 @@ import type { Database } from "../db/types";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/tracing";
-import { type RateLimiter, callerHash } from "../throttle";
+import { callerHash, type RateLimiter } from "../throttle";
 
 export interface CallerContext {
   caller: string | null;
