@@ -134,6 +134,9 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
  * to fromRel, and fromRel is always seeded even when no attachment file is on disk
  * (e.g. a link to an attachment that was never materialized).
  */
+// ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
+// including notes outside the caller's write whitelist. Deliberate graph-integrity
+// invariant (a constrained link-text update, not arbitrary write access) — audit #12.
 export function rewriteAttachmentReferences(
   root: string,
   fromRel: string,

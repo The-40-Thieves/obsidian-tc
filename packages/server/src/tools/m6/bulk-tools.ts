@@ -57,6 +57,9 @@ function newTargetFor(toRel: string, postIndex: VaultIndex): string {
  * runs after the files have moved and writes the rewrites. Returns per-move and
  * total link counts.
  */
+// ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
+// including notes outside the caller's write whitelist. Deliberate graph-integrity
+// invariant (a constrained link-text update, not arbitrary write access) — audit #12.
 function rewriteForMoves(
   root: string,
   moveMap: Map<string, string>,
