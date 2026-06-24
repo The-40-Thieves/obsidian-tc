@@ -23,7 +23,7 @@ function cosineSimilarity(a, b) {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
-/** Lowercase tokenizer over Unicode letters + numbers. Mirrors the Rust. */
+/** Lowercase tokenizer over Unicode alphabetic + numbers (matches Rust is_alphanumeric). Mirrors the Rust. */
 function tokenize(text) {
   const out = [];
   for (const t of text.split(/[^\p{L}\p{N}]+/u)) {
