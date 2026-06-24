@@ -530,6 +530,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         if (!fromEx.exists || fromEx.type === "folder")
           throw err.noteNotFound("source note not found", { path: fromRel });
         const toEx = noteExists(toAbs);
+        if (toEx.exists && toEx.type === "folder")
+          throw err.invalidInput("destination is a folder", { path: toRel });
         if (toEx.exists && !input.overwrite)
           throw err.noteExists("destination already exists; set overwrite", { path: toRel });
 

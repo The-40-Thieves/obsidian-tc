@@ -129,6 +129,17 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
         const acl = ctx.acl;
         const effective_scopes = acl?.scopesForPath(rel) ?? [];
 
+        // execute is not path-scoped, but it IS a mutating family — live dispatch's
+        // read-only kill switch still blocks it, so mirror that here (review #3).
+        if (input.op === "execute" && acl?.readOnly)
+          return {
+            allowed: false,
+            denied_by: "read_only",
+            kill_switch: true,
+            matched_rule: null,
+            effective_scopes,
+          };
+
         // 1 + 2. read-only kill switch AND per-op path whitelist, via the SAME pure
         //        evaluator enforcePathAcl delegates to (no reimplementation). execute
         //        is not path-scoped, so only the scope grant below applies.
