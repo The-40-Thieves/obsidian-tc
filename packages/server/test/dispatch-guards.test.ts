@@ -111,9 +111,9 @@ describe("dispatch precheck (D5)", () => {
     const r = await reg.dispatch("guarded", {}, ctx(db, { elicitToken: token }));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe("forbidden");
-    const row = db
-      .prepare("SELECT consumed_at FROM elicit_tokens WHERE token = ?")
-      .get(token) as { consumed_at: number | null } | undefined;
+    const row = db.prepare("SELECT consumed_at FROM elicit_tokens WHERE token = ?").get(token) as
+      | { consumed_at: number | null }
+      | undefined;
     expect(row?.consumed_at).toBeNull();
   });
 

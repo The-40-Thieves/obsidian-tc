@@ -434,7 +434,9 @@ export class ToolRegistry {
       // auth/scope/ACL/HITL/throttle, so authorization stays authoritative on replays.
       idemKey = extractIdempotencyKey(parsed.data);
       if (idemKey) {
-        if (this.tryClaimIdempotency(ctx.db, ctx.vaultId, idemKey, name, hash, now()) === "claimed") {
+        if (
+          this.tryClaimIdempotency(ctx.db, ctx.vaultId, idemKey, name, hash, now()) === "claimed"
+        ) {
           idemClaimed = true;
         } else {
           let row = this.readIdempotency(ctx.db, ctx.vaultId, idemKey);
@@ -445,7 +447,10 @@ export class ToolRegistry {
               (row.completed_at == null && row.started_at + 60_000 <= now()))
           ) {
             this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
-            if (this.tryClaimIdempotency(ctx.db, ctx.vaultId, idemKey, name, hash, now()) === "claimed") {
+            if (
+              this.tryClaimIdempotency(ctx.db, ctx.vaultId, idemKey, name, hash, now()) ===
+              "claimed"
+            ) {
               idemClaimed = true;
             } else {
               row = this.readIdempotency(ctx.db, ctx.vaultId, idemKey);

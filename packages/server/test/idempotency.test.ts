@@ -7,7 +7,10 @@ import { argsHash } from "../src/hash";
 import { type CallerContext, type RegistryOptions, ToolRegistry } from "../src/mcp/registry";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(fileURLToPath(new URL("../src/schema.sql", import.meta.url)), "utf8");
+const schemaSql = readFileSync(
+  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
+  "utf8",
+);
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -58,9 +61,9 @@ type IdemRow = {
 };
 
 function idemRow(db: Database, key: string): IdemRow | undefined {
-  return db.prepare("SELECT * FROM idempotency_keys WHERE vault_id = ? AND key = ?").get("v1", key) as
-    | IdemRow
-    | undefined;
+  return db
+    .prepare("SELECT * FROM idempotency_keys WHERE vault_id = ? AND key = ?")
+    .get("v1", key) as IdemRow | undefined;
 }
 
 const INSERT =
@@ -180,7 +183,8 @@ describe("dispatch idempotency gate (D3)", () => {
     await reg.dispatch("kv_put", { k: "a", v: "1" }, ctx(db));
     await reg.dispatch("kv_put", { k: "a", v: "1" }, ctx(db));
     expect(calls.n).toBe(2);
-    const count = (db.prepare("SELECT COUNT(*) AS c FROM idempotency_keys").get() as { c: number }).c;
+    const count = (db.prepare("SELECT COUNT(*) AS c FROM idempotency_keys").get() as { c: number })
+      .c;
     expect(count).toBe(0);
   });
 

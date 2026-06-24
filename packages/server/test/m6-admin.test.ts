@@ -163,7 +163,12 @@ describe("inspect_acl", () => {
       register,
     });
     const out = data<{ effective_scopes: string[] }>(
-      await v.call("inspect_acl", { vault: "test", path: "secret/x.md", op: "read", scopes: ["*"] }),
+      await v.call("inspect_acl", {
+        vault: "test",
+        path: "secret/x.md",
+        op: "read",
+        scopes: ["*"],
+      }),
     );
     expect(out.effective_scopes).toEqual(["admin:config"]);
   });

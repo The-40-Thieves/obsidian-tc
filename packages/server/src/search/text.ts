@@ -116,9 +116,12 @@ export function searchRegex(root: string, opts: RegexOptions): RegexHit[] {
     /\([^)]*[+*][^)]*\)[+*]/.test(opts.pattern) ||
     /\([^)]*\{\d+,?\}[^)]*\)[+*{]/.test(opts.pattern)
   )
-    throw err.invalidInput("regex rejected: nested quantifier may cause catastrophic backtracking", {
-      pattern: opts.pattern,
-    });
+    throw err.invalidInput(
+      "regex rejected: nested quantifier may cause catastrophic backtracking",
+      {
+        pattern: opts.pattern,
+      },
+    );
   let re: RegExp;
   try {
     re = new RegExp(opts.pattern, flags.includes("g") ? flags : `${flags}g`);
