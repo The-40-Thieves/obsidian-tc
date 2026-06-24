@@ -20,18 +20,18 @@ obsidian-tc is a polyglot monorepo. The packages are:
 - `packages/plugin/` — TypeScript Obsidian companion plugin.
 - `packages/native/` — Rust native module via napi-rs.
 - `packages/shared/` — Shared TypeScript types and Zod schemas.
-- `packages/sidecar/` — Python ML sidecar. **Deprecated and being removed** (retrieval intelligence is out of scope for obsidian-tc).
+- (No Python.) A Python ML sidecar was once reserved for V2 retrieval intelligence; it is **out of scope** for obsidian-tc and not part of the repo.
 - `docs/` — Astro Starlight documentation site.
 - `examples/` — Example integrations (Claude Desktop, Claude Code, Cursor, Docker, agents).
 
 ## Development Setup
 
-You need up to three toolchains for full development. You can skip Rust if you only work on server/plugin code, and you can skip Python entirely (the sidecar is deprecated and being removed).
+You need two toolchains for full development: Node/Bun and Rust. You can skip Rust if you only work on server/plugin code. (There is no Python — the once-reserved ML sidecar is out of scope.)
 
 ### Required
 
 - **Bun** `>=1.1.0`. Install from <https://bun.sh>.
-- **Node** `>=22 LTS`. Required for plugin tooling. Install via [`fnm`](https://github.com/Schniz/fnm) or [`mise`](https://mise.jdx.dev/) or your preferred version manager.
+- **Node** `>=24 LTS`. Required for plugin tooling. Install via [`fnm`](https://github.com/Schniz/fnm) or [`mise`](https://mise.jdx.dev/) or your preferred version manager.
 - **Git**. Any recent version.
 
 ### Required for native module work
@@ -40,7 +40,7 @@ You need up to three toolchains for full development. You can skip Rust if you o
 - **napi-rs CLI** `>=2`. Auto-installed via `bun install`.
 - For Linux ARM cross-compilation: `cargo install cross --locked`.
 
-### Python (deprecated — sidecar is being removed)
+### Python (not used — the V2 ML sidecar is out of scope)
 
 - **Python** `>=3.11`.
 - **Maturin** `>=1.5`. `pipx install maturin`.

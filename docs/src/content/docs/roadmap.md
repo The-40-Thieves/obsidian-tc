@@ -21,4 +21,4 @@ documentation site.
 
 ## Out of scope
 
-Retrieval intelligence — clustering, graph ML, hybrid retrieval fusion — is **not** part of obsidian-tc. It is an access MCP; pair it with an external retrieval/RAG service for ranking and reasoning. An earlier reserved "V2 intelligence layer" (Python ML sidecar, k-means, ACT-R decay) has been dropped, and the remaining hooks are being removed.
+Retrieval intelligence — clustering, graph ML, hybrid retrieval fusion — is **not** part of obsidian-tc. It is an access MCP; pair it with an external retrieval/RAG service for ranking and reasoning. An earlier reserved "V2 intelligence layer" (Python ML sidecar, k-means, ACT-R decay) has been dropped, and the remaining hooks were removed.
