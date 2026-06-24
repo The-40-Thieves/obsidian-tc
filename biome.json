@@ -45,6 +45,10 @@
           "suspicious": { "noExplicitAny": "off" }
         }
       }
+    },
+    {
+      "include": ["package.json"],
+      "formatter": { "enabled": false }
     }
   ]
 }
