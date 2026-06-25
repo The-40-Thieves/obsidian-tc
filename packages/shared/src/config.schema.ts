@@ -54,6 +54,12 @@ export const VaultConfigSchema = z.object({
   path: z.string().min(1),
   restApiUrl: z.string().url().optional(),
   restApiKey: z.string().optional(),
+  // Headless mode selection (THE-255). Absent or `auto` probes the Local REST API once at
+  // startup: reachable -> live (full surface), else headless (direct-atomic-fs vault state;
+  // Tier-3 action tools degrade to requires_live_obsidian). `live`/`headless` force the mode
+  // and skip the probe. Optional, so a config predating THE-255 validates unchanged;
+  // resolveMode treats an absent mode as auto.
+  mode: z.enum(["live", "headless", "auto"]).optional(),
   bridges: VaultBridgesConfigSchema.optional(),
   plugins: VaultPluginsConfigSchema.optional(),
   commands: VaultCommandsConfigSchema.optional(),
