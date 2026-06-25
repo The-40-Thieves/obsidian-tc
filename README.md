@@ -52,6 +52,34 @@ npm install -g obsidian-tc
 obsidian-tc serve --vault /path/to/vault
 ```
 
+## Install in Cursor / VS Code
+
+One-click install (launches via `npx`; after installing, set the config path to your
+own obsidian-tc JSON config):
+
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=obsidian-tc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIm9ic2lkaWFuLXRjIl0sImVudiI6eyJPQlNJRElBTl9UQ19DT05GSUciOiIvQUJTT0xVVEUvUEFUSC9UTy9vYnNpZGlhbi10Yy5jb25maWcuanNvbiJ9fQ==)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_obsidian--tc-0098FF?logo=visualstudiocode&logoColor=white)](vscode:mcp/install?%7B%22name%22%3A%22obsidian-tc%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22obsidian-tc%22%5D%2C%22env%22%3A%7B%22OBSIDIAN_TC_CONFIG%22%3A%22%2FABSOLUTE%2FPATH%2FTO%2Fobsidian-tc.config.json%22%7D%7D)
+
+Or add it by hand. The server object is the same; only the wrapper key differs — Cursor
+(`~/.cursor/mcp.json`) uses `mcpServers`, VS Code (`.vscode/mcp.json`) uses `servers`:
+
+```json
+{
+  "mcpServers": {
+    "obsidian-tc": {
+      "command": "npx",
+      "args": ["-y", "obsidian-tc"],
+      "env": { "OBSIDIAN_TC_CONFIG": "/ABSOLUTE/PATH/TO/obsidian-tc.config.json" }
+    }
+  }
+}
+```
+
+`OBSIDIAN_TC_CONFIG` is the absolute path to your obsidian-tc JSON config (vaults, ACL,
+transports); it may also be passed as the first CLI argument. A prebuilt MCPB bundle
+(`bun run bundle` → `dist/obsidian-tc.mcpb`) is also available for one-click install in
+Claude Desktop and other MCPB hosts.
+
 ## Trademark
 
 obsidian-tc is not affiliated with or endorsed by Obsidian.md. "Obsidian" is a trademark of Dynalist Inc. This project is an independent open-source MCP server that integrates with Obsidian.
