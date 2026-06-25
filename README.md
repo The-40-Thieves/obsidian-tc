@@ -47,9 +47,25 @@ obsidian-tc is an **access** MCP: vault read/write, search, and control. Retriev
 
 ## Quick start
 
+Install, then point obsidian-tc at a JSON config — a vault `id` and `path` is the
+minimum (every other field has a default):
+
 ```bash
 npm install -g obsidian-tc
-obsidian-tc serve --vault /path/to/vault
+```
+
+`obsidian-tc.config.json`:
+
+```json
+{
+  "vaults": [{ "id": "main", "path": "/path/to/your/vault" }]
+}
+```
+
+```bash
+obsidian-tc ./obsidian-tc.config.json
+# or set the path in the environment:
+OBSIDIAN_TC_CONFIG=./obsidian-tc.config.json obsidian-tc
 ```
 
 ## Trademark
