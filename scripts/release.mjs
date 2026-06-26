@@ -1,11 +1,11 @@
 #!/usr/bin/env node
+import { execSync } from "node:child_process";
 // Single-source release prep (THE-256 Phase 1).
 // Usage: bun scripts/release.mjs <patch|minor|major|x.y.z>
 // Sets the version across every package.json + distribution file, refreshes
 // bun.lock, rolls the CHANGELOG, and runs the coherence gate. Does NOT commit,
 // push, or tag — branch + PR + review + human tag stay manual by design.
 import { readFileSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
 import { relative, resolve } from "node:path";
 
 // Every path below is a hardcoded repo-relative metadata file; this guard keeps
@@ -66,7 +66,9 @@ if (at === -1) {
 }
 const afterMarker = at + marker.length;
 const nextHeading = cl.indexOf("\n## [", afterMarker);
-const body = (nextHeading === -1 ? cl.slice(afterMarker) : cl.slice(afterMarker, nextHeading)).trim();
+const body = (
+  nextHeading === -1 ? cl.slice(afterMarker) : cl.slice(afterMarker, nextHeading)
+).trim();
 if (!body) {
   console.error("CHANGELOG [Unreleased] is empty; add release notes before releasing.");
   process.exit(1);

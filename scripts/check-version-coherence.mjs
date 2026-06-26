@@ -34,7 +34,9 @@ add("packages/shared/package.json", readJson("packages/shared/package.json").ver
 const server = readJson("server.json");
 add("server.json", server.version);
 if (Array.isArray(server.packages)) {
-  server.packages.forEach((pkg, i) => add(`server.json packages[${i}]`, pkg.version));
+  server.packages.forEach((pkg, i) => {
+    add(`server.json packages[${i}]`, pkg.version);
+  });
 }
 add("manifest.json", readJson("manifest.json").version);
 
@@ -43,7 +45,9 @@ for (const s of sources) console.log(`${s.label.padEnd(width)}  ${s.version ?? "
 
 const distinct = [...new Set(sources.map((s) => s.version))];
 if (distinct.length !== 1 || distinct[0] == null) {
-  console.error(`\nFAIL: version drift — ${distinct.length} distinct value(s): ${distinct.join(", ")}`);
+  console.error(
+    `\nFAIL: version drift — ${distinct.length} distinct value(s): ${distinct.join(", ")}`,
+  );
   process.exit(1);
 }
 console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}`);
