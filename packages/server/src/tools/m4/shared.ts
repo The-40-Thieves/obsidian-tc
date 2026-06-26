@@ -5,6 +5,7 @@
 // capability snapshot before any network call, and yields the per-vault client.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { type BridgeClient, type CapabilityCache, requirePlugin } from "../../bridge";
+import { assertLive, type VaultMode } from "../../vault/mode";
 import type { VaultRegistry } from "../../vault/registry";
 
 export interface BridgeTimeouts {
@@ -33,6 +34,9 @@ export interface M4Deps {
   timeouts?: (vaultId: string) => BridgeTimeouts;
   /** Per-vault command-palette execution policy; deny-by-default when omitted. */
   commandPolicy?: (vaultId: string) => CommandPolicy;
+  /** Per-vault headless/live mode (THE-255). When headless, the bridge tools have no app to
+   *  proxy to and degrade to requires_live_obsidian. Omitted in tests -> no mode gate. */
+  mode?: (vaultId: string) => VaultMode;
 }
 
 /**
@@ -46,6 +50,10 @@ export function openBridge(
   vaultId: string,
   plugin: string,
 ): { client: BridgeClient; version?: string } {
+  // THE-255: a headless vault has no live app to proxy to — degrade visibly before any
+  // capability/network work, so clients see requires_live_obsidian rather than a probe miss.
+  const mode = deps.mode?.(vaultId);
+  if (mode) assertLive(mode, plugin);
   const cap = requirePlugin(deps.capabilities.get(vaultId), plugin);
   const client = deps.bridgeFor(vaultId);
   if (!client) throw err.pluginUnreachable("bridge transport not configured", { plugin });
@@ -63,6 +71,8 @@ export function bridgeTimeouts(deps: M4Deps, vaultId: string): BridgeTimeouts {
  * unreachable companion both degrade to plugin_unreachable (Domain 26 spec).
  */
 export function openCompanionBridge(deps: M4Deps, vaultId: string): { client: BridgeClient } {
+  const mode = deps.mode?.(vaultId);
+  if (mode) assertLive(mode, "obsidian-tc-companion");
   const snap = deps.capabilities.get(vaultId);
   if (snap.companion !== "reachable")
     throw err.pluginUnreachable("companion plugin is required for this tool", {
