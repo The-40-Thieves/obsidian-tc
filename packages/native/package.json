@@ -12,16 +12,13 @@
     "*.node"
   ],
   "napi": {
-    "name": "obsidian-tc-native",
-    "triples": {
-      "defaults": false,
-      "additional": [
-        "x86_64-unknown-linux-gnu",
-        "x86_64-apple-darwin",
-        "aarch64-apple-darwin",
-        "x86_64-pc-windows-msvc"
-      ]
-    }
+    "binaryName": "obsidian-tc-native",
+    "targets": [
+      "x86_64-unknown-linux-gnu",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc"
+    ]
   },
   "scripts": {
     "build": "napi build --platform --release --js false --dts ./target/napi-generated.d.ts",
