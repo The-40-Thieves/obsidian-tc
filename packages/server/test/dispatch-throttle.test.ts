@@ -104,4 +104,30 @@ describe("dispatch-wide rate limiter (THE-210)", () => {
       expect(res.error.details).toMatchObject({ scope_class: "delete", current_rate: 60 });
     }
   });
+
+  it("rate-limits before HITL, so a throttled call never consumes the elicit token", async () => {
+    // The throttle gate runs before HITL: a rate-limited destructive call is rejected
+    // without verifyElicit being invoked, so the single-use confirmation survives for a
+    // backed-off retry. (Under the old HITL-before-throttle order this spy would fire twice.)
+    let elicitChecks = 0;
+    const r = new ToolRegistry({
+      rateLimiter: new RateLimiter(),
+      verifyElicit: () => {
+        elicitChecks++;
+        return true;
+      },
+    });
+    r.register(tool("exec", ["execute:shell"])); // execute tier: burst 1, HITL-floored
+    const now = () => 0; // frozen -> no refill
+
+    // First call clears the throttle gate (consumes the single burst token) then HITL.
+    expect((await r.dispatch("exec", {}, ctx(now))).ok).toBe(true);
+    expect(elicitChecks).toBe(1);
+
+    // Second call is throttled BEFORE HITL — the elicit token is never checked/consumed.
+    const res = await r.dispatch("exec", {}, ctx(now));
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("throttled");
+    expect(elicitChecks).toBe(1);
+  });
 });

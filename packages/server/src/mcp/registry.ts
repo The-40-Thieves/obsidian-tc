@@ -413,9 +413,10 @@ export class ToolRegistry {
 
       // Idempotency gate (D3). A keyed call claims a row in idempotency_keys; a
       // replay returns the cached result without re-running the handler. Runs after
-      // auth/scope/ACL/HITL/throttle, so authorization stays authoritative on replays.
-      // Moved above HITL to prevent TOCTOU races: the lock must be claimed BEFORE the
-      // single-use elicit token is consumed.
+      // auth/scope/ACL/precheck but BEFORE throttle/HITL: the lock must be claimed
+      // atomically before the single-use elicit token is consumed, so two concurrent
+      // identical requests can't each consume the token (TOCTOU). Authorization
+      // (auth/scope/ACL) still runs before this gate, so it stays authoritative on replays.
       idemKey = extractIdempotencyKey(parsed.data);
       if (idemKey) {
         if (
@@ -482,33 +483,12 @@ export class ToolRegistry {
         }
       }
 
-      const needsHitl = def.destructive === true || def.requiredScopes.some(scopeRequiresHitl);
-      if (needsHitl) {
-        const ok =
-          !!ctx.elicitToken && !!this.verifyElicit && this.verifyElicit(ctx.elicitToken, hash, ctx);
-        if (!ok) {
-          this.meter((m) => m.incHitlElicited(ctx.vaultId, name));
-          if (idemClaimed && idemKey) {
-            try {
-              this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
-            } catch {
-              /* best-effort */
-            }
-          }
-          throw new ObsidianTcError("elicit_required", "human confirmation required", {
-            args_hash: hash,
-          });
-        }
-        this.relay(ctx.vaultId, "tc.elicit.consumed", {
-          tool: name,
-          caller_hash: callerHash(ctx.caller),
-          elicit_token: ctx.elicitToken ?? null,
-        });
-      }
-
       // Dispatch-wide rate-limit policy gate (THE-210, G2.4 §Rate limits). Per
-      // (caller_hash, scope_class, vault); an unknown scope class is unlimited. Placed in the
-      // policy layer (after scope/ACL/HITL), so it covers every tool, not just bulk.
+      // (caller_hash, scope_class, vault); an unknown scope class is unlimited. Runs
+      // BEFORE HITL so a throttled call never consumes the single-use elicit token — a
+      // backed-off retry can reuse the same confirmation — and so the limiter covers
+      // every dispatch, including calls that will fail HITL, not just the ones that clear it.
+      // A throttled check does not draw down the bucket, so rejecting here costs no budget.
       if (this.rateLimiter) {
         const decision = this.rateLimiter.check(
           callerHash(ctx.caller),
@@ -532,6 +512,34 @@ export class ToolRegistry {
             current_rate: decision.currentRate,
           });
         }
+      }
+
+      // HITL gate. A destructive/HITL-floored tool requires a valid single-use elicit
+      // token; verifyElicit consumes it (UPDATE ... WHERE consumed_at IS NULL). Runs after
+      // the throttle gate (so a rate-limited call doesn't burn the confirmation) and last
+      // before the handler (so the token is spent only once the call is cleared to execute).
+      const needsHitl = def.destructive === true || def.requiredScopes.some(scopeRequiresHitl);
+      if (needsHitl) {
+        const ok =
+          !!ctx.elicitToken && !!this.verifyElicit && this.verifyElicit(ctx.elicitToken, hash, ctx);
+        if (!ok) {
+          this.meter((m) => m.incHitlElicited(ctx.vaultId, name));
+          if (idemClaimed && idemKey) {
+            try {
+              this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+            } catch {
+              /* best-effort */
+            }
+          }
+          throw new ObsidianTcError("elicit_required", "human confirmation required", {
+            args_hash: hash,
+          });
+        }
+        this.relay(ctx.vaultId, "tc.elicit.consumed", {
+          tool: name,
+          caller_hash: callerHash(ctx.caller),
+          elicit_token: ctx.elicitToken ?? null,
+        });
       }
 
       const out = await def.handler(parsed.data, ctx);
