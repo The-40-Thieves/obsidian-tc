@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FolderAcl } from "./acl";
+import { FolderAcl, globMatch } from "./acl";
 import { writeEvent } from "./audit";
 import {
   type BridgeClient,
@@ -21,6 +21,7 @@ import { MetricsRecorder } from "./metrics/registry";
 import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import { createPlurClient } from "./plur/client";
+import { indexVault } from "./search/indexer";
 import { RateLimiter } from "./throttle";
 import { createHealthTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
@@ -267,6 +268,24 @@ async function main(): Promise<void> {
       `obsidian-tc /metrics on ${config.observability.prometheus.bind}:${m.port}\n`,
     );
   }
+
+  // Boot-time reconcile (THE-255): re-sync the search index with files changed while the
+  // server was down. Incremental (content-hash skip) and best-effort — an embedding-backend
+  // or fs hiccup degrades the index, never startup. Backgrounded so it never blocks stdio.
+  const indexReadable = (rel: string): boolean =>
+    acl.readPaths === undefined ? true : acl.readPaths.some((g) => globMatch(g, rel));
+  void Promise.allSettled(
+    config.vaults.map((v) =>
+      indexVault({
+        db,
+        provider: embeddingProvider,
+        vaultId: v.id,
+        root: vaultRegistry.resolve(v.id).root,
+        isReadable: indexReadable,
+        now: Date.now,
+      }),
+    ),
+  );
 
   morgiana.emit(firstVault.id, "tc.server.start");
 
