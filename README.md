@@ -3,7 +3,7 @@
 > Obsidian Turbocharged — the comprehensive, model-agnostic, agent-ready Obsidian MCP server.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![Status: Shipped v1.0.2](https://img.shields.io/badge/Status-Shipped_v1.0.2-success)
+![Status: Shipped v1.2.1](https://img.shields.io/badge/Status-Shipped_v1.2.1-success)
 
 ## What it is
 
@@ -17,7 +17,7 @@ Three pillars:
 
 ## Status
 
-✅ **Shipped — v1.0.2** (2026-06-21). The full implementation (milestones M0–M7) is merged to `main`, published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.0.2`. The surface is **103 tools across 28 domains**. Since 1.0.2, `main` has taken a security-audit remediation pass and a dependency-currency sweep (Zod 4, Biome 2, napi-rs 3, Node 24) — see the [`[Unreleased]`](./CHANGELOG.md) changelog.
+✅ **Shipped — v1.2.1** (2026-06-26). The full implementation (milestones M0–M7) is published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.2.1`. The surface is **103 tools across 28 domains**. Post-1.0.2, `main` landed a security-audit remediation pass, a dependency-currency sweep (Zod 4, Biome 2, napi-rs 3, Node 24), and the agent-ergonomics + distribution feature set — all shipped in v1.2.1; see the [CHANGELOG](./CHANGELOG.md).
 
 | Milestone | Scope | Status |
 |---|---|---|
