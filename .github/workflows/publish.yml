@@ -251,6 +251,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          # only the assets the release attaches; skip native-* and the .dockerbuild record
+          pattern: '{binary-*,plugin}'
       - name: generate checksums
         run: |
           cd artifacts
