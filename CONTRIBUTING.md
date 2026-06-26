@@ -159,7 +159,7 @@ A typical tool addition touches four files:
 1. `packages/shared/src/schemas/<domain>.ts` — Zod schema for input and output.
 2. `packages/server/src/tools/<domain>/<tool_name>.ts` — implementation.
 3. `packages/server/src/tools/<domain>/<tool_name>.test.ts` — tests.
-4. `docs/src/content/docs/tools/<domain>/<tool_name>.md` — user-facing reference (or rely on the auto-generated path; see [`docs/contributing/how-to-add-a-tool.md`](./docs/src/content/docs/contributing/how-to-add-a-tool.md)).
+4. `docs/src/content/docs/tools/<domain>/<tool_name>.md` — user-facing reference (or rely on the auto-generated path).
 
 Annotate the tool with ACL, HITL, idempotency, and rate-limit metadata per the G2.1 conventions. See `docs/G2.1-tools.md` for the full spec.
 
