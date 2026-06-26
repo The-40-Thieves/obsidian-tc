@@ -485,10 +485,12 @@ export class ToolRegistry {
 
       // Dispatch-wide rate-limit policy gate (THE-210, G2.4 §Rate limits). Per
       // (caller_hash, scope_class, vault); an unknown scope class is unlimited. Runs
-      // BEFORE HITL so a throttled call never consumes the single-use elicit token — a
-      // backed-off retry can reuse the same confirmation — and so the limiter covers
-      // every dispatch, including calls that will fail HITL, not just the ones that clear it.
-      // A throttled check does not draw down the bucket, so rejecting here costs no budget.
+      // BEFORE HITL so a throttled call never consumes the single-use elicit token (a
+      // backed-off retry can reuse the same confirmation), and so the limiter covers every
+      // dispatch that reaches this gate, including calls that will fail HITL, not just the
+      // ones that clear it. Completed idempotent replays returned from the cache above, so
+      // they are intentionally not re-counted here: the original call already drew down the
+      // bucket. A throttled check does not draw down the bucket, so rejecting here costs no budget.
       if (this.rateLimiter) {
         const decision = this.rateLimiter.check(
           callerHash(ctx.caller),
