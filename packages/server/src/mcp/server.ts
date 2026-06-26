@@ -38,15 +38,21 @@ export function createMcpServer(opts: McpServerOptions): Server {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, () => {
-    const tools: Tool[] = opts.registry.listVisible().map((def) => ({
-      name: def.name,
-      description: def.description,
-      inputSchema: z.toJSONSchema(def.inputSchema, {
-        target: "draft-7",
-        reused: "inline",
-        unrepresentable: "any",
-      }) as unknown as Tool["inputSchema"],
-    }));
+    // Per-caller filtering (THE-250): the caller's resolved scopes + ACL read-only shape the
+    // advertised surface, so a caller never sees a tool it could not dispatch. A full grant
+    // (stdio / auth-none) leaves the surface unchanged.
+    const ctx = opts.context();
+    const tools: Tool[] = opts.registry
+      .listVisible({ grantedScopes: ctx.grantedScopes, readOnly: ctx.acl?.readOnly })
+      .map((def) => ({
+        name: def.name,
+        description: def.description,
+        inputSchema: z.toJSONSchema(def.inputSchema, {
+          target: "draft-7",
+          reused: "inline",
+          unrepresentable: "any",
+        }) as unknown as Tool["inputSchema"],
+      }));
     return { tools };
   });
 
