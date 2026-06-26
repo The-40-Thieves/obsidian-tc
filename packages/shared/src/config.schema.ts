@@ -202,6 +202,27 @@ export const PlurConfigSchema = z.object({
 });
 export type PlurConfig = z.infer<typeof PlurConfigSchema>;
 
+// Static tool-visibility scoping (THE-219 — parity with turbovault's tool_visibility).
+// Shapes the *advertised* tool surface at the Registry.listVisible()/dispatch chokepoints
+// without rebuilding capability. Two strengths, with precedence disabled > hidden > listed:
+//   - hidden / hiddenTags / requireReadOnly / allowed: drop a tool from tools/list, but it
+//     stays callable by name (a lean default surface, not a security boundary).
+//   - disabled / disabledTags: drop it from tools/list AND reject it at dispatch, so it
+//     behaves as if unregistered.
+// `allowed`, when present, is a name allowlist: only those tools are listed (absent = list
+// all; an empty array lists none). `requireReadOnly` derives mutation from the required
+// scopes (isMutatingScope), so it needs no per-tool annotation. Optional + fully defaulted:
+// a config predating THE-219 validates unchanged and an absent block means ALLOW_ALL.
+export const ToolVisibilityConfigSchema = z.object({
+  allowed: z.array(z.string()).optional(),
+  hidden: z.array(z.string()).default([]),
+  disabled: z.array(z.string()).default([]),
+  hiddenTags: z.array(z.string()).default([]),
+  disabledTags: z.array(z.string()).default([]),
+  requireReadOnly: z.boolean().default(false),
+});
+export type ToolVisibilityConfig = z.infer<typeof ToolVisibilityConfigSchema>;
+
 const ServerConfigObject = z.object({
   cacheDir: z.string().default(".obsidian-tc"),
   vaults: z.array(VaultConfigSchema).min(1),
@@ -211,6 +232,7 @@ const ServerConfigObject = z.object({
   embeddings: EmbeddingsConfigSchema.prefault({}),
   transports: TransportsConfigSchema.prefault({}),
   governor: GovernorConfigSchema.prefault({}),
+  toolVisibility: ToolVisibilityConfigSchema.optional(),
   throttle: ThrottleConfigSchema,
   observability: ObservabilityConfigSchema.prefault({}),
   idempotencyTtlSeconds: z.number().int().positive().default(86400),
