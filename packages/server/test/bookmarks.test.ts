@@ -114,7 +114,7 @@ describe("Domain 10: Bookmarks", () => {
     });
     try {
       // top-level only: removes the loose A.md AND the one inside G (recursive)
-      const r = await v.call("remove_bookmark", {
+      const r = await v.callConfirmed("remove_bookmark", {
         vault: "test",
         match: { type: "file", path: "A.md" },
       });
@@ -140,7 +140,7 @@ describe("Domain 10: Bookmarks", () => {
       },
     });
     try {
-      const r = await v.call("remove_bookmark", {
+      const r = await v.callConfirmed("remove_bookmark", {
         vault: "test",
         match: { type: "file", path: "A.md" },
         group: "G",
