@@ -1,0 +1,80 @@
+name: ci-install-smoke
+# Proves the cross-platform install/run claim: on linux, macOS, and windows, build the
+# host native addon + the bundled CLI, then assert (1) the host .node prebuild loads,
+# (2) a missing prebuild degrades to the pure-JS fallback instead of crashing (G2.2 #9),
+# and (3) the CLI boots against a throwaway vault and reaches its stdio-ready line.
+on:
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'tsconfig.base.json'
+      - 'bun.lock'
+      - 'scripts/write-smoke-config.mjs'
+      - '.github/workflows/ci-install-smoke.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install-smoke:
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.13'
+      # node is used for the loader assertions and to write the config (Node escapes
+      # OS-native paths correctly); the CLI itself runs under bun (bun:sqlite adapter).
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (pinned, audit #11)
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/native
+      - run: bun install --frozen-lockfile
+      # Build the host-triple native addon (.node) + the libraries the CLI bundles.
+      - name: build native (host triple)
+        working-directory: packages/native
+        run: bun run build
+      - name: build shared
+        working-directory: packages/shared
+        run: bun run build
+      - name: build server
+        working-directory: packages/server
+        run: bun run build
+
+      # 1) The freshly-built host prebuild resolves and the compiled binary is active.
+      - name: native addon loads the host .node
+        run: |
+          node -e "const n=require('./packages/native'); if(!n.nativeLoaded||typeof n.cosineSimilarity!=='function'||typeof n.tokenize!=='function'||typeof n.bm25Score!=='function'){console.error('native addon did not load: nativeLoaded='+n.nativeLoaded);process.exit(1)} console.log('ok: native addon loaded (nativeLoaded=true)')"
+
+      # 2) A missing prebuild must degrade to the JS fallback, never crash (G2.2 #9).
+      - name: missing prebuild falls back to JS (no crash)
+        run: |
+          node -e "const fs=require('node:fs'),path=require('node:path'); const dir='packages/native'; const f=fs.readdirSync(dir).find(x=>x.endsWith('.node')); if(!f){console.error('no host .node was built');process.exit(1)} const p=path.join(dir,f); fs.renameSync(p,p+'.bak'); try{ const n=require('./packages/native'); if(n.nativeLoaded!==false){console.error('expected JS fallback, got nativeLoaded='+n.nativeLoaded);process.exit(1)} if(typeof n.cosineSimilarity!=='function'){console.error('JS fallback is missing exports');process.exit(1)} console.log('ok: graceful JS fallback (nativeLoaded=false)'); } finally { fs.renameSync(p+'.bak',p); }"
+
+      # 3) The CLI boots against a throwaway vault and reaches stdio-ready. The server bundle
+      #    targets the Bun runtime (bun:sqlite adapter), so run it under bun; stdin is closed
+      #    so the stdio transport ends and the process exits cleanly after printing ready.
+      - name: CLI starts against a throwaway vault
+        run: |
+          node scripts/write-smoke-config.mjs "$RUNNER_TEMP/smoke-vault" "$RUNNER_TEMP/smoke-cache" "$RUNNER_TEMP/smoke-config.json"
+          out=$(bun packages/server/dist/cli.js "$RUNNER_TEMP/smoke-config.json" < /dev/null 2>&1) || true
+          echo "$out"
+          echo "$out" | grep -q "ready on stdio" || { echo "::error::CLI did not reach stdio-ready"; exit 1; }
+          echo "ok: CLI reached stdio-ready"
