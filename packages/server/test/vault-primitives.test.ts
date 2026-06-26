@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +49,28 @@ describe("paths: safety + content hash", () => {
       expect(() => resolveVaultPath(root, "../../etc/passwd")).toThrow();
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("blocks escapes through an in-vault symlink (real-path containment)", () => {
+    const base = mkdtempSync(join(tmpdir(), "obtc-link-"));
+    const root = join(base, "vault");
+    const outside = join(base, "outside");
+    mkdirSync(root, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, "secret.md"), "secret");
+    let linked = false;
+    try {
+      symlinkSync(outside, join(root, "link"), "junction");
+      linked = true;
+    } catch {
+      // symlink/junction creation may be unsupported on some hosts; skip the escape assertion
+    }
+    try {
+      if (linked)
+        expect(() => resolveVaultPath(root, "link/secret.md")).toThrow(/escapes the vault root/);
+      expect(resolveVaultPath(root, "notes/a.md").startsWith(root)).toBe(true);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
     }
   });
   it("walks a vault, skipping dot-dirs", () => {

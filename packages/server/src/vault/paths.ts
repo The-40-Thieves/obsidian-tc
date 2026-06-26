@@ -3,8 +3,8 @@
 // caller-supplied vault-relative path into an absolute filesystem path, with a
 // traversal/containment guard. Nothing else should join paths against the root.
 import { createHash } from "node:crypto";
-import { type Dirent, readdirSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { type Dirent, readdirSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 
 /** Full SHA-256 hex of UTF-8 content. Used for content_hash / CAS (prev_hash). */
@@ -27,10 +27,42 @@ export function normalizeVaultPath(relPath: string): string {
   return parts.filter((p) => p !== "" && p !== ".").join("/");
 }
 
+/** realpathSync that returns null when the path can't be resolved (e.g. doesn't exist yet). */
+function realpathOrNull(p: string): string | null {
+  try {
+    return realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Resolve a vault-relative path to an absolute filesystem path, guaranteeing the
- * result stays within the vault root (defends against symlink/normalization
- * escapes that slip past the byte-level guard). Throws path_invalid otherwise.
+ * Canonicalize `abs` through symlinks for the deepest segment that exists on disk:
+ * realpath(abs) when it exists, otherwise realpath of its nearest existing ancestor
+ * rejoined with the not-yet-created tail. Lets a to-be-created path be containment-checked
+ * without requiring it to exist. The vault root always exists, so the walk terminates.
+ */
+function realpathDeepest(abs: string): string {
+  const tail: string[] = [];
+  let dir = abs;
+  for (let depth = 0; depth < 4096; depth++) {
+    const real = realpathOrNull(dir);
+    if (real !== null) return tail.length === 0 ? real : join(real, ...tail.toReversed());
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    tail.push(basename(dir));
+    dir = parent;
+  }
+  return abs;
+}
+
+/**
+ * Resolve a vault-relative path to an absolute filesystem path, guaranteeing the result
+ * stays within the vault root. Two layers: a byte-level traversal guard (absolute / `..`
+ * rejection) and a real-path containment check that canonicalizes both the root and the
+ * deepest existing segment of the target through symlinks — so an in-vault symlink (or a
+ * symlinked ancestor) pointing outside the root is rejected, not just lexical `..`.
+ * Throws path_invalid otherwise.
  */
 export function resolveVaultPath(vaultRoot: string, relPath: string): string {
   const clean = normalizeVaultPath(relPath);
@@ -38,6 +70,10 @@ export function resolveVaultPath(vaultRoot: string, relPath: string): string {
   const abs = clean === "" ? root : resolve(root, clean);
   const rel = relative(root, abs);
   if (rel.startsWith("..") || isAbsolute(rel))
+    throw err.pathInvalid("path escapes the vault root", { path: relPath });
+  const realRoot = realpathOrNull(root) ?? root;
+  const realRel = relative(realRoot, realpathDeepest(abs));
+  if (realRel.startsWith("..") || isAbsolute(realRel))
     throw err.pathInvalid("path escapes the vault root", { path: relPath });
   return abs;
 }
