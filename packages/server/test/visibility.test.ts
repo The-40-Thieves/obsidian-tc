@@ -188,3 +188,70 @@ describe("registry visibility integration", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe("visibilityOf per-caller scopes (THE-250)", () => {
+  const writer = target("write_note", { requiredScopes: ["write:notes"] });
+  const reader = target("read_note", { requiredScopes: ["read:notes"] });
+
+  it("a full * grant lists everything (non-breaking)", () => {
+    const caller = { grantedScopes: new Set(["*"]) };
+    expect(visibilityOf(writer, ALLOW_ALL, caller)).toBe("listed");
+    expect(visibilityOf(reader, ALLOW_ALL, caller)).toBe("listed");
+  });
+
+  it("scope_denied when the caller lacks a required scope", () => {
+    const caller = { grantedScopes: new Set(["read:notes"]) };
+    expect(visibilityOf(writer, ALLOW_ALL, caller)).toBe("scope_denied");
+    expect(isListed(writer, ALLOW_ALL, caller)).toBe(false);
+    expect(visibilityOf(reader, ALLOW_ALL, caller)).toBe("listed");
+  });
+
+  it("a read-only caller sees no mutating tools, even with the scope", () => {
+    const caller = { grantedScopes: new Set(["*"]), readOnly: true };
+    expect(visibilityOf(writer, ALLOW_ALL, caller)).toBe("scope_denied");
+    expect(visibilityOf(reader, ALLOW_ALL, caller)).toBe("listed");
+  });
+
+  it("precedence: disabled and hidden win over scope_denied", () => {
+    const caller = { grantedScopes: new Set(["read:notes"]) }; // would deny the writer
+    expect(visibilityOf(writer, cfg({ disabled: ["write_note"] }), caller)).toBe("disabled");
+    expect(visibilityOf(writer, cfg({ hidden: ["write_note"] }), caller)).toBe("hidden");
+  });
+
+  it("an absent caller skips the scope gate (static layer only)", () => {
+    expect(visibilityOf(writer, ALLOW_ALL)).toBe("listed");
+  });
+});
+
+describe("registry listVisible per-caller (THE-250)", () => {
+  const withScope = (reg: ToolRegistry, name: string, scope: string): void => {
+    reg.register({
+      name,
+      description: name,
+      inputSchema: z.object({}),
+      requiredScopes: [scope],
+      handler: () => ({ name }),
+    });
+  };
+
+  it("drops tools the caller cannot dispatch; a full grant / no caller keeps all", () => {
+    const reg = new ToolRegistry();
+    withScope(reg, "rd", "read:notes");
+    withScope(reg, "wr", "write:notes");
+    expect(reg.listVisible({ grantedScopes: new Set(["read:notes"]) }).map((d) => d.name)).toEqual([
+      "rd",
+    ]);
+    expect(
+      reg
+        .listVisible({ grantedScopes: new Set(["*"]) })
+        .map((d) => d.name)
+        .sort(),
+    ).toEqual(["rd", "wr"]);
+    expect(
+      reg
+        .listVisible()
+        .map((d) => d.name)
+        .sort(),
+    ).toEqual(["rd", "wr"]);
+  });
+});
