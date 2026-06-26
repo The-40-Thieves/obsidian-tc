@@ -35,6 +35,9 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   description: string;
   inputSchema: z.ZodType<I>;
   requiredScopes: string[];
+  /** Free-form classification labels for tool-visibility scoping (THE-219):
+   *  matched against toolVisibility.hiddenTags / disabledTags. */
+  tags?: string[];
   destructive?: boolean;
   /** Tool-specific precondition gate. Runs AFTER scope+ACL and BEFORE the HITL/elicit
    *  stage, so a rejection never consumes the single-use elicit token (D5). Throw an
