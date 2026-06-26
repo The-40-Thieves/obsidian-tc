@@ -1,6 +1,6 @@
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
-import { checksum, runMigrations } from "../src/db/migrate";
+import { runMigrations } from "../src/db/migrate";
 import { openMemoryDb } from "./helpers";
 
 function db() {

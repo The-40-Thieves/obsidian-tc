@@ -489,7 +489,11 @@ export class ToolRegistry {
         if (!ok) {
           this.meter((m) => m.incHitlElicited(ctx.vaultId, name));
           if (idemClaimed && idemKey) {
-            try { this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey); } catch { /* best-effort */ }
+            try {
+              this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+            } catch {
+              /* best-effort */
+            }
           }
           throw new ObsidianTcError("elicit_required", "human confirmation required", {
             args_hash: hash,
@@ -515,7 +519,11 @@ export class ToolRegistry {
         if (!decision.ok) {
           this.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
           if (idemClaimed && idemKey) {
-            try { this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey); } catch { /* best-effort */ }
+            try {
+              this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+            } catch {
+              /* best-effort */
+            }
           }
           throw err.throttled("rate limit exceeded", {
             scope_class: decision.scopeClass,
