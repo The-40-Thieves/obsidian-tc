@@ -19,7 +19,7 @@ import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/tracing";
 import { callerHash, type RateLimiter } from "../throttle";
-import { ALLOW_ALL, isDisabled, isListed } from "./visibility";
+import { ALLOW_ALL, isDisabled, isListed, type VisibilityCaller } from "./visibility";
 
 export interface CallerContext {
   caller: string | null;
@@ -298,10 +298,11 @@ export class ToolRegistry {
   list(): ToolDefinition[] {
     return [...this.tools.values()];
   }
-  /** Tools advertised by tools/list: the registered set minus those the visibility
-   *  config hides or disables (THE-219). `list()` stays the full registered set. */
-  listVisible(): ToolDefinition[] {
-    return [...this.tools.values()].filter((def) => isListed(def, this.toolVisibility));
+  /** Tools advertised by tools/list: the registered set minus those the visibility config
+   *  hides/disables (THE-219) and those the caller cannot dispatch (THE-250). `list()` stays
+   *  the full registered set. */
+  listVisible(caller?: VisibilityCaller): ToolDefinition[] {
+    return [...this.tools.values()].filter((def) => isListed(def, this.toolVisibility, caller));
   }
   has(name: string): boolean {
     return this.tools.has(name);
