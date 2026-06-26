@@ -2,13 +2,20 @@
 
 ## Supported versions
 
-Project is in design phase. No releases yet. Once v1.0 ships, the latest minor will receive security updates.
+obsidian-tc follows semantic versioning. Security fixes land on the latest minor;
+older minors are not backported.
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 1.2.x   | :white_check_mark: |
+| < 1.2   | :x:                |
 
 ## Reporting a vulnerability
 
 **Do not open public issues for security vulnerabilities.**
 
-A dedicated security email address will be published before v0.1.0. Until then, contact the maintainer directly via GitHub: open a [private security advisory](https://github.com/The-40-Thieves/obsidian-tc/security/advisories/new).
+Report privately via a GitHub [security advisory](https://github.com/The-40-Thieves/obsidian-tc/security/advisories/new)
+on this repository.
 
 Include:
 
@@ -17,27 +24,32 @@ Include:
 - Potential impact
 - Suggested fix, if known
 
-You'll receive acknowledgment within 7 days.
+You'll receive an acknowledgment within 7 days.
 
-## Threat model (current design)
+## Threat model
 
-obsidian-tc handles vault data, which may include sensitive notes, embedded credentials, personal information. The server is designed under the following assumptions:
+obsidian-tc handles vault data, which may include sensitive notes, embedded
+credentials, and personal information. The server is designed under the following
+assumptions:
 
 - **MCP clients are partially trusted.** JWT auth scopes restrict per-client capabilities.
-- **Autonomous agents are partially trusted.** Folder ACLs restrict per-agent read/write paths. HITL elicit required on destructive operations.
-- **Vault filesystem is fully trusted.** obsidian-tc does not defend against attacks originating from vault content itself (e.g. malicious frontmatter).
-- **The host system is fully trusted.** obsidian-tc does not protect against attacks from co-located processes.
+- **Autonomous agents are partially trusted.** Folder ACLs restrict per-agent read/write
+  paths, and human-in-the-loop (HITL) elicit is required on destructive operations.
+- **The vault filesystem is trusted.** obsidian-tc does not defend against attacks
+  originating from vault content itself (e.g. malicious frontmatter) or against in-vault
+  symlinks pointing outside the vault root.
+- **The host system is trusted.** obsidian-tc does not protect against attacks from
+  co-located processes.
 
-## Specific protections
+## Protections
 
-- JWT auth (HS256) with required minimum secret length
-- Folder-scoped read/write/delete ACLs per vault
+- JWT auth (HS256) with a required minimum secret length
+- Folder-scoped read / write / delete ACLs per vault
 - Read-only kill switch
-- HITL elicit on destructive operations (configurable per-op)
+- HITL elicit on destructive operations (configurable per op)
+- Fail-closed config: an unauthenticated HTTP transport refuses to bind a non-loopback host
 - Idempotency keys on writes
-- Bulk operation throttling with configurable limits
-- Path traversal prevention
-- No execution of arbitrary code from vault content
-- Audit logging of all tool invocations
-
-Full security architecture lands in G2.4.
+- Bulk-operation throttling with configurable per-tier limits
+- Path-traversal prevention (byte-level rejection of `..` segments and absolute paths)
+- Deny-by-default command execution (disabled unless explicitly enabled, allowlisted, and HITL-gated)
+- Audit logging of every tool invocation
