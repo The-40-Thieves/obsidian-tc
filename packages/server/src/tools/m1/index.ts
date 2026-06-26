@@ -15,6 +15,10 @@ export interface M1Deps {
   startedAt: number;
   embeddings: { provider: string; model: string };
   configPath?: string;
+  /** Index-on-write (THE-255): a note mutation reindexes its path; a delete drops its chunks.
+   *  Optional — omitted in tests, so M1 writes never touch the search index there. */
+  reindex?: (vaultId: string, path: string, content: string) => void;
+  deindex?: (vaultId: string, path: string) => void;
 }
 
 export function registerM1Tools(registry: ToolRegistry, deps: M1Deps): void {

@@ -36,7 +36,9 @@ export type ErrorCode =
   | "bases_syntax_error"
   // M4 (G2.1 Domain 26 command palette) codes — additive, do not rename.
   | "execute_command_disabled"
-  | "command_not_allowlisted";
+  | "command_not_allowlisted"
+  // M-headless (THE-255) — typed Tier-3 degrade when the vault is headless.
+  | "requires_live_obsidian";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -127,4 +129,9 @@ export const err = {
     "command execution is disabled for this vault",
   ),
   commandNotAllowlisted: mk("command_not_allowlisted", "command is not in the vault allowlist"),
+  // M-headless (THE-255) — Tier-3 tools degrade to this headless (see vault/mode.ts assertLive).
+  requiresLiveObsidian: mk(
+    "requires_live_obsidian",
+    "this operation requires a live Obsidian (Local REST API) connection",
+  ),
 } as const;

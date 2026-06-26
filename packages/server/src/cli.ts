@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FolderAcl } from "./acl";
+import { FolderAcl, globMatch } from "./acl";
 import { writeEvent } from "./audit";
 import {
   type BridgeClient,
@@ -21,6 +21,8 @@ import { MetricsRecorder } from "./metrics/registry";
 import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import { createPlurClient } from "./plur/client";
+import { indexNote, indexVault } from "./search/indexer";
+import { ensureVecChunks } from "./search/vec";
 import { RateLimiter } from "./throttle";
 import { createHealthTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
@@ -38,6 +40,7 @@ import { DEFAULT_MEMORY_FOLDER, DEFAULT_TRACE_FOLDER, registerM5Tools } from "./
 import { type M6Deps, registerM6Tools } from "./tools/m6";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
+import { resolveMode, type VaultMode } from "./vault/mode";
 import { VaultRegistry } from "./vault/registry";
 
 const VERSION = "1.0.0";
@@ -118,12 +121,26 @@ async function main(): Promise<void> {
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
   );
   const vaultRegistry = new VaultRegistry(config.vaults, process.env.OBSIDIAN_TC_DEFAULT_VAULT);
+  // Index-on-write (THE-255): a note mutation reindexes its path inline (best-effort and
+  // backgrounded, so it never slows or fails a write); deindex drops a removed note's chunks
+  // via an empty-content reindex (no embedding call). The boot reconcile guarantees full
+  // convergence. Shares the one embedding provider + vec-availability flag.
+  const embeddingProvider = createEmbeddingProvider(config.embeddings);
+  const hasVec = ensureVecChunks(db, embeddingProvider.dimensions, { now: Date.now });
   registerM1Tools(registry, {
     vaultRegistry,
     version: VERSION,
     startedAt,
     embeddings: { provider: config.embeddings.provider, model: config.embeddings.model },
     configPath,
+    reindex: (vaultId, path, content) => {
+      void indexNote(db, embeddingProvider, vaultId, path, content, hasVec, Date.now).catch(
+        () => {},
+      );
+    },
+    deindex: (vaultId, path) => {
+      void indexNote(db, embeddingProvider, vaultId, path, "", hasVec, Date.now).catch(() => {});
+    },
   });
   // M4 plugin bridges (THE-180): per vault, build a bridge client to the companion
   // plugin's Local REST API surface (base URL + bearer key from vault config/env,
@@ -169,15 +186,26 @@ async function main(): Promise<void> {
       }),
     );
   }
+  // Per-vault mode resolved once at startup (THE-255): explicit live/headless win; auto uses
+  // the companion probe result captured above. Tier-3 bridge tools degrade headless.
+  const modeByVault = new Map<string, VaultMode>(
+    config.vaults.map((v) => [
+      v.id,
+      resolveMode(
+        { mode: v.mode, restApiUrl: v.restApiUrl },
+        capabilities.get(v.id).companion === "reachable",
+      ),
+    ]),
+  );
   const m4Deps: M4Deps = {
     vaultRegistry,
     capabilities,
     bridgeFor: (vaultId) => bridgeClients.get(vaultId),
     timeouts: (vaultId) => timeoutsByVault.get(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS,
     commandPolicy: (vaultId) => commandsByVault.get(vaultId) ?? { enabled: false, allowlist: [] },
+    mode: (vaultId) => modeByVault.get(vaultId) ?? "headless",
   };
 
-  const embeddingProvider = createEmbeddingProvider(config.embeddings);
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider,
@@ -268,6 +296,24 @@ async function main(): Promise<void> {
       `obsidian-tc /metrics on ${config.observability.prometheus.bind}:${m.port}\n`,
     );
   }
+
+  // Boot-time reconcile (THE-255): re-sync the search index with files changed while the
+  // server was down. Incremental (content-hash skip) and best-effort — an embedding-backend
+  // or fs hiccup degrades the index, never startup. Backgrounded so it never blocks stdio.
+  const indexReadable = (rel: string): boolean =>
+    acl.readPaths === undefined ? true : acl.readPaths.some((g) => globMatch(g, rel));
+  void Promise.allSettled(
+    config.vaults.map((v) =>
+      indexVault({
+        db,
+        provider: embeddingProvider,
+        vaultId: v.id,
+        root: vaultRegistry.resolve(v.id).root,
+        isReadable: indexReadable,
+        now: Date.now,
+      }),
+    ),
+  );
 
   morgiana.emit(firstVault.id, "tc.server.start");
 

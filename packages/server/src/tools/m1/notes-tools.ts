@@ -367,6 +367,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         });
 
         writeNoteAtomic(abs, input.content, input.options.create_dirs);
+        deps.reindex?.(v.id, rel, input.content);
         return {
           vault: v.id,
           path: rel,
@@ -416,6 +417,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         }
 
         writeNoteAtomic(abs, next, input.options.create_dirs);
+        deps.reindex?.(v.id, rel, next);
         return {
           vault: v.id,
           path: rel,
@@ -465,6 +467,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           });
         const next = serializeNote(parsed.frontmatter, patchedBody, parsed.rawFrontmatter);
         writeNoteAtomic(abs, next, false);
+        deps.reindex?.(v.id, rel, next);
         return {
           vault: v.id,
           path: rel,
@@ -501,6 +504,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         let trashedTo: string | null = null;
         if (input.permanent) hardDelete(abs);
         else trashedTo = trashNote(v.root, rel);
+        deps.deindex?.(v.id, rel);
         return {
           vault: v.id,
           path: rel,
