@@ -39,6 +39,7 @@ import { DEFAULT_MEMORY_FOLDER, DEFAULT_TRACE_FOLDER, registerM5Tools } from "./
 import { type M6Deps, registerM6Tools } from "./tools/m6";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
+import { resolveMode, type VaultMode } from "./vault/mode";
 import { VaultRegistry } from "./vault/registry";
 
 const VERSION = "1.0.0";
@@ -169,12 +170,24 @@ async function main(): Promise<void> {
       }),
     );
   }
+  // Per-vault mode resolved once at startup (THE-255): explicit live/headless win; auto uses
+  // the companion probe result captured above. Tier-3 bridge tools degrade headless.
+  const modeByVault = new Map<string, VaultMode>(
+    config.vaults.map((v) => [
+      v.id,
+      resolveMode(
+        { mode: v.mode, restApiUrl: v.restApiUrl },
+        capabilities.get(v.id).companion === "reachable",
+      ),
+    ]),
+  );
   const m4Deps: M4Deps = {
     vaultRegistry,
     capabilities,
     bridgeFor: (vaultId) => bridgeClients.get(vaultId),
     timeouts: (vaultId) => timeoutsByVault.get(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS,
     commandPolicy: (vaultId) => commandsByVault.get(vaultId) ?? { enabled: false, allowlist: [] },
+    mode: (vaultId) => modeByVault.get(vaultId) ?? "headless",
   };
 
   const embeddingProvider = createEmbeddingProvider(config.embeddings);
