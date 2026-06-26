@@ -4,8 +4,19 @@
 // distribution metadata disagree. Run in CI (ci-version.yml) and by release.mjs.
 // No dependencies; run from the repo root.
 import { readFileSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 
-const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
+// Every path below is a hardcoded repo-relative metadata file; this guard keeps
+// the reads provably contained to the repo root (defense in depth for tooling).
+const ROOT = resolve(".");
+const readJson = (p) => {
+  const target = resolve(ROOT, p);
+  const rel = relative(ROOT, target);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error(`refusing to read outside repo root: ${p}`);
+  }
+  return JSON.parse(readFileSync(target, "utf8"));
+};
 const sources = [];
 const add = (label, version) => sources.push({ label, version });
 

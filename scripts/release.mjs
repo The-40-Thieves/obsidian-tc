@@ -6,6 +6,20 @@
 // push, or tag — branch + PR + review + human tag stay manual by design.
 import { readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { isAbsolute, relative, resolve } from "node:path";
+
+// Every path below is a hardcoded repo-relative metadata file; this guard keeps
+// the reads/writes provably contained to the repo root (defense in depth).
+const ROOT = resolve(".");
+const inRepo = (p) => {
+  const target = resolve(ROOT, p);
+  const rel = relative(ROOT, target);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error(`refusing to touch path outside repo root: ${p}`);
+  }
+  return target;
+};
+const readJson = (p) => JSON.parse(readFileSync(inRepo(p), "utf8"));
 
 const arg = process.argv[2];
 if (!arg) {
@@ -22,7 +36,7 @@ const bump = (v, kind) => {
   throw new Error(`unknown bump kind: ${kind}`);
 };
 
-const current = JSON.parse(readFileSync("packages/server/package.json", "utf8")).version;
+const current = readJson("packages/server/package.json").version;
 const next = SEMVER.test(arg) ? arg : bump(current, arg);
 if (!SEMVER.test(next)) {
   console.error(`computed version is not semver: ${next}`);
@@ -31,9 +45,10 @@ if (!SEMVER.test(next)) {
 console.log(`release: ${current} -> ${next}`);
 
 const setVersion = (path, mutate) => {
-  const obj = JSON.parse(readFileSync(path, "utf8"));
+  const target = inRepo(path);
+  const obj = JSON.parse(readFileSync(target, "utf8"));
   mutate(obj);
-  writeFileSync(path, `${JSON.stringify(obj, null, 2)}\n`);
+  writeFileSync(target, `${JSON.stringify(obj, null, 2)}\n`);
   console.log(`  set ${path}`);
 };
 
