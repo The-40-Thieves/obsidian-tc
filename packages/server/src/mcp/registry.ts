@@ -9,6 +9,7 @@ import {
   scopeClassOf,
   scopeRequiresHitl,
   type ToolResult,
+  type ToolVisibilityConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { z } from "zod";
 import type { FolderAcl } from "../acl";
@@ -18,6 +19,7 @@ import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/tracing";
 import { callerHash, type RateLimiter } from "../throttle";
+import { ALLOW_ALL, isDisabled, isListed } from "./visibility";
 
 export interface CallerContext {
   caller: string | null;
@@ -35,6 +37,9 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   description: string;
   inputSchema: z.ZodType<I>;
   requiredScopes: string[];
+  /** Free-form classification labels for tool-visibility scoping (THE-219):
+   *  matched against toolVisibility.hiddenTags / disabledTags. */
+  tags?: string[];
   destructive?: boolean;
   /** Tool-specific precondition gate. Runs AFTER scope+ACL and BEFORE the HITL/elicit
    *  stage, so a rejection never consumes the single-use elicit token (D5). Throw an
@@ -119,6 +124,8 @@ export interface RegistryOptions {
   rateLimiter?: RateLimiter;
   /** Idempotency replay TTL in seconds (D3). Defaults to 86400 when absent. */
   idempotencyTtlSeconds?: number;
+  /** Static tool-visibility scoping (THE-219). Optional: ALLOW_ALL when absent. */
+  toolVisibility?: ToolVisibilityConfig;
 }
 
 export class ToolRegistry {
@@ -135,6 +142,7 @@ export class ToolRegistry {
   ) => void;
   private readonly rateLimiter?: RateLimiter;
   private readonly idempotencyTtlMs: number;
+  private readonly toolVisibility: ToolVisibilityConfig;
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
@@ -144,6 +152,7 @@ export class ToolRegistry {
     this.emit = opts.emit;
     this.rateLimiter = opts.rateLimiter;
     this.idempotencyTtlMs = (opts.idempotencyTtlSeconds ?? 86400) * 1000;
+    this.toolVisibility = opts.toolVisibility ?? ALLOW_ALL;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -289,6 +298,11 @@ export class ToolRegistry {
   list(): ToolDefinition[] {
     return [...this.tools.values()];
   }
+  /** Tools advertised by tools/list: the registered set minus those the visibility
+   *  config hides or disables (THE-219). `list()` stays the full registered set. */
+  listVisible(): ToolDefinition[] {
+    return [...this.tools.values()].filter((def) => isListed(def, this.toolVisibility));
+  }
   has(name: string): boolean {
     return this.tools.has(name);
   }
@@ -367,6 +381,11 @@ export class ToolRegistry {
     try {
       const def = this.tools.get(name);
       if (!def) throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
+      // THE-219 dispatch guard: a disabled tool is removed from the surface entirely.
+      // Reject before scope/validation with the same error an unregistered tool yields,
+      // so a disabled tool is indistinguishable from one that was never registered.
+      if (isDisabled(def, this.toolVisibility))
+        throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
       scopeClass = def.scopeClass ?? scopeClassOf(def.requiredScopes);
 
       const parsed = def.inputSchema.safeParse(rawInput);

@@ -10,6 +10,9 @@ export interface ToolSpec<S extends z.ZodTypeAny, O> {
   description: string;
   inputSchema: S;
   requiredScopes: string[];
+  /** Free-form classification labels for tool-visibility scoping (THE-219):
+   *  matched against toolVisibility.hiddenTags / disabledTags. */
+  tags?: string[];
   destructive?: boolean;
   precheck?: (input: z.infer<S>, ctx: CallerContext) => void | Promise<void>;
   scopeClass?: string;

@@ -38,7 +38,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, () => {
-    const tools: Tool[] = opts.registry.list().map((def) => ({
+    const tools: Tool[] = opts.registry.listVisible().map((def) => ({
       name: def.name,
       description: def.description,
       inputSchema: z.toJSONSchema(def.inputSchema, {

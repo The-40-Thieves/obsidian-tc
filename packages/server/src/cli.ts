@@ -112,6 +112,7 @@ async function main(): Promise<void> {
     tracer: otel.tracer,
     emit: (vaultId, type, data) => morgiana.emit(vaultId, type, data),
     rateLimiter,
+    toolVisibility: config.toolVisibility,
   });
   registry.register(
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
