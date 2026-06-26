@@ -21,7 +21,8 @@ import { MetricsRecorder } from "./metrics/registry";
 import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import { createPlurClient } from "./plur/client";
-import { indexVault } from "./search/indexer";
+import { indexNote, indexVault } from "./search/indexer";
+import { ensureVecChunks } from "./search/vec";
 import { RateLimiter } from "./throttle";
 import { createHealthTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
@@ -119,12 +120,26 @@ async function main(): Promise<void> {
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
   );
   const vaultRegistry = new VaultRegistry(config.vaults, process.env.OBSIDIAN_TC_DEFAULT_VAULT);
+  // Index-on-write (THE-255): a note mutation reindexes its path inline (best-effort and
+  // backgrounded, so it never slows or fails a write); deindex drops a removed note's chunks
+  // via an empty-content reindex (no embedding call). The boot reconcile guarantees full
+  // convergence. Shares the one embedding provider + vec-availability flag.
+  const embeddingProvider = createEmbeddingProvider(config.embeddings);
+  const hasVec = ensureVecChunks(db, embeddingProvider.dimensions, { now: Date.now });
   registerM1Tools(registry, {
     vaultRegistry,
     version: VERSION,
     startedAt,
     embeddings: { provider: config.embeddings.provider, model: config.embeddings.model },
     configPath,
+    reindex: (vaultId, path, content) => {
+      void indexNote(db, embeddingProvider, vaultId, path, content, hasVec, Date.now).catch(
+        () => {},
+      );
+    },
+    deindex: (vaultId, path) => {
+      void indexNote(db, embeddingProvider, vaultId, path, "", hasVec, Date.now).catch(() => {});
+    },
   });
   // M4 plugin bridges (THE-180): per vault, build a bridge client to the companion
   // plugin's Local REST API surface (base URL + bearer key from vault config/env,
@@ -190,7 +205,6 @@ async function main(): Promise<void> {
     mode: (vaultId) => modeByVault.get(vaultId) ?? "headless",
   };
 
-  const embeddingProvider = createEmbeddingProvider(config.embeddings);
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider,
