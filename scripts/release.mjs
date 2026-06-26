@@ -12,9 +12,10 @@ import { relative, resolve } from "node:path";
 // the reads/writes provably contained to the repo root (defense in depth).
 const ROOT = resolve(".");
 const inRepo = (p) => {
-  const target = resolve(ROOT, p);
+  const base = resolve(ROOT);
+  const target = resolve(base, p);
   // relative() expresses any escape (absolute paths included) as a "../" prefix.
-  if (relative(ROOT, target).startsWith("..")) {
+  if (relative(base, target).startsWith("..")) {
     throw new Error(`refusing to touch path outside repo root: ${p}`);
   }
   return target;
