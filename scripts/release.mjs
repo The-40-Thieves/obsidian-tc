@@ -52,6 +52,25 @@ const setVersion = (path, mutate) => {
   console.log(`  set ${path}`);
 };
 
+// CHANGELOG: validate up front, before any file is mutated, so a bad
+// [Unreleased] state can't leave the working tree partially written.
+// Fail if [Unreleased] is missing or has no notes (no silent version).
+const date = new Date().toISOString().slice(0, 10);
+const cl = readFileSync("CHANGELOG.md", "utf8");
+const marker = "## [Unreleased]";
+const at = cl.indexOf(marker);
+if (at === -1) {
+  console.error("CHANGELOG.md has no [Unreleased] section.");
+  process.exit(1);
+}
+const afterMarker = at + marker.length;
+const nextHeading = cl.indexOf("\n## [", afterMarker);
+const body = (nextHeading === -1 ? cl.slice(afterMarker) : cl.slice(afterMarker, nextHeading)).trim();
+if (!body) {
+  console.error("CHANGELOG [Unreleased] is empty; add release notes before releasing.");
+  process.exit(1);
+}
+
 // packages/plugin is intentionally omitted: the Obsidian companion plugin is
 // released on its own cadence (see scripts/check-version-coherence.mjs).
 for (const p of [
@@ -70,23 +89,8 @@ setVersion("server.json", (o) => {
   if (Array.isArray(o.packages)) for (const pkg of o.packages) pkg.version = next;
 });
 
-// CHANGELOG: rename [Unreleased] -> [next] - date, prepend a fresh [Unreleased].
-// Fail if [Unreleased] has no notes (no silent version).
-const date = new Date().toISOString().slice(0, 10);
-const cl = readFileSync("CHANGELOG.md", "utf8");
-const marker = "## [Unreleased]";
-const at = cl.indexOf(marker);
-if (at === -1) {
-  console.error("CHANGELOG.md has no [Unreleased] section.");
-  process.exit(1);
-}
-const afterMarker = at + marker.length;
-const nextHeading = cl.indexOf("\n## [", afterMarker);
-const body = (nextHeading === -1 ? cl.slice(afterMarker) : cl.slice(afterMarker, nextHeading)).trim();
-if (!body) {
-  console.error("CHANGELOG [Unreleased] is empty; add release notes before releasing.");
-  process.exit(1);
-}
+// Roll the CHANGELOG now that the JSON files are written: rename [Unreleased]
+// -> [next] - date and prepend a fresh [Unreleased].
 const rebuilt =
   cl.slice(0, at) +
   `## [Unreleased]\n\n## [${next}] - ${date}\n\n${body}\n` +
