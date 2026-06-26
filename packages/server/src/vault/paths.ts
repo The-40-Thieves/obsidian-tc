@@ -47,10 +47,10 @@ function realpathDeepest(abs: string): string {
   let dir = abs;
   for (let depth = 0; depth < 4096; depth++) {
     const real = realpathOrNull(dir);
-    if (real !== null) return tail.length === 0 ? real : join(real, ...tail.toReversed());
+    if (real !== null) return tail.length === 0 ? real : join(real, ...tail);
     const parent = dirname(dir);
     if (parent === dir) break;
-    tail.push(basename(dir));
+    tail.unshift(basename(dir));
     dir = parent;
   }
   return abs;
