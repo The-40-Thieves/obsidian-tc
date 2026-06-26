@@ -20,6 +20,11 @@ const readJson = (p) => {
 const sources = [];
 const add = (label, version) => sources.push({ label, version });
 
+// packages/plugin is intentionally excluded. The Obsidian companion plugin
+// (packages/plugin/package.json + its Obsidian manifest.json, currently 1.0.2)
+// ships on the Obsidian community-plugin cadence, independent of the MCP server
+// release unit gated here. Note the root manifest.json below is the MCPB server
+// bundle manifest, not the plugin's Obsidian manifest.
 add("package.json (root)", readJson("package.json").version);
 add("packages/server/package.json", readJson("packages/server/package.json").version);
 add("packages/native/package.json", readJson("packages/native/package.json").version);

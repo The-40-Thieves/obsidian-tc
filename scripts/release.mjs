@@ -52,6 +52,8 @@ const setVersion = (path, mutate) => {
   console.log(`  set ${path}`);
 };
 
+// packages/plugin is intentionally omitted: the Obsidian companion plugin is
+// released on its own cadence (see scripts/check-version-coherence.mjs).
 for (const p of [
   "package.json",
   "packages/server/package.json",
@@ -88,7 +90,7 @@ if (!body) {
 const rebuilt =
   cl.slice(0, at) +
   `## [Unreleased]\n\n## [${next}] - ${date}\n\n${body}\n` +
-  (nextHeading === -1 ? "\n" : cl.slice(nextHeading + 1));
+  (nextHeading === -1 ? "\n" : `\n${cl.slice(nextHeading + 1)}`);
 writeFileSync("CHANGELOG.md", rebuilt);
 console.log(`  rolled CHANGELOG -> [${next}] - ${date}`);
 

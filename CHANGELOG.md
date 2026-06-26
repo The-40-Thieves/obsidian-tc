@@ -4,6 +4,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/) and the spirit of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
 ## [1.2.1] - 2026-06-26
 
 Post-1.0.2 work, now versioned. Two strands landed on `main` after 1.0.2: a
