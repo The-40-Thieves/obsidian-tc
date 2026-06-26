@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import type { Database } from "../src/db/types";
-import { elicitVerifier } from "../src/elicit";
+import { elicitVerifier, issueElicitToken } from "../src/elicit";
+import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
@@ -44,6 +45,11 @@ export interface M3Vault {
   exists(rel: string): boolean;
   ctx(over?: Partial<CallerContext>): CallerContext;
   call(
+    name: string,
+    input: Record<string, unknown>,
+    over?: Partial<CallerContext>,
+  ): Promise<ToolResult>;
+  callConfirmed(
     name: string,
     input: Record<string, unknown>,
     over?: Partial<CallerContext>,
@@ -92,6 +98,15 @@ export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
     exists: (rel) => existsSync(join(root, rel)),
     ctx,
     call: (name, input, over) => registry.dispatch(name, input, ctx(over)),
+    callConfirmed: (name, input, over) => {
+      const token = issueElicitToken(db, {
+        vaultId: id,
+        toolName: name,
+        argsHash: argsHash(name, input),
+        caller: "test",
+      });
+      return registry.dispatch(name, input, ctx({ elicitToken: token, ...over }));
+    },
     events: () =>
       db
         .prepare("SELECT tool_name, status, error_code FROM event_log ORDER BY id")

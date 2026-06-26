@@ -44,7 +44,7 @@ async function resolveAuth(header: string | undefined, auth: AuthConfig): Promis
   if (!auth.jwtSecret)
     return { ok: false, status: 500, reason: "jwt mode misconfigured: no secret" };
   try {
-    const id = await verifyJwt(token, auth.jwtSecret);
+    const id = await verifyJwt(token, auth.jwtSecret, { maxAgeSeconds: auth.tokenTtlSeconds });
     return { ok: true, caller: id.caller, scopes: id.scopes };
   } catch {
     return { ok: false, status: 401, reason: "invalid or expired token" };

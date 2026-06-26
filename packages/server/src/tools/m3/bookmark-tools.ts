@@ -196,6 +196,9 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
         })
         .strict(),
       requiredScopes: ["delete:bookmarks"],
+      // Deletes every match recursively (a whole group + its children), so it requires a
+      // HITL elicit token like delete_note / delete_attachment.
+      destructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         enforcePathAcl(ctx.acl, "delete", BOOKMARKS_PATH);
