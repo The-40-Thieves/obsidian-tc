@@ -5,7 +5,7 @@
 // bun.lock, rolls the CHANGELOG, and runs the coherence gate. Does NOT commit,
 // push, or tag — branch + PR + review + human tag stay manual by design.
 import { readFileSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { relative, resolve } from "node:path";
 
 // Every path below is a hardcoded repo-relative metadata file; this guard keeps
@@ -100,10 +100,10 @@ console.log(`  rolled CHANGELOG -> [${next}] - ${date}`);
 
 // Refresh the lockfile for the workspace version bump (the step that broke 1.2.1).
 console.log("bun install (refresh bun.lock) ...");
-execSync("bun install", { stdio: "inherit" });
+execFileSync("bun", ["install"], { stdio: "inherit" });
 
 // Coherence gate.
-execSync("node scripts/check-version-coherence.mjs", { stdio: "inherit" });
+execFileSync("node", ["scripts/check-version-coherence.mjs"], { stdio: "inherit" });
 
 console.log(
   `\nstaged ${next}. next: commit on a branch, open a PR, review, merge, then a human pushes tag v${next}.`,
