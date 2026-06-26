@@ -1,6 +1,6 @@
 {
   "name": "@the-40-thieves/obsidian-tc-shared",
-  "version": "1.0.2",
+  "version": "1.2.1",
   "description": "Shared Zod schemas and types for obsidian-tc",
   "license": "Apache-2.0",
   "type": "module",
