@@ -15,7 +15,10 @@ If you are picking this up cold:
 5. Run every unit through the self-gate (§9) before marking green; commit + push per unit.
 
 **Status @ last update:** Phase 0 (inventory) — **GREEN**. Move-map produced. No code ported yet.
-Working tree clean at `fd58807` on `main`. KMS read-only at corrected path.
+Working tree clean on `main`. KMS read-only at corrected path.
+**HOLD:** Scope/DAG **confirmed by user (2026-06-26)** ("proceed as scoped"). Holding before any
+port code per user direction — awaiting the user to designate the starting unit. Natural first:
+**W-SCHEMA + W-GATEWAY-CLIENT** (both no-creds, parallelizable). Do NOT begin porting until directed.
 
 ---
 
@@ -218,7 +221,7 @@ Parity check: row counts per table + spot-check N embeddings (dim + norm) + reca
 | E2 | resolved | Apparent contradiction (GraphRAG into "access-only" obsidian-tc) → SANCTIONED by vault note + Linear THE-233; ARCHITECTURE.md retrieval-scope SUPERSEDED. |
 | E3 | **open (deferred)** | W-MIGRATE needs the legacy **Supabase project ref + read-only service key** to export state. Escalate to human when W-MIGRATE starts. (Judgment/keys = "out of Claude Code" per vault note §12.) |
 | E4 | **open (deferred)** | W-GATEWAY-CLIENT integration test needs the **LiteLLM endpoint + role routing config** (judgment/keys, §12). The code seam is buildable now with config injection; live wiring escalates at integration. |
-| E5 | open (info) | Brief's `## Execution DAG` + escalation-point list arrived empty/truncated; orchestrator authored §3 from the roster + ticket graph. **Invites correction.** |
+| E5 | resolved | Brief's `## Execution DAG` + escalation points arrived empty; orchestrator authored §3 from roster + ticket graph. **Confirmed by user 2026-06-26** ("proceed as scoped"). |
 | E6 | open (info) | AGPL relicense (THE-260) is in flight but **out of scope** for THE-233; preserve Apache-2.0 headers. Flag if a ported KMS file carries an incompatible license. |
 
 ---
