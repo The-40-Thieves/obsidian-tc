@@ -42,4 +42,13 @@ describe("verifyJwt (H2)", () => {
     const id = await verifyJwt(token, secret);
     expect(id.caller).toBe("alice");
   });
+
+  it("accepts an exp-only token (no iat) even when maxAgeSeconds is set", async () => {
+    // The max-age cap keys off iat; an exp-only token can't be aged out, so it must
+    // still verify. Locks in the "existing exp-only tokens keep working" contract
+    // and guards against a regression that fires the guard on a missing iat.
+    const token = await mint({ sub: "alice" }, (s) => s.setExpirationTime("10h"));
+    const id = await verifyJwt(token, secret, { maxAgeSeconds: 60 });
+    expect(id.caller).toBe("alice");
+  });
 });

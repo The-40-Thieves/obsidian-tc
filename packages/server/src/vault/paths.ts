@@ -71,7 +71,14 @@ export function resolveVaultPath(vaultRoot: string, relPath: string): string {
   const rel = relative(root, abs);
   if (rel.startsWith("..") || isAbsolute(rel))
     throw err.pathInvalid("path escapes the vault root", { path: relPath });
-  const realRoot = realpathOrNull(root) ?? root;
+  // The real-path containment guarantee hinges on canonicalizing the root. If the
+  // vault root can't be resolved (deleted / transiently unavailable), fail closed
+  // instead of falling back to the raw root, which would silently degrade this
+  // check to the byte-level guard above. Also keeps realpathDeepest's walk
+  // terminating on a resolvable ancestor rather than returning an un-canonical abs.
+  const realRoot = realpathOrNull(root);
+  if (realRoot === null)
+    throw err.vaultNotFound("vault root could not be resolved", { path: relPath });
   const realRel = relative(realRoot, realpathDeepest(abs));
   if (realRel.startsWith("..") || isAbsolute(realRel))
     throw err.pathInvalid("path escapes the vault root", { path: relPath });
