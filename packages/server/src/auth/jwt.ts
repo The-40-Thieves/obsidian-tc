@@ -18,6 +18,8 @@ export async function verifyJwt(
   secret: string,
   opts: { maxAgeSeconds?: number } = {},
 ): Promise<JwtIdentity> {
+  if (!secret) throw new Error("empty secret not allowed");
+
   // requiredClaims:["exp"] closes the "token without exp never expires" gap — jose only
   // enforces expiry when exp is present, so demand it. maxAgeSeconds (from auth.tokenTtlSeconds)
   // additionally caps token age, but only when the token carries iat, so existing exp-only

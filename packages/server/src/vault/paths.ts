@@ -18,12 +18,13 @@ export function contentHash(content: string): string {
  * Returns "" for the vault root (used by directory-scoped tools).
  */
 export function normalizeVaultPath(relPath: string): string {
-  const unified = relPath.replace(/\\/g, "/");
-  if (unified.startsWith("/") || /^[A-Za-z]:\//.test(unified))
+  if (relPath.startsWith("/") || relPath.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(relPath))
     throw err.pathInvalid("absolute paths are not allowed", { path: relPath });
-  const parts = unified.split("/");
+  const parts = relPath.split(/[\\/]+/);
   if (parts.some((p) => p === ".."))
     throw err.pathInvalid("path traversal is not allowed", { path: relPath });
+  if (parts.some((p) => /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i.test(p)))
+    throw err.pathInvalid("Windows reserved names are not allowed", { path: relPath });
   return parts.filter((p) => p !== "" && p !== ".").join("/");
 }
 

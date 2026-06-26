@@ -18,7 +18,7 @@ export interface VaultModeConfig {
 export function resolveMode(cfg: VaultModeConfig, restReachable: boolean): VaultMode {
   if (cfg.mode === "live") return "live";
   if (cfg.mode === "headless") return "headless";
-  return !!cfg.restApiUrl && restReachable ? "live" : "headless";
+  return cfg.restApiUrl && restReachable ? "live" : "headless";
 }
 
 /** Guard for Tier-3 tools (action-firing app ops, app-computed reads). Throws the typed

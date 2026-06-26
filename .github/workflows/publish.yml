@@ -9,8 +9,11 @@ permissions:
   id-token: write
   attestations: write
 
-# Reconciled in M7 (THE-183): 4-platform native matrix (linux-arm64 deferred to v1.1 per the G3
-# amendment, THE-141); no cosign/SBOM (also deferred to v1.1); text bun.lock. Fires only on a
+# M7 (THE-183) shipped a 4-platform native matrix with linux-arm64 deferred (G3 amendment,
+# THE-141); it is now a 6-platform matrix — linux/darwin/win, each x64 + arm64. linux-arm64
+# cross-compiles on the x64 ubuntu runner (gcc-aarch64-linux-gnu step below); win-arm64
+# cross-compiles on the x64 windows runner via the bundled MSVC ARM64 tools. No cosign/SBOM
+# (deferred to v1.1); text bun.lock. Fires only on a
 # human-pushed v* tag — it is config-verified here, not executed. R5/THE-214: the sub-packages
 # now publish under the owned @the-40-thieves scope (obsidian-tc-shared / obsidian-tc-native);
 # the server stays the owned unscoped obsidian-tc. The pin-workspace-deps step below rewrites
@@ -25,6 +28,9 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             triple: linux-x64-gnu
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            triple: linux-arm64-gnu
           - host: macos-latest
             target: x86_64-apple-darwin
             triple: darwin-x64
@@ -34,6 +40,9 @@ jobs:
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             triple: win32-x64-msvc
+          - host: windows-latest
+            target: aarch64-pc-windows-msvc
+            triple: win32-arm64-msvc
     runs-on: ${{ matrix.host }}
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +52,22 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - run: bun install --frozen-lockfile
+      # linux-arm64 is cross-compiled on the x64 ubuntu runner, which has no aarch64 linker
+      # by default. Install the GNU cross toolchain and point cargo's linker (and the cc
+      # crate, for when the commented-out sqlite-vec/ndarray deps land) at it. The other five
+      # targets need no extra step: darwin clang cross-compiles x64<->arm64, and the x64
+      # windows runner ships the MSVC ARM64 tools, so napi builds them with just the rust target.
+      - name: install aarch64 linux cross toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          {
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
+            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
+            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++"
+          } >> "$GITHUB_ENV"
+        shell: bash
       - name: build native (.node)
         working-directory: packages/native
         run: bun run build -- --target ${{ matrix.target }}

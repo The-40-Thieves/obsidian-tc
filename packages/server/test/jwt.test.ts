@@ -51,4 +51,11 @@ describe("verifyJwt (H2)", () => {
     const id = await verifyJwt(token, secret, { maxAgeSeconds: 60 });
     expect(id.caller).toBe("alice");
   });
+
+  it("rejects an empty secret instead of verifying a token against it", async () => {
+    // An empty configured secret must never authenticate anyone — fail closed rather
+    // than letting jose verify against a zero-length key.
+    const token = await mint({ sub: "alice" }, (s) => s.setExpirationTime("5m"));
+    await expect(verifyJwt(token, "")).rejects.toThrow(/empty secret/i);
+  });
 });

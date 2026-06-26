@@ -30,6 +30,12 @@ function hostTriple() {
   if (platform === "linux" && arch === "x64") {
     return "linux-x64-gnu";
   }
+  if (platform === "win32" && arch === "arm64") {
+    return "win32-arm64-msvc";
+  }
+  if (platform === "linux" && arch === "arm64") {
+    return "linux-arm64-gnu";
+  }
   return null;
 }
 
