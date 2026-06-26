@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import type { Database } from "../src/db/types";
@@ -40,6 +41,28 @@ describe("paths: safety + content hash", () => {
     expect(normalizeVaultPath("a\\b.md")).toBe("a/b.md");
     expect(() => normalizeVaultPath("../x")).toThrow();
     expect(() => normalizeVaultPath("/x")).toThrow();
+  });
+  it("rejects single-backslash and drive-letter absolute paths", () => {
+    expect(() => normalizeVaultPath("\\windows\\system32")).toThrow(/absolute/i);
+    expect(() => normalizeVaultPath("C:\\Users\\x")).toThrow(/absolute/i);
+    expect(() => normalizeVaultPath("c:/Users/x")).toThrow(/absolute/i);
+  });
+  it("treats `..` as traversal only on a segment boundary (dotted filenames are fine)", () => {
+    expect(() => normalizeVaultPath("a/../b")).toThrow(/traversal/i);
+    expect(() => normalizeVaultPath("a\\..\\b")).toThrow(/traversal/i);
+    expect(() => normalizeVaultPath("a/..")).toThrow(/traversal/i);
+    // A leading-dot filename is not a traversal segment and must be allowed.
+    expect(normalizeVaultPath("..gitkeep")).toBe("..gitkeep");
+    expect(normalizeVaultPath("notes/v1.2..final.md")).toBe("notes/v1.2..final.md");
+  });
+  it("rejects Windows reserved device names, case-insensitively, with or without extension", () => {
+    expect(() => normalizeVaultPath("CON")).toThrow(/reserved/i);
+    expect(() => normalizeVaultPath("nul.md")).toThrow(/reserved/i);
+    expect(() => normalizeVaultPath("notes/COM1/x.md")).toThrow(/reserved/i);
+    expect(() => normalizeVaultPath("LPT9.txt")).toThrow(/reserved/i);
+    // Names that merely start with a reserved stem are not reserved.
+    expect(normalizeVaultPath("console.md")).toBe("console.md");
+    expect(normalizeVaultPath("coms.md")).toBe("coms.md");
   });
   it("resolves within root and blocks escapes", () => {
     const root = tmpVault();
@@ -87,6 +110,26 @@ describe("paths: safety + content hash", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("VaultPath schema: byte-level traversal/absolute guard (shared)", () => {
+  const ok = (p: string) => VaultPath.safeParse(p).success;
+  it("rejects `..` only as a path segment, not as a substring", () => {
+    expect(ok("../secret")).toBe(false);
+    expect(ok("a/../b")).toBe(false);
+    expect(ok("a\\..\\b")).toBe(false);
+    expect(ok("a/..")).toBe(false);
+    // dotted names containing ".." but no traversal segment are accepted (e.g. ..gitkeep)
+    expect(ok("..gitkeep")).toBe(true);
+    expect(ok("notes/v1.2..final.md")).toBe(true);
+  });
+  it("rejects POSIX, single-backslash, and drive-letter absolute paths", () => {
+    expect(ok("/etc/passwd")).toBe(false);
+    expect(ok("\\windows\\system32")).toBe(false);
+    expect(ok("C:\\Users\\x")).toBe(false);
+    expect(ok("c:/Users/x")).toBe(false);
+    expect(ok("notes/a.md")).toBe(true);
   });
 });
 

@@ -20,7 +20,7 @@ export const VaultPath = z
   .string()
   .min(1)
   .max(1024)
-  .refine((p) => !p.includes(".."), "path traversal rejected")
+  .refine((p) => !/(^|\/|\\)\.\.($|\/|\\)/.test(p), "path traversal rejected")
   .refine(
     (p) => !p.startsWith("/") && !p.startsWith("\\") && !/^[A-Za-z]:[\\/]/.test(p),
     "absolute paths rejected",
