@@ -47,8 +47,14 @@ You need two toolchains for full development: Node/Bun and Rust. You can skip Ru
 git clone https://github.com/the-40-thieves/obsidian-tc.git
 cd obsidian-tc
 bun install              # installs all workspace deps (native falls back to pure-JS)
-bun run build            # builds shared + native + server + plugin
+bun run build            # builds shared + native + server + plugin (native needs Rust)
 bun run test             # runs the workspace test suites
+```
+
+No Rust toolchain? Skip the native build and rely on the pure-JS fallback:
+
+```bash
+bun run --filter='!@the-40-thieves/obsidian-tc-native' build   # shared + server + plugin
 ```
 
 To build the native module locally (your platform only):
