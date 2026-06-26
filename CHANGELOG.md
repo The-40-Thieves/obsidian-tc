@@ -4,10 +4,34 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/) and the spirit of
 [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [1.2.1] - 2026-06-26
 
-Post-1.0.2 work merged to `main`: a granular security-audit remediation pass and a
-dependency-currency sweep. Not yet tagged/released.
+Post-1.0.2 work, now versioned. Two strands landed on `main` after 1.0.2: a
+security-audit remediation pass plus a dependency-currency sweep, and the
+agent-ergonomics + distribution feature set merged 2026-06-26. `package.json` had
+been bumped to 1.2.1 by the programmatic version path while this changelog,
+`server.json`, and `manifest.json` lagged at 1.0.2; 1.2.1 is the first coherent cut
+across all four. (1.1.0 and 1.2.0 were skipped by the bump path; release coherence is
+tracked by THE-256.)
+
+### Added
+
+- **Tool-visibility scoping (THE-219):** config-driven `allowed` / `hidden` /
+  `disabled` / `disabledTags` / `hiddenTags` / `requireReadOnly` filtering at the
+  `tools/list` chokepoint, with `requireReadOnly` derived from existing mutation
+  scopes. One build can serve a lean per-deployment surface without consolidating the
+  tool set.
+- **Per-caller tool-visibility filtering (THE-250):** the visibility layer also drops
+  tools the authenticated caller lacks scopes for, composing with the static config
+  rather than duplicating verdict logic.
+- **Headless VaultBackend, lean v1 (THE-255):** a single filesystem `VaultBackend`
+  (read / write / delete / exists / list / walk) serving reads and writes in both live
+  and headless modes; `resolveMode` (probe-once, per vault) and `assertLive` returning a
+  typed `requires_live_obsidian` for action-firing tools when Obsidian is closed.
+- **Distribution artifacts (THE-220):** `server.json` (MCP registry,
+  `io.github.The-40-Thieves/obsidian-tc`), `manifest.json` (MCPB 0.3), `.mcpbignore`, and
+  `scripts/bundle-mcpb.ts` for one-click `.mcpb` install, plus Cursor / VS Code deeplinks
+  in the README.
 
 ### Security
 
