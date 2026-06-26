@@ -413,11 +413,9 @@ export class ToolRegistry {
 
       // Idempotency gate (D3). A keyed call claims a row in idempotency_keys; a
       // replay returns the cached result without re-running the handler. Runs after
-      // auth/scope/ACL/precheck but BEFORE HITL/throttle: the lock must be claimed
-      // atomically before the single-use elicit token is consumed to prevent a TOCTOU
-      // race where two concurrent identical requests each consume the token.
-      // Authorization (auth/scope/ACL) still runs before this gate, so it stays
-      // authoritative on replays.
+      // auth/scope/ACL/HITL/throttle, so authorization stays authoritative on replays.
+      // Moved above HITL to prevent TOCTOU races: the lock must be claimed BEFORE the
+      // single-use elicit token is consumed.
       idemKey = extractIdempotencyKey(parsed.data);
       if (idemKey) {
         if (
