@@ -1,0 +1,52 @@
+# .mcpbignore — files excluded from the packed .mcpb (gitignore syntax).
+# The bundle ships the built server (packages/server/dist), the MCPB manifest, and
+# package metadata. Everything below is source, build-time, test, or non-runtime.
+
+# Source — the bundle ships built dist/, not TypeScript sources
+packages/*/src/
+scripts/
+**/*.ts
+!**/*.d.ts
+
+# Tests + test config
+packages/*/test/
+**/*.test.*
+**/vitest.config.*
+**/__snapshots__/
+
+# Docs (only the root README is kept, for the extension card)
+docs/
+*.md
+!/README.md
+
+# Other workspace packages — the bundle ships only the server runtime
+packages/plugin/
+
+# Rust / native build intermediates
+packages/native/target/
+packages/native/src/
+packages/native/Cargo.*
+packages/native/build.rs
+
+# Dependencies — the server entry bundles its JS deps; vendoring native runtime
+# deps for a fully self-contained cross-platform bundle is a packaging follow-up.
+node_modules/
+
+# Repo + tooling + local state (never part of the distributable)
+.git/
+.github/
+.gitignore
+.vscode/
+.omc/
+biome.json
+tsconfig*.json
+bun.lock
+.DS_Store
+
+# Registry manifest (ships to the MCP registry, not inside the extension)
+/server.json
+.mcpbignore
+
+# Build output (the .mcpb is written here; never recurse it into itself)
+/dist/
+*.mcpb

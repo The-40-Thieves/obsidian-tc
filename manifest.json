@@ -1,0 +1,58 @@
+{
+  "manifest_version": "0.3",
+  "name": "obsidian-tc",
+  "display_name": "Obsidian Turbocharged",
+  "version": "1.0.2",
+  "description": "Model-agnostic, agent-ready Obsidian MCP server with RBAC, SLSA provenance, and native search.",
+  "author": {
+    "name": "The 40 Thieves",
+    "url": "https://github.com/The-40-Thieves"
+  },
+  "homepage": "https://github.com/The-40-Thieves/obsidian-tc#readme",
+  "documentation": "https://github.com/The-40-Thieves/obsidian-tc#readme",
+  "support": "https://github.com/The-40-Thieves/obsidian-tc/issues",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-40-Thieves/obsidian-tc"
+  },
+  "keywords": [
+    "obsidian",
+    "mcp",
+    "model-context-protocol",
+    "knowledge-management",
+    "agent",
+    "rbac"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "packages/server/dist/cli.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/packages/server/dist/cli.js", "${user_config.config_path}"],
+      "env": {
+        "OBSIDIAN_TC_DEFAULT_VAULT": "${user_config.default_vault}"
+      }
+    }
+  },
+  "tools_generated": true,
+  "compatibility": {
+    "runtimes": {
+      "node": ">=24.0.0"
+    }
+  },
+  "user_config": {
+    "config_path": {
+      "type": "file",
+      "title": "Config file",
+      "description": "Absolute path to your obsidian-tc JSON config (vaults, ACL, transports).",
+      "required": true
+    },
+    "default_vault": {
+      "type": "string",
+      "title": "Default vault id",
+      "description": "Vault id to bind tool calls to when a request omits one. Leave blank to use the first configured vault.",
+      "required": false
+    }
+  }
+}

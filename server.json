@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.The-40-Thieves/obsidian-tc",
+  "title": "Obsidian Turbocharged",
+  "description": "Model-agnostic, agent-ready Obsidian MCP server with RBAC, SLSA provenance, and native search.",
+  "version": "1.0.2",
+  "websiteUrl": "https://github.com/The-40-Thieves/obsidian-tc#readme",
+  "repository": {
+    "url": "https://github.com/The-40-Thieves/obsidian-tc",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "obsidian-tc",
+      "version": "1.0.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "OBSIDIAN_TC_CONFIG",
+          "description": "Absolute path to the obsidian-tc JSON config (vaults, ACL, transports). May also be passed as the first CLI argument.",
+          "isRequired": true,
+          "format": "filepath"
+        },
+        {
+          "name": "OBSIDIAN_TC_DEFAULT_VAULT",
+          "description": "Optional id of the vault to bind tool calls to when a request omits one.",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  ]
+}
