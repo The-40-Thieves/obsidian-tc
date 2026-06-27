@@ -14,19 +14,20 @@ If you are picking this up cold:
 4. Honor §2's tripwire and §11's NO-TEARDOWN guard absolutely.
 5. Run every unit through the self-gate (§9) before marking green; commit + push per unit.
 
-**Status @ last update (2026-06-26):** Batch 2 **GREEN** — W-AUTH (`the-233/auth` @ 17ddc46)
-and W-RETRIEVAL (`the-233/retrieval` @ f5c29d1) shipped, self-gate green, pushed. Batch 1
-(W-SCHEMA 18df47f, W-GATEWAY-CLIENT 8fecea1) green/pushed earlier; repo-hygiene fixes on `main`
-(ARCHITECTURE.md 4b679b0 + the KMS-path bug in `~/.claude/CLAUDE.md`). **E7 resolved**: port
-from KMS `fix/npm-audit-2026-06-12`; diff-guard found `main == branch` for every ported path
-(lib/oauth/reranker/ingest/eval — npm-audit touched only package.json/lockfile). Four isolated
-worktrees exist (schema, gateway, auth, retrieval).
-**STOPPED after Batch 2 per instruction** — did NOT start W-WORKERS or Slice 5. Next actionable
-(see §6): **W-INGEST** (secret-free; reconcile w/ indexer; produces the vault_edges W-RETRIEVAL
-walks) and **W-WORKERS** (synthesis/audit → sleep-time plane; uses the gateway client). W-MIGRATE
-/ Slice 5 still need **E3**; live gateway + live-rerank eval need **E4**. An **integration** step
-folds the branches onto main together (wires gateway `rerank` into the W-RETRIEVAL seam, exposes
-the `vault_graph_search` MCP tool over W-SCHEMA's vault_edges, decides the full-AS port).
+**Status @ last update (2026-06-26):** Batch 3 **GREEN** — W-INGEST (`the-233/ingest` @ acbb6f0)
+and W-WORKERS (`the-233/workers` @ c4ccdd5) shipped, self-gate green, pushed. All six capability
+units now green on their own branches: W-SCHEMA 18df47f, W-GATEWAY-CLIENT 8fecea1, W-AUTH 17ddc46,
+W-RETRIEVAL f5c29d1, W-INGEST acbb6f0, W-WORKERS c4ccdd5. Repo-hygiene fixes on `main`
+(ARCHITECTURE.md 4b679b0 + the KMS-path bug in `~/.claude/CLAUDE.md`). E7 resolved (KMS `main ==
+fix/npm-audit-2026-06-12` for ported paths). Six isolated worktrees exist.
+**STOPPED after Batch 3 per instruction** — did NOT start Batch 4 (integration) or Slice 5. Next:
+**Batch 4 integration** — fold all branches onto `main`, wire the runtime deps (gateway `rerank` →
+the W-RETRIEVAL seam + W-WORKERS roles; W-SCHEMA + plane migrations into the migrate chain; the
+W-INGEST `onIndexed` hook → the contradiction job), expose `vault_graph_search`, resolve the
+cli.ts migration-array merge, and run the **real recall@k eval**. Batch 4 is gated on the
+**embedding-provider decision** + **E4** (live gateway); **Slice 5** (export/load keep-state) on
+**E3**. Open decisions for the user: the embedding model (gates the real eval), the full OAuth AS
+port (only if the converged product hosts a remote DCR client), and E3/E4 credentials.
 
 ---
 
@@ -176,8 +177,10 @@ Classification: **PORT** | **PORT→ROLE** (provider SDK → LiteLLM role) | **E
 | W-EVAL | folded | f5c29d1 | gate math (`eval/metrics.ts`) + deterministic fixture gate delivered inside W-RETRIEVAL; LIVE golden-set recall@k gated on a settled embedding provider / E3 corpus |
 | W-RETRIEVAL | **green** | `the-233/retrieval` @ f5c29d1 | GraphRAG literal walk (recursive CTE over vault_edges) + graph_rrf fusion + router + rerank seam + bubble_safe; eval gate (fixture) green: multi-hop recall 0.5→1.0 (bridge 0→1), single-hop no regression; 668 tests. Pushed. |
 | W-AUTH | **green** | `the-233/auth` @ 17ddc46 | verifyToken seam (floor) on jose auth/; probe recorded (KMS AS+DCR load-bearing for the retiring cloud svc → full-AS port = integration follow-up); 657 tests. Pushed. |
-| W-PLANE / W-WORKERS | todo | — | synthesis + audit workers → in-process sleep-time plane; uses the gateway client |
-| W-INGEST | todo | — | reconcile w/ existing `search/indexer.ts`; produces vault_edges (forward+reverse `links_to`) that W-RETRIEVAL walks; fix the broken sync automation |
+| W-PLANE / W-WORKERS | **green** | `the-233/workers` @ c4ccdd5 | sleep-time plane (local jobs): audit + synthesis + contradiction wired to the gateway-roles seam (mock) + challenge core; plane migration committed (cli-wiring gated); 663 tests. Pushed. |
+| W-INGEST | **green** | `the-233/ingest` @ acbb6f0 | edge production (forward+reverse links_to + unresolved → vault_edges) folded into indexVault; secret-gate + onIndexed hook in indexNote; 660 tests. Pushed. |
+
+All six capability units green. Remaining work is **Batch 4 integration** (fold to main + wire runtime deps + real eval) and **Slice 5** (export/load keep-state, needs E3).
 
 States: todo / doing / blocked / green / escalated.
 
@@ -188,6 +191,10 @@ States: todo / doing / blocked / green / escalated.
 ### Batch 2 delivered surface (for resume)
 - **W-AUTH** — `auth/verifier.ts`: `TokenVerifier` seam + `createJwtVerifier` (HS256/jose). `transports/http.ts` `resolveAuth` delegates to a pluggable verifier (`HttpAppOptions.verifier`); none/jwt outcomes unchanged (behavior-preserving). **Probe:** KMS OAuth 2.1 AS + DCR (mcp-oauth-server `/register` + consent + `SupabaseOAuthModel`) WAS load-bearing for the *cloud* service (claude.ai connector; `strictResource:false` names it); the converged obsidian-tc has no AS/DCR client of its own → floor taken. **Follow-up (integration/decision):** full AS+DCR port on Hono+jose only if the converged product directly hosts a remote DCR client; `express` + `mcp-oauth-server` are NOT carried in.
 - **W-RETRIEVAL** — `search/graph_expand.ts` (literal `links_to` recursive-CTE walk over vault_edges: undirected, hop-limited, cycle-guarded, shallowest hop), `search/graph_search.ts` (semantic seeds → seed-strength router → expansion → `graph_rrf` fusion; `rrf_rerank`/`score_merge` use the injected reranker), `search/bubble_safe_rerank.ts` (pure ±1), `search/rerank.ts` (`Reranker` seam + graceful no-op fallback). `eval/metrics.ts` (recall@10/MRR/bridge). **Eval gate** (`test/graph-recall.test.ts`, deterministic fixture, real retrieval code): multi-hop recall **0.5→1.0** (bridge **0→1**), single-hop no regression. **Deferred (noted):** 013/THE-135 virtual hops (80% bridge ceiling); LIVE golden-set recall@k (no model pulled, 921-note vault). **vault_edges reconciliation:** stored = literal wikilink edges only (`edge_type='links_to'`); `edge_kind` stored is always `'literal'` (virtual is query-time, never stored — matches KMS); `weight` dropped (unused by the walk); KMS `type`→`edge_type`. **Integration deps:** W-SCHEMA vault_edges at runtime; gateway `rerank` → the seam; expose `vault_graph_search` MCP tool (can't function before vault_edges lands → wired at integration).
+
+### Batch 3 delivered surface (for resume)
+- **W-INGEST** — `search/edges.ts` produces the undirected `links_to` graph W-RETRIEVAL walks: resolved `[[wikilink]]`/`![[embed]]` → forward (`wikilink_forward`) + reverse (`wikilink_reverse`) `links_to` rows; unresolved → forward-only `unresolved` row. Reuses `vault/links.ts`. `reconcileVaultEdges` (insert/prune/idempotent) folded into `indexVault` (one full-state pass; skipped gracefully if vault_edges absent). `search/secrets.ts` secret-gate in `indexNote` (drops secretful chunks pre-embed, class-only logging). `onIndexed` hook = the contradiction-enqueue seam. **Provenance decision:** KEPT, populated from a real parse signal (resolution direction + link kind). **Hybrid-seed finding:** `search/text.ts` is NOTE-level BM25 (whole-file tokens), not chunk-level FTS → hybrid seeds NOT reimplemented; W-RETRIEVAL stays vector-only-seed; deviation logged for the Batch 4 real eval to quantify. **Local-sync fix:** the live path is `indexVault` (boot reconcile) + index-on-write (THE-255), now edge-producing; the retired vault→Supabase sync is not revived. **Follow-up:** vault_edges has no `vault_id` → multi-vault edge isolation is an integration follow-up (single-vault assumption matches W-SCHEMA + W-RETRIEVAL).
+- **W-WORKERS** — `plane/plane.ts` SleepTimePlane (local job registry/runner, NOT crons; `job_runs` log). Jobs via the `plane/gateway.ts` GatewayRoles seam (extract/synthesize/judge; the W-GATEWAY-CLIENT is a GatewayRoles at integration): `jobs/audit.ts` (kb-audit collapse → audit_reports), `jobs/synthesis.ts` (kb-synthesis collapse → syntheses; GitHub-commit + anchor-folders dropped), `jobs/contradiction.ts` (KMS contradictions port: sqlite-vec neighbors + judge, hook-driven via W-INGEST `onIndexed`). `plane/challenge.ts` knowledge_challenge generative core (judge seam + red-team prompt). `migrations/20260626_002_plane.sql` (contradictions/syntheses/audit_reports/job_runs) committed, **cli-wiring gated to integration**. **Integration-gated tools:** `knowledge_challenge` (evidence-retrieval wiring + MCP registration), `knowledge_get_critical` (**NOT ported** — needs the KMS vendor-KB `knowledge_chunks` severity model the vault-centric tree lacks).
 
 ---
 
