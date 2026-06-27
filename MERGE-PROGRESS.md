@@ -14,11 +14,14 @@ If you are picking this up cold:
 4. Honor §2's tripwire and §11's NO-TEARDOWN guard absolutely.
 5. Run every unit through the self-gate (§9) before marking green; commit + push per unit.
 
-**Status @ last update:** Phase 0 (inventory) — **GREEN**. Move-map produced. No code ported yet.
-Working tree clean on `main`. KMS read-only at corrected path.
-**HOLD:** Scope/DAG **confirmed by user (2026-06-26)** ("proceed as scoped"). Holding before any
-port code per user direction — awaiting the user to designate the starting unit. Natural first:
-**W-SCHEMA + W-GATEWAY-CLIENT** (both no-creds, parallelizable). Do NOT begin porting until directed.
+**Status @ last update (2026-06-26):** Batch 1 **GREEN** — W-SCHEMA (`the-233/schema` @ 18df47f)
+and W-GATEWAY-CLIENT (`the-233/gateway-client` @ 8fecea1) shipped, self-gate green, pushed.
+Repo-hygiene fixes on `main`: ARCHITECTURE.md scope note (4b679b0) + the KMS-path bug in
+`~/.claude/CLAUDE.md` (the only place it lived — the repo was clean). Two isolated worktrees exist
+at `E:\Projects\obtc-the233-schema` and `E:\Projects\obtc-the233-gateway`.
+**STOPPED after Batch 1 per instruction** — did NOT start Slice 2/3/4. Next actionable (see §6):
+W-AUTH and W-INGEST are secret-free; W-RETRIEVAL/W-PLANE build on these two units; W-MIGRATE
+still needs **E3**. **Open question to the user: Escalation E7 (KMS port branch).**
 
 ---
 
@@ -161,9 +164,9 @@ Classification: **PORT** | **PORT→ROLE** (provider SDK → LiteLLM role) | **E
 
 | Unit | State | SHA | Notes |
 |---|---|---|---|
-| W0 inventory | **green** | (this commit) | Move-map §5, manifest §7, eval §8, decisions §10 produced |
-| W-SCHEMA | todo | — | next; foundational |
-| W-GATEWAY-CLIENT | todo | — | next; foundational (E4 for live config) |
+| W0 inventory | **green** | b3212b2 | Move-map §5, manifest §7, eval §8, decisions §10 produced |
+| W-SCHEMA | **green** | `the-233/schema` @ 18df47f | vault_edges (cache.db) + experiential.db (object_state, chunk_retrievals); provisionExperientialDb; self-gate green (656 tests). Pushed. |
+| W-GATEWAY-CLIENT | **green** | `the-233/gateway-client` @ 8fecea1 | role client extract/synthesize/judge + rerank passthrough; env/mock-injectable; self-gate green (660 tests). Pushed. |
 | W-MIGRATE | blocked | — | needs **E3** (Supabase project ref + read creds) |
 | W-EVAL | todo | — | after schema+migrate |
 | W-RETRIEVAL | todo | — | gated by W-EVAL |
@@ -172,6 +175,10 @@ Classification: **PORT** | **PORT→ROLE** (provider SDK → LiteLLM role) | **E
 | W-INGEST | todo | — | reconcile w/ existing indexer |
 
 States: todo / doing / blocked / green / escalated.
+
+### Batch 1 delivered surface (for resume)
+- **W-SCHEMA tables** — `cache.db`: `vault_edges`(source_path, target_path, edge_type, edge_kind, provenance, created_at, updated_at; UNIQUE(source,target,type) + source/target/kind indexes). `experiential.db` (physically separate, membrane): `vault_object_state`(object_id PK + ACT-R cols incl. valid_from/until, emotional_weight default 5, cached_activation_score) and `chunk_retrievals`(id PK, chunk_id, retrieved_at, session_id, surface_type, query_text, rank_in_results, rerank_score, cited_in_response, citation_score, feedback). No cross-file FK (chunk ids by value). Files: `migrations/20260626_001_vault_edges.sql`, `migrations/20260626_001_experiential_init.sql`; provisioner `db/experiential.ts`; wired in `cli.ts`. Tripwire held.
+- **W-GATEWAY-CLIENT surface** — `createGatewayClient(opts)` → `{ extract, synthesize, judge, rerank }`. Completions POST `/chat/completions` `{model: <role>}`; rerank POST `/rerank` (Cohere-compatible passthrough, D1). Base URL from `OBSIDIAN_TC_GATEWAY_URL` (or `opts.baseUrl`); optional bearer `OBSIDIAN_TC_GATEWAY_TOKEN`; `opts.models` maps role→model; `fetchFn` injectable (mock→live is config-only); resolved provider:model surfaced for attestation. Module `src/gateway/{client,index}.ts`. No provider SDKs / keys in the tree.
 
 ---
 
@@ -223,6 +230,7 @@ Parity check: row counts per table + spot-check N embeddings (dim + norm) + reca
 | E4 | **open (deferred)** | W-GATEWAY-CLIENT integration test needs the **LiteLLM endpoint + role routing config** (judgment/keys, §12). The code seam is buildable now with config injection; live wiring escalates at integration. |
 | E5 | resolved | Brief's `## Execution DAG` + escalation points arrived empty; orchestrator authored §3 from roster + ticket graph. **Confirmed by user 2026-06-26** ("proceed as scoped"). |
 | E6 | open (info) | AGPL relicense (THE-260) is in flight but **out of scope** for THE-233; preserve Apache-2.0 headers. Flag if a ported KMS file carries an incompatible license. |
+| E7 | **open (question)** | **KMS port branch.** KMS is on `fix/npm-audit-2026-06-12` @ 463c650, not `main`. No Batch 1 unit reads KMS source, so not yet blocking — but the first source-porting slice (W-INGEST / W-RETRIEVAL / W-AUTH) must port from a confirmed branch. **Decision needed: port from `fix/npm-audit-2026-06-12`, or land it on KMS `main` first?** Until answered, do not read KMS source for porting. |
 
 ---
 
