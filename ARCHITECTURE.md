@@ -19,7 +19,7 @@ tags:
 
 # obsidian-tc — Architecture and Topology
 
-> **Scope note (2026-06-19):** obsidian-tc is an *access* MCP — vault read/write, search, and control. Retrieval intelligence (GraphRAG, clustering, hybrid retrieval fusion) is **out of scope**; pair obsidian-tc with an external retrieval/RAG service. The Python ML sidecar (component 14 and the § 3.3 IPC contract) and the native `kmeansAssign` / `actrDecayScore` reservations described below have been **removed** — treat those sections as historical.
+> **Scope note (updated 2026-06-26):** obsidian-tc is the **converged memory engine** — vault read/write, search, *and* the retrieval intelligence (GraphRAG, hybrid BM25 + vector + RRF fusion, rerank) folded in from the now-retired knowledge-mcp-server. The earlier 2026-06-19 note — which scoped retrieval intelligence *out* and said to pair obsidian-tc with an external retrieval/RAG service — is **superseded** by the 2026-06-25 single-converged-product decision (`09-reference/decisions/2026-06-25-obsidian-tc-single-converged-product`; THE-233): obsidian-tc *is* the engine, not an access slice. The Python ML sidecar (component 14 and the § 3.3 IPC contract) and the native `kmeansAssign` / `actrDecayScore` reservations described below remain **removed** — treat those sections as historical. The typed-atom MemIR substrate (claim atoms, `authoritative_claims`, bi-temporal) is a downstream engine-build phase (THE-235), not part of this v1.x converged line.
 
 **Status:** shipped in v1.0.2 (2026-06-21). This document records the architecture and topology committed for the v1.0 line.
 **Tool surface:** 103 tools across 28 domains — see [`docs/G2.1-tools.md`](docs/G2.1-tools.md).
