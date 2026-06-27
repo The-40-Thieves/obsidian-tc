@@ -14,14 +14,19 @@ If you are picking this up cold:
 4. Honor §2's tripwire and §11's NO-TEARDOWN guard absolutely.
 5. Run every unit through the self-gate (§9) before marking green; commit + push per unit.
 
-**Status @ last update (2026-06-26):** Batch 1 **GREEN** — W-SCHEMA (`the-233/schema` @ 18df47f)
-and W-GATEWAY-CLIENT (`the-233/gateway-client` @ 8fecea1) shipped, self-gate green, pushed.
-Repo-hygiene fixes on `main`: ARCHITECTURE.md scope note (4b679b0) + the KMS-path bug in
-`~/.claude/CLAUDE.md` (the only place it lived — the repo was clean). Two isolated worktrees exist
-at `E:\Projects\obtc-the233-schema` and `E:\Projects\obtc-the233-gateway`.
-**STOPPED after Batch 1 per instruction** — did NOT start Slice 2/3/4. Next actionable (see §6):
-W-AUTH and W-INGEST are secret-free; W-RETRIEVAL/W-PLANE build on these two units; W-MIGRATE
-still needs **E3**. **Open question to the user: Escalation E7 (KMS port branch).**
+**Status @ last update (2026-06-26):** Batch 2 **GREEN** — W-AUTH (`the-233/auth` @ 17ddc46)
+and W-RETRIEVAL (`the-233/retrieval` @ f5c29d1) shipped, self-gate green, pushed. Batch 1
+(W-SCHEMA 18df47f, W-GATEWAY-CLIENT 8fecea1) green/pushed earlier; repo-hygiene fixes on `main`
+(ARCHITECTURE.md 4b679b0 + the KMS-path bug in `~/.claude/CLAUDE.md`). **E7 resolved**: port
+from KMS `fix/npm-audit-2026-06-12`; diff-guard found `main == branch` for every ported path
+(lib/oauth/reranker/ingest/eval — npm-audit touched only package.json/lockfile). Four isolated
+worktrees exist (schema, gateway, auth, retrieval).
+**STOPPED after Batch 2 per instruction** — did NOT start W-WORKERS or Slice 5. Next actionable
+(see §6): **W-INGEST** (secret-free; reconcile w/ indexer; produces the vault_edges W-RETRIEVAL
+walks) and **W-WORKERS** (synthesis/audit → sleep-time plane; uses the gateway client). W-MIGRATE
+/ Slice 5 still need **E3**; live gateway + live-rerank eval need **E4**. An **integration** step
+folds the branches onto main together (wires gateway `rerank` into the W-RETRIEVAL seam, exposes
+the `vault_graph_search` MCP tool over W-SCHEMA's vault_edges, decides the full-AS port).
 
 ---
 
@@ -168,17 +173,21 @@ Classification: **PORT** | **PORT→ROLE** (provider SDK → LiteLLM role) | **E
 | W-SCHEMA | **green** | `the-233/schema` @ 18df47f | vault_edges (cache.db) + experiential.db (object_state, chunk_retrievals); provisionExperientialDb; self-gate green (656 tests). Pushed. |
 | W-GATEWAY-CLIENT | **green** | `the-233/gateway-client` @ 8fecea1 | role client extract/synthesize/judge + rerank passthrough; env/mock-injectable; self-gate green (660 tests). Pushed. |
 | W-MIGRATE | blocked | — | needs **E3** (Supabase project ref + read creds) |
-| W-EVAL | todo | — | after schema+migrate |
-| W-RETRIEVAL | todo | — | gated by W-EVAL |
-| W-AUTH | todo | — | pending §10-D4 verification |
-| W-PLANE | todo | — | needs gateway client |
-| W-INGEST | todo | — | reconcile w/ existing indexer |
+| W-EVAL | folded | f5c29d1 | gate math (`eval/metrics.ts`) + deterministic fixture gate delivered inside W-RETRIEVAL; LIVE golden-set recall@k gated on a settled embedding provider / E3 corpus |
+| W-RETRIEVAL | **green** | `the-233/retrieval` @ f5c29d1 | GraphRAG literal walk (recursive CTE over vault_edges) + graph_rrf fusion + router + rerank seam + bubble_safe; eval gate (fixture) green: multi-hop recall 0.5→1.0 (bridge 0→1), single-hop no regression; 668 tests. Pushed. |
+| W-AUTH | **green** | `the-233/auth` @ 17ddc46 | verifyToken seam (floor) on jose auth/; probe recorded (KMS AS+DCR load-bearing for the retiring cloud svc → full-AS port = integration follow-up); 657 tests. Pushed. |
+| W-PLANE / W-WORKERS | todo | — | synthesis + audit workers → in-process sleep-time plane; uses the gateway client |
+| W-INGEST | todo | — | reconcile w/ existing `search/indexer.ts`; produces vault_edges (forward+reverse `links_to`) that W-RETRIEVAL walks; fix the broken sync automation |
 
 States: todo / doing / blocked / green / escalated.
 
 ### Batch 1 delivered surface (for resume)
 - **W-SCHEMA tables** — `cache.db`: `vault_edges`(source_path, target_path, edge_type, edge_kind, provenance, created_at, updated_at; UNIQUE(source,target,type) + source/target/kind indexes). `experiential.db` (physically separate, membrane): `vault_object_state`(object_id PK + ACT-R cols incl. valid_from/until, emotional_weight default 5, cached_activation_score) and `chunk_retrievals`(id PK, chunk_id, retrieved_at, session_id, surface_type, query_text, rank_in_results, rerank_score, cited_in_response, citation_score, feedback). No cross-file FK (chunk ids by value). Files: `migrations/20260626_001_vault_edges.sql`, `migrations/20260626_001_experiential_init.sql`; provisioner `db/experiential.ts`; wired in `cli.ts`. Tripwire held.
 - **W-GATEWAY-CLIENT surface** — `createGatewayClient(opts)` → `{ extract, synthesize, judge, rerank }`. Completions POST `/chat/completions` `{model: <role>}`; rerank POST `/rerank` (Cohere-compatible passthrough, D1). Base URL from `OBSIDIAN_TC_GATEWAY_URL` (or `opts.baseUrl`); optional bearer `OBSIDIAN_TC_GATEWAY_TOKEN`; `opts.models` maps role→model; `fetchFn` injectable (mock→live is config-only); resolved provider:model surfaced for attestation. Module `src/gateway/{client,index}.ts`. No provider SDKs / keys in the tree.
+
+### Batch 2 delivered surface (for resume)
+- **W-AUTH** — `auth/verifier.ts`: `TokenVerifier` seam + `createJwtVerifier` (HS256/jose). `transports/http.ts` `resolveAuth` delegates to a pluggable verifier (`HttpAppOptions.verifier`); none/jwt outcomes unchanged (behavior-preserving). **Probe:** KMS OAuth 2.1 AS + DCR (mcp-oauth-server `/register` + consent + `SupabaseOAuthModel`) WAS load-bearing for the *cloud* service (claude.ai connector; `strictResource:false` names it); the converged obsidian-tc has no AS/DCR client of its own → floor taken. **Follow-up (integration/decision):** full AS+DCR port on Hono+jose only if the converged product directly hosts a remote DCR client; `express` + `mcp-oauth-server` are NOT carried in.
+- **W-RETRIEVAL** — `search/graph_expand.ts` (literal `links_to` recursive-CTE walk over vault_edges: undirected, hop-limited, cycle-guarded, shallowest hop), `search/graph_search.ts` (semantic seeds → seed-strength router → expansion → `graph_rrf` fusion; `rrf_rerank`/`score_merge` use the injected reranker), `search/bubble_safe_rerank.ts` (pure ±1), `search/rerank.ts` (`Reranker` seam + graceful no-op fallback). `eval/metrics.ts` (recall@10/MRR/bridge). **Eval gate** (`test/graph-recall.test.ts`, deterministic fixture, real retrieval code): multi-hop recall **0.5→1.0** (bridge **0→1**), single-hop no regression. **Deferred (noted):** 013/THE-135 virtual hops (80% bridge ceiling); LIVE golden-set recall@k (no model pulled, 921-note vault). **vault_edges reconciliation:** stored = literal wikilink edges only (`edge_type='links_to'`); `edge_kind` stored is always `'literal'` (virtual is query-time, never stored — matches KMS); `weight` dropped (unused by the walk); KMS `type`→`edge_type`. **Integration deps:** W-SCHEMA vault_edges at runtime; gateway `rerank` → the seam; expose `vault_graph_search` MCP tool (can't function before vault_edges lands → wired at integration).
 
 ---
 
@@ -230,7 +239,7 @@ Parity check: row counts per table + spot-check N embeddings (dim + norm) + reca
 | E4 | **open (deferred)** | W-GATEWAY-CLIENT integration test needs the **LiteLLM endpoint + role routing config** (judgment/keys, §12). The code seam is buildable now with config injection; live wiring escalates at integration. |
 | E5 | resolved | Brief's `## Execution DAG` + escalation points arrived empty; orchestrator authored §3 from roster + ticket graph. **Confirmed by user 2026-06-26** ("proceed as scoped"). |
 | E6 | open (info) | AGPL relicense (THE-260) is in flight but **out of scope** for THE-233; preserve Apache-2.0 headers. Flag if a ported KMS file carries an incompatible license. |
-| E7 | **open (question)** | **KMS port branch.** KMS is on `fix/npm-audit-2026-06-12` @ 463c650, not `main`. No Batch 1 unit reads KMS source, so not yet blocking — but the first source-porting slice (W-INGEST / W-RETRIEVAL / W-AUTH) must port from a confirmed branch. **Decision needed: port from `fix/npm-audit-2026-06-12`, or land it on KMS `main` first?** Until answered, do not read KMS source for porting. |
+| E7 | resolved | **KMS port branch.** Port from `fix/npm-audit-2026-06-12` @ 463c650 (per user 2026-06-26). Diff-guard: `git diff main fix/npm-audit-2026-06-12 -- src/lib src/oauth src/reranker.ts src/ingest eval` is **empty** → `main == branch` for all ported logic (npm-audit touched only package.json/lockfile). KMS not merged to its own main (being retired); read-only throughout. |
 
 ---
 
