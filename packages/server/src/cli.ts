@@ -15,14 +15,18 @@ import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
 import { elicitVerifier } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
+import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { startMetricsEndpoint } from "./metrics/endpoint";
 import { MetricsRecorder } from "./metrics/registry";
 import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
+import type { GatewayRoles } from "./plane/gateway";
+import { checkContradictions } from "./plane/jobs/contradiction";
 import { createPlurClient } from "./plur/client";
-import { indexNote, indexVault } from "./search/indexer";
+import { type IndexedChunk, type IndexHook, indexNote, indexVault } from "./search/indexer";
+import type { Reranker } from "./search/rerank";
 import { ensureVecChunks } from "./search/vec";
 import { RateLimiter } from "./throttle";
 import { createHealthTool } from "./tools/admin/health";
@@ -39,6 +43,7 @@ import {
 } from "./tools/m4";
 import { DEFAULT_MEMORY_FOLDER, DEFAULT_TRACE_FOLDER, registerM5Tools } from "./tools/m5";
 import { type M6Deps, registerM6Tools } from "./tools/m6";
+import { registerM7Tools } from "./tools/m7";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { resolveMode, type VaultMode } from "./vault/mode";
@@ -68,6 +73,13 @@ const experientialInitMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260626_001_experiential_init.sql", import.meta.url)),
   "utf8",
 );
+// THE-233 (W-WORKERS): sleep-time plane state tables (contradictions/syntheses/audit_reports/
+// job_runs). W-WORKERS left this committed-but-unwired by design; the integration wires it into
+// the cache.db migration chain below.
+const planeMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260626_002_plane.sql", import.meta.url)),
+  "utf8",
+);
 async function main(): Promise<void> {
   const configPath = process.argv[2] ?? process.env.OBSIDIAN_TC_CONFIG;
   if (!configPath) {
@@ -88,6 +100,7 @@ async function main(): Promise<void> {
       { version: "20260519_001", sql: initialMigrationSql },
       { version: "20260519_002", sql: entityUniqueMigrationSql },
       { version: "20260626_001", sql: vaultEdgesMigrationSql },
+      { version: "20260626_002", sql: planeMigrationSql },
     ],
     { version: VERSION },
   );
@@ -150,6 +163,39 @@ async function main(): Promise<void> {
   // convergence. Shares the one embedding provider + vec-availability flag.
   const embeddingProvider = createEmbeddingProvider(config.embeddings);
   const hasVec = ensureVecChunks(db, embeddingProvider.dimensions, { now: Date.now });
+
+  // THE-233 integration — optional inference gateway (W-GATEWAY-CLIENT). Unconfigured (no
+  // OBSIDIAN_TC_GATEWAY_URL) -> null; every generative seam below degrades gracefully rather
+  // than failing boot (createGatewayClient throws without a base URL, so guard with try).
+  let gateway: GatewayClient | null = null;
+  try {
+    gateway = createGatewayClient({});
+  } catch {
+    gateway = null;
+  }
+  const gw = gateway;
+  // W-RETRIEVAL rerank seam -> gateway /rerank passthrough (graceful no-op fallback when null).
+  const reranker: Reranker | null = gw
+    ? (q, docs, topN) => gw.rerank({ query: q, documents: docs, topN }).then((r) => r.results)
+    : null;
+  // W-WORKERS generative seam -> gateway extract/synthesize/judge roles (null -> jobs/challenge no-op).
+  const roles: GatewayRoles | null = gw
+    ? {
+        extract: (r) => gw.extract(r).then((x) => ({ text: x.text, model: x.model })),
+        synthesize: (r) => gw.synthesize(r).then((x) => ({ text: x.text, model: x.model })),
+        judge: (r) => gw.judge(r).then((x) => ({ text: x.text, model: x.model })),
+      }
+    : null;
+  // W-INGEST onIndexed hook -> contradiction-check enqueue. The detector needs the gateway, so we
+  // only enqueue when roles are present; the queue is drained best-effort after the boot reconcile.
+  const contradictionQueue: Array<{ vaultId: string; chunk: IndexedChunk }> = [];
+  const makeOnIndexed = (vaultId: string): IndexHook | undefined =>
+    roles
+      ? (chunks) => {
+          for (const c of chunks) contradictionQueue.push({ vaultId, chunk: c });
+        }
+      : undefined;
+
   registerM1Tools(registry, {
     vaultRegistry,
     version: VERSION,
@@ -157,9 +203,16 @@ async function main(): Promise<void> {
     embeddings: { provider: config.embeddings.provider, model: config.embeddings.model },
     configPath,
     reindex: (vaultId, path, content) => {
-      void indexNote(db, embeddingProvider, vaultId, path, content, hasVec, Date.now).catch(
-        () => {},
-      );
+      void indexNote(
+        db,
+        embeddingProvider,
+        vaultId,
+        path,
+        content,
+        hasVec,
+        Date.now,
+        makeOnIndexed(vaultId),
+      ).catch(() => {});
     },
     deindex: (vaultId, path) => {
       void indexNote(db, embeddingProvider, vaultId, path, "", hasVec, Date.now).catch(() => {});
@@ -276,6 +329,10 @@ async function main(): Promise<void> {
   };
   registerM6Tools(registry, m6Deps);
 
+  // M7 knowledge domain (THE-233 integration): GraphRAG search (W-RETRIEVAL) + decision
+  // red-team (W-WORKERS challenge), wired to the gateway seams (graceful when absent).
+  registerM7Tools(registry, { vaultRegistry, embeddingProvider, reranker, roles });
+
   const acl = new FolderAcl(config.acl);
 
   // stdio is the trusted local transport: the operator runs the binary against
@@ -334,9 +391,24 @@ async function main(): Promise<void> {
         root: vaultRegistry.resolve(v.id).root,
         isReadable: indexReadable,
         now: Date.now,
+        onIndexed: makeOnIndexed(v.id),
       }),
     ),
-  );
+  ).then(() => {
+    // Best-effort contradiction sweep over chunks enqueued during the boot reconcile. No-op
+    // without the gateway (roles null -> queue stays empty). A continuous draining schedule
+    // (plane timer / session-close trigger) is a follow-up.
+    if (!roles) return;
+    const byVault = new Map<string, IndexedChunk[]>();
+    for (const { vaultId, chunk } of contradictionQueue.splice(0)) {
+      const arr = byVault.get(vaultId) ?? [];
+      arr.push(chunk);
+      byVault.set(vaultId, arr);
+    }
+    for (const [vaultId, chunks] of byVault) {
+      void checkContradictions({ db, roles, now: Date.now }, vaultId, chunks).catch(() => {});
+    }
+  });
 
   morgiana.emit(firstVault.id, "tc.server.start");
 
