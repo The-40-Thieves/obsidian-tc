@@ -7,9 +7,12 @@
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { parseNote } from "../vault/frontmatter";
+import { type ExtractedLink, extractLinks } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { contentHash, resolveVaultPath, walkVault } from "../vault/paths";
 import { chunkNote } from "./chunk";
+import { desiredEdges, reconcileVaultEdges } from "./edges";
+import { scanSecrets } from "./secrets";
 import { ensureVecChunks, floatBlob, upsertVec } from "./vec";
 
 export interface IndexStats {
@@ -18,9 +21,31 @@ export interface IndexStats {
   chunks_upserted: number;
   chunks_deleted: number;
   chunks_unchanged: number;
+  edges_inserted: number;
+  edges_deleted: number;
+  secrets_skipped: number;
   vec_enabled: boolean;
   model: string;
   dimensions: number;
+}
+
+/** A chunk that was (re)embedded this pass; handed to the optional index hook. */
+export interface IndexedChunk {
+  id: string;
+  path: string;
+  content: string;
+  embedding: number[];
+}
+
+/** THE-233 W-INGEST seam: notified of newly-embedded chunks. W-WORKERS wires the
+ *  contradiction-check enqueue here at integration; default is no hook. */
+export type IndexHook = (chunks: IndexedChunk[]) => void;
+
+function tableExists(db: Database, name: string): boolean {
+  return (
+    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
+    undefined
+  );
 }
 
 // Stable, content-independent id for a chunk slot. Re-chunking the same note
@@ -43,9 +68,24 @@ export async function indexNote(
   raw: string,
   hasVec: boolean,
   now: () => number,
-): Promise<{ upserted: number; deleted: number; unchanged: number }> {
+  onIndexed?: IndexHook,
+): Promise<{ upserted: number; deleted: number; unchanged: number; secretsSkipped: number }> {
   const body = parseNote(raw).body;
-  const desired = chunkNote(body).map((c) => ({ ...c, id: chunkId(vaultId, path, c.index) }));
+  // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
+  // before embedding — never embedded, never stored, pruned if it existed. Class names only
+  // are logged; the matched value is never logged or thrown.
+  let secretsSkipped = 0;
+  const desired = chunkNote(body)
+    .map((c) => ({ ...c, id: chunkId(vaultId, path, c.index) }))
+    .filter((c) => {
+      const scan = scanSecrets(c.content);
+      if (scan.clean) return true;
+      secretsSkipped += 1;
+      process.stderr.write(
+        `[ingest] secret-gate skipped ${path}#${c.index} (${scan.classes.join(", ")})\n`,
+      );
+      return false;
+    });
   const desiredIds = new Set(desired.map((d) => d.id));
 
   const existing = db
@@ -91,8 +131,18 @@ export async function indexNote(
       upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), ts);
       if (hasVec) upsertVec(db, d.id, vec);
     });
+    if (onIndexed) {
+      onIndexed(
+        toEmbed.map((d, i) => ({
+          id: d.id,
+          path,
+          content: d.content,
+          embedding: vectors[i] ?? [],
+        })),
+      );
+    }
   }
-  return { upserted: toEmbed.length, deleted, unchanged };
+  return { upserted: toEmbed.length, deleted, unchanged, secretsSkipped };
 }
 
 export interface IndexVaultArgs {
@@ -103,6 +153,7 @@ export interface IndexVaultArgs {
   sub?: string;
   isReadable: (rel: string) => boolean;
   now?: () => number;
+  onIndexed?: IndexHook;
 }
 
 export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
@@ -117,17 +168,42 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     chunks_upserted: 0,
     chunks_deleted: 0,
     chunks_unchanged: 0,
+    edges_inserted: 0,
+    edges_deleted: 0,
+    secrets_skipped: 0,
     vec_enabled: hasVec,
     model: args.provider.id,
     dimensions: args.provider.dimensions,
   };
+  // Collect each note's links during the index walk so vault_edges is reconciled in one
+  // full-state pass — the undirected links_to graph W-RETRIEVAL walks (THE-233 W-INGEST).
+  const noteLinks = new Map<string, ExtractedLink[]>();
   for (const rel of notes) {
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
-    const r = await indexNote(args.db, args.provider, args.vaultId, rel, raw, hasVec, now);
+    noteLinks.set(rel, extractLinks(parseNote(raw).body));
+    const r = await indexNote(
+      args.db,
+      args.provider,
+      args.vaultId,
+      rel,
+      raw,
+      hasVec,
+      now,
+      args.onIndexed,
+    );
     stats.chunks_upserted += r.upserted;
     stats.chunks_deleted += r.deleted;
     stats.chunks_unchanged += r.unchanged;
+    stats.secrets_skipped += r.secretsSkipped;
     if (r.upserted > 0 || r.deleted > 0) stats.notes_indexed += 1;
+  }
+  // Edge maintenance is full-state (resolving targets needs the whole note universe), so it
+  // runs once per indexVault pass, not per-note-write. Skipped gracefully when vault_edges is
+  // absent (pre-integration, before W-SCHEMA lands).
+  if (tableExists(args.db, "vault_edges")) {
+    const edgeStats = reconcileVaultEdges(args.db, desiredEdges(noteLinks, notes), now);
+    stats.edges_inserted = edgeStats.inserted;
+    stats.edges_deleted = edgeStats.deleted;
   }
   return stats;
 }
