@@ -4,7 +4,7 @@ import { normalizeHostForBind, type ServerConfig } from "@the-40-thieves/obsidia
 import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
-import { verifyJwt } from "../auth/jwt";
+import { createJwtVerifier, type TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
@@ -19,6 +19,8 @@ export interface HttpAppOptions {
   db: Database;
   acl: FolderAcl;
   vaultId: string;
+  /** Optional bearer-token verifier (W-AUTH seam). Defaults to an HS256 JWT verifier from `auth`. */
+  verifier?: TokenVerifier;
 }
 
 type AuthOutcome =
@@ -32,7 +34,11 @@ function bearer(header: string | undefined): string | null {
 
 // The HTTP edge authenticates only: it verifies the token and derives caller +
 // scopes. Authorization (scope/ACL/HITL) stays in registry.dispatch.
-async function resolveAuth(header: string | undefined, auth: AuthConfig): Promise<AuthOutcome> {
+async function resolveAuth(
+  header: string | undefined,
+  auth: AuthConfig,
+  verifier: TokenVerifier | null,
+): Promise<AuthOutcome> {
   if (auth.mode === "none") {
     // Unauthenticated mode is only reachable on a loopback bind: ServerConfigSchema
     // fail-closes when HTTP is exposed on a non-loopback host with auth.mode "none".
@@ -41,10 +47,9 @@ async function resolveAuth(header: string | undefined, auth: AuthConfig): Promis
   // auth.mode === "jwt" — the only other mode the config schema admits.
   const token = bearer(header);
   if (!token) return { ok: false, status: 401, reason: "missing bearer token" };
-  if (!auth.jwtSecret)
-    return { ok: false, status: 500, reason: "jwt mode misconfigured: no secret" };
+  if (!verifier) return { ok: false, status: 500, reason: "jwt mode misconfigured: no secret" };
   try {
-    const id = await verifyJwt(token, auth.jwtSecret, { maxAgeSeconds: auth.tokenTtlSeconds });
+    const id = await verifier.verify(token);
     return { ok: true, caller: id.caller, scopes: id.scopes };
   } catch {
     return { ok: false, status: 401, reason: "invalid or expired token" };
@@ -60,9 +65,17 @@ async function resolveAuth(header: string | undefined, auth: AuthConfig): Promis
  */
 export function createHttpApp(opts: HttpAppOptions): Hono {
   const app = new Hono();
+  // Token verifier seam (W-AUTH): default to HS256 JWT (jose) built from config; a custom
+  // verifier (e.g. an OAuth 2.1 bearer/introspection verifier) may be injected via
+  // opts.verifier without touching this transport. null in "none" mode or jwt-without-secret.
+  const verifier: TokenVerifier | null =
+    opts.verifier ??
+    (opts.auth.mode === "jwt" && opts.auth.jwtSecret
+      ? createJwtVerifier(opts.auth.jwtSecret, { maxAgeSeconds: opts.auth.tokenTtlSeconds })
+      : null);
 
   app.post("/mcp", async (c) => {
-    const authz = await resolveAuth(c.req.header("authorization"), opts.auth);
+    const authz = await resolveAuth(c.req.header("authorization"), opts.auth, verifier);
     if (!authz.ok) {
       return c.json(
         { jsonrpc: "2.0", error: { code: -32001, message: authz.reason }, id: null },
