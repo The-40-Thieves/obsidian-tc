@@ -10,6 +10,7 @@ import {
   createBridgeClient,
 } from "./bridge";
 import { loadConfig } from "./config/load";
+import { provisionExperientialDb } from "./db/experiential";
 import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
 import { elicitVerifier } from "./elicit";
@@ -56,6 +57,17 @@ const entityUniqueMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260519_002_entity_unique.sql", import.meta.url)),
   "utf8",
 );
+// THE-233 (W-SCHEMA): the wikilink edge graph (vault_graph_expand walks this) lands in the
+// authored cache.db alongside chunks; the experiential tier DDL is read here too (bundle-safe
+// ./migrations resolution) and applied to a physically separate experiential.db below.
+const vaultEdgesMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260626_001_vault_edges.sql", import.meta.url)),
+  "utf8",
+);
+const experientialInitMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260626_001_experiential_init.sql", import.meta.url)),
+  "utf8",
+);
 async function main(): Promise<void> {
   const configPath = process.argv[2] ?? process.env.OBSIDIAN_TC_CONFIG;
   if (!configPath) {
@@ -75,9 +87,20 @@ async function main(): Promise<void> {
     [
       { version: "20260519_001", sql: initialMigrationSql },
       { version: "20260519_002", sql: entityUniqueMigrationSql },
+      { version: "20260626_001", sql: vaultEdgesMigrationSql },
     ],
     { version: VERSION },
   );
+  // THE-233 (W-SCHEMA): provision the experiential tier as a physically separate store (the
+  // membrane — low-trust per-retrieval state cannot FK into the authored atoms in cache.db,
+  // and a reset is a file truncate). Schema only here; the write-on-gate controls + handle
+  // threading ride with the capture port (a later slice), so we provision then release.
+  const experientialDb = await provisionExperientialDb(
+    config.cacheDir,
+    [{ version: "20260626_001", sql: experientialInitMigrationSql }],
+    { version: VERSION },
+  );
+  experientialDb.close?.();
 
   // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
   // share the same in-memory counters. The scrape endpoint is started below only when
