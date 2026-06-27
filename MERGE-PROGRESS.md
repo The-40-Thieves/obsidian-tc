@@ -14,20 +14,18 @@ If you are picking this up cold:
 4. Honor §2's tripwire and §11's NO-TEARDOWN guard absolutely.
 5. Run every unit through the self-gate (§9) before marking green; commit + push per unit.
 
-**Status @ last update (2026-06-26):** Batch 3 **GREEN** — W-INGEST (`the-233/ingest` @ acbb6f0)
-and W-WORKERS (`the-233/workers` @ c4ccdd5) shipped, self-gate green, pushed. All six capability
-units now green on their own branches: W-SCHEMA 18df47f, W-GATEWAY-CLIENT 8fecea1, W-AUTH 17ddc46,
-W-RETRIEVAL f5c29d1, W-INGEST acbb6f0, W-WORKERS c4ccdd5. Repo-hygiene fixes on `main`
-(ARCHITECTURE.md 4b679b0 + the KMS-path bug in `~/.claude/CLAUDE.md`). E7 resolved (KMS `main ==
-fix/npm-audit-2026-06-12` for ported paths). Six isolated worktrees exist.
-**STOPPED after Batch 3 per instruction** — did NOT start Batch 4 (integration) or Slice 5. Next:
-**Batch 4 integration** — fold all branches onto `main`, wire the runtime deps (gateway `rerank` →
-the W-RETRIEVAL seam + W-WORKERS roles; W-SCHEMA + plane migrations into the migrate chain; the
-W-INGEST `onIndexed` hook → the contradiction job), expose `vault_graph_search`, resolve the
-cli.ts migration-array merge, and run the **real recall@k eval**. Batch 4 is gated on the
-**embedding-provider decision** + **E4** (live gateway); **Slice 5** (export/load keep-state) on
-**E3**. Open decisions for the user: the embedding model (gates the real eval), the full OAuth AS
-port (only if the converged product hosts a remote DCR client), and E3/E4 credentials.
+**Status @ last update (2026-06-26):** Batch 4a **GREEN** — INTEGRATION FOLD complete. All six
+capability branches folded onto `the-233/integration` (six clean merges, gated green after each)
+and **fast-forwarded to `main` @ 9ab9cf7** (pushed). Runtime seams wired with graceful degradation
+when the gateway is absent; `vault_graph_search` + `knowledge_challenge` registered (M7). Full
+suite green: build, tsc, vitest (707), biome (284 files). E7 resolved earlier (KMS `main ==
+fix/npm-audit-2026-06-12` for ported paths).
+**STOPPED after Batch 4a per instruction** — did NOT run the real-corpus eval; used no secret.
+Next: **Batch 4b** — the real recall@k eval on a live BGE-M3 index (gated on the embedding-model
+decision + **E4** live gateway for live-rerank). **Slice 5** (export/load keep-state) gated on
+**E3**. Open user decisions: confirm BGE-M3 + provide E3/E4; the full OAuth AS port (only if the
+converged product hosts a remote DCR client). Seven worktrees remain on disk (six units +
+integration) — prunable now that `main` carries everything.
 
 ---
 
@@ -180,7 +178,7 @@ Classification: **PORT** | **PORT→ROLE** (provider SDK → LiteLLM role) | **E
 | W-PLANE / W-WORKERS | **green** | `the-233/workers` @ c4ccdd5 | sleep-time plane (local jobs): audit + synthesis + contradiction wired to the gateway-roles seam (mock) + challenge core; plane migration committed (cli-wiring gated); 663 tests. Pushed. |
 | W-INGEST | **green** | `the-233/ingest` @ acbb6f0 | edge production (forward+reverse links_to + unresolved → vault_edges) folded into indexVault; secret-gate + onIndexed hook in indexNote; 660 tests. Pushed. |
 
-All six capability units green. Remaining work is **Batch 4 integration** (fold to main + wire runtime deps + real eval) and **Slice 5** (export/load keep-state, needs E3).
+All six capability units green AND folded onto `main` @ 9ab9cf7 (Batch 4a integration, merge commit + `the-233/integration`). Remaining: **Batch 4b** (real recall@k eval on a live BGE-M3 index; needs the embedding-model decision + E4) and **Slice 5** (export/load keep-state; needs E3).
 
 States: todo / doing / blocked / green / escalated.
 
@@ -195,6 +193,12 @@ States: todo / doing / blocked / green / escalated.
 ### Batch 3 delivered surface (for resume)
 - **W-INGEST** — `search/edges.ts` produces the undirected `links_to` graph W-RETRIEVAL walks: resolved `[[wikilink]]`/`![[embed]]` → forward (`wikilink_forward`) + reverse (`wikilink_reverse`) `links_to` rows; unresolved → forward-only `unresolved` row. Reuses `vault/links.ts`. `reconcileVaultEdges` (insert/prune/idempotent) folded into `indexVault` (one full-state pass; skipped gracefully if vault_edges absent). `search/secrets.ts` secret-gate in `indexNote` (drops secretful chunks pre-embed, class-only logging). `onIndexed` hook = the contradiction-enqueue seam. **Provenance decision:** KEPT, populated from a real parse signal (resolution direction + link kind). **Hybrid-seed finding:** `search/text.ts` is NOTE-level BM25 (whole-file tokens), not chunk-level FTS → hybrid seeds NOT reimplemented; W-RETRIEVAL stays vector-only-seed; deviation logged for the Batch 4 real eval to quantify. **Local-sync fix:** the live path is `indexVault` (boot reconcile) + index-on-write (THE-255), now edge-producing; the retired vault→Supabase sync is not revived. **Follow-up:** vault_edges has no `vault_id` → multi-vault edge isolation is an integration follow-up (single-vault assumption matches W-SCHEMA + W-RETRIEVAL).
 - **W-WORKERS** — `plane/plane.ts` SleepTimePlane (local job registry/runner, NOT crons; `job_runs` log). Jobs via the `plane/gateway.ts` GatewayRoles seam (extract/synthesize/judge; the W-GATEWAY-CLIENT is a GatewayRoles at integration): `jobs/audit.ts` (kb-audit collapse → audit_reports), `jobs/synthesis.ts` (kb-synthesis collapse → syntheses; GitHub-commit + anchor-folders dropped), `jobs/contradiction.ts` (KMS contradictions port: sqlite-vec neighbors + judge, hook-driven via W-INGEST `onIndexed`). `plane/challenge.ts` knowledge_challenge generative core (judge seam + red-team prompt). `migrations/20260626_002_plane.sql` (contradictions/syntheses/audit_reports/job_runs) committed, **cli-wiring gated to integration**. **Integration-gated tools:** `knowledge_challenge` (evidence-retrieval wiring + MCP registration), `knowledge_get_critical` (**NOT ported** — needs the KMS vendor-KB `knowledge_chunks` severity model the vault-centric tree lacks).
+
+### Batch 4a delivered surface (integration fold)
+- **Final migration array** (cli.ts, cache.db, monotonic): `20260519_001` initial → `20260519_002` entity_unique → `20260626_001` vault_edges → `20260626_002` plane (contradictions / syntheses / audit_reports / job_runs — W-WORKERS, wired now). **experiential.db** (separate file, the membrane): `20260626_001` experiential_init, provisioned on boot then released. Verified on a fresh db AND a pre-merge db (`test/migrate-chain.test.ts`); forward-only + idempotent.
+- **Runtime seams wired** — all graceful when `OBSIDIAN_TC_GATEWAY_URL` is unset (seam = null, boot never hard-fails): W-RETRIEVAL rerank → gateway `/rerank` passthrough (no-op fallback preserved); W-WORKERS roles → gateway `extract/synthesize/judge`; W-INGEST `onIndexed` → contradiction-check enqueue, drained best-effort post-boot.
+- **Tool registrations** (`tools/m7/`): `vault_graph_search` (GraphRAG; uses the reranker seam) + `knowledge_challenge` (decision red-team; uses the roles seam, degrades to an "unavailable" result when the gateway is off). `knowledge_get_critical` confirmed unported + unreferenced.
+- **Embeddings dim (Batch 4b, recorded not acted):** config default is `ollama` / `nomic-embed-text` / **768 dims** (`config.schema.ts`). **BGE-M3 is 1024-dim dense.** The Ollama provider passes `model` through, so it can target `bge-m3`, but 4b must set `embeddings.model="bge-m3"` + `embeddings.dimensions=1024`; `vec0` is created at `config.embeddings.dimensions`, so it must be (re)created at 1024 on the fresh index.
 
 ---
 
