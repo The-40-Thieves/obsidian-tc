@@ -2,7 +2,7 @@ import type { ListResourcesResult, ReadResourceResult } from "@modelcontextproto
 import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import { enforcePathAcl } from "../vault/acl-path";
 import { readableRel } from "../vault/acl-read-filter";
-import { readNote } from "../vault/notes-io";
+import { readNote, statNote } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
 import type { VaultRegistry } from "../vault/registry";
 import type { CallerContext } from "./registry";
@@ -15,7 +15,11 @@ const MIME_MARKDOWN = "text/markdown";
 const MAX_RESOURCE_BYTES = 1_000_000;
 
 export function buildResourceUri(vaultId: string, relPath: string): string {
-  return `${RESOURCE_SCHEME}://${vaultId}/${relPath}`;
+  // Percent-encode each path segment so names containing %, spaces, #, or ? round-trip through
+  // parseResourceUri's decodeURIComponent. Encoding per segment keeps the "/" separators literal
+  // (a single filesystem path segment never contains a "/").
+  const encodedPath = relPath.split("/").map(encodeURIComponent).join("/");
+  return `${RESOURCE_SCHEME}://${vaultId}/${encodedPath}`;
 }
 
 /** Parse an `obsidian-tc://<vault>/<path>` resource URI. Throws on a foreign or malformed URI. */
@@ -30,7 +34,15 @@ export function parseResourceUri(uri: string): { vaultId: string; relPath: strin
       `malformed resource URI (expected ${RESOURCE_SCHEME}://<vault>/<path>): ${uri}`,
       { uri },
     );
-  return { vaultId: rest.slice(0, slash), relPath: decodeURIComponent(rest.slice(slash + 1)) };
+  let relPath: string;
+  try {
+    relPath = decodeURIComponent(rest.slice(slash + 1));
+  } catch {
+    // A client-supplied URI with a malformed percent-escape (e.g. a literal `50% done.md`)
+    // must yield a clean invalid-input error, not an unhandled URIError that crashes the handler.
+    throw err.invalidInput(`malformed resource URI (invalid percent-encoding): ${uri}`, { uri });
+  }
+  return { vaultId: rest.slice(0, slash), relPath };
 }
 
 function canReadNotes(ctx: CallerContext): boolean {
@@ -81,11 +93,16 @@ export function readResource(
   const rel = normalizeVaultPath(relPath);
   enforcePathAcl(ctx.acl, "read", rel);
   const abs = resolveVaultPath(v.root, rel);
-  const { raw } = readNote(abs);
-  if (Buffer.byteLength(raw, "utf8") > MAX_RESOURCE_BYTES)
+  // Stat before reading: readNote loads the whole file into memory, so enforcing the ceiling
+  // only after the read would let any read:notes caller point at a multi-hundred-MB file and
+  // force the full allocation just to be told it is too big. A null stat (missing file) falls
+  // through to readNote, which throws the same not-found error as before.
+  const stat = statNote(abs);
+  if (stat !== null && stat.size > MAX_RESOURCE_BYTES)
     throw err.invalidInput(
       `resource exceeds ${MAX_RESOURCE_BYTES} bytes; read it with the read_note tool instead`,
       { uri },
     );
+  const { raw } = readNote(abs);
   return { contents: [{ uri, mimeType: MIME_MARKDOWN, text: raw }] };
 }

@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { FolderAcl } from "../src/acl";
@@ -41,6 +41,18 @@ function tempMultiVault(): VaultRegistry {
   return new VaultRegistry(cfg.vaults);
 }
 
+/** A single-vault ("main") registry seeded with the given relPath -> content notes. */
+function tempVaultWith(files: Record<string, string>): VaultRegistry {
+  const dir = mkdtempSync(join(tmpdir(), "otc-res-"));
+  for (const [rel, content] of Object.entries(files)) {
+    const abs = join(dir, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content);
+  }
+  const cfg = ServerConfigSchema.parse({ vaults: [{ id: "main", path: dir }] });
+  return new VaultRegistry(cfg.vaults);
+}
+
 function ctx(scopes: string[], acl?: FolderAcl): CallerContext {
   return {
     caller: "t",
@@ -61,6 +73,15 @@ describe("resource URIs", () => {
     });
     expect(() => parseResourceUri("file:///etc/passwd")).toThrow();
     expect(() => parseResourceUri("obsidian-tc://main")).toThrow();
+  });
+  it("percent-encodes segments so %, space, and # names round-trip", () => {
+    for (const name of ["50% done.md", "50%20done.md", "a/b c#1.md"]) {
+      const uri = buildResourceUri("main", name);
+      expect(parseResourceUri(uri).relPath).toBe(name);
+    }
+  });
+  it("rejects a malformed percent-escape with a clean error (no raw URIError)", () => {
+    expect(() => parseResourceUri("obsidian-tc://main/50% done.md")).toThrow(/percent-encoding/);
   });
 });
 
@@ -99,6 +120,17 @@ describe("readResource", () => {
     expect(() =>
       readResource(tempMultiVault(), ctx(["*"]), "obsidian-tc://other/secret.md"),
     ).toThrow(/bound vault/);
+  });
+  it("reads a note whose name needs percent-encoding", () => {
+    const reg = tempVaultWith({ "50% done.md": "done" });
+    const out = readResource(reg, ctx(["*"]), buildResourceUri("main", "50% done.md"));
+    const c = out.contents[0];
+    if (!c || !("text" in c)) throw new Error("expected text contents");
+    expect(c.text).toBe("done");
+  });
+  it("rejects a note exceeding the size ceiling (via stat, before loading it)", () => {
+    const reg = tempVaultWith({ "big.md": "x".repeat(1_000_001) });
+    expect(() => readResource(reg, ctx(["*"]), "obsidian-tc://main/big.md")).toThrow(/exceeds/);
   });
 });
 
