@@ -1,0 +1,216 @@
+# Multi-hop golden set — 10 queries across domain pairs.
+#
+# Per-query schema:
+#   id              kebab-case, unique
+#   query_text      string sent to search functions verbatim
+#   seed_domain     informational label
+#   target_domain   informational label
+#   seed_paths      paths in seed domain a successful result should surface
+#   target_paths    paths in target domain a successful result should surface
+#   bridge_paths    paths explicitly connecting seed + target ([] if none exist in vault)
+#   description     what this query tests
+#
+# Recall@10:       |union(seed_paths, target_paths, bridge_paths) ∩ top10| / |union|
+# MRR@10:          1 / rank of first expected path in top-10, else 0
+# Bridge_recall:   if bridge_paths non-empty: 1 if any bridge_path in result set
+#                  if bridge_paths empty:     1 if any seed_path AND any target_path in result set
+#
+# Ship gate: vault_graph_search beats vault_search by >=20pp recall@10 on this set.
+# Regression guard: existing 30-query set must not drop >5pp (run separately).
+#
+# Note: 03-health/ folder is NOT in vault_chunks (unindexed as of 2026-05-08).
+# Health queries proxy through 02-projects/Health Optimization System.md.
+# Real health notes (Mounjaro dosing, labs, med schedule) will need vault-sync
+# to embed 03-health/ before health-specific queries can be meaningful.
+
+queries:
+  # ── CLEAN FAILURE CASES (bridge_paths: []) ─────────────────────────────────
+  # These test whether graph expansion bridges truly disconnected domains.
+  # v1 (wikilinks only) predicted to fail; v1.1 (LLM enrichment) predicted to fix.
+
+  - id: health-proxy-to-aedras-endurance
+    query_text: "What connections exist between my health optimization system design and themes of endurance and survival in my fantasy world?"
+    seed_domain: projects-health
+    target_domain: aedras
+    seed_paths:
+      - "02-projects\\Health Optimization System.md"
+    target_paths:
+      - "05-creative\\Aedras\\Figures\\The Walking Immortal.md"
+      - "05-creative\\Aedras\\Institutions\\The Long-Lived.md"
+      - "05-creative\\Aedras\\Foundation\\The Four Tensions.md"
+    bridge_paths: []
+    description: |
+      Proxy for the original cardiac→Aedras query (03-health/ unindexed).
+      Tests health-as-project-thinking vs Aedras immortality/endurance motifs.
+      Wikilink expansion from 02-projects unlikely to reach 05-creative.
+      Predicted v1 failure; v1.1 LLM enrichment should bridge via
+      "sustained systems" / "endurance" semantic axis.
+
+  - id: music-visual-to-aedras-cosmology
+    query_text: "What visual aesthetic motifs from Structural Slurpees connect to the cosmological themes in Aedras?"
+    seed_domain: music-visual
+    target_domain: aedras-cosmology
+    seed_paths:
+      - "06-music\\03-production\\Structural Slurpees.md"
+      - "02-projects\\Structural Slurpees Release.md"
+      - "06-music\\04-releases\\Structural Slurpees Release.md"
+      - "06-music\\07-visual\\DESIGN.md"
+    target_paths:
+      - "05-creative\\Aedras\\Cosmology\\The Khaldunian Cycle.md"
+      - "05-creative\\Aedras\\World\\Overview.md"
+      - "05-creative\\Aedras\\Cosmology\\The Sleeper.md"
+    bridge_paths: []
+    description: |
+      Tests music-visual → Aedras cosmology bridging.
+      Cyberpunk/industrial Slurpees aesthetic vs Aedras sacred-geometry Surath era.
+      No explicit wikilinks between 06-music/07-visual and 05-creative/Aedras.
+      Predicted v1 failure. LLM enrichment would connect via visual-as-worldbuilding axis.
+
+  - id: aedras-sovereignty-to-agi
+    query_text: "How do the sovereignty and legitimacy mechanics in my fantasy world connect to my analysis of the AGI specification problem?"
+    seed_domain: aedras-mechanics
+    target_domain: writing-ai
+    seed_paths:
+      - "05-creative\\Aedras\\Foundation\\The Sovereign Principle.md"
+      - "05-creative\\Aedras\\Mechanics\\Legitimacy (Adur).md"
+      - "05-creative\\Aedras\\Foundation\\The Four Tensions.md"
+    target_paths:
+      - "04-writing\\Published\\2026-03-01-agi-specification-problem\\final.md"
+      - "04-writing\\Published\\2026-02-18-perceiving-reality-humans-vs-ai\\final.md"
+    bridge_paths: []
+    description: |
+      Tests Aedras political philosophy → AI alignment writing.
+      Both deal with "who defines what is legitimate" but in different registers.
+      No wikilinks between 05-creative and 04-writing.
+      Predicted v1 failure. LLM enrichment bridges via sovereignty/specification axis.
+
+  - id: aedras-endings-to-borrowed-mind
+    query_text: "How does the theme of unwitnessed endings in Aedras relate to my essay on the borrowed mind and Cartesian critique of AI?"
+    seed_domain: aedras-old-world
+    target_domain: writing-philosophy
+    seed_paths:
+      - "05-creative\\Aedras\\Old World (Aeteran)\\The Ending.md"
+      - "05-creative\\Aedras\\Old World (Aeteran)\\The Witnesses.md"
+      - "05-creative\\Aedras\\Figures\\The Second Witness.md"
+    target_paths:
+      - "04-writing\\Published\\2026-03-15-borrowed-mind-cartesian-critique\\final.md"
+      - "04-writing\\Published\\2026-03-20-mutual-non-extractability\\final.md"
+    bridge_paths: []
+    description: |
+      Tests Aedras witnessing/ending mythology → AI epistemology essays.
+      The Witness figures in Aedras and the "borrowed mind" essay both interrogate
+      what it means to know something through another's cognition.
+      No wikilinks between creative and writing domains.
+
+  - id: music-production-to-ai-music-tools
+    query_text: "How do my Structural Slurpees production decisions relate to AI music generation capabilities and tool landscape?"
+    seed_domain: music-production
+    target_domain: ai-music-research
+    seed_paths:
+      - "06-music\\03-production\\Structural Slurpees.md"
+      - "06-music\\04-releases\\Structural Slurpees Release.md"
+    target_paths:
+      - "08-research\\04-ai-music-tools\\Music Production Trends.md"
+      - "08-research\\04-ai-music-tools\\Commercial Analysis.md"
+    bridge_paths: []
+    description: |
+      Tests music production log → AI music tools research.
+      Production decisions made in context of Suno/BandLab but notes are in
+      separate domains without explicit wikilinks.
+      Predicted v1 failure.
+
+  - id: writing-voice-to-aedras-voice
+    query_text: "How does my X writing voice and register connect to the voice register defined in my Aedras canon?"
+    seed_domain: writing-voice
+    target_domain: aedras-craft
+    seed_paths:
+      - "04-writing\\Voice-Samples\\x-social-voice-creator-buddy.md"
+      - "04-writing\\Voice-Samples\\poetry-corpus.md"
+      - "04-writing\\Published\\2026-04-06-undefined-destination\\final.md"
+    target_paths:
+      - "05-creative\\Aedras\\Foundation\\The Voice Register.md"
+      - "05-creative\\Aedras\\Sources\\Voice Style Guide notes.md"
+    bridge_paths: []
+    description: |
+      Tests writing voice samples → Aedras voice register canon.
+      Both define a voice aesthetic but in different registers and folders.
+      Predicted v1 failure. LLM enrichment bridges via register/style axis.
+
+  # ── BRIDGE-EXISTS CASES (bridge_paths populated) ───────────────────────────
+  # These test whether graph expansion finds known connecting paths.
+  # v1 may partially succeed if MOC/INDEX files bridge the domains.
+
+  - id: music-theory-to-trap-production
+    query_text: "How do non-western scales and modal harmony principles apply to trap and hip-hop production?"
+    seed_domain: music-theory
+    target_domain: production
+    seed_paths:
+      - "08-research\\01-music-theory\\Non-Western Integration Framework.md"
+      - "08-research\\01-music-theory\\Universal Harmonic Vocabulary.md"
+    target_paths:
+      - "08-research\\02-production\\Hip-Hop and Trap Production.md"
+      - "08-research\\02-production\\Mixing Theory.md"
+    bridge_paths:
+      - "08-research\\01-music-theory\\00-INDEX.md"
+      - "08-research\\02-production\\00-INDEX.md"
+    description: |
+      Tests intra-research-domain bridging. Theory and production both live in
+      08-research and are likely connected via INDEX files.
+      Bridge paths are the INDEX nodes that link across subdomains.
+      v1 may succeed if INDEX files appear as expansion seeds.
+
+  - id: 13thletter-release-to-marketing
+    query_text: "What is the full release strategy and marketing plan for The 13th Letter including Structural Slurpees?"
+    seed_domain: projects-music
+    target_domain: marketing
+    seed_paths:
+      - "02-projects\\The 13th Letter.md"
+      - "02-projects\\Structural Slurpees Release.md"
+    target_paths:
+      - "10-marketing\\02-content-strategy\\Content Strategy — The 13th Letter.md"
+      - "10-marketing\\05-promotions\\Paid Ads — The 13th Letter.md"
+    bridge_paths:
+      - "06-music\\04-releases\\Structural Slurpees Release.md"
+      - "06-music\\06-marketing\\Release Asset Workflow.md"
+    description: |
+      Tests project → marketing bridging via music release notes.
+      02-projects/The 13th Letter.md likely links to both music and marketing.
+      Bridge nodes are the release and marketing workflow notes in 06-music.
+      v1 has a real shot here given The 13th Letter's high out-degree.
+
+  - id: knowledge-mcp-to-ai-industry
+    query_text: "How does the knowledge MCP server architecture relate to broader AI infrastructure and industry dynamics?"
+    seed_domain: projects-infra
+    target_domain: ai-research
+    seed_paths:
+      - "02-projects\\knowledge-mcp-server.md"
+    target_paths:
+      - "08-research\\06-ai-tech\\AI Industry Dynamics.md"
+      - "08-research\\06-ai-tech\\AI Models.md"
+    bridge_paths:
+      - "09-reference\\MCP-Connector-Audit-2026-04-24.md"
+      - "08-research\\06-ai-tech\\00-INDEX.md"
+    description: |
+      Tests project infrastructure → AI research bridging.
+      knowledge-mcp-server.md likely links to MCP connector notes
+      which may link onward to AI tech research.
+      v1 plausible if 09-reference MCP notes bridge across to 08-research.
+
+  - id: aedras-surath-to-music-production
+    query_text: "How does the Surath era aesthetic and sacred geometry of Aedras inform the music production direction of The 13th Letter?"
+    seed_domain: aedras-surath
+    target_domain: music-production
+    seed_paths:
+      - "05-creative\\Surath Aedras Canon - World Bible.md"
+      - "05-creative\\Aedras\\Foundation\\The Sovereign Principle.md"
+    target_paths:
+      - "06-music\\03-production\\Structural Slurpees.md"
+      - "06-music\\07-visual\\DESIGN.md"
+    bridge_paths:
+      - "02-projects\\The 13th Letter.md"
+    description: |
+      Tests Aedras Surath era → music production bridging.
+      02-projects/The 13th Letter.md may serve as bridge (links to both music
+      and creative canon). The 13th Letter project note is the conceptual
+      home that ties the Surath aesthetic to the production direction.
+      v1 plausible if The 13th Letter.md is reached via expansion.
