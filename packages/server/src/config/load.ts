@@ -2,11 +2,10 @@ import { readFileSync } from "node:fs";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 
 /**
- * Load and validate server config from a JSON file. The JWT secret may be
- * supplied via OBSIDIAN_TC_JWT_SECRET to keep it out of the file on disk.
+ * Apply environment-secret overlays (kept off disk) to a raw config object and
+ * validate it against the schema. Shared by file loading and zero-config startup.
  */
-export function loadConfig(path: string): ServerConfig {
-  const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+export function finalizeConfig(raw: Record<string, unknown>): ServerConfig {
   const envSecret = process.env.OBSIDIAN_TC_JWT_SECRET;
   if (envSecret) {
     const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
@@ -26,4 +25,13 @@ export function loadConfig(path: string): ServerConfig {
     };
   }
   return ServerConfigSchema.parse(raw);
+}
+
+/**
+ * Load and validate server config from a JSON file. The JWT secret may be
+ * supplied via OBSIDIAN_TC_JWT_SECRET to keep it out of the file on disk.
+ */
+export function loadConfig(path: string): ServerConfig {
+  const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  return finalizeConfig(raw);
 }
