@@ -98,8 +98,20 @@ async function main(): Promise<void> {
     process.stderr.write(`${cmd.message}\n\n${USAGE}`);
     process.exit(2);
   }
+  // resolveServeConfig surfaces user-facing CliErrors (no path given, missing file, bad
+  // config). Both the `config` subcommands and `serve` treat these as usage errors: print the
+  // message + usage to stderr and exit 2, distinct from the `fatal:`/exit 1 in main().catch
+  // that is reserved for genuine server crashes.
+  const resolveOrUsageExit = (input?: string): ServerConfig => {
+    try {
+      return resolveServeConfig(input);
+    } catch (e) {
+      process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
+      process.exit(2);
+    }
+  };
   if (cmd.kind === "config-show" || cmd.kind === "config-validate") {
-    const resolved = resolveServeConfig(cmd.configPath);
+    const resolved = resolveOrUsageExit(cmd.configPath);
     process.stdout.write(
       cmd.kind === "config-show"
         ? `${JSON.stringify(redactConfig(resolved), null, 2)}\n`
@@ -108,13 +120,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  let config: ServerConfig;
-  try {
-    config = resolveServeConfig(cmd.input);
-  } catch (e) {
-    process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
-    process.exit(2);
-  }
+  const config = resolveOrUsageExit(cmd.input);
   const configPath = cmd.input ?? process.env.OBSIDIAN_TC_CONFIG;
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults must contain at least one vault");
