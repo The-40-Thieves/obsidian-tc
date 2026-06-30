@@ -12,6 +12,7 @@ import {
   createBridgeClient,
 } from "./bridge";
 import { parseCliArgs, redactConfig, resolveServeConfig, USAGE } from "./cli/args";
+import { installPlugin } from "./cli/plugin-install";
 import { provisionExperientialDb } from "./db/experiential";
 import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
@@ -97,6 +98,20 @@ async function main(): Promise<void> {
   if (cmd.kind === "error") {
     process.stderr.write(`${cmd.message}\n\n${USAGE}`);
     process.exit(2);
+  }
+  if (cmd.kind === "plugin-install") {
+    const pluginSrcDir = fileURLToPath(new URL("./plugin/", import.meta.url));
+    try {
+      const r = installPlugin(cmd.vaultPath, pluginSrcDir);
+      process.stdout.write(
+        `installed ${r.pluginName} v${r.pluginVersion} -> ${r.dest}\n` +
+          `Enable it in Obsidian: Settings -> Community plugins -> ${r.pluginId}.\n`,
+      );
+    } catch (e) {
+      process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
+      process.exit(2);
+    }
+    return;
   }
   // resolveServeConfig surfaces user-facing CliErrors (no path given, missing file, bad
   // config). Both the `config` subcommands and `serve` treat these as usage errors: print the
