@@ -115,7 +115,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
   if (vaultRegistry) {
     server.setRequestHandler(
       ListResourcesRequestSchema,
-      (): ListResourcesResult => listResources(vaultRegistry, opts.context()),
+      (req): ListResourcesResult =>
+        listResources(vaultRegistry, opts.context(), req.params?.cursor),
     );
     server.setRequestHandler(
       ReadResourceRequestSchema,
