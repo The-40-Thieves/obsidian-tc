@@ -3,7 +3,7 @@
 // both the stdio and HTTP edges. openBridge is the gate every bridge-proxy tool
 // runs first: it degrades (plugin_missing / plugin_unreachable) via the probed
 // capability snapshot before any network call, and yields the per-vault client.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { type BridgeClient, type CapabilityCache, requirePlugin } from "../../bridge";
 import { assertLive, type VaultMode } from "../../vault/mode";
 import type { VaultRegistry } from "../../vault/registry";
@@ -62,6 +62,38 @@ export function openBridge(
 
 export function bridgeTimeouts(deps: M4Deps, vaultId: string): BridgeTimeouts {
   return deps.timeouts?.(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS;
+}
+
+/**
+ * If `e` is a plugin_missing / plugin_unreachable / requires_live_obsidian degrade, return a copy with an actionable
+ * `hint` added to its details (e.g. a native alternative tool to use instead); otherwise return
+ * `e` unchanged. Lets a bridge tool point callers at a fallback without changing the degrade
+ * code or its retryability.
+ */
+export function withDegradeHint(e: unknown, hint: string): unknown {
+  if (
+    e instanceof ObsidianTcError &&
+    (e.code === "plugin_missing" ||
+      e.code === "plugin_unreachable" ||
+      e.code === "requires_live_obsidian")
+  ) {
+    return new ObsidianTcError(e.code, e.message, { ...e.details, hint });
+  }
+  return e;
+}
+
+/** openBridge, but a plugin_missing/plugin_unreachable degrade carries `hint` in its details. */
+export function openBridgeWithHint(
+  deps: M4Deps,
+  vaultId: string,
+  plugin: string,
+  hint: string,
+): { client: BridgeClient; version?: string } {
+  try {
+    return openBridge(deps, vaultId, plugin);
+  } catch (e) {
+    throw withDegradeHint(e, hint);
+  }
 }
 
 /**
