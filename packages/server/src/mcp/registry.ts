@@ -111,6 +111,14 @@ function bufToString(v: unknown): string {
   return String(v ?? "");
 }
 
+/** One dispatch's coarse timing, reported to an onProfile sink (OBSIDIAN_TC_PROFILE). */
+export interface DispatchProfile {
+  tool: string;
+  vaultId: string;
+  total_ms: number;
+  handler_ms: number;
+}
+
 export interface RegistryOptions {
   maxResponseBytes?: number;
   verifyElicit?: VerifyElicit;
@@ -126,6 +134,9 @@ export interface RegistryOptions {
   idempotencyTtlSeconds?: number;
   /** Static tool-visibility scoping (THE-219). Optional: ALLOW_ALL when absent. */
   toolVisibility?: ToolVisibilityConfig;
+  /** Profile sink (perf diagnostics). When set, each successful dispatch reports total vs
+   *  handler time; absent by default, so there is no observable overhead. */
+  onProfile?: (p: DispatchProfile) => void;
 }
 
 export class ToolRegistry {
@@ -143,6 +154,7 @@ export class ToolRegistry {
   private readonly rateLimiter?: RateLimiter;
   private readonly idempotencyTtlMs: number;
   private readonly toolVisibility: ToolVisibilityConfig;
+  private readonly onProfile?: (p: DispatchProfile) => void;
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
@@ -153,6 +165,7 @@ export class ToolRegistry {
     this.rateLimiter = opts.rateLimiter;
     this.idempotencyTtlMs = (opts.idempotencyTtlSeconds ?? 86400) * 1000;
     this.toolVisibility = opts.toolVisibility ?? ALLOW_ALL;
+    this.onProfile = opts.onProfile;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -544,7 +557,9 @@ export class ToolRegistry {
         });
       }
 
+      const handlerStart = now();
       const out = await def.handler(parsed.data, ctx);
+      const handlerMs = Math.max(0, now() - handlerStart);
       const json = JSON.stringify(out ?? null);
       const resultSize = Buffer.byteLength(json, "utf8");
       const duration = Math.max(0, now() - start);
@@ -581,6 +596,16 @@ export class ToolRegistry {
         this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, json, resultSize, now());
       audit("ok", duration, resultSize);
       this.meter((m) => m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize));
+      try {
+        this.onProfile?.({
+          tool: name,
+          vaultId: ctx.vaultId,
+          total_ms: duration,
+          handler_ms: handlerMs,
+        });
+      } catch {
+        /* profile sink must never block tool execution */
+      }
       return { ok: true, data: out, meta: { duration_ms: duration, result_size: resultSize } };
     } catch (e) {
       if (idemClaimed && idemKey) {
