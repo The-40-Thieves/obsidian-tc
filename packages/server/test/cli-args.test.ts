@@ -124,3 +124,23 @@ describe("redactConfig", () => {
     expect(json).toContain('"keyPath":"/etc/x"');
   });
 });
+
+describe("parseCliArgs — flag validation", () => {
+  it("a value-taking flag with no value is a usage error, not a crash", () => {
+    expect(parseCliArgs(["serve", "--config"]).kind).toBe("error");
+    expect(parseCliArgs(["config", "validate", "--config"]).kind).toBe("error");
+  });
+});
+
+describe("redactConfig — generic key-suffix fields", () => {
+  it("masks any *key/*secret/*token field, including signing/private keys", () => {
+    const json = JSON.stringify(
+      redactConfig({ signingKey: "sk-1", privateKey: "pk-2", publicId: "ok" }),
+    );
+    expect(json).not.toContain("sk-1");
+    expect(json).not.toContain("pk-2");
+    expect(json).toContain('"signingKey":"<redacted>"');
+    expect(json).toContain('"privateKey":"<redacted>"');
+    expect(json).toContain('"publicId":"ok"');
+  });
+});
