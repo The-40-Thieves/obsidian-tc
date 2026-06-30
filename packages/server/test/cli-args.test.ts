@@ -52,6 +52,15 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["config", "bogus"]).kind).toBe("error");
     expect(parseCliArgs(["--bogus"]).kind).toBe("error");
   });
+  it("--config with no value is a usage error, not a silent positional/env fallback", () => {
+    expect(parseCliArgs(["serve", "--config"])).toEqual({
+      kind: "error",
+      message: "--config requires a value",
+    });
+    expect(parseCliArgs(["config", "show", "--config"]).kind).toBe("error");
+    // a following token that is itself a flag does not count as the value
+    expect(parseCliArgs(["serve", "--config", "--bogus"]).kind).toBe("error");
+  });
 });
 
 describe("resolveServeConfig / configFromVaultPath", () => {
@@ -100,5 +109,18 @@ describe("redactConfig", () => {
     expect(json).toContain('"apiKey":"<redacted>"');
     expect(json).toContain('"endpoint":"http://x"');
     expect(json).toContain('"maxResponseBytes":1000000');
+  });
+  it("masks generic key-suffix fields without over-matching non-key names", () => {
+    const json = JSON.stringify(
+      redactConfig({ signingKey: "s1", privateKey: "p1", encryptionKey: "e1", keyPath: "/etc/x" }),
+    );
+    expect(json).not.toContain("s1");
+    expect(json).not.toContain("p1");
+    expect(json).not.toContain("e1");
+    expect(json).toContain('"signingKey":"<redacted>"');
+    expect(json).toContain('"privateKey":"<redacted>"');
+    expect(json).toContain('"encryptionKey":"<redacted>"');
+    // keyPath ends in "path", not "key": it is a file location, not the secret, so it stays.
+    expect(json).toContain('"keyPath":"/etc/x"');
   });
 });

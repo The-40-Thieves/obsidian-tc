@@ -35,29 +35,43 @@ function positional(args: string[]): string | undefined {
   return args.find((a) => !a.startsWith("-"));
 }
 
+// A value-taking flag (e.g. `--config <path>`). Absent flag -> undefined (the caller falls
+// back to a positional / env). Present but with no following token, or a token that is itself
+// another flag, is a usage error: throw a CliError that parseCliArgs converts to an `error`
+// command, so it can never silently fall through to a positional or to the env fallback.
 function flagValue(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : undefined;
+  if (i < 0) return undefined;
+  const v = args[i + 1];
+  if (v === undefined || v.startsWith("-")) throw new CliError(`${name} requires a value`);
+  return v;
 }
 
 /** Parse argv already sliced past the node binary + script path into a command. */
 export function parseCliArgs(argv: string[]): CliCommand {
-  const [first, ...rest] = argv;
-  if (first === undefined) return { kind: "serve" };
-  if (first === "version" || first === "--version" || first === "-v") return { kind: "version" };
-  if (first === "help" || first === "--help" || first === "-h") return { kind: "help" };
-  if (first === "serve") {
-    return { kind: "serve", input: flagValue(rest, "--config") ?? positional(rest) };
+  try {
+    const [first, ...rest] = argv;
+    if (first === undefined) return { kind: "serve" };
+    if (first === "version" || first === "--version" || first === "-v") return { kind: "version" };
+    if (first === "help" || first === "--help" || first === "-h") return { kind: "help" };
+    if (first === "serve") {
+      return { kind: "serve", input: flagValue(rest, "--config") ?? positional(rest) };
+    }
+    if (first === "config") {
+      const sub = rest[0];
+      const configPath = flagValue(rest, "--config") ?? positional(rest.slice(1));
+      if (sub === "show") return { kind: "config-show", configPath };
+      if (sub === "validate") return { kind: "config-validate", configPath };
+      return { kind: "error", message: `unknown config subcommand: ${sub ?? "(none)"}` };
+    }
+    if (first.startsWith("-")) return { kind: "error", message: `unknown option: ${first}` };
+    return { kind: "serve", input: first };
+  } catch (e) {
+    // Keep parseCliArgs total: a usage CliError (e.g. `--config` with no value) becomes an
+    // `error` command so cli.ts prints the message + usage and exits 2, never `fatal:`/exit 1.
+    if (e instanceof CliError) return { kind: "error", message: e.message };
+    throw e;
   }
-  if (first === "config") {
-    const sub = rest[0];
-    const configPath = flagValue(rest, "--config") ?? positional(rest.slice(1));
-    if (sub === "show") return { kind: "config-show", configPath };
-    if (sub === "validate") return { kind: "config-validate", configPath };
-    return { kind: "error", message: `unknown config subcommand: ${sub ?? "(none)"}` };
-  }
-  if (first.startsWith("-")) return { kind: "error", message: `unknown option: ${first}` };
-  return { kind: "serve", input: first };
 }
 
 /** Build a single-vault config from a vault directory, applying every schema default. */
@@ -85,7 +99,11 @@ export function resolveServeConfig(input?: string): ServerConfig {
   return stat.isDirectory() ? configFromVaultPath(target) : loadConfig(target);
 }
 
-const SECRET_KEY = /(secret|token|password|api[_-]?key|apikey)$/i;
+// Field-name suffixes whose string values are masked in `config show`. A bare `key$` suffix
+// subsumes apiKey/api_key/restApiKey and also covers generic credential fields (signingKey,
+// privateKey, encryptionKey, …). Err toward over-redaction: masking a non-secret in a
+// display-only dump is harmless, leaking a secret is not.
+const SECRET_KEY = /(secret|token|password|key)$/i;
 
 /** Deep-clone a value with secret-looking string fields masked, for `config show`. */
 export function redactConfig(value: unknown): unknown {
