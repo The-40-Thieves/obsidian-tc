@@ -2,7 +2,8 @@ name: ci-install-smoke
 # Proves the cross-platform install/run claim: on linux, macOS, and windows, build the
 # host native addon + the bundled CLI, then assert (1) the host .node prebuild loads,
 # (2) a missing prebuild degrades to the pure-JS fallback instead of crashing (G2.2 #9),
-# and (3) the CLI boots against a throwaway vault and reaches its stdio-ready line.
+# (3) the CLI boots against a throwaway vault under both bun and node and reaches its
+# stdio-ready line, and (4) the built CLI reports the package version under both runtimes.
 on:
   pull_request:
     paths:
@@ -71,9 +72,11 @@ jobs:
         run: |
           node -e "const fs=require('node:fs'),path=require('node:path'); const dir='packages/native'; const f=fs.readdirSync(dir).find(x=>x.endsWith('.node')); if(!f){console.error('no host .node was built');process.exit(1)} const p=path.join(dir,f); fs.renameSync(p,p+'.bak'); try{ const n=require('./packages/native'); if(n.nativeLoaded!==false){console.error('expected JS fallback, got nativeLoaded='+n.nativeLoaded);process.exit(1)} if(typeof n.cosineSimilarity!=='function'){console.error('JS fallback is missing exports');process.exit(1)} console.log('ok: graceful JS fallback (nativeLoaded=false)'); } finally { fs.renameSync(p+'.bak',p); }"
 
-      # 3) The CLI boots against a throwaway vault and reaches stdio-ready. The server bundle
-      #    targets the Bun runtime (bun:sqlite adapter), so run it under bun; stdin is closed
-      #    so the stdio transport ends and the process exits cleanly after printing ready.
+      # 3) The CLI boots against a throwaway vault and reaches stdio-ready under BOTH runtimes.
+      #    The bundle is built `--target node`, but bun:sqlite is imported lazily inside the Bun
+      #    adapter, so the node-targeted output never statically imports `bun:` and loads under
+      #    node too (the npx / Cursor / VS Code / Claude-Desktop lane). stdin is closed so the
+      #    stdio transport ends and the process exits cleanly after printing ready.
       - name: CLI starts against a throwaway vault
         run: |
           node scripts/write-smoke-config.mjs "$RUNNER_TEMP/smoke-vault" "$RUNNER_TEMP/smoke-cache" "$RUNNER_TEMP/smoke-config.json"
@@ -81,3 +84,20 @@ jobs:
           echo "$out"
           echo "$out" | grep -q "ready on stdio" || { echo "::error::CLI did not reach stdio-ready"; exit 1; }
           echo "ok: CLI reached stdio-ready"
+      - name: CLI starts under node (npx / Cursor / VS Code / Claude-Desktop lane)
+        run: |
+          out=$(node packages/server/dist/cli.js "$RUNNER_TEMP/smoke-config.json" < /dev/null 2>&1) || true
+          echo "$out"
+          echo "$out" | grep -q "ready on stdio" || { echo "::error::node lane did not reach stdio-ready (is bun:sqlite hoisted into the node bundle?)"; exit 1; }
+          echo "ok: node lane reached stdio-ready"
+      # 4) Release-coherence guard: the BUILT bundle must report the package version under both
+      #    runtimes — catches a stale/mislabeled build (e.g. a 1.0.0 bundle published as 1.2.1).
+      - name: built CLI reports the package version (node + bun)
+        run: |
+          want=$(node -p "require('./packages/server/package.json').version")
+          got_node=$(node packages/server/dist/cli.js version)
+          got_bun=$(bun packages/server/dist/cli.js version)
+          echo "want=$want node=$got_node bun=$got_bun"
+          [ "$got_node" = "$want" ] || { echo "::error::node reports $got_node, expected $want"; exit 1; }
+          [ "$got_bun" = "$want" ] || { echo "::error::bun reports $got_bun, expected $want"; exit 1; }
+          echo "ok: built CLI reports $want under node and bun"
