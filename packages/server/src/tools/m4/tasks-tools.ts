@@ -13,7 +13,7 @@ import { requireConfirmation } from "../../vault/hitl";
 import { readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridgeWithHint } from "./shared";
 import {
   applyTaskSet,
   daysSince,
@@ -208,7 +208,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
     defineTool({
       name: "tasks_filter",
       description:
-        "Run a Tasks-plugin filter expression (its DSL) via the companion bridge, with optional grouping/sorting.",
+        "Run a Tasks-plugin filter expression (its DSL) via the companion bridge, with optional grouping/sorting. Requires the Tasks plugin; if it is unavailable, use list_tasks for native status/priority/tag/due filtering.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -222,7 +222,12 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
       requiredScopes: ["read:tasks"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const { client } = openBridge(deps, v.id, "tasks");
+        const { client } = openBridgeWithHint(
+          deps,
+          v.id,
+          "tasks",
+          "the Tasks community plugin is required for tasks_filter's query DSL; for native status/priority/tag/due filtering without it, use the list_tasks tool.",
+        );
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
           path: "/tasks/filter",
