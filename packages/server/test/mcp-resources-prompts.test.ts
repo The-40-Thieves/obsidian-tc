@@ -155,3 +155,19 @@ describe("prompts", () => {
     expect(() => getPrompt("summarize_note", { path: "" })).toThrow(/path/);
   });
 });
+
+describe("Greptile review fixes", () => {
+  it("percent-encodes path segments and round-trips special chars", () => {
+    const uri = buildResourceUri("main", "notes/50% done.md");
+    expect(uri).toBe("obsidian-tc://main/notes/50%25%20done.md");
+    expect(parseResourceUri(uri)).toEqual({ vaultId: "main", relPath: "notes/50% done.md" });
+  });
+  it("rejects a URI with malformed percent-encoding instead of crashing", () => {
+    expect(() => parseResourceUri("obsidian-tc://main/50% bad.md")).toThrow();
+  });
+  it("readResource rejects a URI for a vault other than the caller's bound vault", () => {
+    expect(() => readResource(tempVault(), ctx(["*"]), "obsidian-tc://main2/alpha.md")).toThrow(
+      /bound vault/,
+    );
+  });
+});
