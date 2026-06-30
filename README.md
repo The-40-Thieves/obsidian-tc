@@ -54,6 +54,16 @@ minimum (every other field has a default):
 npm install -g obsidian-tc
 ```
 
+The fastest start is zero-config: point it at a vault folder and it boots a single
+vault named `main` with sensible defaults.
+
+```bash
+obsidian-tc /path/to/your/vault
+```
+
+For multi-vault, auth, ACLs, or custom embeddings, pass a config file instead. A
+vault `id` and `path` is the minimum (every other field has a default):
+
 `obsidian-tc.config.json`:
 
 ```json
@@ -66,6 +76,10 @@ npm install -g obsidian-tc
 obsidian-tc ./obsidian-tc.config.json
 # or set the path in the environment:
 OBSIDIAN_TC_CONFIG=./obsidian-tc.config.json obsidian-tc
+
+# inspect the effective config (secrets redacted), or print the version:
+obsidian-tc config show ./obsidian-tc.config.json
+obsidian-tc version
 ```
 
 ## Install in Cursor / VS Code
