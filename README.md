@@ -82,6 +82,9 @@ OBSIDIAN_TC_CONFIG=./obsidian-tc.config.json obsidian-tc
 # inspect the effective config (secrets redacted), or print the version:
 obsidian-tc config show ./obsidian-tc.config.json
 obsidian-tc version
+
+# install the companion Obsidian plugin into your vault (then enable it in Obsidian):
+obsidian-tc plugin install --vault /path/to/your/vault
 ```
 
 ## Install in Cursor / VS Code
