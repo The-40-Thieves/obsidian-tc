@@ -30,6 +30,6 @@ try {
   console.log("vendored companion plugin -> dist/plugin/");
 } catch (e) {
   console.warn(
-    `WARNING: could not vendor companion plugin (plugin install unavailable): ${e.message}`,
+    `WARNING: could not vendor companion plugin (plugin install unavailable): ${e instanceof Error ? e.message : String(e)}`,
   );
 }

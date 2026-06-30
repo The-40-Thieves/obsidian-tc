@@ -41,8 +41,15 @@ export function installPlugin(vaultPath: string, pluginSrcDir: string): PluginIn
       "bundled companion plugin not found; this build did not vendor it (expected dist/plugin/).",
     );
   }
-  const manifest = JSON.parse(manifestRaw) as PluginManifest;
+  let manifest: PluginManifest;
+  try {
+    manifest = JSON.parse(manifestRaw) as PluginManifest;
+  } catch {
+    throw new CliError("bundled companion plugin manifest.json is not valid JSON.");
+  }
   if (!manifest.id) throw new CliError("companion plugin manifest is missing an id");
+  if (!manifest.name || !manifest.version)
+    throw new CliError("companion plugin manifest is missing name or version");
 
   const dest = join(vault, ".obsidian", "plugins", manifest.id);
   mkdirSync(dest, { recursive: true });
