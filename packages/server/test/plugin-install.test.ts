@@ -58,3 +58,23 @@ describe("installPlugin", () => {
     expect(() => installPlugin(vault, join(tmpdir(), "otc-no-plugin-src"))).toThrow(/not found/);
   });
 });
+
+function pluginSrcWith(manifestJson: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "otc-plugin-bad-"));
+  writeFileSync(join(dir, "manifest.json"), manifestJson);
+  writeFileSync(join(dir, "main.js"), "module.exports = {};");
+  return dir;
+}
+
+describe("installPlugin — manifest hardening", () => {
+  it("rejects a manifest that is not valid JSON", () => {
+    expect(() =>
+      installPlugin(mkdtempSync(join(tmpdir(), "otc-v-")), pluginSrcWith("{ not json ")),
+    ).toThrow(/not valid JSON/);
+  });
+  it("rejects a manifest missing name or version", () => {
+    expect(() =>
+      installPlugin(mkdtempSync(join(tmpdir(), "otc-v2-")), pluginSrcWith('{"id":"obsidian-tc"}')),
+    ).toThrow(/name or version/);
+  });
+});
