@@ -87,6 +87,23 @@ obsidian-tc version
 obsidian-tc plugin install --vault /path/to/your/vault
 ```
 
+### Runs locally by default
+
+No cloud account or API key is required. With the defaults, everything runs on your
+machine: embeddings via a local [Ollama](https://ollama.com) model (`nomic-embed-text`,
+768-dim), vector search via the bundled `sqlite-vec` (with a pure-JS cosine fallback), and
+a per-vault SQLite cache. Pull the model once, then start:
+
+```bash
+ollama pull nomic-embed-text       # the default embeddings model
+obsidian-tc /path/to/your/vault    # boots local-only, no config file
+```
+
+The optional inference gateway (`OBSIDIAN_TC_GATEWAY_URL`) powers rerank and the
+`knowledge_challenge` red-team; leave it unset and those degrade gracefully while
+everything else keeps working. Cloud embedding providers (OpenAI, Voyage, Cohere) are
+opt-in via a config file.
+
 ## Install in Cursor / VS Code
 
 One-click install (launches via `npx`; after installing, set the config path to your
@@ -114,6 +131,25 @@ Or add it by hand. The server object is the same; only the wrapper key differs â
 transports); it may also be passed as the first CLI argument. A prebuilt MCPB bundle
 (`bun run bundle` â†’ `dist/obsidian-tc.mcpb`) is also available for one-click install in
 Claude Desktop and other MCPB hosts.
+
+## How it compares
+
+Most Obsidian MCP servers are thin access wrappers over the Local REST API. obsidian-tc is
+a server-grade product: a centralized dispatch pipeline (auth -> scopes -> folder ACL ->
+read-only -> idempotency -> throttle -> HITL -> handler -> response governor -> audit), a
+hybrid retrieval substrate, and observability. A rough comparison of the open-source servers
+(tool counts as of 2026-06):
+
+| | Tools | Search | Auth / ACL / HITL | Observability |
+|---|---|---|---|---|
+| **obsidian-tc** | ~103 | BM25 + vector + RRF + graph | JWT + folder ACL + HITL elicit | OTel + Prometheus + CloudEvents |
+| [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~8 | text / regex | JWT/OAuth, no folder ACL/HITL | console logs |
+| [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian) | ~13 | text + JsonLogic / DQL | Local REST API key only | console logs |
+| [StevenStavrakis/obsidian-mcp](https://github.com/StevenStavrakis/obsidian-mcp) | ~11 | text | path validation, no auth | console logs |
+
+Want the smallest footprint? The community servers are simpler. Want folder-scoped ACLs,
+human-in-the-loop on destructive ops, hybrid retrieval, and multi-vault? That is what
+obsidian-tc is for.
 
 ## Trademark
 
