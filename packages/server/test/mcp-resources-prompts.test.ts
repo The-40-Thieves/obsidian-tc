@@ -119,4 +119,7 @@ describe("prompts", () => {
     expect(() => getPrompt("nope", {})).toThrow();
     expect(() => getPrompt("summarize_note", {})).toThrow(/path/);
   });
+  it("rejects a required arg provided as an empty string", () => {
+    expect(() => getPrompt("summarize_note", { path: "" })).toThrow(/path/);
+  });
 });

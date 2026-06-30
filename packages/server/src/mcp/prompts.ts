@@ -73,8 +73,11 @@ export function getPrompt(name: string, args: Record<string, string> | undefined
   const def = PROMPTS.find((p) => p.name === name);
   if (!def) throw err.invalidInput(`unknown prompt: ${name}`, { name });
   const a = args ?? {};
+  // Reject a required arg only when it is absent or an explicit empty string; this keeps
+  // "not provided" distinct from "provided but blank" rather than collapsing both via a
+  // falsy check (which would also trip on a legitimate value like 0 for future non-string args).
   for (const arg of def.arguments)
-    if (arg.required && !a[arg.name])
+    if (arg.required && (!(arg.name in a) || a[arg.name] === ""))
       throw err.invalidInput(`prompt ${name} requires argument: ${arg.name}`, {
         name,
         argument: arg.name,

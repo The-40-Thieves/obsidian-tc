@@ -13,7 +13,6 @@ import {
   type ReadResourceResult,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { VaultRegistry } from "../vault/registry";
 import { getPrompt, listPrompts } from "./prompts";
@@ -54,7 +53,12 @@ function asStructured(data: unknown): Record<string, unknown> | undefined {
 export function createMcpServer(opts: McpServerOptions): Server {
   const server = new Server(
     { name: opts.name, version: opts.version },
-    { capabilities: { tools: {}, resources: {}, prompts: {} } },
+    // Advertise resources only when a vaultRegistry is present: without it the resource
+    // handlers serve an empty list / throw, so declaring the capability would mislead a client
+    // that inspects capabilities to enumerate resources or subscribe to change notifications.
+    {
+      capabilities: { tools: {}, prompts: {}, ...(opts.vaultRegistry ? { resources: {} } : {}) },
+    },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, () => {
@@ -103,20 +107,21 @@ export function createMcpServer(opts: McpServerOptions): Server {
   });
 
   // Resources: vault notes. They bypass registry.dispatch, so the handlers enforce the read
-  // scope + folder ACL + path containment inline (see resources.ts). Disabled when no
-  // vaultRegistry was supplied.
-  server.setRequestHandler(
-    ListResourcesRequestSchema,
-    (): ListResourcesResult =>
-      opts.vaultRegistry ? listResources(opts.vaultRegistry, opts.context()) : { resources: [] },
-  );
-  server.setRequestHandler(ReadResourceRequestSchema, (req): ReadResourceResult => {
-    if (!opts.vaultRegistry)
-      throw err.invalidInput("resources are not available on this server", {
-        uri: req.params.uri,
-      });
-    return readResource(opts.vaultRegistry, opts.context(), req.params.uri);
-  });
+  // scope + folder ACL + path containment inline (see resources.ts). Registered only when a
+  // vaultRegistry is supplied, matching the conditionally-advertised resources capability: the
+  // MCP SDK refuses a handler for an undeclared capability, and a client sees resources/* as
+  // unsupported rather than as a misleading empty/error surface.
+  const { vaultRegistry } = opts;
+  if (vaultRegistry) {
+    server.setRequestHandler(
+      ListResourcesRequestSchema,
+      (): ListResourcesResult => listResources(vaultRegistry, opts.context()),
+    );
+    server.setRequestHandler(
+      ReadResourceRequestSchema,
+      (req): ReadResourceResult => readResource(vaultRegistry, opts.context(), req.params.uri),
+    );
+  }
 
   // Prompts: built-in, static templates (no vault access).
   server.setRequestHandler(ListPromptsRequestSchema, (): ListPromptsResult => listPrompts());
