@@ -42,6 +42,13 @@ describe("mcp transport round-trip", () => {
     const client = new Client({ name: "test-client", version: "0.0.0" });
     await client.connect(clientTransport);
 
+    // Capabilities reflect what is actually served. This server has no vaultRegistry, so the
+    // resources surface is disabled and must not be advertised; tools and prompts always are.
+    const caps = client.getServerCapabilities();
+    expect(caps?.tools).toBeDefined();
+    expect(caps?.prompts).toBeDefined();
+    expect(caps?.resources).toBeUndefined();
+
     const listed = await client.listTools();
     expect(listed.tools.map((t) => t.name)).toContain("server_health");
 

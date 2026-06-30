@@ -8,6 +8,7 @@ import { createJwtVerifier, type TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
+import type { VaultRegistry } from "../vault/registry";
 
 type AuthConfig = ServerConfig["auth"];
 
@@ -19,6 +20,7 @@ export interface HttpAppOptions {
   db: Database;
   acl: FolderAcl;
   vaultId: string;
+  vaultRegistry?: VaultRegistry;
   /** Optional bearer-token verifier (W-AUTH seam). Defaults to an HS256 JWT verifier from `auth`. */
   verifier?: TokenVerifier;
 }
@@ -107,6 +109,7 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       version: opts.version,
       registry: opts.registry,
       context,
+      vaultRegistry: opts.vaultRegistry,
     });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
