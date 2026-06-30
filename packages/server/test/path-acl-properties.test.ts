@@ -59,6 +59,10 @@ describe("glob engine — properties", () => {
       expect(globMatch(`${dir}/*`, `${dir}/${a}/${b}`)).toBe(false);
       expect(globMatch(`${dir}/**`, `${dir}/${a}`)).toBe(true);
       expect(globMatch(`${dir}/**`, `${dir}/${a}/${b}`)).toBe(true);
+      // `dir/**` gates the subtree but NOT the bare directory path itself: it compiles
+      // to `^dir/.*$`, which requires the trailing separator, so the folder node is
+      // excluded. ACL rules wanting the folder too must also list the bare `dir` glob.
+      expect(globMatch(`${dir}/**`, dir)).toBe(false);
     }
   });
 
@@ -75,6 +79,21 @@ describe("glob engine — properties", () => {
     expect(globMatch("a?", "abc")).toBe(false);
     expect(globMatch("a?", "a")).toBe(false);
     expect(globMatch("a?b", "a/b")).toBe(false);
+
+    // Fuzz: `?` is compiled separately from `*`/`**`, so it gets its own corpus.
+    // A run of N `?` matches a segment of exactly N non-separator chars: never
+    // N-1, never N+1, and never a `/` (guards a `[^/]` -> `.` regression).
+    const r = rng(3);
+    for (let i = 0; i < 500; i++) {
+      const s = seg(r);
+      const q = "?".repeat(s.length);
+      expect(globMatch(q, s)).toBe(true);
+      expect(globMatch(`${q}?`, s)).toBe(false); // one too many `?`
+      if (s.length > 1) expect(globMatch(q.slice(1), s)).toBe(false); // one too few `?`
+      // Swap one char for a separator: `?` must not match it, so the whole match fails.
+      const pos = Math.floor(r() * s.length);
+      expect(globMatch(q, `${s.slice(0, pos)}/${s.slice(pos + 1)}`)).toBe(false);
+    }
   });
 
   it("a space is literal and does not over-match across `/` (NUL-sentinel invariant)", () => {
