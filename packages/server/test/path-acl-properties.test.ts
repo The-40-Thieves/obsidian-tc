@@ -137,17 +137,22 @@ describe("normalizeVaultPath — properties", () => {
       "a/NUL.txt",
       "com1",
     ]) {
-      expect(() => normalizeVaultPath(bad)).toThrow();
+      let caught: unknown;
+      try {
+        normalizeVaultPath(bad);
+      } catch (e) {
+        caught = e;
+      }
+      // Every rejection must be a typed ObsidianTcError carrying the security
+      // invariant `path_invalid` code, not merely "some throw": a stray TypeError
+      // (or a refactor that routed these to a different code) would itself be a bug.
+      expect(caught, `expected ${JSON.stringify(bad)} to be rejected`).toBeInstanceOf(
+        ObsidianTcError,
+      );
+      expect((caught as ObsidianTcError).code, `wrong code for ${JSON.stringify(bad)}`).toBe(
+        "path_invalid",
+      );
     }
-    let threw = false;
-    try {
-      normalizeVaultPath("../x");
-    } catch (e) {
-      threw = true;
-      expect(e).toBeInstanceOf(ObsidianTcError);
-      expect((e as ObsidianTcError).code).toBe("path_invalid");
-    }
-    expect(threw).toBe(true);
   });
 
   it("a `..` segment inserted into any generated path is rejected", () => {
