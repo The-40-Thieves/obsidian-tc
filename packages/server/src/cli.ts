@@ -201,6 +201,13 @@ async function main(): Promise<void> {
     emit: (vaultId, type, data) => morgiana.emit(vaultId, type, data),
     rateLimiter,
     toolVisibility: config.toolVisibility,
+    onProfile:
+      process.env.OBSIDIAN_TC_PROFILE === "1"
+        ? (p) =>
+            process.stderr.write(
+              `[profile] ${p.tool} total=${p.total_ms}ms handler=${p.handler_ms}ms overhead=${p.total_ms - p.handler_ms}ms\n`,
+            )
+        : undefined,
   });
   registry.register(
     createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
