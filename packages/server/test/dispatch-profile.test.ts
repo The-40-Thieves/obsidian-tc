@@ -43,10 +43,11 @@ describe("dispatch profile sink", () => {
     expect(result.ok).toBe(true);
     expect(seen).toHaveLength(1);
     const p = seen[0];
-    expect(p?.tool).toBe("noop");
-    expect(p?.vaultId).toBe("main");
-    expect(p?.handler_ms).toBeGreaterThanOrEqual(0);
-    expect(p?.handler_ms).toBeLessThanOrEqual(p?.total_ms ?? -1);
+    if (!p) throw new Error("expected a profile event");
+    expect(p.tool).toBe("noop");
+    expect(p.vaultId).toBe("main");
+    expect(p.handler_ms).toBeGreaterThanOrEqual(0);
+    expect(p.handler_ms).toBeLessThanOrEqual(p.total_ms);
   });
 
   it("is a no-op (and never throws) when no sink is wired", async () => {
