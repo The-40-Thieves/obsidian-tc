@@ -1,6 +1,8 @@
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
-import { blobToFloats } from "../src/search/vec";
+import type { Database } from "../src/db/types";
+import { indexNote } from "../src/search/indexer";
+import { blobToFloats, loadVec } from "../src/search/vec";
 import { makeM2Vault } from "./m2-helpers";
 
 interface EmbRow {
@@ -100,5 +102,74 @@ describe("index_vault (incremental chunk + embed)", () => {
     expect(ev.tool_name).toBe("index_vault");
     expect(ev.status).toBe("ok");
     v.cleanup();
+  });
+
+  it("rolls back the whole note write when an insert fails mid-transaction (P1 atomicity)", async () => {
+    const v = makeM2Vault({ files: { "a.md": "# H1\n\none\n\n# H2\n\ntwo" } });
+    expect(data(await v.call("index_vault", { vault: "test" })).chunks_upserted).toBe(2);
+
+    const snapshot = v.db
+      .prepare("SELECT id, content_hash FROM chunks ORDER BY id")
+      .all() as Array<{ id: string; content_hash: string }>;
+    const embCount = (): number =>
+      (v.db.prepare("SELECT count(*) c FROM chunk_embeddings").get() as { c: number }).c;
+    const beforeEmbs = embCount();
+
+    // A db view that throws when the chunk_embeddings INSERT runs — i.e. mid-transaction, after
+    // the prune DELETEs and the chunks INSERT have already executed.
+    const failing: Database = {
+      exec: (sql) => v.db.exec(sql),
+      prepare: (sql) => {
+        const st = v.db.prepare(sql);
+        if (sql.startsWith("INSERT INTO chunk_embeddings")) {
+          return {
+            ...st,
+            run: () => {
+              throw new Error("boom: chunk_embeddings insert failed");
+            },
+          };
+        }
+        return st;
+      },
+    };
+
+    // Re-index the same note with changed content: prunes the H2 chunk and re-embeds the changed
+    // H1 chunk, then the embedding insert throws -> ROLLBACK must undo prune + chunk upsert.
+    await expect(
+      indexNote(failing, v.provider, v.id, "a.md", "# H1\n\none-changed", false, () => 1),
+    ).rejects.toThrow(/chunk_embeddings/);
+
+    const after = v.db.prepare("SELECT id, content_hash FROM chunks ORDER BY id").all() as Array<{
+      id: string;
+      content_hash: string;
+    }>;
+    expect(after).toEqual(snapshot);
+    expect(embCount()).toBe(beforeEmbs);
+    v.cleanup();
+  });
+
+  it("loadVec loads the extension once per connection (P3 memo)", () => {
+    let loads = 0;
+    let versionProbes = 0;
+    const db: Database = {
+      exec: () => {},
+      prepare: (sql) => ({
+        run: () => ({ changes: 0 }),
+        get: () => {
+          if (sql.includes("vec_version")) versionProbes += 1;
+          return { v: 1 };
+        },
+        all: () => [],
+      }),
+      loadExtension: () => {
+        loads += 1;
+      },
+    };
+    const first = loadVec(db);
+    expect(loadVec(db)).toBe(first);
+    if (first) {
+      expect(loads).toBe(1);
+      expect(versionProbes).toBe(1);
+    }
   });
 });
