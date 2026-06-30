@@ -3,7 +3,7 @@
   "version": "1.2.1",
   "private": true,
   "description": "Obsidian Turbocharged — comprehensive, model-agnostic, agent-ready Obsidian MCP server",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "author": "The 40 Thieves",
   "repository": {
     "type": "git",

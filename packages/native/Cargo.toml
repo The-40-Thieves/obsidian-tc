@@ -2,7 +2,7 @@
 name = "obsidian-tc-native"
 version = "0.0.0"
 edition = "2021"
-license = "Apache-2.0"
+license = "AGPL-3.0-only"
 description = "Native perf module for obsidian-tc"
 repository = "https://github.com/The-40-Thieves/obsidian-tc"
 

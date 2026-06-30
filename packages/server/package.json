@@ -2,7 +2,7 @@
   "name": "obsidian-tc",
   "version": "1.2.1",
   "description": "MCP server for Obsidian — comprehensive tool surface for humans and autonomous agents",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {

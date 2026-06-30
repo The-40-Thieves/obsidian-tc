@@ -2,7 +2,7 @@
   "name": "@the-40-thieves/obsidian-tc-native",
   "version": "1.2.1",
   "description": "Native perf module for obsidian-tc — vector ops, BM25, sqlite-vec, V2 clustering hooks",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "main": "index.js",
   "types": "index.d.ts",
   "files": [
