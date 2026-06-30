@@ -49,25 +49,37 @@ function canReadNotes(ctx: CallerContext): boolean {
   return grantsAll(ctx.grantedScopes, ["read:notes"]);
 }
 
+// resources/list returns at most this many notes per page; the client follows nextCursor for
+// the rest. Bounds the response on a large vault, since resources bypass the dispatch governor.
+const RESOURCE_PAGE_SIZE = 500;
+
 /**
- * resources/list — every readable markdown note in the caller's bound vault, as an MCP
- * resource. Mirrors list_notes: the same vault walk, filtered by the same read-ACL. Returns
- * an empty list when the caller lacks the read:notes scope.
+ * resources/list — readable markdown notes in the caller's bound vault, as MCP resources, one
+ * page (RESOURCE_PAGE_SIZE) at a time. Mirrors list_notes: the same vault walk, filtered by the
+ * same read-ACL. Returns an empty list when the caller lacks the read:notes scope. `cursor` is
+ * the opaque offset carried over from a prior result's nextCursor.
  */
 export function listResources(
   vaultRegistry: VaultRegistry,
   ctx: CallerContext,
+  cursor?: string,
+  pageSize = RESOURCE_PAGE_SIZE,
 ): ListResourcesResult {
   if (!canReadNotes(ctx)) return { resources: [] };
   const v = vaultRegistry.resolve(ctx.vaultId);
-  const resources = walkVault(v.root, { extensions: [".md"] })
-    .filter((e) => readableRel(ctx.acl, e.relPath))
-    .map((e) => ({
-      uri: buildResourceUri(v.id, e.relPath),
-      name: e.relPath,
-      mimeType: MIME_MARKDOWN,
-    }));
-  return { resources };
+  const rels = walkVault(v.root, { extensions: [".md"] })
+    .map((e) => e.relPath)
+    .filter((rel) => readableRel(ctx.acl, rel));
+  // Offset cursor over the sorted walk (walkVault sorts by relPath, so paging is stable).
+  const start = cursor ? Math.max(0, Number.parseInt(cursor, 10) || 0) : 0;
+  const page = rels.slice(start, start + pageSize);
+  const resources = page.map((rel) => ({
+    uri: buildResourceUri(v.id, rel),
+    name: rel,
+    mimeType: MIME_MARKDOWN,
+  }));
+  const nextStart = start + page.length;
+  return nextStart < rels.length ? { resources, nextCursor: String(nextStart) } : { resources };
 }
 
 /**

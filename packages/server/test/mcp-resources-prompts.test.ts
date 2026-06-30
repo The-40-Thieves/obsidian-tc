@@ -171,3 +171,28 @@ describe("Greptile review fixes", () => {
     );
   });
 });
+
+describe("listResources pagination", () => {
+  it("pages with a cursor and stops when exhausted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "otc-page-"));
+    for (const n of ["a.md", "b.md", "c.md"]) writeFileSync(join(dir, n), "x");
+    const reg = new VaultRegistry(
+      ServerConfigSchema.parse({ vaults: [{ id: "main", path: dir }] }).vaults,
+    );
+    const p1 = listResources(reg, ctx(["*"]), undefined, 2);
+    expect(p1.resources).toHaveLength(2);
+    expect(p1.nextCursor).toBe("2");
+    const p2 = listResources(reg, ctx(["*"]), p1.nextCursor, 2);
+    expect(p2.resources).toHaveLength(1);
+    expect(p2.nextCursor).toBeUndefined();
+    expect([...p1.resources, ...p2.resources].map((r) => r.name).sort()).toEqual([
+      "a.md",
+      "b.md",
+      "c.md",
+    ]);
+  });
+
+  it("a small vault fits in one page (no nextCursor)", () => {
+    expect(listResources(tempVault(), ctx(["*"])).nextCursor).toBeUndefined();
+  });
+});
