@@ -14,18 +14,23 @@ If you are picking this up cold:
 4. Honor §2's tripwire and §11's NO-TEARDOWN guard absolutely.
 5. Run every unit through the self-gate (§9) before marking green; commit + push per unit.
 
-**Status @ last update (2026-06-26):** Batch 4a **GREEN** — INTEGRATION FOLD complete. All six
-capability branches folded onto `the-233/integration` (six clean merges, gated green after each)
-and **fast-forwarded to `main` @ 9ab9cf7** (pushed). Runtime seams wired with graceful degradation
-when the gateway is absent; `vault_graph_search` + `knowledge_challenge` registered (M7). Full
-suite green: build, tsc, vitest (707), biome (284 files). E7 resolved earlier (KMS `main ==
-fix/npm-audit-2026-06-12` for ported paths).
-**STOPPED after Batch 4a per instruction** — did NOT run the real-corpus eval; used no secret.
-Next: **Batch 4b** — the real recall@k eval on a live BGE-M3 index (gated on the embedding-model
-decision + **E4** live gateway for live-rerank). **Slice 5** (export/load keep-state) gated on
-**E3**. Open user decisions: confirm BGE-M3 + provide E3/E4; the full OAuth AS port (only if the
-converged product hosts a remote DCR client). Seven worktrees remain on disk (six units +
-integration) — prunable now that `main` carries everything.
+**Status @ last update (2026-06-26):** Batch 4b **GREEN (buildable portion)** — the converged tree
+is folded onto `main` (@ fd88fea, pushed) and the eval harness ships. **Runtime-verified by a boot
+smoke**: the integrated server starts (`ready on stdio`, gateway null + graceful) and the merged
+migration chain materializes every table on real bun:sqlite files — `cache.db` (chunks,
+chunk_embeddings, vault_edges, contradictions, syntheses, audit_reports, job_runs, vec_chunks) and
+the separate `experiential.db` (vault_object_state, chunk_retrievals only — membrane intact). Full
+suite green: build, tsc, vitest (708), biome (286 files). `eval/run.ts` is wired + gate-verified and
+emits REAL recall@k the moment a backend + index exist.
+**HALTED at the secret/infra wall (escalation #1 — cannot invent).** The three remaining steps need
+user-held inputs, not code:
+1. **Real recall@k run:** an embedding backend — **BGE-M3 @ 1024d via Ollama** (not running / no
+   model pulled here) or an embedding API key — then index the vault (`embeddings.model=bge-m3`,
+   `dimensions=1024`; recreate `vec_chunks` at 1024) and run `bun eval/run.ts <config>`.
+2. **Live-rerank validation:** **E4** — `OBSIDIAN_TC_GATEWAY_URL` + LiteLLM role routing.
+3. **Slice 5 (export/load keep-state):** **E3** — legacy Supabase project ref + read-only key.
+Open (decision, not secret): the full OAuth 2.1 AS + DCR port (only if the converged product hosts
+a remote DCR connector itself). Seven worktrees remain on disk — prunable.
 
 ---
 
@@ -199,6 +204,11 @@ States: todo / doing / blocked / green / escalated.
 - **Runtime seams wired** — all graceful when `OBSIDIAN_TC_GATEWAY_URL` is unset (seam = null, boot never hard-fails): W-RETRIEVAL rerank → gateway `/rerank` passthrough (no-op fallback preserved); W-WORKERS roles → gateway `extract/synthesize/judge`; W-INGEST `onIndexed` → contradiction-check enqueue, drained best-effort post-boot.
 - **Tool registrations** (`tools/m7/`): `vault_graph_search` (GraphRAG; uses the reranker seam) + `knowledge_challenge` (decision red-team; uses the roles seam, degrades to an "unavailable" result when the gateway is off). `knowledge_get_critical` confirmed unported + unreferenced.
 - **Embeddings dim (Batch 4b, recorded not acted):** config default is `ollama` / `nomic-embed-text` / **768 dims** (`config.schema.ts`). **BGE-M3 is 1024-dim dense.** The Ollama provider passes `model` through, so it can target `bge-m3`, but 4b must set `embeddings.model="bge-m3"` + `embeddings.dimensions=1024`; `vec0` is created at `config.embeddings.dimensions`, so it must be (re)created at 1024 on the fresh index.
+
+### Batch 4b delivered surface (harness + runtime verification)
+- **Boot smoke (runtime proof):** `bun src/cli.ts <config>` on a temp vault booted to `ready on stdio` with the gateway null (no crash). Real `cache.db` received all migrations incl. the plane tables + the sqlite-vec `vec_chunks` vec0 table (loaded under bun:sqlite); `experiential.db` received only `vault_object_state` + `chunk_retrievals` (membrane). Proves the fold runs end-to-end, not just compiles.
+- **Eval harness** (`eval/run.ts`): `runEval(db, provider, golden)` compares the semantic baseline vs `vault_graph_search` over the 10-query multi-hop golden set (`eval/multi-hop-golden-set.yaml`, ported from KMS); reports recall@10 / bridge-recall + the ship gate (graph >= baseline +20pp; no-regression). Path-separator-normalized; `seedCount` / `router` passthroughs for sweeps. CLI: `bun eval/run.ts <config> [golden.yaml]`. Gate-verified by `test/eval-run.test.ts` (fixture baseline 0.5 → graph 1.0). Emits REAL numbers once a backend + index exist — no further code needed.
+- **Remaining = secret/infra only:** (1) an embedding backend (BGE-M3 @ 1024d via Ollama, or an API key) for the real eval; (2) **E4** (LiteLLM gateway) for live-rerank; (3) **E3** (Supabase read key) for Slice 5. None inventable by the agent.
 
 ---
 
