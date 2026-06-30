@@ -7,7 +7,8 @@
 --   PRAGMA foreign_keys = ON;
 --   PRAGMA journal_mode = WAL;
 --
--- One DB file per vault, located at <cache_dir>/<vault_id>/db.sqlite.
+-- One cache DB per vault, at <cache_dir>/cache.db (cache_dir is per-vault). A sibling
+-- experiential.db holds the low-trust membrane tier, provisioned on its own migration chain.
 
 -- ============================================================================
 -- Migrations tracking

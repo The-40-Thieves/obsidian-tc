@@ -43,7 +43,7 @@ Polyglot monorepo:
 | `packages/native` | Rust (via napi-rs) | Perf-critical primitives: vector ops, BM25, sqlite-vec wrapper |
 | `packages/shared` | TypeScript | Shared Zod schemas and types |
 
-obsidian-tc is an **access** MCP: vault read/write, search, and control. Retrieval intelligence (clustering, graph ML, hybrid retrieval fusion) is out of scope; pair obsidian-tc with an external retrieval/RAG service for ranking and reasoning. An earlier reserved "V2 ML sidecar" (and the native `kmeansAssign` / `actrDecayScore` hooks) has been removed.
+obsidian-tc is the **converged memory engine**: vault read/write, search, and control, *plus* folded-in retrieval intelligence (GraphRAG graph-walk via `vault_graph_search`, hybrid BM25 + vector search with RRF fusion, rerank via the inference gateway, and a `knowledge_challenge` decision red-team). This supersedes the earlier "access MCP, retrieval out of scope" framing (the 2026-06-25 single-converged-product decision; see `ARCHITECTURE.md`). The reserved "V2 ML sidecar" (and the native `kmeansAssign` / `actrDecayScore` hooks) was removed; the typed-atom MemIR substrate is a downstream engine-build phase, not this v1.x line.
 
 ## Quick start
 
