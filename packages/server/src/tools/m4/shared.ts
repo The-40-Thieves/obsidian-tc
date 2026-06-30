@@ -65,7 +65,7 @@ export function bridgeTimeouts(deps: M4Deps, vaultId: string): BridgeTimeouts {
 }
 
 /**
- * If `e` is a plugin_missing / plugin_unreachable degrade, return a copy with an actionable
+ * If `e` is a plugin_missing / plugin_unreachable / requires_live_obsidian degrade, return a copy with an actionable
  * `hint` added to its details (e.g. a native alternative tool to use instead); otherwise return
  * `e` unchanged. Lets a bridge tool point callers at a fallback without changing the degrade
  * code or its retryability.
@@ -73,7 +73,9 @@ export function bridgeTimeouts(deps: M4Deps, vaultId: string): BridgeTimeouts {
 export function withDegradeHint(e: unknown, hint: string): unknown {
   if (
     e instanceof ObsidianTcError &&
-    (e.code === "plugin_missing" || e.code === "plugin_unreachable")
+    (e.code === "plugin_missing" ||
+      e.code === "plugin_unreachable" ||
+      e.code === "requires_live_obsidian")
   ) {
     return new ObsidianTcError(e.code, e.message, { ...e.details, hint });
   }
