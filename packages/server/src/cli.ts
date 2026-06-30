@@ -29,6 +29,7 @@ import type { GatewayRoles } from "./plane/gateway";
 import { checkContradictions } from "./plane/jobs/contradiction";
 import { createPlurClient } from "./plur/client";
 import { type IndexedChunk, type IndexHook, indexNote, indexVault } from "./search/indexer";
+import { nativeLoaded } from "./search/native";
 import type { Reranker } from "./search/rerank";
 import { ensureVecChunks } from "./search/vec";
 import { RateLimiter } from "./throttle";
@@ -209,9 +210,6 @@ async function main(): Promise<void> {
             )
         : undefined,
   });
-  registry.register(
-    createHealthTool({ version: VERSION, vaults: config.vaults.map((v) => v.id), startedAt }),
-  );
   const vaultRegistry = new VaultRegistry(config.vaults, process.env.OBSIDIAN_TC_DEFAULT_VAULT);
   // Index-on-write (THE-255): a note mutation reindexes its path inline (best-effort and
   // backgrounded, so it never slows or fails a write); deindex drops a removed note's chunks
@@ -219,6 +217,18 @@ async function main(): Promise<void> {
   // convergence. Shares the one embedding provider + vec-availability flag.
   const embeddingProvider = createEmbeddingProvider(config.embeddings);
   const hasVec = ensureVecChunks(db, embeddingProvider.dimensions, { now: Date.now });
+  // server_health surfaces the build's active fast-paths (native module + sqlite-vec). Both are
+  // non-identifying, so the tool keeps them in its unauthenticated payload; registered here (not
+  // earlier) so hasVec is known.
+  registry.register(
+    createHealthTool({
+      version: VERSION,
+      vaults: config.vaults.map((v) => v.id),
+      startedAt,
+      nativeLoaded,
+      vecEnabled: hasVec,
+    }),
+  );
 
   // THE-233 integration — optional inference gateway (W-GATEWAY-CLIENT). Unconfigured (no
   // OBSIDIAN_TC_GATEWAY_URL) -> null; every generative seam below degrades gracefully rather
@@ -488,7 +498,9 @@ async function main(): Promise<void> {
   process.on("SIGINT", shutdown);
 
   await connectStdio(server);
-  process.stderr.write(`obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id})\n`);
+  process.stderr.write(
+    `obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id}; native=${nativeLoaded ? "on" : "off"} vec=${hasVec ? "on" : "off"})\n`,
+  );
 }
 
 main().catch((err) => {
