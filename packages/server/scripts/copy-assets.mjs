@@ -29,5 +29,7 @@ try {
   cpSync(join(pluginDist, "manifest.json"), join(dist, "plugin", "manifest.json"));
   console.log("vendored companion plugin -> dist/plugin/");
 } catch (e) {
-  console.warn(`WARNING: could not vendor companion plugin (plugin install unavailable): ${e.message}`);
+  console.warn(
+    `WARNING: could not vendor companion plugin (plugin install unavailable): ${e.message}`,
+  );
 }
