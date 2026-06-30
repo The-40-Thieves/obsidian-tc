@@ -2,7 +2,7 @@
 
 > Obsidian Turbocharged — the comprehensive, model-agnostic, agent-ready Obsidian MCP server.
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 ![Status: Shipped v1.2.1](https://img.shields.io/badge/Status-Shipped_v1.2.1-success)
 
 ## What it is
@@ -32,7 +32,7 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 | M6 | Bulk + admin + URI — 7 tools | ✅ Merged |
 | M7 | Harden + ship: OpenTelemetry tracing, Prometheus `/metrics`, CloudEvents spool, rate limiter, 4-platform native prebuilds, release workflow | ✅ Shipped (v1.0.2) |
 
-This repository is public under [`The-40-Thieves`](https://github.com/The-40-Thieves), licensed Apache-2.0.
+This repository is public under [`The-40-Thieves`](https://github.com/The-40-Thieves), licensed AGPL-3.0-only.
 
 ## Architecture
 
@@ -157,7 +157,7 @@ obsidian-tc is not affiliated with or endorsed by Obsidian.md. "Obsidian" is a t
 
 ## License
 
-Apache License 2.0. See [LICENSE](./LICENSE).
+GNU Affero General Public License v3.0 (AGPL-3.0-only). See [LICENSE](./LICENSE).
 
 ## Contributing
 
