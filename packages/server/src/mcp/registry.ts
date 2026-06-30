@@ -596,12 +596,16 @@ export class ToolRegistry {
         this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, json, resultSize, now());
       audit("ok", duration, resultSize);
       this.meter((m) => m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize));
-      this.onProfile?.({
-        tool: name,
-        vaultId: ctx.vaultId,
-        total_ms: duration,
-        handler_ms: handlerMs,
-      });
+      try {
+        this.onProfile?.({
+          tool: name,
+          vaultId: ctx.vaultId,
+          total_ms: duration,
+          handler_ms: handlerMs,
+        });
+      } catch {
+        /* profile sink must never block tool execution */
+      }
       return { ok: true, data: out, meta: { duration_ms: duration, result_size: resultSize } };
     } catch (e) {
       if (idemClaimed && idemKey) {
