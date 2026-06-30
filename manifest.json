@@ -11,7 +11,7 @@
   "homepage": "https://github.com/The-40-Thieves/obsidian-tc#readme",
   "documentation": "https://github.com/The-40-Thieves/obsidian-tc#readme",
   "support": "https://github.com/The-40-Thieves/obsidian-tc/issues",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/The-40-Thieves/obsidian-tc"
