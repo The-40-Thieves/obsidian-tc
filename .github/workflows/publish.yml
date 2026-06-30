@@ -266,7 +266,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
-            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.licenses=AGPL-3.0-only
 
   draft-release:
     needs: [publish-npm, build-binaries, build-plugin, build-docker]

@@ -205,7 +205,7 @@ The full runbook lives at `docs/G2.5-release-engineering.md` §9.
 
 ## License
 
-obsidian-tc is licensed under [Apache 2.0](./LICENSE). By submitting a contribution, you certify that you have the right to submit it under that license. See the [Developer Certificate of Origin](https://developercertificate.org/) for the formal statement; signed-off commits are appreciated but not required.
+obsidian-tc is licensed under [AGPL-3.0-only](./LICENSE). By submitting a contribution, you certify that you have the right to submit it under that license. See the [Developer Certificate of Origin](https://developercertificate.org/) for the formal statement; signed-off commits are appreciated but not required.
 
 ## Getting Help
 
