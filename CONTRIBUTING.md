@@ -154,14 +154,30 @@ PRs that miss required items will be flagged but not auto-closed. Maintainers he
 
 ## Adding a New Tool
 
-A typical tool addition touches four files:
+Tools are defined with `defineTool` and registered onto the shared `ToolRegistry`, which owns the whole dispatch pipeline (validation -> scopes -> folder ACL -> read-only -> idempotency -> throttle -> HITL -> handler -> response governor -> audit). A handler never re-implements those gates; it declares what it needs and returns plain data.
 
-1. `packages/shared/src/schemas/<domain>.ts` — Zod schema for input and output.
-2. `packages/server/src/tools/<domain>/<tool_name>.ts` — implementation.
-3. `packages/server/src/tools/<domain>/<tool_name>.test.ts` — tests.
-4. `docs/src/content/docs/tools/<domain>/<tool_name>.md` — user-facing reference (or rely on the auto-generated path).
+A tool lives in its milestone domain under `packages/server/src/tools/m<N>/<domain>-tools.ts`:
 
-Annotate the tool with ACL, HITL, idempotency, and rate-limit metadata per the G2.1 conventions. See `docs/G2.1-tools.md` for the full spec.
+```ts
+import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { z } from "zod";
+import { defineTool } from "../m1/define";
+
+export const myTool = defineTool({
+  name: "do_thing",
+  description: "One-line, agent-facing description of what it does and when to use it.",
+  inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+  requiredScopes: ["read:notes"], // verb-bucket scopes; dispatch enforces them
+  // destructive: true,           // opt into the HITL elicit floor for mutating ops
+  handler: (input, ctx) => {
+    // ctx: { caller, grantedScopes, vaultId, db, acl, ... }. Resolve + ACL-check paths via the
+    // vault helpers (normalizeVaultPath / resolveVaultPath / enforcePathAcl); return plain data.
+    return { ok: true };
+  },
+});
+```
+
+Register it in the domain's `register<M>Tools` (e.g. `packages/server/src/tools/m1/index.ts`), add a `*.test.ts` under `packages/server/test/`, and document it (or rely on the auto-generated reference under `docs/src/content/docs/tools/`). See `docs/G2.1-tools.md` for the scope/ACL/HITL conventions and the full tool surface.
 
 ## Working with Issues
 
