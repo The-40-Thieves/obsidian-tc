@@ -106,10 +106,17 @@ export function openCompanionBridge(deps: M4Deps, vaultId: string): { client: Br
   const mode = deps.mode?.(vaultId);
   if (mode) assertLive(mode, "obsidian-tc-companion");
   const snap = deps.capabilities.get(vaultId);
-  if (snap.companion !== "reachable")
+  if (snap.companion !== "reachable") {
+    const hint =
+      snap.companion === "missing"
+        ? "install it with `obsidian-tc plugin install --vault <path>`, then enable it in Obsidian."
+        : "the companion is installed but its Local REST API is unreachable; check that Obsidian is running with the plugin enabled.";
     throw err.pluginUnreachable("companion plugin is required for this tool", {
       plugin: "obsidian-tc-companion",
+      companion: snap.companion,
+      hint,
     });
+  }
   const client = deps.bridgeFor(vaultId);
   if (!client)
     throw err.pluginUnreachable("bridge transport not configured", {
