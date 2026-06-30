@@ -380,13 +380,20 @@ async function main(): Promise<void> {
     acl,
   });
 
-  const server = createMcpServer({ name: "obsidian-tc", version: VERSION, registry, context });
+  const server = createMcpServer({
+    name: "obsidian-tc",
+    version: VERSION,
+    registry,
+    context,
+    vaultRegistry,
+  });
 
   if (config.transports.http.enabled) {
     const http = await startHttp({
       name: "obsidian-tc",
       version: VERSION,
       registry,
+      vaultRegistry,
       auth: config.auth,
       db,
       vaultId: firstVault.id,
