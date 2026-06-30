@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { version as VERSION } from "../package.json";
 import { FolderAcl, globMatch } from "./acl";
 import { writeEvent } from "./audit";
 import {
@@ -49,7 +50,9 @@ import { connectStdio } from "./transports/stdio";
 import { resolveMode, type VaultMode } from "./vault/mode";
 import { VaultRegistry } from "./vault/registry";
 
-const VERSION = "1.0.0";
+// VERSION derives from packages/server/package.json (imported above): single source of
+// truth, bumped by the release pipeline. Matches MCP versioning guidance (extract from
+// package metadata, do not hardcode); resolveJsonModule is on, so bun inlines it at build.
 
 // The migration SQL is read relative to this module; the build copies
 // src/migrations -> dist/migrations (scripts/copy-assets.mjs) so the bundled
