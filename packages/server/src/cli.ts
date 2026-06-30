@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../package.json";
 import { FolderAcl, globMatch } from "./acl";
 import { writeEvent } from "./audit";
@@ -10,7 +11,7 @@ import {
   CapabilityCache,
   createBridgeClient,
 } from "./bridge";
-import { loadConfig } from "./config/load";
+import { parseCliArgs, redactConfig, resolveServeConfig, USAGE } from "./cli/args";
 import { provisionExperientialDb } from "./db/experiential";
 import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
@@ -84,13 +85,37 @@ const planeMigrationSql = readFileSync(
   "utf8",
 );
 async function main(): Promise<void> {
-  const configPath = process.argv[2] ?? process.env.OBSIDIAN_TC_CONFIG;
-  if (!configPath) {
-    process.stderr.write("usage: obsidian-tc <config.json> (or set OBSIDIAN_TC_CONFIG)\n");
+  const cmd = parseCliArgs(process.argv.slice(2));
+  if (cmd.kind === "version") {
+    process.stdout.write(`${VERSION}\n`);
+    return;
+  }
+  if (cmd.kind === "help") {
+    process.stdout.write(USAGE);
+    return;
+  }
+  if (cmd.kind === "error") {
+    process.stderr.write(`${cmd.message}\n\n${USAGE}`);
     process.exit(2);
   }
+  if (cmd.kind === "config-show" || cmd.kind === "config-validate") {
+    const resolved = resolveServeConfig(cmd.configPath);
+    process.stdout.write(
+      cmd.kind === "config-show"
+        ? `${JSON.stringify(redactConfig(resolved), null, 2)}\n`
+        : "config valid\n",
+    );
+    return;
+  }
 
-  const config = loadConfig(configPath);
+  let config: ServerConfig;
+  try {
+    config = resolveServeConfig(cmd.input);
+  } catch (e) {
+    process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
+    process.exit(2);
+  }
+  const configPath = cmd.input ?? process.env.OBSIDIAN_TC_CONFIG;
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults must contain at least one vault");
   const startedAt = Date.now();

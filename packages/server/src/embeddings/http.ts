@@ -8,6 +8,14 @@ export interface PostJsonOptions {
   fetchFn?: FetchFn;
   provider: string;
 }
+
+/** Provider-aware, actionable hint attached to embedding-provider failures. */
+function providerHint(provider: string, url: string): string {
+  if (provider === "ollama")
+    return `is Ollama running at ${url}? Start it, then pull the embedding model (e.g. \`ollama pull nomic-embed-text\`, or whatever embeddings.model is set to).`;
+  return `check that the ${provider} endpoint (${url}) is reachable and embeddings.api_key is set (or the provider's API-key env var).`;
+}
+
 export async function postJson<T>(o: PostJsonOptions): Promise<T> {
   const fetchFn = o.fetchFn ?? fetch;
   const ctrl = new AbortController();
@@ -22,11 +30,20 @@ export async function postJson<T>(o: PostJsonOptions): Promise<T> {
     });
   } catch (e) {
     if ((e as Error).name === "AbortError")
-      throw err.operationTimeout("timed out", { provider: o.provider });
-    throw err.embeddingProviderError("request failed", { provider: o.provider });
+      throw err.operationTimeout("timed out", { provider: o.provider, url: o.url });
+    throw err.embeddingProviderError("request failed", {
+      provider: o.provider,
+      url: o.url,
+      hint: providerHint(o.provider, o.url),
+    });
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) throw err.embeddingProviderError(`HTTP ${res.status}`, { provider: o.provider });
+  if (!res.ok)
+    throw err.embeddingProviderError(`HTTP ${res.status}`, {
+      provider: o.provider,
+      url: o.url,
+      hint: providerHint(o.provider, o.url),
+    });
   return (await res.json()) as T;
 }
