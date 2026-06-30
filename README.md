@@ -15,6 +15,8 @@ Three pillars:
 2. **Safe by default.** JWT auth, folder ACLs, kill switch, human-in-the-loop elicit on destructive operations, idempotency keys, bulk throttling.
 3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, structured event emission on every tool call.
 
+Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/list` + `resources/read` over `obsidian-tc://<vault>/<path>` URIs, read-scope and folder-ACL enforced) and a set of built-in **Prompts** (`prompts/list` + `prompts/get`).
+
 ## Status
 
 ✅ **Shipped — v1.2.1** (2026-06-26). The full implementation (milestones M0–M7) is published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.2.1`. The surface is **103 tools across 28 domains**. Post-1.0.2, `main` landed a security-audit remediation pass, a dependency-currency sweep (Zod 4, Biome 2, napi-rs 3, Node 24), and the agent-ergonomics + distribution feature set — all shipped in v1.2.1; see the [CHANGELOG](./CHANGELOG.md).
