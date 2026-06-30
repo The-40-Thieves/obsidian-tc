@@ -26,6 +26,21 @@ function tempVault(): VaultRegistry {
   return new VaultRegistry(cfg.vaults);
 }
 
+/** A two-vault registry ("main" + "other"), each holding a distinct note, for cross-vault tests. */
+function tempMultiVault(): VaultRegistry {
+  const mainDir = mkdtempSync(join(tmpdir(), "otc-res-main-"));
+  writeFileSync(join(mainDir, "alpha.md"), "# Alpha\nhello");
+  const otherDir = mkdtempSync(join(tmpdir(), "otc-res-other-"));
+  writeFileSync(join(otherDir, "secret.md"), "# Secret\ntop secret");
+  const cfg = ServerConfigSchema.parse({
+    vaults: [
+      { id: "main", path: mainDir },
+      { id: "other", path: otherDir },
+    ],
+  });
+  return new VaultRegistry(cfg.vaults);
+}
+
 function ctx(scopes: string[], acl?: FolderAcl): CallerContext {
   return {
     caller: "t",
@@ -78,6 +93,12 @@ describe("readResource", () => {
     expect(() => readResource(tempVault(), ctx([]), "obsidian-tc://main/alpha.md")).toThrow(
       /read:notes/,
     );
+  });
+  it("rejects a URI pointing at a vault the caller is not bound to", () => {
+    // Caller bound to "main" (ctx.vaultId) must not read "other" even with full scope.
+    expect(() =>
+      readResource(tempMultiVault(), ctx(["*"]), "obsidian-tc://other/secret.md"),
+    ).toThrow(/bound vault/);
   });
 });
 

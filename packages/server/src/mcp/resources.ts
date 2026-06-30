@@ -69,6 +69,14 @@ export function readResource(
 ): ReadResourceResult {
   if (!canReadNotes(ctx)) throw err.forbidden("missing required scope: read:notes", { uri });
   const { vaultId, relPath } = parseResourceUri(uri);
+  // Bind the read to the caller's own vault. ctx.acl is the caller's ACL for ctx.vaultId, so
+  // resolving any other vault from the URI would apply the wrong ACL and leak a vault the
+  // caller holds no token for. listResources only ever emits ctx.vaultId URIs; enforce it here.
+  if (vaultId !== ctx.vaultId)
+    throw err.forbidden(`resource vault is not the caller's bound vault: ${vaultId}`, {
+      uri,
+      vaultId,
+    });
   const v = vaultRegistry.resolve(vaultId);
   const rel = normalizeVaultPath(relPath);
   enforcePathAcl(ctx.acl, "read", rel);
