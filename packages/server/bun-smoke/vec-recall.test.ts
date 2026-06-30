@@ -54,3 +54,28 @@ test("sqlite-vec loads under bun:sqlite and vec0 recall ranks by cosine", async 
   rmSync(root, { recursive: true, force: true });
   db.close?.();
 });
+
+test("semanticSearch degrades to brute force when the query dimension mismatches vec0 (no crash)", async () => {
+  const db = await openDatabase(":memory:");
+  db.exec(schemaSql);
+  expect(ensureVecChunks(db, 32)).toBe(true); // vec_chunks is bound to 32 dims
+
+  const root = mkdtempSync(join(tmpdir(), "obtc-vecdim-"));
+  writeFileSync(join(root, "a.md"), "# A\n\nthe quick brown fox jumps");
+  const provider = fakeEmbeddingProvider({ dimensions: 32 });
+  const stats = await indexVault({ db, provider, vaultId: "v", root, isReadable: () => true });
+  expect(stats.vec_enabled).toBe(true);
+
+  // Query with a DIFFERENT dimension (8) — simulates switching embedding models. sqlite-vec's
+  // `embedding MATCH ?` throws on the dimension mismatch; semanticSearch must catch it and fall
+  // back to the brute-force scan rather than propagating the error.
+  const badDimQuery = new Array(8).fill(0.1);
+  let result: ReturnType<typeof semanticSearch> | undefined;
+  expect(() => {
+    result = semanticSearch(db, "v", badDimQuery, { k: 3 });
+  }).not.toThrow();
+  expect(Array.isArray(result)).toBe(true);
+
+  rmSync(root, { recursive: true, force: true });
+  db.close?.();
+});
