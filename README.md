@@ -143,9 +143,9 @@ hybrid retrieval substrate, and observability. A rough comparison of the open-so
 | | Tools | Search | Auth / ACL / HITL | Observability |
 |---|---|---|---|---|
 | **obsidian-tc** | ~103 | BM25 + vector + RRF + graph | JWT + folder ACL + HITL elicit | OTel + Prometheus + CloudEvents |
-| cyanheads/obsidian-mcp-server | ~8 | text / regex | JWT/OAuth, no folder ACL/HITL | console logs |
-| MarkusPfundstein/mcp-obsidian | ~13 | text + JsonLogic / DQL | Local REST API key only | console logs |
-| StevenStavrakis/obsidian-mcp | ~11 | text | path validation, no auth | console logs |
+| [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~8 | text / regex | JWT/OAuth, no folder ACL/HITL | console logs |
+| [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian) | ~13 | text + JsonLogic / DQL | Local REST API key only | console logs |
+| [StevenStavrakis/obsidian-mcp](https://github.com/StevenStavrakis/obsidian-mcp) | ~11 | text | path validation, no auth | console logs |
 
 Want the smallest footprint? The community servers are simpler. Want folder-scoped ACLs,
 human-in-the-loop on destructive ops, hybrid retrieval, and multi-vault? That is what

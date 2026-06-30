@@ -161,7 +161,7 @@ A tool lives in its milestone domain under `packages/server/src/tools/m<N>/<doma
 ```ts
 import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { defineTool } from "../m1/define";
+import { defineTool } from "../m1/define"; // a tool that lives in m1/ imports "./define" instead
 
 export const myTool = defineTool({
   name: "do_thing",
