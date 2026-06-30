@@ -9,6 +9,7 @@ export type CliCommand =
   | { kind: "config-validate"; configPath?: string }
   | { kind: "version" }
   | { kind: "help" }
+  | { kind: "plugin-install"; vaultPath: string }
   | { kind: "error"; message: string };
 
 export const USAGE = `obsidian-tc — MCP server for Obsidian
@@ -18,6 +19,7 @@ Usage:
   obsidian-tc serve [path]                Same as above; path may be a vault folder or a config file
   obsidian-tc config show [path]          Print the effective config with secrets redacted
   obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
+  obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 
@@ -63,6 +65,18 @@ export function parseCliArgs(argv: string[]): CliCommand {
       if (sub === "show") return { kind: "config-show", configPath };
       if (sub === "validate") return { kind: "config-validate", configPath };
       return { kind: "error", message: `unknown config subcommand: ${sub ?? "(none)"}` };
+    }
+    if (first === "plugin") {
+      const sub = rest[0];
+      if (sub === "install") {
+        const vaultPath = flagValue(rest, "--vault") ?? positional(rest.slice(1));
+        if (!vaultPath)
+          throw new CliError(
+            "plugin install requires a vault: --vault <path> (or a positional path)",
+          );
+        return { kind: "plugin-install", vaultPath };
+      }
+      return { kind: "error", message: `unknown plugin subcommand: ${sub ?? "(none)"}` };
     }
     if (first.startsWith("-")) return { kind: "error", message: `unknown option: ${first}` };
     return { kind: "serve", input: first };
