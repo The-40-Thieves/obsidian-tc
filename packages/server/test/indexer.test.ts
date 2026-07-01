@@ -1,7 +1,7 @@
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../src/db/types";
-import { indexNote } from "../src/search/indexer";
+import { indexNote, indexVault } from "../src/search/indexer";
 import { blobToFloats, loadVec } from "../src/search/vec";
 import { makeM2Vault } from "./m2-helpers";
 
@@ -171,5 +171,93 @@ describe("index_vault (incremental chunk + embed)", () => {
       expect(loads).toBe(1);
       expect(versionProbes).toBe(1);
     }
+  });
+
+  it("indexVault applies a batch of notes in a single transaction (P2)", async () => {
+    const v = makeM2Vault({
+      files: { "a.md": "# A\n\nalpha", "b.md": "# B\n\nbeta", "c.md": "# C\n\ngamma" },
+    });
+    let begins = 0;
+    const counting: Database = {
+      exec: (sql) => {
+        if (sql === "BEGIN") begins += 1;
+        v.db.exec(sql);
+      },
+      prepare: (sql) => v.db.prepare(sql),
+    };
+    await indexVault({
+      db: counting,
+      provider: v.provider,
+      vaultId: v.id,
+      root: v.root,
+      isReadable: () => true,
+    });
+    // One batch (3 < BATCH), so one transaction — not one per note.
+    expect(begins).toBe(1);
+    expect((v.db.prepare("SELECT count(*) c FROM chunks").get() as { c: number }).c).toBe(3);
+    v.cleanup();
+  });
+
+  it("rolls back the entire batch when one note's apply fails mid-transaction (P2)", async () => {
+    const v = makeM2Vault({ files: { "a.md": "# A\n\nalpha", "b.md": "# B\n\nbeta" } });
+    let embInserts = 0;
+    const failing: Database = {
+      exec: (sql) => v.db.exec(sql),
+      prepare: (sql) => {
+        const st = v.db.prepare(sql);
+        if (sql.startsWith("INSERT INTO chunk_embeddings")) {
+          return {
+            ...st,
+            run: (...params: unknown[]) => {
+              embInserts += 1;
+              if (embInserts >= 2) throw new Error("boom: chunk_embeddings insert failed");
+              return st.run(...params);
+            },
+          };
+        }
+        return st;
+      },
+    };
+    await expect(
+      indexVault({
+        db: failing,
+        provider: v.provider,
+        vaultId: v.id,
+        root: v.root,
+        isReadable: () => true,
+      }),
+    ).rejects.toThrow(/chunk_embeddings/);
+    // The whole batch rolled back: neither note committed a chunk.
+    expect((v.db.prepare("SELECT count(*) c FROM chunks").get() as { c: number }).c).toBe(0);
+    v.cleanup();
+  });
+
+  it("a fully-unchanged re-index opens no transaction (P2)", async () => {
+    const v = makeM2Vault({ files: { "a.md": "# A\n\nalpha" } });
+    await indexVault({
+      db: v.db,
+      provider: v.provider,
+      vaultId: v.id,
+      root: v.root,
+      isReadable: () => true,
+    });
+    let begins = 0;
+    const counting: Database = {
+      exec: (sql) => {
+        if (sql === "BEGIN") begins += 1;
+        v.db.exec(sql);
+      },
+      prepare: (sql) => v.db.prepare(sql),
+    };
+    await indexVault({
+      db: counting,
+      provider: v.provider,
+      vaultId: v.id,
+      root: v.root,
+      isReadable: () => true,
+    });
+    // Nothing changed -> empty batch -> no BEGIN.
+    expect(begins).toBe(0);
+    v.cleanup();
   });
 });
