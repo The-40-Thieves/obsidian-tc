@@ -23,6 +23,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Changed
 
+- **SQLite per-connection baseline + prepared-statement cache (THE-273).** Both runtime adapters now set `synchronous=NORMAL` (WAL-safe), `busy_timeout=5000` (wait instead of `SQLITE_BUSY` when the reindex, boot reconcile, and a live tool call contend for `cache.db`), a 32 MB page cache, `mmap_size`, and `temp_store=MEMORY`. The per-dispatch audit + idempotency statements are prepared once via a new `prepareCached` (bun:sqlite's `db.prepare` is uncached), removing a parse-per-call on the hottest path.
 - **Relicensed from Apache-2.0 to AGPL-3.0-only (THE-260).** Reciprocity on network re-hosting: anyone may run, modify, and self-host, but offering a modified obsidian-tc to others over a network requires releasing the source under the same terms. Prior tags (through v1.2.1) remain available under Apache-2.0; AGPL applies from this commit forward. Every license declaration updated (the four LICENSE files, all `package.json`, `Cargo.toml`, `manifest.json`, the README badge, and the image OCI labels).
 
 ### Security
