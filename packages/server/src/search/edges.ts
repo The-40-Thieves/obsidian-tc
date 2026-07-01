@@ -11,7 +11,7 @@
 //
 // Single-vault: vault_edges has no vault_id (cache.db is one-per-vault by design, matching
 // W-SCHEMA + W-RETRIEVAL). Multi-vault edge isolation (vault_id on vault_edges + a scoped
-// graph_expand) is an integration follow-up — recorded in MERGE-PROGRESS.md.
+// graph_expand) is an integration follow-up (THE-233).
 import type { Database } from "../db/types";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
 
