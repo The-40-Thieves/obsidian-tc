@@ -35,9 +35,13 @@ assumptions:
 - **MCP clients are partially trusted.** JWT auth scopes restrict per-client capabilities.
 - **Autonomous agents are partially trusted.** Folder ACLs restrict per-agent read/write
   paths, and human-in-the-loop (HITL) elicit is required on destructive operations.
-- **The vault filesystem is trusted.** obsidian-tc does not defend against attacks
-  originating from vault content itself (e.g. malicious frontmatter) or against in-vault
-  symlinks pointing outside the vault root.
+- **Vault *content* is trusted.** obsidian-tc does not defend against attacks originating from
+  vault content itself (e.g. malicious frontmatter that a client renders or executes). It does,
+  however, enforce filesystem containment: every path resolves through `resolveVaultPath`, which
+  combines byte-level traversal rejection (absolute paths and `..` segments) with a real-path
+  check that canonicalizes the vault root and the deepest existing target segment through
+  symlinks — so an in-vault symlink (or a symlinked ancestor) pointing outside the vault root is
+  rejected, not just lexical `..`.
 - **The host system is trusted.** obsidian-tc does not protect against attacks from
   co-located processes.
 
@@ -50,6 +54,6 @@ assumptions:
 - Fail-closed config: an unauthenticated HTTP transport refuses to bind a non-loopback host
 - Idempotency keys on writes
 - Bulk-operation throttling with configurable per-tier limits
-- Path-traversal prevention (byte-level rejection of `..` segments and absolute paths)
+- Path-traversal prevention (byte-level rejection of `..` segments and absolute paths, plus a real-path symlink-containment check so in-vault symlinks cannot escape the vault root)
 - Deny-by-default command execution (disabled unless explicitly enabled, allowlisted, and HITL-gated)
 - Audit logging of every tool invocation
