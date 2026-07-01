@@ -57,22 +57,41 @@ export function semanticSearch(
   const readable = opts.isReadable ?? (() => true);
   if (k <= 0) return [];
 
+  // vec0 KNN path: over-fetch candidates, then resolve their metadata in ONE batched query
+  // (collapsing a per-candidate point lookup), preserving vecKnn's distance ordering. Any vec0
+  // failure — e.g. the query vector's dimension no longer matches the indexed vectors after an
+  // embedding-model change, which makes sqlite-vec throw — degrades to the brute-force scan
+  // below instead of propagating the error.
+  let vecHits: SemanticHit[] | null = null;
   if (loadVec(db) && tableExists(db, "vec_chunks")) {
-    const meta = db.prepare(
-      "SELECT c.path AS path, c.content AS content, c.vault_id AS vault_id, e.model AS model FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.id = ?",
-    );
-    const out: SemanticHit[] = [];
-    // Over-fetch, then post-filter by vault/ACL/min-score and take the top k.
-    for (const row of vecKnn(db, queryVec, k * 5 + 10)) {
-      const m = meta.get(row.chunk_id) as MetaRow | undefined;
-      if (!m || m.vault_id !== vaultId || !readable(m.path)) continue;
-      const score = 1 - row.distance;
-      if (opts.minScore !== undefined && score < opts.minScore) continue;
-      out.push(hit(row.chunk_id, m.path, score, m.model, m.content, opts.returnContent));
-      if (out.length >= k) break;
+    try {
+      const candidates = vecKnn(db, queryVec, k * 5 + 10);
+      const out: SemanticHit[] = [];
+      if (candidates.length > 0) {
+        const placeholders = candidates.map(() => "?").join(", ");
+        const metaRows = db
+          .prepare(
+            `SELECT c.id AS id, c.path AS path, c.content AS content, c.vault_id AS vault_id, e.model AS model FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.id IN (${placeholders})`,
+          )
+          .all(...candidates.map((r) => r.chunk_id)) as Array<MetaRow & { id: string }>;
+        const metaById = new Map(metaRows.map((m) => [m.id, m]));
+        for (const row of candidates) {
+          const m = metaById.get(row.chunk_id);
+          if (!m || m.vault_id !== vaultId || !readable(m.path)) continue;
+          const score = 1 - row.distance;
+          if (opts.minScore !== undefined && score < opts.minScore) continue;
+          out.push(hit(row.chunk_id, m.path, score, m.model, m.content, opts.returnContent));
+          if (out.length >= k) break;
+        }
+      }
+      vecHits = out;
+    } catch {
+      // The brute-force scan is dimension-tolerant (cosineSimilarity returns 0 on a length
+      // mismatch) and always correct, so it is the safe fallback for any vec0 failure.
+      vecHits = null;
     }
-    return out;
   }
+  if (vecHits !== null) return vecHits;
 
   const rows = db
     .prepare(
