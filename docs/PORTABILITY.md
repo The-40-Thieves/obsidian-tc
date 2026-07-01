@@ -10,14 +10,16 @@ pure-JS fallback — so the project runs on every platform even where no prebuil
 
 ## Supported platforms / triples
 
-The native addon ships prebuilt binaries for six target triples. The publish matrix
+The native addon ships prebuilt binaries for eight target triples. The publish matrix
 (`.github/workflows/publish.yml`), the `napi.targets` list (`packages/native/package.json`),
-and the `hostTriple()` loader (`packages/native/index.js`) are kept in 6-way sync.
+and the `hostTriple()` loader (`packages/native/index.js`) are kept in 8-way sync.
 
 | Rust target (napi)            | package triple    | publish runner   | builds in CI            | install-smoke         |
 | ----------------------------- | ----------------- | ---------------- | ----------------------- | --------------------- |
 | `x86_64-unknown-linux-gnu`    | `linux-x64-gnu`   | `ubuntu-latest`  | ✅ native               | ✅ `ubuntu-latest`    |
 | `aarch64-unknown-linux-gnu`   | `linux-arm64-gnu` | `ubuntu-latest`  | ✅ cross (gcc-aarch64)  | ⚙️ build-verified only |
+| `x86_64-unknown-linux-musl`   | `linux-x64-musl`  | `ubuntu-latest`  | ✅ cross (napi -x / zig)| ⚙️ build-verified only |
+| `aarch64-unknown-linux-musl`  | `linux-arm64-musl`| `ubuntu-latest`  | ✅ cross (napi -x / zig)| ⚙️ build-verified only |
 | `x86_64-apple-darwin`         | `darwin-x64`      | `macos-latest`   | ✅ clang cross          | ⚙️ build-verified only |
 | `aarch64-apple-darwin`        | `darwin-arm64`    | `macos-14`       | ✅ native               | ✅ `macos-latest`     |
 | `x86_64-pc-windows-msvc`      | `win32-x64-msvc`  | `windows-latest` | ✅ native               | ✅ `windows-latest`   |
@@ -25,7 +27,7 @@ and the `hostTriple()` loader (`packages/native/index.js`) are kept in 6-way syn
 
 The install smoke test runs on the three GitHub-hosted host architectures — `ubuntu-latest`
 (x64), `macos-latest` (arm64), and `windows-latest` (x64) — so those three host triples are
-exercised end-to-end. The remaining three triples are **cross-compiled** in the publish
+exercised end-to-end. The remaining five triples are **cross-compiled** in the publish
 matrix and verified to build, but are not run in CI because GitHub does not offer hosted
 arm64-Linux or arm64-Windows runners (and `macos-latest` is arm64, so `darwin-x64` is a
 cross target there). They load through the same loader path, which is itself smoke-tested on
@@ -76,6 +78,11 @@ supported (it cannot resolve the `bun:` import).
   Rust target added by `dtolnay/rust-toolchain`.
 - **darwin** — Apple `clang` cross-compiles freely between `x86_64`/`aarch64`, so each macOS
   runner builds its non-host target with just the Rust target added.
+- **linux-musl (x64 + arm64)** — cross-compiled on the x64 `ubuntu-latest` runner via
+  `napi build -x` (cargo-zigbuild; `goto-bus-stop/setup-zig` 0.13.0), gated to the two musl
+  rows. This is what lets Alpine/musl installs load the native addon: `hostTriple()` detects
+  musl (`process.report.glibcVersionRuntime`, then `/usr/bin/ldd` text) and requests
+  `linux-{x64,arm64}-musl`. Unknown/glibc hosts stay on `-gnu`.
 
 ## CI install smoke test
 
