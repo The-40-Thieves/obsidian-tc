@@ -5,7 +5,7 @@
 // knowledge_get_critical is intentionally absent (vendor-KB data model not in the tree).
 import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { ToolDefinition } from "../../mcp/registry";
 import { challengeProposal, isDecisionChunk } from "../../plane/challenge";
@@ -26,7 +26,9 @@ export interface M7Deps {
 }
 
 function aclReadable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl?.readPaths) return true;
+  if (!acl) return true;
+  if (isDefaultDenied(rel)) return false;
+  if (!acl.readPaths) return acl.strictReadDefault !== true;
   return acl.readPaths.some((g) => globMatch(g, rel));
 }
 

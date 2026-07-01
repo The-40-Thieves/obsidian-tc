@@ -4,7 +4,7 @@
 // DEFINED, every returned item must be attributable to an allowed vault path; an item
 // that cannot be attributed FAILS CLOSED (acl_denied) rather than leaking.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import { type FolderAcl, globMatch } from "../acl";
+import { type FolderAcl, globMatch, isDefaultDenied } from "../acl";
 import { normalizeVaultPath } from "./paths";
 
 /** True when read enumeration is unrestricted: no ACL, or readPaths undefined and
@@ -38,7 +38,9 @@ export function bridgeItemPath(
 
 /** Does a vault-relative path pass the read whitelist (allow-all when undefined)? */
 export function readableRel(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
+  if (!acl) return true;
+  if (isDefaultDenied(rel)) return false;
+  if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
   return acl.readPaths.some((g) => globMatch(g, rel));
 }
 

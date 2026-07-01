@@ -95,6 +95,9 @@ export const AclConfigSchema = z.object({
   readPaths: z.array(z.string()).optional(),
   writePaths: z.array(z.string()).optional(),
   deletePaths: z.array(z.string()).optional(),
+  /** When true, an UNDEFINED readPaths whitelist fails CLOSED on the request path (read_note et
+   *  al.), not just bridge enumeration (THE-268). Default false = M0 allow-all back-compat. */
+  strictReadDefault: z.boolean().default(false),
 });
 
 export const EmbeddingsConfigSchema = z.object({

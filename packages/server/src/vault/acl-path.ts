@@ -5,7 +5,7 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 // whitelist"; an omitted whitelist means that op kind is unrestricted (M0
 // back-compat). This is the handler-level layer; the M0 dispatch read-only
 // kill switch (forbidden) fires first for scope-mutating tools.
-import { type FolderAcl, globMatch } from "../acl";
+import { type FolderAcl, globMatch, isDefaultDenied } from "../acl";
 
 export type AclOp = "read" | "write" | "delete";
 
@@ -28,10 +28,24 @@ export function evaluatePathAcl(
   path: string,
 ): PathAclDecision {
   if (!acl) return { allowed: true, deniedBy: null, matchedGlob: null };
+  // Hard default-deny baseline (THE-268): .obsidian/.git/.trash are unreachable for every op,
+  // regardless of the allowlist (except the M3 config files in the exempt set).
+  if (isDefaultDenied(path))
+    return {
+      allowed: false,
+      deniedBy: `${op}_paths` as "read_paths" | "write_paths" | "delete_paths",
+      matchedGlob: null,
+    };
   if (op !== "read" && acl.readOnly)
     return { allowed: false, deniedBy: "read_only", matchedGlob: null };
   const list = op === "read" ? acl.readPaths : op === "write" ? acl.writePaths : acl.deletePaths;
-  if (list === undefined) return { allowed: true, deniedBy: null, matchedGlob: null };
+  if (list === undefined) {
+    // M0 back-compat: an undefined whitelist is unrestricted, UNLESS strictReadDefault fails the
+    // read path closed (THE-268). strictReadDefault governs reads only.
+    if (op === "read" && acl.strictReadDefault)
+      return { allowed: false, deniedBy: "read_paths", matchedGlob: null };
+    return { allowed: true, deniedBy: null, matchedGlob: null };
+  }
   const matchedGlob = list.find((g) => globMatch(g, path)) ?? null;
   if (matchedGlob === null)
     return {
