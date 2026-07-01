@@ -36,7 +36,7 @@ export interface HttpAppOptions {
 }
 
 type AuthOutcome =
-  | { ok: true; caller: string | null; scopes: Set<string> }
+  | { ok: true; caller: string | null; scopes: Set<string>; vault?: string }
   | { ok: false; status: 401 | 500; reason: string };
 
 function bearer(header: string | undefined): string | null {
@@ -62,7 +62,7 @@ async function resolveAuth(
   if (!verifier) return { ok: false, status: 500, reason: "jwt mode misconfigured: no secret" };
   try {
     const id = await verifier.verify(token);
-    return { ok: true, caller: id.caller, scopes: id.scopes };
+    return { ok: true, caller: id.caller, scopes: id.scopes, vault: id.vault };
   } catch {
     return { ok: false, status: 401, reason: "invalid or expired token" };
   }
@@ -140,7 +140,11 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       caller: authz.caller,
       authenticated: true,
       grantedScopes: authz.scopes,
-      vaultId: opts.vaultId,
+      // Bind the caller to its token's vault (or the server default when the token carries no
+      // `vault` claim). vaultBound makes dispatch reject a tool call naming a different vault
+      // (THE-267), so an HTTP token cannot reach every configured vault via the `vault` argument.
+      vaultId: authz.vault ?? opts.vaultId,
+      vaultBound: true,
       db: opts.db,
       acl: opts.acl,
     });

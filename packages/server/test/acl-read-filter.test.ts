@@ -33,12 +33,10 @@ describe("acl-read-filter (D2)", () => {
     expect(filterBridgeItemsByAcl(acl({}), items, { tool: "t" })).toEqual(items);
   });
 
-  it("strictReadDefault forces attribution even with readPaths undefined", () => {
+  it("strictReadDefault fails reads closed (deny non-whitelisted, require attribution) with readPaths undefined", () => {
     const a = acl({ strictReadDefault: true });
     expect(() => filterBridgeItemsByAcl(a, [{ line: 1 }], { tool: "t" })).toThrow();
-    expect(filterBridgeItemsByAcl(a, [{ path: "Any/x.md" }], { tool: "t" })).toEqual([
-      { path: "Any/x.md" },
-    ]);
+    expect(filterBridgeItemsByAcl(a, [{ path: "Any/x.md" }], { tool: "t" })).toEqual([]); // THE-268: strict now denies non-whitelisted reads too (fail-closed)
   });
 
   it("bridgeItemPath extracts the first present key and rejects bad paths", () => {
