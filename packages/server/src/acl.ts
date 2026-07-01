@@ -39,6 +39,22 @@ export function globMatch(glob: string, path: string): boolean {
   return globToRegExp(glob).test(path);
 }
 
+// Hard default-deny baseline (THE-268): the Obsidian/VCS control directories are never reachable
+// through the folder ACL, regardless of the allowlist, for read/write/delete — `.obsidian/plugins/
+// */data.json` routinely holds plugin API keys and Obsidian Sync passwords. The two config files
+// the M3 bookmark/workspace tools legitimately touch are exempted so those tools keep working.
+const DEFAULT_DENY_ROOTS = [".obsidian", ".git", ".trash"];
+const DEFAULT_DENY_EXEMPT: ReadonlySet<string> = new Set([
+  ".obsidian/bookmarks.json",
+  ".obsidian/workspaces.json",
+]);
+
+/** True when a vault-relative path is under a hard-denied control directory (and not exempt). */
+export function isDefaultDenied(path: string): boolean {
+  if (DEFAULT_DENY_EXEMPT.has(path)) return false;
+  return DEFAULT_DENY_ROOTS.some((r) => path === r || path.startsWith(`${r}/`));
+}
+
 export class FolderAcl {
   constructor(private readonly cfg: AclConfigT) {}
   scopesForPath(path: string): string[] {

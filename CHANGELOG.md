@@ -14,6 +14,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **Relicensed from Apache-2.0 to AGPL-3.0-only (THE-260).** Reciprocity on network re-hosting: anyone may run, modify, and self-host, but offering a modified obsidian-tc to others over a network requires releasing the source under the same terms. Prior tags (through v1.2.1) remain available under Apache-2.0; AGPL applies from this commit forward. Every license declaration updated (the four LICENSE files, all `package.json`, `Cargo.toml`, `manifest.json`, the README badge, and the image OCI labels).
 
+### Security
+
+- **Fail-closed ACL defaults (THE-268).** The folder ACL now hard-denies `.obsidian/**`, `.git/**`, and `.trash/**` for read, write, and delete regardless of the allowlist (the two config files the bookmark/workspace tools use are exempted), so `read_note('.obsidian/plugins/*/data.json')` no longer leaks plugin API keys or Obsidian Sync passwords. `strictReadDefault` is now honored on the request path (`read_note` et al.), not just bridge enumeration, and was added to the config schema so setting it takes effect (it was previously stripped by validation). An undefined read/write whitelist otherwise remains allow-all by default (M0 back-compat).
+
 ## [1.2.1] - 2026-06-26
 
 Post-1.0.2 work, now versioned. Two strands landed on `main` after 1.0.2: a
