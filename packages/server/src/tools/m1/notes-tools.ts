@@ -18,7 +18,7 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
@@ -52,8 +52,9 @@ function basenameNoExt(p: string): string {
 /** Non-throwing read-ACL predicate, for listing (enforcePathAcl throws). */
 function readable(acl: FolderAcl | undefined, rel: string): boolean {
   if (!acl) return true;
+  if (isDefaultDenied(rel)) return false;
   const list = acl.readPaths;
-  if (list === undefined) return true;
+  if (list === undefined) return acl.strictReadDefault !== true;
   return list.some((g) => globMatch(g, rel));
 }
 

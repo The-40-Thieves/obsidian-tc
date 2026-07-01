@@ -43,6 +43,17 @@ function registryOf(...names: string[]): ToolRegistry {
   return r;
 }
 
+function toolWith(
+  name: string,
+  opts: { requiredScopes?: string[]; destructive?: boolean },
+): ToolDefinition<Record<string, never>, Record<string, never>> {
+  return {
+    ...testTool(name),
+    requiredScopes: opts.requiredScopes ?? [],
+    destructive: opts.destructive,
+  };
+}
+
 describe("tools/list pagination", () => {
   it("returns the whole surface in one page (no cursor) at the default page size", async () => {
     const { client, server } = await connect(registryOf("test_a", "test_b", "test_c"));
@@ -73,6 +84,44 @@ describe("tools/list pagination", () => {
     const listed = await client.listTools({ cursor: "not-a-number" });
     expect(listed.tools).toHaveLength(2);
     expect(listed.nextCursor).toBe("2");
+    await client.close();
+    await server.close();
+  });
+});
+
+describe("tools/list annotations + title", () => {
+  it("derives read-only annotations for a non-mutating, non-destructive tool", async () => {
+    const r = new ToolRegistry();
+    r.register(toolWith("read_thing", { requiredScopes: ["read:notes"] }));
+    const { client, server } = await connect(r);
+    const tool = (await client.listTools()).tools[0]!;
+    expect(tool.title).toBe("Read Thing");
+    expect(tool.annotations).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+    await client.close();
+    await server.close();
+  });
+
+  it("marks a mutating tool as not read-only", async () => {
+    const r = new ToolRegistry();
+    r.register(toolWith("write_thing", { requiredScopes: ["write:notes"] }));
+    const { client, server } = await connect(r);
+    const tool = (await client.listTools()).tools[0]!;
+    expect(tool.annotations?.readOnlyHint).toBe(false);
+    expect(tool.annotations?.destructiveHint).toBe(false);
+    await client.close();
+    await server.close();
+  });
+
+  it("marks a destructive tool with destructiveHint and not read-only", async () => {
+    const r = new ToolRegistry();
+    r.register(toolWith("delete_thing", { requiredScopes: ["delete:notes"], destructive: true }));
+    const { client, server } = await connect(r);
+    const tool = (await client.listTools()).tools[0]!;
+    expect(tool.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     await client.close();
     await server.close();
   });

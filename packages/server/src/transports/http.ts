@@ -1,6 +1,10 @@
 import { serve } from "@hono/node-server";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { normalizeHostForBind, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  isLoopbackHost,
+  normalizeHostForBind,
+  type ServerConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
@@ -23,10 +27,16 @@ export interface HttpAppOptions {
   vaultRegistry?: VaultRegistry;
   /** Optional bearer-token verifier (W-AUTH seam). Defaults to an HS256 JWT verifier from `auth`. */
   verifier?: TokenVerifier;
+  /** DNS-rebinding / cross-origin guard (THE-271). Defaults on when undefined. */
+  enableDnsRebindingProtection?: boolean;
+  /** Extra Host header values accepted beyond loopback (e.g. a reverse-proxy domain). */
+  allowedHosts?: string[];
+  /** Extra Origin header values accepted beyond the request's same origin. */
+  allowedOrigins?: string[];
 }
 
 type AuthOutcome =
-  | { ok: true; caller: string | null; scopes: Set<string> }
+  | { ok: true; caller: string | null; scopes: Set<string>; vault?: string }
   | { ok: false; status: 401 | 500; reason: string };
 
 function bearer(header: string | undefined): string | null {
@@ -52,7 +62,7 @@ async function resolveAuth(
   if (!verifier) return { ok: false, status: 500, reason: "jwt mode misconfigured: no secret" };
   try {
     const id = await verifier.verify(token);
-    return { ok: true, caller: id.caller, scopes: id.scopes };
+    return { ok: true, caller: id.caller, scopes: id.scopes, vault: id.vault };
   } catch {
     return { ok: false, status: 401, reason: "invalid or expired token" };
   }
@@ -77,6 +87,37 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       : null);
 
   app.post("/mcp", async (c) => {
+    // DNS-rebinding / cross-origin guard (THE-271). A malicious web page POSTing to a loopback MCP
+    // server is the canonical local-server attack: the config fail-closes a non-loopback bind under
+    // auth 'none', but nothing stopped a browser drive-by against the loopback bind. Reject a Host
+    // that is neither loopback nor operator-allowed, or an Origin (browsers always send one; a
+    // server-to-server client does not) that is not the same origin or operator-allowed. Runs before
+    // auth so a cross-origin request never reaches the pipeline.
+    if (opts.enableDnsRebindingProtection !== false) {
+      const rawHost = c.req.header("host") ?? "";
+      const hostname = rawHost.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+      const hostAllowed =
+        isLoopbackHost(hostname) ||
+        hostname === "localhost" ||
+        (opts.allowedHosts ?? []).includes(rawHost) ||
+        (opts.allowedHosts ?? []).includes(hostname);
+      if (!hostAllowed)
+        return c.json(
+          { jsonrpc: "2.0", error: { code: -32000, message: "host not allowed" }, id: null },
+          403,
+        );
+      const origin = c.req.header("origin");
+      if (origin) {
+        const allowed = new Set(opts.allowedOrigins ?? []);
+        allowed.add(`http://${rawHost}`);
+        allowed.add(`https://${rawHost}`);
+        if (!allowed.has(origin))
+          return c.json(
+            { jsonrpc: "2.0", error: { code: -32000, message: "origin not allowed" }, id: null },
+            403,
+          );
+      }
+    }
     const authz = await resolveAuth(c.req.header("authorization"), opts.auth, verifier);
     if (!authz.ok) {
       return c.json(
@@ -99,7 +140,11 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       caller: authz.caller,
       authenticated: true,
       grantedScopes: authz.scopes,
-      vaultId: opts.vaultId,
+      // Bind the caller to its token's vault (or the server default when the token carries no
+      // `vault` claim). vaultBound makes dispatch reject a tool call naming a different vault
+      // (THE-267), so an HTTP token cannot reach every configured vault via the `vault` argument.
+      vaultId: authz.vault ?? opts.vaultId,
+      vaultBound: true,
       db: opts.db,
       acl: opts.acl,
     });

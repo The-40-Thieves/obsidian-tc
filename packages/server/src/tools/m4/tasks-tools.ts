@@ -8,7 +8,7 @@ import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { filterBridgeItemsByAcl } from "../../vault/acl-read-filter";
+import { filterBridgeItemsByAcl, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import { readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -246,6 +246,10 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         // (aggregate counts) pass through untouched.
         const rawItems = Array.isArray(result.items) ? (result.items as unknown[]) : [];
         const items = filterBridgeItemsByAcl(ctx.acl, rawItems, { tool: "tasks_filter" });
+        // Under a read whitelist, drop `...result` — `groups` (and any other sibling) is computed
+        // over the UNFILTERED task set and leaks counts of notes outside the whitelist (THE-270).
+        if (!readEnumerationUnrestricted(ctx.acl))
+          return { vault: v.id, items, total: items.length };
         return { vault: v.id, ...result, items, total: items.length };
       },
     }),
