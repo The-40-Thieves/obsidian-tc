@@ -81,7 +81,7 @@ supported (it cannot resolve the `bun:` import).
 - **linux-musl (x64 + arm64)** — cross-compiled on the x64 `ubuntu-latest` runner via
   `napi build -x` (cargo-zigbuild; `goto-bus-stop/setup-zig` 0.13.0), gated to the two musl
   rows. This is what lets Alpine/musl installs load the native addon: `hostTriple()` detects
-  musl (`/usr/bin/ldd` text, then `process.report.glibcVersionRuntime`) and requests
+  musl (`process.report.glibcVersionRuntime`, then `/usr/bin/ldd` text) and requests
   `linux-{x64,arm64}-musl`. Unknown/glibc hosts stay on `-gnu`.
 
 ## CI install smoke test

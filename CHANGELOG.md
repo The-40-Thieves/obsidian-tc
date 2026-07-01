@@ -8,7 +8,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
-- **Native `linux-x64-musl` + `linux-arm64-musl` prebuilds.** The publish matrix now builds eight triples (was six); Alpine/musl hosts load the compiled native addon instead of the pure-JS fallback. The hand-written loader detects musl vs glibc (`/usr/bin/ldd`, then `process.report.glibcVersionRuntime`) and requests the `-musl` triple. musl targets cross-compile via `napi build -x` (cargo-zigbuild + zig). The actual musl publish is validated on a release tag (the cross-build cannot run on non-linux/local dev).
+- **Native `linux-x64-musl` + `linux-arm64-musl` prebuilds.** The publish matrix now builds eight triples (was six); Alpine/musl hosts load the compiled native addon instead of the pure-JS fallback. The hand-written loader detects musl vs glibc (`process.report.glibcVersionRuntime`, then `/usr/bin/ldd`) and requests the `-musl` triple. musl targets cross-compile via `napi build -x` (cargo-zigbuild + zig). The actual musl publish is validated on a release tag (the cross-build cannot run on non-linux/local dev).
 
 ### Changed
 

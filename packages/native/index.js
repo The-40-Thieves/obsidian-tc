@@ -17,9 +17,12 @@ const { existsSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
 
 // musl vs glibc detection (ported from napi-rs's generated loader). Alpine and other musl hosts
-// must request the -musl prebuild, not -gnu. Order: /usr/bin/ldd text, then
-// process.report.glibcVersionRuntime (+ musl sharedObjects), then `ldd --version`. Unknown =>
-// false (glibc is the safe default; a wrong guess still degrades to the JS fallback).
+// must request the -musl prebuild, not -gnu. process.report is the primary signal because it
+// reflects the libc the *running* process is linked against and is reliable on modern Node (glibc
+// sets header.glibcVersionRuntime; musl does not and lists its loader in sharedObjects). Only when
+// the report yields no decisive signal do we fall back to the /usr/bin/ldd text, then
+// `ldd --version`. Unknown => false (glibc is the safe default; a wrong guess still degrades to the
+// JS fallback).
 const isFileMusl = (f) => f.includes("libc.musl-") || f.includes("ld-musl-");
 
 function isMuslFromFilesystem() {
@@ -45,7 +48,8 @@ function isMuslFromReport() {
   if (Array.isArray(report.sharedObjects) && report.sharedObjects.some(isFileMusl)) {
     return true;
   }
-  return false;
+  // Report present but neither signal decisive -> let the filesystem / child-process probes decide.
+  return null;
 }
 
 function isMuslFromChildProcess() {
@@ -62,9 +66,9 @@ function isMusl() {
   if (process.platform !== "linux") {
     return false;
   }
-  let musl = isMuslFromFilesystem();
+  let musl = isMuslFromReport();
   if (musl === null) {
-    musl = isMuslFromReport();
+    musl = isMuslFromFilesystem();
   }
   if (musl === null) {
     musl = isMuslFromChildProcess();
