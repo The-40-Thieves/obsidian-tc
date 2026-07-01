@@ -56,7 +56,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         const id = genSessionId();
         const tracePath = traceRelPath(traceFolderFor(deps, v.id), id);
         const abs = resolveVaultPath(v.root, tracePath);
-        enforcePathAcl(ctx.acl, "write", tracePath);
+        enforcePathAcl(ctx.acl, "write", tracePath, v.root);
         insertSession(ctx.db, {
           id,
           vaultId: v.id,
@@ -97,7 +97,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           throw err.invalidInput("session already ended", { session_id: input.session_id });
         const now = (ctx.now ?? Date.now)();
         const abs = resolveVaultPath(v.root, s.trace_path);
-        enforcePathAcl(ctx.acl, "write", s.trace_path);
+        enforcePathAcl(ctx.acl, "write", s.trace_path, v.root);
         appendTrace(abs, {
           ts: now,
           type: "session_end",
@@ -136,7 +136,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         const toMs = parseIso(input.to, "to");
         const records: TraceRecord[] = [];
         const collect = (s: SessionRow): void => {
-          enforcePathAcl(ctx.acl, "read", s.trace_path);
+          enforcePathAcl(ctx.acl, "read", s.trace_path, v.root);
           for (const rec of readTrace(resolveVaultPath(v.root, s.trace_path)))
             records.push({ session_id: s.id, ...rec });
         };

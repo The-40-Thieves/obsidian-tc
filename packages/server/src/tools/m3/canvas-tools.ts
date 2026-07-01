@@ -103,7 +103,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         requireCanvasExt(rel);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel);
+        enforcePathAcl(ctx.acl, "read", rel, v.root);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("canvas not found", { path: rel });
@@ -132,7 +132,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         requireCanvasExt(rel);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel);
+        enforcePathAcl(ctx.acl, "write", rel, v.root);
         const ex = noteExists(abs);
         if (ex.exists && ex.type === "folder")
           throw err.invalidInput("path is a folder", { path: rel });
@@ -166,7 +166,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         requireCanvasExt(rel);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel);
+        enforcePathAcl(ctx.acl, "write", rel, v.root);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("canvas not found", { path: rel });

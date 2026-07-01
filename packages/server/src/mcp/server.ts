@@ -14,6 +14,7 @@ import {
   type ReadResourceResult,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { VaultRegistry } from "../vault/registry";
 import {
@@ -24,7 +25,7 @@ import {
   triadTools,
 } from "./facade";
 import { getPrompt, listPrompts } from "./prompts";
-import type { CallerContext, ToolRegistry } from "./registry";
+import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
 import { listResources, readResource } from "./resources";
 
 // tools/list returns at most this many tools per page; the client follows nextCursor for the
@@ -63,6 +64,30 @@ function asStructured(data: unknown): Record<string, unknown> | undefined {
   return data !== null && typeof data === "object" && !Array.isArray(data)
     ? (data as Record<string, unknown>)
     : undefined;
+}
+
+/** Human-facing label for a snake_case tool name (spec: clients fall back to `name` if absent). */
+function titleize(name: string): string {
+  return name
+    .split("_")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+/**
+ * Derive MCP tool annotations from the registry's OWN ground truth, so the client-visible safety
+ * contract cannot drift from server-side enforcement. `readOnlyHint` mirrors the exact `mutating`
+ * predicate the dispatch read-only kill-switch uses (registry.runDispatch); `destructiveHint`
+ * mirrors `def.destructive`; every vault operation is closed-world (no external side effects).
+ * Annotations are advisory hints, never a trust boundary — dispatch still authorizes every call.
+ */
+function toolAnnotations(def: ToolDefinition): NonNullable<Tool["annotations"]> {
+  const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
+  return {
+    readOnlyHint: !mutating,
+    destructiveHint: def.destructive === true,
+    openWorldHint: false,
+  };
 }
 /**
  * Assemble a low-level MCP Server bound to a ToolRegistry. ListTools is sourced
@@ -104,12 +129,14 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const page = visible.slice(start, start + pageSize);
     const tools: Tool[] = page.map((def) => ({
       name: def.name,
+      title: titleize(def.name),
       description: def.description,
       inputSchema: z.toJSONSchema(def.inputSchema, {
         target: "draft-7",
         reused: "inline",
         unrepresentable: "any",
       }) as unknown as Tool["inputSchema"],
+      annotations: toolAnnotations(def),
     }));
     const nextStart = start + page.length;
     return nextStart < visible.length ? { tools, nextCursor: String(nextStart) } : { tools };

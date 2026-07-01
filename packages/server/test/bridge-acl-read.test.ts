@@ -26,15 +26,16 @@ describe("bridge read-ACL filtering (D2)", () => {
       },
     });
 
-  it("tasks_filter drops items outside the read whitelist and keeps groups", async () => {
+  it("tasks_filter drops items outside the read whitelist and drops the leaky groups (THE-270)", async () => {
     v = tasksVault({ readPaths: ["Notes/**"] });
     const res = await v.call("tasks_filter", { vault: "test", filter: "done" });
     expect(res.ok).toBe(true);
     if (res.ok) {
-      const d = res.data as { items: { path: string }[]; total: number; groups: unknown[] };
+      const d = res.data as { items: { path: string }[]; total: number; groups?: unknown[] };
       expect(d.items).toEqual([{ path: "Notes/a.md", line: 1 }]);
       expect(d.total).toBe(1);
-      expect(d.groups).toEqual([{ key: "x", count: 2 }]);
+      // `groups` is computed over the UNFILTERED task set, so it is dropped under a read whitelist.
+      expect(d.groups).toBeUndefined();
     }
   });
 

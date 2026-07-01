@@ -13,7 +13,7 @@ import {
   VaultPath,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
 import type { Database } from "../../db/types";
 import type { ToolDefinition } from "../../mcp/registry";
 import { evaluatesTruthy } from "../../search/jsonlogic";
@@ -43,7 +43,9 @@ interface Page<T> {
 }
 
 function aclReadable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
+  if (!acl) return true;
+  if (isDefaultDenied(rel)) return false;
+  if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
   return acl.readPaths.some((g) => globMatch(g, rel));
 }
 

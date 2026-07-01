@@ -5,7 +5,8 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 // whitelist"; an omitted whitelist means that op kind is unrestricted (M0
 // back-compat). This is the handler-level layer; the M0 dispatch read-only
 // kill switch (forbidden) fires first for scope-mutating tools.
-import { type FolderAcl, globMatch } from "../acl";
+import { type FolderAcl, globMatch, isDefaultDenied } from "../acl";
+import { resolveVaultPathChecked } from "./paths";
 
 export type AclOp = "read" | "write" | "delete";
 
@@ -28,10 +29,24 @@ export function evaluatePathAcl(
   path: string,
 ): PathAclDecision {
   if (!acl) return { allowed: true, deniedBy: null, matchedGlob: null };
+  // Hard default-deny baseline (THE-268): .obsidian/.git/.trash are unreachable for every op,
+  // regardless of the allowlist (except the M3 config files in the exempt set).
+  if (isDefaultDenied(path))
+    return {
+      allowed: false,
+      deniedBy: `${op}_paths` as "read_paths" | "write_paths" | "delete_paths",
+      matchedGlob: null,
+    };
   if (op !== "read" && acl.readOnly)
     return { allowed: false, deniedBy: "read_only", matchedGlob: null };
   const list = op === "read" ? acl.readPaths : op === "write" ? acl.writePaths : acl.deletePaths;
-  if (list === undefined) return { allowed: true, deniedBy: null, matchedGlob: null };
+  if (list === undefined) {
+    // M0 back-compat: an undefined whitelist is unrestricted, UNLESS strictReadDefault fails the
+    // read path closed (THE-268). strictReadDefault governs reads only.
+    if (op === "read" && acl.strictReadDefault)
+      return { allowed: false, deniedBy: "read_paths", matchedGlob: null };
+    return { allowed: true, deniedBy: null, matchedGlob: null };
+  }
   const matchedGlob = list.find((g) => globMatch(g, path)) ?? null;
   if (matchedGlob === null)
     return {
@@ -42,7 +57,17 @@ export function evaluatePathAcl(
   return { allowed: true, deniedBy: null, matchedGlob };
 }
 
-export function enforcePathAcl(acl: FolderAcl | undefined, op: AclOp, path: string): void {
+export function enforcePathAcl(
+  acl: FolderAcl | undefined,
+  op: AclOp,
+  rel: string,
+  root?: string,
+): void {
+  // When the vault root is supplied, gate on the REAL (symlink-resolved) vault-relative path
+  // instead of the lexical request path (THE-269): an in-vault symlink under an allowed folder
+  // whose target is a denied folder would otherwise pass the ACL. For a non-symlink path the
+  // canonical form equals the lexical one, so this is a no-op except on symlinked paths.
+  const path = root !== undefined ? resolveVaultPathChecked(root, rel).aclRel : rel;
   const decision = evaluatePathAcl(acl, op, path);
   if (decision.allowed) return;
   if (decision.deniedBy === "read_only")

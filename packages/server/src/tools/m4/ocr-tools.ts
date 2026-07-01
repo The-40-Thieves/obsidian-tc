@@ -35,7 +35,7 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "read", rel);
+        enforcePathAcl(ctx.acl, "read", rel, v.root);
         if (!noteExists(resolveVaultPath(v.root, rel)).exists)
           throw err.noteNotFound("attachment not found", { path: rel });
         const { client } = openBridge(deps, v.id, "text-extractor");
