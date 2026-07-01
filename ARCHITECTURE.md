@@ -332,13 +332,15 @@ POST   /obsidian-tc/v1/makemd/query                → query make.md space
 
 **ABI:** napi-rs v3 (`napi8`) pinned in `packages/native/package.json` (`engines.node >= 24`). Server consumes via Bun workspace link as `@the-40-thieves/obsidian-tc-native`.
 
-**Prebuild distribution (as shipped):** the umbrella package stays **unscoped at the napi level** (`napi.name = "obsidian-tc-native"`) while `napi prepublish` generates and publishes one scoped platform sub-package per built triple into the umbrella's `optionalDependencies`. v1.0 ships **four** triples (linux-arm64 deferred to v1.1; the pure-JS fallback covers it):
+**Prebuild distribution (as shipped):** the umbrella package stays **unscoped at the napi level** (`napi.name = "obsidian-tc-native"`) while `napi prepublish` generates and publishes one scoped platform sub-package per built triple into the umbrella's `optionalDependencies`. The publish matrix builds **six** triples; musl (Alpine) hosts are not yet covered and load the numerically-identical pure-JS fallback:
 
 ```
 @the-40-thieves/obsidian-tc-native-linux-x64-gnu
+@the-40-thieves/obsidian-tc-native-linux-arm64-gnu
 @the-40-thieves/obsidian-tc-native-darwin-x64
 @the-40-thieves/obsidian-tc-native-darwin-arm64
 @the-40-thieves/obsidian-tc-native-win32-x64-msvc
+@the-40-thieves/obsidian-tc-native-win32-arm64-msvc
 ```
 
 A hand-written `index.js` loader (replacing the napi-generated one) tries a locally-built `.node`, then the matching platform sub-package, and otherwise loads the numerically-identical pure-JS `fallback.ts`/`fallback.js`, exposing `module.exports.nativeLoaded` so callers can tell which backend is active. It never throws on a missing prebuild.

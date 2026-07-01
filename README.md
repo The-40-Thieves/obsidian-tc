@@ -42,7 +42,7 @@ Polyglot monorepo:
 |---|---|---|
 | `packages/server` | TypeScript (Bun) | MCP protocol layer, auth, routing, tool implementations, plugin bridges |
 | `packages/plugin` | TypeScript | Companion Obsidian plugin extending Local REST API |
-| `packages/native` | Rust (via napi-rs) | Perf-critical primitives: vector ops, BM25, sqlite-vec wrapper |
+| `packages/native` | Rust (via napi-rs) | Perf-critical primitives: cosine similarity, tokenization, BM25 scoring (numerically-identical pure-JS fallback when no prebuild) |
 | `packages/shared` | TypeScript | Shared Zod schemas and types |
 
 obsidian-tc is the **converged memory engine**: vault read/write, search, and control, *plus* folded-in retrieval intelligence (GraphRAG graph-walk via `vault_graph_search`, hybrid BM25 + vector search with RRF fusion, rerank via the inference gateway, and a `knowledge_challenge` decision red-team). This supersedes the earlier "access MCP, retrieval out of scope" framing (the 2026-06-25 single-converged-product decision; see `ARCHITECTURE.md`). The reserved "V2 ML sidecar" (and the native `kmeansAssign` / `actrDecayScore` hooks) was removed; the typed-atom MemIR substrate is a downstream engine-build phase, not this v1.x line.
@@ -55,6 +55,10 @@ minimum (every other field has a default):
 ```bash
 npm install -g obsidian-tc
 ```
+
+obsidian-tc runs on **Node (>= 24)** or **[Bun](https://bun.sh) (>= 1.1)** — `npm` / `npx`
+installs run under Node (which uses `better-sqlite3`); under Bun it uses `bun:sqlite`. The
+runtime is auto-detected, so the same install works either way.
 
 The fastest start is zero-config: point it at a vault folder and it boots a single
 vault named `main` with sensible defaults.
