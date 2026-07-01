@@ -8,6 +8,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Tool-surface facade / progressive disclosure (THE-219 consolidation).** A new
+  `transports`-independent `toolFacade.mode` (`triad` default, `domain` reserved, `flat` back-compat)
+  reshapes what `tools/list` advertises WITHOUT removing any capability. In `triad` mode the server
+  advertises three meta-tools instead of the full ~103: `find_capability` (BM25 search over the
+  caller-visible catalog, reusing the in-process tokenizer/BM25, no new index), `describe_capability`
+  (a single tool's schema + scopes + safety hints), and `call_capability` (routes the named target
+  straight through `registry.dispatch`, so every scope/ACL/HITL/idempotency/throttle gate and the
+  target's own Zod validation fire unchanged). Boundary-only: the ACL/Policy/HITL/idempotency/throttle
+  pipeline and observability are untouched, and every tool remains callable by name. `flat` mode is the
+  previous full-surface behavior. (Domain-verb facade + Claude-native deferred-tool discovery are follow-ups.)
+
 - **Native `linux-x64-musl` + `linux-arm64-musl` prebuilds.** The publish matrix now builds eight triples (was six); Alpine/musl hosts load the compiled native addon instead of the pure-JS fallback. The hand-written loader detects musl vs glibc (`process.report.glibcVersionRuntime`, then `/usr/bin/ldd`) and requests the `-musl` triple. musl targets cross-compile via `napi build -x` (cargo-zigbuild + zig). The actual musl publish is validated on a release tag (the cross-build cannot run on non-linux/local dev).
 
 ### Changed

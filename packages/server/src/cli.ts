@@ -418,6 +418,7 @@ async function main(): Promise<void> {
     registry,
     context,
     vaultRegistry,
+    facadeMode: config.toolFacade.mode,
   });
 
   if (config.transports.http.enabled) {
@@ -432,6 +433,7 @@ async function main(): Promise<void> {
       acl,
       host: config.transports.http.host,
       port: config.transports.http.port,
+      facadeMode: config.toolFacade.mode,
     });
     process.stderr.write(
       `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,

@@ -16,6 +16,13 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { VaultRegistry } from "../vault/registry";
+import {
+  describeCapability,
+  type FacadeMode,
+  findCapability,
+  isFacadeTool,
+  triadTools,
+} from "./facade";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolRegistry } from "./registry";
 import { listResources, readResource } from "./resources";
@@ -47,6 +54,9 @@ export interface McpServerOptions {
    * surface fits one page); overridable only so tests can exercise the cursor-paging path.
    */
   toolsPageSize?: number;
+  /** Tool-surface facade mode (THE-219). "triad" advertises 3 meta-tools; "flat" the full surface.
+   *  Defaults to "flat" when unset so direct callers/tests are unaffected; cli/http pass the config. */
+  facadeMode?: FacadeMode;
 }
 
 function asStructured(data: unknown): Record<string, unknown> | undefined {
@@ -73,7 +83,13 @@ export function createMcpServer(opts: McpServerOptions): Server {
     },
   );
 
+  const facadeMode: FacadeMode = opts.facadeMode ?? "flat";
+
   server.setRequestHandler(ListToolsRequestSchema, (req): ListToolsResult => {
+    // THE-219 facade: in triad/domain mode advertise the three meta-tools instead of the full
+    // surface. Every registered tool stays callable by name via call_capability, so nothing is
+    // hidden; flat mode is the back-compat full-surface behavior.
+    if (facadeMode !== "flat") return { tools: triadTools() };
     // Per-caller filtering (THE-250): the caller's resolved scopes + ACL read-only shape the
     // advertised surface, so a caller never sees a tool it could not dispatch. A full grant
     // (stdio / auth-none) leaves the surface unchanged. Filter first, THEN page: the cursor is an
@@ -99,6 +115,24 @@ export function createMcpServer(opts: McpServerOptions): Server {
     return nextStart < visible.length ? { tools, nextCursor: String(nextStart) } : { tools };
   });
 
+  const formatData = (data: unknown): CallToolResult => {
+    const structuredContent = asStructured(data);
+    return {
+      content: [{ type: "text", text: JSON.stringify(data ?? null) }],
+      ...(structuredContent ? { structuredContent } : {}),
+    };
+  };
+  const dispatchToResult = async (
+    name: string,
+    args: Record<string, unknown>,
+    ctx: CallerContext,
+  ): Promise<CallToolResult> => {
+    const result = await opts.registry.dispatch(name, args, ctx);
+    if (!result.ok)
+      return { content: [{ type: "text", text: JSON.stringify(result.error) }], isError: true };
+    return formatData(result.data);
+  };
+
   server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {
     // Bridge the HITL elicit token from tool arguments into the caller context,
     // stripping it from the args so it never perturbs args_hash — the token is
@@ -111,18 +145,42 @@ export function createMcpServer(opts: McpServerOptions): Server {
       args = rest;
       ctx = { ...ctx, elicitToken: elicit_token };
     }
-    const result = await opts.registry.dispatch(req.params.name, args, ctx);
-    if (!result.ok) {
-      return {
-        content: [{ type: "text", text: JSON.stringify(result.error) }],
-        isError: true,
-      };
+    // THE-219 facade interception (boundary-only): find/describe are pure metadata over the
+    // caller-visible catalog; call_capability routes the named TARGET through registry.dispatch so
+    // every gate (scope/ACL/HITL/idempotency/throttle) and the target's own Layer-6 Zod validation
+    // fire unchanged. Any other name (incl. a directly-named tool) takes the normal path below.
+    if (facadeMode !== "flat" && isFacadeTool(req.params.name)) {
+      const visible = opts.registry.listVisible({
+        grantedScopes: ctx.grantedScopes,
+        readOnly: ctx.acl?.readOnly,
+      });
+      if (req.params.name === "find_capability") {
+        const query = typeof args.query === "string" ? args.query : "";
+        const limit = typeof args.limit === "number" ? args.limit : 10;
+        return formatData({ matches: findCapability(visible, query, limit) });
+      }
+      if (req.params.name === "describe_capability") {
+        const target = visible.find((d) => d.name === args.name);
+        if (!target)
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  code: "not_found",
+                  message: `unknown capability: ${String(args.name)}`,
+                }),
+              },
+            ],
+            isError: true,
+          };
+        return formatData(describeCapability(target));
+      }
+      const target = typeof args.name === "string" ? args.name : "";
+      const targetArgs = (args.args ?? {}) as Record<string, unknown>;
+      return dispatchToResult(target, targetArgs, ctx);
     }
-    const structuredContent = asStructured(result.data);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result.data ?? null) }],
-      ...(structuredContent ? { structuredContent } : {}),
-    };
+    return dispatchToResult(req.params.name, args, ctx);
   });
 
   // Resources: vault notes. They bypass registry.dispatch, so the handlers enforce the read
