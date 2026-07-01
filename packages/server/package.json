@@ -14,7 +14,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node && bun scripts/copy-assets.mjs",
+    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node --external better-sqlite3 && bun scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
