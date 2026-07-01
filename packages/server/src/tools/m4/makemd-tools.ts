@@ -75,6 +75,10 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
           tool: "makemd_query",
           keys: ["note_path", "path", "file", "filePath"],
         });
+        // Under a read whitelist, drop `...result` siblings — they can carry path-attributable
+        // content from the UNFILTERED make.md rows (THE-270).
+        if (!readEnumerationUnrestricted(ctx.acl))
+          return { vault: v.id, space_id: input.space_id, items, total: items.length };
         return { vault: v.id, space_id: input.space_id, ...result, items, total: items.length };
       },
     }),

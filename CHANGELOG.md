@@ -14,6 +14,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **Relicensed from Apache-2.0 to AGPL-3.0-only (THE-260).** Reciprocity on network re-hosting: anyone may run, modify, and self-host, but offering a modified obsidian-tc to others over a network requires releasing the source under the same terms. Prior tags (through v1.2.1) remain available under Apache-2.0; AGPL applies from this commit forward. Every license declaration updated (the four LICENSE files, all `package.json`, `Cargo.toml`, `manifest.json`, the README badge, and the image OCI labels).
 
+### Security
+
+- **Bridge tools fail closed under a read whitelist (THE-270).** `tasks_filter` no longer spreads its bridge `...result` (whose `groups` aggregate is computed over the UNFILTERED task set and leaked counts of notes outside the whitelist); `makemd_query` likewise drops its unfiltered `...result` siblings; both return only the ACL-filtered `items`. `list_templates` (template paths + parsed user-function bodies, plugin-defined and not reliably path-attributable) now refuses wholesale under a read whitelist, matching the `search_dql` fail-closed contract. No change when no read whitelist is configured.
+
 ## [1.2.1] - 2026-06-26
 
 Post-1.0.2 work, now versioned. Two strands landed on `main` after 1.0.2: a
