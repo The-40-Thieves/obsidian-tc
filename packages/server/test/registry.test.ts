@@ -33,7 +33,15 @@ function reg() {
     maxResponseBytes: 256,
     verifyElicit: (token, hash) => token === `good:${hash}`,
   });
-  r.register(createHealthTool({ version: "0.0.0-test", vaults: ["main"], startedAt: Date.now() }));
+  r.register(
+    createHealthTool({
+      version: "0.0.0-test",
+      vaults: ["main"],
+      startedAt: Date.now(),
+      nativeLoaded: false,
+      vecEnabled: false,
+    }),
+  );
   r.register({
     name: "read_thing",
     description: "scoped read",
