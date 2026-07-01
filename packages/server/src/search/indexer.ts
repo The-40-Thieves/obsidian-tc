@@ -93,27 +93,47 @@ export async function indexNote(
     .all(vaultId, path) as ExistingRow[];
   const existingHash = new Map(existing.map((e) => [e.id, e.content_hash]));
 
-  let deleted = 0;
-  for (const e of existing) {
-    if (desiredIds.has(e.id)) continue;
-    db.prepare("DELETE FROM chunk_embeddings WHERE chunk_id = ?").run(e.id);
-    db.prepare("DELETE FROM chunks WHERE id = ?").run(e.id);
-    if (hasVec) db.prepare("DELETE FROM vec_chunks WHERE chunk_id = ?").run(e.id);
-    deleted += 1;
-  }
-
   const toEmbed = desired.filter((d) => existingHash.get(d.id) !== d.contentHash);
   const unchanged = desired.length - toEmbed.length;
+  const willPrune = existing.some((e) => !desiredIds.has(e.id));
+  // Nothing to write (note unchanged on re-index) — the common warm-reindex path, so it must not
+  // pay for an empty BEGIN/COMMIT.
+  if (toEmbed.length === 0 && !willPrune) {
+    return { upserted: 0, deleted: 0, unchanged, secretsSkipped };
+  }
 
-  if (toEmbed.length > 0) {
-    const vectors = await provider.embed(toEmbed.map((d) => d.content));
-    const ts = now();
-    const upChunk = db.prepare(
-      "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET chunk_index = excluded.chunk_index, headings = excluded.headings, content = excluded.content, content_hash = excluded.content_hash, token_count = excluded.token_count, updated_at = excluded.updated_at",
-    );
-    const upEmb = db.prepare(
-      "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
-    );
+  // The embedding call is network I/O, so it runs BEFORE the transaction — a slow provider must
+  // never hold the write lock. The prune + upserts then commit as ONE transaction: every
+  // statement otherwise autocommits (one fsync each) under better-sqlite3/bun:sqlite, so a
+  // many-chunk note paid dozens of commits; now it pays one, and a mid-write crash can no longer
+  // leave chunks / chunk_embeddings / vec_chunks partially diverged. (Batching the whole
+  // indexVault boot walk into a single transaction is a deliberate follow-up: it would hold the
+  // lock across each note's embed() network call, which this keeps outside.)
+  const vectors = toEmbed.length > 0 ? await provider.embed(toEmbed.map((d) => d.content)) : [];
+  const ts = now();
+
+  // Prepare the prune DELETEs once (not three per pruned chunk). The vec0 DELETE is prepared only
+  // when the extension loaded — the table may not exist otherwise.
+  const delEmb = db.prepare("DELETE FROM chunk_embeddings WHERE chunk_id = ?");
+  const delChunk = db.prepare("DELETE FROM chunks WHERE id = ?");
+  const delVec = hasVec ? db.prepare("DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
+  const upChunk = db.prepare(
+    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET chunk_index = excluded.chunk_index, headings = excluded.headings, content = excluded.content, content_hash = excluded.content_hash, token_count = excluded.token_count, updated_at = excluded.updated_at",
+  );
+  const upEmb = db.prepare(
+    "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
+  );
+
+  let deleted = 0;
+  db.exec("BEGIN");
+  try {
+    for (const e of existing) {
+      if (desiredIds.has(e.id)) continue;
+      delEmb.run(e.id);
+      delChunk.run(e.id);
+      if (delVec) delVec.run(e.id);
+      deleted += 1;
+    }
     toEmbed.forEach((d, i) => {
       const vec = vectors[i] ?? [];
       upChunk.run(
@@ -131,16 +151,22 @@ export async function indexNote(
       upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), ts);
       if (hasVec) upsertVec(db, d.id, vec);
     });
-    if (onIndexed) {
-      onIndexed(
-        toEmbed.map((d, i) => ({
-          id: d.id,
-          path,
-          content: d.content,
-          embedding: vectors[i] ?? [],
-        })),
-      );
-    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+
+  // Fire AFTER commit so consumers only ever observe committed chunks.
+  if (onIndexed && toEmbed.length > 0) {
+    onIndexed(
+      toEmbed.map((d, i) => ({
+        id: d.id,
+        path,
+        content: d.content,
+        embedding: vectors[i] ?? [],
+      })),
+    );
   }
   return { upserted: toEmbed.length, deleted, unchanged, secretsSkipped };
 }
