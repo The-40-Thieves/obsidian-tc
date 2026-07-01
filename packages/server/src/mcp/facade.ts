@@ -84,8 +84,13 @@ function summarize(desc: string): string {
 interface Doc {
   name: string;
   tokens: string[];
+  nameTokens: Set<string>;
   summary: string;
 }
+
+// A tool whose NAME contains a query term is almost always the intended one (read_note for
+// "read a note"), which raw BM25 over name+description under-ranks. Add a flat bonus per name hit.
+const NAME_BONUS = 5;
 
 /**
  * BM25 search over the caller-visible tool catalog (name + description). Reuses the in-process
@@ -100,6 +105,7 @@ export function findCapability(
   const docs: Doc[] = tools.map((t) => ({
     name: t.name,
     tokens: tokenize(`${t.name} ${t.description}`),
+    nameTokens: new Set(tokenize(t.name)),
     summary: summarize(t.description),
   }));
   const docCount = docs.length || 1;
@@ -112,6 +118,7 @@ export function findCapability(
     for (const term of qTerms) {
       const tf = d.tokens.reduce((c, tk) => (tk === term ? c + 1 : c), 0);
       score += bm25Score(tf, d.tokens.length, avgLen, docFreq.get(term) ?? 0, docCount);
+      if (d.nameTokens.has(term)) score += NAME_BONUS;
     }
     return { name: d.name, summary: d.summary, score };
   });
