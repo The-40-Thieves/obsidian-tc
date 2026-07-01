@@ -418,6 +418,7 @@ async function main(): Promise<void> {
     registry,
     context,
     vaultRegistry,
+    facadeMode: config.toolFacade.mode,
   });
 
   if (config.transports.http.enabled) {
@@ -432,6 +433,7 @@ async function main(): Promise<void> {
       acl,
       host: config.transports.http.host,
       port: config.transports.http.port,
+      facadeMode: config.toolFacade.mode,
       enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
       allowedHosts: config.transports.http.allowedHosts,
       allowedOrigins: config.transports.http.allowedOrigins,
