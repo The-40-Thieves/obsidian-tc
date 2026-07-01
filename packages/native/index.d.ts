@@ -18,3 +18,9 @@ export declare function bm25Score(
 
 /** True when the compiled native binary is active; false when on the pure-JS fallback. */
 export declare const nativeLoaded: boolean;
+
+/** Host napi package triple (e.g. `"linux-x64-musl"`), or null on an unmapped platform. */
+export declare function hostTriple(): string | null;
+
+/** True when the host uses musl libc (Alpine); false on glibc or a non-linux platform. */
+export declare function isMusl(): boolean;

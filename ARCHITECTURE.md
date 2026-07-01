@@ -332,11 +332,13 @@ POST   /obsidian-tc/v1/makemd/query                → query make.md space
 
 **ABI:** napi-rs v3 (`napi8`) pinned in `packages/native/package.json` (`engines.node >= 24`). Server consumes via Bun workspace link as `@the-40-thieves/obsidian-tc-native`.
 
-**Prebuild distribution (as shipped):** the umbrella package stays **unscoped at the napi level** (`napi.name = "obsidian-tc-native"`) while `napi prepublish` generates and publishes one scoped platform sub-package per built triple into the umbrella's `optionalDependencies`. The publish matrix builds **six** triples; musl (Alpine) hosts are not yet covered and load the numerically-identical pure-JS fallback:
+**Prebuild distribution (as shipped):** the umbrella package stays **unscoped at the napi level** (`napi.name = "obsidian-tc-native"`) while `napi prepublish` generates and publishes one scoped platform sub-package per built triple into the umbrella's `optionalDependencies`. The publish matrix builds **eight** triples, including the two linux musl triples so Alpine/musl hosts load the native addon instead of the pure-JS fallback (linux musl is cross-compiled via `napi build -x` / cargo-zigbuild):
 
 ```
 @the-40-thieves/obsidian-tc-native-linux-x64-gnu
 @the-40-thieves/obsidian-tc-native-linux-arm64-gnu
+@the-40-thieves/obsidian-tc-native-linux-x64-musl
+@the-40-thieves/obsidian-tc-native-linux-arm64-musl
 @the-40-thieves/obsidian-tc-native-darwin-x64
 @the-40-thieves/obsidian-tc-native-darwin-arm64
 @the-40-thieves/obsidian-tc-native-win32-x64-msvc

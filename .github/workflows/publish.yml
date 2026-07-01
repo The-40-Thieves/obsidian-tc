@@ -10,9 +10,10 @@ permissions:
   attestations: write
 
 # M7 (THE-183) shipped a 4-platform native matrix with linux-arm64 deferred (G3 amendment,
-# THE-141); it is now a 6-platform matrix — linux/darwin/win, each x64 + arm64. linux-arm64
-# cross-compiles on the x64 ubuntu runner (gcc-aarch64-linux-gnu step below); win-arm64
-# cross-compiles on the x64 windows runner via the bundled MSVC ARM64 tools. No cosign/SBOM
+# THE-141); it is now an 8-platform matrix — linux/darwin/win each x64 + arm64, plus linux x64 +
+# arm64 musl. linux-arm64-gnu cross-compiles on the x64 ubuntu runner (gcc-aarch64-linux-gnu step
+# below); win-arm64 via the bundled MSVC ARM64 tools; the two musl targets via `napi build -x`
+# (cargo-zigbuild + setup-zig, gated to the musl rows). No cosign/SBOM
 # (deferred to v1.1); text bun.lock. Fires only on a
 # human-pushed v* tag — it is config-verified here, not executed. R5/THE-214: the sub-packages
 # now publish under the owned @the-40-thieves scope (obsidian-tc-shared / obsidian-tc-native);
@@ -43,6 +44,12 @@ jobs:
           - host: windows-latest
             target: aarch64-pc-windows-msvc
             triple: win32-arm64-msvc
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            triple: linux-x64-musl
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            triple: linux-arm64-musl
     runs-on: ${{ matrix.host }}
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +59,13 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - run: bun install --frozen-lockfile
+      # musl targets cross-compile via napi's `-x` (cargo-zigbuild); zig is the linker. Gated to
+      # the two musl rows only — the gnu / darwin / win rows are untouched.
+      - name: install zig for musl cross-compile
+        if: endsWith(matrix.target, '-musl')
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
       # linux-arm64 is cross-compiled on the x64 ubuntu runner, which has no aarch64 linker
       # by default. Install the GNU cross toolchain and point cargo's linker (and the cc
       # crate, for when the commented-out sqlite-vec/ndarray deps land) at it. The other five
@@ -70,7 +84,7 @@ jobs:
         shell: bash
       - name: build native (.node)
         working-directory: packages/native
-        run: bun run build -- --target ${{ matrix.target }}
+        run: bun run build -- --target ${{ matrix.target }} ${{ endsWith(matrix.target, '-musl') && '-x' || '' }}
         shell: bash
       - uses: actions/upload-artifact@v4
         with:
