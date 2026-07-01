@@ -14,6 +14,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **Relicensed from Apache-2.0 to AGPL-3.0-only (THE-260).** Reciprocity on network re-hosting: anyone may run, modify, and self-host, but offering a modified obsidian-tc to others over a network requires releasing the source under the same terms. Prior tags (through v1.2.1) remain available under Apache-2.0; AGPL applies from this commit forward. Every license declaration updated (the four LICENSE files, all `package.json`, `Cargo.toml`, `manifest.json`, the README badge, and the image OCI labels).
 
+### Security
+
+- **HTTP tokens are now bound to a single vault (THE-267).** A bearer token may carry a `vault` claim; the HTTP edge binds the caller to that vault (or the server's default vault when the claim is absent), and `registry.dispatch` rejects any tool call whose `vault` argument names a different vault with `forbidden` — the same invariant `resources/read` already enforced. Previously any valid token could read, write, or delete every configured vault by passing its id, because the JWT carried no vault claim and the folder ACL is a single global instance. The trusted stdio transport is unaffected and retains full multi-vault access. Multi-vault HTTP deployments must now mint one token per vault (add a `vault` claim); a claimless token is confined to the server's default vault.
+
 ## [1.2.1] - 2026-06-26
 
 Post-1.0.2 work, now versioned. Two strands landed on `main` after 1.0.2: a

@@ -26,6 +26,10 @@ export interface CallerContext {
   authenticated: boolean;
   grantedScopes: Set<string>;
   vaultId: string;
+  /** When true, the caller is bound to `vaultId` (HTTP tokens): a tool call whose `vault`
+   *  argument names a different vault is rejected (THE-267), mirroring the resources/read guard.
+   *  The trusted stdio context leaves this unset so the local operator addresses every vault. */
+  vaultBound?: boolean;
   db: Database;
   elicitToken?: string | null;
   acl?: FolderAcl;
@@ -415,6 +419,20 @@ export class ToolRegistry {
         throw new ObsidianTcError("forbidden", "missing required scope(s)", {
           required: def.requiredScopes,
         });
+
+      // Vault-binding guard (THE-267). A vault-bound caller (an HTTP token) may act only on its
+      // own vault: the ~90 vault tools resolve a caller-supplied `vault` arg against ANY configured
+      // vault under the single global ACL, so without this a token reaches every vault. resources/read
+      // already enforces the same invariant. Fires only when a `vault` arg is present, so the execute
+      // family (no vault arg) and vault-omitting calls are unaffected; trusted stdio is unbound.
+      if (ctx.vaultBound === true) {
+        const requested = (parsed.data as { vault?: unknown } | null)?.vault;
+        if (typeof requested === "string" && requested !== ctx.vaultId)
+          throw new ObsidianTcError("forbidden", "vault is not the caller's bound vault", {
+            vault: requested,
+            bound_vault: ctx.vaultId,
+          });
+      }
 
       const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
       if (mutating && ctx.acl?.readOnly)
