@@ -60,3 +60,6 @@ coverage/
 # Agent tooling (local only — never committed)
 .omc/
 .claude/
+
+# Internal THE-233 migration-planning doc — kept local/private, never published.
+MERGE-PROGRESS.md

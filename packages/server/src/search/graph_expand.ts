@@ -6,7 +6,7 @@ import type { Database } from "../db/types";
  * substrate. Reimplements the *production-default* behavior: an undirected `links_to`
  * walk over vault_edges, bounded by hopLimit, cycle-guarded, shallowest-hop-wins.
  *
- * Scope note (recorded in MERGE-PROGRESS.md): the 013 frontier-leaf *virtual-hop*
+ * Scope note (THE-233 integration follow-up): the 013 frontier-leaf *virtual-hop*
  * experiment (THE-135: pull edgeless leaves toward the query/leaf embedding) is NOT
  * ported. It sat at an 80% bridge-recall ceiling through the whole v1.1 ladder, rarely
  * fires once edges are stored forward+reverse (every reached node then has an incident
