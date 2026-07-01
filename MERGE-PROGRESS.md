@@ -65,7 +65,7 @@ THE-233 is **behavior-preserving consolidation onto the existing `db/` seam**, N
 ### Deferred-to-engine-build (NOT this merge)
 - The `StorageBackend` trait + optional Postgres backend (2026-06-26 amendment) — we use the existing sync `db/` seam only.
 - In-process fastembed-rs / bge-reranker as the *spine* — we reuse obsidian-tc's existing `EmbeddingProvider` abstraction; rerank handled per §10-D1.
-- AGPL relicense (THE-260) — obsidian-tc is currently Apache-2.0; **do not relicense** as part of THE-233. Preserve existing license headers on ported files; flag if a ported file carries an incompatible header.
+- AGPL relicense (THE-260) — **DONE 2026-06-30 (PR #56): obsidian-tc is now AGPL-3.0-only.** Out of scope for THE-233 itself; when porting files keep them AGPL-compatible (MIT/Apache/BSD/ISC source is fine, Apache-2.0's patent grant is AGPLv3-compatible) and flag any GPL-incompatible header.
 
 ---
 
@@ -259,7 +259,7 @@ Parity check: row counts per table + spot-check N embeddings (dim + norm) + reca
 | E3 | **open (deferred)** | W-MIGRATE needs the legacy **Supabase project ref + read-only service key** to export state. Escalate to human when W-MIGRATE starts. (Judgment/keys = "out of Claude Code" per vault note §12.) |
 | E4 | **open (deferred)** | W-GATEWAY-CLIENT integration test needs the **LiteLLM endpoint + role routing config** (judgment/keys, §12). The code seam is buildable now with config injection; live wiring escalates at integration. |
 | E5 | resolved | Brief's `## Execution DAG` + escalation points arrived empty; orchestrator authored §3 from roster + ticket graph. **Confirmed by user 2026-06-26** ("proceed as scoped"). |
-| E6 | open (info) | AGPL relicense (THE-260) is in flight but **out of scope** for THE-233; preserve Apache-2.0 headers. Flag if a ported KMS file carries an incompatible license. |
+| E6 | resolved (info) | AGPL relicense (THE-260) **DONE 2026-06-30, PR #56 — repo is AGPL-3.0-only.** Out of scope for THE-233; ported KMS files must be AGPL-compatible. Flag any GPL-incompatible license. |
 | E7 | resolved | **KMS port branch.** Port from `fix/npm-audit-2026-06-12` @ 463c650 (per user 2026-06-26). Diff-guard: `git diff main fix/npm-audit-2026-06-12 -- src/lib src/oauth src/reranker.ts src/ingest eval` is **empty** → `main == branch` for all ported logic (npm-audit touched only package.json/lockfile). KMS not merged to its own main (being retired); read-only throughout. |
 
 ---
