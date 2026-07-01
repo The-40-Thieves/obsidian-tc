@@ -60,16 +60,39 @@ interface ExistingRow {
   content_hash: string;
 }
 
-export async function indexNote(
+// A note's chunk after secret-gating, carrying its stable chunk id.
+type PlannedChunk = ReturnType<typeof chunkNote>[number] & { id: string };
+
+// A note's pending writes, computed (including the embed() network call) WITHOUT touching the
+// database or opening a transaction, so many plans can be applied inside one transaction.
+interface NoteWritePlan {
+  path: string;
+  existing: ExistingRow[];
+  desiredIds: Set<string>;
+  toEmbed: PlannedChunk[];
+  vectors: number[][];
+  ts: number;
+}
+
+interface PlanResult {
+  plan: NoteWritePlan | null;
+  unchanged: number;
+  secretsSkipped: number;
+}
+
+// Compute a note's write plan and run its embedding network call — NO database writes, NO
+// transaction. Returns { plan: null } when the note is unchanged (nothing to prune or embed), so
+// the caller opens no transaction for a warm re-index. Keeping embed() here, outside any
+// transaction, is what lets indexVault batch many notes' writes into ONE transaction without ever
+// holding the write lock across a network call.
+async function planNoteWrites(
   db: Database,
   provider: EmbeddingProvider,
   vaultId: string,
   path: string,
   raw: string,
-  hasVec: boolean,
-  now: () => number,
-  onIndexed?: IndexHook,
-): Promise<{ upserted: number; deleted: number; unchanged: number; secretsSkipped: number }> {
+  ts: number,
+): Promise<PlanResult> {
   const body = parseNote(raw).body;
   // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
   // before embedding — never embedded, never stored, pruned if it existed. Class names only
@@ -87,31 +110,30 @@ export async function indexNote(
       return false;
     });
   const desiredIds = new Set(desired.map((d) => d.id));
-
   const existing = db
     .prepare("SELECT id, content_hash FROM chunks WHERE vault_id = ? AND path = ?")
     .all(vaultId, path) as ExistingRow[];
   const existingHash = new Map(existing.map((e) => [e.id, e.content_hash]));
-
   const toEmbed = desired.filter((d) => existingHash.get(d.id) !== d.contentHash);
   const unchanged = desired.length - toEmbed.length;
   const willPrune = existing.some((e) => !desiredIds.has(e.id));
-  // Nothing to write (note unchanged on re-index) — the common warm-reindex path, so it must not
-  // pay for an empty BEGIN/COMMIT.
   if (toEmbed.length === 0 && !willPrune) {
-    return { upserted: 0, deleted: 0, unchanged, secretsSkipped };
+    return { plan: null, unchanged, secretsSkipped };
   }
-
-  // The embedding call is network I/O, so it runs BEFORE the transaction — a slow provider must
-  // never hold the write lock. The prune + upserts then commit as ONE transaction: every
-  // statement otherwise autocommits (one fsync each) under better-sqlite3/bun:sqlite, so a
-  // many-chunk note paid dozens of commits; now it pays one, and a mid-write crash can no longer
-  // leave chunks / chunk_embeddings / vec_chunks partially diverged. (Batching the whole
-  // indexVault boot walk into a single transaction is a deliberate follow-up: it would hold the
-  // lock across each note's embed() network call, which this keeps outside.)
+  // Network I/O — deliberately outside any transaction.
   const vectors = toEmbed.length > 0 ? await provider.embed(toEmbed.map((d) => d.content)) : [];
-  const ts = now();
+  return { plan: { path, existing, desiredIds, toEmbed, vectors, ts }, unchanged, secretsSkipped };
+}
 
+// Apply a note's write plan (prune + upserts). Contains NO transaction control — the CALLER owns
+// BEGIN/COMMIT/ROLLBACK, so one transaction can batch many notes' applies.
+function applyNoteWrites(
+  db: Database,
+  provider: EmbeddingProvider,
+  vaultId: string,
+  plan: NoteWritePlan,
+  hasVec: boolean,
+): { upserted: number; deleted: number } {
   // Prepare the prune DELETEs once (not three per pruned chunk). The vec0 DELETE is prepared only
   // when the extension loaded — the table may not exist otherwise.
   const delEmb = db.prepare("DELETE FROM chunk_embeddings WHERE chunk_id = ?");
@@ -123,52 +145,82 @@ export async function indexNote(
   const upEmb = db.prepare(
     "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
   );
-
   let deleted = 0;
+  for (const e of plan.existing) {
+    if (plan.desiredIds.has(e.id)) continue;
+    delEmb.run(e.id);
+    delChunk.run(e.id);
+    if (delVec) delVec.run(e.id);
+    deleted += 1;
+  }
+  plan.toEmbed.forEach((d, i) => {
+    const vec = plan.vectors[i] ?? [];
+    upChunk.run(
+      d.id,
+      vaultId,
+      plan.path,
+      d.index,
+      JSON.stringify(d.headings),
+      d.content,
+      d.contentHash,
+      d.tokenCount,
+      plan.ts,
+      plan.ts,
+    );
+    upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
+    if (hasVec) upsertVec(db, d.id, vec);
+  });
+  return { upserted: plan.toEmbed.length, deleted };
+}
+
+// Notify the index hook of a committed plan's (re)embedded chunks. Call only AFTER the plan's
+// transaction has committed, so a consumer never observes an uncommitted (possibly rolled-back)
+// chunk.
+function fireIndexHook(onIndexed: IndexHook | undefined, plan: NoteWritePlan): void {
+  if (onIndexed && plan.toEmbed.length > 0) {
+    onIndexed(
+      plan.toEmbed.map((d, i) => ({
+        id: d.id,
+        path: plan.path,
+        content: d.content,
+        embedding: plan.vectors[i] ?? [],
+      })),
+    );
+  }
+}
+
+// Index a single note atomically: plan (incl. embed, outside the txn), then prune + upsert in one
+// transaction. Used by the index-on-write / deindex paths; indexVault batches instead.
+export async function indexNote(
+  db: Database,
+  provider: EmbeddingProvider,
+  vaultId: string,
+  path: string,
+  raw: string,
+  hasVec: boolean,
+  now: () => number,
+  onIndexed?: IndexHook,
+): Promise<{ upserted: number; deleted: number; unchanged: number; secretsSkipped: number }> {
+  const { plan, unchanged, secretsSkipped } = await planNoteWrites(
+    db,
+    provider,
+    vaultId,
+    path,
+    raw,
+    now(),
+  );
+  if (!plan) return { upserted: 0, deleted: 0, unchanged, secretsSkipped };
+  let result: { upserted: number; deleted: number };
   db.exec("BEGIN");
   try {
-    for (const e of existing) {
-      if (desiredIds.has(e.id)) continue;
-      delEmb.run(e.id);
-      delChunk.run(e.id);
-      if (delVec) delVec.run(e.id);
-      deleted += 1;
-    }
-    toEmbed.forEach((d, i) => {
-      const vec = vectors[i] ?? [];
-      upChunk.run(
-        d.id,
-        vaultId,
-        path,
-        d.index,
-        JSON.stringify(d.headings),
-        d.content,
-        d.contentHash,
-        d.tokenCount,
-        ts,
-        ts,
-      );
-      upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), ts);
-      if (hasVec) upsertVec(db, d.id, vec);
-    });
+    result = applyNoteWrites(db, provider, vaultId, plan, hasVec);
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");
     throw err;
   }
-
-  // Fire AFTER commit so consumers only ever observe committed chunks.
-  if (onIndexed && toEmbed.length > 0) {
-    onIndexed(
-      toEmbed.map((d, i) => ({
-        id: d.id,
-        path,
-        content: d.content,
-        embedding: vectors[i] ?? [],
-      })),
-    );
-  }
-  return { upserted: toEmbed.length, deleted, unchanged, secretsSkipped };
+  fireIndexHook(onIndexed, plan);
+  return { ...result, unchanged, secretsSkipped };
 }
 
 export interface IndexVaultArgs {
@@ -204,25 +256,53 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // Collect each note's links during the index walk so vault_edges is reconciled in one
   // full-state pass — the undirected links_to graph W-RETRIEVAL walks (THE-233 W-INGEST).
   const noteLinks = new Map<string, ExtractedLink[]>();
+  // Two-phase batching: PLAN each note (including its embed() network call) with no transaction,
+  // then APPLY a batch of plans in ONE transaction. The write lock is never held across a note's
+  // embed, and a K-note reconcile pays ~ceil(N/BATCH) fsyncs instead of N. A batch is the atomic
+  // unit — a mid-batch failure rolls the whole batch back; that only costs re-work (the reconcile
+  // is idempotent, the content-hash skip re-converges next pass), never correctness. Safe because
+  // indexVault is the sole writer on this single connection during the reconcile, so a plan's
+  // pre-read `existing` snapshot cannot be raced before its apply.
+  const BATCH = 100;
+  let batch: NoteWritePlan[] = [];
+  const flush = (): void => {
+    if (batch.length === 0) return;
+    const applied = batch;
+    batch = [];
+    args.db.exec("BEGIN");
+    try {
+      for (const plan of applied) {
+        const r = applyNoteWrites(args.db, args.provider, args.vaultId, plan, hasVec);
+        stats.chunks_upserted += r.upserted;
+        stats.chunks_deleted += r.deleted;
+        if (r.upserted > 0 || r.deleted > 0) stats.notes_indexed += 1;
+      }
+      args.db.exec("COMMIT");
+    } catch (err) {
+      args.db.exec("ROLLBACK");
+      throw err;
+    }
+    for (const plan of applied) fireIndexHook(args.onIndexed, plan);
+  };
   for (const rel of notes) {
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
     noteLinks.set(rel, extractLinks(parseNote(raw).body));
-    const r = await indexNote(
+    const { plan, unchanged, secretsSkipped } = await planNoteWrites(
       args.db,
       args.provider,
       args.vaultId,
       rel,
       raw,
-      hasVec,
-      now,
-      args.onIndexed,
+      now(),
     );
-    stats.chunks_upserted += r.upserted;
-    stats.chunks_deleted += r.deleted;
-    stats.chunks_unchanged += r.unchanged;
-    stats.secrets_skipped += r.secretsSkipped;
-    if (r.upserted > 0 || r.deleted > 0) stats.notes_indexed += 1;
+    stats.chunks_unchanged += unchanged;
+    stats.secrets_skipped += secretsSkipped;
+    if (plan) {
+      batch.push(plan);
+      if (batch.length >= BATCH) flush();
+    }
   }
+  flush();
   // Edge maintenance is full-state (resolving targets needs the whole note universe), so it
   // runs once per indexVault pass, not per-note-write. Skipped gracefully when vault_edges is
   // absent (pre-integration, before W-SCHEMA lands).
