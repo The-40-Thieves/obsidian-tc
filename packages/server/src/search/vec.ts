@@ -22,15 +22,23 @@ export function blobToFloats(blob: Uint8Array): number[] {
   return Array.from(floats);
 }
 
+// Connections that already loaded the sqlite-vec extension. semanticSearch calls loadVec on
+// every query, so memoizing the idempotent require + loadExtension + vec_version() probe per
+// connection makes it O(1) after the first success. Failures are NOT cached (a transient failure
+// stays retryable); node:sqlite (no loadExtension) is rejected before the cache check.
+const vecLoaded = new WeakSet<Database>();
+
 // Load the sqlite-vec extension on this connection. Returns false (never throws)
 // when the runtime can't load extensions (node:sqlite) or the platform binary is
 // unavailable, so callers degrade to the brute-force cosine scan.
 export function loadVec(db: Database): boolean {
   if (typeof db.loadExtension !== "function") return false;
+  if (vecLoaded.has(db)) return true;
   try {
     const sqliteVec = requireFromHere("sqlite-vec") as { getLoadablePath(): string };
     db.loadExtension(sqliteVec.getLoadablePath());
     db.prepare("SELECT vec_version()").get();
+    vecLoaded.add(db);
     return true;
   } catch {
     return false;
