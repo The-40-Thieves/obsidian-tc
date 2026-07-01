@@ -14,6 +14,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **Relicensed from Apache-2.0 to AGPL-3.0-only (THE-260).** Reciprocity on network re-hosting: anyone may run, modify, and self-host, but offering a modified obsidian-tc to others over a network requires releasing the source under the same terms. Prior tags (through v1.2.1) remain available under Apache-2.0; AGPL applies from this commit forward. Every license declaration updated (the four LICENSE files, all `package.json`, `Cargo.toml`, `manifest.json`, the README badge, and the image OCI labels).
 
+### Security
+
+- **DNS-rebinding / cross-origin protection on the HTTP transport (THE-271).** The Streamable-HTTP edge now rejects (403) a request whose `Host` is neither loopback nor operator-allowed, or whose `Origin` (browsers always send one; server-to-server MCP clients do not) is not the request's same origin or operator-allowed. Previously a malicious web page could POST to `http://127.0.0.1:<port>/mcp` and, under the `auth.mode:'none'` loopback default, receive full wildcard scopes. Configurable via `transports.http.enableDnsRebindingProtection` (default true), `allowedHosts`, and `allowedOrigins`.
+
 ## [1.2.1] - 2026-06-26
 
 Post-1.0.2 work, now versioned. Two strands landed on `main` after 1.0.2: a

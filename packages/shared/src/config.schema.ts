@@ -109,6 +109,12 @@ export const HttpConfigSchema = z.object({
   enabled: z.boolean().default(false),
   host: z.string().default("127.0.0.1"),
   port: z.number().int().min(1).max(65535).default(8765),
+  // DNS-rebinding / cross-origin protection (THE-271). On by default: reject a request whose Host is
+  // neither loopback nor operator-allowed, or whose Origin (browsers always send one) is not the same
+  // origin or operator-allowed. Server-to-server clients send no Origin and are unaffected.
+  enableDnsRebindingProtection: z.boolean().default(true),
+  allowedHosts: z.array(z.string()).default([]),
+  allowedOrigins: z.array(z.string()).default([]),
 });
 
 export const TransportsConfigSchema = z.object({

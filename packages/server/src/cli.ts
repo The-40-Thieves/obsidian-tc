@@ -432,6 +432,9 @@ async function main(): Promise<void> {
       acl,
       host: config.transports.http.host,
       port: config.transports.http.port,
+      enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
+      allowedHosts: config.transports.http.allowedHosts,
+      allowedOrigins: config.transports.http.allowedOrigins,
     });
     process.stderr.write(
       `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,

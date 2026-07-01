@@ -112,4 +112,23 @@ describe("mcp streamable http transport", () => {
     ).rejects.toThrow();
     await handle.close();
   });
+
+  it("rejects a cross-origin browser request; allows same-origin server-to-server (THE-271)", async () => {
+    const { handle, url } = await boot(authOf({ mode: "none" }));
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
+    const accept = "application/json, text/event-stream";
+    const evil = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept, origin: "http://evil.example" },
+      body,
+    });
+    expect(evil.status).toBe(403);
+    const ok = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept },
+      body,
+    });
+    expect(ok.status).toBe(200);
+    await handle.close();
+  });
 });
