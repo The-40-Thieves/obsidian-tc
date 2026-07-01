@@ -35,6 +35,8 @@ function reg(): ToolRegistry {
   const r = new ToolRegistry();
   r.register(tool("create_note", "Create a new note in the vault at the given path."));
   r.register(tool("search_vault", "Search the vault for notes matching a query."));
+  r.register(tool("read_note", "Read a note from the vault by path."));
+  r.register(tool("reload_vault", "Reload and reindex the vault cache."));
   return r;
 }
 
@@ -97,6 +99,17 @@ describe("tool-surface facade (THE-219)", () => {
     const data = textOf(res) as { name: string; input_schema: unknown };
     expect(data.name).toBe("search_vault");
     expect(data.input_schema).toBeTruthy();
+    await client.close();
+    await server.close();
+  });
+  it("ranks a name-matching tool first (THE-219 find ranking)", async () => {
+    const { client, server } = await connect(reg(), "triad");
+    const res = await client.callTool({
+      name: "find_capability",
+      arguments: { query: "read a note from the vault" },
+    });
+    const data = textOf(res) as { matches: { name: string }[] };
+    expect(data.matches[0]?.name).toBe("read_note");
     await client.close();
     await server.close();
   });
