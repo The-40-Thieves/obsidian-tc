@@ -162,7 +162,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "write", rel);
+        enforcePathAcl(ctx.acl, "write", rel, v.root);
         const abs = resolveVaultPath(v.root, rel);
         let raw: string;
         try {

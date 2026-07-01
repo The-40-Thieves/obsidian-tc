@@ -97,7 +97,7 @@ function loadTemplate(
   templatePath: string,
 ): string | null {
   const rel = normalizeVaultPath(templatePath);
-  enforcePathAcl(acl, "read", rel);
+  enforcePathAcl(acl, "read", rel, root);
   const abs = resolveVaultPath(root, rel);
   const ex = noteExists(abs);
   if (!ex.exists || ex.type === "folder") return null;
@@ -123,7 +123,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const date = parseDateInput(input.date);
         const { path } = resolvePeriodicPath(v.root, input.period, date);
-        enforcePathAcl(ctx.acl, "read", path);
+        enforcePathAcl(ctx.acl, "read", path, v.root);
         const abs = resolveVaultPath(v.root, path);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
@@ -158,7 +158,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const date = parseDateInput(input.date);
         const resolved = resolvePeriodicPath(v.root, input.period, date);
-        enforcePathAcl(ctx.acl, "write", resolved.path);
+        enforcePathAcl(ctx.acl, "write", resolved.path, v.root);
         const abs = resolveVaultPath(v.root, resolved.path);
         if (noteExists(abs).exists)
           throw err.noteExists("periodic note already exists", { path: resolved.path });
@@ -211,7 +211,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const abs = resolveVaultPath(v.root, resolved.path);
         let created = false;
         if (!noteExists(abs).exists) {
-          enforcePathAcl(ctx.acl, "write", resolved.path);
+          enforcePathAcl(ctx.acl, "write", resolved.path, v.root);
           let content = "";
           if (resolved.template) {
             const t = loadTemplate(v.root, ctx.acl, resolved.template);
@@ -220,7 +220,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           writeNoteAtomic(abs, content, true);
           created = true;
         } else {
-          enforcePathAcl(ctx.acl, "read", resolved.path);
+          enforcePathAcl(ctx.acl, "read", resolved.path, v.root);
         }
         const { raw } = readNote(abs);
         const parsed = parseNote(raw);
@@ -254,7 +254,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const date = parseDateInput(input.date);
         const resolved = resolvePeriodicPath(v.root, input.period, date);
-        enforcePathAcl(ctx.acl, "write", resolved.path);
+        enforcePathAcl(ctx.acl, "write", resolved.path, v.root);
         const abs = resolveVaultPath(v.root, resolved.path);
         const ex = noteExists(abs);
         if (ex.exists && ex.type === "folder")

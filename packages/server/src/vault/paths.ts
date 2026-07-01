@@ -4,7 +4,7 @@
 // traversal/containment guard. Nothing else should join paths against the root.
 import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 
 /** Full SHA-256 hex of UTF-8 content. Used for content_hash / CAS (prev_hash). */
@@ -65,7 +65,21 @@ function realpathDeepest(abs: string): string {
  * symlinked ancestor) pointing outside the root is rejected, not just lexical `..`.
  * Throws path_invalid otherwise.
  */
-export function resolveVaultPath(vaultRoot: string, relPath: string): string {
+export interface ResolvedVaultPath {
+  /** Absolute filesystem path (lexical resolve; symlinks NOT collapsed) for fs operations. */
+  abs: string;
+  /** Vault-relative form of the REAL (symlink-resolved) target, forward-slashed, for ACL checks. */
+  aclRel: string;
+}
+
+/**
+ * resolveVaultPath + the ACL-relative path. `aclRel` is the vault-relative form of the REAL
+ * (symlink-resolved) target: the folder ACL must gate THIS, not the lexical request path, or an
+ * in-vault symlink under an allowed folder pointing at a denied folder would pass the ACL
+ * (THE-269). For a non-symlink path aclRel equals the lexical rel, so callers that thread the
+ * root into enforcePathAcl see no behavior change except on symlinked paths.
+ */
+export function resolveVaultPathChecked(vaultRoot: string, relPath: string): ResolvedVaultPath {
   const clean = normalizeVaultPath(relPath);
   const root = resolve(vaultRoot);
   const abs = clean === "" ? root : resolve(root, clean);
@@ -83,7 +97,11 @@ export function resolveVaultPath(vaultRoot: string, relPath: string): string {
   const realRel = relative(realRoot, realpathDeepest(abs));
   if (realRel.startsWith("..") || isAbsolute(realRel))
     throw err.pathInvalid("path escapes the vault root", { path: relPath });
-  return abs;
+  return { abs, aclRel: realRel.split(sep).join("/") };
+}
+
+export function resolveVaultPath(vaultRoot: string, relPath: string): string {
+  return resolveVaultPathChecked(vaultRoot, relPath).abs;
 }
 
 function statSafe(abs: string): { size: number; mtimeMs: number; ctimeMs: number } | null {
