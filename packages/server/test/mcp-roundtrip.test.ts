@@ -57,6 +57,8 @@ describe("mcp transport round-trip", () => {
 
     const listed = await client.listTools();
     expect(listed.tools.map((t) => t.name)).toContain("server_health");
+    // The tool surface fits one page, so a non-paginating client gets everything (no cursor).
+    expect(listed.nextCursor).toBeUndefined();
 
     const res = await client.callTool({ name: "server_health", arguments: {} });
     expect(res.isError).toBeFalsy();

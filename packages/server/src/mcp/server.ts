@@ -9,6 +9,7 @@ import {
   ListResourcesRequestSchema,
   type ListResourcesResult,
   ListToolsRequestSchema,
+  type ListToolsResult,
   ReadResourceRequestSchema,
   type ReadResourceResult,
   type Tool,
@@ -18,6 +19,12 @@ import type { VaultRegistry } from "../vault/registry";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolRegistry } from "./registry";
 import { listResources, readResource } from "./resources";
+
+// tools/list returns at most this many tools per page; the client follows nextCursor for the
+// rest. Set well above the current tool surface (~103) so the whole surface fits one page — a
+// client that ignores nextCursor still receives every tool. The cursor exists for MCP pagination
+// parity (matching resources/list) and does not truncate a real deployment.
+const TOOLS_PAGE_SIZE = 1000;
 
 export interface McpServerOptions {
   name: string;
@@ -35,6 +42,11 @@ export interface McpServerOptions {
    * from the verified JWT. The db handle and vaultId are bound here as well.
    */
   context: () => CallerContext;
+  /**
+   * tools/list page size. Defaults to TOOLS_PAGE_SIZE (well above the tool surface, so the whole
+   * surface fits one page); overridable only so tests can exercise the cursor-paging path.
+   */
+  toolsPageSize?: number;
 }
 
 function asStructured(data: unknown): Record<string, unknown> | undefined {
@@ -61,23 +73,30 @@ export function createMcpServer(opts: McpServerOptions): Server {
     },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, () => {
+  server.setRequestHandler(ListToolsRequestSchema, (req): ListToolsResult => {
     // Per-caller filtering (THE-250): the caller's resolved scopes + ACL read-only shape the
     // advertised surface, so a caller never sees a tool it could not dispatch. A full grant
-    // (stdio / auth-none) leaves the surface unchanged.
+    // (stdio / auth-none) leaves the surface unchanged. Filter first, THEN page: the cursor is an
+    // opaque offset into this caller's visible list (mirrors resources/list).
     const ctx = opts.context();
-    const tools: Tool[] = opts.registry
-      .listVisible({ grantedScopes: ctx.grantedScopes, readOnly: ctx.acl?.readOnly })
-      .map((def) => ({
-        name: def.name,
-        description: def.description,
-        inputSchema: z.toJSONSchema(def.inputSchema, {
-          target: "draft-7",
-          reused: "inline",
-          unrepresentable: "any",
-        }) as unknown as Tool["inputSchema"],
-      }));
-    return { tools };
+    const visible = opts.registry.listVisible({
+      grantedScopes: ctx.grantedScopes,
+      readOnly: ctx.acl?.readOnly,
+    });
+    const pageSize = opts.toolsPageSize ?? TOOLS_PAGE_SIZE;
+    const start = req.params?.cursor ? Math.max(0, Number.parseInt(req.params.cursor, 10) || 0) : 0;
+    const page = visible.slice(start, start + pageSize);
+    const tools: Tool[] = page.map((def) => ({
+      name: def.name,
+      description: def.description,
+      inputSchema: z.toJSONSchema(def.inputSchema, {
+        target: "draft-7",
+        reused: "inline",
+        unrepresentable: "any",
+      }) as unknown as Tool["inputSchema"],
+    }));
+    const nextStart = start + page.length;
+    return nextStart < visible.length ? { tools, nextCursor: String(nextStart) } : { tools };
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {
