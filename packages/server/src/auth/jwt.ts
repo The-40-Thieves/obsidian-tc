@@ -5,6 +5,9 @@ export interface JwtIdentity {
   caller: string | null;
   /** Scopes granted by the token, from a `scopes` array or space-delimited `scope`. */
   scopes: Set<string>;
+  /** Optional vault binding (`vault` claim). When present, the HTTP edge binds the caller to
+   *  this vault and dispatch rejects any tool call naming a different vault (THE-267). */
+  vault?: string;
 }
 
 /**
@@ -36,6 +39,7 @@ export async function verifyJwt(
   return {
     caller: typeof payload.sub === "string" ? payload.sub : null,
     scopes: extractScopes(payload),
+    vault: typeof payload.vault === "string" ? payload.vault : undefined,
   };
 }
 
