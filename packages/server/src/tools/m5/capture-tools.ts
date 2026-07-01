@@ -153,7 +153,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
 
         const rel = normalizeVaultPath(input.target_path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel);
+        enforcePathAcl(ctx.acl, "write", rel, v.root);
         if (noteExists(abs).exists) throw err.noteExists("target already exists", { path: rel });
 
         const content = serializeNote(
