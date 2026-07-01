@@ -13,8 +13,68 @@
 // throws when no binary is found). Real prebuild resolution is exercised per-platform
 // at publish/runtime; a source checkout typically runs the JS fallback.
 
-const { existsSync } = require("node:fs");
+const { existsSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
+
+// musl vs glibc detection (ported from napi-rs's generated loader). Alpine and other musl hosts
+// must request the -musl prebuild, not -gnu. process.report is the primary signal because it
+// reflects the libc the *running* process is linked against and is reliable on modern Node (glibc
+// sets header.glibcVersionRuntime; musl does not and lists its loader in sharedObjects). Only when
+// the report yields no decisive signal do we fall back to the /usr/bin/ldd text, then
+// `ldd --version`. Unknown => false (glibc is the safe default; a wrong guess still degrades to the
+// JS fallback).
+const isFileMusl = (f) => f.includes("libc.musl-") || f.includes("ld-musl-");
+
+function isMuslFromFilesystem() {
+  try {
+    return readFileSync("/usr/bin/ldd", "utf-8").includes("musl");
+  } catch {
+    return null;
+  }
+}
+
+function isMuslFromReport() {
+  let report = null;
+  if (typeof process.report?.getReport === "function") {
+    process.report.excludeNetwork = true;
+    report = process.report.getReport();
+  }
+  if (!report) {
+    return null;
+  }
+  if (report.header && report.header.glibcVersionRuntime) {
+    return false;
+  }
+  if (Array.isArray(report.sharedObjects) && report.sharedObjects.some(isFileMusl)) {
+    return true;
+  }
+  // Report present but neither signal decisive -> let the filesystem / child-process probes decide.
+  return null;
+}
+
+function isMuslFromChildProcess() {
+  try {
+    return require("node:child_process")
+      .execSync("ldd --version", { encoding: "utf8" })
+      .includes("musl");
+  } catch {
+    return false;
+  }
+}
+
+function isMusl() {
+  if (process.platform !== "linux") {
+    return false;
+  }
+  let musl = isMuslFromReport();
+  if (musl === null) {
+    musl = isMuslFromFilesystem();
+  }
+  if (musl === null) {
+    musl = isMuslFromChildProcess();
+  }
+  return musl;
+}
 
 function hostTriple() {
   const { platform, arch } = process;
@@ -28,13 +88,13 @@ function hostTriple() {
     return "darwin-arm64";
   }
   if (platform === "linux" && arch === "x64") {
-    return "linux-x64-gnu";
+    return isMusl() ? "linux-x64-musl" : "linux-x64-gnu";
   }
   if (platform === "win32" && arch === "arm64") {
     return "win32-arm64-msvc";
   }
   if (platform === "linux" && arch === "arm64") {
-    return "linux-arm64-gnu";
+    return isMusl() ? "linux-arm64-musl" : "linux-arm64-gnu";
   }
   return null;
 }
@@ -80,3 +140,6 @@ module.exports.nativeLoaded = native !== null;
 module.exports.cosineSimilarity = impl.cosineSimilarity;
 module.exports.tokenize = impl.tokenize;
 module.exports.bm25Score = impl.bm25Score;
+// Exported for the loader unit test (packages/server/test/native-triple.test.ts).
+module.exports.hostTriple = hostTriple;
+module.exports.isMusl = isMusl;
