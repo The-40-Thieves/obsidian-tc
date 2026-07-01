@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../package.json";
-import { FolderAcl, globMatch } from "./acl";
+import { FolderAcl, globMatch, isDefaultDenied } from "./acl";
 import { writeEvent } from "./audit";
 import {
   type BridgeClient,
@@ -453,8 +453,11 @@ async function main(): Promise<void> {
   // Boot-time reconcile (THE-255): re-sync the search index with files changed while the
   // server was down. Incremental (content-hash skip) and best-effort — an embedding-backend
   // or fs hiccup degrades the index, never startup. Backgrounded so it never blocks stdio.
-  const indexReadable = (rel: string): boolean =>
-    acl.readPaths === undefined ? true : acl.readPaths.some((g) => globMatch(g, rel));
+  const indexReadable = (rel: string): boolean => {
+    if (isDefaultDenied(rel)) return false;
+    if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
+    return acl.readPaths.some((g) => globMatch(g, rel));
+  };
   void Promise.allSettled(
     config.vaults.map((v) =>
       indexVault({
