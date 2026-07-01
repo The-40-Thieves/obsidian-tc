@@ -4,10 +4,11 @@
 // hardcoded HITL floor (scopes.ts) — meaning dispatch ALWAYS requires a human
 // elicit token before the handler runs. Template expansion is never silently
 // executable. Uses the longer templater timeout (expansion can be slow).
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
@@ -20,8 +21,15 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         "List available Templater templates with parsed metadata (user functions, parameters), via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),
       requiredScopes: ["read:templater"],
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        // Template paths + parsed user-function bodies are vault content the read ACL governs, but
+        // the plugin-defined result shape is not reliably path-attributable — so under a read
+        // whitelist, refuse wholesale (THE-270), matching search_dql's fail-closed contract.
+        if (!readEnumerationUnrestricted(ctx.acl))
+          throw err.aclDenied("list_templates is unavailable under a read whitelist", {
+            tool: "list_templates",
+          });
         const { client } = openBridge(deps, v.id, "templater");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
