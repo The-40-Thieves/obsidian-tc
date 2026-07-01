@@ -1,4 +1,4 @@
-import type { Database as Db, RunResult } from "./types";
+import type { Database as Db, RunResult, Statement } from "./types";
 
 /**
  * Bun runtime adapter over the built-in bun:sqlite (synchronous, no flag, no
@@ -19,19 +19,42 @@ export async function openBunSqlite(path: string): Promise<Db> {
   // is imported (and this line reached) only when openDatabase detects Bun.
   const { Database: BunDatabase } = await import("bun:sqlite");
   const db = new BunDatabase(path, { create: true });
-  db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA journal_mode = WAL");
+  // Server-tuned per-connection baseline (THE-273): WAL + synchronous=NORMAL is the documented
+  // safe pairing; busy_timeout waits instead of throwing SQLITE_BUSY when the reindex, the boot
+  // reconcile, and a live tool call touch cache.db at once; the larger page cache + mmap keep the
+  // brute-force scan and the recursive graph walk resident.
+  for (const p of [
+    "PRAGMA foreign_keys = ON",
+    "PRAGMA journal_mode = WAL",
+    "PRAGMA synchronous = NORMAL",
+    "PRAGMA busy_timeout = 5000",
+    "PRAGMA cache_size = -32000",
+    "PRAGMA temp_store = MEMORY",
+    "PRAGMA mmap_size = 268435456",
+  ])
+    db.exec(p);
+  const make = (sql: string): Statement => {
+    const st = db.prepare(sql);
+    return {
+      run: (...params: unknown[]): RunResult => st.run(...params) as RunResult,
+      get: (...params: unknown[]): unknown => st.get(...params) ?? undefined,
+      all: (...params: unknown[]): unknown[] => st.all(...params),
+    };
+  };
+  // bun:sqlite's db.prepare is UNCACHED (fresh Statement each call) — memoize the compiled
+  // statement by SQL text so the per-dispatch audit + idempotency statements are parsed once.
+  const cache = new Map<string, Statement>();
   return {
     exec: (sql: string): void => {
       db.exec(sql);
     },
-    prepare: (sql: string) => {
-      const st = db.prepare(sql);
-      return {
-        run: (...params: unknown[]): RunResult => st.run(...params) as RunResult,
-        get: (...params: unknown[]): unknown => st.get(...params) ?? undefined,
-        all: (...params: unknown[]): unknown[] => st.all(...params),
-      };
+    prepare: make,
+    prepareCached: (sql: string): Statement => {
+      const hit = cache.get(sql);
+      if (hit) return hit;
+      const st = make(sql);
+      cache.set(sql, st);
+      return st;
     },
     loadExtension: (extPath: string): void => {
       db.loadExtension(extPath);
