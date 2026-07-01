@@ -131,7 +131,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "read", rel);
+        enforcePathAcl(ctx.acl, "read", rel, v.root);
         const abs = resolveVaultPath(v.root, rel);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
@@ -173,8 +173,8 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           throw err.invalidInput("from and to are identical", { path: fromRel });
         const fromAbs = resolveVaultPath(v.root, fromRel);
         const toAbs = resolveVaultPath(v.root, toRel);
-        enforcePathAcl(ctx.acl, "delete", fromRel);
-        enforcePathAcl(ctx.acl, "write", toRel);
+        enforcePathAcl(ctx.acl, "delete", fromRel, v.root);
+        enforcePathAcl(ctx.acl, "write", toRel, v.root);
 
         const fromEx = noteExists(fromAbs);
         if (!fromEx.exists || fromEx.type === "folder")
@@ -224,7 +224,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "delete", rel);
+        enforcePathAcl(ctx.acl, "delete", rel, v.root);
         const abs = resolveVaultPath(v.root, rel);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")

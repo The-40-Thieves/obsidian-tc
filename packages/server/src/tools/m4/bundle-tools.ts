@@ -128,7 +128,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
         const missing: string[] = [];
         for (const p of input.paths) {
           const rel = normalizeVaultPath(p);
-          enforcePathAcl(ctx.acl, "read", rel);
+          enforcePathAcl(ctx.acl, "read", rel, v.root);
           try {
             entries.push({ rel, content: readNote(resolveVaultPath(v.root, rel)).raw });
           } catch {
