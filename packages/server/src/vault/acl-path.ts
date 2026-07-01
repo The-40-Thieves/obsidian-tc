@@ -6,6 +6,7 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 // back-compat). This is the handler-level layer; the M0 dispatch read-only
 // kill switch (forbidden) fires first for scope-mutating tools.
 import { type FolderAcl, globMatch } from "../acl";
+import { resolveVaultPathChecked } from "./paths";
 
 export type AclOp = "read" | "write" | "delete";
 
@@ -42,7 +43,17 @@ export function evaluatePathAcl(
   return { allowed: true, deniedBy: null, matchedGlob };
 }
 
-export function enforcePathAcl(acl: FolderAcl | undefined, op: AclOp, path: string): void {
+export function enforcePathAcl(
+  acl: FolderAcl | undefined,
+  op: AclOp,
+  rel: string,
+  root?: string,
+): void {
+  // When the vault root is supplied, gate on the REAL (symlink-resolved) vault-relative path
+  // instead of the lexical request path (THE-269): an in-vault symlink under an allowed folder
+  // whose target is a denied folder would otherwise pass the ACL. For a non-symlink path the
+  // canonical form equals the lexical one, so this is a no-op except on symlinked paths.
+  const path = root !== undefined ? resolveVaultPathChecked(root, rel).aclRel : rel;
   const decision = evaluatePathAcl(acl, op, path);
   if (decision.allowed) return;
   if (decision.deniedBy === "read_only")

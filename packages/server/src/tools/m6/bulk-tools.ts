@@ -176,7 +176,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           (item) => {
             const rel = normalizeVaultPath(item.path);
             const abs = resolveVaultPath(v.root, rel);
-            enforcePathAcl(ctx.acl, "write", rel);
+            enforcePathAcl(ctx.acl, "write", rel, v.root);
             const ex = noteExists(abs);
             if (ex.exists && ex.type === "folder")
               throw err.invalidInput("path is a folder", { path: rel });
@@ -215,7 +215,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           (path) => {
             const rel = normalizeVaultPath(path);
             const abs = resolveVaultPath(v.root, rel);
-            enforcePathAcl(ctx.acl, "write", rel);
+            enforcePathAcl(ctx.acl, "write", rel, v.root);
             const ex = noteExists(abs);
             if (!ex.exists || ex.type === "folder")
               throw err.noteNotFound("note not found", { path: rel });
@@ -257,8 +257,8 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const toRel = normalizeVaultPath(m.to);
             if (fromRel === toRel)
               throw err.invalidInput("from and to are identical", { path: fromRel });
-            enforcePathAcl(ctx.acl, "delete", fromRel);
-            enforcePathAcl(ctx.acl, "write", toRel);
+            enforcePathAcl(ctx.acl, "delete", fromRel, v.root);
+            enforcePathAcl(ctx.acl, "write", toRel, v.root);
             const fromEx = noteExists(resolveVaultPath(v.root, fromRel));
             if (!fromEx.exists || fromEx.type === "folder")
               throw err.noteNotFound("source note not found", { path: fromRel });

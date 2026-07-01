@@ -14,6 +14,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **Relicensed from Apache-2.0 to AGPL-3.0-only (THE-260).** Reciprocity on network re-hosting: anyone may run, modify, and self-host, but offering a modified obsidian-tc to others over a network requires releasing the source under the same terms. Prior tags (through v1.2.1) remain available under Apache-2.0; AGPL applies from this commit forward. Every license declaration updated (the four LICENSE files, all `package.json`, `Cargo.toml`, `manifest.json`, the README badge, and the image OCI labels).
 
+### Security
+
+- **Folder ACL checks are canonicalized through symlinks (THE-269).** The folder ACL matched the lexical request path while the filesystem followed in-vault symlinks, so a symlink under an allowed folder pointing at a denied (but in-vault) folder passed the ACL. `resolveVaultPath` now also exposes the real (symlink-resolved) vault-relative path, and every request-path `enforcePathAcl` call threads the vault root so the ACL gates the canonical path. Vault-root escape was already blocked; this closes the intra-vault read/write ACL-scope bypass. No effect on non-symlinked paths.
+
 ## [1.2.1] - 2026-06-26
 
 Post-1.0.2 work, now versioned. Two strands landed on `main` after 1.0.2: a

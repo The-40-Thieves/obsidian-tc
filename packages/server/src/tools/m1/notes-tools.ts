@@ -228,7 +228,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel);
+        enforcePathAcl(ctx.acl, "read", rel, v.root);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { vault: v.id, path: rel });
@@ -261,7 +261,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           try {
             const rel = normalizeVaultPath(p);
             const abs = resolveVaultPath(v.root, rel);
-            enforcePathAcl(ctx.acl, "read", rel);
+            enforcePathAcl(ctx.acl, "read", rel, v.root);
             const ex = noteExists(abs);
             if (!ex.exists || ex.type === "folder")
               throw err.noteNotFound("note not found", { path: rel });
@@ -320,7 +320,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel);
+        enforcePathAcl(ctx.acl, "read", rel, v.root);
         const ex = noteExists(abs);
         return { vault: v.id, path: rel, exists: ex.exists, type: ex.type ?? null };
       },
@@ -336,7 +336,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel);
+        enforcePathAcl(ctx.acl, "write", rel, v.root);
         const ex = noteExists(abs);
         if (ex.exists && ex.type === "folder")
           throw err.invalidInput("path is a folder", { path: rel });
@@ -389,7 +389,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel);
+        enforcePathAcl(ctx.acl, "write", rel, v.root);
         const ex = noteExists(abs);
         if (ex.exists && ex.type === "folder")
           throw err.invalidInput("path is a folder", { path: rel });
@@ -439,7 +439,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel);
+        enforcePathAcl(ctx.acl, "write", rel, v.root);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -490,7 +490,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "delete", rel);
+        enforcePathAcl(ctx.acl, "delete", rel, v.root);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -530,8 +530,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           throw err.invalidInput("from and to are identical", { path: fromRel });
         const fromAbs = resolveVaultPath(v.root, fromRel);
         const toAbs = resolveVaultPath(v.root, toRel);
-        enforcePathAcl(ctx.acl, "delete", fromRel);
-        enforcePathAcl(ctx.acl, "write", toRel);
+        enforcePathAcl(ctx.acl, "delete", fromRel, v.root);
+        enforcePathAcl(ctx.acl, "write", toRel, v.root);
 
         const fromEx = noteExists(fromAbs);
         if (!fromEx.exists || fromEx.type === "folder")
@@ -591,8 +591,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         const toRel = normalizeVaultPath(input.to);
         const fromAbs = resolveVaultPath(v.root, fromRel);
         const toAbs = resolveVaultPath(v.root, toRel);
-        enforcePathAcl(ctx.acl, "read", fromRel);
-        enforcePathAcl(ctx.acl, "write", toRel);
+        enforcePathAcl(ctx.acl, "read", fromRel, v.root);
+        enforcePathAcl(ctx.acl, "write", toRel, v.root);
 
         const fromEx = noteExists(fromAbs);
         if (!fromEx.exists || fromEx.type === "folder")

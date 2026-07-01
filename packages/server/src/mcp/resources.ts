@@ -103,7 +103,7 @@ export function readResource(
     });
   const v = vaultRegistry.resolve(vaultId);
   const rel = normalizeVaultPath(relPath);
-  enforcePathAcl(ctx.acl, "read", rel);
+  enforcePathAcl(ctx.acl, "read", rel, v.root);
   const abs = resolveVaultPath(v.root, rel);
   // Stat before reading: readNote loads the whole file into memory, so enforcing the ceiling
   // only after the read would let any read:notes caller point at a multi-hundred-MB file and

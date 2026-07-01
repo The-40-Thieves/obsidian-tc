@@ -96,7 +96,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel);
+        enforcePathAcl(ctx.acl, "read", rel, v.root);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -148,7 +148,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel);
+        enforcePathAcl(ctx.acl, "read", rel, v.root);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -293,7 +293,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         }
 
         if (!input.dry_run) {
-          for (const e of edits) enforcePathAcl(ctx.acl, "write", e.rel);
+          for (const e of edits) enforcePathAcl(ctx.acl, "write", e.rel, v.root);
           requireConfirmation(ctx, "rewrite_link", input, true, {
             from_target: input.from_target,
             to_target: input.to_target,
@@ -324,7 +324,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel);
+        enforcePathAcl(ctx.acl, "read", rel, v.root);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
