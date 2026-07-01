@@ -238,6 +238,15 @@ export const ToolVisibilityConfigSchema = z.object({
 });
 export type ToolVisibilityConfig = z.infer<typeof ToolVisibilityConfigSchema>;
 
+// Tool-surface facade (THE-219 consolidation). Which surface tools/list advertises: "triad" (the
+// default) exposes three meta-tools (find/describe/call_capability); "flat" advertises the full
+// tool surface (back-compat); "domain" is reserved for the domain-verb facade. Every registered
+// tool stays callable by name regardless of mode, so nothing is removed.
+export const ToolFacadeConfigSchema = z.object({
+  mode: z.enum(["triad", "domain", "flat"]).default("triad"),
+});
+export type ToolFacadeConfig = z.infer<typeof ToolFacadeConfigSchema>;
+
 const ServerConfigObject = z.object({
   cacheDir: z.string().default(".obsidian-tc"),
   vaults: z.array(VaultConfigSchema).min(1),
@@ -248,6 +257,7 @@ const ServerConfigObject = z.object({
   transports: TransportsConfigSchema.prefault({}),
   governor: GovernorConfigSchema.prefault({}),
   toolVisibility: ToolVisibilityConfigSchema.optional(),
+  toolFacade: ToolFacadeConfigSchema.prefault({}),
   throttle: ThrottleConfigSchema,
   observability: ObservabilityConfigSchema.prefault({}),
   idempotencyTtlSeconds: z.number().int().positive().default(86400),

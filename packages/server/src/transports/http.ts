@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
 import { createJwtVerifier, type TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
+import type { FacadeMode } from "../mcp/facade";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
 import type { VaultRegistry } from "../vault/registry";
@@ -27,6 +28,8 @@ export interface HttpAppOptions {
   vaultRegistry?: VaultRegistry;
   /** Optional bearer-token verifier (W-AUTH seam). Defaults to an HS256 JWT verifier from `auth`. */
   verifier?: TokenVerifier;
+  /** Tool-surface facade mode (THE-219), threaded to createMcpServer. */
+  facadeMode?: FacadeMode;
   /** DNS-rebinding / cross-origin guard (THE-271). Defaults on when undefined. */
   enableDnsRebindingProtection?: boolean;
   /** Extra Host header values accepted beyond loopback (e.g. a reverse-proxy domain). */
@@ -155,6 +158,7 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       registry: opts.registry,
       context,
       vaultRegistry: opts.vaultRegistry,
+      facadeMode: opts.facadeMode,
     });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
