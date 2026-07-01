@@ -219,7 +219,7 @@ jobs:
         working-directory: packages/shared
         run: bun run build
       - name: compile standalone binary
-        run: bun build packages/server/src/cli.ts --compile --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
+        run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
         shell: bash
       - uses: actions/upload-artifact@v4
         with:
