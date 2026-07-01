@@ -19,7 +19,13 @@ describe("mcp transport round-trip", () => {
 
     const registry = new ToolRegistry();
     registry.register(
-      createHealthTool({ version: "0.0.0-test", vaults: ["v1"], startedAt: Date.now() }),
+      createHealthTool({
+        version: "0.0.0-test",
+        vaults: ["v1"],
+        startedAt: Date.now(),
+        nativeLoaded: false,
+        vecEnabled: false,
+      }),
     );
 
     const context = (): CallerContext => ({
