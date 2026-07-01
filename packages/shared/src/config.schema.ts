@@ -95,6 +95,9 @@ export const AclConfigSchema = z.object({
   readPaths: z.array(z.string()).optional(),
   writePaths: z.array(z.string()).optional(),
   deletePaths: z.array(z.string()).optional(),
+  /** When true, an UNDEFINED readPaths whitelist fails CLOSED on the request path (read_note et
+   *  al.), not just bridge enumeration (THE-268). Default false = M0 allow-all back-compat. */
+  strictReadDefault: z.boolean().default(false),
 });
 
 export const EmbeddingsConfigSchema = z.object({
@@ -109,6 +112,12 @@ export const HttpConfigSchema = z.object({
   enabled: z.boolean().default(false),
   host: z.string().default("127.0.0.1"),
   port: z.number().int().min(1).max(65535).default(8765),
+  // DNS-rebinding / cross-origin protection (THE-271). On by default: reject a request whose Host is
+  // neither loopback nor operator-allowed, or whose Origin (browsers always send one) is not the same
+  // origin or operator-allowed. Server-to-server clients send no Origin and are unaffected.
+  enableDnsRebindingProtection: z.boolean().default(true),
+  allowedHosts: z.array(z.string()).default([]),
+  allowedOrigins: z.array(z.string()).default([]),
 });
 
 export const TransportsConfigSchema = z.object({
