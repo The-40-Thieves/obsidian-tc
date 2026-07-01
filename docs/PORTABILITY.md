@@ -54,17 +54,18 @@ won (`true` = compiled binary active, `false` = JS fallback).
 
 ## Runtime
 
-The server bundle (`packages/server/dist/cli.js`) targets the **Bun** runtime — it selects a
-`bun:sqlite` adapter under Bun and `node:sqlite` under Node (the latter used by the test
-suite). Run the published CLI under Bun:
+The server bundle (`packages/server/dist/cli.js`) runs under **both Node (>= 24) and Bun** — the
+DB adapter is auto-selected at runtime: `better-sqlite3` under Node, `bun:sqlite` under Bun
+(`node:sqlite` is used only by the test suite). `bun:sqlite` is imported lazily inside the Bun
+adapter, so the node-targeted bundle carries no static `bun:` import and Node loads it cleanly
+(the earlier "Node cannot resolve `bun:`" limitation was fixed in #58). Run the published CLI:
 
 ```sh
-bun obsidian-tc <config.json>      # or: obsidian-tc <config.json> on a Bun-based PATH
+obsidian-tc <config.json>          # under Node (npm / npx) or Bun; the runtime is auto-detected
 ```
 
 or use the per-platform standalone binaries from the GitHub release (built with
-`bun build --compile`), or the multi-arch Docker image. Plain `node dist/cli.js` is **not**
-supported (it cannot resolve the `bun:` import).
+`bun build --compile`), or the multi-arch Docker image.
 
 ## Cross-compilation in `publish.yml`
 
