@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -55,22 +54,16 @@ describe("native loader host-triple mapping (musl detection)", () => {
     expect(native.hostTriple()).toBe("linux-arm64-gnu");
   });
 
-  // Skipped on a real glibc linux host (e.g. CI ubuntu): there `/usr/bin/ldd` exists and
-  // authoritatively reports glibc, so the fs check returns false before the report fake is
-  // consulted and musl can't be simulated. On hosts without `/usr/bin/ldd` (Windows, macOS) the
-  // loader falls through to the report path, so this exercises the musl mapping there. The real
-  // fs-based musl path is covered on an actual Alpine host (no hosted musl CI runner exists).
-  it.skipIf(existsSync("/usr/bin/ldd"))(
-    "selects the -musl triple on an Alpine/musl linux host",
-    () => {
-      fakeReport({ header: {}, sharedObjects: ["/lib/ld-musl-x86_64.so.1"] });
-      fakePlatform("linux", "x64");
-      expect(native.isMusl()).toBe(true);
-      expect(native.hostTriple()).toBe("linux-x64-musl");
-      fakePlatform("linux", "arm64");
-      expect(native.hostTriple()).toBe("linux-arm64-musl");
-    },
-  );
+  it("selects the -musl triple on an Alpine/musl linux host", () => {
+    // The loader probes process.report before /usr/bin/ldd, so faking the report drives detection
+    // on every host (a real glibc runner reports glibcVersionRuntime; here we inject musl markers).
+    fakeReport({ header: {}, sharedObjects: ["/lib/ld-musl-x86_64.so.1"] });
+    fakePlatform("linux", "x64");
+    expect(native.isMusl()).toBe(true);
+    expect(native.hostTriple()).toBe("linux-x64-musl");
+    fakePlatform("linux", "arm64");
+    expect(native.hostTriple()).toBe("linux-arm64-musl");
+  });
 
   it("returns null on an unmapped platform", () => {
     fakePlatform("freebsd" as NodeJS.Platform, "x64");
