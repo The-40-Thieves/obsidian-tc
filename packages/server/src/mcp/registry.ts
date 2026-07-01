@@ -14,7 +14,7 @@ import {
 import type { z } from "zod";
 import type { FolderAcl } from "../acl";
 import { type AuditEvent, writeEvent } from "../audit";
-import type { Database } from "../db/types";
+import { cachedPrepare, type Database } from "../db/types";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/tracing";
@@ -248,7 +248,8 @@ export class ToolRegistry {
     nowMs: number,
   ): "claimed" | "exists" {
     try {
-      db.prepare(
+      cachedPrepare(
+        db,
         "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
       ).run(vaultId, key, tool, argsHashValue, nowMs, nowMs + this.idempotencyTtlMs);
       return "claimed";
@@ -273,11 +274,10 @@ export class ToolRegistry {
         expires_at: number;
       }
     | undefined {
-    return db
-      .prepare(
-        "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at FROM idempotency_keys WHERE vault_id = ? AND key = ?",
-      )
-      .get(vaultId, key) as
+    return cachedPrepare(
+      db,
+      "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at FROM idempotency_keys WHERE vault_id = ? AND key = ?",
+    ).get(vaultId, key) as
       | {
           tool_name: string;
           args_hash: string;
@@ -298,13 +298,17 @@ export class ToolRegistry {
     size: number,
     nowMs: number,
   ): void {
-    db.prepare(
+    cachedPrepare(
+      db,
       "UPDATE idempotency_keys SET completed_at = ?, result = ?, result_size = ? WHERE vault_id = ? AND key = ?",
     ).run(nowMs, json, size, vaultId, key);
   }
 
   private deleteIdempotency(db: Database, vaultId: string, key: string): void {
-    db.prepare("DELETE FROM idempotency_keys WHERE vault_id = ? AND key = ?").run(vaultId, key);
+    cachedPrepare(db, "DELETE FROM idempotency_keys WHERE vault_id = ? AND key = ?").run(
+      vaultId,
+      key,
+    );
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: accepts any specific ToolDefinition for storage in the heterogeneous registry (see the tools map above).

@@ -1,4 +1,4 @@
-import type { Database } from "./db/types";
+import { cachedPrepare, type Database } from "./db/types";
 
 export interface AuditEvent {
   ts: number;
@@ -14,7 +14,8 @@ export interface AuditEvent {
 }
 
 export function writeEvent(db: Database, e: AuditEvent): void {
-  db.prepare(
+  cachedPrepare(
+    db,
     `INSERT INTO event_log
       (ts, vault_id, tool_name, caller, duration_ms, result_size, status, error_code, args_hash, event_type)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
