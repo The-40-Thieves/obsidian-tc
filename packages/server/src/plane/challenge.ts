@@ -4,7 +4,7 @@
 // so this module is the decoupled, testable generative core: prompt + call + parse, plus the
 // pure isDecisionChunk classifier. knowledge_get_critical is NOT ported: it queries a KMS
 // vendor-KB (knowledge_chunks: severity/mcp_name) data model the converged vault-centric tree
-// does not have; it stays integration-gated (see MERGE-PROGRESS.md).
+// does not have; it stays integration-gated (THE-233 integration follow-up).
 import { z } from "zod";
 import { type GatewayRoles, prompt } from "./gateway";
 
