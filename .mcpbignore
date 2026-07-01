@@ -24,6 +24,7 @@ packages/plugin/
 
 # Rust / native build intermediates
 packages/native/target/
+packages/native/false
 packages/native/src/
 packages/native/Cargo.*
 packages/native/build.rs
@@ -36,6 +37,11 @@ node_modules/
 .git/
 .github/
 .gitignore
+.gitattributes
+.gitleaks.toml
+.editorconfig
+.claude/
+.ruff_cache/
 .vscode/
 .omc/
 biome.json
