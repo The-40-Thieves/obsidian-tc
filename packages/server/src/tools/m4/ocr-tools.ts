@@ -72,13 +72,13 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.root ? normalizeVaultPath(input.root) : undefined;
-        if (sub) enforcePathAcl(ctx.acl, "read", sub);
+        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
         const exts = input.extensions ?? DEFAULT_EXTS;
 
         let candidates: string[];
         if (input.paths?.length) {
           candidates = input.paths.map(normalizeVaultPath);
-          for (const p of candidates) enforcePathAcl(ctx.acl, "read", p);
+          for (const p of candidates) enforcePathAcl(ctx.acl, "read", p, v.root);
         } else {
           candidates = walkVault(v.root, { sub, extensions: exts })
             .map((e) => e.relPath)

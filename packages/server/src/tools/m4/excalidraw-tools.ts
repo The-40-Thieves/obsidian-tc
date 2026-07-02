@@ -32,7 +32,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "read", rel);
+        enforcePathAcl(ctx.acl, "read", rel, v.root);
         const { client } = openBridge(deps, v.id, "excalidraw");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
@@ -62,7 +62,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "write", rel);
+        enforcePathAcl(ctx.acl, "write", rel, v.root);
         requireConfirmation(ctx, "create_excalidraw", input, input.overwrite === true, {
           path: rel,
         });
@@ -102,7 +102,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "write", rel);
+        enforcePathAcl(ctx.acl, "write", rel, v.root);
         const { client } = openBridge(deps, v.id, "excalidraw");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",

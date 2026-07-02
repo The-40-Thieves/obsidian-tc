@@ -184,21 +184,21 @@ describe("links: extract + resolve", () => {
 describe("acl-path: per-path enforcement", () => {
   it("allows when whitelist omitted, denies outside it", () => {
     const open = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
-    expect(() => enforcePathAcl(open, "write", "anywhere.md")).not.toThrow();
+    expect(() => enforcePathAcl(open, "write", "anywhere.md", tmpdir())).not.toThrow();
     const scoped = new FolderAcl({
       readOnly: false,
       defaultScopes: [],
       rules: [],
       writePaths: ["notes/**"],
     });
-    expect(() => enforcePathAcl(scoped, "write", "notes/a.md")).not.toThrow();
-    expect(() => enforcePathAcl(scoped, "write", "secret.md")).toThrow(/whitelist/i);
+    expect(() => enforcePathAcl(scoped, "write", "notes/a.md", tmpdir())).not.toThrow();
+    expect(() => enforcePathAcl(scoped, "write", "secret.md", tmpdir())).toThrow(/whitelist/i);
   });
   it("blocks write/delete under read-only with read_only_mode", () => {
     const ro = new FolderAcl({ readOnly: true, defaultScopes: [], rules: [] });
-    expect(() => enforcePathAcl(ro, "read", "a.md")).not.toThrow();
+    expect(() => enforcePathAcl(ro, "read", "a.md", tmpdir())).not.toThrow();
     try {
-      enforcePathAcl(ro, "delete", "a.md");
+      enforcePathAcl(ro, "delete", "a.md", tmpdir());
       throw new Error("should have thrown");
     } catch (e) {
       expect((e as { code: string }).code).toBe("read_only_mode");

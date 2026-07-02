@@ -89,7 +89,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = normalizeVaultPath(input.root);
-        enforcePathAcl(ctx.acl, "read", sub);
+        enforcePathAcl(ctx.acl, "read", sub, v.root);
         const all = walkVault(v.root, { sub, extensions: input.extensions })
           .map((e) => e.relPath)
           .filter((rel) => readable(ctx.acl, rel));

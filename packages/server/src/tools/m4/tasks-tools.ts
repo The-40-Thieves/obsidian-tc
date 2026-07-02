@@ -101,7 +101,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.root ? normalizeVaultPath(input.root) : undefined;
-        if (sub) enforcePathAcl(ctx.acl, "read", sub);
+        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
         const rels = input.paths?.length
           ? input.paths.map(normalizeVaultPath)
           : walkVault(v.root, { sub, extensions: [".md"] }).map((e) => e.relPath);

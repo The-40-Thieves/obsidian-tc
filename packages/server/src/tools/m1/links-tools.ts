@@ -344,7 +344,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         });
 
         if (!input.dry_run && removed.length > 0) {
-          enforcePathAcl(ctx.acl, "write", rel);
+          enforcePathAcl(ctx.acl, "write", rel, v.root);
           requireConfirmation(ctx, "prune_hub_links", input, true, {
             path: rel,
             removed: removed.length,

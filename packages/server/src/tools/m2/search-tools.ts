@@ -145,7 +145,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
   ): { id: string; rootPath: string; sub?: string; readable: (rel: string) => boolean } => {
     const v = deps.vaultRegistry.resolve(vault);
     const sub = root ? normalizeVaultPath(root) : undefined;
-    if (sub) enforcePathAcl(ctx.acl, "read", sub);
+    if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
     return {
       id: v.id,
       rootPath: v.root,

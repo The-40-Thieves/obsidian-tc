@@ -32,9 +32,8 @@ describe.skipIf(!symlinkOk)("THE-269 symlink ACL canonicalization", () => {
     expect(() => enforcePathAcl(acl, "read", "public/escape/creds.md", root)).toThrow();
     // A genuine in-whitelist path is still allowed.
     expect(() => enforcePathAcl(acl, "read", "public/note.md", root)).not.toThrow();
-    // Without the root arg (the old lexical behavior) the symlinked path would still pass —
-    // proving that threading the root is what closes the bypass.
-    expect(() => enforcePathAcl(acl, "read", "public/escape/creds.md")).not.toThrow();
+    // The old no-root lexical bypass is no longer expressible: `root` is now a required arg
+    // (THE-286), so enforcement always canonicalizes and the symlinked path above is denied.
     rmSync(root, { recursive: true, force: true });
   });
 });
