@@ -6,6 +6,7 @@
 // global and the plur tools take no `vault` argument.
 import type { BridgeClient } from "../../bridge";
 import type { VaultRegistry } from "../../vault/registry";
+import type { ActiveSessionTracker } from "../../workspace/sessions";
 
 /** Default vault folder for materialized memory-entity notes. */
 export const DEFAULT_MEMORY_FOLDER = "memory";
@@ -14,6 +15,8 @@ export const DEFAULT_TRACE_FOLDER = ".obsidian-tc/traces";
 
 export interface M5Deps {
   vaultRegistry: VaultRegistry;
+  /** THE-209: active-session tracker; start_session/end_session maintain it, the transport reads it. */
+  activeSessions?: ActiveSessionTracker;
   /** Global plur read client; undefined when no plur endpoint is configured. */
   plur?: BridgeClient;
   /** Per-vault memory materialization folder; defaults to "memory". */

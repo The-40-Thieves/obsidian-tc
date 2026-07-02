@@ -51,7 +51,9 @@ import { registerM7Tools } from "./tools/m7";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { resolveMode, type VaultMode } from "./vault/mode";
+import { resolveVaultPath } from "./vault/paths";
 import { VaultRegistry } from "./vault/registry";
+import { ActiveSessionTracker, appendTrace, getSession } from "./workspace/sessions";
 
 // VERSION derives from packages/server/package.json (imported above): single source of
 // truth, bumped by the release pipeline. Matches MCP versioning guidance (extract from
@@ -201,6 +203,10 @@ async function main(): Promise<void> {
   });
   // Shared rate limiter (G2.4 tiers) — the dispatch gate (THE-210) and get_metrics share it.
   const rateLimiter = new RateLimiter(config.throttle.tiers);
+  const vaultRegistry = new VaultRegistry(config.vaults, process.env.OBSIDIAN_TC_DEFAULT_VAULT);
+  // THE-209: process-local active-session tracker; start_session/end_session maintain it and
+  // the stdio context factory reads it to stamp ctx.sessionId for dispatch-level tracing.
+  const activeSessions = new ActiveSessionTracker();
   const registry = new ToolRegistry({
     maxResponseBytes: config.governor.maxResponseBytes,
     idempotencyTtlSeconds: config.idempotencyTtlSeconds,
@@ -210,6 +216,17 @@ async function main(): Promise<void> {
     emit: (vaultId, type, data) => morgiana.emit(vaultId, type, data),
     rateLimiter,
     toolVisibility: config.toolVisibility,
+    // THE-209: append a per-invocation trace record to the active session's JSONL trace.
+    sessionTracer: (session, record) => {
+      try {
+        const row = getSession(db, session.sessionId);
+        if (!row || row.ended_at !== null || row.vault_id !== session.vaultId) return;
+        const abs = resolveVaultPath(vaultRegistry.resolve(row.vault_id).root, row.trace_path);
+        appendTrace(abs, record);
+      } catch {
+        /* best-effort: tracing never breaks a dispatch */
+      }
+    },
     onProfile:
       process.env.OBSIDIAN_TC_PROFILE === "1"
         ? (p) =>
@@ -218,7 +235,6 @@ async function main(): Promise<void> {
             )
         : undefined,
   });
-  const vaultRegistry = new VaultRegistry(config.vaults, process.env.OBSIDIAN_TC_DEFAULT_VAULT);
   // Index-on-write (THE-255): a note mutation reindexes its path inline (best-effort and
   // backgrounded, so it never slows or fails a write); deindex drops a removed note's chunks
   // via an empty-content reindex (no embedding call). The boot reconcile guarantees full
@@ -375,6 +391,7 @@ async function main(): Promise<void> {
   const plurClient = createPlurClient(config.plur);
   registerM5Tools(registry, {
     vaultRegistry,
+    activeSessions,
     plur: plurClient,
     memoryFolder: (vaultId) => memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
     traceFolder: (vaultId) => traceFolderByVault.get(vaultId) ?? DEFAULT_TRACE_FOLDER,
@@ -411,14 +428,18 @@ async function main(): Promise<void> {
 
   // stdio is the trusted local transport: the operator runs the binary against
   // their own vault, so calls are authenticated with full local scope.
-  const context = (): CallerContext => ({
-    caller: "stdio",
-    authenticated: true,
-    grantedScopes: new Set(["*"]),
-    vaultId: firstVault.id,
-    db,
-    acl,
-  });
+  const context = (): CallerContext => {
+    const active = activeSessions.get("stdio");
+    return {
+      caller: "stdio",
+      authenticated: true,
+      grantedScopes: new Set(["*"]),
+      vaultId: firstVault.id,
+      db,
+      acl,
+      ...(active && active.vaultId === firstVault.id ? { sessionId: active.sessionId } : {}),
+    };
+  };
 
   const server = createMcpServer({
     name: "obsidian-tc",
