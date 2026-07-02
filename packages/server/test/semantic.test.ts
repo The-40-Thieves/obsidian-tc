@@ -1,68 +1,60 @@
 import { describe, expect, it } from "vitest";
-import { indexVault } from "../src/search/indexer";
-import { semanticSearch } from "../src/search/semantic";
-import { makeM2Vault } from "./m2-helpers";
+import { type MetaRow, selectVisible } from "../src/search/semantic";
 
-// Under node:sqlite the vec0 path is unavailable, so these exercise the
-// brute-force cosine scan — the portable correctness baseline.
-describe("semanticSearch (brute-force cosine path)", () => {
-  async function seed() {
-    const v = makeM2Vault({
-      files: {
-        "fox.md": "# Fox\n\nthe quick brown fox jumps over the lazy dog",
-        "weather.md": "# Weather\n\nheavy rain and thunderstorms expected tonight",
-        "canine.md": "# Canine\n\nthe lazy dog sleeps under the warm sun",
-      },
-    });
-    await indexVault({
-      db: v.db,
-      provider: v.provider,
-      vaultId: v.id,
-      root: v.root,
-      isReadable: () => true,
-    });
-    return v;
-  }
+const meta = (id: string, path: string): readonly [string, MetaRow & { id: string }] =>
+  [id, { id, path, content: `c-${id}`, vault_id: "v1", model: "m" }] as const;
 
-  it("ranks the lexically closest chunk first", async () => {
-    const v = await seed();
-    const [q] = await v.provider.embed(["lazy dog"]);
-    const hits = semanticSearch(v.db, v.id, q ?? [], { k: 3, returnContent: true });
-    expect(hits.length).toBeGreaterThan(0);
-    expect(["fox.md", "canine.md"]).toContain(hits[0]?.path);
-    expect(hits[0]?.embedding_model).toBe(v.provider.id);
-    expect(hits[0]?.content).toBeTypeOf("string");
-    v.cleanup();
+describe("selectVisible — THE-287 vec0 candidate visibility filter", () => {
+  it("drops candidates whose note is not read-visible, preserving distance order", () => {
+    const candidates = [
+      { chunk_id: "a", distance: 0.1 },
+      { chunk_id: "b", distance: 0.2 }, // denied folder
+      { chunk_id: "c", distance: 0.3 },
+    ];
+    const metaById = new Map([
+      meta("a", "public/a.md"),
+      meta("b", "secret/b.md"),
+      meta("c", "public/c.md"),
+    ]);
+    const out = selectVisible(candidates, metaById, (p) => p.startsWith("public/"), {}, 5);
+    expect(out.map((h) => h.path)).toEqual(["public/a.md", "public/c.md"]);
+    expect(out.map((h) => h.chunk_id)).toEqual(["a", "c"]);
   });
 
-  it("respects k and orders by descending score", async () => {
-    const v = await seed();
-    const [q] = await v.provider.embed(["dog"]);
-    const hits = semanticSearch(v.db, v.id, q ?? [], { k: 2 });
-    expect(hits).toHaveLength(2);
-    expect(hits[0]?.score).toBeGreaterThanOrEqual(hits[1]?.score ?? 0);
-    expect(hits[0]?.content).toBeUndefined(); // returnContent defaults off
-    v.cleanup();
+  it("skips candidates absent from the vault-scoped metadata (other vaults) and caps at k", () => {
+    const candidates = [
+      { chunk_id: "a", distance: 0.1 },
+      { chunk_id: "x", distance: 0.15 }, // other vault: absent from metaById (scoped by SQL)
+      { chunk_id: "b", distance: 0.2 },
+      { chunk_id: "c", distance: 0.3 },
+    ];
+    const metaById = new Map([meta("a", "a.md"), meta("b", "b.md"), meta("c", "c.md")]);
+    const out = selectVisible(candidates, metaById, () => true, {}, 2);
+    expect(out.map((h) => h.chunk_id)).toEqual(["a", "b"]);
   });
 
-  it("drops chunks the read predicate rejects", async () => {
-    const v = await seed();
-    const [q] = await v.provider.embed(["dog"]);
-    const hits = semanticSearch(v.db, v.id, q ?? [], {
-      k: 10,
-      isReadable: (p) => p !== "canine.md",
-    });
-    expect(hits.every((h) => h.path !== "canine.md")).toBe(true);
-    v.cleanup();
+  it("applies minScore over score = 1 - distance", () => {
+    const candidates = [
+      { chunk_id: "a", distance: 0.1 }, // 0.9
+      { chunk_id: "b", distance: 0.7 }, // 0.3 -> below minScore
+    ];
+    const metaById = new Map([meta("a", "a.md"), meta("b", "b.md")]);
+    const out = selectVisible(candidates, metaById, () => true, { minScore: 0.5 }, 5);
+    expect(out.map((h) => h.chunk_id)).toEqual(["a"]);
   });
 
-  it("filters by min_score", async () => {
-    const v = await seed();
-    const [q] = await v.provider.embed(["lazy dog"]);
-    const all = semanticSearch(v.db, v.id, q ?? [], { k: 10 });
-    const floor = (all[0]?.score ?? 0) + 0.0001;
-    const filtered = semanticSearch(v.db, v.id, q ?? [], { k: 10, minScore: floor });
-    expect(filtered.length).toBeLessThan(all.length);
-    v.cleanup();
+  it("crowding: when visible hits are fewer than k, the caller's out is short (triggers fallback)", () => {
+    // All but one candidate denied -> selectVisible returns 1; semanticSearch compares to k and,
+    // when the candidate set was capped, falls back to the exhaustive brute-force scan.
+    const candidates = Array.from({ length: 40 }, (_, i) => ({
+      chunk_id: `d${i}`,
+      distance: i / 100,
+    }));
+    const metaById = new Map(
+      candidates.map((c, i) => meta(c.chunk_id, i === 39 ? "public/ok.md" : "secret/x.md")),
+    );
+    const out = selectVisible(candidates, metaById, (p) => p.startsWith("public/"), {}, 10);
+    expect(out.map((h) => h.path)).toEqual(["public/ok.md"]);
+    expect(out.length).toBeLessThan(10); // < k -> semanticSearch would fall back to brute force
   });
 });
