@@ -13,6 +13,7 @@ import { type GatewayRoles, prompt } from "../gateway";
 const COSINE_THRESHOLD = 0.85;
 const NEAR_DUPE_CEILING = 0.99;
 const TOP_K = 5;
+const JUDGE_CONCURRENCY = 4;
 
 export interface IndexedChunk {
   id: string;
@@ -58,6 +59,17 @@ export async function checkContradictions(
   const insert = ctx.db.prepare(
     "INSERT OR IGNORE INTO contradictions (id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, cosine_similarity, judge_verdict, judge_rationale, judge_model, status, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
   );
+  const roles = ctx.roles;
+  // Phase 1 — gather judge tasks with NO network I/O. semanticSearch is a local (sqlite-vec or
+  // brute-force) read, so neighbor discovery stays serial on the single connection.
+  interface JudgeTask {
+    chunk: IndexedChunk;
+    neighborId: string;
+    neighborPath: string;
+    neighborContent: string;
+    score: number;
+  }
+  const tasks: JudgeTask[] = [];
   for (const chunk of chunks) {
     stats.checked += 1;
     const neighbors = semanticSearch(ctx.db, vaultId, chunk.embedding, {
@@ -70,33 +82,74 @@ export async function checkContradictions(
       stats.skipped += 1;
       continue;
     }
-    for (const n of neighbors) {
-      const res = await ctx.roles.judge(
-        prompt(JUDGE_SYSTEM, `FRAGMENT A:\n${chunk.content}\n\nFRAGMENT B:\n${n.content ?? ""}`),
+    for (const n of neighbors)
+      tasks.push({
+        chunk,
+        neighborId: n.chunk_id,
+        neighborPath: n.path,
+        neighborContent: n.content ?? "",
+        score: n.score,
+      });
+  }
+  // Phase 2 — judge all pairs under bounded concurrency (THE-277). The judge is the only network
+  // call; running JUDGE_CONCURRENCY at a time turns a serial per-pair wait into a windowed one. A
+  // single pair's judge failure degrades to no_conflict so it never sinks the whole batch.
+  const verdicts = await mapLimit(tasks, JUDGE_CONCURRENCY, async (t) => {
+    try {
+      const res = await roles.judge(
+        prompt(
+          JUDGE_SYSTEM,
+          `FRAGMENT A:\n${t.chunk.content}\n\nFRAGMENT B:\n${t.neighborContent}`,
+        ),
       );
-      const verdict = parseVerdict(res.text);
-      if (verdict.kind === "no_conflict") continue;
-      const a = { id: chunk.id, path: chunk.path, sha: contentHash(chunk.content) };
-      const b = { id: n.chunk_id, path: n.path, sha: contentHash(n.content ?? "") };
-      const [src, con] = a.sha < b.sha ? [a, b] : [b, a]; // canonical order for dedup
-      const id = `ctr_${contentHash(`${src.sha}:${con.sha}`).slice(0, 24)}`;
-      const info = insert.run(
-        id,
-        src.id,
-        src.path,
-        con.id,
-        con.path,
-        src.sha,
-        con.sha,
-        n.score,
-        verdict.kind,
-        verdict.rationale,
-        res.model,
-        ctx.now(),
-      );
-      if (info.changes > 0) stats.flagged += 1;
-      else stats.skipped += 1;
+      return { verdict: parseVerdict(res.text), model: res.model };
+    } catch {
+      return { verdict: { kind: "no_conflict", rationale: "judge_error" } as Verdict, model: "" };
     }
+  });
+  // Phase 3 — apply inserts serially (single-connection writes), in task order.
+  for (let i = 0; i < tasks.length; i++) {
+    const t = tasks[i] as JudgeTask;
+    const { verdict, model } = verdicts[i] as { verdict: Verdict; model: string };
+    if (verdict.kind === "no_conflict") continue;
+    const a = { id: t.chunk.id, path: t.chunk.path, sha: contentHash(t.chunk.content) };
+    const b = { id: t.neighborId, path: t.neighborPath, sha: contentHash(t.neighborContent) };
+    const [src, con] = a.sha < b.sha ? [a, b] : [b, a]; // canonical order for dedup
+    const id = `ctr_${contentHash(`${src.sha}:${con.sha}`).slice(0, 24)}`;
+    const info = insert.run(
+      id,
+      src.id,
+      src.path,
+      con.id,
+      con.path,
+      src.sha,
+      con.sha,
+      t.score,
+      verdict.kind,
+      verdict.rationale,
+      model,
+      ctx.now(),
+    );
+    if (info.changes > 0) stats.flagged += 1;
+    else stats.skipped += 1;
   }
   return stats;
+}
+
+// Bounded-concurrency ordered map: runs `fn` over `items` with at most `limit` in flight and
+// returns results in input order. Windows the contradiction judge calls (THE-277).
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (let i = next++; i < items.length; i = next++) {
+      results[i] = await fn(items[i] as T, i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
 }
