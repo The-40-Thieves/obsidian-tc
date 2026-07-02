@@ -35,8 +35,13 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${re}$`);
 }
 
+// Match glob against path in a Unicode-normalization-insensitive way (THE-272). macOS stores
+// filenames as NFD while a config/glob authored elsewhere is almost always NFC; without normalizing
+// both sides, an NFC deny/whitelist rule silently fails to match its NFD path on disk (a deny that
+// does not deny, or an allow that wrongly denies). Normalizing both to NFC makes the ACL decide on
+// the logical name, not its byte form.
 export function globMatch(glob: string, path: string): boolean {
-  return globToRegExp(glob).test(path);
+  return globToRegExp(glob.normalize("NFC")).test(path.normalize("NFC"));
 }
 
 // Hard default-deny baseline (THE-268): the Obsidian/VCS control directories are never reachable
@@ -51,8 +56,9 @@ const DEFAULT_DENY_EXEMPT: ReadonlySet<string> = new Set([
 
 /** True when a vault-relative path is under a hard-denied control directory (and not exempt). */
 export function isDefaultDenied(path: string): boolean {
-  if (DEFAULT_DENY_EXEMPT.has(path)) return false;
-  return DEFAULT_DENY_ROOTS.some((r) => path === r || path.startsWith(`${r}/`));
+  const p = path.normalize("NFC"); // THE-272: decide on the logical name, not its NFC/NFD byte form
+  if (DEFAULT_DENY_EXEMPT.has(p)) return false;
+  return DEFAULT_DENY_ROOTS.some((r) => p === r || p.startsWith(`${r}/`));
 }
 
 export class FolderAcl {
