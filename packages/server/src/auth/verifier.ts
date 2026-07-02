@@ -1,4 +1,5 @@
-import { type JwtIdentity, verifyJwt } from "./jwt";
+import { decodeProtectedHeader } from "jose";
+import { type JwtIdentity, verifyJwt, verifyJwtJwks } from "./jwt";
 
 /** Result of verifying a bearer token: caller identity + granted scopes. */
 export type VerifiedIdentity = JwtIdentity;
@@ -27,5 +28,38 @@ export function createJwtVerifier(
 ): TokenVerifier {
   return {
     verify: (token) => verifyJwt(token, secret, opts),
+  };
+}
+
+export interface TokenVerifierOptions {
+  /** HS256 shared secret; absent -> HS256 tokens are rejected. */
+  secret?: string;
+  /** Local JWKS document (inline or file-loaded); absent -> asymmetric tokens are rejected. */
+  jwks?: Record<string, unknown>;
+  /** Asymmetric allowlist (default RS256/ES256/EdDSA). HS256 never verifies against the JWKS. */
+  algorithms?: string[];
+  maxAgeSeconds?: number;
+}
+
+/**
+ * THE-297: alg-routing verifier. The token's protected header picks the verification path —
+ * HS256 goes ONLY to the shared secret, everything else ONLY to the JWKS — so a public key can
+ * never be misused as an HMAC secret (the classic alg-confusion attack) and rotation is
+ * kid-based inside the JWKS. Either side may be absent; tokens for the missing side reject.
+ */
+export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
+  return {
+    verify: async (token) => {
+      const header = decodeProtectedHeader(token);
+      if (header.alg === "HS256") {
+        if (!o.secret) throw new Error("HS256 token but no jwtSecret configured");
+        return verifyJwt(token, o.secret, { maxAgeSeconds: o.maxAgeSeconds });
+      }
+      if (!o.jwks) throw new Error(`${String(header.alg)} token but no JWKS configured`);
+      return verifyJwtJwks(token, o.jwks, {
+        maxAgeSeconds: o.maxAgeSeconds,
+        algorithms: o.algorithms,
+      });
+    },
   };
 }

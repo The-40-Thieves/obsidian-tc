@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
@@ -13,7 +14,7 @@ import {
   isPrmConfigured,
   wwwAuthenticateChallenge,
 } from "../auth/protected-resource";
-import { createJwtVerifier, type TokenVerifier } from "../auth/verifier";
+import { createTokenVerifier, type TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
 import type { FacadeMode } from "../mcp/facade";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
@@ -88,10 +89,22 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
   // Token verifier seam (W-AUTH): default to HS256 JWT (jose) built from config; a custom
   // verifier (e.g. an OAuth 2.1 bearer/introspection verifier) may be injected via
   // opts.verifier without touching this transport. null in "none" mode or jwt-without-secret.
+  // THE-297: jwksFile loads ONCE at transport boot (file/inline only — no URL fetch); rotation
+  // via multiple kid'd keys in the set, or a restart after replacing the file.
+  const jwks =
+    opts.auth.jwks ??
+    (opts.auth.jwksFile
+      ? (JSON.parse(readFileSync(opts.auth.jwksFile, "utf8")) as Record<string, unknown>)
+      : undefined);
   const verifier: TokenVerifier | null =
     opts.verifier ??
-    (opts.auth.mode === "jwt" && opts.auth.jwtSecret
-      ? createJwtVerifier(opts.auth.jwtSecret, { maxAgeSeconds: opts.auth.tokenTtlSeconds })
+    (opts.auth.mode === "jwt" && (opts.auth.jwtSecret || jwks)
+      ? createTokenVerifier({
+          secret: opts.auth.jwtSecret,
+          jwks,
+          algorithms: opts.auth.algorithms,
+          maxAgeSeconds: opts.auth.tokenTtlSeconds,
+        })
       : null);
 
   // MCP 2025-11-25 / RFC 9728 Protected Resource Metadata (THE-278). Public, non-secret discovery,
