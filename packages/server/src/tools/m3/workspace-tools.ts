@@ -59,13 +59,19 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
       name: "open_workspace",
       description:
         "Mark a saved workspace active and return its stored layout. Fails if the workspace does not exist.",
-      inputSchema: z.object({ vault: VaultId, name: z.string().min(1) }).strict(),
+      inputSchema: z
+        .object({ vault: VaultId, name: z.string().min(1), prev_hash: z.string().optional() })
+        .strict(),
       requiredScopes: ["write:workspaces"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         enforcePathAcl(ctx.acl, "write", WORKSPACES_PATH, v.root);
         const abs = resolveVaultPath(v.root, WORKSPACES_PATH);
         const file = readJsonFile<WorkspacesDoc>(abs, { workspaces: {} });
+        if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
+          throw err.concurrentModification("workspaces.json changed since prev_hash", {
+            path: WORKSPACES_PATH,
+          });
         const ws = workspacesOf(file.data);
         if (!(input.name in ws))
           throw err.noteNotFound("workspace not found", { name: input.name });
@@ -91,6 +97,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
           layout: z.record(z.string(), z.unknown()),
           set_active: z.boolean().default(false),
           overwrite: z.boolean().default(false),
+          prev_hash: z.string().optional(),
         })
         .strict(),
       requiredScopes: ["write:workspaces"],
@@ -99,6 +106,10 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
         enforcePathAcl(ctx.acl, "write", WORKSPACES_PATH, v.root);
         const abs = resolveVaultPath(v.root, WORKSPACES_PATH);
         const file = readJsonFile<WorkspacesDoc>(abs, { workspaces: {} });
+        if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
+          throw err.concurrentModification("workspaces.json changed since prev_hash", {
+            path: WORKSPACES_PATH,
+          });
         const data = file.data;
         if (
           !data.workspaces ||

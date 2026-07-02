@@ -167,3 +167,40 @@ describe("Domain 10: Bookmarks", () => {
     }
   });
 });
+
+describe("Domain 10: Bookmarks — prev_hash CAS (THE-292)", () => {
+  it("add_bookmark rejects a stale prev_hash and accepts the current one", async () => {
+    const v = makeM3Vault();
+    try {
+      const first = await v.call("add_bookmark", {
+        vault: "test",
+        bookmark: { type: "file", path: "A.md", title: "A" },
+      });
+      expect(first.ok).toBe(true);
+      const hash = first.ok ? (first.data as { content_hash: string }).content_hash : "";
+
+      // Stale prev_hash -> concurrent_modification, and B is NOT added.
+      const stale = await v.call("add_bookmark", {
+        vault: "test",
+        bookmark: { type: "file", path: "B.md", title: "B" },
+        prev_hash: "deadbeef",
+      });
+      expect(stale.ok).toBe(false);
+      if (!stale.ok) expect(stale.error.code).toBe("concurrent_modification");
+      const l1 = await v.call("list_bookmarks", { vault: "test" });
+      if (l1.ok) expect((l1.data as { count: number }).count).toBe(1);
+
+      // Current prev_hash -> the write proceeds.
+      const ok = await v.call("add_bookmark", {
+        vault: "test",
+        bookmark: { type: "file", path: "B.md", title: "B" },
+        prev_hash: hash,
+      });
+      expect(ok.ok).toBe(true);
+      const l2 = await v.call("list_bookmarks", { vault: "test" });
+      if (l2.ok) expect((l2.data as { count: number }).count).toBe(2);
+    } finally {
+      v.cleanup();
+    }
+  });
+});

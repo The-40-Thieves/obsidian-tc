@@ -142,3 +142,31 @@ describe("Domain 11: Workspaces", () => {
     }
   });
 });
+
+describe("Domain 11: Workspaces — prev_hash CAS (THE-292)", () => {
+  it("open_workspace rejects a stale prev_hash and accepts the current one", async () => {
+    const v = makeM3Vault();
+    try {
+      const saved = await v.call("save_workspace", {
+        vault: "test",
+        name: "w1",
+        layout: { main: {} },
+      });
+      expect(saved.ok).toBe(true);
+      const hash = saved.ok ? (saved.data as { content_hash: string }).content_hash : "";
+
+      const stale = await v.call("open_workspace", {
+        vault: "test",
+        name: "w1",
+        prev_hash: "nope",
+      });
+      expect(stale.ok).toBe(false);
+      if (!stale.ok) expect(stale.error.code).toBe("concurrent_modification");
+
+      const ok = await v.call("open_workspace", { vault: "test", name: "w1", prev_hash: hash });
+      expect(ok.ok).toBe(true);
+    } finally {
+      v.cleanup();
+    }
+  });
+});
