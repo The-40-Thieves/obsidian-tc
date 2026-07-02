@@ -23,16 +23,27 @@ export const BaseView = z
     type: z.string().optional(),
     filters: z.unknown().optional(),
     sort: z.unknown().optional(),
+    /** Deprecated obsidian-tc alias for real Bases `groupBy` (removal at v2.0). */
     group: z.unknown().optional(),
+    /** Deprecated obsidian-tc alias for real Bases `order` (removal at v2.0). */
     columns: z.array(z.string()).optional(),
+    // THE-280 — real Obsidian Bases view keys (namespaced property ids: file.*/note.*/formula.*).
+    order: z.array(z.string()).optional(),
+    limit: z.number().int().positive().optional(),
+    groupBy: z.unknown().optional(),
   })
   .passthrough();
 
 export const BaseDoc = z
   .object({
+    /** Deprecated obsidian-tc alias: real Bases has NO source block — the note set is the
+     *  top-level `filters` (removal at v2.0). */
     source: BaseSource.optional(),
     views: z.array(BaseView).optional(),
     formulas: z.record(z.string(), z.unknown()).optional(),
+    // THE-280 — real Obsidian Bases top-level keys.
+    filters: z.unknown().optional(),
+    properties: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
 
