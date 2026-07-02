@@ -20,6 +20,11 @@ concurrency:
   group: ci-docker-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege (CodeQL actions/missing-workflow-permissions): this job only checks out and
+# builds the image locally (no registry push); the gha layer cache uses the Actions runtime token.
+permissions:
+  contents: read
+
 jobs:
   docker-build:
     runs-on: ubuntu-latest
