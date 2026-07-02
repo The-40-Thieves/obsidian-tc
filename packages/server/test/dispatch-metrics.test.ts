@@ -110,3 +110,30 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
     expect(res.ok).toBe(true);
   });
 });
+
+describe("dispatch -> session trace (THE-209)", () => {
+  it("appends a tool_invocation record when ctx.sessionId + sessionTracer are set", async () => {
+    const traced: Array<{ session: unknown; record: Record<string, unknown> }> = [];
+    const reg = new ToolRegistry({
+      sessionTracer: (session, record) => traced.push({ session, record }),
+    });
+    reg.register(tool("read_note", ["read:notes"], () => ({ ok: 1 })));
+    await reg.dispatch("read_note", {}, ctx({ sessionId: "sess_x" }));
+    expect(traced.length).toBe(1);
+    expect(traced[0]?.record).toMatchObject({
+      type: "tool_invocation",
+      tool: "read_note",
+      status: "ok",
+      caller: "test",
+    });
+    expect(traced[0]?.session).toMatchObject({ sessionId: "sess_x", vaultId: "main" });
+  });
+
+  it("emits no session trace when ctx.sessionId is absent", async () => {
+    const traced: unknown[] = [];
+    const reg = new ToolRegistry({ sessionTracer: (_s, r) => traced.push(r) });
+    reg.register(tool("read_note", ["read:notes"], () => ({ ok: 1 })));
+    await reg.dispatch("read_note", {}, ctx());
+    expect(traced.length).toBe(0);
+  });
+});

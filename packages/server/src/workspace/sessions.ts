@@ -139,3 +139,24 @@ export function readTrace(abs: string): TraceRecord[] {
   }
   return out;
 }
+
+/**
+ * In-process registry of each caller's currently-active workspace session (THE-209).
+ * `start_session` registers the caller's session, `end_session` clears it, and the
+ * transport context factory reads it to stamp `ctx.sessionId` so dispatch appends a
+ * tool_invocation record to that session's JSONL trace. Process-local and best-effort:
+ * not persisted, so a restart simply resumes untracked until the next start_session.
+ */
+export class ActiveSessionTracker {
+  private readonly byCaller = new Map<string, { sessionId: string; vaultId: string }>();
+  set(caller: string | null, sessionId: string, vaultId: string): void {
+    this.byCaller.set(caller ?? "", { sessionId, vaultId });
+  }
+  get(caller: string | null): { sessionId: string; vaultId: string } | undefined {
+    return this.byCaller.get(caller ?? "");
+  }
+  clear(caller: string | null, sessionId: string): void {
+    const key = caller ?? "";
+    if (this.byCaller.get(key)?.sessionId === sessionId) this.byCaller.delete(key);
+  }
+}
