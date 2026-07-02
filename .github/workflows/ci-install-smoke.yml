@@ -101,3 +101,13 @@ jobs:
           [ "$got_node" = "$want" ] || { echo "::error::node reports $got_node, expected $want"; exit 1; }
           [ "$got_bun" = "$want" ] || { echo "::error::bun reports $got_bun, expected $want"; exit 1; }
           echo "ok: built CLI reports $want under node and bun"
+      # 5) The self-contained .mcpb ships no node_modules, so under Node better-sqlite3 is
+      #    unresolvable. Prove the server still boots via the built-in node:sqlite fallback on every
+      #    OS (THE-276) — this is the one-click bundle's actual runtime path.
+      - name: CLI boots under node WITHOUT better-sqlite3 (the .mcpb / node:sqlite fallback)
+        run: |
+          rm -rf node_modules/better-sqlite3 packages/server/node_modules/better-sqlite3 || true
+          out=$(node packages/server/dist/cli.js "$RUNNER_TEMP/smoke-config.json" < /dev/null 2>&1) || true
+          echo "$out"
+          echo "$out" | grep -q "ready on stdio" || { echo "::error::node:sqlite fallback did not reach stdio-ready"; exit 1; }
+          echo "ok: booted under node via the node:sqlite fallback (no better-sqlite3)"
