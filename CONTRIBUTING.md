@@ -137,7 +137,7 @@ Trunk-based with short-lived feature branches. Branch from `main`, name as `<typ
 
 Open PRs against `main`. Use the PR template. For merge:
 
-1. CI workflows green (`ci-server`, `ci-plugin`, `ci-native` × 4 platforms, `ci-version`).
+1. CI workflows green (`ci-server`, `ci-plugin`, `ci-native` (3 build platforms + musl cross-build validation), `ci-docker`, `ci-version`).
 2. At least one review from a maintainer.
 3. Conventional Commits format on the PR title (used to generate the changelog).
 4. Tests added for new behavior. Coverage may regress but should not regress meaningfully.
@@ -198,7 +198,7 @@ Releases are coordinated by maintainers; contributors do not need to drive them.
 
 1. Run `bun run release <patch|minor|major>` (`scripts/release.mjs`). It sets the version across every `package.json` plus the distribution metadata (`server.json`, `manifest.json`), rolls the CHANGELOG `[Unreleased]` → `[next] - <date>`, refreshes `bun.lock`, and runs the version-coherence gate. It requires a non-empty `[Unreleased]` section, and the Obsidian plugin manifest is excluded (the plugin versions on its own cadence).
 2. Open a release PR, get reviews, merge.
-3. A maintainer pushes tag `v<x.y.z>`; `publish.yml` builds the 4-platform native matrix and publishes to npm (`pending` → `latest`), pushes the GHCR image, and drafts a GitHub Release.
+3. A maintainer pushes tag `v<x.y.z>`; `publish.yml` builds the eight-triple native matrix (linux gnu+musl x64/arm64, darwin x64/arm64, win32 x64/arm64) and publishes to npm (`pending` → `latest`), pushes the GHCR image, and drafts a GitHub Release.
 4. Plugin-store submission is a separate PR to `obsidianmd/obsidian-releases` for new minor versions.
 
 The full runbook lives at `docs/G2.5-release-engineering.md` §9.
