@@ -109,7 +109,7 @@ function updateBacklinks(
   root: string,
   fromRel: string,
   toRel: string,
-): { notes: number; links: number } {
+): { notes: number; links: number; rewritten: Array<{ rel: string; text: string }> } {
   const postPaths = walkVault(root, { extensions: [".md"] }).map((e) => e.relPath);
   const oldPaths = postPaths.filter((p) => p !== toRel).concat(fromRel);
   const oldIndex = buildVaultIndex(oldPaths);
@@ -120,6 +120,7 @@ function updateBacklinks(
 
   let notes = 0;
   let links = 0;
+  const rewritten: Array<{ rel: string; text: string }> = [];
   for (const p of postPaths) {
     if (p === toRel) continue; // the moved note's own outgoing links are unaffected
     const abs = resolveVaultPath(root, p);
@@ -130,11 +131,12 @@ function updateBacklinks(
     });
     if (count > 0) {
       writeNoteAtomic(abs, text, false);
+      rewritten.push({ rel: p, text });
       notes++;
       links += count;
     }
   }
-  return { notes, links };
+  return { notes, links, rewritten };
 }
 
 // ── schemas ──────────────────────────────────────────────────────────────────
@@ -565,9 +567,14 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         if (overwriteExisting) trashedDestTo = trashNote(v.root, toRel);
         writeNoteAtomic(toAbs, raw, input.options.create_dirs);
         hardDelete(fromAbs);
+        // THE-291: keep the search index coherent across the move — drop the source path,
+        // index the destination, and reindex every backlink-rewritten note below.
+        deps.deindex?.(v.id, fromRel);
+        deps.reindex?.(v.id, toRel, raw);
         const backlinks = input.update_backlinks
           ? updateBacklinks(v.root, fromRel, toRel)
-          : { notes: 0, links: 0 };
+          : { notes: 0, links: 0, rewritten: [] };
+        for (const rw of backlinks.rewritten) deps.reindex?.(v.id, rw.rel, rw.text);
         return {
           vault: v.id,
           from: fromRel,
@@ -576,7 +583,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           overwritten: toEx.exists,
           trashed_dest_to: trashedDestTo,
           content_hash: hash,
-          backlinks_updated: backlinks,
+          backlinks_updated: { notes: backlinks.notes, links: backlinks.links },
         };
       },
     }),
@@ -604,6 +611,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
         const { raw, hash } = readNote(fromAbs);
         writeNoteAtomic(toAbs, raw, input.options.create_dirs);
+        deps.reindex?.(v.id, toRel, raw);
         return {
           vault: v.id,
           from: fromRel,

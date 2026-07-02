@@ -300,7 +300,10 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
             notes: edits.length,
             links: totalLinks,
           });
-          for (const e of edits) writeNoteAtomic(resolveVaultPath(v.root, e.rel), e.text, false);
+          for (const e of edits) {
+            writeNoteAtomic(resolveVaultPath(v.root, e.rel), e.text, false);
+            deps.reindex?.(v.id, e.rel, e.text);
+          }
         }
         return {
           vault: v.id,
@@ -350,6 +353,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
             removed: removed.length,
           });
           writeNoteAtomic(abs, text, false);
+          deps.reindex?.(v.id, rel, text);
         }
         return {
           vault: v.id,
