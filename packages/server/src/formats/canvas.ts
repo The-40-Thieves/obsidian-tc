@@ -108,6 +108,8 @@ export function projectNode(n: Record<string, unknown>): Record<string, unknown>
     ...(n.subpath !== undefined ? { subpath: n.subpath } : {}),
     ...(n.url !== undefined ? { url: n.url } : {}),
     ...(n.label !== undefined ? { label: n.label } : {}),
+    ...(n.background !== undefined ? { background: n.background } : {}),
+    ...(n.backgroundStyle !== undefined ? { backgroundStyle: n.backgroundStyle } : {}),
   };
 }
 
@@ -119,6 +121,8 @@ export function projectEdge(e: Record<string, unknown>): Record<string, unknown>
     ...(e.fromSide !== undefined ? { fromSide: e.fromSide } : {}),
     toNode: e.toNode,
     ...(e.toSide !== undefined ? { toSide: e.toSide } : {}),
+    ...(e.fromEnd !== undefined ? { fromEnd: e.fromEnd } : {}),
+    ...(e.toEnd !== undefined ? { toEnd: e.toEnd } : {}),
     ...(e.color !== undefined ? { color: e.color } : {}),
     ...(e.label !== undefined ? { label: e.label } : {}),
   };

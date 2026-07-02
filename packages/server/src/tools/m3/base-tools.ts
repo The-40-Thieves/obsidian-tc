@@ -6,8 +6,11 @@
 // every view) require a HITL elicit token. query_base interprets the format: a
 // view's `filters` (and any `override_filters`) are JSONLogic over each note's
 // { ...frontmatter, path, name, tags, content }; `formulas` whose value is a
-// JSONLogic object are computed per row and added as columns. Non-object filters
-// (e.g. a real Bases filter string) match all rows — documented, no silent failure.
+// JSONLogic object are computed per row and added as columns. A base written with the
+// real Obsidian Bases expression DSL (a bare-string filter, an and/or/not of string
+// statements, a top-level `filters`, or a string formula) is REFUSED with a typed
+// unsupported_base_filter rather than silently matching all rows (THE-284; the Bases
+// DSL evaluator is THE-281).
 import {
   err,
   Pagination,
@@ -59,6 +62,35 @@ function colValue(col: string, path: string, fm: Record<string, unknown>): unkno
 
 function isLogicObject(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
+// THE-284 honesty guard: detect a REAL Obsidian Bases expression (which obsidian-tc's
+// JSONLogic evaluator cannot interpret) so query_base refuses instead of silently
+// matching all rows. Returns the first offending expression string, or null when the
+// value is absent or is obsidian-tc's own JSONLogic (operator objects / object leaves).
+function basesDslExpr(x: unknown): string | null {
+  if (typeof x === "string") return x; // a bare-string filter is the Bases DSL
+  if (isLogicObject(x)) {
+    for (const key of ["and", "or", "not"]) {
+      const arr = x[key];
+      if (Array.isArray(arr)) {
+        for (const el of arr) {
+          if (typeof el === "string") return el; // and/or/not over string statements = DSL
+          const nested = basesDslExpr(el);
+          if (nested) return nested;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// A real Bases formula's value is a string expression; obsidian-tc's is a JSONLogic
+// object. Return the first string-valued formula (the offending real-Bases formula).
+function stringFormula(formulas: unknown): string | null {
+  if (!isLogicObject(formulas)) return null;
+  for (const v of Object.values(formulas)) if (typeof v === "string") return v;
+  return null;
 }
 
 const CreateInput = z
@@ -234,7 +266,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "query_base",
       description:
-        "Execute a base view and return the resolved rows. Filters are JSONLogic over each note; JSONLogic formulas are computed as columns.",
+        "Execute a base view and return resolved rows. Filters/formulas use obsidian-tc's JSONLogic model over each note; a base written with the real Obsidian Bases expression DSL is refused with unsupported_base_filter (see THE-281).",
       inputSchema: QueryInput,
       requiredScopes: ["read:bases"],
       handler: (input, ctx) => {
@@ -249,6 +281,18 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const { raw } = parseBase(readNote(abs).raw);
         const view = selectView(raw, input.view);
         if (input.view && !view) throw err.invalidInput("view not found", { view: input.view });
+
+        // THE-284: refuse a real Obsidian Bases expression rather than silently match-all.
+        const dslHit =
+          basesDslExpr(raw.filters) ??
+          basesDslExpr(view?.filters) ??
+          basesDslExpr(input.override_filters) ??
+          stringFormula(raw.formulas);
+        if (dslHit !== null)
+          throw err.unsupportedBaseFilter(
+            "this base uses the Obsidian Bases expression DSL, which query_base does not evaluate (THE-281)",
+            { expression: dslHit },
+          );
 
         const source = isLogicObject(raw.source) ? raw.source : undefined;
         const sType = source ? String(source.type) : undefined;

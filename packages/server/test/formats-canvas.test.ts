@@ -1,6 +1,6 @@
 import type { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
-import { parseCanvas, projectNode, serializeCanvas } from "../src/formats/canvas";
+import { parseCanvas, projectEdge, projectNode, serializeCanvas } from "../src/formats/canvas";
 
 function codeOf(fn: () => unknown): string {
   try {
@@ -85,5 +85,23 @@ describe("formats/canvas codec", () => {
       "styleAttributes",
       "customFlag",
     ]);
+  });
+
+  it("projects spec-valid edge fromEnd/toEnd and group node background/backgroundStyle (THE-284)", () => {
+    expect(
+      projectEdge({ id: "e1", fromNode: "a", toNode: "b", fromEnd: "none", toEnd: "arrow" }),
+    ).toMatchObject({ fromEnd: "none", toEnd: "arrow" });
+    expect(
+      projectNode({
+        id: "g1",
+        type: "group",
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        background: "bg.png",
+        backgroundStyle: "cover",
+      }),
+    ).toMatchObject({ background: "bg.png", backgroundStyle: "cover" });
   });
 });

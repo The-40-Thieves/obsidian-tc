@@ -34,6 +34,7 @@ export type ErrorCode =
   | "plugin_unreachable"
   // M3 (G2.1 Domains 7-8,12,18-20 structured formats) codes — additive, do not rename.
   | "bases_syntax_error"
+  | "unsupported_base_filter"
   // M4 (G2.1 Domain 26 command palette) codes — additive, do not rename.
   | "execute_command_disabled"
   | "command_not_allowlisted"
@@ -123,6 +124,10 @@ export const err = {
   pluginUnreachable: mk("plugin_unreachable", "plugin detected but REST endpoint failed"),
   // M3 — G2.1 structured-format domains (Bases).
   basesSyntaxError: mk("bases_syntax_error", "invalid .base YAML or filter syntax"),
+  unsupportedBaseFilter: mk(
+    "unsupported_base_filter",
+    "base uses the Obsidian Bases expression DSL, which query_base does not evaluate",
+  ),
   // M4 — G2.1 Domain 26 command palette (deny-by-default command execution).
   executeCommandDisabled: mk(
     "execute_command_disabled",
