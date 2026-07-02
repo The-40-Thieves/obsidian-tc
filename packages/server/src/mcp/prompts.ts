@@ -10,6 +10,8 @@ interface PromptDef {
   name: string;
   description: string;
   arguments: PromptArg[];
+  /** Optional MCP 2025-11-25 icons metadata (THE-278). No built-in prompt sets it yet. */
+  icons?: { src: string; mimeType?: string; sizes?: string[] }[];
   build: (args: Record<string, string>) => string;
 }
 
@@ -64,6 +66,7 @@ export function listPrompts(): ListPromptsResult {
       name: p.name,
       description: p.description,
       arguments: p.arguments,
+      ...(p.icons ? { icons: p.icons } : {}),
     })),
   };
 }

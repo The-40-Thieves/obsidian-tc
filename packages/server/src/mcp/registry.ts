@@ -36,14 +36,29 @@ export interface CallerContext {
   now?: () => number;
 }
 
+/** MCP 2025-11-25 icon metadata (a structural subset of the SDK's Icon), surfaced in tools/list +
+ *  describe_capability (THE-278). Optional plumbing; no tool populates it yet. */
+export interface ToolIcon {
+  src: string;
+  mimeType?: string;
+  sizes?: string[];
+}
+
 export interface ToolDefinition<I = unknown, O = unknown> {
   name: string;
   description: string;
   inputSchema: z.ZodType<I>;
+  /** Optional output schema (MUST be a Zod OBJECT) advertised as the tool's `outputSchema`
+   *  (MCP 2025-11-25, THE-278). When set, conformant clients REQUIRE + validate structuredContent
+   *  on a successful result, so the handler's success payload MUST always be an object matching it.
+   *  Opt-in per tool; the server already emits structuredContent for object results. */
+  outputSchema?: z.ZodType<O>;
   requiredScopes: string[];
   /** Free-form classification labels for tool-visibility scoping (THE-219):
    *  matched against toolVisibility.hiddenTags / disabledTags. */
   tags?: string[];
+  /** Optional MCP 2025-11-25 icons metadata (THE-278). Boundary-only; never read by dispatch. */
+  icons?: ToolIcon[];
   destructive?: boolean;
   /** Tool-specific precondition gate. Runs AFTER scope+ACL and BEFORE the HITL/elicit
    *  stage, so a rejection never consumes the single-use elicit token (D5). Throw an
