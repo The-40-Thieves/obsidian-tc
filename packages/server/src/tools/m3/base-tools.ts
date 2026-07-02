@@ -13,6 +13,7 @@
 // DSL evaluator is THE-281).
 import {
   err,
+  ObsidianTcError,
   Pagination,
   VaultId,
   VaultPath,
@@ -21,6 +22,13 @@ import {
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import { BaseDoc, baseViews, parseBase, selectView, serializeBase } from "../../formats/base";
+import {
+  type BasesNoteCtx,
+  classifyBaseFilter,
+  evaluateBasesExpr,
+  evaluateBasesFilter,
+  parseBasesExpr,
+} from "../../formats/bases-expr";
 import type { ToolDefinition } from "../../mcp/registry";
 import { applyLogic, evaluatesTruthy } from "../../search/jsonlogic";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -125,7 +133,8 @@ const QueryInput = z
     vault: VaultId,
     path: VaultPath,
     view: z.string().optional(),
-    override_filters: z.record(z.string(), z.unknown()).optional(),
+    // THE-281: a string override is the Bases DSL; an object stays JSONLogic.
+    override_filters: z.union([z.record(z.string(), z.unknown()), z.string()]).optional(),
   })
   .merge(Pagination)
   .strict();
@@ -266,7 +275,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "query_base",
       description:
-        "Execute a base view and return resolved rows. Filters/formulas use obsidian-tc's JSONLogic model over each note; a base written with the real Obsidian Bases expression DSL is refused with unsupported_base_filter (see THE-281).",
+        "Execute a base view and return resolved rows. Filters/formulas may use obsidian-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset, THE-281); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter.",
       inputSchema: QueryInput,
       requiredScopes: ["read:bases"],
       handler: (input, ctx) => {
@@ -282,26 +291,41 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const view = selectView(raw, input.view);
         if (input.view && !view) throw err.invalidInput("view not found", { view: input.view });
 
-        // THE-284: refuse a real Obsidian Bases expression rather than silently match-all.
-        const dslHit =
-          basesDslExpr(raw.filters) ??
-          basesDslExpr(view?.filters) ??
-          basesDslExpr(input.override_filters) ??
-          stringFormula(raw.formulas);
-        if (dslHit !== null)
-          throw err.unsupportedBaseFilter(
-            "this base uses the Obsidian Bases expression DSL, which query_base does not evaluate (THE-281)",
-            { expression: dslHit },
-          );
+        // THE-281: pure string / combinator-of-strings filters are the real Bases DSL, evaluated
+        // by the subset evaluator; pure-JSONLogic objects keep the legacy path; MIXED trees still
+        // refuse with the same typed code (evaluating half a tree in each engine risks silent
+        // mis-evaluation — the THE-284 honesty contract).
+        const clsTop = classifyBaseFilter(raw.filters);
+        const clsView = classifyBaseFilter(view?.filters);
+        const clsOver = classifyBaseFilter(input.override_filters);
+        for (const [cls, expr] of [
+          [clsTop, raw.filters],
+          [clsView, view?.filters],
+          [clsOver, input.override_filters],
+        ] as const) {
+          if (cls === "mixed")
+            throw err.unsupportedBaseFilter(
+              "this base mixes Bases DSL strings and JSONLogic objects in one filter tree, which query_base does not evaluate",
+              { expression: JSON.stringify(expr).slice(0, 200) },
+            );
+        }
 
         const source = isLogicObject(raw.source) ? raw.source : undefined;
         const sType = source ? String(source.type) : undefined;
         const sValue = source?.value;
-        const formulas = isLogicObject(raw.formulas)
-          ? Object.entries(raw.formulas).filter(([, expr]) => isLogicObject(expr))
-          : [];
-        const viewFilters = view && isLogicObject(view.filters) ? view.filters : undefined;
-        const override = isLogicObject(input.override_filters) ? input.override_filters : undefined;
+        const formulaEntries = isLogicObject(raw.formulas) ? Object.entries(raw.formulas) : [];
+        const formulas = formulaEntries.filter(([, expr]) => isLogicObject(expr));
+        // THE-281: parse string formulas ONCE up front — a syntax/unsupported error refuses the
+        // whole query (typed), never a silent null column on every row.
+        const dslFormulas = formulaEntries
+          .filter((e): e is [string, string] => typeof e[1] === "string")
+          .map(([name, src]) => [name, parseBasesExpr(src)] as const);
+        const viewFilters =
+          clsView === "jsonlogic" && view && isLogicObject(view.filters) ? view.filters : undefined;
+        const override =
+          clsOver === "jsonlogic" && isLogicObject(input.override_filters)
+            ? input.override_filters
+            : undefined;
         const colNames = view && Array.isArray(view.columns) ? (view.columns as string[]) : [];
 
         let candidates = walkVault(v.root, { extensions: [".md"] })
@@ -340,7 +364,18 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
             tags,
             content: body,
           };
+          const basesCtx: BasesNoteCtx = {
+            path: p,
+            frontmatter: fm,
+            tags,
+            links: extractLinks(body).map((l) => l.target),
+          };
+          // THE-281: a pure-DSL top-level `filters` (real Bases has NO source block — the note
+          // set IS the top-level filters) narrows the note set; previously it was refused.
+          if (clsTop === "dsl" && !evaluateBasesFilter(raw.filters, basesCtx)) continue;
+          if (clsView === "dsl" && !evaluateBasesFilter(view?.filters, basesCtx)) continue;
           if (viewFilters && !evaluatesTruthy(viewFilters, data)) continue;
+          if (clsOver === "dsl" && !evaluateBasesFilter(input.override_filters, basesCtx)) continue;
           if (override && !evaluatesTruthy(override, data)) continue;
 
           const columns: Record<string, unknown> = {};
@@ -351,6 +386,17 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
               columns[name] = applyLogic(expr, data);
             } catch {
               columns[name] = null; // a formula that references a missing/incompatible field yields null
+            }
+          }
+          basesCtx.formulas = columns;
+          for (const [name, ast] of dslFormulas) {
+            try {
+              columns[name] = evaluateBasesExpr(ast, basesCtx);
+            } catch (e) {
+              // Unsupported constructs stay typed refusals (never a silent null column); per-row
+              // data errors (missing/mismatched fields) yield null like the JSONLogic formulas.
+              if (e instanceof ObsidianTcError && e.code === "unsupported_base_filter") throw e;
+              columns[name] = null;
             }
           }
           rows.push({ note_path: p, columns });
