@@ -24,6 +24,7 @@ import {
   findCapability,
   isDomainTool,
   isFacadeTool,
+  JSON_SCHEMA_OPTS,
   triadTools,
 } from "./facade";
 import { getPrompt, listPrompts } from "./prompts";
@@ -141,13 +142,22 @@ export function createMcpServer(opts: McpServerOptions): Server {
       name: def.name,
       title: titleize(def.name),
       description: def.description,
-      inputSchema: z.toJSONSchema(def.inputSchema, {
-        // 2020-12 is the MCP 2025-11-25 default dialect (THE-278).
-        target: "draft-2020-12",
-        reused: "inline",
-        unrepresentable: "any",
-      }) as unknown as Tool["inputSchema"],
+      inputSchema: z.toJSONSchema(
+        def.inputSchema,
+        JSON_SCHEMA_OPTS,
+      ) as unknown as Tool["inputSchema"],
+      // outputSchema + icons are opt-in per tool (THE-278); omitted entirely when unset so a tool
+      // that declares neither serializes byte-identically to before.
+      ...(def.outputSchema
+        ? {
+            outputSchema: z.toJSONSchema(
+              def.outputSchema,
+              JSON_SCHEMA_OPTS,
+            ) as unknown as Tool["outputSchema"],
+          }
+        : {}),
       annotations: toolAnnotations(def),
+      ...(def.icons ? { icons: def.icons } : {}),
     }));
     const nextStart = start + page.length;
     return nextStart < visible.length ? { tools, nextCursor: String(nextStart) } : { tools };
@@ -160,14 +170,31 @@ export function createMcpServer(opts: McpServerOptions): Server {
       ...(structuredContent ? { structuredContent } : {}),
     };
   };
+  // A dispatch failure is a Tool Execution Error, not a JSON-RPC protocol error (MCP 2025-11-25 /
+  // SEP-1303): return isError:true with a human-readable sentence AND the full error object as
+  // structuredContent, so a model can read what went wrong (e.g. the Zod issues) and self-correct
+  // rather than seeing an opaque JSON blob.
+  const errorToResult = (error: {
+    code: string;
+    message: string;
+    retryable?: boolean;
+  }): CallToolResult => ({
+    content: [
+      {
+        type: "text",
+        text: `Error [${error.code}]: ${error.message}${error.retryable ? " (retryable)" : ""}`,
+      },
+    ],
+    structuredContent: error as unknown as Record<string, unknown>,
+    isError: true,
+  });
   const dispatchToResult = async (
     name: string,
     args: Record<string, unknown>,
     ctx: CallerContext,
   ): Promise<CallToolResult> => {
     const result = await opts.registry.dispatch(name, args, ctx);
-    if (!result.ok)
-      return { content: [{ type: "text", text: JSON.stringify(result.error) }], isError: true };
+    if (!result.ok) return errorToResult(result.error);
     return formatData(result.data);
   };
 

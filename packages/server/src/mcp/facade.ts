@@ -21,7 +21,7 @@ export function isFacadeTool(name: string): boolean {
 
 // Emit JSON Schema 2020-12 — the default dialect of MCP 2025-11-25 (THE-278). draft-7 stays valid
 // per spec, but 2020-12 aligns the advertised tool/capability schemas with the negotiated version.
-const JSON_SCHEMA_OPTS = {
+export const JSON_SCHEMA_OPTS = {
   target: "draft-2020-12",
   reused: "inline",
   unrepresentable: "any",
@@ -142,8 +142,12 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
     title: titleize(def.name),
     description: def.description,
     input_schema: z.toJSONSchema(def.inputSchema, JSON_SCHEMA_OPTS),
+    ...(def.outputSchema
+      ? { output_schema: z.toJSONSchema(def.outputSchema, JSON_SCHEMA_OPTS) }
+      : {}),
     required_scopes: def.requiredScopes,
     annotations: { read_only: !mutating, destructive: def.destructive === true },
+    ...(def.icons ? { icons: def.icons } : {}),
   };
 }
 
