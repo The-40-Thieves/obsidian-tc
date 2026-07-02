@@ -512,6 +512,7 @@ export class ToolRegistry {
                 this.meter((m) =>
                   m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize),
                 );
+                this.meter((m) => m.incIdempotencyHit(ctx.vaultId, name));
                 return {
                   ok: true,
                   data: cached,
@@ -603,6 +604,7 @@ export class ToolRegistry {
 
       if (resultSize > this.maxResponseBytes) {
         if (idemClaimed && idemKey) {
+          this.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
           try {
             this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
           } catch {
