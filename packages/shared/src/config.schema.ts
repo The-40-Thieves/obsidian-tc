@@ -52,6 +52,10 @@ export const VaultConfigSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).optional(),
   path: z.string().min(1),
+  // THE-295: per-vault ACL override (same shape as the root `acl` block); absent -> the root
+  // ACL is the inherited default. z.lazy defers the reference (AclConfigSchema is declared
+  // below this schema).
+  acl: z.lazy(() => AclConfigSchema).optional(),
   restApiUrl: z.string().url().optional(),
   restApiKey: z.string().optional(),
   // Headless mode selection (THE-255). Absent or `auto` probes the Local REST API once at

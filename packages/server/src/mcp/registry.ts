@@ -189,6 +189,10 @@ export interface RegistryOptions {
     session: { vaultId: string; sessionId: string; caller: string | null },
     record: TraceRecord,
   ) => void;
+  /** THE-295 per-vault ACL resolver. When the parsed input names a vault, dispatch swaps
+   *  ctx.acl to that vault's ACL (root ACL = inherited default) so the readOnly gate and every
+   *  handler-side enforcePathAcl run under the right vault's rules. */
+  aclResolver?: (vaultId: string) => FolderAcl | undefined;
   /** THE-288 internal-error sink. When a handler throws a non-typed exception (a server bug),
    *  the client response is redacted to `{code:"internal"}`; this sink receives the real error +
    *  stack for operator diagnosis. Never wired to stdout (the MCP channel); best-effort. */
@@ -214,6 +218,7 @@ export class ToolRegistry {
   private readonly onProfile?: (p: DispatchProfile) => void;
   private readonly sessionTracer?: RegistryOptions["sessionTracer"];
   private readonly onInternalError?: RegistryOptions["onInternalError"];
+  private readonly aclResolver?: RegistryOptions["aclResolver"];
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
@@ -228,6 +233,7 @@ export class ToolRegistry {
     this.onProfile = opts.onProfile;
     this.sessionTracer = opts.sessionTracer;
     this.onInternalError = opts.onInternalError;
+    this.aclResolver = opts.aclResolver;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -515,6 +521,21 @@ export class ToolRegistry {
             vault: requested,
             bound_vault: ctx.vaultId,
           });
+      }
+
+      // THE-295: per-vault ACL. When the parsed input names a vault, the remainder of this
+      // dispatch (the readOnly gate below + every enforcePathAcl in the handler) runs under
+      // THAT vault's ACL — the root ACL is the inherited default. Runs AFTER the THE-267
+      // vault-binding guard, so a bound caller cannot reach another vault's ACL. The advertised
+      // tool surface (listVisible) deliberately keeps the caller's default ACL; enforcement is
+      // per-vault here at dispatch.
+      if (this.aclResolver) {
+        const requestedVault = (parsed.data as { vault?: unknown } | null)?.vault;
+        if (typeof requestedVault === "string") {
+          const vaultAcl = this.aclResolver(requestedVault);
+          // Property mutation (not param reassignment): ctx objects are per-dispatch.
+          if (vaultAcl) (ctx as { acl?: typeof vaultAcl }).acl = vaultAcl;
+        }
       }
 
       const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);

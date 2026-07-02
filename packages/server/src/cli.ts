@@ -221,6 +221,14 @@ async function main(): Promise<void> {
   // THE-209: process-local active-session tracker; start_session/end_session maintain it and
   // the stdio context factory reads it to stamp ctx.sessionId for dispatch-level tracing.
   const activeSessions = new ActiveSessionTracker();
+  // THE-295: root ACL + per-vault overrides (root is the inherited default), hoisted above the
+  // registry so dispatch's aclResolver can swap ctx.acl per requested vault.
+  const acl = new FolderAcl(config.acl);
+  const aclByVault = new Map(
+    config.vaults
+      .filter((v) => v.acl !== undefined)
+      .map((v) => [v.id, new FolderAcl(v.acl as ConstructorParameters<typeof FolderAcl>[0])]),
+  );
   const registry = new ToolRegistry({
     maxResponseBytes: config.governor.maxResponseBytes,
     idempotencyTtlSeconds: config.idempotencyTtlSeconds,
@@ -233,6 +241,8 @@ async function main(): Promise<void> {
     // throttles. The RateLimiter object still exists (below) so get_metrics keeps reporting.
     rateLimiter: config.throttle.enabled ? rateLimiter : undefined,
     toolVisibility: config.toolVisibility,
+    // THE-295: per-vault ACL enforcement at dispatch.
+    aclResolver: (vaultId) => aclByVault.get(vaultId) ?? acl,
     // THE-209: append a per-invocation trace record to the active session's JSONL trace.
     sessionTracer: (session, record) => {
       try {
@@ -535,7 +545,7 @@ async function main(): Promise<void> {
   // red-team (W-WORKERS challenge), wired to the gateway seams (graceful when absent).
   registerM7Tools(registry, { vaultRegistry, embeddingProvider, reranker, roles });
 
-  const acl = new FolderAcl(config.acl);
+  // THE-295: acl (+ per-vault overrides) is hoisted above the ToolRegistry construction.
 
   // stdio is the trusted local transport: the operator runs the binary against
   // their own vault, so calls are authenticated with full local scope.
