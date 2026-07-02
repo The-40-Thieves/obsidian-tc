@@ -18,6 +18,9 @@ export interface M2Deps {
    * configured" state, so M2-only harnesses need no bridge.
    */
   dataviewBridge?: (vaultId: string) => { client: BridgeClient; timeoutMs: number };
+  /** THE-293: worker-time budget (ms) for one search_regex / search_vault(mode:regex) call.
+   *  Absent -> the 2000ms default inside searchRegex. */
+  regexTimeoutMs?: number;
 }
 
 export function registerM2Tools(registry: ToolRegistry, deps: M2Deps): void {

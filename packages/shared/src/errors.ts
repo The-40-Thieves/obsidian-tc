@@ -39,7 +39,10 @@ export type ErrorCode =
   | "execute_command_disabled"
   | "command_not_allowlisted"
   // M-headless (THE-255) — typed Tier-3 degrade when the vault is headless.
-  | "requires_live_obsidian";
+  | "requires_live_obsidian"
+  // THE-293 — deterministic compute-budget rejection (regex execution timeout / JSONLogic op
+  // budget). Never retryable: the same input re-hangs identically.
+  | "compute_budget_exceeded";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -139,4 +142,6 @@ export const err = {
     "requires_live_obsidian",
     "this operation requires a live Obsidian (Local REST API) connection",
   ),
+  // THE-293 — compute-abuse budgets (regex execution timeout).
+  computeBudgetExceeded: mk("compute_budget_exceeded", "operation exceeded its compute budget"),
 } as const;

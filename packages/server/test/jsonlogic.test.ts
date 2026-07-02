@@ -68,3 +68,27 @@ describe("evaluatesTruthy", () => {
     expect(evaluatesTruthy({ var: "missing" }, data)).toBe(false);
   });
 });
+
+describe("jsonlogic op budget (THE-293)", () => {
+  it("rejects a wide flat expression over the op budget", () => {
+    const rule = { and: Array.from({ length: 10_001 }, () => true) } as unknown as Parameters<
+      typeof evaluatesTruthy
+    >[0];
+    try {
+      evaluatesTruthy(rule, data);
+      throw new Error("expected throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ObsidianTcError);
+      expect((e as ObsidianTcError).code).toBe("jsonlogic_error");
+      expect((e as ObsidianTcError).message).toContain("operation budget");
+    }
+  });
+
+  it("evaluates a normal-width expression and the budget is fresh per call", () => {
+    const rule = { and: Array.from({ length: 5000 }, () => true) } as unknown as Parameters<
+      typeof evaluatesTruthy
+    >[0];
+    expect(evaluatesTruthy(rule, data)).toBe(true);
+    expect(evaluatesTruthy(rule, data)).toBe(true);
+  });
+});

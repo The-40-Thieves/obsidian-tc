@@ -155,6 +155,9 @@ export interface RegistryOptions {
   rateLimiter?: RateLimiter;
   /** Idempotency replay TTL in seconds (D3). Defaults to 86400 when absent. */
   idempotencyTtlSeconds?: number;
+  /** THE-293: window (seconds) after which a crashed in-flight idempotency row may be
+   *  reclaimed at dispatch. Default 60. */
+  idempotencyReclaimSeconds?: number;
   /** Static tool-visibility scoping (THE-219). Optional: ALLOW_ALL when absent. */
   toolVisibility?: ToolVisibilityConfig;
   /** Profile sink (perf diagnostics). When set, each successful dispatch reports total vs
@@ -186,6 +189,7 @@ export class ToolRegistry {
   ) => void;
   private readonly rateLimiter?: RateLimiter;
   private readonly idempotencyTtlMs: number;
+  private readonly idempotencyReclaimMs: number;
   private readonly toolVisibility: ToolVisibilityConfig;
   private readonly onProfile?: (p: DispatchProfile) => void;
   private readonly sessionTracer?: RegistryOptions["sessionTracer"];
@@ -199,6 +203,7 @@ export class ToolRegistry {
     this.emit = opts.emit;
     this.rateLimiter = opts.rateLimiter;
     this.idempotencyTtlMs = (opts.idempotencyTtlSeconds ?? 86400) * 1000;
+    this.idempotencyReclaimMs = (opts.idempotencyReclaimSeconds ?? 60) * 1000;
     this.toolVisibility = opts.toolVisibility ?? ALLOW_ALL;
     this.onProfile = opts.onProfile;
     this.sessionTracer = opts.sessionTracer;
@@ -514,11 +519,12 @@ export class ToolRegistry {
           idemClaimed = true;
         } else {
           let row = this.readIdempotency(ctx.db, ctx.vaultId, idemKey);
-          // Reclaim an expired or crashed (in-flight past the 60s sweep) row, then retry once.
+          // Reclaim an expired or crashed (in-flight past the configured reclaim window) row,
+          // then retry once (idempotencyReclaimSeconds, THE-293).
           if (
             row &&
             (row.expires_at <= now() ||
-              (row.completed_at == null && row.started_at + 60_000 <= now()))
+              (row.completed_at == null && row.started_at + this.idempotencyReclaimMs <= now()))
           ) {
             this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
             if (

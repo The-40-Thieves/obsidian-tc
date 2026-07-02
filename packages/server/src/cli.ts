@@ -210,6 +210,7 @@ async function main(): Promise<void> {
   const registry = new ToolRegistry({
     maxResponseBytes: config.governor.maxResponseBytes,
     idempotencyTtlSeconds: config.idempotencyTtlSeconds,
+    idempotencyReclaimSeconds: config.idempotencyReclaimSeconds,
     verifyElicit: elicitVerifier,
     metrics,
     tracer: otel.tracer,
@@ -425,6 +426,8 @@ async function main(): Promise<void> {
       client: openBridge(m4Deps, vaultId, "dataview").client,
       timeoutMs: bridgeTimeouts(m4Deps, vaultId).timeoutMs,
     }),
+    // THE-293: regex execution budget (worker time only).
+    regexTimeoutMs: config.governor.regexTimeoutMs,
   });
   registerM3Tools(registry, {
     vaultRegistry,

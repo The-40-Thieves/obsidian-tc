@@ -136,6 +136,10 @@ export const TransportsConfigSchema = z.object({
 
 export const GovernorConfigSchema = z.object({
   maxResponseBytes: z.number().int().positive().default(1_000_000),
+  // THE-293: worker-time budget (ms) for one search_regex / search_vault(mode:regex) call.
+  // Only regex execution in the worker counts — file I/O does not — so a benign pattern on a
+  // large vault cannot false-positive the ReDoS guard.
+  regexTimeoutMs: z.number().int().positive().default(2000),
 });
 
 // Per-scope-class throttle tiers + write-concurrency ceiling (THE-182 / M6, G2.4
@@ -270,6 +274,10 @@ const ServerConfigObject = z.object({
   throttle: ThrottleConfigSchema,
   observability: ObservabilityConfigSchema.prefault({}),
   idempotencyTtlSeconds: z.number().int().positive().default(86400),
+  // THE-293: window (seconds) after which a crashed in-flight idempotency row may be reclaimed
+  // at dispatch. Raise for legitimately slow bulk tools; lowering it below a live tool's
+  // runtime risks a duplicate execution.
+  idempotencyReclaimSeconds: z.number().int().positive().default(60),
   elicitTtlSeconds: z.number().int().positive().default(300),
 });
 
