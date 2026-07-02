@@ -170,7 +170,15 @@ async function main(): Promise<void> {
   // observability.prometheus.enabled (default off / `:0`).
   // OTEL tracing (G2.4) — no-op unless observability.otel.endpoint is set.
   const otel = initOtel(config.observability, VERSION);
-  const metrics = new MetricsRecorder();
+  const metrics = new MetricsRecorder({
+    // THE-197: live idempotency cache size per vault (unexpired, completed rows only).
+    idempotencyCacheBytes: () =>
+      db
+        .prepare(
+          "SELECT vault_id AS vault, COALESCE(SUM(result_size), 0) AS value FROM idempotency_keys WHERE completed_at IS NOT NULL AND expires_at > ? GROUP BY vault_id",
+        )
+        .all(Date.now()) as Array<{ vault: string; value: number }>,
+  });
   // MORGIANA CloudEvents spool (G2.4) — JSONL by default; a dropped event feeds
   // morgiana_emit_dropped_total + the event_log and never blocks a tool call.
   const morgiana = new MorgianaEmitter({
