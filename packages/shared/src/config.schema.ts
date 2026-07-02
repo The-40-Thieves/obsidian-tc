@@ -227,6 +227,15 @@ export const MaintenanceConfigSchema = z
   })
   .prefault({});
 
+// THE-296 — ambient sleep-time consolidation (synthesis + audit jobs). Fully defaulted; only
+// meaningful when the inference gateway (roles) is configured — cli gates on both.
+export const PlaneConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    intervalMinutes: z.number().int().positive().default(240),
+  })
+  .prefault({});
+
 // plur read-API proxy config (M5 / THE-181, G2.1 Domain 24). GLOBAL, not per-vault:
 // the plur engram store is global and the plur tools take no `vault` argument, so
 // this lives at the server root. endpoint/apiKey come from config or the
@@ -287,6 +296,7 @@ const ServerConfigObject = z.object({
   throttle: ThrottleConfigSchema,
   observability: ObservabilityConfigSchema.prefault({}),
   maintenance: MaintenanceConfigSchema,
+  plane: PlaneConfigSchema,
   idempotencyTtlSeconds: z.number().int().positive().default(86400),
   // THE-293: window (seconds) after which a crashed in-flight idempotency row may be reclaimed
   // at dispatch. Raise for legitimately slow bulk tools; lowering it below a live tool's

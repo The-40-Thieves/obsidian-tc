@@ -66,6 +66,38 @@ export class SleepTimePlane {
   }
 }
 
+export interface PlaneSchedulerDeps {
+  db: Database;
+  roles: GatewayRoles | null;
+  intervalMs: number;
+  now?: () => number;
+  onRun?: (results: Record<string, JobResult>) => void;
+  onError?: (e: unknown) => void;
+}
+
+/**
+ * THE-296: the ambient scheduling trigger the integration slice reserved. Runs every registered
+ * job on an unref'd interval (the timer never keeps the process alive; stdio EOF still exits);
+ * failures route to onError and never escape. Callers gate on roles being configured — the
+ * generative jobs degrade without them, but scheduling then is pure DB churn.
+ */
+export function startPlaneScheduler(plane: SleepTimePlane, deps: PlaneSchedulerDeps): () => void {
+  const timer = setInterval(() => {
+    void plane
+      .runAll({ db: deps.db, roles: deps.roles, now: deps.now ?? Date.now })
+      .then((results) => deps.onRun?.(results))
+      .catch((e) => {
+        try {
+          deps.onError?.(e);
+        } catch {
+          /* error sink must never throw */
+        }
+      });
+  }, deps.intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
 function recordRun(ctx: JobContext, job: string, startedAt: number, result: JobResult): void {
   if (!tableExists(ctx.db, "job_runs")) return;
   try {

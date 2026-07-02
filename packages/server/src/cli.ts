@@ -27,7 +27,10 @@ import { MetricsRecorder } from "./metrics/registry";
 import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
+import { auditJob } from "./plane/jobs/audit";
 import { checkContradictions } from "./plane/jobs/contradiction";
+import { synthesisJob } from "./plane/jobs/synthesis";
+import { SleepTimePlane, startPlaneScheduler } from "./plane/plane";
 import { createPlurClient } from "./plur/client";
 import { ensureNotesFts } from "./search/fts";
 import {
@@ -692,7 +695,25 @@ async function main(): Promise<void> {
       })
     : null;
 
+  // THE-296: ambient sleep-time consolidation (weekly synthesis + decision audit) — the
+  // scheduling trigger the plane reserved. Starts only when BOTH the flag and the gateway
+  // roles are present: the generative jobs degrade without roles, but scheduling them then
+  // is pure DB churn. Best-effort; a failed run logs to stderr and never escapes.
+  const stopPlane =
+    config.plane.enabled && roles
+      ? startPlaneScheduler(new SleepTimePlane().register(synthesisJob).register(auditJob), {
+          db,
+          roles,
+          intervalMs: config.plane.intervalMinutes * 60_000,
+          onError: (e) =>
+            process.stderr.write(
+              `[plane] run failed: ${e instanceof Error ? e.message : String(e)}\n`,
+            ),
+        })
+      : null;
+
   const shutdown = async (): Promise<void> => {
+    stopPlane?.();
     stopMaintenance?.();
     morgiana.emit(firstVault.id, "tc.server.shutdown");
     try {
