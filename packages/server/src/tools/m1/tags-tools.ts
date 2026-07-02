@@ -193,6 +193,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
 
         const content = serializeNote(fm, body, parsed.rawFrontmatter);
         writeNoteAtomic(abs, content, false);
+        deps.reindex?.(v.id, rel, content);
         return {
           vault: v.id,
           path: rel,
@@ -260,7 +261,10 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const nextFm = Object.keys(fm).length > 0 ? fm : null;
         const content = serializeNote(nextFm, body, parsed.rawFrontmatter);
         // Skip the rewrite (and content-hash churn) when nothing was removed (F1).
-        if (removed > 0) writeNoteAtomic(abs, content, false);
+        if (removed > 0) {
+          writeNoteAtomic(abs, content, false);
+          deps.reindex?.(v.id, rel, content);
+        }
         return {
           vault: v.id,
           path: rel,

@@ -207,6 +207,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         const hasKeys = Object.keys(next).length > 0;
         const content = serializeNote(hasKeys ? next : null, body, rawFm);
         writeNoteAtomic(abs, content, true);
+        deps.reindex?.(v.id, rel, content);
         return {
           vault: v.id,
           path: rel,
