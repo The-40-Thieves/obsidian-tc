@@ -9,6 +9,8 @@ export interface IndexHealthSnapshot {
   reconcile_at: number | null;
   /** Count of index-on-write failures swallowed since boot (best-effort reindex/deindex). */
   write_failures: number;
+  /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
+  notes_ready?: boolean;
   /** Per-vault reconcile errors + last write error — authenticated callers only (may name paths). */
   detail?: {
     reconcile_errors: Array<{ vault: string; error: string }>;
@@ -24,6 +26,8 @@ export interface HealthInfo {
   native_loaded: boolean;
   /** True when sqlite-vec loaded on the shared cache.db connection at boot. Non-identifying. */
   vec_enabled: boolean;
+  /** True when FTS5 (notes_fts) is available on this connection (THE-291). Non-identifying. */
+  fts_enabled: boolean;
   /** Number of configured vaults (always present, non-identifying). */
   vault_count: number;
   /** Vault id list — only for authenticated callers (ids are deployment-internal). */
@@ -40,6 +44,8 @@ export function createHealthTool(opts: {
   startedAt: number;
   nativeLoaded: boolean;
   vecEnabled: boolean;
+  /** Optional so existing harnesses stay source-compatible; absent -> false. */
+  ftsEnabled?: boolean;
   /** THE-288: returns a live index-health snapshot at call time, shaped by caller auth. */
   getIndexHealth?: (authenticated: boolean) => IndexHealthSnapshot;
 }): ToolDefinition<Record<string, never>, HealthInfo> {
@@ -58,6 +64,7 @@ export function createHealthTool(opts: {
       version: opts.version,
       native_loaded: opts.nativeLoaded,
       vec_enabled: opts.vecEnabled,
+      fts_enabled: opts.ftsEnabled ?? false,
       vault_count: opts.vaults.length,
       ...(ctx.authenticated ? { vaults: opts.vaults } : {}),
       uptime_ms: Date.now() - opts.startedAt,

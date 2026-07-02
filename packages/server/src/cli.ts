@@ -29,7 +29,14 @@ import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
 import { checkContradictions } from "./plane/jobs/contradiction";
 import { createPlurClient } from "./plur/client";
-import { type IndexedChunk, type IndexHook, indexNote, indexVault } from "./search/indexer";
+import { ensureNotesFts } from "./search/fts";
+import {
+  deindexNote,
+  type IndexedChunk,
+  type IndexHook,
+  indexNote,
+  indexVault,
+} from "./search/indexer";
 import { nativeLoaded } from "./search/native";
 import type { Reranker } from "./search/rerank";
 import { ensureVecChunks } from "./search/vec";
@@ -87,6 +94,11 @@ const experientialInitMigrationSql = readFileSync(
 // the cache.db migration chain below.
 const planeMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260626_002_plane.sql", import.meta.url)),
+  "utf8",
+);
+// THE-291: per-note metadata table (notes_fts is runtime-provisioned, never in this chain).
+const notesMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260702_001_notes.sql", import.meta.url)),
   "utf8",
 );
 async function main(): Promise<void> {
@@ -154,6 +166,7 @@ async function main(): Promise<void> {
       { version: "20260519_002", sql: entityUniqueMigrationSql },
       { version: "20260626_001", sql: vaultEdgesMigrationSql },
       { version: "20260626_002", sql: planeMigrationSql },
+      { version: "20260702_001", sql: notesMigrationSql },
     ],
     { version: VERSION },
   );
@@ -251,6 +264,9 @@ async function main(): Promise<void> {
   // convergence. Shares the one embedding provider + vec-availability flag.
   const embeddingProvider = createEmbeddingProvider(config.embeddings);
   const hasVec = ensureVecChunks(db, embeddingProvider.dimensions, { now: Date.now });
+  // THE-291: FTS5 probe (trigram notes_fts) — false on adapters without FTS5 or when
+  // OBSIDIAN_TC_DISABLE_FTS=1; the query layer then keeps the disk-scan floor.
+  const hasFts = ensureNotesFts(db, { now: Date.now });
   // THE-288: mutable index-health tracker surfaced by server_health. reconcile flips pending ->
   // ok/degraded when the boot reconcile settles; writeFailures counts swallowed index-on-write
   // errors (reindex/deindex best-effort). The health tool reads a snapshot at call time.
@@ -260,11 +276,14 @@ async function main(): Promise<void> {
     reconcileErrors: Array<{ vault: string; error: string }>;
     writeFailures: number;
     lastWriteError?: string;
+    /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
+    notesReady: boolean;
   } = {
     reconcile: "pending",
     reconcileAt: null,
     reconcileErrors: [],
     writeFailures: 0,
+    notesReady: false,
   };
   // server_health surfaces the build's active fast-paths (native module + sqlite-vec). Both are
   // non-identifying, so the tool keeps them in its unauthenticated payload; registered here (not
@@ -276,10 +295,12 @@ async function main(): Promise<void> {
       startedAt,
       nativeLoaded,
       vecEnabled: hasVec,
+      ftsEnabled: hasFts,
       getIndexHealth: (authenticated) => ({
         reconcile: indexHealth.reconcile,
         reconcile_at: indexHealth.reconcileAt,
         write_failures: indexHealth.writeFailures,
+        notes_ready: indexHealth.notesReady,
         ...(authenticated
           ? {
               detail: {
@@ -344,10 +365,12 @@ async function main(): Promise<void> {
     });
   };
   const deindexHook = (vaultId: string, path: string): void => {
-    void indexNote(db, embeddingProvider, vaultId, path, "", hasVec, Date.now).catch((e) => {
+    try {
+      deindexNote(db, vaultId, path, hasVec);
+    } catch (e) {
       indexHealth.writeFailures++;
       indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
-    });
+    }
   };
   registerM1Tools(registry, {
     vaultRegistry,
@@ -371,10 +394,12 @@ async function main(): Promise<void> {
       });
     },
     deindex: (vaultId, path) => {
-      void indexNote(db, embeddingProvider, vaultId, path, "", hasVec, Date.now).catch((e) => {
+      try {
+        deindexNote(db, vaultId, path, hasVec);
+      } catch (e) {
         indexHealth.writeFailures++;
         indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
-      });
+      }
     },
   });
   // M4 plugin bridges (THE-180): per vault, build a bridge client to the companion
@@ -584,6 +609,10 @@ async function main(): Promise<void> {
         isReadable: indexReadable,
         now: Date.now,
         onIndexed: makeOnIndexed(v.id),
+        // THE-291: metadata/FTS readiness is independent of embed success.
+        onNotesPass: () => {
+          indexHealth.notesReady = true;
+        },
       }).then(
         () => ({ vault: v.id, error: null as string | null }),
         (e) => ({ vault: v.id, error: e instanceof Error ? e.message : String(e) }),
