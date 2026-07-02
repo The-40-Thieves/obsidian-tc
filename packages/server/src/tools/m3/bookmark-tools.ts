@@ -142,6 +142,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
           bookmark: BookmarkItem,
           group: z.string().min(1).optional(),
           allow_duplicate: z.boolean().default(false),
+          prev_hash: z.string().optional(),
         })
         .strict(),
       requiredScopes: ["write:bookmarks"],
@@ -150,6 +151,10 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
         enforcePathAcl(ctx.acl, "write", BOOKMARKS_PATH, v.root);
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
+        if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
+          throw err.concurrentModification("bookmarks.json changed since prev_hash", {
+            path: BOOKMARKS_PATH,
+          });
         const data = file.data;
         if (!Array.isArray(data.items)) data.items = [];
         const items = data.items as Item[];
@@ -193,6 +198,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
           vault: VaultId,
           match: MatchCriteria,
           group: z.string().min(1).optional(),
+          prev_hash: z.string().optional(),
         })
         .strict(),
       requiredScopes: ["delete:bookmarks"],
@@ -204,6 +210,10 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
         enforcePathAcl(ctx.acl, "delete", BOOKMARKS_PATH, v.root);
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
+        if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
+          throw err.concurrentModification("bookmarks.json changed since prev_hash", {
+            path: BOOKMARKS_PATH,
+          });
         const data = file.data;
         const items = Array.isArray(data.items) ? (data.items as Item[]) : [];
 
