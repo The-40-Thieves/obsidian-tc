@@ -53,7 +53,21 @@ assumptions:
 - HITL elicit on destructive operations (configurable per op)
 - Fail-closed config: an unauthenticated HTTP transport refuses to bind a non-loopback host
 - Idempotency keys on writes
+- Optional compare-and-swap (`prev_hash`) on note writes — a stale write fails with `concurrent_modification` instead of clobbering
 - Bulk-operation throttling with configurable per-tier limits
 - Path-traversal prevention (byte-level rejection of `..` segments and absolute paths, plus a real-path symlink-containment check so in-vault symlinks cannot escape the vault root)
 - Deny-by-default command execution (disabled unless explicitly enabled, allowlisted, and HITL-gated)
 - Audit logging of every tool invocation
+
+## Write safety (concurrent modification)
+
+Every note write exposes an optional **`prev_hash`** (compare-and-swap): pass the hash you last
+read, and the write is rejected with `concurrent_modification` if the note changed underneath you.
+This covers `write_note` (overwrite), `append_note`, and `update_frontmatter` — defense-in-depth for
+multi-writer setups (e.g. several agents writing one vault). It is currently optional; making it
+mandatory on destructive paths is tracked for a future major (a breaking API change).
+
+obsidian-tc writes through the filesystem / native path, **not** through the Local REST API plugin's
+POST endpoint, so it is **not** affected by the upstream Obsidian Local REST API "append clobbers on
+overwrite" report (coddingtonbear/obsidian-local-rest-api #237, a metadata-cache miss on that POST
+path).
