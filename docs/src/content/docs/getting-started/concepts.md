@@ -1,6 +1,6 @@
 ---
 title: Concepts
-description: The core building blocks — vaults, tools, scopes, transports, and the companion plugin.
+description: The core building blocks — vaults, tools, the facade, scopes, transports, and the companion plugin.
 ---
 
 ## Vaults
@@ -11,18 +11,27 @@ memory folder, command allowlist). Every tool call targets one vault.
 
 ## Tools
 
-The server exposes **103 typed tools across 28 domains** — notes, metadata, links,
-search, embeddings, structured formats (Bases, Canvas, periodic notes), plugin
-bridges, memory, capture, bulk operations, URI generation, and server admin. Each
-tool has a Zod-validated input schema and a structured result. See the
-[Tool Reference](/tools/).
+The server groups **~103 typed tools across modules M1–M7 plus admin** — notes,
+metadata, links, search, embeddings, structured formats (Bases, Canvas, periodic
+notes), plugin bridges, memory, capture, bulk operations, URI generation, and
+server admin. Each tool has a Zod-validated input schema, derived MCP annotations,
+and a structured result. See the [Tool Reference](/tools/).
+
+## Tool-surface facade
+
+`toolFacade.mode` controls what `tools/list` advertises: **`triad`** (default)
+exposes three meta-tools (`find_capability`, `describe_capability`,
+`call_capability`) for progressive discovery; **`domain`** exposes ~a dozen domain
+meta-tools taking `{ action, args }`; **`flat`** advertises every tool. In every
+mode each tool stays callable by name, and `tools/list` is further filtered per
+caller scopes + tool-visibility ACL.
 
 ## Scopes & scope classes
 
-Every tool declares the scopes it requires (e.g. `read:vault`,
-`write:vault/02-projects/**`). Scopes drive both **authorization** (ACLs) and
-**rate limiting**: each tool maps to a scope *class* — `read`, `write`, `bulk`,
-`execute`, or `admin` — and the class selects a throttle tier.
+Every tool declares the scopes it requires (`family:resource`, e.g. `read:notes`,
+`write:notes`). Scopes drive both **authorization** (ACLs) and **rate limiting**:
+each tool maps to a scope *class* — `read`, `write`, `delete`, `bulk`, `execute`,
+or `admin` — and the class selects a throttle tier.
 
 ## Transports
 

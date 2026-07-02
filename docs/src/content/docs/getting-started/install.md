@@ -6,7 +6,7 @@ description: Install the obsidian-tc MCP server via npm, a standalone binary, or
 obsidian-tc ships in three forms. All of them run the same server; pick whichever
 fits your environment.
 
-## npm (Node 20+)
+## npm (Node 24+)
 
 ```sh
 npm install -g obsidian-tc
@@ -15,14 +15,15 @@ obsidian-tc --version
 
 This installs the `obsidian-tc` binary backed by the published `obsidian-tc`
 package and its `@the-40-thieves/obsidian-tc-{shared,native}` companions. The
-native module ships prebuilds for linux-x64, darwin-x64, darwin-arm64, and
-win32-x64; on any other platform it transparently falls back to a pure-JS
-implementation.
+native module ships prebuilds for eight targets — `linux-x64-gnu`,
+`linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl` (Alpine), `darwin-x64`,
+`darwin-arm64`, `win32-x64-msvc`, and `win32-arm64-msvc`; on any other platform it
+transparently falls back to a pure-JS implementation.
 
 ## Standalone binary
 
-Each release attaches self-contained executables (built with `bun build
---compile`) that bundle the runtime — no Node or Bun required on the host.
+Each release attaches self-contained executables (built with `bun build --compile`,
+bytecode + minified) that bundle the runtime — no Node or Bun required on the host.
 Download the asset for your platform from the GitHub release and run it directly.
 
 ## Docker
@@ -30,10 +31,11 @@ Download the asset for your platform from the GitHub release and run it directly
 ```sh
 docker run --rm -v "$HOME/vaults:/vaults" \
   -v "$HOME/.config/obsidian-tc:/config" \
-  ghcr.io/the-40-thieves/obsidian-tc:1.0.0 /config/config.yaml
+  ghcr.io/the-40-thieves/obsidian-tc:1.2.1 /config/config.json
 ```
 
-The image is a single-stage `oven/bun:1-alpine` build.
+The image is an `oven/bun:1-slim` build (Debian, glibc): the native prebuilds are
+gnu, so a glibc base keeps them loadable instead of forcing the pure-JS fallback.
 
 ## Companion plugin
 

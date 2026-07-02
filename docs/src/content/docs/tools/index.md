@@ -1,11 +1,30 @@
 ---
 title: Tool Reference
-description: The 103-tool, 28-domain surface obsidian-tc exposes to MCP clients.
+description: The ~103-tool surface obsidian-tc exposes to MCP clients, and the facade that shapes it.
 ---
 
-obsidian-tc exposes **103 tools across 28 domains**. Every tool has a
-Zod-validated input schema, a structured result, a declared scope set, and a
-scope class that selects its rate-limit tier.
+obsidian-tc groups **~103 tools across modules M1–M7 plus admin**. Every tool has
+a Zod-validated input schema, a structured result, a declared scope set, and a
+scope class that selects its rate-limit tier. `tools/list` also derives MCP
+**annotations** (`readOnlyHint` / `destructiveHint` / `openWorldHint`) and a
+`title` from registry ground truth, and a tool may carry an optional `outputSchema`
+and `icons`. Advertised schemas are **JSON Schema 2020-12** (the MCP `2025-11-25`
+default dialect), matching the negotiated protocol version.
+
+## Tool-surface facade
+
+What `tools/list` advertises is controlled by `toolFacade.mode`:
+
+- **`triad`** (default) — three meta-tools: `find_capability` (BM25 search over the
+  catalog), `describe_capability` (a tool's schema + scopes), and `call_capability`
+  (invoke by name). Discover, inspect, then call.
+- **`domain`** — ~a dozen domain meta-tools (`notes`, `search`, `vault`, …), each
+  taking `{ action, args }`.
+- **`flat`** — the full underlying surface.
+
+Every underlying tool stays callable by name in every mode, and `tools/list` is
+filtered per caller scopes + tool-visibility ACL. Routing always goes through the
+same authorization / ACL / HITL / idempotency / throttle pipeline.
 
 ## Domains
 
@@ -19,14 +38,17 @@ scope class that selects its rate-limit tier.
 | **Bulk & URI** | bulk note create / move / set-property, `obsidian://` URI generation | `bulk_create_notes`, `bulk_move_notes`, `bulk_set_property`, `generate_uri` |
 | **Server admin** | health, config, ACL, metrics introspection | `server_health`, `get_server_config`, `inspect_acl`, `get_metrics` |
 
-## Degradation
+## Degradation & errors
 
 A tool that needs an unavailable capability (a missing plugin, an unconfigured
 embedding provider) returns a typed error from the shared `ObsidianTcError`
 taxonomy (e.g. `plugin_missing`, `embedding_provider_error`) with a `retryable`
-flag — it never throws an opaque failure.
+flag — it never throws an opaque failure. At the MCP boundary a dispatch failure
+surfaces as a **Tool Execution Error** (`isError: true` with human-readable text
+plus the structured error as `structuredContent`), so a model can self-correct
+rather than seeing a protocol error.
 
 :::note
 Per-tool reference pages auto-generated from the live `ToolRegistry` and its Zod
-schemas are a deferred follow-up (G3). This page is the curated v1.0 overview.
+schemas are a deferred follow-up. This page is the curated overview.
 :::
