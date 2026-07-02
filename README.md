@@ -19,7 +19,7 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 
 ## Status
 
-✅ **Shipped — v1.2.1** (2026-06-26). The full implementation (milestones M0–M7) is published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.2.1`. The surface is **103 tools across 28 domains**. Post-1.0.2, `main` landed a security-audit remediation pass, a dependency-currency sweep (Zod 4, Biome 2, napi-rs 3, Node 24), and the agent-ergonomics + distribution feature set — all shipped in v1.2.1; see the [CHANGELOG](./CHANGELOG.md).
+✅ **Shipped — v1.2.1** (2026-06-26). The full implementation (milestones M0–M7) is published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.2.1`. The surface is **103 tools across 28 domains**, presented by default via a compact tool-surface facade (three meta-tools — `find_capability` / `describe_capability` / `call_capability` — for progressive discovery; `toolFacade.mode: flat` advertises the full surface, and every tool stays callable by name). Post-1.0.2, `main` landed a security-audit remediation pass, a dependency-currency sweep (Zod 4, Biome 2, napi-rs 3, Node 24), and the agent-ergonomics + distribution feature set — all shipped in v1.2.1; see the [CHANGELOG](./CHANGELOG.md).
 
 | Milestone | Scope | Status |
 |---|---|---|

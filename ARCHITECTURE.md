@@ -192,14 +192,14 @@ type ToolRequest = {
 
 Failure mode: malformed JSON-RPC → `invalid_input` returned without entering downstream layers, but observability still fires (with empty `tool_name`).
 
-**Layer 2: Auth.** Three modes: `none` (no token; refuses startup if bound to non-localhost), `jwt` (HS256 with shared secret, scopes in claims), `oauth` (OAuth 2.1 with DCR per knowledge-mcp-server pattern). Produces:
+**Layer 2: Auth.** Two modes: `none` (no token; refuses startup if bound to non-localhost) and `jwt` (HS256 with shared secret, scopes in claims). Optionally, obsidian-tc acts as an OAuth 2.0 resource server (RFC 9728 Protected Resource Metadata + `WWW-Authenticate` challenge) when `auth.resource` + `auth.authorizationServers` are configured; there is no in-repo authorization server (no token issuance / DCR / OIDC). Produces:
 
 ```typescript
 type AuthContext = {
   sub: string;                      // subject (user or agent identifier)
   vault_scopes: string[];           // ["read:vault", "write:vault/02-projects/**", "execute:dataview", ...]
   expires_at?: number;
-  mode: "none" | "jwt" | "oauth";
+  mode: "none" | "jwt";
 };
 ```
 
@@ -409,7 +409,7 @@ Five modes. Per-mode constraints:
 |---|---|---|---|---|---|
 | Process model | Subprocess of MCP client | Background daemon | Background daemon on remote host | Container with bind-mount | Compiled Bun binary |
 | Bind address | N/A | `127.0.0.1` enforced | `0.0.0.0` permitted | Per `docker run -p` | Per chosen transport |
-| Auth required | `none` OK | `none` OK | `jwt` or `oauth` REQUIRED (hardcoded refusal to start in `none` mode on non-localhost) | Per HTTP mode | Per chosen transport |
+| Auth required | `none` OK | `none` OK | `jwt` REQUIRED (hardcoded refusal to start in `none` mode on non-localhost) | Per HTTP mode | Per chosen transport |
 | Cold start | ~500ms (Bun JIT + native load) | One-time daemon start; <50ms per request | Same as HTTP local + tunnel latency | ~1s (container start) | ~100ms (no JIT warmup; native pre-linked) |
 | Multi-client | 1 client per process | Many clients | Many clients | Many clients | 1 (STDIO) or many (HTTP) |
 | Companion plugin location | Same machine | Same machine | Same machine as server (NOT same as client) | Same machine as container | Same machine as binary |
@@ -765,16 +765,16 @@ Source: modelcontextprotocol.io spec endpoint and the official 2026 roadmap blog
 ### Server-advertised capabilities
 
 - **`tools`**: yes (103 tools). Advertised via the low-level `Server` with `capabilities: { tools: {} }`.
-- **`resources`**: deferred to V1.x. MCP resources (vault notes as listed, fetchable URIs) is a natural addition but adds a primitive surface and changes how clients discover content. V1 ships tool-only to keep the surface bounded.
-- **`prompts`**: no. Out of scope for V1 — obsidian-tc is not a prompt library.
+- **`resources`**: yes — vault notes are advertised as MCP resources (`resources/list` + `resources/read` over `obsidian-tc://<vault>/<path>` URIs) when a vault registry is present, enforcing the same read scope + folder ACL inline.
+- **`prompts`**: yes — a small set of built-in static prompt templates (`prompts/list` + `prompts/get`).
 - **`elicitation`**: **as shipped, HITL does NOT use MCP's `elicitation` capability.** It uses a custom token pattern: a destructive / HITL-floor call returns an `elicit_required` error carrying `args_hash`; the client re-invokes the same tool with an `elicit_token` argument (single-use, 5-min TTL, bound to tool + args_hash, consumed via an atomic `UPDATE`). This works with any MCP client regardless of elicitation support. Adopting the native `elicitation` primitive is a possible V1.x change.
 - **`sampling`**: no. Server does not request LLM completions from clients.
 
 ### Tool annotations (MCP 2025-11-25 feature)
 
-**As shipped, the `tools/list` handler emits only `name`, `description`, and `inputSchema`** (`packages/server/src/mcp/server.ts`) — it does **not** surface MCP `annotations` or `outputSchema`. Enforcement does not depend on them: the ACL + Policy layers in `registry.dispatch` are the source of truth (a tool's `requiredScopes` and `destructive` flag drive the read-only / HITL / throttle gates), and MCP annotations are hints only. Surfacing the G2.1 → MCP annotation mapping below to clients is a possible V1.x enhancement; it is the design intent, not the current behavior:
+**As shipped, the `tools/list` handler emits `name`, `title`, `description`, `inputSchema`, and derived MCP `annotations`** (`readOnlyHint` / `destructiveHint` / `openWorldHint`), plus an optional `outputSchema` and `icons` when a tool declares them (`packages/server/src/mcp/server.ts`). Schemas are serialized as JSON Schema 2020-12 (the MCP 2025-11-25 default dialect). Annotations remain advisory hints — enforcement does not depend on them: the ACL + Policy layers in `registry.dispatch` are the source of truth (a tool's `requiredScopes` and `destructive` flag drive the read-only / HITL / throttle gates). The G2.1 → MCP annotation mapping below is what is emitted:
 
-| G2.1 annotation | MCP annotation (intended) |
+| G2.1 annotation | MCP annotation (emitted) |
 |---|---|
 | `acl: read on ...` | `readOnlyHint: true`, `destructiveHint: false` |
 | `acl: write on ...` | `readOnlyHint: false`, `destructiveHint: false` |
