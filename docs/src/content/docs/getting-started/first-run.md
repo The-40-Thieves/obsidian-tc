@@ -5,23 +5,22 @@ description: Write a minimal config, start the server, and connect an MCP client
 
 ## 1. Write a config
 
-obsidian-tc is launched with a path to a config file (JSON or YAML). A minimal
+obsidian-tc is launched with a path to a **JSON** config file. A minimal
 single-vault config:
 
-```yaml
-vaults:
-  - id: primary
-    path: /home/user/vaults/primary
-cacheDir: /home/user/.cache/obsidian-tc
-auth:
-  mode: none        # stdio is trusted-local; see Security for HTTP + JWT
+```json
+{
+  "vaults": [{ "id": "primary", "path": "/home/user/vaults/primary" }],
+  "cacheDir": "/home/user/.cache/obsidian-tc",
+  "auth": { "mode": "none" }
+}
 ```
 
 ## 2. Start it
 
 ```sh
-obsidian-tc ./config.yaml
-# obsidian-tc 1.0.0 ready on stdio (vault primary)
+obsidian-tc ./config.json
+# obsidian-tc 1.2.1 ready on stdio (vault primary)
 ```
 
 By default the server speaks the Model Context Protocol over **stdio**, the
@@ -38,12 +37,16 @@ command. For Claude Desktop, add to `claude_desktop_config.json`:
   "mcpServers": {
     "obsidian-tc": {
       "command": "obsidian-tc",
-      "args": ["/home/user/.config/obsidian-tc/config.yaml"]
+      "args": ["/home/user/.config/obsidian-tc/config.json"]
     }
   }
 }
 ```
 
-The server exposes its full tool surface immediately. To serve over HTTP for
-remote agents, enable the HTTP transport and JWT auth — see
-[Authentication](/security/auth-model/) and [Configuration](/configuration/config-yaml/).
+By default `tools/list` advertises the **triad** facade: three meta-tools
+(`find_capability`, `describe_capability`, `call_capability`) for progressive
+discovery, with every underlying tool still callable by name. Set
+`toolFacade.mode: "flat"` to advertise the full surface, or `"domain"` for
+~a dozen domain meta-tools. To serve over HTTP for remote agents, enable the HTTP
+transport and JWT auth — see [Authentication](/security/auth-model/) and
+[Configuration](/configuration/config-yaml/).
