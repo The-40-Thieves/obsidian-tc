@@ -32,7 +32,7 @@ function tableExists(db: Database, name: string): boolean {
   return row !== undefined;
 }
 
-interface MetaRow {
+export interface MetaRow {
   path: string;
   content: string;
   vault_id: string;
@@ -65,29 +65,32 @@ export function semanticSearch(
   let vecHits: SemanticHit[] | null = null;
   if (loadVec(db) && tableExists(db, "vec_chunks")) {
     try {
-      const candidates = vecKnn(db, queryVec, k * 5 + 10);
-      const out: SemanticHit[] = [];
+      // Over-fetch generously; the metadata join scopes to this vault IN SQL (the KNN is global
+      // over vec_chunks, so a shared cache.db can surface other vaults' candidates) and JS applies
+      // the read ACL. If the top-`overFetch` candidates can't fill k visible hits AND the index
+      // holds at least `overFetch` chunks (visible ones may sit below the cutoff), fall back to the
+      // exhaustive brute-force scan — this closes the crowding-out zero-hits case and the
+      // cross-vault / ACL existence side-channel where a global KNN's top-N is dominated by chunks
+      // the caller cannot see (THE-287).
+      const overFetch = k * 20 + 50;
+      const candidates = vecKnn(db, queryVec, overFetch);
+      let out: SemanticHit[] = [];
       if (candidates.length > 0) {
         const placeholders = candidates.map(() => "?").join(", ");
         const metaRows = db
           .prepare(
-            `SELECT c.id AS id, c.path AS path, c.content AS content, c.vault_id AS vault_id, e.model AS model FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.id IN (${placeholders})`,
+            `SELECT c.id AS id, c.path AS path, c.content AS content, c.vault_id AS vault_id, e.model AS model FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.id IN (${placeholders})`,
           )
-          .all(...candidates.map((r) => r.chunk_id)) as Array<MetaRow & { id: string }>;
+          .all(vaultId, ...candidates.map((r) => r.chunk_id)) as Array<MetaRow & { id: string }>;
         const metaById = new Map(metaRows.map((m) => [m.id, m]));
-        for (const row of candidates) {
-          const m = metaById.get(row.chunk_id);
-          if (!m || m.vault_id !== vaultId || !readable(m.path)) continue;
-          const score = 1 - row.distance;
-          if (opts.minScore !== undefined && score < opts.minScore) continue;
-          out.push(hit(row.chunk_id, m.path, score, m.model, m.content, opts.returnContent));
-          if (out.length >= k) break;
-        }
+        out = selectVisible(candidates, metaById, readable, opts, k);
       }
-      vecHits = out;
+      // Trust vec0 only when it filled k, or the index returned fewer candidates than the cap (we
+      // have then seen every chunk). Otherwise crowding is possible -> exhaustive fallback.
+      vecHits = out.length >= k || candidates.length < overFetch ? out : null;
     } catch {
-      // The brute-force scan is dimension-tolerant (cosineSimilarity returns 0 on a length
-      // mismatch) and always correct, so it is the safe fallback for any vec0 failure.
+      // Any vec0 failure (e.g. a dimension mismatch after an embedding-model change) degrades to
+      // the dimension-tolerant brute-force scan below.
       vecHits = null;
     }
   }
@@ -124,4 +127,29 @@ function hit(
     embedding_model: model,
     ...(returnContent ? { content } : {}),
   };
+}
+
+/**
+ * Filter distance-ordered vec0 candidates to the caller's readable, above-minScore top-k,
+ * preserving distance order. `metaById` is already vault-scoped by the SQL join, so a candidate
+ * absent from it belongs to another vault and is skipped. Extracted for THE-287 so the visibility
+ * filter is unit-tested independently of a live vec0 backend.
+ */
+export function selectVisible(
+  candidates: Array<{ chunk_id: string; distance: number }>,
+  metaById: Map<string, MetaRow & { id: string }>,
+  readable: (path: string) => boolean,
+  opts: Pick<SemanticOptions, "minScore" | "returnContent">,
+  k: number,
+): SemanticHit[] {
+  const out: SemanticHit[] = [];
+  for (const row of candidates) {
+    const m = metaById.get(row.chunk_id);
+    if (!m || !readable(m.path)) continue;
+    const score = 1 - row.distance;
+    if (opts.minScore !== undefined && score < opts.minScore) continue;
+    out.push(hit(row.chunk_id, m.path, score, m.model, m.content, opts.returnContent));
+    if (out.length >= k) break;
+  }
+  return out;
 }
