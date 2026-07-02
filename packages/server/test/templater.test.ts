@@ -76,4 +76,32 @@ describe("execute_template", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("plugin_missing");
   });
+
+  it("refuses when the target exists and overwrite is false (data-loss guard, THE-289)", async () => {
+    v = makeM4Vault({
+      installed: ["templater"],
+      routes,
+      files: { "Daily/2026-06-18.md": "existing content" },
+    });
+    const res = await v.callConfirmed("execute_template", input);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("note_exists");
+    // Refused before the bridge call; the existing note is untouched.
+    expect(v.bridgeRequests).toHaveLength(0);
+    expect(v.read("Daily/2026-06-18.md")).toBe("existing content");
+  });
+
+  it("overwrites the existing target when overwrite is true (forwarded to the companion)", async () => {
+    v = makeM4Vault({
+      installed: ["templater"],
+      routes,
+      files: { "Daily/2026-06-18.md": "existing content" },
+    });
+    const res = await v.callConfirmed("execute_template", { ...input, overwrite: true });
+    expect(res.ok).toBe(true);
+    const req = v.bridgeRequests[0];
+    if (!req) throw new Error("expected a bridge request");
+    const body = JSON.parse(req.body ?? "{}") as Record<string, unknown>;
+    expect(body.overwrite).toBe(true);
+  });
 });
