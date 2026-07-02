@@ -216,7 +216,7 @@ describe("Domain 7: Bases", () => {
     }
   });
 
-  it("query_base refuses a real Obsidian Bases DSL filter with unsupported_base_filter (THE-284)", async () => {
+  it("query_base evaluates a real Obsidian Bases DSL filter via the subset evaluator (THE-281)", async () => {
     const v = makeM3Vault({
       files: {
         "real.base": "filters: file.hasTag(project)\nviews:\n  - name: V\n    type: table\n",
@@ -225,8 +225,10 @@ describe("Domain 7: Bases", () => {
     });
     try {
       const q = await v.call("query_base", { vault: "test", path: "real.base" });
-      expect(q.ok).toBe(false);
-      if (!q.ok) expect(q.error.code).toBe("unsupported_base_filter");
+      // Previously refused (THE-284); the subset evaluator now runs it. a.md carries no tags,
+      // and the unquoted `project` argument resolves as a (missing) note property -> no rows.
+      expect(q.ok).toBe(true);
+      if (q.ok) expect((q.data as { items: unknown[] }).items).toEqual([]);
     } finally {
       v.cleanup();
     }
