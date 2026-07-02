@@ -147,3 +147,37 @@ describe("Domain 6 search tools on the dispatch pipeline", () => {
     v.cleanup();
   });
 });
+
+describe("THE-251 terse search projection", () => {
+  it("search_text terse drops line/col, keeps path/score/snippet", async () => {
+    const v = await seeded();
+    const full = payload(await v.call("search_text", { vault: "test", query: "fox" }));
+    expect(full.items[0]).toHaveProperty("line");
+    const terse = payload(
+      await v.call("search_text", { vault: "test", query: "fox", verbosity: "terse" }),
+    );
+    expect(terse.items[0]).toHaveProperty("path");
+    expect(terse.items[0]).toHaveProperty("score");
+    expect(terse.items[0]).toHaveProperty("snippet");
+    expect(terse.items[0]).not.toHaveProperty("line");
+    expect(terse.items[0]).not.toHaveProperty("col");
+    v.cleanup();
+  });
+
+  it("search_semantic terse drops chunk_id/content, keeps path/score", async () => {
+    const v = await seeded();
+    const terse = payload(
+      await v.call("search_semantic", {
+        vault: "test",
+        query: "lazy dog",
+        k: 2,
+        verbosity: "terse",
+      }),
+    );
+    expect(terse.items[0]).toHaveProperty("path");
+    expect(terse.items[0]).toHaveProperty("score");
+    expect(terse.items[0]).not.toHaveProperty("chunk_id");
+    expect(terse.items[0]).not.toHaveProperty("content");
+    v.cleanup();
+  });
+});

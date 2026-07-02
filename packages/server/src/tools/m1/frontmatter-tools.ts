@@ -63,6 +63,8 @@ const FindInput = z
     value: z.unknown().optional(),
     folder: VaultPath.optional(),
     limit: z.number().int().positive().max(1000).default(200),
+    // THE-251: terse drops the matched value, returning path only.
+    verbosity: z.enum(["full", "terse"]).default("full"),
   })
   .strict();
 
@@ -253,7 +255,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "find_notes_by_property",
       description:
-        "Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list).",
+        "Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list). Set verbosity=terse to return path only (dropping the matched value).",
       inputSchema: FindInput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
@@ -275,7 +277,13 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           }
           matches.push({ path: e.relPath, value: stored });
         }
-        return { vault: v.id, key: input.key, total: matches.length, truncated, matches };
+        return {
+          vault: v.id,
+          key: input.key,
+          total: matches.length,
+          truncated,
+          matches: input.verbosity === "terse" ? matches.map((m) => ({ path: m.path })) : matches,
+        };
       },
     }),
   ];
