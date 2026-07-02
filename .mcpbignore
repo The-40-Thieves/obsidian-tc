@@ -38,6 +38,22 @@ node_modules/
 .github/
 .gitignore
 .gitattributes
+
+# Tracked root config / tooling that is NOT part of the runtime bundle. Without these
+# the mcpb denylist would leak them into the packed artifact (THE-276 defect 3, e.g.
+# the gitleaks allowlist config). The bundle needs only dist/, manifest.json, package.json,
+# README, and LICENSE.
+.gitleaks.toml
+.mcpbignore
+biome.json
+bun.lock
+tsconfig.base.json
+server.json
+Dockerfile
+
+# Local agent / tooling state — present only when packing locally, never distributable.
+.claude/
+.ruff_cache/
 .gitleaks.toml
 .editorconfig
 .claude/
