@@ -142,7 +142,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
       title: titleize(def.name),
       description: def.description,
       inputSchema: z.toJSONSchema(def.inputSchema, {
-        target: "draft-7",
+        // 2020-12 is the MCP 2025-11-25 default dialect (THE-278).
+        target: "draft-2020-12",
         reused: "inline",
         unrepresentable: "any",
       }) as unknown as Tool["inputSchema"],
