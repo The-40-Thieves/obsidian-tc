@@ -6,8 +6,9 @@ import {
 import { describe, expect, it } from "vitest";
 
 describe("MORGIANA CloudEvents schema (G2.4)", () => {
-  it("declares exactly the nine spec event types", () => {
-    expect(MORGIANA_EVENT_TYPES).toHaveLength(9);
+  it("declares the spec event types plus additive extensions", () => {
+    expect(MORGIANA_EVENT_TYPES).toHaveLength(10);
+    expect(MORGIANA_EVENT_TYPES).toContain("tc.maintenance.sweep");
     expect(MORGIANA_EVENT_TYPES).toContain("tc.tool.call.completed");
     expect(MORGIANA_EVENT_TYPES).toContain("tc.server.shutdown");
   });

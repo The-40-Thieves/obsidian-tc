@@ -121,3 +121,18 @@ describe("config schema", () => {
     expect(c.vaults[0]?.plugins?.probeSkip).toBe(true);
   });
 });
+
+describe("maintenance config (THE-292)", () => {
+  it("defaults: enabled hourly sweep; a pre-THE-292 config validates unchanged", () => {
+    const c = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }] });
+    expect(c.maintenance).toEqual({ enabled: true, intervalMinutes: 60 });
+  });
+
+  it("partial override fills the rest from defaults", () => {
+    const c = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      maintenance: { intervalMinutes: 5 },
+    });
+    expect(c.maintenance).toEqual({ enabled: true, intervalMinutes: 5 });
+  });
+});

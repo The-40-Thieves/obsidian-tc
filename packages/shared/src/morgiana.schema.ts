@@ -5,7 +5,7 @@ import { z } from "zod";
 // validate against one source of truth; the `specversion` field is the schema version, so a
 // breaking change bumps it. Spool/HTTP transport + emission live server-side (src/morgiana/).
 
-/** The nine CloudEvents `type` values MORGIANA recognizes (G2.4 §Event types). */
+/** The CloudEvents `type` values MORGIANA recognizes (G2.4 §Event types + additive extensions). */
 export const MORGIANA_EVENT_TYPES = [
   "tc.tool.call.completed",
   "tc.acl.denied",
@@ -16,6 +16,8 @@ export const MORGIANA_EVENT_TYPES = [
   "tc.vault.cache_reset",
   "tc.server.start",
   "tc.server.shutdown",
+  // THE-292 — additive: periodic cache.db maintenance sweep.
+  "tc.maintenance.sweep",
 ] as const;
 
 export const MorgianaEventType = z.enum(MORGIANA_EVENT_TYPES);
@@ -39,6 +41,8 @@ export const MorgianaEventDataSchema = z.object({
   overflow_bytes: z.number().nullable().default(null),
   error: z.object({ code: z.string(), message: z.string() }).nullable().default(null),
   count: z.number().nullable().default(null),
+  /** THE-292 maintenance sweep: rows dropped per table. */
+  rows_dropped: z.record(z.string(), z.number()).nullable().default(null),
 });
 export type MorgianaEventData = z.infer<typeof MorgianaEventDataSchema>;
 

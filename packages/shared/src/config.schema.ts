@@ -214,6 +214,15 @@ export const ObservabilityConfigSchema = z.object({
 });
 export type ObservabilityConfig = z.infer<typeof ObservabilityConfigSchema>;
 
+// THE-292 — periodic cache.db maintenance sweep (expired idempotency/elicit rows + event_log
+// retention + PRAGMA optimize). Fully defaulted: a config predating it validates unchanged.
+export const MaintenanceConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    intervalMinutes: z.number().int().positive().default(60),
+  })
+  .prefault({});
+
 // plur read-API proxy config (M5 / THE-181, G2.1 Domain 24). GLOBAL, not per-vault:
 // the plur engram store is global and the plur tools take no `vault` argument, so
 // this lives at the server root. endpoint/apiKey come from config or the
@@ -273,6 +282,7 @@ const ServerConfigObject = z.object({
   toolFacade: ToolFacadeConfigSchema.prefault({}),
   throttle: ThrottleConfigSchema,
   observability: ObservabilityConfigSchema.prefault({}),
+  maintenance: MaintenanceConfigSchema,
   idempotencyTtlSeconds: z.number().int().positive().default(86400),
   // THE-293: window (seconds) after which a crashed in-flight idempotency row may be reclaimed
   // at dispatch. Raise for legitimately slow bulk tools; lowering it below a live tool's
