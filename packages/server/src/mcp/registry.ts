@@ -19,6 +19,7 @@ import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/tracing";
 import { callerHash, type RateLimiter } from "../throttle";
+import type { TraceRecord } from "../workspace/sessions";
 import { ALLOW_ALL, isDisabled, isListed, type VisibilityCaller } from "./visibility";
 
 export interface CallerContext {
@@ -33,6 +34,9 @@ export interface CallerContext {
   db: Database;
   elicitToken?: string | null;
   acl?: FolderAcl;
+  /** THE-209: active workspace session for this caller. When set (by the transport context
+   *  factory), each dispatch appends a tool_invocation record to that session's JSONL trace. */
+  sessionId?: string;
   now?: () => number;
 }
 
@@ -156,6 +160,12 @@ export interface RegistryOptions {
   /** Profile sink (perf diagnostics). When set, each successful dispatch reports total vs
    *  handler time; absent by default, so there is no observable overhead. */
   onProfile?: (p: DispatchProfile) => void;
+  /** THE-209 session tracer. When set, a dispatch whose ctx.sessionId is present appends a
+   *  tool_invocation trace record to that session's JSONL (the transport wires the path). */
+  sessionTracer?: (
+    session: { vaultId: string; sessionId: string; caller: string | null },
+    record: TraceRecord,
+  ) => void;
 }
 
 export class ToolRegistry {
@@ -174,6 +184,7 @@ export class ToolRegistry {
   private readonly idempotencyTtlMs: number;
   private readonly toolVisibility: ToolVisibilityConfig;
   private readonly onProfile?: (p: DispatchProfile) => void;
+  private readonly sessionTracer?: RegistryOptions["sessionTracer"];
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
@@ -185,6 +196,7 @@ export class ToolRegistry {
     this.idempotencyTtlMs = (opts.idempotencyTtlSeconds ?? 86400) * 1000;
     this.toolVisibility = opts.toolVisibility ?? ALLOW_ALL;
     this.onProfile = opts.onProfile;
+    this.sessionTracer = opts.sessionTracer;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -412,6 +424,27 @@ export class ToolRegistry {
         writeEvent(ctx.db, e);
       } catch {
         /* audit must never break dispatch */
+      }
+      // THE-209: mirror the audit row into the active session's JSONL trace, if any.
+      if (ctx.sessionId && this.sessionTracer) {
+        try {
+          this.sessionTracer(
+            { vaultId: ctx.vaultId, sessionId: ctx.sessionId, caller: ctx.caller },
+            {
+              ts: Date.now(),
+              type: "tool_invocation",
+              tool: name,
+              caller: ctx.caller,
+              duration_ms: durationMs,
+              args_hash: hash,
+              result_size: resultSize,
+              status,
+              ...(code ? { error_code: code } : {}),
+            },
+          );
+        } catch {
+          /* tracing must never break dispatch */
+        }
       }
     };
 

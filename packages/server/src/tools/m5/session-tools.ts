@@ -72,6 +72,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           caller: input.caller,
           ...(input.session_metadata ? { metadata: input.session_metadata } : {}),
         });
+        deps.activeSessions?.set(ctx.caller, id, v.id);
         return { session_id: id, vault: v.id, started_at: now, trace_path: tracePath };
       },
     }),
@@ -105,6 +106,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           ...(input.end_metadata ? { metadata: input.end_metadata } : {}),
         });
         endSession(ctx.db, s.id, now);
+        deps.activeSessions?.clear(ctx.caller, s.id);
         return {
           session_id: s.id,
           ended_at: now,
