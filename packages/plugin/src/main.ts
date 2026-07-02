@@ -31,13 +31,31 @@ interface AppWithPlugins {
 
 export default class ObsidianTcCompanion extends Plugin {
   override async onload(): Promise<void> {
-    const routes = buildRoutes(this.app, this.manifest.version);
+    // THE-282: startup shape self-check over the Obsidian internals this plugin duck-types.
+    // A failed check degrades honestly (one console.warn + surfaced on /probe) instead of
+    // throwing route-level TypeErrors when internals move between Obsidian versions.
+    const shapeWarnings: string[] = [];
+    const anyApp = this.app as unknown as {
+      commands?: { listCommands?: unknown };
+      plugins?: { plugins?: unknown };
+    };
+    if (typeof anyApp.commands?.listCommands !== "function")
+      shapeWarnings.push("app.commands.listCommands is not a function");
+    if (typeof anyApp.plugins?.plugins !== "object" || anyApp.plugins?.plugins === null)
+      shapeWarnings.push("app.plugins.plugins is not an object");
+    const routes = buildRoutes(this.app, this.manifest.version, shapeWarnings);
     const count = this.registerBridgeRoutes(routes);
     if (count === null) {
+      // NOTE: when registration fails, /probe was never attached either — console is the only
+      // surface for this failure mode (documented, THE-282).
       console.warn(
         "[obsidian-tc] Local REST API plugin not found (or no extension API); bridge routes not registered. Install/enable the Local REST API plugin.",
       );
     } else {
+      if (shapeWarnings.length)
+        console.warn(
+          `[obsidian-tc] degraded: ${shapeWarnings.join("; ")} — Obsidian internals may have moved; some bridges will degrade.`,
+        );
       console.info(`[obsidian-tc] registered ${count} bridge routes under /obsidian-tc/v1`);
     }
   }

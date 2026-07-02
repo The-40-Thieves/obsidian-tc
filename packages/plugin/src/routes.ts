@@ -99,7 +99,7 @@ function requireApi<T>(app: InternalApp, res: BridgeRes, capKey: string): T | nu
 }
 
 // --- /probe: deterministic capability discovery. -----------------------------------
-function probeResult(app: InternalApp, pluginVersion: string): unknown {
+function probeResult(app: InternalApp, pluginVersion: string, shapeWarnings: string[]): unknown {
   const capabilities: Record<string, { installed: boolean; version?: string }> = {};
   for (const [key, id] of Object.entries(CAP_IDS)) {
     const p = app.plugins?.plugins?.[id];
@@ -113,6 +113,9 @@ function probeResult(app: InternalApp, pluginVersion: string): unknown {
     obsidianTcApiVersion: API_VERSION,
     vault_path: app.vault.getName(),
     capabilities,
+    // THE-282: startup shape self-check results (Obsidian internals this plugin duck-types).
+    shape_ok: shapeWarnings.length === 0,
+    ...(shapeWarnings.length ? { shape_warnings: shapeWarnings } : {}),
   };
 }
 
@@ -147,13 +150,17 @@ function fileByPath(app: App, rel: string): TFile | null {
   return f && "extension" in f ? (f as TFile) : null;
 }
 
-export function buildRoutes(appArg: App, pluginVersion: string): RouteDef[] {
+export function buildRoutes(
+  appArg: App,
+  pluginVersion: string,
+  shapeWarnings: string[] = [],
+): RouteDef[] {
   const app = appArg as unknown as InternalApp;
   return [
     {
       method: "get",
       path: "/probe",
-      handler: (_req, res) => ok(res, probeResult(app, pluginVersion)),
+      handler: (_req, res) => ok(res, probeResult(app, pluginVersion, shapeWarnings)),
     },
 
     // Command palette — core Obsidian, fully implemented.

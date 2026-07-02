@@ -5,6 +5,7 @@
 // capability snapshot before any network call, and yields the per-vault client.
 import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { type BridgeClient, type CapabilityCache, requirePlugin } from "../../bridge";
+import { type CapabilitySnapshot, EXPECTED_COMPANION_API } from "../../bridge/capabilities";
 import { assertLive, type VaultMode } from "../../vault/mode";
 import type { VaultRegistry } from "../../vault/registry";
 
@@ -56,7 +57,9 @@ export function openBridge(
   // capability/network work, so clients see requires_live_obsidian rather than a probe miss.
   const mode = deps.mode?.(vaultId);
   if (mode) assertLive(mode, plugin);
-  const cap = requirePlugin(deps.capabilities.get(vaultId), plugin);
+  const snapshot = deps.capabilities.get(vaultId);
+  assertCompanionApiCompat(snapshot);
+  const cap = requirePlugin(snapshot, plugin);
   const client = deps.bridgeFor(vaultId);
   if (!client) throw err.pluginUnreachable("bridge transport not configured", { plugin });
   return { client, ...cap };
@@ -104,6 +107,18 @@ export function openBridgeWithHint(
  * plugin to check — the companion itself provides the capability — so a missing OR
  * unreachable companion both degrade to plugin_unreachable (Domain 26 spec).
  */
+/** THE-282: a companion that answers /probe with a different API major is a PERMANENT mismatch —
+ *  degrade every bridge tool with the non-retryable plugin_incompatible, never silent divergence. */
+function assertCompanionApiCompat(snap: CapabilitySnapshot): void {
+  if (snap.apiCompat === "incompatible")
+    throw err.pluginIncompatible("companion plugin API version is incompatible", {
+      plugin: "obsidian-tc-companion",
+      companion_api: snap.apiVersion ?? "unknown",
+      expected_api: EXPECTED_COMPANION_API,
+      hint: "update the companion plugin (obsidian-tc expects companion API v1).",
+    });
+}
+
 export function openCompanionBridge(deps: M4Deps, vaultId: string): { client: BridgeClient } {
   const mode = deps.mode?.(vaultId);
   if (mode) assertLive(mode, "obsidian-tc-companion");
@@ -119,6 +134,7 @@ export function openCompanionBridge(deps: M4Deps, vaultId: string): { client: Br
       hint,
     });
   }
+  assertCompanionApiCompat(snap);
   const client = deps.bridgeFor(vaultId);
   if (!client)
     throw err.pluginUnreachable("bridge transport not configured", {

@@ -7,6 +7,10 @@
 // (force_enabled/force_disabled) let CI and tests assert behavior deterministically
 // without a live Obsidian.
 
+/** THE-282: the companion API major this server speaks. Hand-mirrored with API_VERSION in
+ *  packages/plugin/src/routes.ts (the plugin cannot import server code) — bump BOTH together. */
+export const EXPECTED_COMPANION_API = "1";
+
 export interface PluginCapability {
   installed: boolean;
   version?: string;
@@ -20,6 +24,9 @@ export interface CapabilitySnapshot {
   pluginVersion?: string;
   obsidianVersion?: string;
   apiVersion?: string;
+  /** THE-282: probe apiVersion vs EXPECTED_COMPANION_API. Absent when the companion predates
+   *  /probe versioning (treated as compatible — it answered the v1 probe shape). */
+  apiCompat?: "compatible" | "incompatible";
   vaultPath?: string;
 }
 

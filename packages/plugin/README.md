@@ -27,3 +27,26 @@ a second gate. Treat the LRA key like a root password for the vault; do not shar
 trusted clients or embed it in agent-visible config. The server-side ACL / HITL / scope gates
 protect the **MCP surface**, not direct LRA / companion HTTP calls. See
 [SECURITY.md](../../SECURITY.md#companion-plugin-trust-boundary) for the full trust model.
+
+## Community-store submission notes (THE-282)
+
+- `versions.json` (version → `minAppVersion`) lives beside `manifest.json` in this package and is
+  asserted by `scripts/check-version-coherence.mjs`. **Obsidian's release tooling reads
+  `manifest.json`/`versions.json` from the plugin repository ROOT** — a store submission requires
+  either a dedicated plugin repo or copying both files to the monorepo root at release time.
+- `isDesktopOnly: false` is deliberate: the plugin opens no port of its own (it rides the Local
+  REST API plugin's server); on platforms without LRA it simply never registers routes and
+  degrades cleanly.
+
+## Private-API reliance (reviewer inventory)
+
+The bridges deliberately duck-type Obsidian internals that have no public API; every use degrades
+to a typed error (never a crash) when the shape moves, and the startup self-check surfaces drift
+on `/probe` (`shape_ok` / `shape_warnings`):
+
+| Internal | Used for |
+|---|---|
+| `app.commands.listCommands()` / `executeCommandById()` | command-palette dispatch |
+| `app.plugins.plugins[id]` (+ per-plugin `.api` / `.settings`) | capability probe + plugin bridges |
+| Local REST API's `requestHandler.apiExtensionRouter` / `api.addRoute` | route registration |
+| Templater's `create_new_note_from_template` | `execute_template` |

@@ -42,7 +42,10 @@ export type ErrorCode =
   | "requires_live_obsidian"
   // THE-293 — deterministic compute-budget rejection (regex execution timeout / JSONLogic op
   // budget). Never retryable: the same input re-hangs identically.
-  | "compute_budget_exceeded";
+  | "compute_budget_exceeded"
+  // THE-282 — the companion answers /probe with a different API major: a PERMANENT mismatch
+  // (plugin_unreachable is retryable, which would invite pointless client retries).
+  | "plugin_incompatible";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -144,4 +147,9 @@ export const err = {
   ),
   // THE-293 — compute-abuse budgets (regex execution timeout).
   computeBudgetExceeded: mk("compute_budget_exceeded", "operation exceeded its compute budget"),
+  // THE-282 — companion API-version floor.
+  pluginIncompatible: mk(
+    "plugin_incompatible",
+    "companion plugin API version is incompatible with this server",
+  ),
 } as const;

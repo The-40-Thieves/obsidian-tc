@@ -72,35 +72,6 @@ function isLogicObject(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
-// THE-284 honesty guard: detect a REAL Obsidian Bases expression (which obsidian-tc's
-// JSONLogic evaluator cannot interpret) so query_base refuses instead of silently
-// matching all rows. Returns the first offending expression string, or null when the
-// value is absent or is obsidian-tc's own JSONLogic (operator objects / object leaves).
-function basesDslExpr(x: unknown): string | null {
-  if (typeof x === "string") return x; // a bare-string filter is the Bases DSL
-  if (isLogicObject(x)) {
-    for (const key of ["and", "or", "not"]) {
-      const arr = x[key];
-      if (Array.isArray(arr)) {
-        for (const el of arr) {
-          if (typeof el === "string") return el; // and/or/not over string statements = DSL
-          const nested = basesDslExpr(el);
-          if (nested) return nested;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-// A real Bases formula's value is a string expression; obsidian-tc's is a JSONLogic
-// object. Return the first string-valued formula (the offending real-Bases formula).
-function stringFormula(formulas: unknown): string | null {
-  if (!isLogicObject(formulas)) return null;
-  for (const v of Object.values(formulas)) if (typeof v === "string") return v;
-  return null;
-}
-
 const CreateInput = z
   .object({
     vault: VaultId,
