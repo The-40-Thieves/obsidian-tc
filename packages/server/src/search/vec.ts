@@ -9,8 +9,10 @@ export function floatBlob(vector: number[]): Uint8Array {
   return new Uint8Array(Float32Array.from(vector).buffer);
 }
 
-// Decode a float32 BLOB (Uint8Array/Buffer from a SQLite row) back to number[].
-export function blobToFloats(blob: Uint8Array): number[] {
+// Decode a float32 BLOB (Uint8Array/Buffer from a SQLite row) into a Float32Array view.
+// Returned directly (zero-copy, THE-266) so the native cosine path takes the typed array
+// without re-copying into a number[]; callers only index it and read .length.
+export function blobToFloats(blob: Uint8Array): Float32Array {
   const u8 = blob instanceof Uint8Array ? blob : new Uint8Array(blob);
   // Float32Array requires a 4-byte-aligned offset; copy when a row view isn't.
   const aligned = u8.byteOffset % 4 === 0 ? u8 : u8.slice();
@@ -19,7 +21,7 @@ export function blobToFloats(blob: Uint8Array): number[] {
     aligned.byteOffset,
     Math.floor(aligned.byteLength / 4),
   );
-  return Array.from(floats);
+  return floats;
 }
 
 // Connections that already loaded the sqlite-vec extension. semanticSearch calls loadVec on
