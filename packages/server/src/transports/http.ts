@@ -8,6 +8,11 @@ import {
 import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
+import {
+  buildProtectedResourceMetadata,
+  isPrmConfigured,
+  wwwAuthenticateChallenge,
+} from "../auth/protected-resource";
 import { createJwtVerifier, type TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
 import type { FacadeMode } from "../mcp/facade";
@@ -89,6 +94,15 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       ? createJwtVerifier(opts.auth.jwtSecret, { maxAgeSeconds: opts.auth.tokenTtlSeconds })
       : null);
 
+  // MCP 2025-11-25 / RFC 9728 Protected Resource Metadata (THE-278). Public, non-secret discovery,
+  // served only when the operator configured a resource URI + authorization server(s). The document
+  // and its URL derive from the configured resource origin, never the request Host (no injection).
+  if (isPrmConfigured(opts.auth)) {
+    const prm = buildProtectedResourceMetadata(opts.auth);
+    app.get("/.well-known/oauth-protected-resource", (c) => c.json(prm));
+    app.get("/.well-known/oauth-protected-resource/mcp", (c) => c.json(prm));
+  }
+
   app.post("/mcp", async (c) => {
     // DNS-rebinding / cross-origin guard (THE-271). A malicious web page POSTing to a loopback MCP
     // server is the canonical local-server attack: the config fail-closes a non-loopback bind under
@@ -123,6 +137,10 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
     }
     const authz = await resolveAuth(c.req.header("authorization"), opts.auth, verifier);
     if (!authz.ok) {
+      // RFC 9728 §5.1 challenge: on a 401, point a spec-compliant client at the PRM document so it
+      // can discover the authorization server (THE-278). Only when PRM is configured.
+      if (authz.status === 401 && isPrmConfigured(opts.auth))
+        c.header("WWW-Authenticate", wwwAuthenticateChallenge(opts.auth));
       return c.json(
         { jsonrpc: "2.0", error: { code: -32001, message: authz.reason }, id: null },
         authz.status,
