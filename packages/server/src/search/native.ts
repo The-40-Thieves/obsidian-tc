@@ -9,7 +9,7 @@
 import { createRequire } from "node:module";
 
 export interface NativeOps {
-  cosineSimilarity(a: number[], b: number[]): number;
+  cosineSimilarity(a: number[], b: Float32Array | number[]): number;
   tokenize(text: string): string[];
   bm25Score(
     tf: number,
@@ -21,7 +21,7 @@ export interface NativeOps {
 }
 
 /** Cosine similarity; 0 for empty or mismatched-length inputs. Mirrors the Rust. */
-export function jsCosineSimilarity(a: number[], b: number[]): number {
+export function jsCosineSimilarity(a: number[], b: Float32Array | number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;
   let dot = 0;
   let na = 0;
