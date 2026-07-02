@@ -7,6 +7,7 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVault } from "../vault/paths";
 import { bm25Score, tokenize } from "./native";
+import { execRegexJob, regexWorkerAvailable, type WorkerHit } from "./regex-worker";
 
 export interface TextHit {
   path: string;
@@ -39,6 +40,9 @@ export interface RegexOptions {
   sub?: string;
   maxPerFile?: number;
   isReadable?: (path: string) => boolean;
+  /** THE-293: worker-time budget (ms) for the whole call — only regex execution in the worker
+   *  counts (file I/O excluded). Default 2000. */
+  timeoutMs?: number;
   limit: number;
 }
 
@@ -151,7 +155,7 @@ function hasNestedQuantifier(p: string): boolean {
   return false;
 }
 
-export function searchRegex(root: string, opts: RegexOptions): RegexHit[] {
+export async function searchRegex(root: string, opts: RegexOptions): Promise<RegexHit[]> {
   const flags = opts.flags ?? "i";
   // ReDoS / misuse guards (F2): bound pattern length, whitelist flags (g is added
   // internally; sticky y would break the per-line scan), and reject obvious nested
@@ -181,20 +185,52 @@ export function searchRegex(root: string, opts: RegexOptions): RegexHit[] {
     .map((e) => e.relPath)
     .filter(readable);
 
+  // THE-293: true execution timeout. The scan runs in a worker thread and only worker
+  // wall-time counts against the budget — file I/O and message overhead are excluded, so a
+  // benign pattern over a large vault cannot false-positive the ReDoS guard. When the runtime
+  // cannot run the eval worker, fall back to the inline scan (heuristic-only, prior behavior).
+  const timeoutMs = opts.timeoutMs ?? 2000;
+  const useWorker = files.length > 0 && (await regexWorkerAvailable());
+  let spentMs = 0;
+
   const hits: RegexHit[] = [];
   for (const path of files) {
     const lines = readNote(resolveVaultPath(root, path)).raw.split(/\r?\n/);
-    let perFile = 0;
-    for (let i = 0; i < lines.length && perFile < maxPerFile; i++) {
-      const ln = lines[i] ?? "";
-      re.lastIndex = 0;
-      let m = re.exec(ln);
-      while (m !== null && perFile < maxPerFile) {
-        hits.push({ path, line: i + 1, col: m.index + 1, match: m[0], snippet: snippetOf(ln) });
-        perFile += 1;
-        if (m[0] === "") re.lastIndex += 1; // avoid an infinite loop on zero-width matches
-        m = re.exec(ln);
+    let fileHits: WorkerHit[];
+    if (useWorker) {
+      const remaining = timeoutMs - spentMs;
+      if (remaining <= 0)
+        throw err.computeBudgetExceeded("regex execution exceeded its time budget", {
+          timeout_ms: timeoutMs,
+          pattern: opts.pattern,
+        });
+      const t0 = Date.now();
+      fileHits = await execRegexJob(
+        { pattern: opts.pattern, flags: re.flags, lines, maxPerFile },
+        remaining,
+      );
+      spentMs += Date.now() - t0;
+    } else {
+      fileHits = [];
+      for (let i = 0; i < lines.length && fileHits.length < maxPerFile; i++) {
+        const ln = lines[i] ?? "";
+        re.lastIndex = 0;
+        let m = re.exec(ln);
+        while (m !== null && fileHits.length < maxPerFile) {
+          fileHits.push({ line: i + 1, col: m.index + 1, match: m[0] });
+          if (m[0] === "") re.lastIndex += 1; // avoid an infinite loop on zero-width matches
+          m = re.exec(ln);
+        }
       }
+    }
+    for (const h of fileHits) {
+      hits.push({
+        path,
+        line: h.line,
+        col: h.col,
+        match: h.match,
+        snippet: snippetOf(lines[h.line - 1] ?? ""),
+      });
       if (hits.length >= opts.limit) return hits.slice(0, opts.limit);
     }
   }

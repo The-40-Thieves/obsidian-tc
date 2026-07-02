@@ -4,14 +4,16 @@ import { evaluatesTruthy } from "../src/search/jsonlogic";
 import { searchRegex } from "../src/search/text";
 
 describe("audit follow-ups (regression)", () => {
-  it("#4 searchRegex rejects quantified overlapping alternation (a|a)+", () => {
-    expect(() => searchRegex("/no/such/root", { pattern: "(a|a)+", limit: 10 })).toThrow();
+  it("#4 searchRegex rejects quantified overlapping alternation (a|a)+", async () => {
+    await expect(searchRegex("/no/such/root", { pattern: "(a|a)+", limit: 10 })).rejects.toThrow();
   });
 
-  it("#4 searchRegex still rejects nested-quantifier classics, accepts safe patterns", () => {
-    expect(() => searchRegex("/no/such/root", { pattern: "((a)+)+", limit: 10 })).toThrow();
+  it("#4 searchRegex still rejects nested-quantifier classics, accepts safe patterns", async () => {
+    await expect(searchRegex("/no/such/root", { pattern: "((a)+)+", limit: 10 })).rejects.toThrow();
     // a char class is the safe equivalent of (a|b)+ and must NOT be rejected by the guard
-    expect(() => searchRegex("/no/such/root", { pattern: "[ab]+", limit: 10 })).not.toThrow();
+    await expect(searchRegex("/no/such/root", { pattern: "[ab]+", limit: 10 })).resolves.toEqual(
+      [],
+    );
   });
 
   it("#16 assertVectors rejects a non-finite component", () => {

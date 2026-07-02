@@ -45,8 +45,23 @@ function looseEq(a: unknown, b: unknown): boolean {
   return String(a) === String(b);
 }
 
-export function applyLogic(rule: JsonLogic, data: Record<string, unknown>): unknown {
-  if (Array.isArray(rule)) return rule.map((r) => applyLogic(r, data));
+/** Mutable evaluation budget (THE-293). Decremented on EVERY applyLogic entry — literals,
+ *  array elements, and logic nodes alike — so wide flat expressions (a 100k-arg "and"/"cat",
+ *  a huge "in" haystack) are bounded, not just deeply nested ones (the depth cap). */
+export interface OpBudget {
+  ops: number;
+}
+
+export function applyLogic(
+  rule: JsonLogic,
+  data: Record<string, unknown>,
+  budget?: OpBudget,
+): unknown {
+  if (budget && --budget.ops < 0)
+    throw err.jsonlogicError("logic expression exceeded the operation budget", {
+      max_ops: MAX_LOGIC_OPS,
+    });
+  if (Array.isArray(rule)) return rule.map((r) => applyLogic(r, data, budget));
   if (!isLogic(rule)) return rule;
   const keys = Object.keys(rule);
   if (keys.length !== 1)
@@ -54,20 +69,20 @@ export function applyLogic(rule: JsonLogic, data: Record<string, unknown>): unkn
   const op = keys[0] ?? "";
   const raw = rule[op];
   const args = Array.isArray(raw) ? raw : [raw];
-  const ev = (i: number): unknown => applyLogic(args[i], data);
+  const ev = (i: number): unknown => applyLogic(args[i], data, budget);
 
   switch (op) {
     case "var": {
-      const p = applyLogic(args[0], data);
+      const p = applyLogic(args[0], data, budget);
       if (p === "" || p === null || p === undefined) return data;
       const v = getPath(data, String(p));
       if (v !== undefined) return v;
-      return args.length > 1 ? applyLogic(args[1], data) : null;
+      return args.length > 1 ? applyLogic(args[1], data, budget) : null;
     }
     case "missing": {
       const out: unknown[] = [];
       for (const k of args) {
-        const key = String(applyLogic(k, data));
+        const key = String(applyLogic(k, data, budget));
         if (getPath(data, key) === undefined) out.push(key);
       }
       return out;
@@ -142,6 +157,9 @@ export function applyLogic(rule: JsonLogic, data: Record<string, unknown>): unkn
 }
 
 const MAX_LOGIC_DEPTH = 64;
+// THE-293: per-evaluation op budget seeded by evaluatesTruthy (total work is bounded by
+// MAX_LOGIC_OPS x note-count in search_jsonlogic). Mirrors the un-configurable depth cap.
+const MAX_LOGIC_OPS = 10_000;
 
 /** Bounded depth walk (cannot overflow itself) used to reject over-nested expressions
  *  before applyLogic would blow the call stack (audit). */
@@ -163,5 +181,5 @@ function logicDepth(rule: unknown, d: number): number {
 export function evaluatesTruthy(rule: JsonLogic, data: Record<string, unknown>): boolean {
   if (logicDepth(rule, 0) > MAX_LOGIC_DEPTH)
     throw err.jsonlogicError("logic expression nested too deeply", { max_depth: MAX_LOGIC_DEPTH });
-  return truthy(applyLogic(rule, data));
+  return truthy(applyLogic(rule, data, { ops: MAX_LOGIC_OPS }));
 }

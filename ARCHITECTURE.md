@@ -486,10 +486,11 @@ const ServerConfigSchema = z.object({
       port: z.number().int().min(1).max(65535).default(8765),
     }).default({}),
   }).default({}),
-  governor: z.object({ maxResponseBytes: z.number().int().positive().default(1_000_000) }).default({}),
+  governor: z.object({ maxResponseBytes: z.number().int().positive().default(1_000_000), regexTimeoutMs: z.number().int().positive().default(2000) }).default({}),
   throttle: ThrottleConfig,        // per-class tiers read/write/bulk/execute/admin + maxConcurrentWritesPerVault
   observability: ObservabilityConfig,   // otel{} / prometheus{} / morgiana{} / retention{}
   idempotencyTtlSeconds: z.number().int().positive().default(86400),
+  idempotencyReclaimSeconds: z.number().int().positive().default(60),
   elicitTtlSeconds: z.number().int().positive().default(300),
 })
 // F2 fail-closed interlock (.superRefine): refuse the config when transports.http.enabled &&

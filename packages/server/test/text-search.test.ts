@@ -55,24 +55,33 @@ describe("searchText", () => {
 });
 
 describe("searchRegex", () => {
-  it("returns per-match line/col and caps at max_matches_per_file", () => {
+  it("returns per-match line/col and caps at max_matches_per_file", async () => {
     const v = makeM2Vault({ files: { "a.md": "cat1 cat2 cat3 cat4" } });
-    const hits = searchRegex(v.root, { pattern: "cat\\d", maxPerFile: 2, limit: 50 });
+    const hits = await searchRegex(v.root, { pattern: "cat\\d", maxPerFile: 2, limit: 50 });
     expect(hits).toHaveLength(2);
     expect(hits[0]?.match).toBe("cat1");
     expect(hits[0]?.line).toBe(1);
     v.cleanup();
   });
 
-  it("throws invalid_input on an uncompilable pattern", () => {
+  it("throws invalid_input on an uncompilable pattern", async () => {
     const v = makeM2Vault({ files: { "a.md": "x" } });
-    try {
-      searchRegex(v.root, { pattern: "(unclosed", limit: 10 });
-      throw new Error("expected throw");
-    } catch (e) {
-      expect(e).toBeInstanceOf(ObsidianTcError);
-      expect((e as ObsidianTcError).code).toBe("invalid_input");
-    }
+    const p = searchRegex(v.root, { pattern: "(unclosed", limit: 10 });
+    await expect(p).rejects.toBeInstanceOf(ObsidianTcError);
+    await expect(p).rejects.toMatchObject({ code: "invalid_input" });
     v.cleanup();
   });
+
+  it("times out a catastrophic pattern that slips the heuristic, then recovers (THE-293)", async () => {
+    const v = makeM2Vault({ files: { "evil.md": "a".repeat(33) } });
+    // No groups, so hasNestedQuantifier passes; exponential backtracking on a near-miss line.
+    const evil = "a?".repeat(34) + "a".repeat(34);
+    await expect(
+      searchRegex(v.root, { pattern: evil, timeoutMs: 50, limit: 10 }),
+    ).rejects.toMatchObject({ code: "compute_budget_exceeded" });
+    // The worker was terminated; the next call lazily recreates it and succeeds.
+    const hits = await searchRegex(v.root, { pattern: "a+", limit: 10 });
+    expect(hits.length).toBeGreaterThan(0);
+    v.cleanup();
+  }, 20_000);
 });

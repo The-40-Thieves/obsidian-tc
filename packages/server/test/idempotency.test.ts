@@ -296,3 +296,53 @@ describe("dispatch idempotency metrics (THE-197)", () => {
     );
   });
 });
+
+describe("idempotency reclaim window (THE-293)", () => {
+  it("reclaims a crashed in-flight row after the configured window", async () => {
+    const db = freshDb();
+    const { reg, calls } = counterReg({ idempotencyReclaimSeconds: 5 });
+    const now = 7_000_000;
+    db.prepare(INSERT).run(
+      "v1",
+      "K",
+      "kv_put",
+      argsHash("kv_put", { k: "a", v: "1", idempotency_key: "K" }),
+      now - 6_000,
+      null,
+      null,
+      null,
+      now + 86_400_000,
+    );
+    const r = await reg.dispatch(
+      "kv_put",
+      { k: "a", v: "1", idempotency_key: "K" },
+      ctx(db, { now: () => now }),
+    );
+    expect(r.ok).toBe(true);
+    expect(calls.n).toBe(1);
+  });
+
+  it("keeps the 60s default: a 6s-old in-flight row still blocks", async () => {
+    const db = freshDb();
+    const { reg } = counterReg();
+    const now = 8_000_000;
+    db.prepare(INSERT).run(
+      "v1",
+      "K",
+      "kv_put",
+      argsHash("kv_put", { k: "a", v: "1", idempotency_key: "K" }),
+      now - 6_000,
+      null,
+      null,
+      null,
+      now + 86_400_000,
+    );
+    const r = await reg.dispatch(
+      "kv_put",
+      { k: "a", v: "1", idempotency_key: "K" },
+      ctx(db, { now: () => now }),
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("idempotency_in_flight");
+  });
+});

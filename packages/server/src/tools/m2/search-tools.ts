@@ -212,7 +212,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
     defineTool({
       name: "search_regex",
       description:
-        "Regular-expression search across vault notes. Each match returns line/col + the matched text; capped per file. Pattern length is bounded and patterns with nested quantifiers are rejected to prevent catastrophic backtracking; flags may only be i, m, s, u.",
+        "Regular-expression search across vault notes. Each match returns line/col + the matched text; capped per file. Pattern length is bounded, patterns with nested quantifiers are rejected, and execution is time-budgeted (governor.regexTimeoutMs) to prevent catastrophic backtracking; flags may only be i, m, s, u.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -229,14 +229,15 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
         })
         .strict(),
       requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
-        const hits = searchRegex(s.rootPath, {
+        const hits = await searchRegex(s.rootPath, {
           pattern: input.pattern,
           flags: input.flags,
           sub: s.sub,
           maxPerFile: input.max_matches_per_file,
           isReadable: s.readable,
+          timeoutMs: deps.regexTimeoutMs,
           limit: 5000,
         });
         return {
@@ -391,12 +392,15 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
             break;
           case "regex":
             tried.push("regex");
-            items = searchRegex(s.rootPath, {
-              pattern: asString(),
-              sub: s.sub,
-              isReadable: s.readable,
-              limit: 5000,
-            }).map((h) => ({
+            items = (
+              await searchRegex(s.rootPath, {
+                pattern: asString(),
+                sub: s.sub,
+                isReadable: s.readable,
+                timeoutMs: deps.regexTimeoutMs,
+                limit: 5000,
+              })
+            ).map((h) => ({
               path: h.path,
               score: 1,
               mode_used: "regex",

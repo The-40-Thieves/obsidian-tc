@@ -173,7 +173,7 @@ CREATE INDEX idx_memory_relations_target ON memory_relations(target_id);
 --   3. Replay reads existing row if completed_at IS NOT NULL.
 --   4. Concurrent INSERT with same (vault_id, key) and completed_at IS NULL
 --      raises idempotency_in_flight.
---   5. Sweep reaps rows where started_at + 60000 < now AND
+--   5. Sweep reaps rows where started_at + the configured reclaim window (idempotencyReclaimSeconds x 1000 ms, default 60000) < now AND
 --      completed_at IS NULL (process crashed mid-execution).
 -- ============================================================================
 
