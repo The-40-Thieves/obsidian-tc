@@ -15,7 +15,6 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
-import { z } from "zod";
 import type { VaultRegistry } from "../vault/registry";
 import {
   describeCapability,
@@ -24,7 +23,7 @@ import {
   findCapability,
   isDomainTool,
   isFacadeTool,
-  JSON_SCHEMA_OPTS,
+  toJson,
   triadTools,
 } from "./facade";
 import { getPrompt, listPrompts } from "./prompts";
@@ -142,19 +141,11 @@ export function createMcpServer(opts: McpServerOptions): Server {
       name: def.name,
       title: titleize(def.name),
       description: def.description,
-      inputSchema: z.toJSONSchema(
-        def.inputSchema,
-        JSON_SCHEMA_OPTS,
-      ) as unknown as Tool["inputSchema"],
+      inputSchema: toJson(def.inputSchema),
       // outputSchema + icons are opt-in per tool (THE-278); omitted entirely when unset so a tool
       // that declares neither serializes byte-identically to before.
       ...(def.outputSchema
-        ? {
-            outputSchema: z.toJSONSchema(
-              def.outputSchema,
-              JSON_SCHEMA_OPTS,
-            ) as unknown as Tool["outputSchema"],
-          }
+        ? { outputSchema: toJson(def.outputSchema) as unknown as Tool["outputSchema"] }
         : {}),
       annotations: toolAnnotations(def),
       ...(def.icons ? { icons: def.icons } : {}),
