@@ -77,6 +77,15 @@ export const AuthConfigSchema = z
     mode: z.enum(["none", "jwt"]).default("none"),
     jwtSecret: z.string().min(32).optional(),
     tokenTtlSeconds: z.number().int().positive().default(86400),
+    // THE-297 — asymmetric verification (RS256/ES256/EdDSA) behind the TokenVerifier seam.
+    // `jwks` is an inline JWKS document; `jwksFile` a path loaded once at transport boot (file
+    // or inline only — no URL fetch: no new network attack surface). Key rotation = multiple
+    // keys in the set, selected by the token's `kid` header (jose). HS256 stays available
+    // beside it; alg-confusion is structurally impossible (HS256 verifies ONLY against
+    // jwtSecret, asymmetric algs ONLY against the JWKS).
+    jwks: z.record(z.string(), z.unknown()).optional(),
+    jwksFile: z.string().optional(),
+    algorithms: z.array(z.string()).optional(),
     // MCP 2025-11-25 / RFC 9728 Protected Resource Metadata (THE-278). All optional; the HS256 token
     // format is unchanged. When `resource` + at least one `authorizationServers` entry are set, the
     // HTTP transport advertises a spec-compliant PRM document + WWW-Authenticate challenge for the
@@ -87,8 +96,8 @@ export const AuthConfigSchema = z
     resourceName: z.string().optional(),
     scopesSupported: z.array(z.string()).optional(),
   })
-  .refine((c) => c.mode !== "jwt" || !!c.jwtSecret, {
-    message: "jwtSecret (>=32 chars) is required when auth.mode is 'jwt'",
+  .refine((c) => c.mode !== "jwt" || !!c.jwtSecret || !!c.jwks || !!c.jwksFile, {
+    message: "auth.mode 'jwt' requires jwtSecret (>=32 chars) or a JWKS (jwks / jwksFile)",
     path: ["jwtSecret"],
   });
 

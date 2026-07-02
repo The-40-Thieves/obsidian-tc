@@ -1,4 +1,4 @@
-import { jwtVerify } from "jose";
+import { createLocalJWKSet, jwtVerify } from "jose";
 
 export interface JwtIdentity {
   /** The token subject (`sub`), or null when absent. */
@@ -31,10 +31,40 @@ export async function verifyJwt(
     algorithms: ["HS256"],
     requiredClaims: ["exp"],
   });
+  return identityFrom(payload, opts.maxAgeSeconds);
+}
+
+/** THE-297: default asymmetric allowlist. HS256 is deliberately NOT here — it verifies only
+ *  against the shared secret, never a JWKS (alg-confusion safety). */
+export const DEFAULT_ASYMMETRIC_ALGS = ["RS256", "ES256", "EdDSA"];
+
+/**
+ * Verify an asymmetric JWT (RS256/ES256/EdDSA) against a local JWKS document. jose selects the
+ * key by the token's `kid` header (falling back to alg matching for single-key sets), which is
+ * the rotation story: publish old + new keys together, retire the old one later. Same exp /
+ * max-age posture as the HS256 path.
+ */
+export async function verifyJwtJwks(
+  token: string,
+  jwks: Record<string, unknown>,
+  opts: { maxAgeSeconds?: number; algorithms?: string[] } = {},
+): Promise<JwtIdentity> {
+  const keySet = createLocalJWKSet(jwks as unknown as Parameters<typeof createLocalJWKSet>[0]);
+  const { payload } = await jwtVerify(token, keySet, {
+    algorithms: opts.algorithms ?? DEFAULT_ASYMMETRIC_ALGS,
+    requiredClaims: ["exp"],
+  });
+  return identityFrom(payload, opts.maxAgeSeconds);
+}
+
+function identityFrom(
+  payload: Record<string, unknown>,
+  maxAgeSeconds: number | undefined,
+): JwtIdentity {
   const tooOld =
-    opts.maxAgeSeconds !== undefined &&
+    maxAgeSeconds !== undefined &&
     typeof payload.iat === "number" &&
-    Math.floor(Date.now() / 1000) - payload.iat > opts.maxAgeSeconds;
+    Math.floor(Date.now() / 1000) - payload.iat > maxAgeSeconds;
   if (tooOld) throw new Error("token exceeds the configured maximum age");
   return {
     caller: typeof payload.sub === "string" ? payload.sub : null,
