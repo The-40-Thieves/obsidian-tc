@@ -26,8 +26,18 @@ export const JSON_SCHEMA_OPTS = {
   reused: "inline",
   unrepresentable: "any",
 } as const;
-const toJson = (schema: z.ZodType): Tool["inputSchema"] =>
-  z.toJSONSchema(schema, JSON_SCHEMA_OPTS) as unknown as Tool["inputSchema"];
+// THE-294: z.toJSONSchema is a pure function of a static schema, but tools/list, describe_capability,
+// and the triad meta-tools recompute it per request. Memoize by schema identity — every schema here
+// is a stable module const or a registered tool's inputSchema — so each is converted at most once.
+const jsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
+export function toJson(schema: z.ZodType): Tool["inputSchema"] {
+  let cached = jsonSchemaMemo.get(schema);
+  if (cached === undefined) {
+    cached = z.toJSONSchema(schema, JSON_SCHEMA_OPTS) as unknown as Tool["inputSchema"];
+    jsonSchemaMemo.set(schema, cached);
+  }
+  return cached;
+}
 
 /** Human-facing label for a snake_case tool name. */
 function titleize(name: string): string {
@@ -43,6 +53,16 @@ function titleize(name: string): string {
  * still happens inside registry.dispatch (Layer 6) when call_capability routes to the target, so
  * the per-domain schemas are never hand-merged back into the advertised surface.
  */
+const FIND_CAPABILITY_SCHEMA = z.object({
+  query: z.string().min(1),
+  limit: z.number().int().min(1).max(50).default(10),
+});
+const DESCRIBE_CAPABILITY_SCHEMA = z.object({ name: z.string().min(1) });
+const CALL_CAPABILITY_SCHEMA = z.object({
+  name: z.string().min(1),
+  args: z.record(z.string(), z.unknown()).default({}),
+});
+
 export function triadTools(): Tool[] {
   return [
     {
@@ -50,12 +70,7 @@ export function triadTools(): Tool[] {
       title: "Find capability",
       description:
         "Search this server's full tool catalog by natural-language query and return the best-matching capabilities (name + one-line summary). Use it to discover which tool to call, then describe_capability for its schema and call_capability to run it.",
-      inputSchema: toJson(
-        z.object({
-          query: z.string().min(1),
-          limit: z.number().int().min(1).max(50).default(10),
-        }),
-      ),
+      inputSchema: toJson(FIND_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
@@ -63,7 +78,7 @@ export function triadTools(): Tool[] {
       title: "Describe capability",
       description:
         "Return the full input schema, required scopes, and safety hints (read-only / destructive) for a single capability by name.",
-      inputSchema: toJson(z.object({ name: z.string().min(1) })),
+      inputSchema: toJson(DESCRIBE_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
@@ -71,9 +86,7 @@ export function triadTools(): Tool[] {
       title: "Call capability",
       description:
         "Invoke a capability by name with its arguments. Routes into the same authorization, ACL, HITL, idempotency, and rate-limit pipeline as a direct tool call, so every safety gate applies and the target's own schema validates the arguments.",
-      inputSchema: toJson(
-        z.object({ name: z.string().min(1), args: z.record(z.string(), z.unknown()).default({}) }),
-      ),
+      inputSchema: toJson(CALL_CAPABILITY_SCHEMA),
       // Advisory only; the real read-only/destructive verdict is the TARGET tool's, enforced in dispatch.
       annotations: { openWorldHint: false },
     },
@@ -103,17 +116,30 @@ const NAME_BONUS = 5;
  * tokenizer + bm25Score from the search substrate; no new index is built — the corpus is the
  * ~100 tool descriptions, tokenized per call (cheap, and only on explicit discovery).
  */
+// THE-294: the per-tool tokenization (name + description) is static, but findCapability rebuilt it
+// for the whole catalog on every query. Memoize each tool's Doc by definition identity; only the
+// query-dependent scoring below runs per call.
+const docMemo = new WeakMap<ToolDefinition, Doc>();
+function toolDoc(t: ToolDefinition): Doc {
+  let d = docMemo.get(t);
+  if (d === undefined) {
+    d = {
+      name: t.name,
+      tokens: tokenize(`${t.name} ${t.description}`),
+      nameTokens: new Set(tokenize(t.name)),
+      summary: summarize(t.description),
+    };
+    docMemo.set(t, d);
+  }
+  return d;
+}
+
 export function findCapability(
   tools: ToolDefinition[],
   query: string,
   limit: number,
 ): { name: string; summary: string; score: number }[] {
-  const docs: Doc[] = tools.map((t) => ({
-    name: t.name,
-    tokens: tokenize(`${t.name} ${t.description}`),
-    nameTokens: new Set(tokenize(t.name)),
-    summary: summarize(t.description),
-  }));
+  const docs: Doc[] = tools.map(toolDoc);
   const docCount = docs.length || 1;
   const avgLen = docs.reduce((s, d) => s + d.tokens.length, 0) / docCount;
   const qTerms = [...new Set(tokenize(query))];
@@ -141,10 +167,8 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
     name: def.name,
     title: titleize(def.name),
     description: def.description,
-    input_schema: z.toJSONSchema(def.inputSchema, JSON_SCHEMA_OPTS),
-    ...(def.outputSchema
-      ? { output_schema: z.toJSONSchema(def.outputSchema, JSON_SCHEMA_OPTS) }
-      : {}),
+    input_schema: toJson(def.inputSchema),
+    ...(def.outputSchema ? { output_schema: toJson(def.outputSchema) } : {}),
     required_scopes: def.requiredScopes,
     annotations: { read_only: !mutating, destructive: def.destructive === true },
     ...(def.icons ? { icons: def.icons } : {}),
