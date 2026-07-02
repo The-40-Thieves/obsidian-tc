@@ -12,7 +12,7 @@ import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
-import { registerM3Tools } from "../src/tools/m3";
+import { type M3Deps, registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
@@ -25,6 +25,7 @@ export interface M3VaultOptions {
   files?: Record<string, string>;
   acl?: Partial<AclConfigT>;
   vaultId?: string;
+  templaterBridge?: M3Deps["templaterBridge"];
 }
 
 export interface EventRow {
@@ -74,7 +75,10 @@ export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([{ id, path: root }]);
   const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
-  registerM3Tools(registry, { vaultRegistry });
+  registerM3Tools(registry, {
+    vaultRegistry,
+    ...(opts.templaterBridge ? { templaterBridge: opts.templaterBridge } : {}),
+  });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
     caller: "test",
