@@ -284,7 +284,7 @@ export type ToolVisibilityConfig = z.infer<typeof ToolVisibilityConfigSchema>;
 
 // Tool-surface facade (THE-219 consolidation). Which surface tools/list advertises: "triad" (the
 // default) exposes three meta-tools (find/describe/call_capability); "flat" advertises the full
-// tool surface (back-compat); "domain" is reserved for the domain-verb facade. Every registered
+// tool surface (back-compat); "domain" advertises ~a dozen domain meta-tools (THE-275). Every registered
 // tool stays callable by name regardless of mode, so nothing is removed.
 export const ToolFacadeConfigSchema = z.object({
   mode: z.enum(["triad", "domain", "flat"]).default("triad"),

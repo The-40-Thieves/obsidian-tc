@@ -1,25 +1,43 @@
 # obsidian-tc
 
-> Obsidian Turbocharged — the comprehensive, model-agnostic, agent-ready Obsidian MCP server.
+> Obsidian Turbocharged — governed, agent-ready vault access over MCP.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 ![Status: Shipped v1.2.1](https://img.shields.io/badge/Status-Shipped_v1.2.1-success)
 
+## Why this exists
+
+An AI agent with raw filesystem access to your Obsidian vault can do real damage: overwrite years of notes, delete the wrong folder, read the journal you never meant to expose, or quietly leak plugin API keys sitting in `.obsidian/`. Most Obsidian MCP servers hand an agent that access with little more than an API key between it and everything you have written.
+
+obsidian-tc gives agents **governed** access instead. Every tool call — no exceptions — runs through one dispatch pipeline: auth → scopes → folder ACL → read-only kill switch → idempotency → throttle → human-in-the-loop confirmation → handler → response governor → audit log. You decide which folders an agent can read, write, or delete (per vault, per caller); destructive operations fail closed until a human approves them; and every invocation is audited.
+
+New here? Start with the [5-minute quickstart](./docs/QUICKSTART.md) or the [threat model and design rationale](./docs/WHY.md).
+
+## The interface: 3 tools, ~103 governed capabilities
+
+By default the server advertises just **three meta-tools** instead of a wall of ~103:
+
+- **`find_capability`** — BM25 search over the caller-visible capability catalog ("how do I move a note?")
+- **`describe_capability`** — one capability's schema, required scopes, and safety hints
+- **`call_capability`** — invoke the named capability; the call routes through the same auth/scope/ACL/HITL/idempotency/throttle pipeline as a direct call, and the target's own schema validates the arguments
+
+This keeps agent context lean while the full surface — 103 tools across 28 domains — stays reachable, and every tool remains directly callable by name. `toolFacade.mode` selects the shape: `triad` (default), `domain` (~a dozen domain meta-tools like `notes`, `search`, `vault`), or `flat` (the full advertised surface, the pre-facade behavior). The facade is boundary-only: no gate is ever bypassed, whichever mode you pick.
+
 ## What it is
 
-obsidian-tc is a comprehensive Model Context Protocol (MCP) server for [Obsidian](https://obsidian.md), designed for both humans and autonomous agents. Multi-vault native. Pluggable embeddings. Works with local Ollama or cloud models. Every Obsidian capability worth exposing.
+obsidian-tc is a comprehensive Model Context Protocol (MCP) server for [Obsidian](https://obsidian.md), designed for both humans and autonomous agents. Multi-vault native. Pluggable embeddings. Works with local Ollama or cloud models.
 
 Three pillars:
 
-1. **Comprehensive.** ~100 tools covering every meaningful Obsidian operation, including native Bases (`.base`) support. No existing MCP exposes the full surface.
-2. **Safe by default.** JWT auth, folder ACLs, kill switch, human-in-the-loop elicit on destructive operations, idempotency keys, bulk throttling.
-3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, structured event emission on every tool call.
+1. **Broad.** 103 tools covering the meaningful Obsidian operations, including native Bases (`.base`) support with a real expression-DSL evaluator — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
+2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS with `kid` rotation), folder ACLs (per vault), read-only kill switch, human-in-the-loop elicit on destructive operations, compare-and-swap on writes, idempotency keys, bulk throttling.
+3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, structured CloudEvents emission on every tool call — all opt-in export streams that fail soft.
 
 Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/list` + `resources/read` over `obsidian-tc://<vault>/<path>` URIs, read-scope and folder-ACL enforced) and a set of built-in **Prompts** (`prompts/list` + `prompts/get`).
 
 ## Status
 
-✅ **Shipped — v1.2.1** (2026-06-26). The full implementation (milestones M0–M7) is published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.2.1`. The surface is **103 tools across 28 domains**, presented by default via a compact tool-surface facade (three meta-tools — `find_capability` / `describe_capability` / `call_capability` — for progressive discovery; `toolFacade.mode: flat` advertises the full surface, and every tool stays callable by name). Post-1.0.2, `main` landed a security-audit remediation pass, a dependency-currency sweep (Zod 4, Biome 2, napi-rs 3, Node 24), and the agent-ergonomics + distribution feature set — all shipped in v1.2.1; see the [CHANGELOG](./CHANGELOG.md).
+✅ **Shipped — v1.2.1** (2026-06-26). The full implementation (milestones M0–M7) is published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.2.1`. The surface is **103 tools across 28 domains**, presented by default via the triad facade described above. Since v1.2.1, `main` has landed (unreleased — see the [CHANGELOG](./CHANGELOG.md)): per-vault ACLs with the root ACL as inherited default, mandatory symlink-canonical ACL enforcement, a notes-metadata table + trigram FTS5 search substrate with index-on-write coverage across every note mutation (disk-scan fallback when FTS is unavailable), vec0 KNN vault pushdown, an Obsidian Bases expression-DSL subset evaluator with realigned view keys, compute-abuse budgets (regex worker timeout, JSONLogic op budget), a periodic cache-maintenance sweep, single-serialization dispatch, `server_health` index/`notes_ready`/`fts_enabled` reporting and config-key parity, a companion API-version floor with a bundle shape self-check, asymmetric JWT via a local JWKS, the sleep-time consolidation scheduler, and the AGPL-3.0 relicense.
 
 | Milestone | Scope | Status |
 |---|---|---|
@@ -42,12 +60,16 @@ Polyglot monorepo:
 |---|---|---|
 | `packages/server` | TypeScript (Bun) | MCP protocol layer, auth, routing, tool implementations, plugin bridges |
 | `packages/plugin` | TypeScript | Companion Obsidian plugin extending Local REST API |
-| `packages/native` | Rust (via napi-rs) | Perf-critical primitives: cosine similarity, tokenization, BM25 scoring (numerically-identical pure-JS fallback when no prebuild) |
 | `packages/shared` | TypeScript | Shared Zod schemas and types |
+| `packages/native` | Rust (via napi-rs) | Optional acceleration with a numerically-identical pure-JS fallback — see below |
+
+**Where the native module actually matters:** the main native win is **cosine similarity** on the brute-force vector path (used when the bundled `sqlite-vec` extension can't load). The native tokenizer + BM25 scorer power the **fallback** lexical ranker (the exhaustive disk scan used for sub-trigram queries or when the FTS index is missing/unhealthy) and the `find_capability` catalog search — the **primary** lexical ranking for `search_text` is SQLite FTS5's own `bm25()` over the trigram `notes_fts` index. Everything works without a prebuild; the native module makes some cold paths faster.
 
 obsidian-tc is the **converged memory engine**: vault read/write, search, and control, *plus* folded-in retrieval intelligence (GraphRAG graph-walk via `vault_graph_search`, hybrid BM25 + vector search with RRF fusion, rerank via the inference gateway, and a `knowledge_challenge` decision red-team). Ambient consolidation (weekly synthesis + decision audit) runs on the sleep-time plane when the inference gateway is configured; the GraphRAG ship-gate eval (recall@10 vs baseline) still requires an out-of-band run against a live embedding backend — machinery present and scheduled, headline retrieval numbers pending (THE-296). This supersedes the earlier "access MCP, retrieval out of scope" framing (the 2026-06-25 single-converged-product decision; see `ARCHITECTURE.md`). The reserved "V2 ML sidecar" (and the native `kmeansAssign` / `actrDecayScore` hooks) was removed; the typed-atom MemIR substrate is a downstream engine-build phase, not this v1.x line.
 
 ## Quick start
+
+Full walkthrough (Claude Desktop / Claude Code wiring, first queries, a governed write): [docs/QUICKSTART.md](./docs/QUICKSTART.md).
 
 Install, then point obsidian-tc at a JSON config — a vault `id` and `path` is the
 minimum (every other field has a default):
@@ -57,8 +79,9 @@ npm install -g obsidian-tc
 ```
 
 obsidian-tc runs on **Node (>= 24)** or **[Bun](https://bun.sh) (>= 1.1)** — `npm` / `npx`
-installs run under Node (which uses `better-sqlite3`); under Bun it uses `bun:sqlite`. The
-runtime is auto-detected, so the same install works either way.
+installs run under Node (which uses `better-sqlite3`, falling back to the built-in
+`node:sqlite`); under Bun it uses `bun:sqlite`. The runtime is auto-detected, so the same
+install works either way.
 
 The fastest start is zero-config: point it at a vault folder and it boots a single
 vault named `main` with sensible defaults.
@@ -67,8 +90,7 @@ vault named `main` with sensible defaults.
 obsidian-tc /path/to/your/vault
 ```
 
-For multi-vault, auth, ACLs, or custom embeddings, pass a config file instead. A
-vault `id` and `path` is the minimum (every other field has a default):
+For multi-vault, auth, ACLs, or custom embeddings, pass a config file instead:
 
 `obsidian-tc.config.json`:
 
@@ -141,19 +163,47 @@ Claude Desktop and other MCPB hosts.
 Most Obsidian MCP servers are thin access wrappers over the Local REST API. obsidian-tc is
 a server-grade product: a centralized dispatch pipeline (auth -> scopes -> folder ACL ->
 read-only -> idempotency -> throttle -> HITL -> handler -> response governor -> audit), a
-hybrid retrieval substrate, and observability. A rough comparison of the open-source servers
-(tool counts as of 2026-06):
+hybrid retrieval substrate, and observability. A rough comparison of the open-source
+servers (tool counts and features as of 2026-07 — these projects move; check their repos):
 
 | | Tools | Search | Auth / ACL / HITL | Observability |
 |---|---|---|---|---|
-| **obsidian-tc** | ~103 | BM25 + vector + RRF + graph | JWT + folder ACL + HITL elicit | OTel + Prometheus + CloudEvents |
-| [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~8 | text / regex | JWT/OAuth, no folder ACL/HITL | console logs |
-| [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian) | ~13 | text + JsonLogic / DQL | Local REST API key only | console logs |
-| [StevenStavrakis/obsidian-mcp](https://github.com/StevenStavrakis/obsidian-mcp) | ~11 | text | path validation, no auth | console logs |
+| **obsidian-tc** | ~103 (3-tool facade) | FTS5 BM25 + vector + RRF + graph | JWT (HS256/JWKS) + per-vault folder ACL + HITL elicit | OTel + Prometheus + CloudEvents |
+| [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~14 | text / regex | JWT/OAuth + folder-scoped paths + read-only mode + HITL; MCP 2025-11-25 pagination | console logs |
+| [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian) | ~13 | text + JsonLogic / DQL | Local REST API key | console logs |
+| [StevenStavrakis/obsidian-mcp](https://github.com/StevenStavrakis/obsidian-mcp) | ~11 | text | path validation, no auth layer | console logs |
 
-Want the smallest footprint? The community servers are simpler. Want folder-scoped ACLs,
-human-in-the-loop on destructive ops, hybrid retrieval, and multi-vault? That is what
-obsidian-tc is for.
+Where obsidian-tc goes further: multi-vault in one process with per-vault ACLs, hybrid
+lexical + vector + graph retrieval, compare-and-swap and idempotency on writes, a
+per-invocation audit trail, and production observability. Where the community servers win:
+footprint and simplicity — see the next section.
+
+## When NOT to use obsidian-tc
+
+Honest guidance — obsidian-tc is deliberately a heavier product:
+
+- **You want the smallest possible footprint.** A single trusted human driving a chat
+  client over one vault is well served by the simpler community servers above; the
+  governance pipeline here mostly pays off with autonomous or multi-agent access.
+- **You only need read access.** A read-only wrapper (or cyanheads' read-only mode) is
+  less machinery for a similar safety outcome.
+- **You want everything inside Obsidian.** obsidian-tc is a standalone server, not an
+  Obsidian plugin — the optional companion plugin only bridges plugin-specific features.
+  If you never leave the app, community plugins may be all you need.
+- **You don't need MCP at all.** Obsidian URI or the Local REST API plugin can cover
+  simple scripting directly.
+
+Migrating the other way — replacing an existing Obsidian MCP setup with obsidian-tc —
+is covered in [docs/CUTOVER.md](./docs/CUTOVER.md).
+
+## Docs
+
+- [docs/QUICKSTART.md](./docs/QUICKSTART.md) — install to first governed write in ~5 minutes
+- [docs/WHY.md](./docs/WHY.md) — threat model, what governance means concretely, what obsidian-tc is not
+- [docs/COHERENCE.md](./docs/COHERENCE.md) — writing while Obsidian is open: the coherence contract
+- [docs/CUTOVER.md](./docs/CUTOVER.md) — migrating from another Obsidian MCP server
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — the dispatch pipeline and package layout
+- [SECURITY.md](./SECURITY.md) — threat model, protections, reporting
 
 ## Trademark
 

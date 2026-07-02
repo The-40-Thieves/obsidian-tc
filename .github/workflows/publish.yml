@@ -176,6 +176,27 @@ jobs:
         shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # THE-299: CycloneDX SBOMs (npm >=9.5 built-in) uploaded as workflow artifacts beside the
+      # npm provenance attestations. Non-blocking BY DESIGN: a release must not brick on SBOM
+      # generation, but a skip is surfaced as an explicit workflow warning, never silently.
+      - name: generate SBOMs (CycloneDX)
+        run: |
+          set -uo pipefail
+          mkdir -p sboms
+          for p in native shared server; do
+            if ! (cd "packages/$p" && npm sbom --sbom-format cyclonedx) > "sboms/obsidian-tc-$p.cdx.json" 2>/dev/null; then
+              echo "::warning::SBOM generation failed for packages/$p"
+              rm -f "sboms/obsidian-tc-$p.cdx.json"
+            fi
+          done
+          ls -la sboms/
+        shell: bash
+      - name: upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sboms
+          path: sboms/
+          if-no-files-found: warn
       # Promote to `latest` only after all three are on `pending`, in dependency order with the
       # user-facing server LAST. `npm dist-tag add` is idempotent, so a failed promotion can be
       # re-run. After this `obsidian-tc@latest` resolves to a fully consistent release.
