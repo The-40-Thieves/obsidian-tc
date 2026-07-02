@@ -30,7 +30,7 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 | M4 | Plugin bridges + companion plugin — 20 tools across 9 domains | ✅ Merged |
 | M5 | Memory + capture substrate — 15 tools (capture queue, memory entities + `[[link]]` graph, workspace sessions + JSONL traces, plur read proxy) | ✅ Merged |
 | M6 | Bulk + admin + URI — 7 tools | ✅ Merged |
-| M7 | Harden + ship: OpenTelemetry tracing, Prometheus `/metrics`, CloudEvents spool, rate limiter, 4-platform native prebuilds, release workflow | ✅ Shipped (v1.0.2) |
+| M7 | Harden + ship: OpenTelemetry tracing, Prometheus `/metrics`, CloudEvents spool, rate limiter, 8-triple native prebuilds, release workflow | ✅ Shipped (v1.0.2) |
 
 This repository is public under [`The-40-Thieves`](https://github.com/The-40-Thieves), licensed AGPL-3.0-only.
 
