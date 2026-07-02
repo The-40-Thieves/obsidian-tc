@@ -28,6 +28,11 @@ trusted clients or embed it in agent-visible config. The server-side ACL / HITL 
 protect the **MCP surface**, not direct LRA / companion HTTP calls. See
 [SECURITY.md](../../SECURITY.md#companion-plugin-trust-boundary) for the full trust model.
 
+## Write coherence with a live Obsidian
+
+The server writes direct-to-disk; see [docs/COHERENCE.md](../../docs/COHERENCE.md) for the
+sole-agent-writer contract, open-pane refresh caveats, and Windows rename semantics.
+
 ## Community-store submission notes (THE-282)
 
 - `versions.json` (version → `minAppVersion`) lives beside `manifest.json` in this package and is
