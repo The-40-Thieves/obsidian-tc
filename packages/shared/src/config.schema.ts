@@ -73,6 +73,15 @@ export const AuthConfigSchema = z
     mode: z.enum(["none", "jwt"]).default("none"),
     jwtSecret: z.string().min(32).optional(),
     tokenTtlSeconds: z.number().int().positive().default(86400),
+    // MCP 2025-11-25 / RFC 9728 Protected Resource Metadata (THE-278). All optional; the HS256 token
+    // format is unchanged. When `resource` + at least one `authorizationServers` entry are set, the
+    // HTTP transport advertises a spec-compliant PRM document + WWW-Authenticate challenge for the
+    // OAuth 2.1 resource-server role. The authorization-server half (token issuance / DCR / OIDC)
+    // stays out of scope until a real external AS exists.
+    resource: z.string().url().optional(),
+    authorizationServers: z.array(z.string().url()).optional(),
+    resourceName: z.string().optional(),
+    scopesSupported: z.array(z.string()).optional(),
   })
   .refine((c) => c.mode !== "jwt" || !!c.jwtSecret, {
     message: "jwtSecret (>=32 chars) is required when auth.mode is 'jwt'",
