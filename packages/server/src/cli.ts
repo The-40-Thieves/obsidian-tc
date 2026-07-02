@@ -214,7 +214,9 @@ async function main(): Promise<void> {
     metrics,
     tracer: otel.tracer,
     emit: (vaultId, type, data) => morgiana.emit(vaultId, type, data),
-    rateLimiter,
+    // THE-288: honor throttle.enabled — when false the dispatch gate gets no limiter and never
+    // throttles. The RateLimiter object still exists (below) so get_metrics keeps reporting.
+    rateLimiter: config.throttle.enabled ? rateLimiter : undefined,
     toolVisibility: config.toolVisibility,
     // THE-209: append a per-invocation trace record to the active session's JSONL trace.
     sessionTracer: (session, record) => {
@@ -234,6 +236,12 @@ async function main(): Promise<void> {
               `[profile] ${p.tool} total=${p.total_ms}ms handler=${p.handler_ms}ms overhead=${p.total_ms - p.handler_ms}ms\n`,
             )
         : undefined,
+    // THE-288: a non-typed handler throw is redacted to `{code:"internal"}` for the client; the
+    // real error + stack goes to stderr (never stdout, the MCP channel) for operator diagnosis.
+    onInternalError: (tool, vaultId, e) => {
+      const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
+      process.stderr.write(`[internal] ${tool} (vault ${vaultId}): ${detail}\n`);
+    },
   });
   // Index-on-write (THE-255): a note mutation reindexes its path inline (best-effort and
   // backgrounded, so it never slows or fails a write); deindex drops a removed note's chunks
@@ -542,10 +550,24 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
-  await connectStdio(server);
-  process.stderr.write(
-    `obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id}; native=${nativeLoaded ? "on" : "off"} vec=${hasVec ? "on" : "off"})\n`,
-  );
+  // THE-288: honor transports.stdio. Default (true) connects the stdio MCP transport; when false
+  // the server serves HTTP-only (the listening socket keeps the process alive), and if neither
+  // transport is enabled there is nothing to serve, so exit with a clear message.
+  if (config.transports.stdio) {
+    await connectStdio(server);
+    process.stderr.write(
+      `obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id}; native=${nativeLoaded ? "on" : "off"} vec=${hasVec ? "on" : "off"})\n`,
+    );
+  } else if (config.transports.http.enabled) {
+    process.stderr.write(
+      `obsidian-tc ${VERSION} ready (http-only; stdio disabled; vault ${firstVault.id}; native=${nativeLoaded ? "on" : "off"} vec=${hasVec ? "on" : "off"})\n`,
+    );
+  } else {
+    process.stderr.write(
+      "obsidian-tc: no transport enabled (transports.stdio=false and transports.http.enabled=false); nothing to serve\n",
+    );
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {
