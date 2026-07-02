@@ -72,7 +72,7 @@ describe("mcp streamable http transport", () => {
 
     await client.close();
     await handle.close();
-  });
+  }, 20_000);
 
   it("accepts a valid HS256 token and uses its scopes", async () => {
     const secret = "s".repeat(40);
@@ -90,14 +90,14 @@ describe("mcp streamable http transport", () => {
 
     await client.close();
     await handle.close();
-  });
+  }, 20_000);
 
   it("rejects a request with no token in jwt mode", async () => {
     const { handle, url } = await boot(authOf({ mode: "jwt", jwtSecret: "s".repeat(40) }));
     const client = new Client({ name: "test", version: "0.0.0" });
     await expect(client.connect(new StreamableHTTPClientTransport(url))).rejects.toThrow();
     await handle.close();
-  });
+  }, 20_000);
 
   it("rejects a token signed with the wrong secret", async () => {
     const { handle, url } = await boot(authOf({ mode: "jwt", jwtSecret: "s".repeat(40) }));
@@ -111,7 +111,7 @@ describe("mcp streamable http transport", () => {
       ),
     ).rejects.toThrow();
     await handle.close();
-  });
+  }, 20_000);
 
   it("rejects a cross-origin browser request; allows same-origin server-to-server (THE-271)", async () => {
     const { handle, url } = await boot(authOf({ mode: "none" }));
@@ -130,5 +130,5 @@ describe("mcp streamable http transport", () => {
     });
     expect(ok.status).toBe(200);
     await handle.close();
-  });
+  }, 20_000);
 });

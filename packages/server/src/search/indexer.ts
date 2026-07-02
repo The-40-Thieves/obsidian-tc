@@ -12,6 +12,15 @@ import { readNote } from "../vault/notes-io";
 import { contentHash, resolveVaultPath, walkVault } from "../vault/paths";
 import { chunkNote } from "./chunk";
 import { desiredEdges, reconcileVaultEdges } from "./edges";
+import {
+  buildNoteRecord,
+  deleteNoteRow,
+  ensureNotesFts,
+  hasNotesTable,
+  type NoteRecord,
+  noteRowHash,
+  upsertNoteRow,
+} from "./fts";
 import { scanSecrets } from "./secrets";
 import { ensureVecChunks, floatBlob, upsertVec } from "./vec";
 
@@ -25,6 +34,10 @@ export interface IndexStats {
   edges_deleted: number;
   secrets_skipped: number;
   vec_enabled: boolean;
+  /** THE-291 (additive): FTS5 availability + notes-metadata write counts. */
+  fts_enabled: boolean;
+  notes_upserted: number;
+  notes_deleted: number;
   model: string;
   dimensions: number;
 }
@@ -78,6 +91,8 @@ interface PlanResult {
   plan: NoteWritePlan | null;
   unchanged: number;
   secretsSkipped: number;
+  /** THE-291: secret-flagged chunk contents, excised from the note's FTS copy. */
+  flagged: string[];
 }
 
 // Provider-sized embed sub-batch + how many to run in flight (THE-277). OpenAI accepts up to 2048
@@ -101,11 +116,13 @@ function computeNotePlan(
   // before embedding — never embedded, never stored, pruned if it existed. Class names only
   // are logged; the matched value is never logged or thrown.
   let secretsSkipped = 0;
+  const flagged: string[] = [];
   const desired = chunkNote(body)
     .map((c) => ({ ...c, id: chunkId(vaultId, path, c.index) }))
     .filter((c) => {
       const scan = scanSecrets(c.content);
       if (scan.clean) return true;
+      flagged.push(c.content);
       secretsSkipped += 1;
       process.stderr.write(
         `[ingest] secret-gate skipped ${path}#${c.index} (${scan.classes.join(", ")})\n`,
@@ -121,12 +138,13 @@ function computeNotePlan(
   const unchanged = desired.length - toEmbed.length;
   const willPrune = existing.some((e) => !desiredIds.has(e.id));
   if (toEmbed.length === 0 && !willPrune) {
-    return { plan: null, unchanged, secretsSkipped };
+    return { plan: null, unchanged, secretsSkipped, flagged };
   }
   return {
     plan: { path, existing, desiredIds, toEmbed, vectors: [], ts },
     unchanged,
     secretsSkipped,
+    flagged,
   };
 }
 
@@ -255,7 +273,7 @@ export async function indexNote(
   now: () => number,
   onIndexed?: IndexHook,
 ): Promise<{ upserted: number; deleted: number; unchanged: number; secretsSkipped: number }> {
-  const { plan, unchanged, secretsSkipped } = await planNoteWrites(
+  const { plan, unchanged, secretsSkipped, flagged } = await planNoteWrites(
     db,
     provider,
     vaultId,
@@ -263,11 +281,31 @@ export async function indexNote(
     raw,
     now(),
   );
-  if (!plan) return { upserted: 0, deleted: 0, unchanged, secretsSkipped };
+  // THE-291: the metadata/FTS row rides the same write (skip empty content — a true delete goes
+  // through deindexNote; an empty note has nothing to index).
+  const hasNotes = hasNotesTable(db);
+  const hasFts = hasNotes && ensureNotesFts(db, { now });
+  const note: NoteRecord | null =
+    hasNotes && raw !== "" ? buildNoteRecord(path, raw, flagged, null, now()) : null;
+  if (!plan) {
+    // Chunks unchanged; refresh the notes row only when missing/stale (backfill path).
+    if (note && noteRowHash(db, vaultId, path) !== note.contentHash) {
+      db.exec("BEGIN");
+      try {
+        upsertNoteRow(db, vaultId, note, hasFts, now());
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+    }
+    return { upserted: 0, deleted: 0, unchanged, secretsSkipped };
+  }
   let result: { upserted: number; deleted: number };
   db.exec("BEGIN");
   try {
     result = applyNoteWrites(db, provider, vaultId, plan, hasVec);
+    if (note) upsertNoteRow(db, vaultId, note, hasFts, now());
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");
@@ -275,6 +313,36 @@ export async function indexNote(
   }
   fireIndexHook(onIndexed, plan);
   return { ...result, unchanged, secretsSkipped };
+}
+
+/**
+ * THE-291: drop EVERYTHING indexed for a path — chunks, embeddings, vec rows, and the notes +
+ * FTS metadata — in one transaction. The delete/move paths call this instead of the legacy
+ * empty-content reindex (which cannot distinguish a deleted note from an empty one for the
+ * notes table).
+ */
+export function deindexNote(db: Database, vaultId: string, path: string, hasVec: boolean): void {
+  const hasNotes = hasNotesTable(db);
+  const hasFts = hasNotes && ensureNotesFts(db);
+  db.exec("BEGIN");
+  try {
+    const rows = db
+      .prepare("SELECT id FROM chunks WHERE vault_id = ? AND path = ?")
+      .all(vaultId, path) as Array<{ id: string }>;
+    const delEmb = db.prepare("DELETE FROM chunk_embeddings WHERE chunk_id = ?");
+    const delChunk = db.prepare("DELETE FROM chunks WHERE id = ?");
+    const delVec = hasVec ? db.prepare("DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
+    for (const r of rows) {
+      delEmb.run(r.id);
+      delChunk.run(r.id);
+      if (delVec) delVec.run(r.id);
+    }
+    if (hasNotes) deleteNoteRow(db, vaultId, path, hasFts);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
 }
 
 export interface IndexVaultArgs {
@@ -286,14 +354,23 @@ export interface IndexVaultArgs {
   isReadable: (rel: string) => boolean;
   now?: () => number;
   onIndexed?: IndexHook;
+  /** THE-291: fires when the notes/FTS metadata pass has committed (independent of embed
+   *  success), so the caller can flip metadata readiness even if the embed pass later fails. */
+  onNotesPass?: () => void;
 }
 
 export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const now = args.now ?? Date.now;
   const hasVec = ensureVecChunks(args.db, args.provider.dimensions, { now });
-  const notes = walkVault(args.root, { sub: args.sub, extensions: [".md"] })
-    .map((e) => e.relPath)
-    .filter(args.isReadable);
+  // THE-291: notes metadata + FTS ride the reconcile. The UNFILTERED walk backs the stale-path
+  // sweep (ACL-invisible-but-present files must never be deindexed); the readable subset drives
+  // indexing exactly as before.
+  const hasNotes = hasNotesTable(args.db);
+  const hasFts = hasNotes && ensureNotesFts(args.db, { now });
+  const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
+  const walkedSet = new Set(walked.map((e) => e.relPath));
+  const statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
+  const notes = walked.map((e) => e.relPath).filter(args.isReadable);
   const stats: IndexStats = {
     notes_seen: notes.length,
     notes_indexed: 0,
@@ -304,6 +381,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     edges_deleted: 0,
     secrets_skipped: 0,
     vec_enabled: hasVec,
+    fts_enabled: hasFts,
+    notes_upserted: 0,
+    notes_deleted: 0,
     model: args.provider.id,
     dimensions: args.provider.dimensions,
   };
@@ -342,10 +422,28 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     }
     for (const plan of applied) fireIndexHook(args.onIndexed, plan);
   };
+  // THE-291: the notes/FTS pass is flushed INDEPENDENTLY of the chunk/embed pass, so a broken
+  // embedding backend cannot block metadata/FTS readiness (they need no embeddings). Notes
+  // batches commit inline during the walk; chunk plans still batch through the embed flush.
+  let notesBatch: NoteRecord[] = [];
+  const flushNotes = (): void => {
+    if (!hasNotes || notesBatch.length === 0) return;
+    const rows = notesBatch;
+    notesBatch = [];
+    args.db.exec("BEGIN");
+    try {
+      for (const rec of rows) upsertNoteRow(args.db, args.vaultId, rec, hasFts, now());
+      args.db.exec("COMMIT");
+    } catch (err) {
+      args.db.exec("ROLLBACK");
+      throw err;
+    }
+    stats.notes_upserted += rows.length;
+  };
   for (const rel of notes) {
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
     noteLinks.set(rel, extractLinks(parseNote(raw).body));
-    const { plan, unchanged, secretsSkipped } = computeNotePlan(
+    const { plan, unchanged, secretsSkipped, flagged } = computeNotePlan(
       args.db,
       args.vaultId,
       rel,
@@ -354,11 +452,34 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
+    if (hasNotes && raw !== "") {
+      const rec = buildNoteRecord(rel, raw, flagged, statByPath.get(rel) ?? null, now());
+      if (noteRowHash(args.db, args.vaultId, rel) !== rec.contentHash) {
+        notesBatch.push(rec);
+        if (notesBatch.length >= BATCH) flushNotes();
+      }
+    }
     if (plan) {
       batch.push(plan);
       if (batch.length >= BATCH) await flush();
     }
   }
+  flushNotes();
+  // THE-291: stale-path sweep — ONLY on unscoped runs (a folder-scoped index_vault call must
+  // never deindex the rest of the vault), and diffed against the UNFILTERED walk so files an
+  // ACL-restricted caller cannot see are not destroyed.
+  if (hasNotes && args.sub === undefined) {
+    const known = args.db
+      .prepare("SELECT path FROM notes WHERE vault_id = ?")
+      .all(args.vaultId) as Array<{ path: string }>;
+    for (const row of known) {
+      if (!walkedSet.has(row.path)) {
+        deindexNote(args.db, args.vaultId, row.path, hasVec);
+        stats.notes_deleted += 1;
+      }
+    }
+  }
+  args.onNotesPass?.();
   await flush();
   // Edge maintenance is full-state (resolving targets needs the whole note universe), so it
   // runs once per indexVault pass, not per-note-write. Skipped gracefully when vault_edges is

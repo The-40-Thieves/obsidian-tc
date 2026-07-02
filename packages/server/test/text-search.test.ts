@@ -73,9 +73,11 @@ describe("searchRegex", () => {
   });
 
   it("times out a catastrophic pattern that slips the heuristic, then recovers (THE-293)", async () => {
-    const v = makeM2Vault({ files: { "evil.md": "a".repeat(33) } });
+    const v = makeM2Vault({ files: { "evil.md": `b${"a".repeat(64)}c` } });
     // No groups, so hasNestedQuantifier passes; exponential backtracking on a near-miss line.
-    const evil = "a?".repeat(34) + "a".repeat(34);
+    // Alternation fan-out with no mandatory literal run the engine can pre-search for
+    // (a long a{n} suffix lets newer V8 fast-fail via memchr before any backtracking).
+    const evil = `${"(a|aa)".repeat(30)}b`;
     await expect(
       searchRegex(v.root, { pattern: evil, timeoutMs: 50, limit: 10 }),
     ).rejects.toMatchObject({ code: "compute_budget_exceeded" });
