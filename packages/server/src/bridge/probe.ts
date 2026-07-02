@@ -9,6 +9,7 @@ import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import {
   applyOverrides,
   type CapabilitySnapshot,
+  EXPECTED_COMPANION_API,
   type PluginCapability,
   type PluginOverrides,
 } from "./capabilities";
@@ -47,7 +48,17 @@ function snapshotFrom(r: ProbeResponseResult): CapabilitySnapshot {
     plugins: normalizeCapabilities(r.capabilities),
     ...(r.plugin_version ? { pluginVersion: r.plugin_version } : {}),
     ...(r.obsidian_version ? { obsidianVersion: r.obsidian_version } : {}),
-    ...(r.obsidianTcApiVersion ? { apiVersion: r.obsidianTcApiVersion } : {}),
+    ...(r.obsidianTcApiVersion
+      ? {
+          apiVersion: r.obsidianTcApiVersion,
+          // THE-282: API-version floor — a different major degrades every bridge tool with the
+          // non-retryable plugin_incompatible instead of silent bridge divergence.
+          apiCompat:
+            r.obsidianTcApiVersion === EXPECTED_COMPANION_API
+              ? ("compatible" as const)
+              : ("incompatible" as const),
+        }
+      : {}),
     ...(r.vault_path ? { vaultPath: r.vault_path } : {}),
   };
 }
