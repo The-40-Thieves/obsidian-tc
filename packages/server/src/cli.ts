@@ -382,7 +382,15 @@ async function main(): Promise<void> {
       timeoutMs: bridgeTimeouts(m4Deps, vaultId).timeoutMs,
     }),
   });
-  registerM3Tools(registry, { vaultRegistry });
+  registerM3Tools(registry, {
+    vaultRegistry,
+    // THE-207: periodic-note creation can expand its template through Templater; openBridge
+    // applies the same degradation gate (plugin_missing / requires_live_obsidian).
+    templaterBridge: (vaultId) => ({
+      client: openBridge(m4Deps, vaultId, "templater").client,
+      timeoutMs: bridgeTimeouts(m4Deps, vaultId).templaterTimeoutMs,
+    }),
+  });
   registerM4Tools(registry, m4Deps);
 
   // M5 memory/capture substrate (THE-181): capture/memory/workspace are in-process

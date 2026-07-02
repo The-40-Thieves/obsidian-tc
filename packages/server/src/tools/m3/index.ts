@@ -4,6 +4,7 @@
 // edges alongside M0/M1/M2. M3 is pure-filesystem: every tool reads/writes vault
 // files (including .obsidian/* config) through resolveVaultPath + enforcePathAcl;
 // no companion plugin or REST endpoint is required.
+import type { BridgeClient } from "../../bridge";
 import type { ToolRegistry } from "../../mcp/registry";
 import type { VaultRegistry } from "../../vault/registry";
 import { buildAttachmentTools } from "./attachment-tools";
@@ -15,6 +16,9 @@ import { buildWorkspaceTools } from "./workspace-tools";
 
 export interface M3Deps {
   vaultRegistry: VaultRegistry;
+  /** THE-207: optional Templater bridge for periodic-note template expansion. When absent,
+   *  or the companion/Templater is unavailable, creation degrades to a verbatim template copy. */
+  templaterBridge?: (vaultId: string) => { client: BridgeClient; timeoutMs: number };
 }
 
 export function registerM3Tools(registry: ToolRegistry, deps: M3Deps): void {
