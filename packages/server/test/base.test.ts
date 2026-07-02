@@ -216,6 +216,22 @@ describe("Domain 7: Bases", () => {
     }
   });
 
+  it("query_base refuses a real Obsidian Bases DSL filter with unsupported_base_filter (THE-284)", async () => {
+    const v = makeM3Vault({
+      files: {
+        "real.base": "filters: file.hasTag(project)\nviews:\n  - name: V\n    type: table\n",
+        "a.md": "---\nstatus: active\n---\nA",
+      },
+    });
+    try {
+      const q = await v.call("query_base", { vault: "test", path: "real.base" });
+      expect(q.ok).toBe(false);
+      if (!q.ok) expect(q.error.code).toBe("unsupported_base_filter");
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("a create outside the write whitelist is acl_denied", async () => {
     const v = makeM3Vault({ acl: { writePaths: ["bases/**"] } });
     try {

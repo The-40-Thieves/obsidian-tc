@@ -98,9 +98,11 @@ Fourteen named components in V1 (excluding the optional V2 sidecar, which gets a
 ### Dependency chain (what must be installed for what to work)
 
 ```
-Obsidian app                             (always required, vault host)
-  └─ Local REST API plugin               (always required, HTTP entry to vault)
-      └─ Companion plugin                (required for command palette + ANY bridge tool)
+Filesystem (the vault folder)            (all that M1 CRUD, M2 search, and M3 format
+                                          reads/writes need — no Obsidian required, THE-255)
+Obsidian app + Local REST API plugin     (required ONLY for the Tier-3 live-action tools below)
+      └─ Companion plugin                (rides Local REST API; required for the command
+                                          palette + ANY bridge tool)
           ├─ Dataview                    (required for search_dql, validate_dql, eval_dataview_field)
           ├─ Tasks                       (required for tasks_filter)
           ├─ Templater                   (required for list_templates, execute_template)
