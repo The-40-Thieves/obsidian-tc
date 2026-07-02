@@ -378,6 +378,8 @@ async function main(): Promise<void> {
     startedAt,
     embeddings: { provider: config.embeddings.provider, model: config.embeddings.model },
     configPath,
+    // THE-291 (3B): metadata tools read the notes table once the boot notes pass commits.
+    metadataIndex: { hasFts, ready: () => indexHealth.notesReady },
     reindex: (vaultId, path, content) => {
       void indexNote(
         db,
