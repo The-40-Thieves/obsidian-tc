@@ -142,6 +142,26 @@ export interface DispatchProfile {
   handler_ms: number;
 }
 
+// THE-294 — single-serialization contract. runDispatch stringifies a successful result once for
+// the byte governor; the transport formatter (mcp/server.ts formatData) consumes that string via
+// this memo instead of re-stringifying the same object. Entries are take-and-delete (consumed by
+// exactly the request that produced them), and only non-null objects are memoized — primitives
+// fall through to the formatter's own cheap stringify. If two concurrent dispatches ever return
+// the SAME object reference, the later write wins; both stringify the identical reference, so
+// the text is correct unless the object is mutated in between (no handler does this).
+const serializedResults = new WeakMap<object, string>();
+
+export function memoizeSerialized(data: unknown, json: string): void {
+  if (data !== null && typeof data === "object") serializedResults.set(data as object, json);
+}
+
+export function takeSerialized(data: unknown): string | undefined {
+  if (data === null || typeof data !== "object") return undefined;
+  const s = serializedResults.get(data as object);
+  if (s !== undefined) serializedResults.delete(data as object);
+  return s;
+}
+
 export interface RegistryOptions {
   maxResponseBytes?: number;
   verifyElicit?: VerifyElicit;
@@ -551,6 +571,7 @@ export class ToolRegistry {
               try {
                 const cachedStr = bufToString(row.result);
                 const cached = JSON.parse(cachedStr) as unknown;
+                memoizeSerialized(cached, cachedStr);
                 const resultSize = row.result_size ?? Buffer.byteLength(cachedStr, "utf8");
                 const duration = Math.max(0, now() - start);
                 audit("ok", duration, resultSize);
@@ -690,6 +711,7 @@ export class ToolRegistry {
       } catch {
         /* profile sink must never block tool execution */
       }
+      memoizeSerialized(out, json);
       return { ok: true, data: out, meta: { duration_ms: duration, result_size: resultSize } };
     } catch (e) {
       if (idemClaimed && idemKey) {

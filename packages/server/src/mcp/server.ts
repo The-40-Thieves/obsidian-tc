@@ -28,6 +28,7 @@ import {
 } from "./facade";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
+import { takeSerialized } from "./registry";
 import { listResources, readResource } from "./resources";
 
 // tools/list returns at most this many tools per page; the client follows nextCursor for the
@@ -157,7 +158,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
   const formatData = (data: unknown): CallToolResult => {
     const structuredContent = asStructured(data);
     return {
-      content: [{ type: "text", text: JSON.stringify(data ?? null) }],
+      // THE-294: dispatch already serialized this exact object for the byte governor.
+      content: [{ type: "text", text: takeSerialized(data) ?? JSON.stringify(data ?? null) }],
       ...(structuredContent ? { structuredContent } : {}),
     };
   };
