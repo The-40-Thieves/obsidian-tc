@@ -194,6 +194,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         lines[idx] = serializeTask(updated);
         const content = lines.join(eol);
         writeNoteAtomic(abs, content);
+        deps.reindex?.(v.id, rel, content);
         return {
           path: rel,
           line: input.line,

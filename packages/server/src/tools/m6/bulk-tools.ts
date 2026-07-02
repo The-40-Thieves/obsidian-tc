@@ -186,6 +186,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
               throw err.noteNotFound("note does not exist; use create or upsert", { path: rel });
             const body = serializeNote(item.frontmatter ?? null, item.content);
             writeNoteAtomic(abs, body, true);
+            deps.reindex?.(v.id, rel, body);
             return {
               mode_used: ex.exists ? "overwrite" : "create",
               content_hash: contentHash(body),
@@ -225,7 +226,9 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             // Store an explicitly-supplied null as null; only a truly-absent value
             // defaults to null (F5).
             fm[input.key] = "value" in input ? input.value : null;
-            writeNoteAtomic(abs, serializeNote(fm, parsed.body, parsed.rawFrontmatter), false);
+            const body = serializeNote(fm, parsed.body, parsed.rawFrontmatter);
+            writeNoteAtomic(abs, body, false);
+            deps.reindex?.(v.id, rel, body);
             return { prev_value: prev ?? null };
           },
         );
@@ -348,6 +351,8 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const { raw } = readNote(fromAbs);
             writeNoteAtomic(toAbs, raw, true);
             hardDelete(fromAbs);
+            deps.deindex?.(v.id, r.fromRel);
+            deps.reindex?.(v.id, r.toRel, raw);
           } catch (e) {
             r.ok = false;
             r.error = (

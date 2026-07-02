@@ -15,6 +15,8 @@ export const DEFAULT_TRACE_FOLDER = ".obsidian-tc/traces";
 
 export interface M5Deps {
   vaultRegistry: VaultRegistry;
+  /** THE-291: index-on-write hook for capture-commit writes (best-effort, backgrounded). */
+  reindex?: (vaultId: string, path: string, content: string) => void;
   /** THE-209: active-session tracker; start_session/end_session maintain it, the transport reads it. */
   activeSessions?: ActiveSessionTracker;
   /** Global plur read client; undefined when no plur endpoint is configured. */
