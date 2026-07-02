@@ -42,9 +42,13 @@ describe("active backend (native when built, else JS) matches the JS reference",
   });
 
   it("cosine/tokenize/bm25 agree with the JS reference", () => {
-    expect(cosineSimilarity([0.1, 0.2, 0.3], [0.2, 0.1, 0.4])).toBeCloseTo(
-      jsCosineSimilarity([0.1, 0.2, 0.3], [0.2, 0.1, 0.4]),
-      6,
+    // THE-266: the native doc param is a strict Float32Array, so feed both the native
+    // and JS paths the SAME Float32Array — identical f32->f64 widening makes the result
+    // bit-identical (strict === parity, not merely close).
+    const parityQuery = [0.1, 0.2, 0.3];
+    const parityDoc = new Float32Array([0.2, 0.1, 0.4]);
+    expect(cosineSimilarity(parityQuery, parityDoc)).toBe(
+      jsCosineSimilarity(parityQuery, parityDoc),
     );
     expect(tokenize("Alpha, beta_gamma 42")).toEqual(jsTokenize("Alpha, beta_gamma 42"));
     expect(bm25Score(3, 120, 95, 2, 50)).toBeCloseTo(jsBm25Score(3, 120, 95, 2, 50), 6);

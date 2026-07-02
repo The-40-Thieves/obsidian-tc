@@ -4,7 +4,7 @@
 // (src/lib.rs) so search results never depend on which backend is active.
 
 /** Cosine similarity; 0 for empty or mismatched-length inputs. Mirrors the Rust. */
-export function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: number[], b: Float32Array | number[]): number {
   if (a.length !== b.length || a.length === 0) {
     return 0;
   }

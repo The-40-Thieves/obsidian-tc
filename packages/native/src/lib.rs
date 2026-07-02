@@ -9,14 +9,23 @@
 //! at the TS/db layer rather than wrapped here. Every export has a pure-JS
 //! fallback on the TypeScript side, so the server runs without this module.
 
+use napi::bindgen_prelude::Float32Array;
 use napi_derive::napi;
 
-/// Cosine similarity between two equal-length vectors. Used by the semantic
-/// brute-force recall path when the sqlite-vec extension is unavailable.
-/// Inputs are plain JS number arrays (f64); the zero-copy `Float32Array` path
-/// is a later optimization.
+/// Cosine similarity between a query and a document vector. Used by the semantic
+/// brute-force recall path when the sqlite-vec extension is unavailable. The query
+/// stays f64; the document arrives as a zero-copy `Float32Array` (THE-266) and each
+/// element is widened f32 -> f64 in-loop, so the result is bit-identical to the
+/// pure-JS `jsCosineSimilarity` fallback (guarded by a strict `===` parity test).
 #[napi]
-pub fn cosine_similarity(a: Vec<f64>, b: Vec<f64>) -> f64 {
+pub fn cosine_similarity(a: Vec<f64>, b: Float32Array) -> f64 {
+    cosine_core(&a, &b)
+}
+
+/// Pure f64 cosine core over a query slice (f64) and a document slice (f32, widened
+/// in-loop). Split from the napi entry so it stays unit-testable without a JS runtime
+/// to construct a `Float32Array`.
+fn cosine_core(a: &[f64], b: &[f32]) -> f64 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
@@ -24,9 +33,10 @@ pub fn cosine_similarity(a: Vec<f64>, b: Vec<f64>) -> f64 {
     let mut norm_a = 0.0_f64;
     let mut norm_b = 0.0_f64;
     for i in 0..a.len() {
-        dot += a[i] * b[i];
+        let bi = b[i] as f64;
+        dot += a[i] * bi;
         norm_a += a[i] * a[i];
-        norm_b += b[i] * b[i];
+        norm_b += bi * bi;
     }
     if norm_a == 0.0 || norm_b == 0.0 {
         return 0.0;
@@ -71,19 +81,19 @@ mod tests {
 
     #[test]
     fn identical_vectors() {
-        let sim = cosine_similarity(vec![1.0, 2.0, 3.0], vec![1.0, 2.0, 3.0]);
+        let sim = cosine_core(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0]);
         assert!((sim - 1.0).abs() < 1e-6);
     }
 
     #[test]
     fn orthogonal_vectors() {
-        let sim = cosine_similarity(vec![1.0, 0.0], vec![0.0, 1.0]);
+        let sim = cosine_core(&[1.0, 0.0], &[0.0, 1.0]);
         assert!(sim.abs() < 1e-6);
     }
 
     #[test]
     fn mismatched_length() {
-        assert_eq!(cosine_similarity(vec![1.0, 2.0], vec![1.0, 2.0, 3.0]), 0.0);
+        assert_eq!(cosine_core(&[1.0, 2.0], &[1.0, 2.0, 3.0]), 0.0);
     }
 
     #[test]
