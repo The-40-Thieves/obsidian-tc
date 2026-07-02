@@ -1,0 +1,47 @@
+name: dco
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dco-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need the full PR commit range, not just the merge ref's tip.
+          fetch-depth: 0
+      - name: verify Signed-off-by on every non-merge PR commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          range="$BASE_SHA..$HEAD_SHA"
+          commits=$(git rev-list --no-merges "$range")
+          if [ -z "$commits" ]; then
+            echo "No non-merge commits in $range; nothing to check."
+            exit 0
+          fi
+          fail=0
+          for sha in $commits; do
+            subject=$(git show -s --format='%s' "$sha")
+            if git show -s --format='%B' "$sha" | grep -Eiq '^Signed-off-by: .+ <.+@.+>$'; then
+              echo "ok   $sha  $subject"
+            else
+              echo "FAIL $sha  $subject"
+              echo "       missing a 'Signed-off-by: Name <email>' trailer"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo
+            echo "::error::One or more commits are missing a DCO Signed-off-by trailer."
+            echo "Fix: git rebase --signoff ${BASE_SHA} && git push --force-with-lease"
+            echo "(or add '-s' to future commits: git commit -s). See CONTRIBUTING.md#license-and-sign-off-dco"
+            exit 1
+          fi
+          echo
+          echo "All non-merge PR commits are signed off."

@@ -137,7 +137,7 @@ Trunk-based with short-lived feature branches. Branch from `main`, name as `<typ
 
 Open PRs against `main`. Use the PR template. For merge:
 
-1. CI workflows green (`ci-server`, `ci-plugin`, `ci-native` (3 build platforms + musl cross-build validation), `ci-docker`, `ci-version`).
+1. CI workflows green (`ci-server`, `ci-plugin`, `ci-native` (3 build platforms + musl cross-build validation), `ci-docker`, `ci-version`, `dco`).
 2. At least one review from a maintainer.
 3. Conventional Commits format on the PR title (used to generate the changelog).
 4. Tests added for new behavior. Coverage may regress but should not regress meaningfully.
@@ -203,9 +203,19 @@ Releases are coordinated by maintainers; contributors do not need to drive them.
 
 The full runbook lives at `docs/G2.5-release-engineering.md` §9.
 
-## License
+## License and Sign-off (DCO)
 
-obsidian-tc is licensed under [AGPL-3.0-only](./LICENSE). By submitting a contribution, you certify that you have the right to submit it under that license. See the [Developer Certificate of Origin](https://developercertificate.org/) for the formal statement; signed-off commits are appreciated but not required.
+obsidian-tc is licensed under [AGPL-3.0-only](./LICENSE). A separate commercial-exception license may also be available for organizations that cannot meet the AGPL's network-copyleft terms; if that applies to you, open a discussion to ask — the terms are decided case by case and are not published here.
+
+Contributions are accepted under the [Developer Certificate of Origin](https://developercertificate.org/) (DCO), not a CLA. By signing off a commit you certify the DCO: that you wrote the change or otherwise have the right to submit it under the project's license.
+
+**Sign-off is required.** Every non-merge commit in a pull request must carry a `Signed-off-by:` trailer whose name and email match the commit author, e.g.:
+
+```
+Signed-off-by: Jane Doe <jane@example.com>
+```
+
+Add it automatically with `git commit -s` (configure `git config user.name` / `user.email` first). To sign off a branch of existing commits, run `git rebase --signoff main` and force-push. The `dco` CI check verifies this on every PR and fails with a remediation hint if a commit is missing the trailer; merge commits are exempt.
 
 ## Getting Help
 
