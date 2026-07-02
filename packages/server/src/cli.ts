@@ -14,6 +14,7 @@ import {
 import { parseCliArgs, redactConfig, resolveServeConfig, USAGE } from "./cli/args";
 import { installPlugin } from "./cli/plugin-install";
 import { provisionExperientialDb } from "./db/experiential";
+import { startMaintenanceSweep } from "./db/maintenance";
 import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
 import { elicitVerifier } from "./elicit";
@@ -588,7 +589,42 @@ async function main(): Promise<void> {
 
   morgiana.emit(firstVault.id, "tc.server.start");
 
+  // THE-292: periodic cache.db maintenance — purge expired idempotency/elicit rows, trim
+  // event_log to its configured retention, PRAGMA optimize. Best-effort and unref'd; expired
+  // rows remain lazily rejected on read regardless, so a failed sweep degrades disk
+  // reclamation, never correctness.
+  const stopMaintenance = config.maintenance.enabled
+    ? startMaintenanceSweep({
+        db,
+        intervalMs: config.maintenance.intervalMinutes * 60_000,
+        eventLogDays: config.observability.retention.eventLogDays,
+        onSweep: (counts) => {
+          const total = counts.idempotency_keys + counts.elicit_tokens + counts.event_log;
+          morgiana.emit(firstVault.id, "tc.maintenance.sweep", {
+            count: total,
+            rows_dropped: { ...counts },
+          });
+          try {
+            writeEvent(db, {
+              ts: Date.now(),
+              status: "ok",
+              event_type: "sweep_run",
+              result_size: total,
+            });
+          } catch {
+            /* event_log is best-effort */
+          }
+        },
+        onError: (e) => {
+          process.stderr.write(
+            `[maintenance] sweep failed: ${e instanceof Error ? e.message : String(e)}\n`,
+          );
+        },
+      })
+    : null;
+
   const shutdown = async (): Promise<void> => {
+    stopMaintenance?.();
     morgiana.emit(firstVault.id, "tc.server.shutdown");
     try {
       await otel.shutdown();
