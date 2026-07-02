@@ -19,8 +19,10 @@ import { z } from "zod";
 import type { VaultRegistry } from "../vault/registry";
 import {
   describeCapability,
+  domainTools,
   type FacadeMode,
   findCapability,
+  isDomainTool,
   isFacadeTool,
   triadTools,
 } from "./facade";
@@ -114,7 +116,15 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // THE-219 facade: in triad/domain mode advertise the three meta-tools instead of the full
     // surface. Every registered tool stays callable by name via call_capability, so nothing is
     // hidden; flat mode is the back-compat full-surface behavior.
-    if (facadeMode !== "flat") return { tools: triadTools() };
+    if (facadeMode === "triad") return { tools: triadTools() };
+    if (facadeMode === "domain") {
+      const dctx = opts.context();
+      const dvisible = opts.registry.listVisible({
+        grantedScopes: dctx.grantedScopes,
+        readOnly: dctx.acl?.readOnly,
+      });
+      return { tools: domainTools(dvisible) };
+    }
     // Per-caller filtering (THE-250): the caller's resolved scopes + ACL read-only shape the
     // advertised surface, so a caller never sees a tool it could not dispatch. A full grant
     // (stdio / auth-none) leaves the surface unchanged. Filter first, THEN page: the cursor is an
@@ -171,6 +181,14 @@ export function createMcpServer(opts: McpServerOptions): Server {
       const { elicit_token, ...rest } = rawArgs;
       args = rest;
       ctx = { ...ctx, elicitToken: elicit_token };
+    }
+    // THE-275 domain-verb facade: a domain meta-tool ("notes", "search", ...) carries {action, args};
+    // route the named action straight through registry.dispatch so every gate + the target's own
+    // schema validation fire unchanged (identical to call_capability, just grouped by domain).
+    if (facadeMode === "domain" && isDomainTool(req.params.name)) {
+      const action = typeof args.action === "string" ? args.action : "";
+      const actionArgs = (args.args ?? {}) as Record<string, unknown>;
+      return dispatchToResult(action, actionArgs, ctx);
     }
     // THE-219 facade interception (boundary-only): find/describe are pure metadata over the
     // caller-visible catalog; call_capability routes the named TARGET through registry.dispatch so

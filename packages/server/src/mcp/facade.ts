@@ -140,3 +140,253 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
     annotations: { read_only: !mutating, destructive: def.destructive === true },
   };
 }
+
+// ---- Domain-verb mode (THE-275) --------------------------------------------------------------
+// In "domain" mode tools/list advertises ~a dozen domain meta-tools instead of the full surface or
+// the triad. Each domain tool takes { action, args }: `action` names one capability in that domain
+// and `args` is passed through. call routing is identical to call_capability (registry.dispatch, so
+// every gate + the target's own Layer-6 schema validation fire) — this is a BOUNDARY-ONLY grouping,
+// not a new dispatch path. The domain map is the one catalog that must track the tool surface; a
+// tool with no mapping still ships under an "other" domain, so nothing is ever hidden.
+interface DomainSpec {
+  domain: string;
+  title: string;
+  blurb: string;
+  members: readonly string[];
+}
+
+const DOMAINS: readonly DomainSpec[] = [
+  {
+    domain: "notes",
+    title: "Notes",
+    blurb: "Read, write, move, copy, and delete vault notes.",
+    members: [
+      "read_note",
+      "read_notes",
+      "write_note",
+      "append_note",
+      "patch_note",
+      "copy_note",
+      "move_note",
+      "delete_note",
+      "note_exists",
+      "list_notes",
+      "bulk_create_notes",
+      "bulk_move_notes",
+    ],
+  },
+  {
+    domain: "metadata",
+    title: "Metadata",
+    blurb: "Frontmatter, properties, and tags.",
+    members: [
+      "read_frontmatter",
+      "update_frontmatter",
+      "read_property",
+      "find_notes_by_property",
+      "list_properties",
+      "add_tag",
+      "remove_tag",
+      "get_note_tags",
+      "find_notes_by_tag",
+      "list_tags",
+      "bulk_set_property",
+    ],
+  },
+  {
+    domain: "links",
+    title: "Links",
+    blurb: "Backlinks, outgoing links, orphans, and link maintenance.",
+    members: [
+      "get_backlinks",
+      "get_outgoing_links",
+      "find_unresolved_links",
+      "find_orphans",
+      "rewrite_link",
+      "prune_hub_links",
+    ],
+  },
+  {
+    domain: "search",
+    title: "Search",
+    blurb: "Full-text, regex, semantic, and query-language search.",
+    members: [
+      "search_text",
+      "search_regex",
+      "search_semantic",
+      "search_vault",
+      "search_dql",
+      "search_jsonlogic",
+    ],
+  },
+  {
+    domain: "vault",
+    title: "Vault",
+    blurb: "Vault registry and the search index.",
+    members: ["get_vault", "list_vaults", "reload_vault", "reset_vault_cache", "index_vault"],
+  },
+  {
+    domain: "attachments",
+    title: "Attachments",
+    blurb: "Attachment files and OCR.",
+    members: [
+      "get_attachment",
+      "list_attachments",
+      "move_attachment",
+      "delete_attachment",
+      "ocr_attachment",
+      "ocr_bulk",
+    ],
+  },
+  {
+    domain: "structured",
+    title: "Structured documents",
+    blurb: "Bases, canvases, and Excalidraw drawings.",
+    members: [
+      "create_base",
+      "read_base",
+      "update_base",
+      "query_base",
+      "create_canvas",
+      "read_canvas",
+      "update_canvas",
+      "query_canvas",
+      "create_excalidraw",
+      "read_excalidraw",
+      "update_excalidraw",
+    ],
+  },
+  {
+    domain: "workspace",
+    title: "Workspace",
+    blurb: "Bookmarks, workspaces, and periodic notes.",
+    members: [
+      "add_bookmark",
+      "remove_bookmark",
+      "list_bookmarks",
+      "list_workspaces",
+      "open_workspace",
+      "save_workspace",
+      "create_periodic_note",
+      "get_periodic_note",
+      "list_periodic_notes",
+      "append_to_periodic_note",
+      "find_or_create_periodic_note",
+    ],
+  },
+  {
+    domain: "automation",
+    title: "Automation",
+    blurb: "Commands, templates, Dataview, MakeMD, QuickAdd, tasks, bundles, and URIs.",
+    members: [
+      "list_commands",
+      "execute_command",
+      "generate_uri",
+      "list_templates",
+      "execute_template",
+      "eval_dataview_field",
+      "validate_dql",
+      "makemd_list_spaces",
+      "makemd_query",
+      "list_quickadd_actions",
+      "trigger_quickadd",
+      "bundle_files",
+      "bundle_folder",
+      "list_tasks",
+      "tasks_filter",
+      "update_task",
+    ],
+  },
+  {
+    domain: "knowledge",
+    title: "Knowledge",
+    blurb: "Knowledge graph, entities, memory, capture queue, and sessions.",
+    members: [
+      "knowledge_challenge",
+      "vault_graph_search",
+      "query_entity_graph",
+      "create_entity",
+      "get_entity",
+      "link_entities",
+      "add_observation",
+      "plur_get",
+      "plur_recall",
+      "plur_recall_hybrid",
+      "plur_similarity_search",
+      "enqueue_capture",
+      "commit_capture",
+      "list_capture_queue",
+      "start_session",
+      "end_session",
+      "get_session_traces",
+    ],
+  },
+  {
+    domain: "admin",
+    title: "Admin",
+    blurb: "Server config, ACL inspection, health, and metrics.",
+    members: ["get_metrics", "get_server_config", "inspect_acl", "server_health"],
+  },
+];
+
+const DOMAIN_OF = new Map<string, string>();
+for (const d of DOMAINS) for (const m of d.members) DOMAIN_OF.set(m, d.domain);
+const DOMAIN_NAMES = new Set<string>(DOMAINS.map((d) => d.domain));
+const SPEC_BY_DOMAIN = new Map<string, DomainSpec>(DOMAINS.map((d) => [d.domain, d]));
+
+/** True when `name` is a domain meta-tool (advertised only in "domain" mode). */
+export function isDomainTool(name: string): boolean {
+  return DOMAIN_NAMES.has(name) || name === "other";
+}
+
+/** The domain a capability belongs to, or undefined if unmapped (would ship under "other"). */
+export function domainOfTool(name: string): string | undefined {
+  return DOMAIN_OF.get(name);
+}
+
+function isReadOnly(def: ToolDefinition): boolean {
+  return !(def.destructive === true || def.requiredScopes.some(isMutatingScope));
+}
+
+/**
+ * Group the caller-visible catalog into domain meta-tools. Each advertised tool takes a SHALLOW
+ * { action: <enum of the domain's capabilities>, args: <passthrough> }; per-action validation still
+ * happens in registry.dispatch when call routes the action. Domains with no visible member are
+ * dropped, so the surface reflects the caller's scopes/ACL (mirrors flat-mode filtering).
+ */
+export function domainTools(tools: ToolDefinition[]): Tool[] {
+  const groups = new Map<string, ToolDefinition[]>();
+  for (const t of tools) {
+    const dom = DOMAIN_OF.get(t.name) ?? "other";
+    const arr = groups.get(dom);
+    if (arr) arr.push(t);
+    else groups.set(dom, [t]);
+  }
+  const order = [...DOMAINS.map((d) => d.domain), "other"];
+  const out: Tool[] = [];
+  for (const dom of order) {
+    const members = groups.get(dom);
+    if (!members || members.length === 0) continue;
+    members.sort((a, b) => a.name.localeCompare(b.name));
+    const spec = SPEC_BY_DOMAIN.get(dom);
+    const actions = members.map((m) => m.name);
+    const lines = members.map((m) => `- ${m.name}: ${summarize(m.description)}`).join("\n");
+    out.push({
+      name: dom,
+      title: spec?.title ?? titleize(dom),
+      description: `${spec?.blurb ?? "Miscellaneous capabilities."} Call with "action" naming one capability and "args" its arguments.\nActions:\n${lines}`,
+      inputSchema: toJson(
+        z.object({
+          action: z.enum(actions as [string, ...string[]]),
+          args: z.record(z.string(), z.unknown()).default({}),
+        }),
+      ),
+      annotations: {
+        readOnlyHint: members.every(isReadOnly),
+        destructiveHint: members.some((m) => m.destructive === true),
+        openWorldHint: false,
+      },
+    });
+  }
+  return out;
+}
