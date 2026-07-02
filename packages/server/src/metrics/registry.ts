@@ -69,13 +69,13 @@ export class MetricsRecorder {
     });
     this.idempotencyHits = new Counter({
       name: "obsidian_tc_idempotency_hits_total",
-      help: "Idempotency cache hits, by vault and tool (registered-zero until THE-197).",
+      help: "Idempotency cache hits, by vault and tool.",
       labelNames: ["vault", "tool"],
       registers,
     });
     this.idempotencyCacheSkipped = new Counter({
       name: "obsidian_tc_idempotency_cache_skipped_total",
-      help: "Idempotency results skipped over the byte cap, by vault and tool (registered-zero until THE-197).",
+      help: "Idempotency results skipped over the byte cap, by vault and tool.",
       labelNames: ["vault", "tool"],
       registers,
     });
@@ -149,7 +149,7 @@ export class MetricsRecorder {
     );
     gauge(
       "obsidian_tc_idempotency_cache_bytes",
-      "Idempotency cache size in bytes, by vault (registered-zero until THE-197).",
+      "Idempotency cache size in bytes, by vault.",
       sources.idempotencyCacheBytes,
     );
   }

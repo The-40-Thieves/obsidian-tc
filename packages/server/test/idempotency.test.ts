@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Database } from "../src/db/types";
 import { argsHash } from "../src/hash";
 import { type CallerContext, type RegistryOptions, ToolRegistry } from "../src/mcp/registry";
+import { MetricsRecorder } from "../src/metrics/registry";
 import { openMemoryDb } from "./helpers";
 
 const schemaSql = readFileSync(
@@ -262,5 +263,36 @@ describe("dispatch idempotency gate (D3)", () => {
     );
     expect(r.ok).toBe(true);
     expect(calls.n).toBe(1);
+  });
+});
+
+describe("dispatch idempotency metrics (THE-197)", () => {
+  it("records an idempotency hit on cache replay", async () => {
+    const db = freshDb();
+    const metrics = new MetricsRecorder();
+    const { reg } = counterReg({ metrics });
+    await reg.dispatch("kv_put", { k: "a", v: "1", idempotency_key: "K" }, ctx(db));
+    await reg.dispatch("kv_put", { k: "a", v: "1", idempotency_key: "K" }, ctx(db));
+    const text = await metrics.metrics();
+    expect(text).toContain('obsidian_tc_idempotency_hits_total{vault="v1",tool="kv_put"} 1');
+  });
+
+  it("records a cache-skip when a keyed result overflows the byte cap", async () => {
+    const db = freshDb();
+    const metrics = new MetricsRecorder();
+    const reg = new ToolRegistry({ metrics, maxResponseBytes: 10 });
+    reg.register({
+      name: "big_keyed",
+      description: "big keyed write",
+      inputSchema: z.object({ idempotency_key: z.string().optional() }),
+      requiredScopes: ["write:notes"],
+      handler: () => ({ blob: "x".repeat(1000) }),
+    });
+    const r = await reg.dispatch("big_keyed", { idempotency_key: "K" }, ctx(db));
+    expect(r.ok).toBe(false);
+    const text = await metrics.metrics();
+    expect(text).toContain(
+      'obsidian_tc_idempotency_cache_skipped_total{vault="v1",tool="big_keyed"} 1',
+    );
   });
 });
