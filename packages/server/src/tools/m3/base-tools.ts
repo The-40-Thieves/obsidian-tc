@@ -122,6 +122,10 @@ const UpdateInput = z
         remove_views: z.array(z.string()).optional(),
         update_views: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
         formulas: z.record(z.string(), z.unknown()).optional(),
+        // THE-280 — real Bases top-level keys (filters is note-set-defining, so it is
+        // HITL-gated exactly like the deprecated source alias).
+        filters: z.unknown().optional(),
+        properties: z.record(z.string(), z.unknown()).optional(),
       })
       .strict(),
     prev_hash: z.string().optional(),
@@ -184,11 +188,29 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         requireConfirmation(ctx, "create_base", input, ex.exists && input.overwrite, { path: rel });
         const content = serializeBase(input.base);
         writeNoteAtomic(abs, content, input.options.create_dirs);
+        // THE-280: surface the obsidian-tc aliases as deprecations (removal at v2.0) so authors
+        // migrate toward real Bases shapes (top-level filters; per-view order/groupBy).
+        const deprecations: string[] = [];
+        const doc = input.base as Record<string, unknown>;
+        if (doc.source !== undefined)
+          deprecations.push(
+            "`source` is an obsidian-tc alias; real Bases selects notes via top-level `filters` (removal at v2.0)",
+          );
+        const inViews = Array.isArray(doc.views) ? (doc.views as Record<string, unknown>[]) : [];
+        if (inViews.some((vv) => Array.isArray(vv.columns)))
+          deprecations.push(
+            "per-view `columns` is an obsidian-tc alias for real Bases `order` (removal at v2.0)",
+          );
+        if (inViews.some((vv) => vv.group !== undefined))
+          deprecations.push(
+            "per-view `group` is a deprecated alias for real Bases `groupBy` (removal at v2.0)",
+          );
         return {
           vault: v.id,
           path: rel,
           created: !ex.exists,
           content_hash: contentHash(content),
+          ...(deprecations.length ? { deprecations } : {}),
         };
       },
     }),
@@ -196,7 +218,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "update_base",
       description:
-        "Patch a .base file's source/views/formulas. Unknown keys are preserved. Changing `source` requires confirmation.",
+        "Patch a .base file's source/filters/properties/views/formulas. Unknown keys are preserved. Changing `source` (deprecated alias) or the note-set-defining top-level `filters` requires confirmation.",
       inputSchema: UpdateInput,
       requiredScopes: ["write:bases"],
       handler: (input, ctx) => {
@@ -216,10 +238,17 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
             actual: hash,
           });
         const patch = input.patch;
-        requireConfirmation(ctx, "update_base", input, patch.source !== undefined, {
-          path: rel,
-          source_change: patch.source !== undefined,
-        });
+        requireConfirmation(
+          ctx,
+          "update_base",
+          input,
+          patch.source !== undefined || patch.filters !== undefined,
+          {
+            path: rel,
+            source_change: patch.source !== undefined,
+            filters_change: patch.filters !== undefined,
+          },
+        );
 
         const { raw } = parseBase(text);
         const applied = {
@@ -232,6 +261,9 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
           raw.source = patch.source;
           applied.source_changed = true;
         }
+        // THE-280: real Bases top-level keys are applied, not silently accepted.
+        if (patch.filters !== undefined) raw.filters = patch.filters;
+        if (patch.properties !== undefined) raw.properties = patch.properties;
         if (patch.remove_views?.length) {
           const set = new Set(patch.remove_views);
           const before = baseViews(raw).length;
@@ -327,6 +359,43 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
             ? input.override_filters
             : undefined;
         const colNames = view && Array.isArray(view.columns) ? (view.columns as string[]) : [];
+        // THE-280: real Bases view keys, previously round-tripped but IGNORED at query time.
+        // `columns` (deprecated alias) wins over `order` for projection in v1.x; `order`'s
+        // namespaced ids (file.*/note.*/formula.*) project when columns is absent. `limit`
+        // caps the result set; `sort` (strings or {property, direction}) orders it; `groupBy`
+        // (or the deprecated `group` alias) attaches an additive `group` key and groups rows.
+        const orderIds =
+          view && Array.isArray(view.order)
+            ? (view.order as unknown[]).filter((x): x is string => typeof x === "string")
+            : [];
+        const viewLimit =
+          view && typeof view.limit === "number" && view.limit > 0 ? view.limit : undefined;
+        const sortSpec = view && Array.isArray(view.sort) ? (view.sort as unknown[]) : [];
+        const rawGroupBy = view
+          ? ((view as Record<string, unknown>).groupBy ?? view.group)
+          : undefined;
+        const groupProp =
+          typeof rawGroupBy === "string"
+            ? rawGroupBy
+            : isLogicObject(rawGroupBy) && typeof rawGroupBy.property === "string"
+              ? rawGroupBy.property
+              : undefined;
+        const groupDesc = isLogicObject(rawGroupBy) && rawGroupBy.direction === "DESC";
+        const idValue = (
+          id: string,
+          p: string,
+          fm: Record<string, unknown>,
+          columns: Record<string, unknown>,
+        ): unknown => {
+          if (id.startsWith("formula.")) return columns[id.slice(8)] ?? null;
+          if (id.startsWith("note.")) return fm[id.slice(5)] ?? null;
+          if (id === "file.folder") {
+            const i = p.lastIndexOf("/");
+            return i < 0 ? "" : p.slice(0, i);
+          }
+          if (id === "file.ext") return "md";
+          return colValue(id, p, fm); // file.name / file.path / bare property
+        };
 
         let candidates = walkVault(v.root, { extensions: [".md"] })
           .map((e) => e.relPath)
@@ -342,7 +411,12 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
           linkTarget = r.resolved ? (r.target_path ?? null) : null;
         }
 
-        const rows: Array<{ note_path: string; columns: Record<string, unknown> }> = [];
+        const rows: Array<{
+          note_path: string;
+          columns: Record<string, unknown>;
+          group?: unknown;
+        }> = [];
+        const sortKeys: unknown[][] = [];
         for (const p of candidates) {
           const { frontmatter, body } = parseNote(readNote(resolveVaultPath(v.root, p)).raw);
           const fm = frontmatter ?? {};
@@ -380,7 +454,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
 
           const columns: Record<string, unknown> = {};
           if (colNames.length) for (const c of colNames) columns[c] = colValue(c, p, fm);
-          else columns.path = p;
+          else if (!orderIds.length) columns.path = p;
           for (const [name, expr] of formulas) {
             try {
               columns[name] = applyLogic(expr, data);
@@ -399,8 +473,57 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
               columns[name] = null;
             }
           }
-          rows.push({ note_path: p, columns });
+          // THE-280: `order` projects AFTER formulas so formula.* ids resolve.
+          if (!colNames.length && orderIds.length)
+            for (const c of orderIds) columns[c] = idValue(c, p, fm, columns);
+          rows.push({
+            note_path: p,
+            columns,
+            ...(groupProp !== undefined
+              ? { group: idValue(groupProp, p, fm, columns) ?? null }
+              : {}),
+          });
+          sortKeys.push(
+            sortSpec.map((s) => {
+              const id =
+                typeof s === "string"
+                  ? s
+                  : isLogicObject(s) && typeof s.property === "string"
+                    ? s.property
+                    : "";
+              return id ? idValue(id, p, fm, columns) : null;
+            }),
+          );
         }
+
+        // THE-280: honor sort / groupBy / limit (previously round-tripped but ignored).
+        if (sortSpec.length || groupProp !== undefined) {
+          const dirs = sortSpec.map((s) => (isLogicObject(s) && s.direction === "DESC" ? -1 : 1));
+          const cmpVals = (a: unknown, b: unknown): number => {
+            const x = a ?? "";
+            const y = b ?? "";
+            if (typeof x === "number" && typeof y === "number") return x - y;
+            const xs = String(x);
+            const ys = String(y);
+            return xs < ys ? -1 : xs > ys ? 1 : 0;
+          };
+          const idx = rows.map((_, i) => i);
+          idx.sort((ia, ib) => {
+            if (groupProp !== undefined) {
+              const g = cmpVals(rows[ia]?.group, rows[ib]?.group) * (groupDesc ? -1 : 1);
+              if (g !== 0) return g;
+            }
+            for (let k = 0; k < sortSpec.length; k++) {
+              const c = cmpVals(sortKeys[ia]?.[k], sortKeys[ib]?.[k]) * (dirs[k] ?? 1);
+              if (c !== 0) return c;
+            }
+            return ia - ib; // stable
+          });
+          const sorted = idx.map((i) => rows[i] as (typeof rows)[number]);
+          rows.length = 0;
+          rows.push(...sorted);
+        }
+        if (viewLimit !== undefined && rows.length > viewLimit) rows.length = viewLimit;
 
         const limit = input.limit ?? 100;
         const start = input.cursor ? Math.max(0, Number.parseInt(input.cursor, 10) || 0) : 0;
