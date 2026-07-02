@@ -80,19 +80,22 @@ interface PlanResult {
   secretsSkipped: number;
 }
 
-// Compute a note's write plan and run its embedding network call — NO database writes, NO
-// transaction. Returns { plan: null } when the note is unchanged (nothing to prune or embed), so
-// the caller opens no transaction for a warm re-index. Keeping embed() here, outside any
-// transaction, is what lets indexVault batch many notes' writes into ONE transaction without ever
-// holding the write lock across a network call.
-async function planNoteWrites(
+// Provider-sized embed sub-batch + how many to run in flight (THE-277). OpenAI accepts up to 2048
+// inputs/request; 512 stays well under every provider's ceiling with a small concurrency window.
+const EMBED_BATCH = 512;
+const EMBED_CONCURRENCY = 4;
+
+// Compute a note's write plan WITHOUT embedding — NO network, NO database writes, NO transaction.
+// Vectors are filled later by embedPlans, which batches the embed() calls across many notes so a
+// reconcile does not pay one serial round-trip per note. Returns { plan: null } when the note is
+// unchanged (nothing to prune or embed), so the caller opens no transaction for a warm re-index.
+function computeNotePlan(
   db: Database,
-  provider: EmbeddingProvider,
   vaultId: string,
   path: string,
   raw: string,
   ts: number,
-): Promise<PlanResult> {
+): PlanResult {
   const body = parseNote(raw).body;
   // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
   // before embedding — never embedded, never stored, pruned if it existed. Class names only
@@ -120,9 +123,60 @@ async function planNoteWrites(
   if (toEmbed.length === 0 && !willPrune) {
     return { plan: null, unchanged, secretsSkipped };
   }
-  // Network I/O — deliberately outside any transaction.
-  const vectors = toEmbed.length > 0 ? await provider.embed(toEmbed.map((d) => d.content)) : [];
-  return { plan: { path, existing, desiredIds, toEmbed, vectors, ts }, unchanged, secretsSkipped };
+  return {
+    plan: { path, existing, desiredIds, toEmbed, vectors: [], ts },
+    unchanged,
+    secretsSkipped,
+  };
+}
+
+// Embed all of `plans`' to-embed chunks in provider-sized sub-batches under bounded concurrency
+// (THE-277), then write the vectors back onto each plan IN ORDER. Batching across notes turns a
+// reconcile's K serial per-note embed round-trips into ceil(total_chunks / batchSize) requests with
+// a few in flight. Order is preserved: sub-batch i lands at results[i], concatenated in index order
+// and sliced back to each plan by its toEmbed length. The write lock is never held across this.
+export async function embedPlans(
+  provider: EmbeddingProvider,
+  plans: NoteWritePlan[],
+  batchSize: number,
+  concurrency: number,
+): Promise<void> {
+  const contents: string[] = [];
+  for (const p of plans) for (const c of p.toEmbed) contents.push(c.content);
+  if (contents.length === 0) return;
+  const subBatches: string[][] = [];
+  for (let i = 0; i < contents.length; i += batchSize)
+    subBatches.push(contents.slice(i, i + batchSize));
+  const results: number[][][] = new Array(subBatches.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (let i = next++; i < subBatches.length; i = next++) {
+      results[i] = await provider.embed(subBatches[i] as string[]);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, subBatches.length) }, () => worker()),
+  );
+  const flat = results.flat();
+  let off = 0;
+  for (const p of plans) {
+    p.vectors = flat.slice(off, off + p.toEmbed.length);
+    off += p.toEmbed.length;
+  }
+}
+
+// Single-note plan + embed (indexNote / index-on-write path). indexVault batches embeds instead.
+async function planNoteWrites(
+  db: Database,
+  provider: EmbeddingProvider,
+  vaultId: string,
+  path: string,
+  raw: string,
+  ts: number,
+): Promise<PlanResult> {
+  const res = computeNotePlan(db, vaultId, path, raw, ts);
+  if (res.plan) await embedPlans(provider, [res.plan], EMBED_BATCH, EMBED_CONCURRENCY);
+  return res;
 }
 
 // Apply a note's write plan (prune + upserts). Contains NO transaction control — the CALLER owns
@@ -265,10 +319,14 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // pre-read `existing` snapshot cannot be raced before its apply.
   const BATCH = 100;
   let batch: NoteWritePlan[] = [];
-  const flush = (): void => {
+  const flush = async (): Promise<void> => {
     if (batch.length === 0) return;
     const applied = batch;
     batch = [];
+    // Batch the embed() calls across the whole batch (THE-277) BEFORE opening the write txn, so the
+    // reconcile makes ceil(chunks/EMBED_BATCH) requests with a few in flight instead of one serial
+    // round-trip per note. The write lock is still never held across a network call.
+    await embedPlans(args.provider, applied, EMBED_BATCH, EMBED_CONCURRENCY);
     args.db.exec("BEGIN");
     try {
       for (const plan of applied) {
@@ -287,9 +345,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   for (const rel of notes) {
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
     noteLinks.set(rel, extractLinks(parseNote(raw).body));
-    const { plan, unchanged, secretsSkipped } = await planNoteWrites(
+    const { plan, unchanged, secretsSkipped } = computeNotePlan(
       args.db,
-      args.provider,
       args.vaultId,
       rel,
       raw,
@@ -299,10 +356,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.secrets_skipped += secretsSkipped;
     if (plan) {
       batch.push(plan);
-      if (batch.length >= BATCH) flush();
+      if (batch.length >= BATCH) await flush();
     }
   }
-  flush();
+  await flush();
   // Edge maintenance is full-state (resolving targets needs the whole note universe), so it
   // runs once per indexVault pass, not per-note-write. Skipped gracefully when vault_edges is
   // absent (pre-integration, before W-SCHEMA lands).
