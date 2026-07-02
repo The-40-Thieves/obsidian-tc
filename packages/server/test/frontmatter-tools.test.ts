@@ -212,3 +212,33 @@ describe("Domain 3: frontmatter / properties", () => {
     }
   });
 });
+
+describe("THE-251 find_notes_by_property terse projection", () => {
+  it("terse returns path only (drops the matched value)", async () => {
+    const v = makeTestVault({
+      files: {
+        "a.md": "---\nstatus: done\n---\n",
+        "b.md": "---\nstatus: todo\n---\n",
+      },
+    });
+    try {
+      const full = await v.call("find_notes_by_property", { vault: "test", key: "status" });
+      if (full.ok)
+        expect(
+          (full.data as { matches: Array<Record<string, unknown>> }).matches[0],
+        ).toHaveProperty("value");
+      const terse = await v.call("find_notes_by_property", {
+        vault: "test",
+        key: "status",
+        verbosity: "terse",
+      });
+      if (terse.ok)
+        expect((terse.data as { matches: Array<Record<string, unknown>> }).matches).toEqual([
+          { path: "a.md" },
+          { path: "b.md" },
+        ]);
+    } finally {
+      v.cleanup();
+    }
+  });
+});
