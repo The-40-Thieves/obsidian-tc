@@ -7,7 +7,9 @@
 --   PRAGMA foreign_keys = ON;
 --   PRAGMA journal_mode = WAL;
 --
--- One cache DB per vault, at <cache_dir>/cache.db (cache_dir is per-vault). A sibling
+-- One SHARED cache DB for the whole server, at <config.cacheDir>/cache.db (vault isolation
+-- is logical via vault_id columns — see ARCHITECTURE.md component 10; per-vault DB files are
+-- the planned V2 storage rewrite). A sibling
 -- experiential.db holds the low-trust membrane tier, provisioned on its own migration chain.
 
 -- ============================================================================
