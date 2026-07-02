@@ -3,8 +3,15 @@ title: Installation
 description: Install the obsidian-tc MCP server via npm, a standalone binary, or Docker.
 ---
 
-obsidian-tc ships in three forms. All of them run the same server; pick whichever
+obsidian-tc ships in several forms. All of them run the same server; pick whichever
 fits your environment.
+
+| Method | macOS | Windows | Linux | Notes |
+| --- | --- | --- | --- | --- |
+| **npm** (Node 24+) | x64, arm64 | x64, arm64 | x64, arm64 | Universal; the recommended default. |
+| **Standalone binary** | x64, arm64 | x64 | x64, arm64 | No runtime needed. On Windows-arm64, use npm. |
+| **Docker** (GHCR) | via a Linux VM | via a Linux VM | amd64, arm64 | Container / server deployments. |
+| **One-click `.mcpb`** | yes | yes | yes | For MCPB-capable hosts; runs under Node 24+, self-contained (built-in `node:sqlite`, no native dependency). |
 
 ## npm (Node 24+)
 
@@ -23,8 +30,10 @@ transparently falls back to a pure-JS implementation.
 ## Standalone binary
 
 Each release attaches self-contained executables (built with `bun build --compile`,
-bytecode + minified) that bundle the runtime — no Node or Bun required on the host.
-Download the asset for your platform from the GitHub release and run it directly.
+bytecode + minified) that bundle the runtime, so no Node or Bun is required on the
+host. Targets: macOS x64 + arm64, Windows x64, and Linux x64 + arm64. Download the
+asset for your platform from the GitHub release and run it directly. (Windows on
+arm64 is not a `bun --compile` target; use the npm install there.)
 
 ## Docker
 
@@ -36,6 +45,14 @@ docker run --rm -v "$HOME/vaults:/vaults" \
 
 The image is an `oven/bun:1-slim` build (Debian, glibc): the native prebuilds are
 gnu, so a glibc base keeps them loadable instead of forcing the pure-JS fallback.
+
+## One-click bundle (`.mcpb`)
+
+For MCPB-capable MCP hosts, each release attaches a one-click `obsidian-tc.mcpb`
+bundle. It runs the server under the host's Node (24+) and is fully self-contained:
+no `node_modules` and no native build are required, because it uses Node's built-in
+`node:sqlite` when `better-sqlite3` is absent (vector search then uses the
+brute-force fallback). Install it through your host's MCP-bundle installer.
 
 ## Companion plugin
 
