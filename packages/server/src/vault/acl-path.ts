@@ -61,13 +61,13 @@ export function enforcePathAcl(
   acl: FolderAcl | undefined,
   op: AclOp,
   rel: string,
-  root?: string,
+  root: string,
 ): void {
-  // When the vault root is supplied, gate on the REAL (symlink-resolved) vault-relative path
-  // instead of the lexical request path (THE-269): an in-vault symlink under an allowed folder
-  // whose target is a denied folder would otherwise pass the ACL. For a non-symlink path the
-  // canonical form equals the lexical one, so this is a no-op except on symlinked paths.
-  const path = root !== undefined ? resolveVaultPathChecked(root, rel).aclRel : rel;
+  // THE-286: `root` is mandatory, so enforcement can never silently fall back to a lexical-only
+  // check. We always gate on the REAL (symlink-resolved) vault-relative path (THE-269): an
+  // in-vault symlink under an allowed folder whose target is a denied folder would otherwise pass
+  // the ACL. For a non-symlink path the canonical form equals the lexical one (a no-op there).
+  const path = resolveVaultPathChecked(root, rel).aclRel;
   const decision = evaluatePathAcl(acl, op, path);
   if (decision.allowed) return;
   if (decision.deniedBy === "read_only")

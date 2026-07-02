@@ -108,7 +108,7 @@ export function materializeEntity(input: MaterializeInput): {
 } {
   const rel = entityNotePath(input.folder, input.entityType, input.name);
   const abs = resolveVaultPath(input.root, rel);
-  enforcePathAcl(input.acl, "write", rel);
+  enforcePathAcl(input.acl, "write", rel, input.root);
   let preserved: Frontmatter | null = null;
   const ex = noteExists(abs);
   if (ex.exists && ex.type === "file") preserved = parseNote(readNote(abs).raw).frontmatter;

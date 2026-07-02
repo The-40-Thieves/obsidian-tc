@@ -59,8 +59,8 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const template = normalizeVaultPath(input.template);
         const target = normalizeVaultPath(input.target);
-        enforcePathAcl(ctx.acl, "read", template);
-        enforcePathAcl(ctx.acl, "write", target);
+        enforcePathAcl(ctx.acl, "read", template, v.root);
+        enforcePathAcl(ctx.acl, "write", target, v.root);
         const { client } = openBridge(deps, v.id, "templater");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",

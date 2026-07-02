@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -13,19 +14,19 @@ function acl(over: Partial<ConstructorParameters<typeof FolderAcl>[0]> = {}): Fo
 
 describe("enforcePathAcl", () => {
   it("allows any op when no ACL is present", () => {
-    expect(() => enforcePathAcl(undefined, "write", "x.md")).not.toThrow();
+    expect(() => enforcePathAcl(undefined, "write", "x.md", tmpdir())).not.toThrow();
   });
 
   it("an omitted whitelist leaves that op kind unrestricted", () => {
     const a = acl({ writePaths: ["notes/**"] }); // readPaths omitted
-    expect(() => enforcePathAcl(a, "read", "anywhere/x.md")).not.toThrow();
-    expect(() => enforcePathAcl(a, "write", "notes/x.md")).not.toThrow();
+    expect(() => enforcePathAcl(a, "read", "anywhere/x.md", tmpdir())).not.toThrow();
+    expect(() => enforcePathAcl(a, "write", "notes/x.md", tmpdir())).not.toThrow();
   });
 
   it("a whitelist miss is acl_denied", () => {
     const a = acl({ writePaths: ["notes/**"] });
     try {
-      enforcePathAcl(a, "write", "secret/x.md");
+      enforcePathAcl(a, "write", "secret/x.md", tmpdir());
       throw new Error("should have thrown");
     } catch (e) {
       expect(e).toBeInstanceOf(ObsidianTcError);
@@ -35,10 +36,10 @@ describe("enforcePathAcl", () => {
 
   it("a read-only vault denies write/delete with read_only_mode but allows read", () => {
     const a = acl({ readOnly: true });
-    expect(() => enforcePathAcl(a, "read", "x.md")).not.toThrow();
+    expect(() => enforcePathAcl(a, "read", "x.md", tmpdir())).not.toThrow();
     for (const op of ["write", "delete"] as const) {
       try {
-        enforcePathAcl(a, op, "x.md");
+        enforcePathAcl(a, op, "x.md", tmpdir());
         throw new Error("should have thrown");
       } catch (e) {
         expect((e as ObsidianTcError).code).toBe("read_only_mode");

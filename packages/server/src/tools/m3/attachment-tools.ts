@@ -93,7 +93,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        if (sub) enforcePathAcl(ctx.acl, "read", sub);
+        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
         const exts = (input.extensions ?? DEFAULT_ATTACHMENT_EXTS).map((x) => x.toLowerCase());
         const entries = walkVault(v.root, { sub, recursive: true, extensions: exts }).filter((e) =>
           readable(ctx.acl, e.relPath),

@@ -32,7 +32,7 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
           throw err.readOnly("vault is read-only; index_vault writes the search index");
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        if (sub) enforcePathAcl(ctx.acl, "read", sub);
+        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
         const stats = await indexVault({
           db: ctx.db,
           provider: deps.embeddingProvider,

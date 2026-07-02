@@ -45,7 +45,7 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "read", rel);
+        enforcePathAcl(ctx.acl, "read", rel, v.root);
         const { client } = openBridge(deps, v.id, "dataview");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",

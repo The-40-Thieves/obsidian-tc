@@ -271,7 +271,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.root ? normalizeVaultPath(input.root) : undefined;
-        if (sub) enforcePathAcl(ctx.acl, "read", sub);
+        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
         const canvasPaths = input.paths?.length
           ? input.paths
               .map(normalizeVaultPath)

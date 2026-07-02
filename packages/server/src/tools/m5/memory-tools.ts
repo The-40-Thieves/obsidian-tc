@@ -84,7 +84,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         const folder = memoryFolderFor(deps, v.id);
         // Pre-check the materialization ACL so a denial leaves no orphan SQLite row.
         if (input.materialize)
-          enforcePathAcl(ctx.acl, "write", entityNotePath(folder, input.type, input.name));
+          enforcePathAcl(ctx.acl, "write", entityNotePath(folder, input.type, input.name), v.root);
         let e: EntityRow;
         try {
           e = insertEntity(ctx.db, {
