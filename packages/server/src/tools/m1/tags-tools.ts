@@ -110,16 +110,32 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-          readable(ctx.acl, e.relPath),
-        );
         const counts = new Map<string, number>();
         let scanned = 0;
-        for (const e of entries) {
-          if (scanned >= input.max_notes) break;
-          scanned++;
-          for (const t of noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw).all)
-            counts.set(t, (counts.get(t) ?? 0) + 1);
+        // THE-291 (3B): aggregate from the notes table when the metadata index is ready —
+        // no per-query full-vault disk scan. ACL + folder filtering stay query-time; the cap
+        // applies in ORDER BY path order (the disk path used walk order — documented drift).
+        if (deps.metadataIndex?.ready()) {
+          const rows = ctx.db
+            .prepare("SELECT path, tags FROM notes WHERE vault_id = ? ORDER BY path")
+            .all(v.id) as Array<{ path: string; tags: string }>;
+          for (const r of rows) {
+            if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
+            if (!readable(ctx.acl, r.path)) continue;
+            if (scanned >= input.max_notes) break;
+            scanned++;
+            for (const t of JSON.parse(r.tags) as string[]) counts.set(t, (counts.get(t) ?? 0) + 1);
+          }
+        } else {
+          const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
+            readable(ctx.acl, e.relPath),
+          );
+          for (const e of entries) {
+            if (scanned >= input.max_notes) break;
+            scanned++;
+            for (const t of noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw).all)
+              counts.set(t, (counts.get(t) ?? 0) + 1);
+          }
         }
         const tags = [...counts.entries()]
           .map(([tag, count]) => ({ tag, count }))
@@ -286,20 +302,39 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-          readable(ctx.acl, e.relPath),
-        );
         const matches: Array<{ path: string; tags: string[] }> = [];
         let truncated = false;
-        for (const e of entries) {
-          const all = noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw).all;
-          const hit = all.filter((t) => tagMatches(input.tag, t));
-          if (hit.length === 0) continue;
-          if (matches.length >= input.limit) {
-            truncated = true;
-            break;
+        // THE-291 (3B): tags come from the notes table when ready; tagMatches semantics reused
+        // verbatim (JS-side — SQL '='/LIKE would change case/unicode matching).
+        if (deps.metadataIndex?.ready()) {
+          const rows = ctx.db
+            .prepare("SELECT path, tags FROM notes WHERE vault_id = ? ORDER BY path")
+            .all(v.id) as Array<{ path: string; tags: string }>;
+          for (const r of rows) {
+            if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
+            if (!readable(ctx.acl, r.path)) continue;
+            const hit = (JSON.parse(r.tags) as string[]).filter((t) => tagMatches(input.tag, t));
+            if (hit.length === 0) continue;
+            if (matches.length >= input.limit) {
+              truncated = true;
+              break;
+            }
+            matches.push({ path: r.path, tags: hit });
           }
-          matches.push({ path: e.relPath, tags: hit });
+        } else {
+          const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
+            readable(ctx.acl, e.relPath),
+          );
+          for (const e of entries) {
+            const all = noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw).all;
+            const hit = all.filter((t) => tagMatches(input.tag, t));
+            if (hit.length === 0) continue;
+            if (matches.length >= input.limit) {
+              truncated = true;
+              break;
+            }
+            matches.push({ path: e.relPath, tags: hit });
+          }
         }
         return {
           vault: v.id,

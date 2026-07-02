@@ -19,6 +19,9 @@ export interface M1Deps {
    *  Optional — omitted in tests, so M1 writes never touch the search index there. */
   reindex?: (vaultId: string, path: string, content: string) => void;
   deindex?: (vaultId: string, path: string) => void;
+  /** THE-291 (3B): metadata-index readiness. ready() flips when the boot reconcile's notes pass
+   *  committed (independent of embedding success). Absent (tests) -> disk scans. */
+  metadataIndex?: { hasFts: boolean; ready: () => boolean };
 }
 
 export function registerM1Tools(registry: ToolRegistry, deps: M1Deps): void {

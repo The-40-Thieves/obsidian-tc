@@ -229,21 +229,38 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-          readable(ctx.acl, e.relPath),
-        );
         const stats = new Map<string, { count: number; types: Set<string> }>();
         let scanned = 0;
-        for (const e of entries) {
-          if (scanned >= input.max_notes) break;
-          scanned++;
-          const fm = parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw).frontmatter;
-          if (!fm) continue;
+        const tally = (fm: Record<string, unknown> | null): void => {
+          if (!fm) return;
           for (const [k, val] of Object.entries(fm)) {
             const s = stats.get(k) ?? { count: 0, types: new Set<string>() };
             s.count++;
             s.types.add(typeOf(val));
             stats.set(k, s);
+          }
+        };
+        // THE-291 (3B): frontmatter comes from the notes table when ready (JSON round-trip:
+        // YAML-native dates surface as ISO strings — same as the wire format).
+        if (deps.metadataIndex?.ready()) {
+          const rows = ctx.db
+            .prepare("SELECT path, frontmatter FROM notes WHERE vault_id = ? ORDER BY path")
+            .all(v.id) as Array<{ path: string; frontmatter: string | null }>;
+          for (const r of rows) {
+            if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
+            if (!readable(ctx.acl, r.path)) continue;
+            if (scanned >= input.max_notes) break;
+            scanned++;
+            tally(r.frontmatter ? (JSON.parse(r.frontmatter) as Record<string, unknown>) : null);
+          }
+        } else {
+          const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
+            readable(ctx.acl, e.relPath),
+          );
+          for (const e of entries) {
+            if (scanned >= input.max_notes) break;
+            scanned++;
+            tally(parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw).frontmatter);
           }
         }
         const properties = [...stats.entries()]
@@ -262,21 +279,40 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-          readable(ctx.acl, e.relPath),
-        );
         const matches: Array<{ path: string; value: unknown }> = [];
         let truncated = false;
-        for (const e of entries) {
-          const fm = parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw).frontmatter;
-          if (!fm || !Object.hasOwn(fm, input.key)) continue;
+        const consider = (path: string, fm: Record<string, unknown> | null): boolean => {
+          if (!fm || !Object.hasOwn(fm, input.key)) return true;
           const stored = fm[input.key];
-          if (input.value !== undefined && !valueMatches(stored, input.value)) continue;
+          if (input.value !== undefined && !valueMatches(stored, input.value)) return true;
           if (matches.length >= input.limit) {
             truncated = true;
-            break;
+            return false;
           }
-          matches.push({ path: e.relPath, value: stored });
+          matches.push({ path, value: stored });
+          return true;
+        };
+        // THE-291 (3B): frontmatter from the notes table when ready; valueMatches reused verbatim.
+        if (deps.metadataIndex?.ready()) {
+          const rows = ctx.db
+            .prepare("SELECT path, frontmatter FROM notes WHERE vault_id = ? ORDER BY path")
+            .all(v.id) as Array<{ path: string; frontmatter: string | null }>;
+          for (const r of rows) {
+            if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
+            if (!readable(ctx.acl, r.path)) continue;
+            const fm = r.frontmatter
+              ? (JSON.parse(r.frontmatter) as Record<string, unknown>)
+              : null;
+            if (!consider(r.path, fm)) break;
+          }
+        } else {
+          const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
+            readable(ctx.acl, e.relPath),
+          );
+          for (const e of entries) {
+            const fm = parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw).frontmatter;
+            if (!consider(e.relPath, fm)) break;
+          }
         }
         return {
           vault: v.id,
