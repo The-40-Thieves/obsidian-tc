@@ -21,6 +21,10 @@ export interface M2Deps {
   /** THE-293: worker-time budget (ms) for one search_regex / search_vault(mode:regex) call.
    *  Absent -> the 2000ms default inside searchRegex. */
   regexTimeoutMs?: number;
+  /** THE-291 (3B): lexical/metadata index readiness. hasFts = FTS5 probe result; ready() flips
+   *  when the boot reconcile's notes pass committed (independent of embedding success). Absent
+   *  (tests) -> disk scans, the portable floor. */
+  metadataIndex?: { hasFts: boolean; ready: () => boolean };
 }
 
 export function registerM2Tools(registry: ToolRegistry, deps: M2Deps): void {

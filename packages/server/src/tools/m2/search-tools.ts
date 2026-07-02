@@ -18,7 +18,7 @@ import type { Database } from "../../db/types";
 import type { ToolDefinition } from "../../mcp/registry";
 import { evaluatesTruthy } from "../../search/jsonlogic";
 import { type SemanticHit, semanticSearch } from "../../search/semantic";
-import { searchRegex, searchText } from "../../search/text";
+import { searchRegex, searchText, searchTextIndexed } from "../../search/text";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
@@ -193,14 +193,21 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
-        const hits = searchText(s.rootPath, {
+        const textOpts = {
           query: input.query,
           caseSensitive: input.case_sensitive,
           wholeWord: input.whole_word,
           sub: s.sub,
           isReadable: s.readable,
           limit: 5000,
-        });
+        };
+        // THE-291 (3B): FTS candidates + disk re-verify when the index is ready; null (short
+        // query / cap overflow / no FTS) falls back to the exhaustive disk scan.
+        const idx = deps.metadataIndex;
+        const hits =
+          (idx?.hasFts && idx.ready()
+            ? searchTextIndexed(ctx.db, s.id, s.rootPath, textOpts)
+            : null) ?? searchText(s.rootPath, textOpts);
         return {
           vault: s.id,
           mode_used: "text",
@@ -360,19 +367,21 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
             throw err.invalidInput("this search mode requires an object query");
           return input.query;
         };
-        const textHits = (): UnifiedHit[] =>
-          searchText(s.rootPath, {
-            query: asString(),
-            sub: s.sub,
-            isReadable: s.readable,
-            limit: 5000,
-          }).map((h) => ({
+        const textHits = (): UnifiedHit[] => {
+          const textOpts = { query: asString(), sub: s.sub, isReadable: s.readable, limit: 5000 };
+          const idx = deps.metadataIndex;
+          return (
+            (idx?.hasFts && idx.ready()
+              ? searchTextIndexed(ctx.db, s.id, s.rootPath, textOpts)
+              : null) ?? searchText(s.rootPath, textOpts)
+          ).map((h) => ({
             path: h.path,
             score: h.score,
             mode_used: "text",
             snippet: h.snippet,
             line: h.line,
           }));
+        };
         const semanticHits = async (): Promise<UnifiedHit[]> =>
           (await semantic(ctx, s, asString(), input.limit ?? 50, undefined, false)).map((h) => ({
             path: h.path,

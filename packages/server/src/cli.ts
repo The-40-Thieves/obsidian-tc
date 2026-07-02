@@ -478,6 +478,8 @@ async function main(): Promise<void> {
     }),
     // THE-293: regex execution budget (worker time only).
     regexTimeoutMs: config.governor.regexTimeoutMs,
+    // THE-291 (3B): FTS-accelerated search_text once the boot reconcile's notes pass commits.
+    metadataIndex: { hasFts, ready: () => indexHealth.notesReady },
   });
   registerM3Tools(registry, {
     vaultRegistry,
