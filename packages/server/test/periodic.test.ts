@@ -1,4 +1,6 @@
+import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
+import type { BridgeClient } from "../src/bridge";
 import { makeM3Vault } from "./m3-helpers";
 
 describe("Domain 12: Periodic Notes", () => {
@@ -188,6 +190,106 @@ describe("Domain 12: Periodic Notes", () => {
       });
       expect(denied.ok).toBe(false);
       if (!denied.ok) expect(denied.error.code).toBe("acl_denied");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Domain 12: Periodic Notes — Templater expansion (THE-207)", () => {
+  const daily = { vault: "test", period: "daily", date: "2026-06-18" } as const;
+
+  function stubBridge(opts: { throwCode?: string } = {}) {
+    const calls: Array<Record<string, unknown>> = [];
+    const templaterBridge = () => ({
+      client: {
+        request: async (req: { body?: Record<string, unknown> }) => {
+          calls.push(req.body ?? {});
+          if (opts.throwCode)
+            throw new ObsidianTcError(
+              opts.throwCode as ConstructorParameters<typeof ObsidianTcError>[0],
+              "degraded",
+            );
+          return {};
+        },
+      } as unknown as BridgeClient,
+      timeoutMs: 1000,
+    });
+    return { templaterBridge, calls };
+  }
+
+  it("expand_template without write:templater is forbidden", async () => {
+    const { templaterBridge } = stubBridge();
+    const v = makeM3Vault({ files: { "templates/daily.md": "BODY" }, templaterBridge });
+    try {
+      const r = await v.call(
+        "create_periodic_note",
+        { ...daily, template_override: "templates/daily.md", expand_template: true },
+        { grantedScopes: new Set(["write:periodic"]) },
+      );
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.code).toBe("forbidden");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("expand_template delegates the write to Templater and skips the verbatim copy", async () => {
+    const { templaterBridge, calls } = stubBridge();
+    const v = makeM3Vault({
+      files: { "templates/daily.md": "# <% tp.date.now() %>" },
+      templaterBridge,
+    });
+    try {
+      const r = await v.call("create_periodic_note", {
+        ...daily,
+        template_override: "templates/daily.md",
+        expand_template: true,
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { template_expanded: boolean }).template_expanded).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        template: "templates/daily.md",
+        target: "2026-06-18.md",
+        overwrite: false,
+      });
+      // The bridge (companion) owns the write; the tool must skip its verbatim copy.
+      expect(v.exists("2026-06-18.md")).toBe(false);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("degrades to a verbatim copy when Templater is unavailable", async () => {
+    const { templaterBridge } = stubBridge({ throwCode: "plugin_missing" });
+    const v = makeM3Vault({ files: { "templates/daily.md": "TEMPLATE BODY" }, templaterBridge });
+    try {
+      const r = await v.call("create_periodic_note", {
+        ...daily,
+        template_override: "templates/daily.md",
+        expand_template: true,
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { template_expanded: boolean }).template_expanded).toBe(false);
+      expect(v.exists("2026-06-18.md")).toBe(true);
+      expect(v.read("2026-06-18.md")).toContain("TEMPLATE BODY");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("without a Templater bridge, expand_template degrades to a verbatim copy", async () => {
+    const v = makeM3Vault({ files: { "templates/daily.md": "BODY" } });
+    try {
+      const r = await v.call("create_periodic_note", {
+        ...daily,
+        template_override: "templates/daily.md",
+        expand_template: true,
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { template_expanded: boolean }).template_expanded).toBe(false);
+      expect(v.exists("2026-06-18.md")).toBe(true);
     } finally {
       v.cleanup();
     }
