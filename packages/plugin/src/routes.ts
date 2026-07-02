@@ -434,6 +434,13 @@ export function buildRoutes(appArg: App, pluginVersion: string): RouteDef[] {
         const target = str(b, "target") ?? "";
         const tmpl = fileByPath(app, template);
         if (!tmpl) return fail(res, "note_not_found", "template not found", { path: template });
+        // THE-289: honor overwrite — create_new_note_from_template clobbers/dups an existing
+        // target, so refuse when the resolved target already exists and overwrite is not set.
+        const targetMd = target.endsWith(".md") ? target : `${target}.md`;
+        if (b.overwrite !== true && fileByPath(app, targetMd))
+          return fail(res, "note_exists", "target already exists; set overwrite", {
+            path: targetMd,
+          });
         const create = plugin.templater.create_new_note_from_template as (
           t: TFile,
           folder: string,

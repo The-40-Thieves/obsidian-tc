@@ -9,7 +9,8 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
-import { normalizeVaultPath } from "../../vault/paths";
+import { noteExists } from "../../vault/notes-io";
+import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
@@ -61,6 +62,14 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         const target = normalizeVaultPath(input.target);
         enforcePathAcl(ctx.acl, "read", template, v.root);
         enforcePathAcl(ctx.acl, "write", target, v.root);
+        // THE-289: Templater writes <target>.md and its create API silently clobbers/dups an
+        // existing file, so honor overwrite server-side (authoritative, independent of the
+        // companion version): refuse when the resolved target already exists and overwrite is off.
+        const targetFile = target.endsWith(".md") ? target : `${target}.md`;
+        if (!input.overwrite && noteExists(resolveVaultPath(v.root, targetFile)).exists)
+          throw err.noteExists("target already exists; set overwrite to replace it", {
+            path: targetFile,
+          });
         const { client } = openBridge(deps, v.id, "templater");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
