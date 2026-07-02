@@ -4,8 +4,10 @@
 // line up with what the editor shows. search_text ranks files by BM25 over the
 // query terms using the native module (JS fallback when the binary is absent).
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import type { Database } from "../db/types";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVault } from "../vault/paths";
+import { ftsCandidates } from "./fts";
 import { bm25Score, tokenize } from "./native";
 import { execRegexJob, regexWorkerAvailable, type WorkerHit } from "./regex-worker";
 
@@ -233,6 +235,58 @@ export async function searchRegex(root: string, opts: RegexOptions): Promise<Reg
       });
       if (hits.length >= opts.limit) return hits.slice(0, opts.limit);
     }
+  }
+  return hits.slice(0, opts.limit);
+}
+
+/**
+ * THE-291 (3B): FTS-accelerated search_text. Trigram candidates are a SUPERSET of the substring
+ * matches the disk scan promises (queries >= 3 chars; trigram matching is case-insensitive, so
+ * case_sensitive/whole_word narrowing happens in the verify pass). Candidates are ACL-filtered,
+ * then ONLY those files are read and verified line-by-line with the exact regex the disk scan
+ * uses — identical hit shape; ranking becomes FTS bm25 (scores were never contractual). Returns
+ * null to signal the disk fallback: query under the trigram minimum, or candidate-cap overflow
+ * (the FTS result may then be incomplete, so the exhaustive scan is the honest path).
+ */
+export function searchTextIndexed(
+  db: Database,
+  vaultId: string,
+  root: string,
+  opts: TextOptions,
+): TextHit[] | null {
+  const CAP = 2000;
+  let candidates: Array<{ path: string; rank: number }> | null;
+  try {
+    candidates = ftsCandidates(db, vaultId, opts.query, CAP);
+  } catch {
+    return null; // notes_fts missing/unhealthy — disk fallback
+  }
+  if (candidates === null) return null;
+  if (candidates.length >= CAP) return null;
+  const readable = opts.isReadable ?? (() => true);
+  const core = escapeRegExp(opts.query);
+  const pattern = opts.wholeWord ? `\\b${core}\\b` : core;
+  const re = new RegExp(pattern, opts.caseSensitive ? "" : "i");
+  const hits: TextHit[] = [];
+  for (const c of candidates) {
+    if (opts.sub !== undefined && c.path !== opts.sub && !c.path.startsWith(`${opts.sub}/`))
+      continue;
+    if (!readable(c.path)) continue;
+    let lines: string[];
+    try {
+      lines = readNote(resolveVaultPath(root, c.path)).raw.split(/\r?\n/);
+    } catch {
+      continue; // stale index row (file vanished mid-query) — the sweep reconverges it
+    }
+    // bm25() is negative-better; flip so higher-is-better like the JS scorer's ordering.
+    const score = -c.rank;
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i] ?? "";
+      const m = re.exec(ln);
+      if (m)
+        hits.push({ path: c.path, score, line: i + 1, col: m.index + 1, snippet: snippetOf(ln) });
+    }
+    if (hits.length >= opts.limit) break;
   }
   return hits.slice(0, opts.limit);
 }
