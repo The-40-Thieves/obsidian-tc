@@ -44,6 +44,11 @@ assumptions:
   rejected, not just lexical `..`.
 - **The host system is trusted.** obsidian-tc does not protect against attacks from
   co-located processes.
+- **The Local REST API key is a full-vault admin credential.** The companion plugin extends the
+  Local REST API (LRA) plugin's HTTP server, and LRA's own endpoints already grant full read /
+  write / delete over the vault. Possession of the LRA bearer key is therefore equivalent to full
+  vault admin, and the companion routes deliberately do not add a second gate. See
+  [Companion plugin trust boundary](#companion-plugin-trust-boundary).
 
 ## Protections
 
@@ -71,3 +76,37 @@ obsidian-tc writes through the filesystem / native path, **not** through the Loc
 POST endpoint, so it is **not** affected by the upstream Obsidian Local REST API "append clobbers on
 overwrite" report (coddingtonbear/obsidian-local-rest-api #237, a metadata-cache miss on that POST
 path).
+
+## Companion plugin trust boundary
+
+The optional companion plugin (`@the-40-thieves/obsidian-tc-plugin`) does **not** run a separate
+server. It registers namespaced `/obsidian-tc/v1/*` routes **onto the Local REST API (LRA) plugin's
+existing HTTP server** and reuses LRA's bearer-token authentication.
+
+**Possession of the LRA API key is equivalent to full vault admin.** This is by design, not an
+oversight:
+
+- LRA's own endpoints (`/vault/*`) already allow reading, writing, and deleting any note in the
+  vault. A key holder can do anything to the vault through LRA directly, with or without the
+  companion.
+- The companion's routes (command-palette dispatch, Templater / Excalidraw / QuickAdd writes,
+  Dataview / Tasks / OCR reads) therefore **do not lower** the existing bar; they run with the same
+  authority the key already confers.
+- The companion deliberately does **not** re-implement the server's ACL / HITL / command-allowlist
+  gates. Those gates protect the **MCP surface** (partially trusted agents talking to the server);
+  the LRA key is an operator credential, not an agent credential.
+
+**Consequences for operators:**
+
+- Treat the LRA API key like a root password for the vault. Do not embed it in agent-visible config
+  or share it with partially trusted clients.
+- The server-side gates (JWT scopes, folder ACLs, HITL elicit) apply to MCP tool calls routed
+  through the server. They are **not** enforced on direct LRA / companion HTTP calls — a direct
+  caller holding the LRA key bypasses them, exactly as it can bypass them via LRA's built-in
+  endpoints.
+- If you need agent access without granting full vault admin, expose the **MCP server** (which
+  enforces the gates), not the LRA key.
+
+As defense-in-depth against accidental data loss, individual companion routes still perform local
+safety checks where cheap (e.g. `/templater/execute` refuses to overwrite an existing target unless
+`overwrite` is set), but these are conveniences, not a security boundary.
