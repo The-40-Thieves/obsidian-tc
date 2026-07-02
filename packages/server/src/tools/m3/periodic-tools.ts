@@ -4,9 +4,17 @@
 // (or Obsidian defaults) by the periodic resolver, then read/written through
 // resolveVaultPath + enforcePathAcl like any note. No periodic-notes plugin is
 // required, so missing config falls back to defaults rather than erroring. Template
-// content (template_override or the configured template) is copied verbatim;
-// Templater-style placeholder expansion is out of scope for M3 (no plugin bridge).
-import { err, Pagination, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+// content (template_override or the configured template) is copied verbatim by default;
+// with expand_template=true it is expanded through the Templater bridge (THE-207) when the
+// companion + Templater are present, degrading to a verbatim copy otherwise.
+import {
+  err,
+  grantsAll,
+  ObsidianTcError,
+  Pagination,
+  VaultId,
+  VaultPath,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
 import {
@@ -104,6 +112,43 @@ function loadTemplate(
   return readNote(abs).raw;
 }
 
+// THE-207: Templater degrade taxonomy — a missing/unreachable companion or plugin means
+// "expansion unavailable", so creation falls back to a verbatim copy rather than failing.
+const TEMPLATER_DEGRADE = new Set([
+  "plugin_missing",
+  "plugin_unreachable",
+  "requires_live_obsidian",
+]);
+
+/**
+ * Expand `template` into `target` via the Templater bridge, which writes the expanded note
+ * itself. Returns true when the bridge wrote it, false when no bridge is wired or the
+ * companion/Templater is unavailable (caller then falls back to a verbatim copy). A genuine
+ * execution error (e.g. a broken template) propagates rather than silently degrading.
+ */
+async function expandViaTemplater(
+  deps: M3Deps,
+  vaultId: string,
+  template: string,
+  target: string,
+): Promise<boolean> {
+  if (!deps.templaterBridge) return false;
+  try {
+    const { client, timeoutMs } = deps.templaterBridge(vaultId);
+    await client.request<unknown>({
+      method: "POST",
+      path: "/templater/execute",
+      body: { template, target, overwrite: false },
+      plugin: "templater",
+      timeoutMs,
+    });
+    return true;
+  } catch (e) {
+    if (e instanceof ObsidianTcError && TEMPLATER_DEGRADE.has(e.code)) return false;
+    throw e;
+  }
+}
+
 export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -143,18 +188,19 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "create_periodic_note",
       description:
-        "Create the periodic note for a period + date using the configured (or overridden) template. Fails if it already exists.",
+        "Create the periodic note for a period + date using the configured (or overridden) template. Fails if it already exists. Set expand_template=true to expand the template through Templater (requires write:templater; degrades to a verbatim copy when the companion/plugin is unavailable).",
       inputSchema: z
         .object({
           vault: VaultId,
           period: PeriodEnum,
           date: z.string().optional(),
           template_override: VaultPath.optional(),
+          expand_template: z.boolean().default(false),
           idempotency_key: z.string().min(1).max(128).optional(),
         })
         .strict(),
       requiredScopes: ["write:periodic"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const date = parseDateInput(input.date);
         const resolved = resolvePeriodicPath(v.root, input.period, date);
@@ -180,13 +226,26 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
             templateUsed = normalizeVaultPath(resolved.template);
           }
         }
-        writeNoteAtomic(abs, content, true);
+        // THE-207: optionally expand via Templater (which writes the note itself). Gated on
+        // write:templater; degrades to a verbatim copy when the bridge/plugin is unavailable.
+        let expanded = false;
+        if (input.expand_template && templateUsed) {
+          if (!grantsAll(ctx.grantedScopes, ["write:templater"]))
+            throw new ObsidianTcError(
+              "forbidden",
+              "expand_template requires the write:templater scope",
+              { required: ["write:templater"] },
+            );
+          expanded = await expandViaTemplater(deps, v.id, templateUsed, resolved.path);
+        }
+        if (!expanded) writeNoteAtomic(abs, content, true);
         return {
           period: input.period,
           date: toISODate(date),
           path: resolved.path,
           created_at: new Date().toISOString(),
           template_used: templateUsed,
+          template_expanded: expanded,
         };
       },
     }),
@@ -194,17 +253,18 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "find_or_create_periodic_note",
       description:
-        "Get the periodic note for a period + date, creating it (empty/template) if absent.",
+        "Get the periodic note for a period + date, creating it (empty/template) if absent. With expand_template=true a newly created note is expanded through Templater when available (requires write:templater).",
       inputSchema: z
         .object({
           vault: VaultId,
           period: PeriodEnum,
           date: z.string().optional(),
           include_content: z.boolean().default(true),
+          expand_template: z.boolean().default(false),
         })
         .strict(),
       requiredScopes: ["read:periodic", "write:periodic"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const date = parseDateInput(input.date);
         const resolved = resolvePeriodicPath(v.root, input.period, date);
@@ -213,11 +273,26 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         if (!noteExists(abs).exists) {
           enforcePathAcl(ctx.acl, "write", resolved.path, v.root);
           let content = "";
+          let templateUsed: string | null = null;
           if (resolved.template) {
             const t = loadTemplate(v.root, ctx.acl, resolved.template);
-            if (t !== null) content = t;
+            if (t !== null) {
+              content = t;
+              templateUsed = normalizeVaultPath(resolved.template);
+            }
           }
-          writeNoteAtomic(abs, content, true);
+          // THE-207: expand via Templater when requested + available; else verbatim copy.
+          let expanded = false;
+          if (input.expand_template && templateUsed) {
+            if (!grantsAll(ctx.grantedScopes, ["write:templater"]))
+              throw new ObsidianTcError(
+                "forbidden",
+                "expand_template requires the write:templater scope",
+                { required: ["write:templater"] },
+              );
+            expanded = await expandViaTemplater(deps, v.id, templateUsed, resolved.path);
+          }
+          if (!expanded) writeNoteAtomic(abs, content, true);
           created = true;
         } else {
           enforcePathAcl(ctx.acl, "read", resolved.path, v.root);
