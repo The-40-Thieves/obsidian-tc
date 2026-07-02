@@ -166,6 +166,10 @@ export interface RegistryOptions {
     session: { vaultId: string; sessionId: string; caller: string | null },
     record: TraceRecord,
   ) => void;
+  /** THE-288 internal-error sink. When a handler throws a non-typed exception (a server bug),
+   *  the client response is redacted to `{code:"internal"}`; this sink receives the real error +
+   *  stack for operator diagnosis. Never wired to stdout (the MCP channel); best-effort. */
+  onInternalError?: (tool: string, vaultId: string, err: unknown) => void;
 }
 
 export class ToolRegistry {
@@ -185,6 +189,7 @@ export class ToolRegistry {
   private readonly toolVisibility: ToolVisibilityConfig;
   private readonly onProfile?: (p: DispatchProfile) => void;
   private readonly sessionTracer?: RegistryOptions["sessionTracer"];
+  private readonly onInternalError?: RegistryOptions["onInternalError"];
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
@@ -197,6 +202,7 @@ export class ToolRegistry {
     this.toolVisibility = opts.toolVisibility ?? ALLOW_ALL;
     this.onProfile = opts.onProfile;
     this.sessionTracer = opts.sessionTracer;
+    this.onInternalError = opts.onInternalError;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -685,6 +691,15 @@ export class ToolRegistry {
           this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
         } catch {
           /* cleanup best-effort; must not mask the original error */
+        }
+      }
+      if (!(e instanceof ObsidianTcError)) {
+        // THE-288: a non-typed throw is a server bug. Route the real error + stack to the
+        // operator sink for diagnosis; the client response below stays the redacted `internal`.
+        try {
+          this.onInternalError?.(name, ctx.vaultId, e);
+        } catch {
+          /* diagnostics sink must never mask the original failure */
         }
       }
       const error =
