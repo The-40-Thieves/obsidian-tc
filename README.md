@@ -161,7 +161,7 @@ obsidian-tc is not affiliated with or endorsed by Obsidian.md. "Obsidian" is a t
 
 ## License
 
-GNU Affero General Public License v3.0 (AGPL-3.0-only). See [LICENSE](./LICENSE).
+GNU Affero General Public License v3.0 (AGPL-3.0-only). See [LICENSE](./LICENSE). A commercial-exception license may also be available for use that cannot meet the AGPL's network-copyleft terms — open a [discussion](https://github.com/The-40-Thieves/obsidian-tc/discussions) to enquire. Contributions are accepted under the [Developer Certificate of Origin](https://developercertificate.org/); see [CONTRIBUTING.md](./CONTRIBUTING.md#license-and-sign-off-dco) for how to sign off your commits.
 
 ## Contributing
 
