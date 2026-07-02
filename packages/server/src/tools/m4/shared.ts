@@ -37,6 +37,8 @@ export interface M4Deps {
   /** Per-vault headless/live mode (THE-255). When headless, the bridge tools have no app to
    *  proxy to and degrade to requires_live_obsidian. Omitted in tests -> no mode gate. */
   mode?: (vaultId: string) => VaultMode;
+  /** THE-291: index-on-write hook for update_task's note rewrite (best-effort, backgrounded). */
+  reindex?: (vaultId: string, path: string, content: string) => void;
 }
 
 /**

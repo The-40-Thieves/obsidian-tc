@@ -12,6 +12,9 @@ import type { VaultRegistry } from "../../vault/registry";
 
 export interface M6Deps {
   vaultRegistry: VaultRegistry;
+  /** THE-291: index-on-write hooks for the bulk writers (best-effort, backgrounded). */
+  reindex?: (vaultId: string, path: string, content: string) => void;
+  deindex?: (vaultId: string, path: string) => void;
   /** Shared rate limiter: bulk tools consume the `bulk` tier; get_metrics reads hits. */
   rateLimiter: RateLimiter;
   /** Build version (get_server_config / get_metrics). */

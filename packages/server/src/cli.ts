@@ -326,6 +326,29 @@ async function main(): Promise<void> {
         }
       : undefined;
 
+  // THE-291 (part 2): shared index-on-write hooks for the non-M1 writers (m3 periodic, m4
+  // tasks, m5 capture, m6 bulk). M1 keeps its identical inline closures from THE-255.
+  const reindexHook = (vaultId: string, path: string, content: string): void => {
+    void indexNote(
+      db,
+      embeddingProvider,
+      vaultId,
+      path,
+      content,
+      hasVec,
+      Date.now,
+      makeOnIndexed(vaultId),
+    ).catch((e) => {
+      indexHealth.writeFailures++;
+      indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+    });
+  };
+  const deindexHook = (vaultId: string, path: string): void => {
+    void indexNote(db, embeddingProvider, vaultId, path, "", hasVec, Date.now).catch((e) => {
+      indexHealth.writeFailures++;
+      indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+    });
+  };
   registerM1Tools(registry, {
     vaultRegistry,
     version: VERSION,
@@ -410,6 +433,7 @@ async function main(): Promise<void> {
     ]),
   );
   const m4Deps: M4Deps = {
+    reindex: reindexHook,
     vaultRegistry,
     capabilities,
     bridgeFor: (vaultId) => bridgeClients.get(vaultId),
@@ -432,6 +456,7 @@ async function main(): Promise<void> {
   });
   registerM3Tools(registry, {
     vaultRegistry,
+    reindex: reindexHook,
     // THE-207: periodic-note creation can expand its template through Templater; openBridge
     // applies the same degradation gate (plugin_missing / requires_live_obsidian).
     templaterBridge: (vaultId) => ({
@@ -448,6 +473,7 @@ async function main(): Promise<void> {
   registerM5Tools(registry, {
     vaultRegistry,
     activeSessions,
+    reindex: reindexHook,
     plur: plurClient,
     memoryFolder: (vaultId) => memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
     traceFolder: (vaultId) => traceFolderByVault.get(vaultId) ?? DEFAULT_TRACE_FOLDER,
@@ -474,7 +500,7 @@ async function main(): Promise<void> {
     capabilities: (vaultId) => capabilities.get(vaultId),
     registeredTools: () => registry.list().length,
   };
-  registerM6Tools(registry, m6Deps);
+  registerM6Tools(registry, { ...m6Deps, reindex: reindexHook, deindex: deindexHook });
 
   // M7 knowledge domain (THE-233 integration): GraphRAG search (W-RETRIEVAL) + decision
   // red-team (W-WORKERS challenge), wired to the gateway seams (graceful when absent).

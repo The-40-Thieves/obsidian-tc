@@ -238,7 +238,10 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
             );
           expanded = await expandViaTemplater(deps, v.id, templateUsed, resolved.path);
         }
-        if (!expanded) writeNoteAtomic(abs, content, true);
+        if (!expanded) {
+          writeNoteAtomic(abs, content, true);
+          deps.reindex?.(v.id, resolved.path, content);
+        }
         return {
           period: input.period,
           date: toISODate(date),
@@ -292,7 +295,10 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
               );
             expanded = await expandViaTemplater(deps, v.id, templateUsed, resolved.path);
           }
-          if (!expanded) writeNoteAtomic(abs, content, true);
+          if (!expanded) {
+            writeNoteAtomic(abs, content, true);
+            deps.reindex?.(v.id, resolved.path, content);
+          }
           created = true;
         } else {
           enforcePathAcl(ctx.acl, "read", resolved.path, v.root);
@@ -337,6 +343,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const existing = ex.exists ? readNote(abs).raw : "";
         const next = appendContent(existing, input.content, input.ensure_newline, input.heading);
         writeNoteAtomic(abs, next, true);
+        deps.reindex?.(v.id, resolved.path, next);
         return {
           period: input.period,
           date: toISODate(date),

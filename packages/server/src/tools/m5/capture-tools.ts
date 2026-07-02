@@ -161,6 +161,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
           cap.content,
         );
         writeNoteAtomic(abs, content, true);
+        deps.reindex?.(v.id, rel, content);
         const now = (ctx.now ?? Date.now)();
         if (input.delete_from_queue) deleteCapture(ctx.db, cap.id);
         else markCommitted(ctx.db, cap.id, rel, now);

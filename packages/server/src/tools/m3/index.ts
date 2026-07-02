@@ -19,6 +19,8 @@ export interface M3Deps {
   /** THE-207: optional Templater bridge for periodic-note template expansion. When absent,
    *  or the companion/Templater is unavailable, creation degrades to a verbatim template copy. */
   templaterBridge?: (vaultId: string) => { client: BridgeClient; timeoutMs: number };
+  /** THE-291: index-on-write hook for periodic-note writes (best-effort, backgrounded). */
+  reindex?: (vaultId: string, path: string, content: string) => void;
 }
 
 export function registerM3Tools(registry: ToolRegistry, deps: M3Deps): void {
