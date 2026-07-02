@@ -50,7 +50,7 @@ Fourteen named components in V1 (excluding the optional V2 sidecar, which gets a
 
 **(1) Transport layer.** TypeScript on Bun + Hono. Parses MCP messages (JSON-RPC 2.0 over STDIO or Streamable HTTP per MCP 2025-11-25). Owns connection lifecycle, message framing, protocol-version negotiation. NOT responsible for tool semantics, vault state, or auth decisions.
 
-**(2) Auth layer.** TypeScript. Validates JWT/OAuth tokens (or accepts `none` mode if bound to localhost). Owns token validation, scope extraction, `AuthContext` construction. NOT responsible for per-resource access control (that's ACL), throttling (Policy), or session state (workspace_memory).
+**(2) Auth layer.** TypeScript. Validates JWT bearer tokens (or accepts `none` mode if bound to localhost). Owns token validation, scope extraction, `AuthContext` construction. NOT responsible for per-resource access control (that's ACL), throttling (Policy), or session state (workspace_memory).
 
 **(3) ACL layer.** TypeScript. Evaluates each tool's declarative ACL annotation against the request's scopes + vault + paths-in-args. Owns read/write/delete/execute/admin scope checks against folder glob patterns. NOT responsible for: scope syntax design (G2.4 owns that), HITL thresholds (Policy), or data ownership semantics.
 
@@ -136,7 +136,7 @@ flowchart TB
     transport --> auth
     transport -.parse fail.-> errTransport[invalid_input]:::err
 
-    auth[2. Auth<br/>validate JWT/OAuth or accept none-mode<br/>produce AuthContext scopes, sub, expires_at]:::ts
+    auth[2. Auth<br/>validate JWT or accept none-mode<br/>produce AuthContext scopes, sub, expires_at]:::ts
     auth --> acl
     auth -.bad token.-> errAuth[invalid_token / acl_denied]:::err
 
