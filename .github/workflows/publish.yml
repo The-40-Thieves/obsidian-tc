@@ -204,6 +204,8 @@ jobs:
         include:
           - host: ubuntu-latest
             target: bun-linux-x64
+          - host: ubuntu-latest
+            target: bun-linux-arm64
           - host: macos-latest
             target: bun-darwin-x64
           - host: macos-14
@@ -282,8 +284,26 @@ jobs:
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.licenses=AGPL-3.0-only
 
+  build-mcpb:
+    needs: publish-npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: build shared + server
+        run: |
+          (cd packages/shared && bun run build)
+          (cd packages/server && bun run build)
+      - name: pack the .mcpb bundle
+        run: bun run bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcpb
+          path: dist/obsidian-tc.mcpb
+
   draft-release:
-    needs: [publish-npm, build-binaries, build-plugin, build-docker]
+    needs: [publish-npm, build-binaries, build-plugin, build-docker, build-mcpb]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -291,11 +311,11 @@ jobs:
         with:
           path: artifacts
           # only the assets the release attaches; skip native-* and the .dockerbuild record
-          pattern: '{binary-*,plugin}'
+          pattern: '{binary-*,plugin,mcpb}'
       - name: generate checksums
         run: |
           cd artifacts
-          find . -type f \( -name 'obsidian-tc-*' -o -name '*.zip' \) -exec sha256sum {} \; > SHASUMS256.txt
+          find . -type f \( -name 'obsidian-tc-*' -o -name '*.mcpb' -o -name '*.zip' \) -exec sha256sum {} \; > SHASUMS256.txt
         shell: bash
       - uses: softprops/action-gh-release@v2
         with:
@@ -303,5 +323,6 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/**/obsidian-tc-*
+            artifacts/**/*.mcpb
             artifacts/**/*.zip
             artifacts/SHASUMS256.txt
