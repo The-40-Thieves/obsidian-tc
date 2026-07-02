@@ -1,6 +1,21 @@
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 
+export interface IndexHealthSnapshot {
+  /** Boot reconcile lifecycle: `pending` until it settles, then `ok`, or `degraded` if any vault
+   *  failed to reconcile. Non-identifying. */
+  reconcile: "pending" | "ok" | "degraded";
+  /** When the boot reconcile settled (ms epoch), or null while still pending. */
+  reconcile_at: number | null;
+  /** Count of index-on-write failures swallowed since boot (best-effort reindex/deindex). */
+  write_failures: number;
+  /** Per-vault reconcile errors + last write error — authenticated callers only (may name paths). */
+  detail?: {
+    reconcile_errors: Array<{ vault: string; error: string }>;
+    last_write_error?: string;
+  };
+}
+
 export interface HealthInfo {
   status: "ok";
   name: "obsidian-tc";
@@ -14,6 +29,9 @@ export interface HealthInfo {
   /** Vault id list — only for authenticated callers (ids are deployment-internal). */
   vaults?: string[];
   uptime_ms: number;
+  /** Search-index health (THE-288). Always present; `detail` (per-vault reconcile errors + last
+   *  write error) is authenticated-only since messages may name paths. */
+  index?: IndexHealthSnapshot;
 }
 
 export function createHealthTool(opts: {
@@ -22,6 +40,8 @@ export function createHealthTool(opts: {
   startedAt: number;
   nativeLoaded: boolean;
   vecEnabled: boolean;
+  /** THE-288: returns a live index-health snapshot at call time, shaped by caller auth. */
+  getIndexHealth?: (authenticated: boolean) => IndexHealthSnapshot;
 }): ToolDefinition<Record<string, never>, HealthInfo> {
   return {
     name: "server_health",
@@ -41,6 +61,7 @@ export function createHealthTool(opts: {
       vault_count: opts.vaults.length,
       ...(ctx.authenticated ? { vaults: opts.vaults } : {}),
       uptime_ms: Date.now() - opts.startedAt,
+      ...(opts.getIndexHealth ? { index: opts.getIndexHealth(ctx.authenticated) } : {}),
     }),
   };
 }

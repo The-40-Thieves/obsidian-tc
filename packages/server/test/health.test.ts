@@ -53,4 +53,39 @@ describe("server_health (F3)", () => {
     expect(out.native_loaded).toBe(true);
     expect(out.vec_enabled).toBe(true);
   });
+
+  it("surfaces index health; detail (per-vault errors) is authenticated-only (THE-288)", () => {
+    const t = createHealthTool({
+      version: "1.0.0",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      getIndexHealth: (authenticated) => ({
+        reconcile: "degraded",
+        reconcile_at: 123,
+        write_failures: 2,
+        ...(authenticated
+          ? {
+              detail: {
+                reconcile_errors: [{ vault: "v1", error: "embed backend down" }],
+                last_write_error: "eperm",
+              },
+            }
+          : {}),
+      }),
+    });
+    const anon = t.handler({}, { ...base, authenticated: false } as CallerContext) as {
+      index?: { reconcile: string; write_failures: number; detail?: unknown };
+    };
+    expect(anon.index?.reconcile).toBe("degraded");
+    expect(anon.index?.write_failures).toBe(2);
+    // Path-bearing detail is withheld from the unauthenticated liveness probe.
+    expect(anon.index?.detail).toBeUndefined();
+    const authed = t.handler({}, { ...base, authenticated: true } as CallerContext) as {
+      index?: { detail?: { reconcile_errors: unknown[]; last_write_error?: string } };
+    };
+    expect(authed.index?.detail?.reconcile_errors).toHaveLength(1);
+    expect(authed.index?.detail?.last_write_error).toBe("eperm");
+  });
 });

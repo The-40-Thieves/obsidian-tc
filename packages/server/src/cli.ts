@@ -249,6 +249,21 @@ async function main(): Promise<void> {
   // convergence. Shares the one embedding provider + vec-availability flag.
   const embeddingProvider = createEmbeddingProvider(config.embeddings);
   const hasVec = ensureVecChunks(db, embeddingProvider.dimensions, { now: Date.now });
+  // THE-288: mutable index-health tracker surfaced by server_health. reconcile flips pending ->
+  // ok/degraded when the boot reconcile settles; writeFailures counts swallowed index-on-write
+  // errors (reindex/deindex best-effort). The health tool reads a snapshot at call time.
+  const indexHealth: {
+    reconcile: "pending" | "ok" | "degraded";
+    reconcileAt: number | null;
+    reconcileErrors: Array<{ vault: string; error: string }>;
+    writeFailures: number;
+    lastWriteError?: string;
+  } = {
+    reconcile: "pending",
+    reconcileAt: null,
+    reconcileErrors: [],
+    writeFailures: 0,
+  };
   // server_health surfaces the build's active fast-paths (native module + sqlite-vec). Both are
   // non-identifying, so the tool keeps them in its unauthenticated payload; registered here (not
   // earlier) so hasVec is known.
@@ -259,6 +274,21 @@ async function main(): Promise<void> {
       startedAt,
       nativeLoaded,
       vecEnabled: hasVec,
+      getIndexHealth: (authenticated) => ({
+        reconcile: indexHealth.reconcile,
+        reconcile_at: indexHealth.reconcileAt,
+        write_failures: indexHealth.writeFailures,
+        ...(authenticated
+          ? {
+              detail: {
+                reconcile_errors: indexHealth.reconcileErrors,
+                ...(indexHealth.lastWriteError !== undefined
+                  ? { last_write_error: indexHealth.lastWriteError }
+                  : {}),
+              },
+            }
+          : {}),
+      }),
     }),
   );
 
@@ -310,10 +340,16 @@ async function main(): Promise<void> {
         hasVec,
         Date.now,
         makeOnIndexed(vaultId),
-      ).catch(() => {});
+      ).catch((e) => {
+        indexHealth.writeFailures++;
+        indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+      });
     },
     deindex: (vaultId, path) => {
-      void indexNote(db, embeddingProvider, vaultId, path, "", hasVec, Date.now).catch(() => {});
+      void indexNote(db, embeddingProvider, vaultId, path, "", hasVec, Date.now).catch((e) => {
+        indexHealth.writeFailures++;
+        indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+      });
     },
   });
   // M4 plugin bridges (THE-180): per vault, build a bridge client to the companion
@@ -508,7 +544,7 @@ async function main(): Promise<void> {
     if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
     return acl.readPaths.some((g) => globMatch(g, rel));
   };
-  void Promise.allSettled(
+  void Promise.all(
     config.vaults.map((v) =>
       indexVault({
         db,
@@ -518,9 +554,20 @@ async function main(): Promise<void> {
         isReadable: indexReadable,
         now: Date.now,
         onIndexed: makeOnIndexed(v.id),
-      }),
+      }).then(
+        () => ({ vault: v.id, error: null as string | null }),
+        (e) => ({ vault: v.id, error: e instanceof Error ? e.message : String(e) }),
+      ),
     ),
-  ).then(() => {
+  ).then((results) => {
+    // THE-288: record boot-reconcile health so server_health can surface index degradation
+    // instead of the swallowed best-effort failure (per-vault errors are authenticated-only).
+    const reconcileErrors = results
+      .filter((r) => r.error !== null)
+      .map((r) => ({ vault: r.vault, error: r.error as string }));
+    indexHealth.reconcile = reconcileErrors.length === 0 ? "ok" : "degraded";
+    indexHealth.reconcileAt = Date.now();
+    indexHealth.reconcileErrors = reconcileErrors;
     // Best-effort contradiction sweep over chunks enqueued during the boot reconcile. No-op
     // without the gateway (roles null -> queue stays empty). A continuous draining schedule
     // (plane timer / session-close trigger) is a follow-up.
