@@ -19,15 +19,21 @@ Error spans are always recorded so failures are visible even under sampling.
 
 ## Configuration
 
-```yaml
-observability:
-  traceDetail: verbose          # span granularity
-  tracesSampleRate: 1.0
-  otel:
-    endpoint: http://localhost:4318   # unset = tracing disabled
-    headers:
-      authorization: Bearer ...
+```json
+{
+  "observability": {
+    "traceDetail": "verbose",
+    "tracesSampleRate": 1,
+    "otel": {
+      "endpoint": "http://localhost:4318",
+      "headers": { "authorization": "Bearer <token>" }
+    }
+  }
+}
 ```
+
+`traceDetail` sets span granularity; leaving `otel.endpoint` unset disables tracing
+(no exporters, no throw).
 
 Tracing is exercised in tests with an in-memory exporter — unconfigured asserts
 zero exporters and no throw; configured asserts the span shape — so no live

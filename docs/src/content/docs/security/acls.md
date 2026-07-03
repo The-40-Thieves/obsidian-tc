@@ -20,6 +20,50 @@ canonicalized through symlinks before the check and matched Unicode-NFC-insensit
 `../` escapes cannot bypass it, and the control directories `.obsidian` / `.git` /
 `.trash` are denied by default.
 
+## ACL configuration
+
+The folder ACL is a config block: `acl` at the root (the default for every vault)
+and, optionally, a per-vault `acl` that overrides it. Both share the same shape:
+
+- **`readOnly`** (default `false`) — a vault-wide read-only kill switch; when `true`,
+  every write/delete is refused regardless of scopes.
+- **`defaultScopes`** — scopes granted to a caller when no `rules` entry matches.
+- **`rules`** — `{ "glob": "…", "scopes": [ … ] }` entries granting scopes on matching
+  paths.
+- **`readPaths` / `writePaths` / `deletePaths`** — optional glob whitelists. When a
+  list is **omitted**, that operation is unrestricted (the M0 default); when
+  **present**, a path must match at least one entry or the call is denied.
+- **`strictReadDefault`** (default `false`) — when `true`, an *undefined* `readPaths`
+  fails **closed** on reads (not just on bridge enumeration).
+
+Root ACL:
+
+```json
+{
+  "acl": {
+    "readOnly": false,
+    "readPaths": ["**"],
+    "writePaths": ["02-projects/**", "90-memory/**"],
+    "deletePaths": ["02-projects/**"],
+    "strictReadDefault": false
+  }
+}
+```
+
+Per-vault override — the canonical "write vault A, read-only vault B in one process"
+policy. A vault with no `acl` inherits the root ACL as its default:
+
+```json
+{
+  "vaults": [
+    { "id": "work", "path": "/vaults/work",
+      "acl": { "writePaths": ["**"], "deletePaths": ["**"] } },
+    { "id": "reference", "path": "/vaults/reference",
+      "acl": { "readOnly": true } }
+  ]
+}
+```
+
 ## Scope classes & rate tiers
 
 Each tool's required scopes resolve to one **scope class**, chosen by

@@ -31,10 +31,17 @@ so a crafted vault id cannot escape the cache directory.
 
 ## Configuration
 
-```yaml
-observability:
-  morgiana:
-    spool: true                 # JSONL file spool (default)
-    httpEndpoint: ...           # optional HTTP sink
-    httpHeaders: { ... }
+```json
+{
+  "observability": {
+    "morgiana": {
+      "spool": true,
+      "httpEndpoint": "https://example.com/events",
+      "httpHeaders": { "authorization": "Bearer <token>" }
+    }
+  }
+}
 ```
+
+`spool` writes the JSONL file spool (default `true`); `httpEndpoint` and
+`httpHeaders` are optional and enable an additional HTTP sink.

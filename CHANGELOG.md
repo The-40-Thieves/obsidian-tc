@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-03
+
 ### Added
 
 - **Tool-surface facade / progressive disclosure (THE-219 consolidation).** A new

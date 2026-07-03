@@ -13,17 +13,32 @@ startup.) The full shape:
     {
       "id": "primary",
       "path": "/home/user/vaults/primary",
+      "mode": "auto",
       "restApiUrl": "http://127.0.0.1:27123",
       "restApiKey": "...",
       "memory": { "folder": "90-memory" },
-      "commands": { "enabled": false, "allowlist": [] }
+      "workspace": { "traceFolder": ".obsidian-tc/traces" },
+      "commands": { "enabled": false, "allowlist": [] },
+      "bridges": { "timeoutMs": 5000, "probeTimeoutMs": 500, "ocrTimeoutMs": 30000, "templaterTimeoutMs": 30000 },
+      "plugins": { "forceEnabled": [], "forceDisabled": [], "probeSkip": false },
+      "acl": { "readOnly": false, "writePaths": ["02-projects/**"] }
     }
   ],
   "cacheDir": "/home/user/.cache/obsidian-tc",
   "toolFacade": { "mode": "triad" },
+  "toolVisibility": { "hidden": [], "disabled": [], "requireReadOnly": false },
   "auth": {
     "mode": "jwt",
     "jwtSecret": "<32+ chars, or set OBSIDIAN_TC_JWT_SECRET>"
+  },
+  "acl": {
+    "readOnly": false,
+    "defaultScopes": [],
+    "rules": [],
+    "readPaths": ["**"],
+    "writePaths": ["02-projects/**", "90-memory/**"],
+    "deletePaths": ["02-projects/**"],
+    "strictReadDefault": false
   },
   "transports": {
     "http": { "enabled": false, "host": "127.0.0.1", "port": 8765 }
@@ -53,7 +68,12 @@ startup.) The full shape:
     "provider": "ollama",
     "model": "nomic-embed-text",
     "dimensions": 768
-  }
+  },
+  "maintenance": { "enabled": true, "intervalMinutes": 60 },
+  "plane": { "enabled": true, "intervalMinutes": 240 },
+  "idempotencyTtlSeconds": 86400,
+  "idempotencyReclaimSeconds": 60,
+  "elicitTtlSeconds": 300
 }
 ```
 
@@ -62,6 +82,13 @@ Notes:
 - **`toolFacade.mode`** — `triad` (default) | `domain` | `flat`; shapes what `tools/list` advertises (see the [Tool Reference](/tools/)).
 - **`auth.mode`** — `none` | `jwt`. `jwt` requires `jwtSecret` (≥32 chars, resolvable via `OBSIDIAN_TC_JWT_SECRET`). Optional OAuth 2.0 Protected Resource Metadata (RFC 9728) is enabled by adding `auth.resource` plus one or more `auth.authorizationServers` (see [Authentication](/security/auth-model/)).
 - **`embeddings.provider`** — `ollama` (default) | `openai` | `voyage` | `cohere`.
+- **`acl`** — the root folder ACL (default for every vault); each `vaults[]` entry may carry its own `acl` to override it (see [Scopes & Folder ACLs](/security/acls/)).
+- **`auth.jwks` / `auth.jwksFile` / `auth.algorithms`** — asymmetric JWT verification (RS256/ES256/EdDSA) with `kid` rotation; a JWKS may stand in for `jwtSecret` (see [Authentication](/security/auth-model/)).
+- **`plane`** — ambient consolidation scheduler (`enabled` default `true`, `intervalMinutes` `240`); does work only when the inference gateway is configured.
+- **`maintenance`** — periodic `cache.db` sweep (`enabled` default `true`, `intervalMinutes` `60`).
+- **TTLs** — `idempotencyTtlSeconds` (`86400`), `idempotencyReclaimSeconds` (`60`), `elicitTtlSeconds` (`300`).
+- **Per-vault** — `mode` (`live` | `headless` | `auto`), `workspace.traceFolder`, `bridges` (probe / OCR / Templater timeouts), `plugins` (force enable/disable, probe skip), and an optional per-vault `acl`.
+- **`toolVisibility`** (optional) — trims the advertised tool surface (`hidden` / `disabled` / `hiddenTags` / `disabledTags` / `requireReadOnly` / `allowed`); tools stay callable by name unless `disabled`.
 
 Secrets (`restApiKey`, embedding API keys, the JWT signing key) resolve from
 config-then-env and never appear in logs, error details, or audit rows.

@@ -23,6 +23,36 @@ on paths), not encoded in the scope string. The signing key lives outside the va
 and is never logged. Tokens are verified with a pinned algorithm — `alg: none` and
 unsigned tokens are rejected — and checked for signature and expiry on every request.
 
+## Asymmetric JWT verification (RS256 / ES256 / EdDSA)
+
+Beyond the shared-secret HS256 path above, `auth.mode: jwt` can verify tokens signed
+with an **asymmetric** key, so the server holds only a *public* key while the issuer
+keeps the private key. Provide a JWKS in place of (or alongside) `jwtSecret`:
+
+- **`auth.jwks`** — an inline JWKS document (`{ "keys": [ … ] }`).
+- **`auth.jwksFile`** — a path to a JWKS document, loaded **once** at transport boot.
+  File or inline only — there is no URL fetch, so no new network attack surface.
+- **`auth.algorithms`** — an allowlist of asymmetric algorithms. Defaults to
+  `["RS256", "ES256", "EdDSA"]` when omitted.
+
+```json
+{
+  "auth": {
+    "mode": "jwt",
+    "jwksFile": "/etc/obsidian-tc/jwks.json",
+    "algorithms": ["RS256", "EdDSA"]
+  }
+}
+```
+
+**Key rotation is `kid`-based:** publish the old and new keys together in the JWKS
+set and the token's `kid` header selects the verifying key (handled by `jose`).
+
+**Algorithm-confusion is structurally impossible.** An HS256 token is verified *only*
+against `jwtSecret`; an asymmetric token is verified *only* against the JWKS — a
+public key can never be presented as an HMAC secret. HS256-only deployments are
+unchanged; asymmetric verification is purely additive and opt-in.
+
 ## Localhost-by-default posture
 
 The HTTP transport and the optional `/metrics` endpoint bind to loopback unless
