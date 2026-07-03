@@ -156,6 +156,19 @@ jobs:
           done
           [ "$fail" -eq 0 ]
         shell: bash
+      # New scoped npm packages default to `restricted`, so the FIRST publish of the new musl
+      # platform sub-packages died with `402 Payment Required` (must sign up for private packages).
+      # Force every generated platform package public before napi publishes them: napi runs
+      # `npm publish` per npm/<triple> dir and honors each dir's publishConfig.access.
+      - name: make platform sub-packages public (npm 402 fix)
+        working-directory: packages/native
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in npm/*/package.json; do
+            node -e 'const fs=require("fs");const f=process.argv[1];const p=JSON.parse(fs.readFileSync(f,"utf8"));p.publishConfig=Object.assign({},p.publishConfig,{access:"public"});fs.writeFileSync(f,JSON.stringify(p,null,2)+"\n");' "$f"
+            echo "publishConfig.access=public -> $f"
+          done
       # Platform sub-packages (one per built triple, @the-40-thieves/obsidian-tc-native-<triple>)
       # + the umbrella optionalDependencies are generated and published by `napi pre-publish`.
       - name: publish platform sub-packages (napi)
