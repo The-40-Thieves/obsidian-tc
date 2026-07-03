@@ -9,6 +9,8 @@
 //! at the TS/db layer rather than wrapped here. Every export has a pure-JS
 //! fallback on the TypeScript side, so the server runs without this module.
 
+#[cfg(unix)]
+use napi::bindgen_prelude::Buffer;
 use napi::bindgen_prelude::Float32Array;
 use napi_derive::napi;
 
@@ -73,6 +75,156 @@ pub fn bm25_score(tf: f64, doc_len: f64, avg_doc_len: f64, doc_freq: f64, doc_co
     let idf = (1.0 + (doc_count - doc_freq + 0.5) / (doc_freq + 0.5)).ln();
     let denom = tf + k1 * (1.0 - b + b * (doc_len / avg_doc_len.max(1.0)));
     idf * (tf * (k1 + 1.0)) / denom
+}
+
+// ---- Symlink-safe, TOCTOU-free vault file I/O (THE-272) ----
+//
+// `readNote`/`writeNoteAtomic` open a caller-supplied absolute path. The folder-ACL check upstream
+// canonicalizes with realpath, but the open re-resolves the *lexical* path, so an attacker who swaps
+// an intermediate directory for a symlink between the ACL check and the open can redirect the
+// operation (an intermediate-directory symlink-swap TOCTOU). These primitives close that race by
+// opening with NO symlink followed in ANY component and doing all I/O on the resulting fd, so the
+// path is never re-resolved. On Unix: a per-component `openat(O_NOFOLLOW)` walk from the filesystem
+// root (a symlink component fails with ELOOP). Unix-only: there is no openat/O_NOFOLLOW equivalent on
+// stable Rust for Windows, where the compiled module omits these exports and the TS side keeps its
+// pure-JS path (Node `statSync` provides the nlink guard, Windows symlink creation is admin/developer
+// -mode gated, and realpath containment still applies). Vault containment is enforced separately by
+// the TS ACL/realpath layer; this adds the "no symlink at open time" guarantee. Any rejection is
+// surfaced as a JS error the caller maps to acl_denied. The TS side keeps a pure-JS fallback for
+// hosts without the compiled module.
+
+/// Symlink-safe read: opens `abs` following no symlink in any component, rejects a non-regular or
+/// hard-linked (nlink>1) file, returns the bytes. Unix-only (see the module note above).
+#[cfg(unix)]
+#[napi]
+pub fn safe_read_note(abs: String) -> napi::Result<Buffer> {
+    safe_io::read(&abs)
+}
+
+/// Symlink-safe atomic write: walks to the parent following no symlink, writes a randomized
+/// O_EXCL|O_NOFOLLOW temp, then renames it onto the target. The parent directory must already exist.
+/// Unix-only (see safe_read_note).
+#[cfg(unix)]
+#[napi]
+pub fn safe_write_note_atomic(abs: String, data: Buffer) -> napi::Result<()> {
+    safe_io::write_atomic(&abs, data.as_ref())
+}
+
+#[cfg(unix)]
+mod safe_io {
+    use napi::bindgen_prelude::Buffer;
+    use napi::Error;
+    use rustix::fd::OwnedFd;
+    use rustix::fs::{openat, renameat, unlinkat, AtFlags, Mode, OFlags, CWD};
+    use std::io::{Read, Write};
+    use std::os::unix::fs::MetadataExt;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn denied(msg: impl Into<String>) -> Error {
+        Error::from_reason(msg.into())
+    }
+
+    /// Non-empty path components; reject `.` (skip), `..` (traversal), empty.
+    fn components(abs: &str) -> Result<Vec<&str>, Error> {
+        let mut out = Vec::new();
+        for c in abs.split('/') {
+            if c.is_empty() || c == "." {
+                continue;
+            }
+            if c == ".." {
+                return Err(denied("path traversal component"));
+            }
+            out.push(c);
+        }
+        if out.is_empty() {
+            return Err(denied("empty path"));
+        }
+        Ok(out)
+    }
+
+    /// Open the parent directory of the leaf, opening each component with NOFOLLOW so a symlink
+    /// component fails (ELOOP) rather than redirecting resolution.
+    fn open_parent(comps: &[&str]) -> Result<OwnedFd, Error> {
+        let mut dir = openat(
+            CWD,
+            "/",
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|e| denied(format!("open root: {e}")))?;
+        for comp in &comps[..comps.len() - 1] {
+            dir = openat(
+                &dir,
+                *comp,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| {
+                denied(format!(
+                    "refusing symlinked or missing path component: {comp:?}"
+                ))
+            })?;
+        }
+        Ok(dir)
+    }
+
+    pub fn read(abs: &str) -> Result<Buffer, Error> {
+        let comps = components(abs)?;
+        let parent = open_parent(&comps)?;
+        let leaf = comps[comps.len() - 1];
+        let fd = openat(
+            &parent,
+            leaf,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| denied("refusing symlinked or missing file"))?;
+        let mut file = std::fs::File::from(fd);
+        let meta = file.metadata().map_err(|e| denied(format!("fstat: {e}")))?;
+        if !meta.is_file() {
+            return Err(denied("not a regular file"));
+        }
+        if meta.nlink() > 1 {
+            return Err(denied("refusing a hard-linked file (inode aliasing)"));
+        }
+        let mut buf = Vec::with_capacity(meta.len() as usize);
+        file.read_to_end(&mut buf)
+            .map_err(|e| denied(format!("read: {e}")))?;
+        Ok(buf.into())
+    }
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    pub fn write_atomic(abs: &str, data: &[u8]) -> Result<(), Error> {
+        let comps = components(abs)?;
+        let parent = open_parent(&comps)?;
+        let leaf = comps[comps.len() - 1];
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = format!(".otc.tmp-{}-{}-{}", std::process::id(), nanos, seq);
+        let fd = openat(
+            &parent,
+            tmp.as_str(),
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::RUSR | Mode::WUSR,
+        )
+        .map_err(|e| denied(format!("temp create: {e}")))?;
+        let mut file = std::fs::File::from(fd);
+        let res = file.write_all(data).and_then(|_| file.sync_all());
+        drop(file);
+        if let Err(e) = res {
+            let _ = unlinkat(&parent, tmp.as_str(), AtFlags::empty());
+            return Err(denied(format!("write: {e}")));
+        }
+        if let Err(e) = renameat(&parent, tmp.as_str(), &parent, leaf) {
+            let _ = unlinkat(&parent, tmp.as_str(), AtFlags::empty());
+            return Err(denied(format!("rename: {e}")));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
