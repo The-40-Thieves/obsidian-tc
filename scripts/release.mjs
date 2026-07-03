@@ -113,6 +113,26 @@ const rebuilt =
 writeFileSync("CHANGELOG.md", rebuilt);
 console.log(`  rolled CHANGELOG -> [${next}] - ${date}`);
 
+// Bump the "current version" prose in the docs that reference the shipped version literally — the
+// README status badge/line and the docs-site current-release line + ghcr example tags. These are the
+// only files that carry the version as prose (history lives in the CHANGELOG), so a scoped
+// replace-all of the old version is safe. Recurrence fix: this prose drifted (1.3.2 vs the shipped
+// 1.3.3) until swept by hand; check-version-coherence.mjs now also gates it.
+for (const p of [
+  "README.md",
+  "docs/src/content/docs/index.md",
+  "docs/src/content/docs/getting-started/install.md",
+  "docs/src/content/docs/getting-started/first-run.md",
+]) {
+  const target = inRepo(p);
+  const before = readFileSync(target, "utf8");
+  const after = before.split(current).join(next);
+  if (after !== before) {
+    writeFileSync(target, after);
+    console.log(`  version prose bumped in ${p}`);
+  }
+}
+
 // Refresh the lockfile for the workspace version bump (the step that broke 1.2.1).
 console.log("bun install (refresh bun.lock) ...");
 execSync("bun install", { stdio: "inherit" });

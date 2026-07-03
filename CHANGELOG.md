@@ -6,6 +6,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs reflect the shipped version + registered surface.** Swept the version prose (README status
+  badge/line, docs-site current-release line + ghcr example tags) from 1.3.2 to 1.3.3 and the example
+  tool-count output from 103 to 105. `release.mjs` now bumps the version prose on every cut and
+  `check-version-coherence.mjs` fails if it drifts from the package version (recurrence fix). The
+  GitHub wiki was refreshed to match.
+
 ## [1.3.3] - 2026-07-03
 
 ### Security
