@@ -6,6 +6,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-07-03
+
+### Fixed
+
+- **Native platform sub-packages now publish with public access (packaging).** New scoped npm
+  packages default to `restricted`, so the first publish of the new musl platform sub-packages
+  hit `402 Payment Required`. The publish workflow now sets `publishConfig.access = "public"` on
+  every generated platform package before `napi pre-publish`, and `packages/native` declares it
+  too. (The `v1.3.0` tag's publish stopped at this step; `1.3.1` is the first fully published cut
+  of this feature batch.)
+
 ## [1.3.0] - 2026-07-03
 
 ### Added
