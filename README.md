@@ -213,7 +213,7 @@ is covered in [docs/CUTOVER.md](./docs/CUTOVER.md).
 
 ## Trademark
 
-obsidian-tc is not affiliated with or endorsed by Obsidian.md. "Obsidian" is a trademark of Dynalist Inc. This project is an independent open-source MCP server that integrates with Obsidian.
+obsidian-tc is an independent, community-built open-source project. It is **not** affiliated with, endorsed by, or sponsored by Obsidian or its maker, Dynalist Inc. "Obsidian" is a trademark of Dynalist Inc.; it is used here only nominatively — to describe the application this MCP server interoperates with — including within the package, image, and plugin names (`obsidian-tc`), which denote compatibility, not origin or endorsement. For the official app, visit [obsidian.md](https://obsidian.md).
 
 ## License
 
