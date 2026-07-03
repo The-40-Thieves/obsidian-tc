@@ -274,12 +274,18 @@ jobs:
       - name: zip plugin
         run: |
           cd packages/plugin/dist
-          zip -r ../obsidian-tc-plugin-${GITHUB_REF_NAME#v}.zip main.js manifest.json
+          zip -r ../obsidian-tc-plugin-${GITHUB_REF_NAME#v}.zip main.js manifest.json styles.css
         shell: bash
+      # Upload the zip AND the loose 3-file set (manifest.json + main.js + styles.css) so the release
+      # attaches them as individual assets for BRAT sideloading (THE-206), not only the zip.
       - uses: actions/upload-artifact@v4
         with:
           name: plugin
-          path: packages/plugin/obsidian-tc-plugin-*.zip
+          path: |
+            packages/plugin/obsidian-tc-plugin-*.zip
+            packages/plugin/dist/manifest.json
+            packages/plugin/dist/main.js
+            packages/plugin/dist/styles.css
 
   build-docker:
     needs: publish-npm
@@ -359,4 +365,7 @@ jobs:
             artifacts/**/obsidian-tc-*
             artifacts/**/*.mcpb
             artifacts/**/*.zip
+            artifacts/**/manifest.json
+            artifacts/**/main.js
+            artifacts/**/styles.css
             artifacts/SHASUMS256.txt

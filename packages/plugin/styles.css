@@ -1,0 +1,7 @@
+/* obsidian-tc companion plugin styles.
+ *
+ * The companion plugin is a headless bridge (command dispatch + plugin-firepower routing over the
+ * Local REST API); it renders no custom UI, so this stylesheet is intentionally minimal. It is
+ * committed — even empty of rules — so the plugin always ships the complete manifest.json + main.js
+ * + styles.css set that the Obsidian community store and BRAT expect (THE-206). Obsidian loads it
+ * automatically when the plugin is enabled. */

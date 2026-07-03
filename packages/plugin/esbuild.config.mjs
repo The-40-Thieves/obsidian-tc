@@ -27,3 +27,6 @@ await esbuild.build({
 });
 
 copyFileSync("manifest.json", "dist/manifest.json");
+// styles.css ships beside main.js so the plugin's community-store / BRAT 3-file set is complete
+// (THE-206). Obsidian loads it automatically; it is committed (even if minimal) so this never misses.
+copyFileSync("styles.css", "dist/styles.css");

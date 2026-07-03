@@ -77,3 +77,51 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
     `companion versions.json OK (${manifest.version} -> minAppVersion ${versions[manifest.version]})`,
   );
 }
+
+// THE-306: pin the shipped tool-count headline so the docs cannot silently drift from the registry.
+// The registry's ACTUAL count is asserted by packages/server/test/tool-count.test.ts
+// (REGISTERED_TOOL_COUNT); keep EXPECTED_TOOL_COUNT in lockstep with that constant. Each target is a
+// canonical shipped-count phrase; the historical "103 at r2" G2.1 design numbers are intentionally
+// excluded (they describe the r2 spec surface, not the shipped surface).
+{
+  const EXPECTED_TOOL_COUNT = 105;
+  const readText = (p) => {
+    const target = resolve(ROOT, p);
+    if (relative(ROOT, target).startsWith("..")) {
+      throw new Error(`refusing to read outside repo root: ${p}`);
+    }
+    return readFileSync(target, "utf8");
+  };
+  const targets = [
+    ["README.md", /~?(\d+) governed capabilities/],
+    ["README.md", /\*\*~?(\d+) tools across 28 domains\*\*/],
+    ["packages/server/README.md", /\((\d+) tools across 28 domains/],
+    ["ARCHITECTURE.md", /(\d+)-tool G2\.1 surface/],
+    ["docs/src/content/docs/index.md", /~?(\d+) typed tools/],
+    ["docs/src/content/docs/getting-started/concepts.md", /~?(\d+) typed tools/],
+    ["docs/src/content/docs/tools/index.md", /~?(\d+)-tool surface/],
+    ["docs/src/content/docs/roadmap.md", /(\d+) tools across 28 domains/],
+  ];
+  const drift = [];
+  for (const [file, re] of targets) {
+    let text;
+    try {
+      text = readText(file);
+    } catch {
+      drift.push(`${file}: not found`);
+      continue;
+    }
+    const m = text.match(re);
+    if (!m) drift.push(`${file}: no tool-count headline matched ${re}`);
+    else if (Number(m[1]) !== EXPECTED_TOOL_COUNT) {
+      drift.push(`${file}: headline says ${m[1]}, expected ${EXPECTED_TOOL_COUNT}`);
+    }
+  }
+  if (drift.length) {
+    console.error(`\nFAIL: tool-count headline drift (THE-306):\n  ${drift.join("\n  ")}`);
+    process.exit(1);
+  }
+  console.log(
+    `tool-count headline OK (${EXPECTED_TOOL_COUNT} across ${targets.length} doc surfaces)`,
+  );
+}

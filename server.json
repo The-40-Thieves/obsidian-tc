@@ -3,7 +3,7 @@
   "name": "io.github.The-40-Thieves/obsidian-tc",
   "title": "Obsidian Turbocharged",
   "description": "Model-agnostic, agent-ready Obsidian MCP server with RBAC, SLSA provenance, and native search.",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "websiteUrl": "https://github.com/The-40-Thieves/obsidian-tc#readme",
   "repository": {
     "url": "https://github.com/The-40-Thieves/obsidian-tc",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "obsidian-tc",
-      "version": "1.3.2",
+      "version": "1.3.3",
       "transport": {
         "type": "stdio"
       },
