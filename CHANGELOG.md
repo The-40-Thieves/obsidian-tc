@@ -6,6 +6,41 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-07-03
+
+### Security
+
+- **Hard-link folder-ACL bypass closed (C-1b).** `enforcePathAcl` and the fd-based `readNote` /
+  `readFileChecked` reject a regular file with `st_nlink > 1` in an ACL'd vault, so a hard link can
+  no longer alias a file outside the caller's folder ACL (or past the `.obsidian` default-deny) into
+  an allowed path — realpath canonicalization cannot dereference a hard link. Reads open an fd and
+  fstat it, so the inode check and the read run on the same object.
+- **Atomic-write temp-file symlink TOCTOU closed (H-4).** `writeNoteAtomic` opens its temp file
+  `O_EXCL | O_NOFOLLOW` with a randomized name, so a symlink planted at a predictable temp path can
+  no longer redirect an in-ACL note write into an arbitrary file.
+- **`get_attachment` no longer reads arbitrary files (N-1).** It enforces the attachment extension
+  allowlist (matching `list_attachments`), so `read:attachments` grants binary attachment reads, not
+  read-any-file; notes are read via `read_note` under `read:notes`.
+- **Elicit (HITL) tokens are caller-bound (H-3).** Redemption checks the issuing caller, so on a
+  multi-caller HTTP deployment one caller cannot spend another's confirmation for the same vault + args.
+- **Attachment reference lists are ACL-filtered (N-2).** `get_attachment(include_references)` and
+  `delete_attachment` reveal only referencing notes the caller may read, closing a note-path
+  enumeration channel.
+- **`config show` redacts credential-header values (H-5).** `observability.otel.headers.Authorization`
+  and `morgiana.httpHeaders.Cookie` (and similar) are masked by header name, not just key suffix.
+- **`list_attachments` honors `strictReadDefault` (N-4).** Its read filter uses the shared
+  `readableRel` predicate, which also applies the `.obsidian`/`.git`/`.trash` default-deny.
+- **`/metrics` enforces the token max-age (M-3).** The Prometheus scrape verify threads
+  `auth.tokenTtlSeconds`, so an over-age `iat`-bearing token can no longer scrape metrics
+  indefinitely. The exp-only-token contract (max-age applies only to `iat`-bearing tokens) is
+  unchanged and tracked separately.
+
+### Changed
+
+- **Companion plugin rejoins the repo version lockstep** (`scripts/release.mjs` +
+  `scripts/check-version-coherence.mjs` now include it), and the tool count is corrected to 106
+  across the docs, with the fd/inode path-safety + caller-bound elicit documented.
+
 ## [1.3.1] - 2026-07-03
 
 ### Fixed

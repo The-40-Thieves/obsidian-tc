@@ -74,8 +74,8 @@ if (!body) {
   process.exit(1);
 }
 
-// packages/plugin is intentionally omitted: the Obsidian companion plugin is
-// released on its own cadence (see scripts/check-version-coherence.mjs).
+// Core version set; packages/plugin is bumped separately below — it now tracks the repo
+// version in lockstep (decision 2026-07-02; see the block after server.json).
 for (const p of [
   "package.json",
   "packages/server/package.json",
@@ -90,6 +90,18 @@ for (const p of [
 setVersion("server.json", (o) => {
   o.version = next;
   if (Array.isArray(o.packages)) for (const pkg of o.packages) pkg.version = next;
+});
+
+// packages/plugin rejoins the repo version lockstep (decision 2026-07-02): bump its Obsidian
+// manifest + package.json, and add a `next -> minAppVersion` entry to versions.json (the
+// community-store requirement). minAppVersion itself is unchanged.
+for (const p of ["packages/plugin/package.json", "packages/plugin/manifest.json"]) {
+  setVersion(p, (o) => {
+    o.version = next;
+  });
+}
+setVersion("packages/plugin/versions.json", (o) => {
+  o[next] = readJson("packages/plugin/manifest.json").minAppVersion;
 });
 
 // Roll the CHANGELOG now that the JSON files are written: rename [Unreleased]

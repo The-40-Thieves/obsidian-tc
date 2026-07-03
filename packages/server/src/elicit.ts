@@ -51,20 +51,30 @@ export function verifyAndConsumeElicit(
   token: string,
   expectedHash: string,
   vaultId: string,
+  expectedCaller: string | null,
   now: () => number = Date.now,
 ): boolean {
   const t = now();
   const row = db
     .prepare(
-      "SELECT vault_id, args_hash, expires_at, consumed_at FROM elicit_tokens WHERE token = ?",
+      "SELECT vault_id, args_hash, caller, expires_at, consumed_at FROM elicit_tokens WHERE token = ?",
     )
     .get(token) as
-    | { vault_id: string; args_hash: string; expires_at: number; consumed_at: number | null }
+    | {
+        vault_id: string;
+        args_hash: string;
+        caller: string | null;
+        expires_at: number;
+        consumed_at: number | null;
+      }
     | undefined;
   if (!row) return false;
   if (row.consumed_at !== null) return false;
   if (row.expires_at < t) return false;
   if (row.vault_id !== vaultId) return false;
+  // H-3: a token is redeemable only by the caller it was issued to. On a multi-caller HTTP
+  // deployment this stops caller B from spending caller A's confirmation (same vault + args_hash).
+  if (row.caller !== expectedCaller) return false;
   if (row.args_hash !== expectedHash) return false;
   const res = db
     .prepare("UPDATE elicit_tokens SET consumed_at = ? WHERE token = ? AND consumed_at IS NULL")
@@ -74,5 +84,12 @@ export function verifyAndConsumeElicit(
 
 /** Adapter matching the registry's VerifyElicit hook; reads db/vault/now from ctx. */
 export function elicitVerifier(token: string, expectedHash: string, ctx: CallerContext): boolean {
-  return verifyAndConsumeElicit(ctx.db, token, expectedHash, ctx.vaultId, ctx.now ?? Date.now);
+  return verifyAndConsumeElicit(
+    ctx.db,
+    token,
+    expectedHash,
+    ctx.vaultId,
+    ctx.caller,
+    ctx.now ?? Date.now,
+  );
 }

@@ -18,7 +18,10 @@ write, or delete, using glob allow/deny rules (e.g. allow `02-projects/**`, deny
 (counted as `acl_denied_total`, emitted as `tc.acl.denied`). Paths are resolved and
 canonicalized through symlinks before the check and matched Unicode-NFC-insensitively,
 `../` escapes cannot bypass it, and the control directories `.obsidian` / `.git` /
-`.trash` are denied by default.
+`.trash` are denied by default. A **hard-linked** regular file (`st_nlink > 1`) is also
+rejected under a folder ACL: a hard link aliases an inode that path canonicalization cannot
+dereference, so it could otherwise serve a file outside the allowed folder. Reads run on the
+opened file descriptor (fstat + read on the same object).
 
 ## ACL configuration
 

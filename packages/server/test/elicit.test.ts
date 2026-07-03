@@ -25,12 +25,12 @@ describe("elicit token store", () => {
       caller: "c",
     });
     expect(token).toHaveLength(32);
-    expect(verifyAndConsumeElicit(db, token, "h1", "v1")).toBe(true);
-    expect(verifyAndConsumeElicit(db, token, "h1", "v1")).toBe(false); // single-use
+    expect(verifyAndConsumeElicit(db, token, "h1", "v1", "c")).toBe(true);
+    expect(verifyAndConsumeElicit(db, token, "h1", "v1", "c")).toBe(false); // single-use
   });
 
   it("rejects an unknown token", () => {
-    expect(verifyAndConsumeElicit(freshDb(), "deadbeef", "h1", "v1")).toBe(false);
+    expect(verifyAndConsumeElicit(freshDb(), "deadbeef", "h1", "v1", "c")).toBe(false);
   });
 
   it("rejects an expired token", () => {
@@ -46,7 +46,7 @@ describe("elicit token store", () => {
       now,
     });
     t += 61_000; // past the 60s TTL
-    expect(verifyAndConsumeElicit(db, token, "h1", "v1", now)).toBe(false);
+    expect(verifyAndConsumeElicit(db, token, "h1", "v1", null, now)).toBe(false);
   });
 
   it("rejects a wrong args_hash or wrong vault without consuming", () => {
@@ -57,8 +57,20 @@ describe("elicit token store", () => {
       argsHash: "h1",
       caller: null,
     });
-    expect(verifyAndConsumeElicit(db, token, "h2", "v1")).toBe(false); // wrong hash
-    expect(verifyAndConsumeElicit(db, token, "h1", "v2")).toBe(false); // wrong vault
-    expect(verifyAndConsumeElicit(db, token, "h1", "v1")).toBe(true); // not consumed by failures
+    expect(verifyAndConsumeElicit(db, token, "h2", "v1", null)).toBe(false); // wrong hash
+    expect(verifyAndConsumeElicit(db, token, "h1", "v2", null)).toBe(false); // wrong vault
+    expect(verifyAndConsumeElicit(db, token, "h1", "v1", null)).toBe(true); // not consumed by failures
+  });
+
+  it("rejects redemption by a different caller without consuming (H-3)", () => {
+    const db = freshDb();
+    const token = issueElicitToken(db, {
+      vaultId: "v1",
+      toolName: "delete_note",
+      argsHash: "h1",
+      caller: "alice",
+    });
+    expect(verifyAndConsumeElicit(db, token, "h1", "v1", "bob")).toBe(false); // wrong caller
+    expect(verifyAndConsumeElicit(db, token, "h1", "v1", "alice")).toBe(true); // rightful caller
   });
 });

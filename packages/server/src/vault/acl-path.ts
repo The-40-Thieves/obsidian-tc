@@ -1,3 +1,4 @@
+import { type Stats, statSync } from "node:fs";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 // Per-path ACL enforcement — activates the dormant M0 FolderAcl seam.
 // Every path-based tool calls this with the operation kind and the resolved
@@ -67,10 +68,27 @@ export function enforcePathAcl(
   // check. We always gate on the REAL (symlink-resolved) vault-relative path (THE-269): an
   // in-vault symlink under an allowed folder whose target is a denied folder would otherwise pass
   // the ACL. For a non-symlink path the canonical form equals the lexical one (a no-op there).
-  const path = resolveVaultPathChecked(root, rel).aclRel;
+  const resolved = resolveVaultPathChecked(root, rel);
+  const path = resolved.aclRel;
   const decision = evaluatePathAcl(acl, op, path);
-  if (decision.allowed) return;
-  if (decision.deniedBy === "read_only")
-    throw err.readOnlyMode(`vault is read-only; ${op} denied`, { path, op });
-  throw err.aclDenied(`path is outside the ${op} whitelist`, { path, op });
+  if (!decision.allowed) {
+    if (decision.deniedBy === "read_only")
+      throw err.readOnlyMode(`vault is read-only; ${op} denied`, { path, op });
+    throw err.aclDenied(`path is outside the ${op} whitelist`, { path, op });
+  }
+  // Inode-aliasing guard (C-1b): when an ACL is present (so .obsidian/.git/.trash and any path
+  // whitelist are enforced), reject a hard-linked regular file. realpath cannot dereference a
+  // hard link, so an aliased target outside the allowed set would otherwise pass the glob check.
+  // The fd-based readers (notes-io) reject nlink>1 on read; this additionally covers delete/move,
+  // which do not read through readNote. Fail closed; a not-yet-created write path has no stat.
+  if (acl) {
+    let st: Stats | null = null;
+    try {
+      st = statSync(resolved.abs);
+    } catch {
+      st = null;
+    }
+    if (st?.isFile() && st.nlink > 1)
+      throw err.aclDenied("refusing a hard-linked file (inode aliasing)", { path, op });
+  }
 }

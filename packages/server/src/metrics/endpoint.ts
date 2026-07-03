@@ -41,7 +41,7 @@ export function createMetricsApp(opts: MetricsEndpointOptions): Hono {
         return c.text("unauthorized", 401);
       }
       try {
-        await verifyJwt(token, opts.auth.jwtSecret);
+        await verifyJwt(token, opts.auth.jwtSecret, { maxAgeSeconds: opts.auth.tokenTtlSeconds });
       } catch {
         return c.text("unauthorized", 401);
       }

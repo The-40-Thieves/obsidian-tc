@@ -7,7 +7,7 @@
 // when crossing a folder boundary or overwriting; delete_attachment is destructive
 // (dispatch-gated HITL) and soft-deletes to .trash unless permanent, reporting the
 // notes that still reference it so the caller can see what it is about to break.
-import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   err,
@@ -17,26 +17,22 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
 import {
   DEFAULT_ATTACHMENT_EXTS,
   findAttachmentReferences,
+  isAttachment,
   mimeOf,
   resolveAttachmentFolder,
   rewriteAttachmentReferences,
 } from "../../formats/attachments";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
-import { hardDelete, noteExists, statNote, trashNote } from "../../vault/notes-io";
+import { hardDelete, noteExists, readFileChecked, statNote, trashNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M3Deps } from "./index";
-
-function readable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
-}
 
 function dirOf(rel: string): string {
   const i = rel.lastIndexOf("/");
@@ -96,7 +92,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
         const exts = (input.extensions ?? DEFAULT_ATTACHMENT_EXTS).map((x) => x.toLowerCase());
         const entries = walkVault(v.root, { sub, recursive: true, extensions: exts }).filter((e) =>
-          readable(ctx.acl, e.relPath),
+          readableRel(ctx.acl, e.relPath),
         );
         const after = input.cursor;
         const visible = after ? entries.filter((e) => e.relPath > after) : entries;
@@ -113,7 +109,11 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
             mtime: e.mtime,
             mime: mimeOf(e.relPath),
             ...(input.include_reference_count
-              ? { reference_count: findAttachmentReferences(v.root, e.relPath).length }
+              ? {
+                  reference_count: findAttachmentReferences(v.root, e.relPath).filter((p) =>
+                    readableRel(ctx.acl, p),
+                  ).length,
+                }
               : {}),
           })),
           next_cursor: next,
@@ -132,6 +132,14 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         enforcePathAcl(ctx.acl, "read", rel, v.root);
+        // N-1: read:attachments grants binary attachment reads, not arbitrary file reads — reject a
+        // path whose extension is not in the attachment allowlist (list_attachments already filters);
+        // notes are read with read_note under read:notes.
+        if (!isAttachment(rel))
+          throw err.invalidInput(
+            "path is not an attachment (extension not in the allowlist); read notes with read_note",
+            { path: rel },
+          );
         const abs = resolveVaultPath(v.root, rel);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
@@ -144,7 +152,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
             size,
             max_bytes: input.max_bytes,
           });
-        const content = readFileSync(abs).toString("base64");
+        const content = readFileChecked(abs).toString("base64");
         return {
           vault: v.id,
           path: rel,
@@ -152,8 +160,14 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           size,
           encoding: "base64",
           content,
+          // N-2: only reveal referencing notes the caller may read (findAttachmentReferences walks
+          // the whole vault ACL-free), so this cannot enumerate out-of-ACL note paths.
           ...(input.include_references
-            ? { references: findAttachmentReferences(v.root, rel) }
+            ? {
+                references: findAttachmentReferences(v.root, rel).filter((p) =>
+                  readableRel(ctx.acl, p),
+                ),
+              }
             : {}),
         };
       },
@@ -229,7 +243,9 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("attachment not found", { path: rel });
-        const references = findAttachmentReferences(v.root, rel);
+        const references = findAttachmentReferences(v.root, rel).filter((p) =>
+          readableRel(ctx.acl, p),
+        );
         const st = statNote(abs);
         let trashedTo: string | null = null;
         if (input.permanent) hardDelete(abs);

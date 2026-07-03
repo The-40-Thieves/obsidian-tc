@@ -1,7 +1,7 @@
 {
   "id": "obsidian-tc",
   "name": "Obsidian Turbocharged",
-  "version": "1.0.2",
+  "version": "1.3.2",
   "minAppVersion": "1.7.0",
   "description": "Companion plugin for the obsidian-tc MCP server. Extends Local REST API with command dispatch and plugin firepower bridges.",
   "author": "The 40 Thieves",

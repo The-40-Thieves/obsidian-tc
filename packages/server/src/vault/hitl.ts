@@ -26,7 +26,14 @@ export function requireConfirmation(
   const hash = argsHash(toolName, input);
   const ok =
     !!ctx.elicitToken &&
-    verifyAndConsumeElicit(ctx.db, ctx.elicitToken, hash, ctx.vaultId, ctx.now ?? Date.now);
+    verifyAndConsumeElicit(
+      ctx.db,
+      ctx.elicitToken,
+      hash,
+      ctx.vaultId,
+      ctx.caller,
+      ctx.now ?? Date.now,
+    );
   if (!ok)
     throw err.elicitRequired("human confirmation required", {
       args_hash: hash,
