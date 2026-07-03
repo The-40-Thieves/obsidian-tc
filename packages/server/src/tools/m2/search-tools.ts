@@ -155,7 +155,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
   };
 
   const embedQuery = async (query: string): Promise<number[]> => {
-    const [vec] = await deps.embeddingProvider.embed([query]);
+    const [vec] = await deps.embeddingProvider.embed([query], { input: "query" });
     return vec ?? [];
   };
 

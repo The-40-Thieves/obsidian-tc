@@ -27,6 +27,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   and `vault_graph_search`'s walk filters by `vault_id`, so reindexing one vault no longer deletes
   another vault's wikilink edges and expansion never crosses vaults. Single-vault deployments are
   unaffected; the edge cache rebuilds on the next `index_vault`.
+- **Cohere query embeddings use the query encoding (THE-308).** The Cohere provider hardcoded
+  `input_type: "search_document"` for every embedding, so user queries were encoded as documents and
+  landed in a different subspace than the indexed vectors, degrading recall. `embed` now takes an
+  `input: "query" | "document"` option; the two query sites pass `"query"` (→ `search_query`) while
+  indexing keeps the document default. Cohere-only; other providers are unaffected.
+- **`knowledge_challenge` gives the judge tags + open contradictions (THE-309).** Evidence is now
+  enriched with note-level frontmatter tags — so a decision-tagged note outside the decision folders
+  is recognized — and open contradictions touching the evidence paths are passed into the judge for
+  cross-note conflict context; previously it sent path-only evidence and an empty contradiction list.
 
 ### Docs
 
