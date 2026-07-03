@@ -31,10 +31,14 @@ MCP HTTP transport:
 - **non-loopback bind** → requires JWT;
 - **non-loopback + `auth.mode: none`** → refused at startup.
 
-```yaml
-observability:
-  prometheus:
-    enabled: true
-    bind: 127.0.0.1
-    port: 9464
+```json
+{
+  "observability": {
+    "prometheus": {
+      "enabled": true,
+      "bind": "127.0.0.1",
+      "port": 9464
+    }
+  }
+}
 ```
