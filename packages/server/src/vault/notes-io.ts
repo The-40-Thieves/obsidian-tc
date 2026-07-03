@@ -20,6 +20,7 @@ import {
   statSync,
   writeSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { contentHash } from "./paths";
@@ -28,6 +29,52 @@ import { contentHash } from "./paths";
 // the st_nlink inode check is the cross-platform guard; O_NOFOLLOW additionally refuses a
 // symlink planted at a write temp path on the platforms that support it.
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
+
+// THE-272: prefer the native, symlink-safe, TOCTOU-free open when the compiled module is loaded. It
+// opens following no symlink in ANY path component, closing the intermediate-directory symlink-swap
+// race that the pure-JS fd path (which re-resolves the lexical path at open) cannot. When the native
+// module is absent — an unsupported platform, a `.mcpb` without the addon, the pure-JS-fallback CI
+// job, or `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` — we keep the JS path, which retains the documented
+// residual (the hard-link + final-component-symlink guards still apply there).
+interface NativeVaultIo {
+  safeReadNote(abs: string): Buffer;
+  safeWriteNoteAtomic(abs: string, data: Buffer): void;
+}
+const NATIVE_PKG = ["@the-40-thieves", "obsidian-tc-native"].join("/");
+function loadNativeIo(): NativeVaultIo | null {
+  if (process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK === "1") return null;
+  try {
+    const mod = createRequire(import.meta.url)(NATIVE_PKG) as Partial<NativeVaultIo> & {
+      nativeLoaded?: boolean;
+    };
+    if (
+      mod.nativeLoaded === true &&
+      typeof mod.safeReadNote === "function" &&
+      typeof mod.safeWriteNoteAtomic === "function"
+    ) {
+      return { safeReadNote: mod.safeReadNote, safeWriteNoteAtomic: mod.safeWriteNoteAtomic };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+const nativeIo = loadNativeIo();
+
+/** True when note reads/writes route through the native symlink-safe open (THE-272). */
+export const nativeVaultIo: boolean = nativeIo !== null;
+
+/** Reclassify a native safe-open rejection at `abs`: a genuinely-missing path keeps ENOENT
+ *  semantics (matching the JS path's openSync), while a path that resolves — through a symlink or a
+ *  hard link — but was refused is surfaced as acl_denied (fail-closed) rather than a raw napi error. */
+function mapNativeReadError(e: unknown, abs: string): never {
+  if (!existsSync(abs)) {
+    const enoent = new Error(`ENOENT: no such file, open '${abs}'`) as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    throw enoent;
+  }
+  throw err.aclDenied(`safe open refused the path: ${(e as Error).message}`, { path: abs });
+}
 
 export interface NoteStat {
   size: number;
@@ -59,6 +106,14 @@ function assertRegularSingleLink(fd: number, abs: string): Stats {
 }
 
 export function readNote(abs: string): { raw: string; hash: string } {
+  if (nativeIo) {
+    try {
+      const raw = nativeIo.safeReadNote(abs).toString("utf8");
+      return { raw, hash: contentHash(raw) };
+    } catch (e) {
+      mapNativeReadError(e, abs);
+    }
+  }
   const fd = openSync(abs, constants.O_RDONLY);
   try {
     assertRegularSingleLink(fd, abs);
@@ -71,6 +126,13 @@ export function readNote(abs: string): { raw: string; hash: string } {
 
 /** Binary read (attachments) with the same inode-aliasing guard as readNote. */
 export function readFileChecked(abs: string): Buffer {
+  if (nativeIo) {
+    try {
+      return nativeIo.safeReadNote(abs);
+    } catch (e) {
+      mapNativeReadError(e, abs);
+    }
+  }
   const fd = openSync(abs, constants.O_RDONLY);
   try {
     assertRegularSingleLink(fd, abs);
@@ -82,6 +144,24 @@ export function readFileChecked(abs: string): Buffer {
 
 export function writeNoteAtomic(abs: string, content: string, createDirs = true): void {
   if (createDirs) mkdirSync(dirname(abs), { recursive: true });
+  if (nativeIo) {
+    try {
+      nativeIo.safeWriteNoteAtomic(abs, Buffer.from(content, "utf8"));
+      return;
+    } catch (e) {
+      // A safe-write rejection (a symlinked path component, or the target itself a symlink) is
+      // acl_denied. A genuinely-missing parent (createDirs=false on a not-yet-created dir) keeps
+      // ENOENT semantics, matching the JS temp-open below.
+      if (!existsSync(dirname(abs))) {
+        const enoent = new Error(
+          `ENOENT: no such file or directory, open '${abs}'`,
+        ) as NodeJS.ErrnoException;
+        enoent.code = "ENOENT";
+        throw enoent;
+      }
+      throw err.aclDenied(`safe write refused the path: ${(e as Error).message}`, { path: abs });
+    }
+  }
   // Exclusive-create (O_EXCL) + no-follow on a RANDOM temp name: a symlink planted at a
   // predictable temp path can no longer be opened (O_EXCL fails if it exists; O_NOFOLLOW
   // refuses a symlink), so an in-ACL note write can never be redirected into an arbitrary

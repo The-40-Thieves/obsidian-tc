@@ -150,10 +150,14 @@ so operators can reason about them rather than discover them.
   for its full `exp` lifetime and is not additionally aged. This is a deliberate contract (exp-only
   tokens keep working), covered by a regression test. Deployments that require a max-age ceiling on
   every token must mint tokens with `iat` and a bounded `exp`.
-- **Intermediate-directory symlink-swap TOCTOU (THE-272 residual).** Folder-ACL enforcement resolves
-  the real (symlink-canonical) path, reads/writes on an fd, rejects hard links, and rejects a symlink
-  at the final component. A residual race remains: an attacker who can swap an *intermediate
-  directory* for a symlink between the realpath check and the fd open could redirect the operation.
-  Closing it fully needs per-component `openat(O_NOFOLLOW)`, which Node does not expose — it requires
-  a native addon (tracked on THE-272). Exploiting it needs a precise same-request race plus in-vault
-  write access to an ancestor directory.
+- **Intermediate-directory symlink-swap TOCTOU (THE-272) — closed on platforms with the native
+  module.** Folder-ACL enforcement resolves the real (symlink-canonical) path, reads/writes on an fd,
+  and rejects hard links. The intermediate-directory race — an attacker swapping an *ancestor*
+  directory for a symlink between the realpath check and the fd open — is closed by the native module:
+  `read_note`/`write_note` route through a per-component `openat(O_NOFOLLOW)` walk (Rust / `rustix`)
+  that follows no symlink in any component and operates on the resulting fd, so the path is never
+  re-resolved after the check. This is active on every published platform (the 8 native prebuilds).
+  The pure-JS fallback — an unsupported platform, a `.mcpb` without the addon, or
+  `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` — retains the narrow residual (Node exposes no `openat`); the
+  hard-link and final-component-symlink guards still apply there. Windows uses the JS path (symlink
+  creation is admin/developer-mode gated, and `number_of_links` is unstable on stable Rust).

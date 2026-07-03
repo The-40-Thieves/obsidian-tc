@@ -6,6 +6,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Security
+
+- **Intermediate-directory symlink-swap TOCTOU closed (THE-272).** `read_note` / `write_note` now
+  route through a native symlink-safe open — a per-component `openat(O_NOFOLLOW)` walk (Rust /
+  `rustix`) that follows no symlink in any path component and operates on the resulting fd — so an
+  attacker cannot redirect a read/write by swapping an ancestor directory for a symlink between the
+  ACL check and the open. Active on all published platform prebuilds; the pure-JS fallback keeps the
+  prior hard-link + final-component guards, and Windows uses the JS path (symlink creation is
+  admin-gated there). Closes the last residual behind GHSA-c5xx.
+
 ## [1.3.4] - 2026-07-03
 
 ### Changed

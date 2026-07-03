@@ -140,6 +140,11 @@ module.exports.nativeLoaded = native !== null;
 module.exports.cosineSimilarity = impl.cosineSimilarity;
 module.exports.tokenize = impl.tokenize;
 module.exports.bm25Score = impl.bm25Score;
+// THE-272: symlink-safe, TOCTOU-free vault I/O. Present only when the compiled native module is
+// loaded; on the pure-JS fallback these are undefined and the server's vault layer keeps its own
+// JS read/write path.
+module.exports.safeReadNote = impl.safeReadNote;
+module.exports.safeWriteNoteAtomic = impl.safeWriteNoteAtomic;
 // Exported for the loader unit test (packages/server/test/native-triple.test.ts).
 module.exports.hostTriple = hostTriple;
 module.exports.isMusl = isMusl;

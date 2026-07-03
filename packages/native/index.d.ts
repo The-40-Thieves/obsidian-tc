@@ -16,6 +16,15 @@ export declare function bm25Score(
   docCount: number,
 ): number;
 
+/** THE-272: symlink-safe, TOCTOU-free note read — opens following no symlink in any path component,
+ *  rejects a non-regular or hard-linked file, returns the bytes. Present only on the native module
+ *  (undefined on the pure-JS fallback). */
+export declare function safeReadNote(abs: string): Buffer;
+
+/** THE-272: symlink-safe atomic note write (randomized O_EXCL|O_NOFOLLOW temp + rename, no symlink
+ *  followed in any component). The parent directory must exist. Native module only. */
+export declare function safeWriteNoteAtomic(abs: string, data: Buffer): void;
+
 /** True when the compiled native binary is active; false when on the pure-JS fallback. */
 export declare const nativeLoaded: boolean;
 

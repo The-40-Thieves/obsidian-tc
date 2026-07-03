@@ -26,6 +26,11 @@ napi-derive = "3"
 [build-dependencies]
 napi-build = "2"
 
+# THE-272: symlink-safe, TOCTOU-free vault file I/O via per-component openat(O_NOFOLLOW). Unix only —
+# the Windows path uses std (symlink creation there is admin/developer-mode gated).
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "0.38", features = ["fs"] }
+
 [profile.release]
 lto = true
 codegen-units = 1
