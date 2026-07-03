@@ -20,4 +20,11 @@ plus linux x64+arm64 musl) + release workflow, and this documentation site.
 
 ## Out of scope
 
-Retrieval intelligence — clustering, graph ML, hybrid retrieval fusion — is **not** part of obsidian-tc. It is an access MCP; pair it with an external retrieval/RAG service for ranking and reasoning. An earlier reserved "V2 intelligence layer" (Python ML sidecar, k-means, ACT-R decay) has been dropped from obsidian-tc, and the remaining hooks were removed; that intelligence work now lives in a separate converged memory engine effort, not an in-repo sidecar.
+The converged-engine decision (2026-06-25) folded retrieval intelligence *into* obsidian-tc — GraphRAG (`vault_graph_search`; vector-seed + wikilink-expansion RRF), FTS5 BM25 text search, dense-vector search, and gateway-optional rerank all ship in the v1.x line. This **supersedes** the earlier "obsidian-tc is an access MCP; pair it with an external retrieval/RAG service" framing.
+
+What remains out of scope for the v1.x line:
+
+- A **general BM25 + vector hybrid retriever** — RRF over lexical *and* dense rankings for all vault search. Today RRF fuses only the GraphRAG seed/expansion streams; `search_vault` auto mode runs text, then semantic on zero hits. Tracked as THE-196.
+- **Clustering and graph ML** — k-means, the removed Python ML sidecar, and ACT-R decay. The native hooks were removed.
+- The **typed-atom MemIR substrate** (claim atoms, bi-temporal `authoritative_claims`) — a downstream engine-build phase (THE-235).
+- **Multi-vault GraphRAG edge isolation** — `vault_edges` is single-vault today; per-vault edge scoping is a follow-up (THE-233).

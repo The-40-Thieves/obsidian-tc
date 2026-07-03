@@ -337,25 +337,32 @@ describe("Domain 2: file/note CRUD", () => {
     }
   });
 
-  it("copy_note duplicates content and refuses to clobber without overwrite", async () => {
+  it("copy_note duplicates content, gates overwrite behind HITL, and trashes the clobbered dest", async () => {
     const v = makeTestVault({ files: { "a.md": "data", "b.md": "other" } });
     try {
       const c = await v.call("copy_note", { vault: "test", from: "a.md", to: "c.md" });
       expect(c.ok).toBe(true);
       expect(v.read("c.md")).toBe("data");
+      if (c.ok) expect((c.data as { trashed_dest_to: string | null }).trashed_dest_to).toBeNull();
 
       const clash = await v.call("copy_note", { vault: "test", from: "a.md", to: "b.md" });
       expect(clash.ok).toBe(false);
       if (!clash.ok) expect(clash.error.code).toBe("note_exists");
 
-      const force = await v.call("copy_note", {
-        vault: "test",
-        from: "a.md",
-        to: "b.md",
-        overwrite: true,
-      });
+      // Overwriting a non-empty destination now runs the HITL cycle and preserves the clobbered
+      // note in .trash (previously copy_note --overwrite destroyed it with no token).
+      const input = { vault: "test", from: "a.md", to: "b.md", overwrite: true };
+      const need = await v.call("copy_note", input);
+      expect(need.ok).toBe(false);
+      if (!need.ok) expect(need.error.code).toBe("elicit_required");
+
+      const token = mint(v, "copy_note", hashOf(need));
+      const force = await v.call("copy_note", input, { elicitToken: token });
       expect(force.ok).toBe(true);
       expect(v.read("b.md")).toBe("data");
+      expect(v.read(".trash/b.md")).toBe("other");
+      if (force.ok)
+        expect((force.data as { trashed_dest_to: string }).trashed_dest_to).toBe(".trash/b.md");
     } finally {
       v.cleanup();
     }

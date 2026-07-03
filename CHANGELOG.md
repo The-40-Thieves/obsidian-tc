@@ -15,6 +15,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   ACL check and the open. Active on all published platform prebuilds; the pure-JS fallback keeps the
   prior hard-link + final-component guards, and Windows uses the JS path (symlink creation is
   admin-gated there). Closes the last residual behind GHSA-c5xx.
+- **`copy_note` overwrite is now gated + recoverable.** Overwriting an existing destination with
+  `copy_note` (`overwrite: true`) previously clobbered it irreversibly with no confirmation floor; it
+  now requires HITL confirmation and soft-deletes the destination into `.trash` first, matching
+  `move_note`.
+
+### Docs
+
+- **Retrieval claims corrected to match the code (external claim audit).** Reworded the "hybrid BM25 +
+  vector + RRF fusion" phrasing in README/ARCHITECTURE — there is no general lexical+vector RRF
+  retriever; RRF fuses only GraphRAG's seed/expansion streams (THE-196) — and reconciled the docs-site
+  roadmap/v2-preview, which still framed obsidian-tc as "an access MCP; pair with an external
+  retrieval/RAG service", to the 2026-06-25 converged-engine decision. Documented the single-vault
+  GraphRAG edge caveat (THE-233).
 
 ## [1.3.4] - 2026-07-03
 
