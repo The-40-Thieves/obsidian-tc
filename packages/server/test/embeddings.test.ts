@@ -124,6 +124,25 @@ describe("provider adapters over a stub fetch", () => {
     expect(await p.embed(["a"])).toEqual([[3, 4]]);
   });
 
+  it("cohere encodes queries as search_query and documents as search_document (THE-308)", async () => {
+    const bodies: Array<{ input_type?: string }> = [];
+    const capturingFetch = (async (_url: string, init?: { body?: string }) => {
+      bodies.push(init?.body ? JSON.parse(init.body) : {});
+      return new Response(JSON.stringify({ embeddings: { float: [[1, 2]] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const p = createEmbeddingProvider(
+      { provider: "cohere", model: "m", dimensions: 2 },
+      { fetchFn: capturingFetch },
+    );
+    await p.embed(["a document"]); // default → document
+    await p.embed(["a query"], { input: "query" });
+    expect(bodies[0]?.input_type).toBe("search_document");
+    expect(bodies[1]?.input_type).toBe("search_query");
+  });
+
   it("maps a non-2xx response to embedding_provider_error", async () => {
     const p = createEmbeddingProvider(
       { provider: "ollama", model: "m", dimensions: 3 },

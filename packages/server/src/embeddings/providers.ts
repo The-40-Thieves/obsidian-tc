@@ -1,5 +1,5 @@
 import { type FetchFn, postJson } from "./http";
-import { assertVectors, type EmbeddingProvider } from "./provider";
+import { assertVectors, type EmbeddingProvider, type EmbedOptions } from "./provider";
 export interface AdapterOpts {
   model: string;
   dimensions: number;
@@ -65,11 +65,15 @@ export function cohereProvider(o: AdapterOpts): EmbeddingProvider {
     provider: "cohere",
     model: o.model,
     dimensions: o.dimensions,
-    async embed(texts: string[]): Promise<number[][]> {
+    async embed(texts: string[], opts?: EmbedOptions): Promise<number[][]> {
+      // THE-308: Cohere v3 embeddings are asymmetric — encode a search query as search_query,
+      // not as a document, or query and document vectors land in different subspaces and recall
+      // drops. Indexing (the default) stays search_document.
+      const inputType = opts?.input === "query" ? "search_query" : "search_document";
       const r = await postJson<{ embeddings: { float: number[][] } }>({
         url: `${base}/embed`,
         headers: bearer(o.apiKey),
-        body: { model: o.model, texts, input_type: "search_document", embedding_types: ["float"] },
+        body: { model: o.model, texts, input_type: inputType, embedding_types: ["float"] },
         fetchFn: o.fetchFn,
         timeoutMs: o.timeoutMs,
         provider: "cohere",

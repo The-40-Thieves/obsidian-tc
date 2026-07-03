@@ -6,9 +6,14 @@
 import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
+import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { ToolDefinition } from "../../mcp/registry";
-import { challengeProposal, isDecisionChunk } from "../../plane/challenge";
+import {
+  type ContradictionContext,
+  challengeProposal,
+  isDecisionChunk,
+} from "../../plane/challenge";
 import type { GatewayRoles } from "../../plane/gateway";
 import { graphSearch } from "../../search/graph_search";
 import type { Reranker } from "../../search/rerank";
@@ -34,9 +39,71 @@ function aclReadable(acl: FolderAcl | undefined, rel: string): boolean {
 
 const CHALLENGE_RECALL = 30;
 
+function tableExists(db: Database, name: string): boolean {
+  return (
+    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
+    undefined
+  );
+}
+
+/** Note-level frontmatter tags for the given paths (THE-309), so isDecisionChunk's tag rule can
+ *  fire on the retrieved evidence — the semantic hit itself carries no tags. Scoped to the vault. */
+export function noteTagsByPath(
+  db: Database,
+  vaultId: string,
+  paths: string[],
+): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  if (paths.length === 0 || !tableExists(db, "notes")) return out;
+  const placeholders = paths.map(() => "?").join(",");
+  const rows = db
+    .prepare(`SELECT path, tags FROM notes WHERE vault_id = ? AND path IN (${placeholders})`)
+    .all(vaultId, ...paths) as Array<{ path: string; tags: string }>;
+  for (const r of rows) {
+    try {
+      const parsed = JSON.parse(r.tags);
+      if (Array.isArray(parsed)) {
+        out.set(
+          r.path,
+          parsed.filter((t): t is string => typeof t === "string"),
+        );
+      }
+    } catch {
+      // malformed tags JSON — treat the note as untagged rather than failing the challenge.
+    }
+  }
+  return out;
+}
+
+/** Open contradictions whose source or conflict note is in `paths` (THE-309) — gives the judge
+ *  cross-note conflict context alongside the evidence. Empty when the plane table is absent. */
+export function openContradictionsForPaths(db: Database, paths: string[]): ContradictionContext[] {
+  if (paths.length === 0 || !tableExists(db, "contradictions")) return [];
+  const placeholders = paths.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT id, source_path, conflict_path, judge_verdict, judge_rationale FROM contradictions
+       WHERE status = 'open' AND (source_path IN (${placeholders}) OR conflict_path IN (${placeholders}))`,
+    )
+    .all(...paths, ...paths) as Array<{
+    id: string;
+    source_path: string;
+    conflict_path: string;
+    judge_verdict: string;
+    judge_rationale: string | null;
+  }>;
+  return rows.map((r) => ({
+    id: r.id,
+    source_path: r.source_path,
+    conflict_path: r.conflict_path,
+    judge_verdict: r.judge_verdict,
+    judge_rationale: r.judge_rationale ?? "",
+  }));
+}
+
 export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
   const embedQuery = async (q: string): Promise<number[]> => {
-    const [vec] = await deps.embeddingProvider.embed([q]);
+    const [vec] = await deps.embeddingProvider.embed([q], { input: "query" });
     return vec ?? [];
   };
 
@@ -91,13 +158,21 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           };
         }
         const queryVec = await embedQuery(input.proposal);
-        const evidence = semanticSearch(ctx.db, v.id, queryVec, {
+        const hits = semanticSearch(ctx.db, v.id, queryVec, {
           k: CHALLENGE_RECALL,
           returnContent: true,
           isReadable: (rel) => aclReadable(ctx.acl, rel),
-        })
-          .filter((h) => isDecisionChunk({ path: h.path }))
-          .map((h) => ({ path: h.path, content: h.content ?? "" }));
+        });
+        // Enrich with note-level tags so isDecisionChunk's tag rule fires (not just the path
+        // prefix) and the judge sees the tags; the semantic hit itself carries no tags (THE-309).
+        const tagsByPath = noteTagsByPath(ctx.db, v.id, [...new Set(hits.map((h) => h.path))]);
+        const evidence = hits
+          .map((h) => ({
+            path: h.path,
+            content: h.content ?? "",
+            tags: tagsByPath.get(h.path) ?? [],
+          }))
+          .filter((e) => isDecisionChunk({ path: e.path, tags: e.tags }));
         if (evidence.length === 0) {
           return {
             vault: v.id,
@@ -107,8 +182,25 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             message: "no decision-bearing chunks matched this proposal",
           };
         }
-        const { output, model } = await challengeProposal(deps.roles, input.proposal, evidence, []);
-        return { vault: v.id, available: true, evidence_count: evidence.length, output, model };
+        // Open contradictions touching the evidence give the judge cross-note conflict context.
+        const contradictions = openContradictionsForPaths(
+          ctx.db,
+          evidence.map((e) => e.path),
+        );
+        const { output, model } = await challengeProposal(
+          deps.roles,
+          input.proposal,
+          evidence,
+          contradictions,
+        );
+        return {
+          vault: v.id,
+          available: true,
+          evidence_count: evidence.length,
+          contradiction_count: contradictions.length,
+          output,
+          model,
+        };
       },
     }),
   ];
