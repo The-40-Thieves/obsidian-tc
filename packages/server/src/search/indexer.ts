@@ -485,7 +485,12 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // runs once per indexVault pass, not per-note-write. Skipped gracefully when vault_edges is
   // absent (pre-integration, before W-SCHEMA lands).
   if (tableExists(args.db, "vault_edges")) {
-    const edgeStats = reconcileVaultEdges(args.db, desiredEdges(noteLinks, notes), now);
+    const edgeStats = reconcileVaultEdges(
+      args.db,
+      args.vaultId,
+      desiredEdges(noteLinks, notes),
+      now,
+    );
     stats.edges_inserted = edgeStats.inserted;
     stats.edges_deleted = edgeStats.deleted;
   }

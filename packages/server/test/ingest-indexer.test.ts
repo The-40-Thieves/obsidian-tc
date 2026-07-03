@@ -28,10 +28,10 @@ function baseDb(): Database {
   db.exec(
     `CREATE TABLE vault_edges (
        source_path TEXT NOT NULL, target_path TEXT NOT NULL, edge_type TEXT NOT NULL,
-       edge_kind TEXT NOT NULL DEFAULT 'literal', provenance TEXT,
+       edge_kind TEXT NOT NULL DEFAULT 'literal', provenance TEXT, vault_id TEXT NOT NULL DEFAULT '',
        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
      );
-     CREATE UNIQUE INDEX idx_vault_edges_unique ON vault_edges(source_path, target_path, edge_type);`,
+     CREATE UNIQUE INDEX idx_vault_edges_unique ON vault_edges(vault_id, source_path, target_path, edge_type);`,
   );
   return db;
 }

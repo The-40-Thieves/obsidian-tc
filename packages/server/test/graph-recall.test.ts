@@ -51,8 +51,8 @@ function addChunk(db: Database, id: string, path: string, vec: number[]): void {
 
 function addEdge(db: Database, source: string, target: string, provenance: string): void {
   db.prepare(
-    "INSERT INTO vault_edges (source_path, target_path, edge_type, provenance, created_at, updated_at) VALUES (?, ?, 'links_to', ?, 0, 0)",
-  ).run(source, target, provenance);
+    "INSERT INTO vault_edges (vault_id, source_path, target_path, edge_type, provenance, created_at, updated_at) VALUES (?, ?, ?, 'links_to', ?, 0, 0)",
+  ).run(VAULT, source, target, provenance);
 }
 
 function buildCorpus(): Database {
@@ -61,7 +61,7 @@ function buildCorpus(): Database {
   db.exec(
     `CREATE TABLE vault_edges (
        source_path TEXT NOT NULL, target_path TEXT NOT NULL, edge_type TEXT NOT NULL,
-       edge_kind TEXT NOT NULL DEFAULT 'literal', provenance TEXT,
+       edge_kind TEXT NOT NULL DEFAULT 'literal', provenance TEXT, vault_id TEXT NOT NULL DEFAULT '',
        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
      );`,
   );

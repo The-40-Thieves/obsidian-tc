@@ -10,6 +10,7 @@ function readMigration(name: string): string {
   return readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
 }
 const VAULT_EDGES_SQL = readMigration("20260626_001_vault_edges.sql");
+const VAULT_EDGES_VAULT_ID_SQL = readMigration("20260703_001_vault_edges_vault_id.sql");
 const EXPERIENTIAL_SQL = readMigration("20260626_001_experiential_init.sql");
 
 function tableExists(db: any, name: string): boolean {
@@ -33,6 +34,23 @@ describe("THE-233 W-SCHEMA migrations", () => {
     insert.run("a.md", "b.md", "links_to", "literal", 1, 1);
     // unique(source_path, target_path, edge_type) rejects the duplicate regardless of kind.
     expect(() => insert.run("a.md", "b.md", "links_to", "virtual", 2, 2)).toThrow();
+  });
+
+  it("vault_edges_vault_id: adds vault_id + scopes uniqueness per vault (THE-310)", () => {
+    const db = openMemoryDb();
+    runMigrations(db, [
+      { version: "20260626_001", sql: VAULT_EDGES_SQL },
+      { version: "20260703_001", sql: VAULT_EDGES_VAULT_ID_SQL },
+    ]);
+    expect(columns(db, "vault_edges")).toContain("vault_id");
+    const insert = db.prepare(
+      "INSERT INTO vault_edges (vault_id, source_path, target_path, edge_type, edge_kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    );
+    insert.run("v1", "a.md", "b.md", "links_to", "literal", 1, 1);
+    // Same path-pair edge is allowed in a different vault...
+    expect(() => insert.run("v2", "a.md", "b.md", "links_to", "literal", 2, 2)).not.toThrow();
+    // ...but a duplicate within the same vault is still rejected.
+    expect(() => insert.run("v1", "a.md", "b.md", "links_to", "virtual", 3, 3)).toThrow();
   });
 
   it("experiential: creates object_state + chunk_retrievals with the ported columns", () => {

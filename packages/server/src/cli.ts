@@ -104,6 +104,11 @@ const notesMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260702_001_notes.sql", import.meta.url)),
   "utf8",
 );
+// THE-310: vault_id on vault_edges so multi-vault GraphRAG reconcile/expansion is isolated.
+const vaultEdgesVaultIdMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260703_001_vault_edges_vault_id.sql", import.meta.url)),
+  "utf8",
+);
 async function main(): Promise<void> {
   const cmd = parseCliArgs(process.argv.slice(2));
   if (cmd.kind === "version") {
@@ -170,6 +175,7 @@ async function main(): Promise<void> {
       { version: "20260626_001", sql: vaultEdgesMigrationSql },
       { version: "20260626_002", sql: planeMigrationSql },
       { version: "20260702_001", sql: notesMigrationSql },
+      { version: "20260703_001", sql: vaultEdgesVaultIdMigrationSql },
     ],
     { version: VERSION },
   );

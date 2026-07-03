@@ -18,6 +18,7 @@ const cacheChain = [
   { version: "20260519_002", sql: read("20260519_002_entity_unique.sql") },
   { version: "20260626_001", sql: read("20260626_001_vault_edges.sql") },
   { version: "20260626_002", sql: read("20260626_002_plane.sql") },
+  { version: "20260703_001", sql: read("20260703_001_vault_edges_vault_id.sql") },
 ];
 const experientialChain = [
   { version: "20260626_001", sql: read("20260626_001_experiential_init.sql") },
@@ -38,6 +39,7 @@ describe("merged migration chain (integration)", () => {
       "20260519_002",
       "20260626_001",
       "20260626_002",
+      "20260703_001",
     ]);
     for (const t of [
       "chunks",
@@ -57,7 +59,7 @@ describe("merged migration chain (integration)", () => {
   it("cache.db: on an existing db (pre-merge migrations applied), only the new ones apply", () => {
     const db = openMemoryDb();
     runMigrations(db, cacheChain.slice(0, 2)); // simulate the current dev cache.db (001 + 002)
-    expect(runMigrations(db, cacheChain)).toEqual(["20260626_001", "20260626_002"]);
+    expect(runMigrations(db, cacheChain)).toEqual(["20260626_001", "20260626_002", "20260703_001"]);
     expect(tableExists(db, "vault_edges")).toBe(true);
     expect(tableExists(db, "contradictions")).toBe(true);
   });

@@ -20,6 +20,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   now requires HITL confirmation and soft-deletes the destination into `.trash` first, matching
   `move_note`.
 
+### Fixed
+
+- **Multi-vault GraphRAG edge isolation (THE-310).** `vault_edges` now carries `vault_id`
+  (migration 20260703_001): `reconcileVaultEdges` scopes its full-state SELECT/DELETE to the vault
+  and `vault_graph_search`'s walk filters by `vault_id`, so reindexing one vault no longer deletes
+  another vault's wikilink edges and expansion never crosses vaults. Single-vault deployments are
+  unaffected; the edge cache rebuilds on the next `index_vault`.
+
 ### Docs
 
 - **Retrieval claims corrected to match the code (external claim audit).** Reworded the "hybrid BM25 +
