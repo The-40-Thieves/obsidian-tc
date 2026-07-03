@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-07-03
+
 ### Changed
 
 - **Docs reflect the shipped version + registered surface.** Swept the version prose (README status
@@ -13,6 +15,9 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   tool-count output from 103 to 105. `release.mjs` now bumps the version prose on every cut and
   `check-version-coherence.mjs` fails if it drifts from the package version (recurrence fix). The
   GitHub wiki was refreshed to match.
+- **npm package README refreshed.** `packages/server/README.md` — the README npm renders for the
+  `obsidian-tc` package — carried a stale `Shipped — v1.0.2` status while shipping 1.3.x; it now
+  tracks the shipped version and is covered by the version-prose gate + release auto-bump.
 
 ## [1.3.3] - 2026-07-03
 

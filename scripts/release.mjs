@@ -120,6 +120,7 @@ console.log(`  rolled CHANGELOG -> [${next}] - ${date}`);
 // 1.3.3) until swept by hand; check-version-coherence.mjs now also gates it.
 for (const p of [
   "README.md",
+  "packages/server/README.md",
   "docs/src/content/docs/index.md",
   "docs/src/content/docs/getting-started/install.md",
   "docs/src/content/docs/getting-started/first-run.md",
