@@ -7,8 +7,8 @@ older minors are not backported.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.2.x   | :white_check_mark: |
-| < 1.2   | :x:                |
+| 1.3.x   | :white_check_mark: |
+| < 1.3   | :x:                |
 
 ## Reporting a vulnerability
 
@@ -41,7 +41,11 @@ assumptions:
   combines byte-level traversal rejection (absolute paths and `..` segments) with a real-path
   check that canonicalizes the vault root and the deepest existing target segment through
   symlinks — so an in-vault symlink (or a symlinked ancestor) pointing outside the vault root is
-  rejected, not just lexical `..`.
+  rejected, not just lexical `..`. Under a folder ACL, reads and writes also reject a **hard-linked**
+  regular file (`st_nlink > 1`): a hard link aliases an inode that realpath cannot dereference, so it
+  could otherwise serve a file outside the allowed folder. Reads run on the opened fd (fstat and read
+  on the same object), and the atomic write opens its temp file `O_EXCL | O_NOFOLLOW` on a random
+  name so a planted symlink cannot hijack it.
 - **The host system is trusted.** obsidian-tc does not protect against attacks from
   co-located processes.
 - **The Local REST API key is a full-vault admin credential.** The companion plugin extends the
@@ -52,7 +56,7 @@ assumptions:
 
 ## Protections
 
-- JWT auth (HS256) with a required minimum secret length
+- JWT auth (HS256 shared secret, or asymmetric RS256/ES256/EdDSA via a local JWKS) with a required minimum secret length
 - Folder-scoped read / write / delete ACLs per vault
 - Read-only kill switch
 - HITL elicit on destructive operations (configurable per op)
@@ -126,5 +130,5 @@ by content it retrieves.
 - **Keep HITL as the last gate.** Even a fully steered agent cannot run a destructive
   operation without a human-approved elicit token.
 - Injection cannot mint elicit tokens or bypass scopes: tokens are issued server-side,
-  single-use, and bound to the exact vault + tool + argument hash, and scope/ACL verdicts
+  single-use, and bound to the exact vault + tool + argument hash + issuing caller, and scope/ACL verdicts
   come from server config the agent cannot write to (`.obsidian/**` is hard-denied).

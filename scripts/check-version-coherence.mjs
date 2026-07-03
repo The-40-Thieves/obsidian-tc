@@ -21,11 +21,9 @@ const readJson = (p) => {
 const sources = [];
 const add = (label, version) => sources.push({ label, version });
 
-// packages/plugin is intentionally excluded. The Obsidian companion plugin
-// (packages/plugin/package.json + its Obsidian manifest.json, currently 1.0.2)
-// ships on the Obsidian community-plugin cadence, independent of the MCP server
-// release unit gated here. Note the root manifest.json below is the MCPB server
-// bundle manifest, not the plugin's Obsidian manifest.
+// The core release unit. The companion plugin's Obsidian manifest is asserted separately below;
+// it now tracks the repo version in lockstep (decision 2026-07-02). Note the root manifest.json
+// added below is the MCPB server bundle manifest, not the plugin's Obsidian manifest.
 add("package.json (root)", readJson("package.json").version);
 add("packages/server/package.json", readJson("packages/server/package.json").version);
 add("packages/native/package.json", readJson("packages/native/package.json").version);
@@ -52,8 +50,9 @@ if (distinct.length !== 1 || distinct[0] == null) {
 }
 console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}`);
 
-// THE-282: the companion plugin versions independently (community cadence — excluded above),
-// but its manifest version MUST have a versions.json entry (community-store requirement).
+// THE-282 + lockstep (decision 2026-07-02): the companion plugin's Obsidian manifest version must
+// EQUAL the repo version (it rejoined lockstep), and versions.json must list it (community-store
+// requirement). The root manifest.json above is the MCPB server bundle manifest, not this one.
 {
   const { readFileSync: rf } = await import("node:fs");
   const manifest = JSON.parse(
@@ -62,6 +61,12 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
   const versions = JSON.parse(
     rf(new URL("../packages/plugin/versions.json", import.meta.url), "utf8"),
   );
+  if (manifest.version !== distinct[0]) {
+    console.error(
+      `FAIL: companion plugin manifest version (${manifest.version}) does not match the repo version (${distinct[0]}); the plugin is in lockstep.`,
+    );
+    process.exit(1);
+  }
   if (!Object.hasOwn(versions, manifest.version)) {
     console.error(
       `FAIL: packages/plugin/versions.json lacks an entry for manifest version ${manifest.version}`,
