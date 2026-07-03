@@ -139,6 +139,7 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
   };
   const anchors = [
     ["README.md", /Shipped v(\d+\.\d+\.\d+)/],
+    ["packages/server/README.md", /Shipped\D+v(\d+\.\d+\.\d+)/],
     ["docs/src/content/docs/index.md", /v(\d+\.\d+\.\d+) is the current release/],
   ];
   const vdrift = [];
