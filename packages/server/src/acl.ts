@@ -23,7 +23,13 @@ export interface AclConfigT {
 // which a space sentinel mis-compiled to `.*` and over-matched across `/`.
 const NUL = String.fromCharCode(0);
 
-export function globToRegExp(glob: string): RegExp {
+// On a case-insensitive filesystem (Windows NTFS, macOS APFS) a path and its case variants name the
+// SAME file, so the folder ACL must match case-insensitively there or a case-variant path slips past
+// a whitelist/deny authored in canonical case (THE-272). On a case-sensitive filesystem (Linux) case
+// is significant and matching stays exact. Detected once from the platform; overridable for tests.
+const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
+
+export function globToRegExp(glob: string, caseInsensitive: boolean = CASE_INSENSITIVE_FS): RegExp {
   const withDouble = glob.replace(/\*\*/g, NUL);
   let re = "";
   for (const c of withDouble) {
@@ -32,7 +38,7 @@ export function globToRegExp(glob: string): RegExp {
     else if (c === "?") re += "[^/]";
     else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   }
-  return new RegExp(`^${re}$`);
+  return new RegExp(`^${re}$`, caseInsensitive ? "i" : "");
 }
 
 // Match glob against path in a Unicode-normalization-insensitive way (THE-272). macOS stores
@@ -40,8 +46,12 @@ export function globToRegExp(glob: string): RegExp {
 // both sides, an NFC deny/whitelist rule silently fails to match its NFD path on disk (a deny that
 // does not deny, or an allow that wrongly denies). Normalizing both to NFC makes the ACL decide on
 // the logical name, not its byte form.
-export function globMatch(glob: string, path: string): boolean {
-  return globToRegExp(glob.normalize("NFC")).test(path.normalize("NFC"));
+export function globMatch(
+  glob: string,
+  path: string,
+  caseInsensitive: boolean = CASE_INSENSITIVE_FS,
+): boolean {
+  return globToRegExp(glob.normalize("NFC"), caseInsensitive).test(path.normalize("NFC"));
 }
 
 // Hard default-deny baseline (THE-268): the Obsidian/VCS control directories are never reachable
@@ -58,7 +68,13 @@ const DEFAULT_DENY_EXEMPT: ReadonlySet<string> = new Set([
 export function isDefaultDenied(path: string): boolean {
   const p = path.normalize("NFC"); // THE-272: decide on the logical name, not its NFC/NFD byte form
   if (DEFAULT_DENY_EXEMPT.has(p)) return false;
-  return DEFAULT_DENY_ROOTS.some((r) => p === r || p.startsWith(`${r}/`));
+  // Case-fold the control-directory match: `.obsidian`/`.git`/`.trash` must be denied under EVERY
+  // case variant, because on a case-insensitive filesystem `.Obsidian` and `.obsidian` are the same
+  // directory on disk (THE-272). The roots are ASCII and this only ever denies MORE, never exempts,
+  // so it is safe on a case-sensitive filesystem too. The exempt check above stays exact so a
+  // mis-cased path can never be wrongly exempted where case is significant.
+  const lower = p.toLowerCase();
+  return DEFAULT_DENY_ROOTS.some((r) => lower === r || lower.startsWith(`${r}/`));
 }
 
 export class FolderAcl {

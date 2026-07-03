@@ -6,6 +6,43 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-07-03
+
+### Security
+
+- **Folder-ACL case-fold hardening (THE-272).** The `.obsidian` / `.git` / `.trash` default-deny now
+  matches case-insensitively, so a case-variant control-directory path (e.g. `.Obsidian/…`) can no
+  longer evade the deny on a case-insensitive filesystem. Path whitelists likewise match
+  case-insensitively on case-insensitive filesystems (Windows/macOS) and stay case-sensitive on
+  Linux. The intermediate-directory symlink-swap TOCTOU remains a documented residual (needs a
+  native per-component `openat`; still tracked on THE-272).
+
+### Changed
+
+- **`elicitTtlSeconds` now governs HITL token TTL (THE-302).** The accepted config key is wired: the
+  server sets the default elicit-token lifetime from config at startup instead of the hardcoded 300s;
+  an explicit per-call `ttlSeconds` still overrides it.
+- **`release.mjs` formats after the bump (THE-301).** The release script runs `bun run format` after
+  writing the version files, so a release commit never carries biome drift.
+- **Build hygiene (THE-278).** The root `package.json` pins `packageManager: bun@1.3.14` to match the
+  CI toolchain.
+- **Tool count corrected to 105 and pinned (THE-306).** The registered surface is 105, not 106 (a
+  manual miscount in 1.3.2). A new `tool-count` test asserts the assembled registry length and
+  `check-version-coherence.mjs` now fails if the documented headline drifts from it; the count is
+  corrected across the README, ARCHITECTURE, and the docs site.
+- **Companion plugin ships the complete 3-file set (THE-206).** The build now emits `styles.css`
+  beside `main.js`/`manifest.json`, the release zip includes it, and the three files are attached to
+  the GitHub Release as individual assets so BRAT can sideload the plugin (community-store
+  submission readiness).
+
+### Documentation
+
+- **Accepted-residuals section + release runbook.** SECURITY.md gains a "Known limitations and
+  accepted residuals" section documenting the `move_attachment` cross-ACL link rewrite (N-3,
+  THE-303), the exp-only-token max-age contract (M-3, THE-304), and the intermediate-directory
+  symlink-swap TOCTOU residual (THE-272). New `docs/RELEASING.md` captures the single-command +
+  human-tag release flow and the community-store submission path (THE-256).
+
 ## [1.3.2] - 2026-07-03
 
 ### Security

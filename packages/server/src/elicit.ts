@@ -2,8 +2,17 @@ import { randomBytes } from "node:crypto";
 import type { Database } from "./db/types";
 import type { CallerContext } from "./mcp/registry";
 
-/** 5 minutes (G2.4 A.3). */
-const DEFAULT_TTL_SECONDS = 300;
+/** Built-in default elicit-token TTL: 5 minutes (G2.4 A.3). Overridable at startup from the
+ *  resolved server config (`elicitTtlSeconds`) via setDefaultElicitTtlSeconds — cli.ts calls it once
+ *  so the configured value governs every mint that does not pass an explicit ttlSeconds (THE-302). */
+const FALLBACK_TTL_SECONDS = 300;
+let defaultTtlSeconds = FALLBACK_TTL_SECONDS;
+
+/** Set the process-wide default elicit-token TTL from config (THE-302). No-op on a non-positive or
+ *  non-integer value, so a malformed override can never disable expiry. Called once at startup. */
+export function setDefaultElicitTtlSeconds(seconds: number): void {
+  if (Number.isInteger(seconds) && seconds > 0) defaultTtlSeconds = seconds;
+}
 
 export interface IssueElicitInput {
   vaultId: string;
@@ -21,7 +30,7 @@ export interface IssueElicitInput {
  */
 export function issueElicitToken(db: Database, input: IssueElicitInput): string {
   const now = (input.now ?? Date.now)();
-  const ttlMs = (input.ttlSeconds ?? DEFAULT_TTL_SECONDS) * 1000;
+  const ttlMs = (input.ttlSeconds ?? defaultTtlSeconds) * 1000;
   const token = randomBytes(16).toString("hex");
   db.prepare(
     `INSERT INTO elicit_tokens

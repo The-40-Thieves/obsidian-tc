@@ -117,6 +117,11 @@ console.log(`  rolled CHANGELOG -> [${next}] - ${date}`);
 console.log("bun install (refresh bun.lock) ...");
 execSync("bun install", { stdio: "inherit" });
 
+// Normalize formatting of the freshly bumped files so the release commit never carries biome drift
+// (THE-301). Runs after the writes + lockfile refresh; biome formats the JSON/CHANGELOG in place.
+console.log("bun run format (biome) ...");
+execSync("bun run format", { stdio: "inherit" });
+
 // Coherence gate.
 execSync("node scripts/check-version-coherence.mjs", { stdio: "inherit" });
 

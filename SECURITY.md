@@ -132,3 +132,28 @@ by content it retrieves.
 - Injection cannot mint elicit tokens or bypass scopes: tokens are issued server-side,
   single-use, and bound to the exact vault + tool + argument hash + issuing caller, and scope/ACL verdicts
   come from server config the agent cannot write to (`.obsidian/**` is hard-denied).
+
+## Known limitations and accepted residuals
+
+These are deliberate design decisions or narrow residuals tracked in the issue log, documented here
+so operators can reason about them rather than discover them.
+
+- **`move_attachment` rewrites references in notes outside the caller's write ACL (N-3, THE-303).**
+  When an attachment moves, every note that links to it is updated so links do not break — including
+  notes the caller could not otherwise write. This is intentional: a partial rewrite (only the
+  writable notes) would leave dangling links and is the worse failure. The rewrite is confined to
+  reference fix-ups for the moved attachment (never arbitrary content), and the move itself stays
+  ACL- and HITL-gated. Deployments that require strict per-note write isolation should disable
+  `move_attachment` via `toolVisibility`.
+- **Token max-age applies only to `iat`-bearing tokens (M-3, THE-304).** The JWT verifier enforces
+  `auth.tokenTtlSeconds` against a token's `iat`; a token minted without `iat` (exp-only) is accepted
+  for its full `exp` lifetime and is not additionally aged. This is a deliberate contract (exp-only
+  tokens keep working), covered by a regression test. Deployments that require a max-age ceiling on
+  every token must mint tokens with `iat` and a bounded `exp`.
+- **Intermediate-directory symlink-swap TOCTOU (THE-272 residual).** Folder-ACL enforcement resolves
+  the real (symlink-canonical) path, reads/writes on an fd, rejects hard links, and rejects a symlink
+  at the final component. A residual race remains: an attacker who can swap an *intermediate
+  directory* for a symlink between the realpath check and the fd open could redirect the operation.
+  Closing it fully needs per-component `openat(O_NOFOLLOW)`, which Node does not expose — it requires
+  a native addon (tracked on THE-272). Exploiting it needs a precise same-request race plus in-vault
+  write access to an ancestor directory.

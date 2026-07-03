@@ -17,7 +17,7 @@ import { provisionExperientialDb } from "./db/experiential";
 import { startMaintenanceSweep } from "./db/maintenance";
 import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
-import { elicitVerifier } from "./elicit";
+import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
 import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
@@ -232,6 +232,9 @@ async function main(): Promise<void> {
       .filter((v) => v.acl !== undefined)
       .map((v) => [v.id, new FolderAcl(v.acl as ConstructorParameters<typeof FolderAcl>[0])]),
   );
+  // THE-302: the configured elicit-token TTL governs every HITL token mint (issueElicitToken falls
+  // back to this default when a caller passes no explicit ttlSeconds). Set once at startup.
+  setDefaultElicitTtlSeconds(config.elicitTtlSeconds);
   const registry = new ToolRegistry({
     maxResponseBytes: config.governor.maxResponseBytes,
     idempotencyTtlSeconds: config.idempotencyTtlSeconds,
