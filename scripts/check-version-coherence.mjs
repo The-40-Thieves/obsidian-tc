@@ -125,3 +125,31 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
     `tool-count headline OK (${EXPECTED_TOOL_COUNT} across ${targets.length} doc surfaces)`,
   );
 }
+
+// Version-prose coherence: the docs that state the shipped version as prose must match the package
+// version (they drift otherwise — swept by hand at 1.3.3). release.mjs bumps these on every cut.
+{
+  const version = distinct[0];
+  const readText = (p) => {
+    const target = resolve(ROOT, p);
+    if (relative(ROOT, target).startsWith("..")) {
+      throw new Error(`refusing to read outside repo root: ${p}`);
+    }
+    return readFileSync(target, "utf8");
+  };
+  const anchors = [
+    ["README.md", /Shipped v(\d+\.\d+\.\d+)/],
+    ["docs/src/content/docs/index.md", /v(\d+\.\d+\.\d+) is the current release/],
+  ];
+  const vdrift = [];
+  for (const [file, re] of anchors) {
+    const m = readText(file).match(re);
+    if (!m) vdrift.push(`${file}: no current-version prose matched ${re}`);
+    else if (m[1] !== version) vdrift.push(`${file}: prose says ${m[1]}, package is ${version}`);
+  }
+  if (vdrift.length) {
+    console.error(`\nFAIL: version-prose drift:\n  ${vdrift.join("\n  ")}`);
+    process.exit(1);
+  }
+  console.log(`version-prose OK (${version} across ${anchors.length} doc anchors)`);
+}

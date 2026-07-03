@@ -612,7 +612,7 @@ The ACL layer is the natural home for declarative access decisions. It already e
 
 ### Why not the other layers
 
-- **Tool implementations.** Scattering scope checks across a hundred-plus tools means: (a) every new scope class requires touching every tool that uses it; (b) scope-check bugs are tool-local; (c) the security audit surface grows by 103×. Rejected.
+- **Tool implementations.** Scattering scope checks across a hundred-plus tools means: (a) every new scope class requires touching every tool that uses it; (b) scope-check bugs are tool-local; (c) the security audit surface grows by 105×. Rejected.
 - **Policy.** Policy handles HITL/throttle/idempotency — operational concerns. Mixing access control into the same layer violates separation. Rejected.
 - **Transport.** Transport is pre-auth. Scope checks require the resolved caller context. Rejected.
 
