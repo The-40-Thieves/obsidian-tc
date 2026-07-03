@@ -6,9 +6,10 @@
 // prev_hash gives compare-and-swap (concurrent_modification on mismatch) and every
 // write returns content_hash + mode_used. Confirmation is split by intent:
 // delete_note is destructive:true and gates in dispatch; write_note (overwriting a
-// non-empty note) and move_note (crossing a folder boundary) gate conditionally in
-// the handler via requireConfirmation, so ordinary creates and dry moves never
-// demand a token.
+// non-empty note), move_note (crossing a folder boundary or overwriting), and
+// copy_note (overwriting an existing note) gate conditionally in the handler via
+// requireConfirmation, so ordinary creates, dry moves, and non-overwriting copies
+// never demand a token.
 import {
   err,
   ObsidianTcError,
@@ -609,7 +610,20 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         if (toEx.exists && !input.overwrite)
           throw err.noteExists("destination already exists; set overwrite", { path: toRel });
 
+        // Overwriting an existing destination is a conditional-HITL, recoverable op — mirror
+        // move_note: require confirmation, then soft-delete the destination first so its prior
+        // content survives in .trash. Without this, copy_note --overwrite clobbered the target
+        // irreversibly with no HITL floor (the sibling move_note already guarded this).
+        const overwriteExisting = toEx.exists && input.overwrite;
+        requireConfirmation(ctx, "copy_note", input, overwriteExisting, {
+          from: fromRel,
+          to: toRel,
+          overwrite: overwriteExisting,
+        });
+
         const { raw, hash } = readNote(fromAbs);
+        let trashedDestTo: string | null = null;
+        if (overwriteExisting) trashedDestTo = trashNote(v.root, toRel);
         writeNoteAtomic(toAbs, raw, input.options.create_dirs);
         deps.reindex?.(v.id, toRel, raw);
         return {
@@ -618,6 +632,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           to: toRel,
           copied: true,
           overwritten: toEx.exists,
+          trashed_dest_to: trashedDestTo,
           content_hash: hash,
         };
       },
