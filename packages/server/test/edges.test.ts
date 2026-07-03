@@ -9,9 +9,10 @@ function vaultEdgesDb(): any {
     `CREATE TABLE vault_edges (
        source_path TEXT NOT NULL, target_path TEXT NOT NULL, edge_type TEXT NOT NULL,
        edge_kind TEXT NOT NULL DEFAULT 'literal', provenance TEXT,
+       vault_id TEXT NOT NULL DEFAULT '',
        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
      );
-     CREATE UNIQUE INDEX idx_vault_edges_unique ON vault_edges(source_path, target_path, edge_type);`,
+     CREATE UNIQUE INDEX idx_vault_edges_unique ON vault_edges(vault_id, source_path, target_path, edge_type);`,
   );
   return db;
 }
@@ -59,12 +60,35 @@ describe("vault_edges production (W-INGEST)", () => {
       edge_type: "links_to",
       provenance: "wikilink_reverse",
     };
-    expect(reconcileVaultEdges(db, [fwd, rev], () => 1).inserted).toBe(2);
-    expect(reconcileVaultEdges(db, [fwd, rev], () => 2).inserted).toBe(0); // idempotent
-    expect(reconcileVaultEdges(db, [fwd], () => 3).deleted).toBe(1); // rev pruned
+    expect(reconcileVaultEdges(db, "v1", [fwd, rev], () => 1).inserted).toBe(2);
+    expect(reconcileVaultEdges(db, "v1", [fwd, rev], () => 2).inserted).toBe(0); // idempotent
+    expect(reconcileVaultEdges(db, "v1", [fwd], () => 3).deleted).toBe(1); // rev pruned
     const rows = db.prepare("SELECT edge_kind FROM vault_edges").all() as Array<{
       edge_kind: string;
     }>;
     expect(rows.every((r) => r.edge_kind === "literal")).toBe(true);
+  });
+
+  it("reconcile is vault-scoped — same edge coexists across vaults; reindexing one leaves the other (THE-310)", () => {
+    const db = vaultEdgesDb();
+    const a: DesiredEdge = {
+      source_path: "A.md",
+      target_path: "B.md",
+      edge_type: "links_to",
+      provenance: "wikilink_forward",
+    };
+    reconcileVaultEdges(db, "v1", [a], () => 1);
+    reconcileVaultEdges(db, "v2", [a], () => 2); // same path-pair, different vault — both stored
+    const both = db
+      .prepare("SELECT COUNT(*) AS n FROM vault_edges WHERE source_path = 'A.md'")
+      .get() as { n: number };
+    expect(both.n).toBe(2);
+    // v2 reindexes to empty: only v2's copy is pruned; v1 survives (full-state reconcile is scoped).
+    const re = reconcileVaultEdges(db, "v2", [], () => 3);
+    expect(re.deleted).toBe(1);
+    const survived = db
+      .prepare("SELECT vault_id FROM vault_edges WHERE source_path = 'A.md'")
+      .all() as Array<{ vault_id: string }>;
+    expect(survived.map((r) => r.vault_id)).toEqual(["v1"]);
   });
 });

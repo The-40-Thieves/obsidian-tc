@@ -27,7 +27,8 @@ function buildCorpus(): Database {
   runMigrations(db, [{ version: "20260519_001", sql: INIT }]);
   db.exec(
     `CREATE TABLE vault_edges (source_path TEXT NOT NULL, target_path TEXT NOT NULL, edge_type TEXT NOT NULL,
-       edge_kind TEXT NOT NULL DEFAULT 'literal', provenance TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);`,
+       edge_kind TEXT NOT NULL DEFAULT 'literal', provenance TEXT, vault_id TEXT NOT NULL DEFAULT '',
+       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);`,
   );
   const addChunk = (id: string, path: string, vec: number[]): void => {
     db.prepare(
@@ -43,7 +44,7 @@ function buildCorpus(): Database {
     addChunk(`cN${i}`, `N${i}.md`, vd01(c));
   });
   db.prepare(
-    "INSERT INTO vault_edges (source_path, target_path, edge_type, provenance, created_at, updated_at) VALUES ('A.md','B.md','links_to','wikilink_forward',0,0)",
+    "INSERT INTO vault_edges (vault_id, source_path, target_path, edge_type, provenance, created_at, updated_at) VALUES ('v1','A.md','B.md','links_to','wikilink_forward',0,0)",
   ).run();
   return db;
 }

@@ -9,10 +9,10 @@
 // so this is behavior-preserving. edge_kind is always 'literal' on stored rows (virtual hops
 // are query-time only); provenance carries the real parse signal (direction + resolution).
 //
-// Single-vault: vault_edges has no vault_id (cache.db is SHARED across vaults with logical
-// vault_id isolation on most tables — this one predates that). Multi-vault edge isolation
-// (vault_id on vault_edges + a scoped
-// graph_expand) is an integration follow-up (THE-233).
+// Multi-vault: vault_edges carries vault_id (migration 20260703_001, THE-310) so the shared
+// cache.db isolates edges logically like chunks/notes. reconcileVaultEdges scopes its full-state
+// SELECT/DELETE to the vault, so reconciling one vault never touches another's edges; the graph
+// walk (graph_expand) filters by vault_id too.
 import type { Database } from "../db/types";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
 
@@ -99,11 +99,13 @@ interface EdgeRow {
 
 /**
  * Full-state reconcile of the wikilink-layer (`links_to` / `unresolved`) rows in vault_edges
- * against `desired`. Other edge_types are never touched. Deletes stale wikilink-layer edges
- * (e.g. from removed notes) and inserts new ones; idempotent on re-run.
+ * for `vaultId` against `desired`. Scoped to the vault: other vaults' edges and other edge_types
+ * are never touched. Deletes stale wikilink-layer edges (e.g. from removed notes) and inserts new
+ * ones; idempotent on re-run (THE-310).
  */
 export function reconcileVaultEdges(
   db: Database,
+  vaultId: string,
   desired: DesiredEdge[],
   now: () => number = Date.now,
 ): EdgeReconcileStats {
@@ -111,29 +113,29 @@ export function reconcileVaultEdges(
   const desiredKeys = new Set(desired.map((e) => key(e.source_path, e.target_path, e.edge_type)));
   const current = db
     .prepare(
-      "SELECT source_path, target_path, edge_type FROM vault_edges WHERE edge_type IN ('links_to', 'unresolved')",
+      "SELECT source_path, target_path, edge_type FROM vault_edges WHERE vault_id = ? AND edge_type IN ('links_to', 'unresolved')",
     )
-    .all() as EdgeRow[];
+    .all(vaultId) as EdgeRow[];
   const currentKeys = new Set(current.map((r) => key(r.source_path, r.target_path, r.edge_type)));
 
   const del = db.prepare(
-    "DELETE FROM vault_edges WHERE source_path = ? AND target_path = ? AND edge_type = ?",
+    "DELETE FROM vault_edges WHERE vault_id = ? AND source_path = ? AND target_path = ? AND edge_type = ?",
   );
   let deleted = 0;
   for (const r of current) {
     if (!desiredKeys.has(key(r.source_path, r.target_path, r.edge_type))) {
-      del.run(r.source_path, r.target_path, r.edge_type);
+      del.run(vaultId, r.source_path, r.target_path, r.edge_type);
       deleted += 1;
     }
   }
 
   const ins = db.prepare(
-    "INSERT OR IGNORE INTO vault_edges (source_path, target_path, edge_type, edge_kind, provenance, created_at, updated_at) VALUES (?, ?, ?, 'literal', ?, ?, ?)",
+    "INSERT OR IGNORE INTO vault_edges (vault_id, source_path, target_path, edge_type, edge_kind, provenance, created_at, updated_at) VALUES (?, ?, ?, ?, 'literal', ?, ?, ?)",
   );
   let inserted = 0;
   for (const e of desired) {
     if (!currentKeys.has(key(e.source_path, e.target_path, e.edge_type))) {
-      ins.run(e.source_path, e.target_path, e.edge_type, e.provenance, ts, ts);
+      ins.run(vaultId, e.source_path, e.target_path, e.edge_type, e.provenance, ts, ts);
       inserted += 1;
     }
   }

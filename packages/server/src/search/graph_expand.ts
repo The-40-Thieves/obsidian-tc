@@ -42,14 +42,15 @@ interface WalkRow {
 }
 
 /**
- * Walk the undirected `links_to` graph from `seedPaths`. Returns one node per
- * (root_seed, reached path) at hop > 0, shallowest hop. Cycle-guarded via a
- * newline-delimited visited set (paths never contain newlines).
+ * Walk the undirected `links_to` graph from `seedPaths`, scoped to `opts.vaultId`. Returns one
+ * node per (root_seed, reached path) at hop > 0, shallowest hop. Cycle-guarded via a
+ * newline-delimited visited set (paths never contain newlines). The vault_id filter (THE-310)
+ * keeps the walk inside one vault on the shared cache.db.
  */
 export function expandGraphLiteral(
   db: Database,
   seedPaths: string[],
-  opts: { hopLimit?: number } = {},
+  opts: { vaultId: string; hopLimit?: number },
 ): ExpansionNode[] {
   const hopLimit = opts.hopLimit ?? 2;
   if (seedPaths.length === 0 || hopLimit < 1) return [];
@@ -58,9 +59,9 @@ export function expandGraphLiteral(
     .prepare(
       `WITH RECURSIVE
        undirected(source_path, target_path, provenance) AS (
-         SELECT source_path, target_path, provenance FROM vault_edges WHERE edge_type = 'links_to'
+         SELECT source_path, target_path, provenance FROM vault_edges WHERE edge_type = 'links_to' AND vault_id = ?
          UNION ALL
-         SELECT target_path, source_path, provenance FROM vault_edges WHERE edge_type = 'links_to'
+         SELECT target_path, source_path, provenance FROM vault_edges WHERE edge_type = 'links_to' AND vault_id = ?
        ),
        walk(root_seed, current_path, predecessor_path, via_provenance, hop, visited) AS (
          SELECT j.value, j.value, NULL, NULL, 0, char(10) || j.value || char(10)
@@ -77,7 +78,7 @@ export function expandGraphLiteral(
        WHERE hop > 0
        GROUP BY root_seed, current_path`,
     )
-    .all(JSON.stringify(seedPaths), hopLimit) as WalkRow[];
+    .all(opts.vaultId, opts.vaultId, JSON.stringify(seedPaths), hopLimit) as WalkRow[];
 
   return rows.map((r) => ({
     path: r.path,

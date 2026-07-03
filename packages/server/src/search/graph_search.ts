@@ -106,7 +106,7 @@ export async function graphSearch(
   //    chunk by cosine to the query and gate at similarityThreshold (KMS semantic_chunks).
   const expansionChunks: Candidate[] = [];
   if (!routedToSeedsOnly) {
-    const nodes = expandGraphLiteral(db, seedPaths, { hopLimit });
+    const nodes = expandGraphLiteral(db, seedPaths, { vaultId: opts.vaultId, hopLimit });
     const nodeByPath = new Map(nodes.map((n) => [n.path, n]));
     const paths = [...nodeByPath.keys()];
     if (paths.length > 0) {
