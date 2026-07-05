@@ -10,21 +10,49 @@ on:
 permissions:
   contents: read
 
+# Serialize Pages deploys; never cancel an in-flight one (a cancelled deploy can wedge the env).
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build:
-    name: build docs (headless)
+    name: build docs
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: docs
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
       - name: Install
+        working-directory: docs
         run: bun install --frozen-lockfile
       - name: Build (astro check && astro build)
+        working-directory: docs
         run: bun run build
-      # The site is built headlessly to verify it compiles. It is NOT deployed
-      # here; publishing the docs site is a separate, human-gated runbook step.
+      # On main, hand the built site to the deploy job as a Pages artifact. On PRs the build
+      # above is the compile check; nothing is uploaded or deployed.
+      - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/dist
+
+  # Publish only from main; PRs stop at the build check above. Replaces the legacy
+  # "deploy from branch" Jekyll build of the repo root (which mis-rendered the monorepo).
+  deploy:
+    name: deploy to GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
