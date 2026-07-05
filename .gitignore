@@ -56,6 +56,10 @@ coverage/
 # Cache
 .cache/
 .bun/
+# obsidian-tc's local cache/trace dir. The default cacheDir is now ~/.obsidian-tc (absolute), but a
+# CLI run with a relative cacheDir can still drop one here — ignore it so a stray cache.db (multi-MB)
+# is never accidentally committed.
+.obsidian-tc/
 
 # Agent tooling (local only — never committed)
 .omc/
