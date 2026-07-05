@@ -2,7 +2,7 @@
 // does from source (via new URL("./migrations/...", import.meta.url)), and vendor the companion
 // plugin into dist/plugin/ so the `plugin install` CLI can write it into a vault.
 import { execSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +12,34 @@ mkdirSync(dist, { recursive: true });
 cpSync(join(root, "src", "migrations"), join(dist, "migrations"), { recursive: true });
 cpSync(join(root, "src", "schema.sql"), join(dist, "schema.sql"));
 console.log("copied SQL assets -> dist/");
+
+// Make dist/cli.js a proper executable. `bun build` emits no shebang, so the published `bin`
+// starts with `import{...}` and has none. npm's launcher shim only inserts the interpreter when it
+// reads a shebang off the target, so without one the generated Windows `.ps1`/`.cmd` shims invoke
+// the `.js` directly — Windows hands it to the file association (Script Host), which silently
+// no-ops (exit 0, no output), so `obsidian-tc serve` appears to do nothing while `node dist/cli.js`
+// works. Prepend `#!/usr/bin/env node` to cli.js only, shift the linked sourcemap down one line so
+// stack traces stay accurate, and set the POSIX exec bit. Shell-agnostic (JS string, no shell
+// path-mangling) and idempotent.
+const cliPath = join(dist, "cli.js");
+const cli = readFileSync(cliPath, "utf8");
+if (!cli.startsWith("#!")) {
+  writeFileSync(cliPath, `#!/usr/bin/env node\n${cli}`);
+  const mapPath = join(dist, "cli.js.map");
+  if (existsSync(mapPath)) {
+    const map = JSON.parse(readFileSync(mapPath, "utf8"));
+    if (typeof map.mappings === "string") {
+      map.mappings = `;${map.mappings}`; // one empty generated line for the prepended shebang
+      writeFileSync(mapPath, JSON.stringify(map));
+    }
+  }
+  try {
+    chmodSync(cliPath, 0o755); // POSIX exec bit for direct invocation (npm also sets it on install)
+  } catch {
+    // non-POSIX filesystem (Windows): chmod unsupported / no-op — ignore.
+  }
+  console.log("prepended node shebang -> dist/cli.js");
+}
 
 // Vendor the companion plugin (main.js + manifest.json). The monorepo's parallel
 // `build --filter='*'` gives no ordering guarantee, so build the plugin here if it is missing.

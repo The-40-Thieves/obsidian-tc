@@ -22,6 +22,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **`obsidian-tc` CLI now runs from the npm bin on Windows.** The published `dist/cli.js` shipped
+  without a `#!/usr/bin/env node` shebang, so npm's generated launcher shim handed the file to the
+  Windows file association (Script Host) instead of node, and `obsidian-tc serve ...` silently
+  no-opped (exit 0, no output) while `node .../dist/cli.js serve ...` worked. The build now prepends
+  the shebang to the bin (POSIX exec bit set, sourcemap kept accurate) and install-smoke asserts it.
 - **Multi-vault GraphRAG edge isolation (THE-310).** `vault_edges` now carries `vault_id`
   (migration 20260703_001): `reconcileVaultEdges` scopes its full-state SELECT/DELETE to the vault
   and `vault_graph_search`'s walk filters by `vault_id`, so reindexing one vault no longer deletes
