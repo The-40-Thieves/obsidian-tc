@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-07-05
+
 ### Fixed
 
 - **CLI no longer crashes at boot under GUI launchers (EPERM on `mkdir .obsidian-tc`).** The
