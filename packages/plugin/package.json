@@ -1,6 +1,6 @@
 {
   "name": "@the-40-thieves/obsidian-tc-plugin",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Companion Obsidian plugin for obsidian-tc — extends Local REST API with command dispatch and plugin firepower bridges",
   "license": "AGPL-3.0-only",
   "private": true,
