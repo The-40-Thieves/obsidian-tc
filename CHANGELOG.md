@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-07-05
+
 ### Security
 
 - **Intermediate-directory symlink-swap TOCTOU closed (THE-272).** `read_note` / `write_note` now

@@ -20,7 +20,7 @@ single-vault config:
 
 ```sh
 obsidian-tc ./config.json
-# obsidian-tc 1.3.4 ready on stdio (vault primary)
+# obsidian-tc 1.3.5 ready on stdio (vault primary)
 ```
 
 By default the server speaks the Model Context Protocol over **stdio**, the
