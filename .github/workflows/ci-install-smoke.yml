@@ -111,3 +111,11 @@ jobs:
           echo "$out"
           echo "$out" | grep -q "ready on stdio" || { echo "::error::node:sqlite fallback did not reach stdio-ready"; exit 1; }
           echo "ok: booted under node via the node:sqlite fallback (no better-sqlite3)"
+      # 6) The published bin must start with a node shebang. bun build emits none, and without it
+      #    npm's launcher shim hands the .js to the Windows file association (Script Host) instead of
+      #    node, so `obsidian-tc` silently no-ops (exit 0, no output). Guard the root cause directly
+      #    (a full global-install shim test needs the published tarball's rewritten workspace deps).
+      - name: built CLI bin carries a node shebang (npm shim correctness)
+        run: |
+          head -1 packages/server/dist/cli.js | grep -qx '#!/usr/bin/env node' || { echo "::error::dist/cli.js is missing the '#!/usr/bin/env node' shebang; npm generates broken bin shims (Windows silent no-op)"; exit 1; }
+          echo "ok: dist/cli.js carries the node shebang"
