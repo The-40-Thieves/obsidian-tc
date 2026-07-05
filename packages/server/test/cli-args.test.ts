@@ -1,6 +1,6 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   configFromVaultPath,
@@ -70,13 +70,30 @@ describe("resolveServeConfig / configFromVaultPath", () => {
     expect(cfg.vaults).toHaveLength(1);
     expect(cfg.vaults[0]?.id).toBe("main");
     expect(cfg.vaults[0]?.path).toBe(resolve(dir));
-    expect(cfg.cacheDir).toBeTruthy();
+    // cacheDir must be absolute + machine-local, not CWD-relative: a GUI launcher (Claude Desktop)
+    // spawns MCP servers in a non-writable CWD, so a relative ".obsidian-tc" would EPERM at boot.
+    expect(isAbsolute(cfg.cacheDir)).toBe(true);
+    expect(cfg.cacheDir).toBe(join(homedir(), ".obsidian-tc"));
   });
   it("a config file is loaded as written", () => {
     const dir = mkdtempSync(join(tmpdir(), "otc-cfg-"));
     const file = join(dir, "c.json");
     writeFileSync(file, JSON.stringify({ vaults: [{ id: "v1", path: dir }] }));
     expect(resolveServeConfig(file).vaults[0]?.id).toBe("v1");
+  });
+  it("cacheDir: explicit absolute is preserved; relative is anchored to home", () => {
+    const dir = mkdtempSync(join(tmpdir(), "otc-cache-"));
+    const abs = join(dir, "cache");
+    writeFileSync(
+      join(dir, "abs.json"),
+      JSON.stringify({ vaults: [{ id: "v", path: dir }], cacheDir: abs }),
+    );
+    expect(resolveServeConfig(join(dir, "abs.json")).cacheDir).toBe(abs);
+    writeFileSync(
+      join(dir, "rel.json"),
+      JSON.stringify({ vaults: [{ id: "v", path: dir }], cacheDir: "mycache" }),
+    );
+    expect(resolveServeConfig(join(dir, "rel.json")).cacheDir).toBe(join(homedir(), "mycache"));
   });
   it("a missing target throws a friendly error", () => {
     expect(() => resolveServeConfig(join(tmpdir(), "otc-definitely-missing-xyz"))).toThrow(

@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 
 /**
@@ -24,7 +26,15 @@ export function finalizeConfig(raw: Record<string, unknown>): ServerConfig {
       ...(plurToken ? { apiKey: plurToken } : {}),
     };
   }
-  return ServerConfigSchema.parse(raw);
+  const config = ServerConfigSchema.parse(raw);
+  // The cacheDir default (".obsidian-tc") is relative, so cli.ts mkdir's it against the process
+  // CWD, which breaks when a GUI launcher spawns the server in a non-writable directory: Claude
+  // Desktop starts MCP servers in C:\WINDOWS\system32, so `mkdir .obsidian-tc` is EPERM at boot
+  // (a terminal only worked because its CWD was the vault). Anchor a relative cacheDir to the
+  // user's home so it is absolute and CWD-independent; the shared cache.db isolates vaults by
+  // vault_id, so one machine-local dir is correct. An explicit absolute cacheDir is honored as-is.
+  if (!isAbsolute(config.cacheDir)) config.cacheDir = join(homedir(), config.cacheDir);
+  return config;
 }
 
 /**

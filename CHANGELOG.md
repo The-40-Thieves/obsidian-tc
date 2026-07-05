@@ -6,6 +6,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI no longer crashes at boot under GUI launchers (EPERM on `mkdir .obsidian-tc`).** The
+  `cacheDir` default `.obsidian-tc` was relative, so the server tried to create it in the process
+  CWD. GUI MCP launchers spawn with a non-writable CWD (Claude Desktop uses `C:\WINDOWS\system32`),
+  so boot failed with `EPERM: mkdir 'C:\WINDOWS\system32\.obsidian-tc'`. A relative `cacheDir` is
+  now anchored to the user's home (`~/.obsidian-tc`) — absolute and CWD-independent; explicit
+  absolute `cacheDir` values are unchanged. `serve <vault>` now works from any launcher.
+
 ## [1.3.5] - 2026-07-05
 
 ### Security
