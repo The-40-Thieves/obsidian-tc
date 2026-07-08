@@ -22,7 +22,7 @@ const CAP_IDS: Record<string, string> = {
   tasks: "obsidian-tasks-plugin",
   templater: "templater-obsidian",
   quickadd: "quickadd",
-  "text-extractor": "obsidian-text-extractor",
+  "text-extractor": "text-extractor",
   "make-md": "make-md",
 };
 

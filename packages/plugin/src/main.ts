@@ -5,14 +5,15 @@
 // exposes no extension surface, the routes are simply not registered — the server's
 // probe then reports the companion unreachable and every bridge tool degrades. The
 // plugin holds no secrets and logs none.
-import { Plugin } from "obsidian";
+import { Plugin, type PluginManifest } from "obsidian";
 import { buildRoutes, type RouteDef } from "./routes";
 
 const LRA_ID = "obsidian-local-rest-api";
 
 // Minimal models of the Local REST API extension surface (not in obsidian's d.ts).
-// Two shapes are supported: the express extension router exposed on requestHandler,
-// and the newer public addRoute() builder. We try them in that order.
+// Three shapes are supported, tried in order: the current getPublicApi(manifest)
+// extension object (LRA v4.x), the legacy express extension router on requestHandler,
+// and the legacy public addRoute() builder.
 interface ExtensionRouter {
   get(path: string, handler: RouteDef["handler"]): void;
   post(path: string, handler: RouteDef["handler"]): void;
@@ -21,7 +22,13 @@ interface AddRouteBuilder {
   get(handler: RouteDef["handler"]): AddRouteBuilder;
   post(handler: RouteDef["handler"]): AddRouteBuilder;
 }
+// The public extension object returned by LRA v4.x's plugin.getPublicApi(manifest).
+interface LocalRestApiPublicApi {
+  addRoute(path: string): AddRouteBuilder;
+}
 interface LocalRestApiPlugin {
+  // Current LRA (v4.x): documented integration point. Older builds expose one of the two below.
+  getPublicApi?(manifest: PluginManifest): LocalRestApiPublicApi;
   requestHandler?: { apiExtensionRouter?: ExtensionRouter };
   api?: { addRoute?(path: string): AddRouteBuilder };
 }
@@ -66,15 +73,37 @@ export default class ObsidianTcCompanion extends Plugin {
     const lra = (this.app as unknown as AppWithPlugins).plugins?.plugins?.[LRA_ID];
     if (!lra) return null;
 
-    const router = lra.requestHandler?.apiExtensionRouter;
-    if (router) {
-      for (const r of routes) router[r.method](r.path, r.handler);
+    // Namespace every bridge route under the prefix the server actually requests
+    // (packages/server DEFAULT_API_PREFIX). LRA mounts extension routers at its own
+    // root, so without this the routes land at "/" and every server call 404s.
+    const PREFIX = "/obsidian-tc/v1";
+
+    // Current LRA (v4.x): the documented integration point is plugin.getPublicApi(manifest),
+    // which returns an extension object exposing addRoute(). Neither legacy shape below
+    // exists on this build. getPublicApi() can throw if called before LRA finishes
+    // loadSettings() (upstream load-order race), so degrade honestly rather than throw.
+    let publicApi: LocalRestApiPublicApi | undefined;
+    try {
+      publicApi = lra.getPublicApi?.(this.manifest);
+    } catch {
+      publicApi = undefined;
+    }
+    if (publicApi) {
+      for (const r of routes) publicApi.addRoute(PREFIX + r.path)[r.method](r.handler);
       return routes.length;
     }
 
+    // Legacy express extension router (older LRA).
+    const router = lra.requestHandler?.apiExtensionRouter;
+    if (router) {
+      for (const r of routes) router[r.method](PREFIX + r.path, r.handler);
+      return routes.length;
+    }
+
+    // Legacy public addRoute() builder (older LRA).
     const addRoute = lra.api?.addRoute;
     if (addRoute) {
-      for (const r of routes) addRoute.call(lra.api, r.path)[r.method](r.handler);
+      for (const r of routes) addRoute.call(lra.api, PREFIX + r.path)[r.method](r.handler);
       return routes.length;
     }
 
