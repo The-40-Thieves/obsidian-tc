@@ -17,6 +17,7 @@
     "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node --external better-sqlite3 --minify --sourcemap=linked && bun scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "smoke:live": "vitest run test/live-companion.test.ts",
     "test:coverage": "vitest run --coverage",
     "dev": "bun run --watch ./src/index.ts"
   },
