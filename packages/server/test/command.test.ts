@@ -104,3 +104,79 @@ describe("execute_command (deny-by-default, triple-gated)", () => {
     if (!res.ok) expect(res.error.code).toBe("plugin_unreachable");
   });
 });
+
+describe("LRA-native command fallback (#155 / THE-383)", () => {
+  let v: M4Vault | undefined;
+  afterEach(() => v?.cleanup());
+
+  const enc = (id: string) => encodeURIComponent(id);
+
+  it("list_commands falls back to LRA /commands/ when the companion is unreachable", async () => {
+    v = makeM4Vault({
+      snapshot: { companion: "unreachable", plugins: {} },
+      routes: {
+        "GET /commands/": {
+          body: {
+            commands: [
+              { id: "editor:save-file", name: "Save current file" },
+              { id: "app:reload", name: "Reload app" },
+            ],
+          },
+        },
+      },
+    });
+    const res = await v.call("list_commands", { vault: "test", filter: "save" });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const data = res.data as Record<string, unknown>;
+      expect(data.source).toBe("local-rest-api");
+      const items = data.items as { id: string }[];
+      expect(items.map((c) => c.id)).toEqual(["editor:save-file"]);
+    }
+    expect(v.bridgeRequests.some((r) => new URL(r.url).pathname === "/commands/")).toBe(true);
+  });
+
+  it("list_commands surfaces the companion degrade when LRA is also unreachable", async () => {
+    v = makeM4Vault({
+      snapshot: { companion: "unreachable", plugins: {} },
+      routes: { "GET /commands/": { networkError: true } },
+    });
+    const res = await v.call("list_commands", { vault: "test" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("plugin_unreachable");
+  });
+
+  it("execute_command falls back to LRA /commands/{id}/ when the companion is unreachable", async () => {
+    const id = "editor:save-file";
+    v = makeM4Vault({
+      snapshot: { companion: "unreachable", plugins: {} },
+      commandPolicy: () => ({ enabled: true, allowlist: [id] }),
+      routes: { [`POST /commands/${enc(id)}/`]: { status: 204 } },
+    });
+    const res = await v.callConfirmed("execute_command", { vault: "test", command_id: id });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const data = res.data as Record<string, unknown>;
+      expect(data.command_id).toBe(id);
+      expect(data.source).toBe("local-rest-api");
+    }
+    expect(
+      v.bridgeRequests.some(
+        (r) => r.method === "POST" && new URL(r.url).pathname === `/commands/${enc(id)}/`,
+      ),
+    ).toBe(true);
+  });
+
+  it("the native fallback never bypasses the allowlist gate", async () => {
+    const id = "editor:save-file";
+    v = makeM4Vault({
+      snapshot: { companion: "unreachable", plugins: {} },
+      commandPolicy: () => ({ enabled: true, allowlist: ["app:reload"] }),
+      routes: { [`POST /commands/${enc(id)}/`]: { status: 204 } },
+    });
+    const res = await v.callConfirmed("execute_command", { vault: "test", command_id: id });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("command_not_allowlisted");
+    expect(v.bridgeRequests).toHaveLength(0);
+  });
+});

@@ -375,12 +375,17 @@ describe("M4 integration: M2 search_dql + nine M4 domains on one registry and br
     expect((await v.call("bundle_folder", { vault: "test", root: "Notes" })).ok).toBe(true);
   });
 
-  it("reports plugin_unreachable for a companion-only tool when the companion did not answer", async () => {
+  it("list_commands falls back to LRA, then degrades to plugin_unreachable when neither answers", async () => {
     v = makeVault({ snapshot: { companion: "unreachable", plugins: {} } });
     const res = await v.call("list_commands", { vault: "test" });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("plugin_unreachable");
-    expect(v.bridgeRequests).toHaveLength(0);
+    // The companion prefix is never called (the snapshot short-circuits it); only the
+    // LRA-native /commands/ fallback is attempted, and it too has no route in this fake.
+    const hitCompanion = v.bridgeRequests.some((r) =>
+      new URL(r.url).pathname.startsWith("/obsidian-tc/v1"),
+    );
+    expect(hitCompanion).toBe(false);
   });
 
   it("keeps the command palette deny-by-default even with a token on the shared registry", async () => {

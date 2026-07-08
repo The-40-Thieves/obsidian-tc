@@ -74,9 +74,26 @@ function mapBridgeError(env: BridgeEnvelopeErr, plugin?: string): ObsidianTcErro
   return err.pluginUnreachable(message, { ...details, bridge_code: env.code });
 }
 
+export interface NativeResponse<T> {
+  /** HTTP status of the native (unprefixed) Local REST API response. */
+  status: number;
+  /** Whether the status was 2xx. */
+  ok: boolean;
+  /** Parsed JSON body, or null for an empty / non-JSON body (e.g. a 204). */
+  data: T | null;
+}
+
 export interface BridgeClient {
   readonly baseUrl: string;
   request<T>(req: BridgeRequest): Promise<T>;
+  /**
+   * Call a Local REST API *native* route directly: NO /obsidian-tc/v1 prefix, and the
+   * response is raw JSON (not a bridge envelope). Used as a companion-independent
+   * fallback for the few capabilities LRA implements itself (e.g. GET /commands/).
+   * Resolves with the HTTP status + parsed body so callers can branch on `status`;
+   * throws plugin_unreachable only when the endpoint does not answer (network/abort).
+   */
+  requestNative<T>(req: BridgeRequest): Promise<NativeResponse<T>>;
 }
 
 export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
@@ -85,33 +102,36 @@ export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
   const defaultTimeout = opts.timeoutMs ?? DEFAULT_BRIDGE_TIMEOUT_MS;
   const base = opts.baseUrl.replace(/\/+$/, "");
 
+  // Shared transport: fetch `url` with bearer auth + a per-request timeout, mapping a
+  // network/abort failure onto plugin_unreachable (the endpoint did not answer). The
+  // token is never logged nor placed in an error payload.
+  async function doFetch(url: string, r: BridgeRequest): Promise<Awaited<ReturnType<BridgeFetch>>> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), r.timeoutMs ?? defaultTimeout);
+    try {
+      return await fetchFn(url, {
+        method: r.method,
+        headers: {
+          accept: "application/json",
+          ...(opts.apiKey ? { authorization: `Bearer ${opts.apiKey}` } : {}),
+          ...(r.body !== undefined ? { "content-type": "application/json" } : {}),
+        },
+        ...(r.body !== undefined ? { body: JSON.stringify(r.body) } : {}),
+        signal: ctrl.signal,
+      });
+    } catch {
+      throw err.pluginUnreachable("bridge request failed", {
+        ...(r.plugin ? { plugin: r.plugin } : {}),
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   return {
     baseUrl: base,
     async request<T>(r: BridgeRequest): Promise<T> {
-      const url = `${base}${prefix}${r.path}`;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), r.timeoutMs ?? defaultTimeout);
-      let res: Awaited<ReturnType<BridgeFetch>>;
-      try {
-        res = await fetchFn(url, {
-          method: r.method,
-          headers: {
-            accept: "application/json",
-            ...(opts.apiKey ? { authorization: `Bearer ${opts.apiKey}` } : {}),
-            ...(r.body !== undefined ? { "content-type": "application/json" } : {}),
-          },
-          ...(r.body !== undefined ? { body: JSON.stringify(r.body) } : {}),
-          signal: ctrl.signal,
-        });
-      } catch {
-        // Network failure, connection refused, or our own abort/timeout: the
-        // endpoint did not answer. The token never enters the error payload.
-        throw err.pluginUnreachable("bridge request failed", {
-          ...(r.plugin ? { plugin: r.plugin } : {}),
-        });
-      } finally {
-        clearTimeout(timer);
-      }
+      const res = await doFetch(`${base}${prefix}${r.path}`, r);
 
       let env: BridgeEnvelope | undefined;
       try {
@@ -128,6 +148,17 @@ export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
         ...(r.plugin ? { plugin: r.plugin } : {}),
         http_status: res.status,
       });
+    },
+    async requestNative<T>(r: BridgeRequest): Promise<NativeResponse<T>> {
+      // NO api prefix: Local REST API's own routes live at the server root (e.g. /commands/).
+      const res = await doFetch(`${base}${r.path}`, r);
+      let data: T | null = null;
+      try {
+        data = (await res.json()) as T;
+      } catch {
+        data = null; // empty body (e.g. a 204) or a non-JSON payload.
+      }
+      return { status: res.status, ok: res.ok, data };
     },
   };
 }

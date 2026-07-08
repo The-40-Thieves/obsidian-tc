@@ -33,4 +33,5 @@ export {
   createBridgeClient,
   DEFAULT_API_PREFIX,
   DEFAULT_BRIDGE_TIMEOUT_MS,
+  type NativeResponse,
 } from "./transport";
