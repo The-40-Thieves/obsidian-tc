@@ -4,7 +4,7 @@
 
 **Goal:** Add a Linux `WindowSource` backend to the sensor via AT-SPI (the desktop-agnostic accessibility D-Bus service present on GNOME, KDE, and most other Linux desktops with assistive technology enabled), reusing every piece of Phase 1's platform-agnostic core unchanged.
 
-**Architecture:** Same trait-boundary approach as Phase 2 — implement `WindowSource` for `LinuxWindowSource`, wire it into `main.rs`'s platform selection, add systemd-user-unit autostart. **Read this before starting implementation:** unlike macOS's `osascript`/JXA and Windows' PowerShell/.NET UI Automation — both long-stable, thoroughly documented scripting surfaces I have high confidence in — the Rust `atspi` crate's exact async API surface is the one piece of this whole three-phase plan I do not have high confidence is written correctly from memory. Task 1 below isolates that uncertainty into one small, clearly-marked function and gives it an explicit verification step rather than shipping possibly-wrong code silently. Everything else in this phase (connection lifecycle, the sync/async bridge, the trait implementation, the pure data mapping, systemd unit generation) is written with the same confidence as Phases 1–2.
+**Architecture:** Same trait-boundary approach as Phase 2 — implement `WindowSource` for `LinuxWindowSource`, wire it into `main.rs`'s platform selection, add systemd-user-unit autostart. **Update:** this plan originally flagged the Rust `atspi` crate's async API as the one piece of the whole three-phase plan written from memory without high confidence, unlike macOS's `osascript`/JXA and Windows' PowerShell/.NET UI Automation (both long-stable, thoroughly documented scripting surfaces). That uncertainty has since been resolved by fetching `odilia-app/atspi`'s own published examples (`currently-focused-frame.rs`, `selected-text.rs`) directly — the active-frame-finding logic in Task 1 is now confirmed against real, current (v0.30.0) crate code rather than guessed. One narrower piece remains best-effort: the text-content sub-lookup within the active frame goes beyond what those examples directly demonstrate (they find the active window, not text within it), so Task 1's manual verification step (Step 6) should confirm that specific inner loop against a live session.
 
 **Tech Stack:** Rust (`atspi` crate for AT-SPI D-Bus access, `tokio` current-thread runtime to bridge its async API into the sync `WindowSource` trait), systemd user units for autostart.
 
@@ -14,7 +14,7 @@
 
 - AT-SPI requires assistive technology to be enabled on the session (e.g. GNOME: `gsettings set org.gnome.desktop.interface toolkit-accessibility true`; this is often on by default when any AT-SPI client has ever connected, but must not be assumed). The sensor's probe status (`permission_status`, Phase 1 Task 6) should report `"denied"` when the accessibility bus is unreachable, not crash.
 - Wayland vs. X11 is not a fork point for AT-SPI itself (it's a D-Bus service independent of the display protocol), but it is exactly why AT-SPI — not a display-server-specific window-inspection API — is the right choice for this platform.
-- **The exact `atspi` crate call chain in Task 1 must be verified against the crate version pinned in `Cargo.toml` before this phase is considered done** — see Task 1's explicit verification step. This is a bounded, named research step, not an open-ended gap.
+- The active-frame-finding portion of the `atspi` crate call chain in Task 1 is confirmed against the crate's own current (v0.30.0) published examples. The text-content sub-lookup is best-effort beyond those examples and should be confirmed against a live session per Task 1's Step 6 — narrower in scope than originally flagged, still worth checking before calling this phase done.
 - `main.rs`'s platform-selection `compile_error!` (last updated in Phase 2, Task 2) must be replaced with a real Linux branch, not simply removed.
 - Linux autostart uses a per-user systemd unit (`~/.config/systemd/user/`), not a system service — no root required, consistent with the least-privilege posture established in Phases 1–2.
 
@@ -115,43 +115,82 @@ impl WindowSource for LinuxWindowSource {
 }
 ```
 
-- [ ] **Step 4: Write the AT-SPI query function — VERIFY AGAINST CURRENT CRATE DOCS BEFORE TRUSTING THIS CODE**
+- [ ] **Step 4: Write the AT-SPI query function — now verified against the crate's own published examples**
 
-This is the one function in the entire three-phase plan that carries real external-API uncertainty. Add the dependency, write the function below as a starting point, then **stop and complete the verification sub-steps that follow before considering this task done**:
+*(Updated after implementation-time research: the code below was originally a best-guess and is now replaced with an approach confirmed directly against `odilia-app/atspi`'s own `atspi/examples/currently-focused-frame.rs` and `atspi/examples/selected-text.rs`, current crate version 0.30.0 as of this check. The real API is traversal-based — registry → top-level apps → each app's child frames → the one with `State::Active` — which is actually a better fit for a synchronous poll loop than the event-stream pattern I'd originally guessed at, since it needs no background listener task.)*
 
 ```toml
 # packages/sensor/Cargo.toml
 [target.'cfg(target_os = "linux")'.dependencies]
-atspi = "0.24"
-tokio = { version = "1", features = ["rt"] }
+atspi = "0.30"
+atspi-proxies = "0.30"
+tokio = { version = "1", features = ["rt-multi-thread"] }
 ```
 
 ```rust
 // packages/sensor/src/linux_window_source.rs — add above the WindowSource impl
-/// Queries the AT-SPI accessibility bus for the currently focused accessible object and
-/// returns (app_name, app_id, window_title, text). Returns None when the accessibility bus
-/// is unreachable (assistive technology not enabled) or no element currently has focus.
+use atspi::State;
+use atspi_proxies::accessible::ObjectRefExt;
+
+/// Queries the AT-SPI accessibility bus for the currently active frame (window) and
+/// returns (app_name, app_bus_name, window_title, text). Returns None when the
+/// accessibility bus is unreachable (assistive technology not enabled) or no frame is
+/// currently active. Confirmed against atspi 0.30.0's own currently-focused-frame.rs
+/// example: walk the registry's top-level apps, then each app's child frames, and find
+/// the one frame with State::Active.
 ///
-/// VERIFICATION REQUIRED: the exact method names/return types below are written against my
-/// best understanding of the `atspi` crate's async API shape (connect -> get the focused
-/// object via its event stream or the desktop's focused-state search -> read the
-/// Accessible and Text interface proxies), but this crate's API is less universally stable
-/// than macOS's AppleScript/System Events or Windows' .NET UI Automation, both decades-old
-/// scripting surfaces used elsewhere in this plan. Before merging this task:
-///   1. Check the `atspi` crate's current README/examples for the pinned version in Cargo.toml.
-///   2. Confirm the connection type name, the call to find the focused accessible object,
-///      and the Text-interface content-retrieval call against those examples.
-///   3. Adjust the function body to match, keeping its signature
-///      (`async fn query_focused_accessible() -> Option<(String, String, String, String)>`)
-///      unchanged so Step 3's code above does not need to change.
+/// Text content is a best-effort addition beyond what that example covers (it only finds
+/// the active frame/window, not text within it): this walks the active frame's immediate
+/// children for one exposing a Text interface, mirroring the macOS JXA script's same
+/// best-effort-with-empty-fallback shape. If this narrower text-lookup step needs
+/// adjustment once exercised against a live desktop (Step 6), only this inner loop should
+/// need to change — the active-frame-finding logic above it is confirmed, not a guess.
 async fn query_focused_accessible() -> Option<(String, String, String, String)> {
-    let connection = atspi::AccessibilityConnection::new().await.ok()?;
-    let focused = connection.focused_object().await.ok()??;
-    let app_name = focused.name().await.unwrap_or_default();
-    let app_id = focused.accessible_id().await.map(|id| id.to_string()).unwrap_or_default();
-    let window_title = focused.parent_name().await.unwrap_or_default();
-    let text = focused.text_content().await.unwrap_or_default();
-    Some((app_name, app_id, window_title, text))
+    let atspi = atspi::AccessibilityConnection::new().await.ok()?;
+    let conn = atspi.connection();
+    let apps = atspi.root_accessible_on_registry().await.ok()?.get_children().await.ok()?;
+
+    for app in apps.iter() {
+        let app_proxy = app.clone().into_accessible_proxy(conn).await.ok()?;
+        let app_name = app_proxy.name().await.unwrap_or_default();
+        let app_bus_name = app.name().map(|n| n.to_string()).unwrap_or_default();
+
+        let Ok(children) = app_proxy.get_children().await else { continue };
+        for frame in children.iter() {
+            if frame.is_null() {
+                continue;
+            }
+            let Ok(frame_proxy) = frame.clone().into_accessible_proxy(conn).await else { continue };
+            let Ok(state) = frame_proxy.get_state().await else { continue };
+            if !state.contains(State::Active) {
+                continue;
+            }
+
+            let window_title = frame_proxy.name().await.unwrap_or_default();
+            let mut text = String::new();
+            if let Ok(frame_children) = frame_proxy.get_children().await {
+                for child in frame_children.iter() {
+                    if child.is_null() {
+                        continue;
+                    }
+                    if let Ok(child_proxy) = child.clone().into_accessible_proxy(conn).await {
+                        if let Ok(proxies) = child_proxy.proxies().await {
+                            if let Ok(text_proxy) = proxies.text().await {
+                                if let Ok(count) = text_proxy.character_count().await {
+                                    text = text_proxy.get_text(0, count).await.unwrap_or_default();
+                                    if !text.is_empty() {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return Some((app_name, app_bus_name, window_title, text));
+        }
+    }
+    None
 }
 ```
 
@@ -171,11 +210,10 @@ Expected: PASS (2 tests) — this only exercises `map_atspi_fields`, which has n
 ```bash
 # Ensure assistive technology is enabled (GNOME example; adjust for other desktops):
 gsettings set org.gnome.desktop.interface toolkit-accessibility true
-# Then, after completing the verification sub-steps in Step 4 and fixing the query
-# function if needed:
+# Then:
 cd packages/sensor && cargo run --bin obsidian-tc-sensor -- --server-url http://127.0.0.1:8765 --api-key <test-key>
 ```
-Focus a text editor with visible text and confirm a correct `WindowSnapshot` is produced (add a temporary `eprintln!` in `poll_loop.rs`, removed before commit, same as Phases 1–2's manual verification steps). Record the actual working call chain in the task's PR description — if Step 4's starting-point code needed corrections, note what changed so the next reader isn't surprised by a diff between this plan and the merged code.
+Focus a text editor with visible text and confirm a correct `WindowSnapshot` is produced (add a temporary `eprintln!` in `poll_loop.rs`, removed before commit, same as Phases 1–2's manual verification steps). The active-frame app name/window title should work as directly confirmed by the crate's own example; pay particular attention to whether the text-content sub-lookup actually finds text in common editors/browsers — if it comes back empty more often than expected, the inner child-walking loop in Step 4 is the piece to adjust (e.g., searching more than one level of children, or checking `State::Focused` rather than just presence of a Text interface), not the active-frame-finding logic above it.
 
 - [ ] **Step 7: Commit**
 
@@ -379,10 +417,10 @@ git commit -m "feat(cli): register the sensor as a per-user systemd unit on Linu
 
 **Spec coverage:** covers §12's Linux backend obligation via the same `WindowSource` trait boundary as Phase 2. ✅
 
-**Placeholder scan:** the AT-SPI query function (Task 1, Step 4) is the one piece of this entire plan I flagged with an explicit, bounded verification requirement rather than presenting as certain — this is called out deliberately rather than hidden, and is scoped as a concrete 3-item checklist (check crate version's docs, confirm three specific calls, adjust body keeping the signature fixed), not an open-ended "figure it out later." No other placeholders found.
+**Placeholder scan:** the AT-SPI query function (Task 1, Step 4) was originally flagged with an explicit, bounded verification requirement rather than presented as certain; that verification has since been performed against the crate's own published examples (`odilia-app/atspi`, v0.30.0) and the code updated accordingly. The remaining best-effort text-lookup sub-step is called out specifically rather than glossed over. No other placeholders found.
 
 **Type consistency:** `WindowSnapshot`/`WindowSource` used identically to Phases 1–2. `LinuxAutostartConfig`/`registerLinuxAutostart` follow the same shape as Phase 2's `WindowsAutostartConfig`/`registerWindowsAutostart`.
 
 **Cross-phase consistency check:** confirmed `main.rs`'s cfg-gated platform selection in this phase's Task 2 is additive to (not a rewrite of) Phase 2's Task 2 — the macOS and Windows branches are carried forward unchanged, only the fallback `compile_error!` branch narrows further.
 
-**Residual honestly flagged, not silently accepted:** if Task 1's verification step (Step 4) finds the `atspi` crate's real API differs meaningfully from what's drafted, the fix stays local to `query_focused_accessible`'s body — nothing else in this phase or in Phases 1–2 depends on its internals, only on its fixed `async fn ... -> Option<(String, String, String, String)>` signature.
+**Residual honestly flagged, not silently accepted:** the active-frame-finding logic is now confirmed against real crate examples; if Task 1's live-session check (Step 6) finds the text-content sub-lookup needs adjustment, the fix stays local to `query_focused_accessible`'s inner child-walking loop — nothing else in this phase or in Phases 1–2 depends on its internals, only on its fixed `async fn ... -> Option<(String, String, String, String)>` signature.
