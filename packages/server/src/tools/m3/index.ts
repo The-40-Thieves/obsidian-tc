@@ -11,6 +11,7 @@ import { buildAttachmentTools } from "./attachment-tools";
 import { buildBaseTools } from "./base-tools";
 import { buildBookmarkTools } from "./bookmark-tools";
 import { buildCanvasTools } from "./canvas-tools";
+import { buildKanbanTools } from "./kanban-tools";
 import { buildPeriodicTools } from "./periodic-tools";
 import { buildTableTools } from "./table-tools";
 import { buildWorkspaceTools } from "./workspace-tools";
@@ -26,6 +27,7 @@ export interface M3Deps {
 
 export function registerM3Tools(registry: ToolRegistry, deps: M3Deps): void {
   for (const tool of buildCanvasTools(deps)) registry.register(tool);
+  for (const tool of buildKanbanTools(deps)) registry.register(tool);
   for (const tool of buildBaseTools(deps)) registry.register(tool);
   for (const tool of buildPeriodicTools(deps)) registry.register(tool);
   for (const tool of buildTableTools(deps)) registry.register(tool);
