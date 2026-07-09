@@ -40,4 +40,14 @@ describe("loadConfig", () => {
   it("rejects an invalid config", () => {
     expect(() => loadConfig(writeConfig({ vaults: [] }))).toThrow();
   });
+
+  it("strips a leading UTF-8 BOM before parsing (THE-185)", () => {
+    const p = join(dir, "bom.json");
+    writeFileSync(
+      p,
+      `\uFEFF${JSON.stringify({ vaults: [{ id: "v1", path: "/tmp/v1" }] })}`,
+      "utf8",
+    );
+    expect(loadConfig(p).vaults[0]?.id).toBe("v1");
+  });
 });

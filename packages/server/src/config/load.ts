@@ -42,6 +42,10 @@ export function finalizeConfig(raw: Record<string, unknown>): ServerConfig {
  * supplied via OBSIDIAN_TC_JWT_SECRET to keep it out of the file on disk.
  */
 export function loadConfig(path: string): ServerConfig {
-  const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  // Strip a leading UTF-8 BOM (e.g. PowerShell `Set-Content -Encoding utf8`) before parse (THE-185).
+  const raw = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as Record<
+    string,
+    unknown
+  >;
   return finalizeConfig(raw);
 }

@@ -243,6 +243,10 @@ export function startHttp(
           close: () =>
             new Promise<void>((done) => {
               server.close(() => done());
+              // THE-186: force idle keep-alive sockets shut so close() resolves promptly instead
+              // of waiting out Node's ~4s keep-alive drain (the standalone SSE GET the stateless
+              // server 405s leaves an idle socket behind; also tightens production shutdown).
+              (server as { closeIdleConnections?: () => void }).closeIdleConnections?.();
             }),
         });
       },
