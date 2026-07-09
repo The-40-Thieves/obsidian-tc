@@ -233,3 +233,26 @@ CREATE TABLE event_log (
 
 CREATE INDEX idx_event_log_ts      ON event_log(ts);
 CREATE INDEX idx_event_log_tool_ts ON event_log(tool_name, ts);
+
+-- ============================================================================
+-- THE-374: point-in-time note snapshots (restore_note)
+-- ============================================================================
+
+CREATE TABLE snapshot_blobs (
+  vault_id TEXT NOT NULL,
+  hash     TEXT NOT NULL,
+  content  TEXT NOT NULL,
+  size     INTEGER NOT NULL,
+  PRIMARY KEY (vault_id, hash)
+);
+
+CREATE TABLE note_snapshots (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  vault_id   TEXT NOT NULL,
+  path       TEXT NOT NULL,
+  hash       TEXT NOT NULL,
+  op         TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_note_snapshots_path ON note_snapshots(vault_id, path, id);

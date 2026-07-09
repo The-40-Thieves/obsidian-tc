@@ -15,6 +15,7 @@ import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { captureSnapshot } from "../../vault/snapshots";
 import { defineTool } from "./define";
 import type { M1Deps } from "./index";
 
@@ -209,10 +210,12 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         let fm: Frontmatter = {};
         let rawFm: string | null = null;
         let prevHash: string | null = null;
+        let prevRaw: string | null = null;
         if (ex.exists) {
           if (ex.type === "folder") throw err.invalidInput("path is a folder", { path: rel });
           const cur = readNote(abs);
           prevHash = cur.hash;
+          prevRaw = cur.raw;
           if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
             throw err.concurrentModification("note changed since prev_hash", {
               path: rel,
@@ -271,6 +274,16 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           path: rel,
           operation: input.operation,
         });
+        if (prevRaw !== null)
+          captureSnapshot(
+            ctx.db,
+            deps.snapshots,
+            v.id,
+            rel,
+            prevRaw,
+            "update_frontmatter",
+            ctx.now,
+          );
 
         const hasKeys = Object.keys(next).length > 0;
         const content = serializeNote(hasKeys ? next : null, body, rawFm);

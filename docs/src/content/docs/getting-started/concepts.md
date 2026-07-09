@@ -11,7 +11,7 @@ memory folder, command allowlist). Every tool call targets one vault.
 
 ## Tools
 
-The server groups **~105 typed tools across modules M1–M7 plus admin** — notes,
+The server groups **~109 typed tools across modules M1–M7 plus admin** — notes,
 metadata, links, search, embeddings, structured formats (Bases, Canvas, periodic
 notes), plugin bridges, memory, capture, bulk operations, URI generation, and
 server admin. Each tool has a Zod-validated input schema, derived MCP annotations,

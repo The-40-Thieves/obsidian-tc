@@ -238,6 +238,16 @@ export const ObservabilityConfigSchema = z.object({
 });
 export type ObservabilityConfig = z.infer<typeof ObservabilityConfigSchema>;
 
+// THE-374: point-in-time snapshot policy. When enabled, destructive note writes first capture
+// the prior state (content-addressed) so restore_note can roll back; retention caps versions/note.
+export const SnapshotsConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    retention: z.number().int().positive().max(1000).default(10),
+  })
+  .prefault({});
+export type SnapshotsConfig = z.infer<typeof SnapshotsConfigSchema>;
+
 // THE-292 — periodic cache.db maintenance sweep (expired idempotency/elicit rows + event_log
 // retention + PRAGMA optimize). Fully defaulted: a config predating it validates unchanged.
 export const MaintenanceConfigSchema = z
@@ -317,6 +327,7 @@ const ServerConfigObject = z.object({
   throttle: ThrottleConfigSchema,
   observability: ObservabilityConfigSchema.prefault({}),
   maintenance: MaintenanceConfigSchema,
+  snapshots: SnapshotsConfigSchema,
   plane: PlaneConfigSchema,
   idempotencyTtlSeconds: z.number().int().positive().default(86400),
   // THE-293: window (seconds) after which a crashed in-flight idempotency row may be reclaimed

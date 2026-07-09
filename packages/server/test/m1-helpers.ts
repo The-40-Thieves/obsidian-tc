@@ -24,6 +24,7 @@ export interface TestVaultOptions {
   files?: Record<string, string>;
   acl?: Partial<AclConfigT>;
   vaultId?: string;
+  snapshots?: { enabled: boolean; retention: number };
   requireCas?: boolean;
 }
 
@@ -74,6 +75,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     version: "test",
     startedAt: 0,
     embeddings: { provider: "ollama", model: "nomic-embed-text" },
+    snapshots: opts.snapshots,
     requireCas: opts.requireCas,
   });
 

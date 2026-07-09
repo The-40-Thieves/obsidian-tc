@@ -109,6 +109,11 @@ const vaultEdgesVaultIdMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260703_001_vault_edges_vault_id.sql", import.meta.url)),
   "utf8",
 );
+// THE-374: point-in-time snapshot store (snapshot_blobs + note_snapshots) for restore_note.
+const snapshotsMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260709_001_snapshots.sql", import.meta.url)),
+  "utf8",
+);
 async function main(): Promise<void> {
   const cmd = parseCliArgs(process.argv.slice(2));
   if (cmd.kind === "version") {
@@ -176,6 +181,7 @@ async function main(): Promise<void> {
       { version: "20260626_002", sql: planeMigrationSql },
       { version: "20260702_001", sql: notesMigrationSql },
       { version: "20260703_001", sql: vaultEdgesVaultIdMigrationSql },
+      { version: "20260709_001", sql: snapshotsMigrationSql },
     ],
     { version: VERSION },
   );
@@ -400,6 +406,8 @@ async function main(): Promise<void> {
     startedAt,
     embeddings: { provider: config.embeddings.provider, model: config.embeddings.model },
     configPath,
+    // THE-374: config-gated snapshot-on-write policy (default off).
+    snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
     // THE-291 (3B): metadata tools read the notes table once the boot notes pass commits.
     metadataIndex: { hasFts, ready: () => indexHealth.notesReady },
     requireCas: config.writes.requireCas,

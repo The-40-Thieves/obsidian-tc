@@ -35,6 +35,7 @@ import {
 } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { rewriteLinks } from "../../vault/rewrite";
+import { captureSnapshot } from "../../vault/snapshots";
 import { defineTool } from "./define";
 import type { M1Deps } from "./index";
 
@@ -431,10 +432,12 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
         let prevHash: string | null = null;
         let prevEmpty = true;
+        let prevRaw: string | null = null;
         if (ex.exists) {
           const cur = readNote(abs);
           prevHash = cur.hash;
           prevEmpty = cur.raw.length === 0;
+          prevRaw = cur.raw;
           if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
             throw err.concurrentModification("note changed since prev_hash", {
               path: rel,
@@ -450,6 +453,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           prev_hash: prevHash,
         });
 
+        if (prevRaw !== null)
+          captureSnapshot(ctx.db, deps.snapshots, v.id, rel, prevRaw, "write_note", ctx.now);
         writeNoteAtomic(abs, input.content, input.options.create_dirs);
         deps.reindex?.(v.id, rel, input.content);
         return {
@@ -479,6 +484,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           throw err.invalidInput("path is a folder", { path: rel });
 
         let prevHash: string | null = null;
+        let prevRaw: string | null = null;
         let next: string;
         if (ex.exists) {
           if (deps.requireCas && input.prev_hash === undefined)
@@ -488,6 +494,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
             );
           const cur = readNote(abs);
           prevHash = cur.hash;
+          prevRaw = cur.raw;
           if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
             throw err.concurrentModification("note changed since prev_hash", {
               path: rel,
@@ -505,6 +512,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           next = input.content;
         }
 
+        if (prevRaw !== null)
+          captureSnapshot(ctx.db, deps.snapshots, v.id, rel, prevRaw, "append_note", ctx.now);
         writeNoteAtomic(abs, next, input.options.create_dirs);
         deps.reindex?.(v.id, rel, next);
         return {
@@ -570,6 +579,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
             { path: rel, anchor },
           );
         const next = serializeNote(parsed.frontmatter, patchedBody, parsed.rawFrontmatter);
+        captureSnapshot(ctx.db, deps.snapshots, v.id, rel, raw, "patch_note", ctx.now);
         writeNoteAtomic(abs, next, false);
         deps.reindex?.(v.id, rel, next);
         return {
@@ -599,13 +609,14 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
-        const { hash } = readNote(abs);
+        const { raw, hash } = readNote(abs);
         if (input.prev_hash !== undefined && input.prev_hash !== hash)
           throw err.concurrentModification("note changed since prev_hash", {
             path: rel,
             expected: input.prev_hash,
             actual: hash,
           });
+        captureSnapshot(ctx.db, deps.snapshots, v.id, rel, raw, "delete_note", ctx.now);
         let trashedTo: string | null = null;
         if (input.permanent) hardDelete(abs);
         else trashedTo = trashNote(v.root, rel);
@@ -666,7 +677,18 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         // On overwrite, soft-delete the destination first so its content is recoverable
         // (the source is hardDelete'd below, but its content survives at toRel).
         let trashedDestTo: string | null = null;
-        if (overwriteExisting) trashedDestTo = trashNote(v.root, toRel);
+        if (overwriteExisting) {
+          captureSnapshot(
+            ctx.db,
+            deps.snapshots,
+            v.id,
+            toRel,
+            readNote(toAbs).raw,
+            "move_note",
+            ctx.now,
+          );
+          trashedDestTo = trashNote(v.root, toRel);
+        }
         writeNoteAtomic(toAbs, raw, input.options.create_dirs);
         hardDelete(fromAbs);
         // THE-291: keep the search index coherent across the move — drop the source path,
@@ -724,7 +746,18 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
         const { raw, hash } = readNote(fromAbs);
         let trashedDestTo: string | null = null;
-        if (overwriteExisting) trashedDestTo = trashNote(v.root, toRel);
+        if (overwriteExisting) {
+          captureSnapshot(
+            ctx.db,
+            deps.snapshots,
+            v.id,
+            toRel,
+            readNote(toAbs).raw,
+            "copy_note",
+            ctx.now,
+          );
+          trashedDestTo = trashNote(v.root, toRel);
+        }
         writeNoteAtomic(toAbs, raw, input.options.create_dirs);
         deps.reindex?.(v.id, toRel, raw);
         return {
