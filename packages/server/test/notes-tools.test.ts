@@ -410,3 +410,48 @@ describe("Domain 2: file/note CRUD", () => {
     }
   });
 });
+
+describe("THE-252 writes.requireCas (config-gated strict CAS)", () => {
+  it("requires prev_hash on overwrite + append-to-existing when enabled", async () => {
+    const v = makeTestVault({ files: { "a.md": "old" }, requireCas: true });
+    try {
+      const ow = await v.call("write_note", {
+        vault: "test",
+        path: "a.md",
+        content: "new",
+        mode: "overwrite",
+      });
+      expect(ow.ok).toBe(false);
+      if (!ow.ok) expect(ow.error.code).toBe("invalid_input");
+
+      const ap = await v.call("append_note", { vault: "test", path: "a.md", content: "x" });
+      expect(ap.ok).toBe(false);
+      if (!ap.ok) expect(ap.error.code).toBe("invalid_input");
+
+      // with the correct prev_hash it passes the CAS gate and reaches the HITL floor (non-empty overwrite)
+      const cur = await v.call("read_note", { vault: "test", path: "a.md" });
+      const prev_hash = cur.ok ? (cur.data as { content_hash: string }).content_hash : "";
+      const okHash = await v.call("write_note", {
+        vault: "test",
+        path: "a.md",
+        content: "new",
+        mode: "overwrite",
+        prev_hash,
+      });
+      expect(okHash.ok).toBe(false);
+      if (!okHash.ok) expect(okHash.error.code).toBe("elicit_required");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("default (requireCas off) still allows overwrite/append without prev_hash", async () => {
+    const v = makeTestVault({ files: { "a.md": "line1" } });
+    try {
+      const ap = await v.call("append_note", { vault: "test", path: "a.md", content: "line2" });
+      expect(ap.ok).toBe(true);
+    } finally {
+      v.cleanup();
+    }
+  });
+});

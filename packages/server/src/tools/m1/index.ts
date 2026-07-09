@@ -22,6 +22,8 @@ export interface M1Deps {
   /** THE-291 (3B): metadata-index readiness. ready() flips when the boot reconcile's notes pass
    *  committed (independent of embedding success). Absent (tests) -> disk scans. */
   metadataIndex?: { hasFts: boolean; ready: () => boolean };
+  /** THE-252: when true, write_note (overwrite) + append_note to an existing note require prev_hash. */
+  requireCas?: boolean;
 }
 
 export function registerM1Tools(registry: ToolRegistry, deps: M1Deps): void {

@@ -24,6 +24,7 @@ export interface TestVaultOptions {
   files?: Record<string, string>;
   acl?: Partial<AclConfigT>;
   vaultId?: string;
+  requireCas?: boolean;
 }
 
 export interface EventRow {
@@ -73,6 +74,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     version: "test",
     startedAt: 0,
     embeddings: { provider: "ollama", model: "nomic-embed-text" },
+    requireCas: opts.requireCas,
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

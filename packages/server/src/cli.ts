@@ -402,6 +402,7 @@ async function main(): Promise<void> {
     configPath,
     // THE-291 (3B): metadata tools read the notes table once the boot notes pass commits.
     metadataIndex: { hasFts, ready: () => indexHealth.notesReady },
+    requireCas: config.writes.requireCas,
     reindex: (vaultId, path, content) => {
       void indexNote(
         db,

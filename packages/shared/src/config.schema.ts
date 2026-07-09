@@ -187,6 +187,17 @@ export const ThrottleConfigSchema = z
   .prefault({});
 export type ThrottleConfig = z.infer<typeof ThrottleConfigSchema>;
 
+// THE-252: write-safety policy. requireCas gates compare-and-swap on the destructive write paths.
+export const WritesConfigSchema = z
+  .object({
+    // When true, write_note (overwrite) and append_note to an existing note REQUIRE a prev_hash
+    // (compare-and-swap) and fail closed with invalid_input when it is absent, so a stale or absent
+    // hash cannot silently clobber. Default off; the non-configurable hard default is deferred to a major.
+    requireCas: z.boolean().default(false),
+  })
+  .prefault({});
+export type WritesConfig = z.infer<typeof WritesConfigSchema>;
+
 // Observability config (G2.4 §Observability — finalized in M7/THE-183). Three opt-in
 // export streams plus retention, all fully defaulted so a config predating M7 validates
 // unchanged. OTEL is a no-op unless `otel.endpoint` is set; the Prometheus `/metrics`
@@ -300,6 +311,7 @@ const ServerConfigObject = z.object({
   embeddings: EmbeddingsConfigSchema.prefault({}),
   transports: TransportsConfigSchema.prefault({}),
   governor: GovernorConfigSchema.prefault({}),
+  writes: WritesConfigSchema,
   toolVisibility: ToolVisibilityConfigSchema.optional(),
   toolFacade: ToolFacadeConfigSchema.prefault({}),
   throttle: ThrottleConfigSchema,

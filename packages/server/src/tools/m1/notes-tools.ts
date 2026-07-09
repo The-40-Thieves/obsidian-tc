@@ -348,6 +348,11 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           throw err.noteExists("note already exists; use overwrite or upsert", { path: rel });
         if (input.mode === "overwrite" && !ex.exists)
           throw err.noteNotFound("note does not exist; use create or upsert", { path: rel });
+        if (deps.requireCas && input.mode === "overwrite" && input.prev_hash === undefined)
+          throw err.invalidInput(
+            "prev_hash is required for overwrite when writes.requireCas is enabled; read the note first",
+            { path: rel },
+          );
 
         let prevHash: string | null = null;
         let prevEmpty = true;
@@ -401,6 +406,11 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         let prevHash: string | null = null;
         let next: string;
         if (ex.exists) {
+          if (deps.requireCas && input.prev_hash === undefined)
+            throw err.invalidInput(
+              "prev_hash is required to append to an existing note when writes.requireCas is enabled; read the note first",
+              { path: rel },
+            );
           const cur = readNote(abs);
           prevHash = cur.hash;
           if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
