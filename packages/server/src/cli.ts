@@ -31,7 +31,7 @@ import { auditJob } from "./plane/jobs/audit";
 import { checkContradictions } from "./plane/jobs/contradiction";
 import { synthesisJob } from "./plane/jobs/synthesis";
 import { SleepTimePlane, startPlaneScheduler } from "./plane/plane";
-import { createPlurClient } from "./plur/client";
+import { createPlurBackend } from "./plur/client";
 import { ensureNotesFts } from "./search/fts";
 import {
   deindexNote,
@@ -551,8 +551,9 @@ async function main(): Promise<void> {
 
   // M5 memory/capture substrate (THE-181): capture/memory/workspace are in-process
   // SQLite (+ vault file writes via the M1 path primitives); plur is a global read-only
-  // proxy over a config/env endpoint that degrades to plugin_missing when unconfigured.
-  const plurClient = createPlurClient(config.plur);
+  // proxy that degrades to plugin_missing when unconfigured. THE-208: config.plur.command routes
+  // to the local plur CLI; config.plur.endpoint to an HTTP (Enterprise) read-API.
+  const plurClient = createPlurBackend(config.plur);
   registerM5Tools(registry, {
     vaultRegistry,
     activeSessions,

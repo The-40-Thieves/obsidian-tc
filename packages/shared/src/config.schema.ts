@@ -279,6 +279,11 @@ export const PlurConfigSchema = z.object({
   apiKey: z.string().optional(),
   apiPrefix: z.string().default(""),
   timeoutMs: z.number().int().positive().default(5000),
+  // THE-208: local plur bridge. plur ships no HTTP read-API (CLI + stdio-MCP + a local YAML
+  // store); when `command` is set the plur read tools shell out to the local plur CLI instead
+  // of the (Enterprise-only) HTTP endpoint. argv prefix, e.g. ["plur"] or
+  // ["node", "/abs/@plur-ai/cli/dist/index.js"]. Takes precedence over `endpoint`.
+  command: z.array(z.string().min(1)).min(1).optional(),
 });
 export type PlurConfig = z.infer<typeof PlurConfigSchema>;
 

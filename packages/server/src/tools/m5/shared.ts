@@ -4,7 +4,7 @@
 // writes for materialization/JSONL/commit); only `plur` reaches an external service,
 // and it is GLOBAL (one client, no per-vault wiring) because the engram store is
 // global and the plur tools take no `vault` argument.
-import type { BridgeClient } from "../../bridge";
+import type { PlurClient } from "../../plur/client";
 import type { VaultRegistry } from "../../vault/registry";
 import type { ActiveSessionTracker } from "../../workspace/sessions";
 
@@ -19,8 +19,8 @@ export interface M5Deps {
   reindex?: (vaultId: string, path: string, content: string) => void;
   /** THE-209: active-session tracker; start_session/end_session maintain it, the transport reads it. */
   activeSessions?: ActiveSessionTracker;
-  /** Global plur read client; undefined when no plur endpoint is configured. */
-  plur?: BridgeClient;
+  /** Global plur read client (HTTP endpoint or local CLI); undefined when unconfigured. */
+  plur?: PlurClient;
   /** Per-vault memory materialization folder; defaults to "memory". */
   memoryFolder?: (vaultId: string) => string;
   /** Per-vault workspace trace folder; defaults to ".obsidian-tc/traces". */

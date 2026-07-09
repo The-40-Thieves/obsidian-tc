@@ -13,6 +13,10 @@
 // Authorization header by createBridgeClient — never logged, never in an error.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { type BridgeClient, type BridgeFetch, createBridgeClient } from "../bridge";
+import { createLocalPlurClient } from "./local";
+
+/** The narrow read surface both the HTTP bridge client and the local-CLI client satisfy. */
+export type PlurClient = Pick<BridgeClient, "request">;
 
 export interface PlurClientConfig {
   /** plur read-API base URL, e.g. http://127.0.0.1:7077. Absent -> no client. */
@@ -48,7 +52,19 @@ export function createPlurClient(cfg: PlurClientConfig | undefined): BridgeClien
  * plugin_missing WITHOUT touching the network; a configured-but-unreachable endpoint
  * degrades to plugin_unreachable later, at request time, via the transport's catch.
  */
-export function openPlur(client: BridgeClient | undefined): BridgeClient {
+export function openPlur(client: PlurClient | undefined): PlurClient {
   if (!client) throw err.pluginMissing("plur endpoint not configured", { plugin: "plur" });
   return client;
+}
+
+/**
+ * Select a plur backend from config. A `command` (local plur CLI, THE-208) takes precedence over an
+ * HTTP `endpoint`; with neither, returns undefined and every plur tool degrades to plugin_missing.
+ */
+export function createPlurBackend(
+  cfg: (PlurClientConfig & { command?: string[] }) | undefined,
+): PlurClient | undefined {
+  if (cfg?.command && cfg.command.length > 0)
+    return createLocalPlurClient({ command: cfg.command, timeoutMs: cfg.timeoutMs });
+  return createPlurClient(cfg);
 }
