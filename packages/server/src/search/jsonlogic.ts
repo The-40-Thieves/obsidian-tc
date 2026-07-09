@@ -151,6 +151,77 @@ export function applyLogic(
       for (let i = 0; i < args.length; i++) s += String(ev(i) ?? "");
       return s;
     }
+    case "if":
+    case "?:": {
+      // {"if":[c1,v1,c2,v2,...,else]} — chained if/elseif/else; an odd trailing arg is the else.
+      for (let i = 0; i + 1 < args.length; i += 2) if (truthy(ev(i))) return ev(i + 1);
+      return args.length % 2 === 1 ? ev(args.length - 1) : null;
+    }
+    case "min":
+      return Math.min(...args.map((_, i) => num(ev(i))));
+    case "max":
+      return Math.max(...args.map((_, i) => num(ev(i))));
+    case "substr": {
+      const str = String(ev(0) ?? "");
+      const start = num(ev(1));
+      const from = start < 0 ? Math.max(str.length + start, 0) : start;
+      if (args.length <= 2) return str.slice(from);
+      const len = num(ev(2));
+      return len < 0 ? str.slice(from, str.length + len) : str.slice(from, from + len);
+    }
+    case "merge": {
+      const out: unknown[] = [];
+      for (let i = 0; i < args.length; i++) {
+        const x = ev(i);
+        if (Array.isArray(x)) out.push(...x);
+        else out.push(x);
+      }
+      return out;
+    }
+    case "missing_some": {
+      const min = num(ev(0));
+      const keys = ev(1);
+      if (!Array.isArray(keys)) return [];
+      const missing = keys.filter((k) => getPath(data, String(k)) === undefined);
+      return keys.length - missing.length >= min ? [] : missing;
+    }
+    // Array iteration: the second arg is a sub-rule run with each element as its data.
+    case "map": {
+      const arr = ev(0);
+      return Array.isArray(arr)
+        ? arr.map((it) => applyLogic(args[1], it as Record<string, unknown>, budget))
+        : [];
+    }
+    case "filter": {
+      const arr = ev(0);
+      return Array.isArray(arr)
+        ? arr.filter((it) => truthy(applyLogic(args[1], it as Record<string, unknown>, budget)))
+        : [];
+    }
+    case "reduce": {
+      const arr = ev(0);
+      if (!Array.isArray(arr)) return ev(2);
+      let acc = ev(2);
+      for (const it of arr) acc = applyLogic(args[1], { current: it, accumulator: acc }, budget);
+      return acc;
+    }
+    case "all": {
+      const arr = ev(0);
+      if (!Array.isArray(arr) || arr.length === 0) return false;
+      return arr.every((it) => truthy(applyLogic(args[1], it as Record<string, unknown>, budget)));
+    }
+    case "some": {
+      const arr = ev(0);
+      return Array.isArray(arr)
+        ? arr.some((it) => truthy(applyLogic(args[1], it as Record<string, unknown>, budget)))
+        : false;
+    }
+    case "none": {
+      const arr = ev(0);
+      return Array.isArray(arr)
+        ? !arr.some((it) => truthy(applyLogic(args[1], it as Record<string, unknown>, budget)))
+        : true;
+    }
     default:
       throw err.jsonlogicError(`unsupported JSONLogic operator: ${op}`, { op });
   }

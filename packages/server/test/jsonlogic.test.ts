@@ -92,3 +92,42 @@ describe("jsonlogic op budget (THE-293)", () => {
     expect(evaluatesTruthy(rule, data)).toBe(true);
   });
 });
+
+describe("THE-201 extended operators", () => {
+  const ev = (rule: unknown, d: Record<string, unknown> = {}) => applyLogic(rule, d);
+
+  it("if — chained conditional", () => {
+    expect(ev({ if: [{ ">": [{ var: "n" }, 10] }, "big", "small"] }, { n: 20 })).toBe("big");
+    expect(ev({ if: [false, "a", false, "b", "else"] })).toBe("else");
+  });
+
+  it("min / max / substr / merge / missing_some", () => {
+    expect(ev({ min: [3, 1, 2] })).toBe(1);
+    expect(ev({ max: [3, 1, 2] })).toBe(3);
+    expect(ev({ substr: ["hello", 1, 3] })).toBe("ell");
+    expect(ev({ substr: ["hello", -2] })).toBe("lo");
+    expect(ev({ merge: [[1, 2], [3], 4] })).toEqual([1, 2, 3, 4]);
+    expect(ev({ missing_some: [1, ["a", "b"]] }, { a: 1 })).toEqual([]);
+    expect(ev({ missing_some: [2, ["a", "b"]] }, { a: 1 })).toEqual(["b"]);
+  });
+
+  it("all / some / none over an array-valued field", () => {
+    const d = { tags: ["x", "y", "z"] };
+    expect(ev({ all: [{ var: "tags" }, { "!=": [{ var: "" }, ""] }] }, d)).toBe(true);
+    expect(ev({ some: [{ var: "tags" }, { "==": [{ var: "" }, "y"] }] }, d)).toBe(true);
+    expect(ev({ none: [{ var: "tags" }, { "==": [{ var: "" }, "q"] }] }, d)).toBe(true);
+    expect(ev({ all: [[], { var: "" }] })).toBe(false);
+  });
+
+  it("map / filter / reduce", () => {
+    expect(ev({ map: [[1, 2, 3], { "*": [{ var: "" }, 2] }] })).toEqual([2, 4, 6]);
+    expect(ev({ filter: [[1, 2, 3, 4], { ">": [{ var: "" }, 2] }] })).toEqual([3, 4]);
+    expect(
+      ev({ reduce: [[1, 2, 3], { "+": [{ var: "current" }, { var: "accumulator" }] }, 0] }),
+    ).toBe(6);
+  });
+
+  it("unknown operator still raises jsonlogic_error", () => {
+    expect(() => ev({ bogus: [1] })).toThrow(ObsidianTcError);
+  });
+});
