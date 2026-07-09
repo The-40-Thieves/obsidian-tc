@@ -242,3 +242,96 @@ describe("THE-251 find_notes_by_property terse projection", () => {
     }
   });
 });
+
+describe("THE-198 nested (dotted) property access", () => {
+  it("read_property nested=true traverses a dotted path", async () => {
+    const v = makeTestVault({
+      files: { "a.md": "---\nmeta:\n  author:\n    name: Ada\n---\nbody\n" },
+    });
+    try {
+      const hit = await v.call("read_property", {
+        vault: "test",
+        path: "a.md",
+        key: "meta.author.name",
+        nested: true,
+      });
+      if (hit.ok) expect(hit.data).toMatchObject({ value: "Ada", found: true });
+
+      const miss = await v.call("read_property", {
+        vault: "test",
+        path: "a.md",
+        key: "meta.author.ghost",
+        nested: true,
+      });
+      if (miss.ok) expect(miss.data).toMatchObject({ value: null, found: false });
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("update_frontmatter nested set creates intermediates; remove prunes the leaf", async () => {
+    const v = makeTestVault({ files: { "a.md": "---\nk: 1\n---\nbody\n" } });
+    try {
+      const set = await v.call("update_frontmatter", {
+        vault: "test",
+        path: "a.md",
+        operation: "set",
+        key: "meta.author.name",
+        value: "Ada",
+        nested: true,
+      });
+      expect(set.ok).toBe(true);
+      const read1 = await v.call("read_property", {
+        vault: "test",
+        path: "a.md",
+        key: "meta.author.name",
+        nested: true,
+      });
+      if (read1.ok) expect(read1.data).toMatchObject({ value: "Ada", found: true });
+
+      const rm = await v.call("update_frontmatter", {
+        vault: "test",
+        path: "a.md",
+        operation: "remove",
+        key: "meta.author.name",
+        nested: true,
+      });
+      expect(rm.ok).toBe(true);
+      const read2 = await v.call("read_property", {
+        vault: "test",
+        path: "a.md",
+        key: "meta.author.name",
+        nested: true,
+      });
+      if (read2.ok) expect(read2.data).toMatchObject({ found: false });
+      const k = await v.call("read_property", { vault: "test", path: "a.md", key: "k" });
+      if (k.ok) expect(k.data).toMatchObject({ value: 1, found: true });
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("find_notes_by_property nested=true matches a dotted path", async () => {
+    const v = makeTestVault({
+      files: {
+        "a.md": "---\nmeta:\n  kind: note\n---\n",
+        "b.md": "---\nmeta:\n  kind: task\n---\n",
+      },
+    });
+    try {
+      const hits = await v.call("find_notes_by_property", {
+        vault: "test",
+        key: "meta.kind",
+        value: "note",
+        nested: true,
+      });
+      if (hits.ok) {
+        const d = hits.data as { total: number; matches: Array<{ path: string }> };
+        expect(d.total).toBe(1);
+        expect(d.matches[0]?.path).toBe("a.md");
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+});

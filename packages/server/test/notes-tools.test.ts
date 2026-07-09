@@ -411,6 +411,71 @@ describe("Domain 2: file/note CRUD", () => {
   });
 });
 
+describe("THE-198 patch_note block + preamble anchors", () => {
+  it("patches relative to a block reference (^id)", async () => {
+    const v = makeTestVault({ files: { "a.md": "# H\npara one ^blk1\npara two ^blk2\n" } });
+    try {
+      const app = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        anchor: { type: "block", block_id: "blk1" },
+        content: "AFTER",
+      });
+      expect(app.ok).toBe(true);
+      expect(v.read("a.md")).toContain("para one ^blk1\nAFTER\npara two ^blk2");
+
+      const miss = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        anchor: { type: "block", block_id: "ghost" },
+        content: "x",
+      });
+      expect(miss.ok).toBe(false);
+      if (!miss.ok) expect(miss.error.code).toBe("invalid_input");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("patches the preamble above the first heading (anchor frontmatter)", async () => {
+    const v = makeTestVault({ files: { "a.md": "---\nk: 1\n---\nintro line\n# One\nbody\n" } });
+    try {
+      const pre = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "prepend",
+        anchor: { type: "frontmatter" },
+        content: "TOP",
+      });
+      expect(pre.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out).toContain("k: 1");
+      expect(out).toContain("---\nTOP\nintro line\n# One");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("rejects a patch with neither anchor nor target_heading", async () => {
+    const v = makeTestVault({ files: { "a.md": "# One\nx\n" } });
+    try {
+      const bad = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        content: "y",
+      });
+      expect(bad.ok).toBe(false);
+      // the refine rejection is a schema-shape violation -> validation_error (not handler invalid_input)
+      if (!bad.ok) expect(bad.error.code).toBe("validation_error");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
 describe("THE-252 writes.requireCas (config-gated strict CAS)", () => {
   it("requires prev_hash on overwrite + append-to-existing when enabled", async () => {
     const v = makeTestVault({ files: { "a.md": "old" }, requireCas: true });

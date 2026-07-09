@@ -100,6 +100,69 @@ function patchByHeading(
   return next.join(eol);
 }
 
+/** Escape a string for literal use inside a RegExp. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** THE-198: insert/replace content relative to a block reference (`^block-id`).
+ *  The block spans backward from the `^id` line to the paragraph start (a blank
+ *  line, a heading, or body start). Returns null when the block id is absent. */
+function patchByBlock(
+  body: string,
+  op: "append" | "prepend" | "replace",
+  blockId: string,
+  content: string,
+  eol: string,
+): string | null {
+  const lines = body.split(/\r?\n/);
+  const re = new RegExp(`(?:^|\\s)\\^${escapeRegExp(blockId)}\\s*$`);
+  let bi = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (re.test(lines[i] ?? "")) {
+      bi = i;
+      break;
+    }
+  }
+  if (bi < 0) return null;
+  let start = bi;
+  while (start > 0) {
+    const prev = lines[start - 1] ?? "";
+    if (prev.trim() === "" || HEADING.test(prev)) break;
+    start--;
+  }
+  const ins = content.split(/\r?\n/);
+  let next: string[];
+  if (op === "prepend") next = [...lines.slice(0, start), ...ins, ...lines.slice(start)];
+  else if (op === "append") next = [...lines.slice(0, bi + 1), ...ins, ...lines.slice(bi + 1)];
+  else next = [...lines.slice(0, start), ...ins, ...lines.slice(bi + 1)];
+  return next.join(eol);
+}
+
+/** THE-198: insert/replace content in the body preamble — the region above the
+ *  first heading (the frontmatter-adjacent top of the note). Always resolvable. */
+function patchByPreamble(
+  body: string,
+  op: "append" | "prepend" | "replace",
+  content: string,
+  eol: string,
+): string {
+  const lines = body.split(/\r?\n/);
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (HEADING.test(lines[i] ?? "")) {
+      end = i;
+      break;
+    }
+  }
+  const ins = content.split(/\r?\n/);
+  let next: string[];
+  if (op === "prepend") next = [...ins, ...lines];
+  else if (op === "append") next = [...lines.slice(0, end), ...ins, ...lines.slice(end)];
+  else next = [...ins, ...lines.slice(end)];
+  return next.join(eol);
+}
+
 /** Rewrite links in every other note that pointed at the moved note. Runs after
  *  the file has moved on disk; reconstructs the pre-move path set so old-target
  *  links still resolve to fromRel, then repoints them at the new location. */
@@ -167,16 +230,28 @@ const AppendInput = z
   })
   .strict();
 
+// THE-198: target a heading section, a block reference (^id), or the frontmatter preamble.
+const PatchAnchor = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("heading"), heading: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("block"), block_id: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("frontmatter") }).strict(),
+]);
+
 const PatchInput = z
   .object({
     vault: VaultId,
     path: VaultPath,
     operation: z.enum(["append", "prepend", "replace"]),
-    target_heading: z.string().min(1),
+    // Legacy shorthand, equivalent to anchor:{type:"heading",heading}. Retained for back-compat.
+    target_heading: z.string().min(1).optional(),
+    anchor: PatchAnchor.optional(),
     content: z.string(),
     prev_hash: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .refine((i) => i.anchor !== undefined || i.target_heading !== undefined, {
+    message: "either anchor or target_heading is required",
+  });
 
 const MoveInput = z
   .object({
@@ -446,7 +521,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "patch_note",
       description:
-        "Insert or replace content relative to a heading section (append/prepend/replace). Frontmatter is preserved.",
+        'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved.',
       inputSchema: PatchInput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
@@ -467,18 +542,33 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           });
         const eol = raw.includes("\r\n") ? "\r\n" : "\n";
         const parsed = parseNote(raw);
-        const patchedBody = patchByHeading(
-          parsed.body,
-          input.operation,
-          input.target_heading,
-          input.content,
-          eol,
-        );
+        const anchor = input.anchor ?? {
+          type: "heading" as const,
+          heading: input.target_heading as string,
+        };
+        let patchedBody: string | null;
+        if (anchor.type === "heading")
+          patchedBody = patchByHeading(
+            parsed.body,
+            input.operation,
+            anchor.heading,
+            input.content,
+            eol,
+          );
+        else if (anchor.type === "block")
+          patchedBody = patchByBlock(
+            parsed.body,
+            input.operation,
+            anchor.block_id,
+            input.content,
+            eol,
+          );
+        else patchedBody = patchByPreamble(parsed.body, input.operation, input.content, eol);
         if (patchedBody === null)
-          throw err.invalidInput("target heading not found", {
-            path: rel,
-            target_heading: input.target_heading,
-          });
+          throw err.invalidInput(
+            anchor.type === "block" ? "block reference not found" : "target heading not found",
+            { path: rel, anchor },
+          );
         const next = serializeNote(parsed.frontmatter, patchedBody, parsed.rawFrontmatter);
         writeNoteAtomic(abs, next, false);
         deps.reindex?.(v.id, rel, next);
@@ -486,7 +576,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           vault: v.id,
           path: rel,
           operation: input.operation,
-          target_heading: input.target_heading,
+          anchor,
+          ...(anchor.type === "heading" ? { target_heading: anchor.heading } : {}),
           content_hash: contentHash(next),
           prev_hash: hash,
         };

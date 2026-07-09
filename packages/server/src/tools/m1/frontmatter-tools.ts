@@ -4,7 +4,7 @@
 // writes re-emit via serializeNote and are content-addressed (prev_hash CAS ->
 // concurrent_modification). update_frontmatter's `replace` operation discards all
 // existing metadata, so it gates on confirmation via requireConfirmation; set/remove/
-// merge do not. Property keys are top-level (nested traversal is a later enhancement).
+// merge do not. Property keys are top-level by default; pass nested=true for dotted-path access (THE-198).
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch } from "../../acl";
@@ -41,6 +41,53 @@ function valueMatches(stored: unknown, query: unknown): boolean {
   return eq(stored, query);
 }
 
+// THE-198: dotted-path (nested) property access over frontmatter objects.
+/** Traverse a dotted path (e.g. ["meta","author","name"]) through nested objects. */
+function getByPath(
+  obj: Record<string, unknown>,
+  path: string[],
+): { found: boolean; value: unknown } {
+  let cur: unknown = obj;
+  for (const seg of path) {
+    if (cur === null || typeof cur !== "object" || Array.isArray(cur) || !Object.hasOwn(cur, seg))
+      return { found: false, value: null };
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return { found: true, value: cur };
+}
+
+/** Return a new object with the dotted path set, creating intermediate objects. */
+function setByPath(
+  obj: Record<string, unknown>,
+  path: string[],
+  value: unknown,
+): Record<string, unknown> {
+  const head = path[0];
+  if (head === undefined) return obj;
+  if (path.length === 1) return { ...obj, [head]: value };
+  const child = obj[head];
+  const childObj =
+    child !== null && typeof child === "object" && !Array.isArray(child)
+      ? (child as Record<string, unknown>)
+      : {};
+  return { ...obj, [head]: setByPath(childObj, path.slice(1), value) };
+}
+
+/** Return a new object with the leaf at the dotted path removed (a no-op when the
+ *  path does not resolve through objects). Intermediate objects are left in place. */
+function removeByPath(obj: Record<string, unknown>, path: string[]): Record<string, unknown> {
+  const head = path[0];
+  if (head === undefined) return obj;
+  if (path.length === 1) {
+    const copy = { ...obj };
+    delete copy[head];
+    return copy;
+  }
+  const child = obj[head];
+  if (child === null || typeof child !== "object" || Array.isArray(child)) return obj;
+  return { ...obj, [head]: removeByPath(child as Record<string, unknown>, path.slice(1)) };
+}
+
 // ── schemas ──────────────────────────────────────────────────────────────────
 
 const UpdateInput = z
@@ -53,6 +100,8 @@ const UpdateInput = z
     properties: z.record(z.string(), z.unknown()).optional(),
     prev_hash: z.string().optional(),
     create_if_missing: z.boolean().default(false),
+    // THE-198: treat `key` as a dotted path (e.g. meta.author.name) for set/remove.
+    nested: z.boolean().default(false),
   })
   .strict();
 
@@ -65,6 +114,8 @@ const FindInput = z
     limit: z.number().int().positive().max(1000).default(200),
     // THE-251: terse drops the matched value, returning path only.
     verbosity: z.enum(["full", "terse"]).default("full"),
+    // THE-198: match a dotted key path instead of a top-level key.
+    nested: z.boolean().default(false),
   })
   .strict();
 
@@ -107,8 +158,16 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "read_property",
-      description: "Read a single top-level frontmatter property from a note.",
-      inputSchema: z.object({ vault: VaultId, path: VaultPath, key: z.string().min(1) }).strict(),
+      description:
+        "Read a single frontmatter property. Set nested=true to address a dotted path (e.g. meta.author.name) through nested objects.",
+      inputSchema: z
+        .object({
+          vault: VaultId,
+          path: VaultPath,
+          key: z.string().min(1),
+          nested: z.boolean().default(false),
+        })
+        .strict(),
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -119,13 +178,16 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
         const fm = parseNote(readNote(abs).raw).frontmatter ?? {};
-        const found = Object.hasOwn(fm, input.key);
+        const g = input.nested
+          ? getByPath(fm, input.key.split("."))
+          : { found: Object.hasOwn(fm, input.key), value: fm[input.key] };
         return {
           vault: v.id,
           path: rel,
           key: input.key,
-          value: found ? fm[input.key] : null,
-          found,
+          value: g.found ? g.value : null,
+          found: g.found,
+          nested: input.nested,
         };
       },
     }),
@@ -133,7 +195,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "update_frontmatter",
       description:
-        "Mutate a note's frontmatter (set/remove/merge/replace). `replace` discards all existing metadata and requires confirmation. Optional prev_hash gives compare-and-swap.",
+        "Mutate a note's frontmatter (set/remove/merge/replace). `replace` discards all existing metadata and requires confirmation. Optional prev_hash gives compare-and-swap. Set nested=true to address a dotted key path for set/remove (intermediate objects are created as needed).",
       inputSchema: UpdateInput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
@@ -178,13 +240,19 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
                 "value is required for set (use null explicitly to store null)",
                 { key: input.key },
               );
-            next = { ...fm, [input.key]: input.value };
+            next = input.nested
+              ? setByPath(fm, input.key.split("."), input.value)
+              : { ...fm, [input.key]: input.value };
             break;
           }
           case "remove": {
             if (!input.key) throw err.invalidInput("key is required for remove");
-            next = { ...fm };
-            delete next[input.key];
+            if (input.nested) {
+              next = removeByPath(fm, input.key.split("."));
+            } else {
+              next = { ...fm };
+              delete next[input.key];
+            }
             break;
           }
           case "merge": {
@@ -273,7 +341,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "find_notes_by_property",
       description:
-        "Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list). Set verbosity=terse to return path only (dropping the matched value).",
+        "Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list). Set verbosity=terse to return path only (dropping the matched value). Set nested=true to match a dotted key path.",
       inputSchema: FindInput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
@@ -282,8 +350,12 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         const matches: Array<{ path: string; value: unknown }> = [];
         let truncated = false;
         const consider = (path: string, fm: Record<string, unknown> | null): boolean => {
-          if (!fm || !Object.hasOwn(fm, input.key)) return true;
-          const stored = fm[input.key];
+          if (!fm) return true;
+          const g = input.nested
+            ? getByPath(fm, input.key.split("."))
+            : { found: Object.hasOwn(fm, input.key), value: fm[input.key] };
+          if (!g.found) return true;
+          const stored = g.value;
           if (input.value !== undefined && !valueMatches(stored, input.value)) return true;
           if (matches.length >= input.limit) {
             truncated = true;
