@@ -1,6 +1,8 @@
 // Domain 1 — Multi-vault registry (G2.1 r2). list_vaults / get_vault (read:vault)
 // and reload_vault / reset_vault_cache (admin:vault). reset_vault_cache is the
 // first destructive tool: destructive:true engages the dispatch HITL gate.
+import { realpathSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { ElicitToken, err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { loadConfig } from "../../config/load";
@@ -56,6 +58,32 @@ const ResetInput = z
 
 export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
   return [
+    defineTool({
+      name: "add_vault",
+      description:
+        "Register a new vault at runtime (no restart). Validates the path is an existing directory, adds it to the registry, and indexes it for search. Runtime-only — add it to the config file to persist across restarts.",
+      inputSchema: z
+        .object({ vault_id: VaultId, path: z.string().min(1), name: z.string().min(1).optional() })
+        .strict(),
+      requiredScopes: ["admin:vault"],
+      handler: async (input) => {
+        if (deps.vaultRegistry.has(input.vault_id))
+          throw err.invalidInput(`vault already registered: ${input.vault_id}`, {
+            vault: input.vault_id,
+          });
+        let root: string;
+        try {
+          root = realpathSync(resolve(input.path));
+        } catch {
+          throw err.invalidInput("path does not exist", { path: input.path });
+        }
+        if (!statSync(root).isDirectory())
+          throw err.invalidInput("path is not a directory", { path: input.path });
+        const v = deps.vaultRegistry.register({ id: input.vault_id, path: root, name: input.name });
+        const index = deps.indexVault ? await deps.indexVault(v.id) : null;
+        return { id: v.id, name: v.name, path: v.root, indexed: index !== null, index };
+      },
+    }),
     defineTool({
       name: "list_vaults",
       description: "List configured vaults and their cache state.",

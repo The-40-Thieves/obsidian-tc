@@ -39,6 +39,28 @@ export class VaultRegistry {
     return v;
   }
 
+  /** THE-376: register a new vault at runtime (add_vault). Throws invalid_input if the id is
+   *  already taken. The path is resolved to an absolute root. */
+  register(v: {
+    id: string;
+    path: string;
+    name?: string;
+    restApiUrl?: string;
+    restApiKey?: string;
+  }): ResolvedVault {
+    if (this.byId.has(v.id))
+      throw err.invalidInput(`vault already registered: ${v.id}`, { vault: v.id });
+    const resolved: ResolvedVault = {
+      id: v.id,
+      name: v.name ?? v.id,
+      root: resolve(v.path),
+      restApiUrl: v.restApiUrl,
+      restApiKey: v.restApiKey,
+    };
+    this.byId.set(v.id, resolved);
+    return resolved;
+  }
+
   list(): ResolvedVault[] {
     return [...this.byId.values()];
   }

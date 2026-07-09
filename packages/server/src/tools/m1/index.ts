@@ -26,6 +26,9 @@ export interface M1Deps {
   /** THE-291 (3B): metadata-index readiness. ready() flips when the boot reconcile's notes pass
    *  committed (independent of embedding success). Absent (tests) -> disk scans. */
   metadataIndex?: { hasFts: boolean; ready: () => boolean };
+  /** THE-376: index a newly runtime-registered vault (add_vault). Absent in tests -> add_vault
+   *  registers only; filesystem tools work immediately and search populates on next reconcile. */
+  indexVault?: (vaultId: string) => Promise<{ notes_seen: number }>;
   /** THE-252: when true, write_note (overwrite) + append_note to an existing note require prev_hash. */
   requireCas?: boolean;
 }

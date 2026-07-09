@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
@@ -81,6 +84,40 @@ describe("Domain 1: multi-vault registry", () => {
       expect(reuse.ok).toBe(false);
       if (!reuse.ok) expect(reuse.error.code).toBe("elicit_required");
     } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("THE-376 add_vault (runtime registration)", () => {
+  it("registers a new vault at runtime, usable immediately; rejects dup id + missing path", async () => {
+    const v = makeTestVault();
+    const dir = mkdtempSync(join(tmpdir(), "obtc-addvault-"));
+    writeFileSync(join(dir, "hello.md"), "hi");
+    try {
+      const add = await v.call("add_vault", { vault_id: "extra", path: dir });
+      expect(add.ok).toBe(true);
+
+      const list = await v.call("list_vaults", {});
+      if (list.ok) {
+        const ids = (list.data as { vaults: Array<{ id: string }> }).vaults.map((x) => x.id);
+        expect(ids).toContain("extra");
+      }
+
+      // filesystem tools work against the new vault immediately (no index needed)
+      const read = await v.call("read_note", { vault: "extra", path: "hello.md" });
+      expect(read.ok).toBe(true);
+      if (read.ok) expect((read.data as { content: string }).content).toBe("hi");
+
+      const dup = await v.call("add_vault", { vault_id: "extra", path: dir });
+      expect(dup.ok).toBe(false);
+      if (!dup.ok) expect(dup.error.code).toBe("invalid_input");
+
+      const bad = await v.call("add_vault", { vault_id: "ghost", path: join(dir, "nope") });
+      expect(bad.ok).toBe(false);
+      if (!bad.ok) expect(bad.error.code).toBe("invalid_input");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
       v.cleanup();
     }
   });

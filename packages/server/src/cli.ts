@@ -400,6 +400,12 @@ async function main(): Promise<void> {
       indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
     }
   };
+  // indexReadable: ACL read-visibility filter shared by the boot reconcile and runtime add_vault.
+  const indexReadable = (rel: string): boolean => {
+    if (isDefaultDenied(rel)) return false;
+    if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
+    return acl.readPaths.some((g) => globMatch(g, rel));
+  };
   registerM1Tools(registry, {
     vaultRegistry,
     version: VERSION,
@@ -433,6 +439,23 @@ async function main(): Promise<void> {
         indexHealth.writeFailures++;
         indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
       }
+    },
+    // THE-376: runtime add_vault triggers a full index of the newly registered vault
+    // (mirrors the boot reconcile below). indexReadable is defined just above.
+    indexVault: async (vaultId) => {
+      const s = await indexVault({
+        db,
+        provider: embeddingProvider,
+        vaultId,
+        root: vaultRegistry.resolve(vaultId).root,
+        isReadable: indexReadable,
+        now: Date.now,
+        onIndexed: makeOnIndexed(vaultId),
+        onNotesPass: () => {
+          indexHealth.notesReady = true;
+        },
+      });
+      return { notes_seen: s.notes_seen };
     },
   });
   // M4 plugin bridges (THE-180): per vault, build a bridge client to the companion
@@ -629,11 +652,6 @@ async function main(): Promise<void> {
   // Boot-time reconcile (THE-255): re-sync the search index with files changed while the
   // server was down. Incremental (content-hash skip) and best-effort — an embedding-backend
   // or fs hiccup degrades the index, never startup. Backgrounded so it never blocks stdio.
-  const indexReadable = (rel: string): boolean => {
-    if (isDefaultDenied(rel)) return false;
-    if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
-    return acl.readPaths.some((g) => globMatch(g, rel));
-  };
   void Promise.all(
     config.vaults.map((v) =>
       indexVault({

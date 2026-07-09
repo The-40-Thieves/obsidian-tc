@@ -5,7 +5,7 @@ description: What ships in v1.0, what is deferred to v1.1, and what is out of sc
 
 ## v1.0 (current)
 
-The complete G2.1 tool surface — 109 tools across 28 domains — plus the M7
+The complete G2.1 tool surface — 110 tools across 28 domains — plus the M7
 hardening gate: conditional OpenTelemetry tracing, the Prometheus catalog and
 `/metrics` endpoint, the MORGIANA CloudEvents spool, a dispatch-wide rate limiter,
 a >80% coverage gate, the 8-triple native prebuild (linux/darwin/win x64+arm64,
