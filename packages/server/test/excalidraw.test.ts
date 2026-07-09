@@ -168,3 +168,70 @@ describe("update_excalidraw", () => {
     expect(body.add_elements).toEqual([{ id: "b", type: "rectangle" }]);
   });
 });
+
+describe("read_excalidraw filesystem source (THE-202)", () => {
+  let v: M4Vault | undefined;
+  afterEach(() => v?.cleanup());
+
+  it("source=filesystem parses a .excalidraw file on disk with no plugin (no bridge call)", async () => {
+    const doc = JSON.stringify({
+      type: "excalidraw",
+      elements: [
+        { id: "r", type: "rectangle" },
+        { id: "t", type: "text", text: "hi" },
+      ],
+      appState: {},
+      files: {},
+    });
+    v = makeM4Vault({ installed: ["dataview"], files: { "d.excalidraw": doc } });
+    const res = await v.call("read_excalidraw", {
+      vault: "test",
+      path: "d.excalidraw",
+      source: "filesystem",
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const d = res.data as { element_count: number; text: string; compressed: boolean };
+      expect(d.element_count).toBe(2);
+      expect(d.text).toBe("hi");
+      expect(d.compressed).toBe(false);
+    }
+    expect(v.bridgeRequests).toHaveLength(0);
+  });
+
+  it("source=auto falls back to the filesystem when the plugin is missing", async () => {
+    const doc = JSON.stringify({
+      type: "excalidraw",
+      elements: [{ id: "t", type: "text", text: "yo" }],
+    });
+    v = makeM4Vault({ installed: ["dataview"], files: { "d.excalidraw": doc } });
+    const res = await v.call("read_excalidraw", {
+      vault: "test",
+      path: "d.excalidraw",
+      source: "auto",
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect((res.data as { text: string }).text).toBe("yo");
+    expect(v.bridgeRequests).toHaveLength(0);
+  });
+
+  it("source=filesystem extracts text from an uncompressed .excalidraw.md wrapper", async () => {
+    const drawing = JSON.stringify({
+      type: "excalidraw",
+      elements: [{ id: "x", type: "text", text: "inside" }],
+    });
+    const md = `## Text Elements\ninside ^x\n\n## Drawing\n\`\`\`json\n${drawing}\n\`\`\`\n`;
+    v = makeM4Vault({ files: { "note.excalidraw.md": md } });
+    const res = await v.call("read_excalidraw", {
+      vault: "test",
+      path: "note.excalidraw.md",
+      source: "filesystem",
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const d = res.data as { compressed: boolean; text: string };
+      expect(d.compressed).toBe(false);
+      expect(d.text).toContain("inside");
+    }
+  });
+});
