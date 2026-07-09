@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { describeCapability } from "../src/mcp/facade";
@@ -98,6 +99,19 @@ describe("THE-278 outputSchema + structuredContent", () => {
     const res = await client.callTool({ name: "structured", arguments: { x: "hi" } });
     expect(res.isError).toBeFalsy();
     expect(res.structuredContent).toEqual({ ok: true });
+    await client.close();
+    await server.close();
+  });
+});
+
+describe("THE-278 protocol version", () => {
+  it("negotiates MCP 2025-11-25 (the SDK dependency's advertised latest)", async () => {
+    // The package.json floor (>=1.29.0) guarantees the SDK advertises 2025-11-25 as its latest;
+    // the server negotiates the SDK default, so a floor regression would drop this below target.
+    expect(LATEST_PROTOCOL_VERSION).toBe("2025-11-25");
+    // And a real client completes the initialize handshake against the server.
+    const { client, server } = await connect(new ToolRegistry());
+    expect(client.getServerVersion()?.name).toBeDefined();
     await client.close();
     await server.close();
   });

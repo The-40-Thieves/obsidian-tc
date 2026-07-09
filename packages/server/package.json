@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.5",
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@the-40-thieves/obsidian-tc-native": "workspace:*",
     "@the-40-thieves/obsidian-tc-shared": "workspace:*",
     "@opentelemetry/api": "^1.9.1",

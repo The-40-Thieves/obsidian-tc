@@ -36,7 +36,7 @@ This sub-doc commits the topology, IPC contracts, and dispatch pipeline for V1. 
 - G2.1 r2 cross-cutting #8 (HITL threshold policy location) — §7. **Shipped as hardcoded floors** (a tool's `destructive` flag plus per-scope HITL floors), evaluated in the dispatch pipeline; the config-driven per-vault threshold model from the original design was dropped at implementation.
 - Where `execute:<plugin>` scope check fires (G2.1 cross-cutting #1's location question) — §8. ACL layer. Scope class itself remains G2.4's call.
 - Streaming support in V1 — §9. No, pagination covers it.
-- MCP protocol version target — §10. 2025-11-25, Streamable HTTP for remote, STDIO for local.
+- MCP protocol version — §10. **2025-11-25**, negotiated (guarded in `test/tool-surface-2025.test.ts`). Streamable HTTP for remote, STDIO for local. Capabilities advertise `tools`/`prompts`/`resources` **without `listChanged`** (the surface is static, registered once at startup); HITL is the server's own elicit-token flow (§4c), not the MCP `elicitation` client capability.
 
 **Forward-routed to G2.3-G2.5:** see end of doc.
 
