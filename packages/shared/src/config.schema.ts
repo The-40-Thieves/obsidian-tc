@@ -317,6 +317,41 @@ export const ToolFacadeConfigSchema = z.object({
 });
 export type ToolFacadeConfig = z.infer<typeof ToolFacadeConfigSchema>;
 
+// Session-bootstrap routing (THE-101). Server-level, not per-vault: the routing table is a
+// judgment value supplied by config, never baked into the public tree. session_bootstrap triages
+// the opening message to lightweight | standard | deep and reads the resolved context notes. A
+// `domain` matches when any of its lowercased `signals` is a substring of the message, pulling its
+// `paths`; `deepPaths` load in deep mode; a `deepPhrases` hit forces deep on a catch-up opener.
+// Fully defaulted (empty table + generic catch-up phrases), so a config predating THE-101 validates
+// unchanged and the tool degrades to lightweight with nothing to load.
+export const BootstrapDomainSchema = z.object({
+  name: z.string().min(1),
+  signals: z.array(z.string().min(1)).min(1),
+  paths: z.array(z.string().min(1)).min(1),
+});
+export type BootstrapDomain = z.infer<typeof BootstrapDomainSchema>;
+
+export const DEFAULT_DEEP_PHRASES = [
+  "where did we leave off",
+  "what's open",
+  "whats open",
+  "catch me up",
+  "current state",
+  "where are we",
+  "what should i be working on",
+  "what should i work on",
+];
+
+export const BootstrapConfigSchema = z
+  .object({
+    deepPaths: z.array(z.string().min(1)).default([]),
+    domains: z.array(BootstrapDomainSchema).default([]),
+    maxPaths: z.number().int().positive().max(50).default(10),
+    deepPhrases: z.array(z.string().min(1)).default(DEFAULT_DEEP_PHRASES),
+  })
+  .prefault({});
+export type BootstrapConfig = z.infer<typeof BootstrapConfigSchema>;
+
 const ServerConfigObject = z.object({
   cacheDir: z.string().default(".obsidian-tc"),
   vaults: z.array(VaultConfigSchema).min(1),
@@ -329,6 +364,7 @@ const ServerConfigObject = z.object({
   writes: WritesConfigSchema,
   toolVisibility: ToolVisibilityConfigSchema.optional(),
   toolFacade: ToolFacadeConfigSchema.prefault({}),
+  bootstrap: BootstrapConfigSchema,
   throttle: ThrottleConfigSchema,
   observability: ObservabilityConfigSchema.prefault({}),
   maintenance: MaintenanceConfigSchema,

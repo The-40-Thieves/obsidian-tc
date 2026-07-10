@@ -559,6 +559,7 @@ async function main(): Promise<void> {
     activeSessions,
     reindex: reindexHook,
     plur: plurClient,
+    bootstrap: config.bootstrap,
     memoryFolder: (vaultId) => memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
     traceFolder: (vaultId) => traceFolderByVault.get(vaultId) ?? DEFAULT_TRACE_FOLDER,
   });

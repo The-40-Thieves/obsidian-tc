@@ -4,6 +4,7 @@
 // writes for materialization/JSONL/commit); only `plur` reaches an external service,
 // and it is GLOBAL (one client, no per-vault wiring) because the engram store is
 // global and the plur tools take no `vault` argument.
+import { type BootstrapConfig, BootstrapConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import type { PlurClient } from "../../plur/client";
 import type { VaultRegistry } from "../../vault/registry";
 import type { ActiveSessionTracker } from "../../workspace/sessions";
@@ -21,6 +22,10 @@ export interface M5Deps {
   activeSessions?: ActiveSessionTracker;
   /** Global plur read client (HTTP endpoint or local CLI); undefined when unconfigured. */
   plur?: PlurClient;
+  /** THE-101: session-bootstrap routing table (server-level). The private routing lives in config;
+   *  absent -> DEFAULT_BOOTSTRAP (empty table + generic catch-up phrases), so session_bootstrap
+   *  degrades to lightweight. */
+  bootstrap?: BootstrapConfig;
   /** Per-vault memory materialization folder; defaults to "memory". */
   memoryFolder?: (vaultId: string) => string;
   /** Per-vault workspace trace folder; defaults to ".obsidian-tc/traces". */
@@ -33,4 +38,12 @@ export function memoryFolderFor(deps: M5Deps, vaultId: string): string {
 
 export function traceFolderFor(deps: M5Deps, vaultId: string): string {
   return deps.traceFolder?.(vaultId) ?? DEFAULT_TRACE_FOLDER;
+}
+
+/** Fully-defaulted bootstrap config (empty routing table + generic catch-up phrases), parsed once. */
+const DEFAULT_BOOTSTRAP: BootstrapConfig = BootstrapConfigSchema.parse(undefined);
+
+/** THE-101: the session-bootstrap routing table for this server, or the empty default. */
+export function bootstrapConfigFor(deps: M5Deps): BootstrapConfig {
+  return deps.bootstrap ?? DEFAULT_BOOTSTRAP;
 }
