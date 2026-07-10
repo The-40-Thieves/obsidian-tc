@@ -22,16 +22,49 @@ export function resolveApiKey(provider: string, configKey?: string): string | un
   const name = ENV_KEY[provider];
   return name ? process.env[name] : undefined;
 }
-export function assertVectors(vectors: number[][], expected: number, count: number): number[][] {
+/** Matryoshka (MRL) truncation: keep the first `dim` components and L2-renormalise to unit length. */
+function mrlTruncate(v: number[], dim: number): number[] {
+  const head = v.slice(0, dim);
+  let norm = 0;
+  for (const x of head) norm += x * x;
+  norm = Math.sqrt(norm);
+  if (norm === 0) return head;
+  return head.map((x) => x / norm);
+}
+
+/**
+ * Validate provider output: exactly `count` vectors, each finite, each of width `expected`. Width
+ * handling:
+ * - length === expected: pass through.
+ * - length > expected AND opts.truncate: Matryoshka (MRL) truncation to `expected` + renormalise —
+ *   for running a wider MRL model (e.g. Qwen3-8B at 4096) stored at a smaller dimension.
+ * - otherwise (wrong width, or wider without truncate): error, so a genuinely mismatched non-MRL
+ *   model is never silently truncated into meaningless prefixes.
+ */
+export function assertVectors(
+  vectors: number[][],
+  expected: number,
+  count: number,
+  opts: { truncate?: boolean } = {},
+): number[][] {
   if (!Array.isArray(vectors) || vectors.length !== count)
     throw err.embeddingProviderError("wrong number of vectors", { expected_count: count });
-  for (const v of vectors) {
-    if (!Array.isArray(v) || v.length !== expected)
+  return vectors.map((v) => {
+    if (!Array.isArray(v))
       throw err.embeddingProviderError("unexpected dimension", { expected_dim: expected });
-    if (!v.every((x) => Number.isFinite(x)))
+    let out = v;
+    if (v.length !== expected) {
+      if (opts.truncate && v.length > expected) out = mrlTruncate(v, expected);
+      else
+        throw err.embeddingProviderError("unexpected dimension", {
+          expected_dim: expected,
+          got_dim: v.length,
+        });
+    }
+    if (!out.every((x) => Number.isFinite(x)))
       throw err.embeddingProviderError("non-finite embedding component", {
         expected_dim: expected,
       });
-  }
-  return vectors;
+    return out;
+  });
 }

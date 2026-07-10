@@ -7,6 +7,9 @@ export interface AdapterOpts {
   apiKey?: string;
   fetchFn?: FetchFn;
   timeoutMs?: number;
+  /** THE-387: Matryoshka (MRL) truncation — accept a wider native output and truncate to
+   *  `dimensions`. Off by default; a non-MRL width mismatch still errors. */
+  truncate?: boolean;
 }
 function bearer(apiKey?: string): Record<string, string> {
   return apiKey ? { authorization: `Bearer ${apiKey}` } : {};
@@ -26,7 +29,9 @@ export function ollamaProvider(o: AdapterOpts): EmbeddingProvider {
         timeoutMs: o.timeoutMs,
         provider: "ollama",
       });
-      return assertVectors(r.embeddings ?? [], o.dimensions, texts.length);
+      return assertVectors(r.embeddings ?? [], o.dimensions, texts.length, {
+        truncate: o.truncate,
+      });
     },
   };
 }
@@ -51,6 +56,9 @@ function openAiStyle(provider: string, defaultBase: string) {
           (r.data ?? []).map((d) => d.embedding),
           o.dimensions,
           texts.length,
+          {
+            truncate: o.truncate,
+          },
         );
       },
     };
@@ -78,7 +86,9 @@ export function cohereProvider(o: AdapterOpts): EmbeddingProvider {
         timeoutMs: o.timeoutMs,
         provider: "cohere",
       });
-      return assertVectors(r.embeddings?.float ?? [], o.dimensions, texts.length);
+      return assertVectors(r.embeddings?.float ?? [], o.dimensions, texts.length, {
+        truncate: o.truncate,
+      });
     },
   };
 }

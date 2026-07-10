@@ -10,6 +10,8 @@ export interface EmbeddingsConfigLike {
   apiKey?: string;
   /** GH #171: per-request embed timeout (ms). Undefined -> the postJson default. */
   timeoutMs?: number;
+  /** THE-387: Matryoshka (MRL) truncation of a wider native output to `dimensions`. */
+  truncate?: boolean;
 }
 export function createEmbeddingProvider(
   cfg: EmbeddingsConfigLike,
@@ -24,6 +26,7 @@ export function createEmbeddingProvider(
     apiKey,
     fetchFn: opts.fetchFn,
     timeoutMs: cfg.timeoutMs,
+    truncate: cfg.truncate,
   };
   switch (cfg.provider) {
     case "ollama":

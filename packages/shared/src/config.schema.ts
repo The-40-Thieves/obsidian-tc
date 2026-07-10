@@ -138,6 +138,11 @@ export const EmbeddingsConfigSchema = z.object({
   batchSize: z.number().int().positive().default(512),
   maxBatchTokens: z.number().int().positive().default(8192),
   concurrency: z.number().int().positive().default(4),
+  // THE-387: Matryoshka (MRL) dimension truncation. When true, a provider that returns vectors
+  // WIDER than `dimensions` is truncated to the first `dimensions` components + renormalised (so a
+  // wide MRL model such as Qwen3-8B at 4096 can be stored at 1024). Off by default; a non-MRL width
+  // mismatch still errors rather than silently truncating meaningless prefixes.
+  truncate: z.boolean().default(false),
 });
 
 export const HttpConfigSchema = z.object({
