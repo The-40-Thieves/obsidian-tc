@@ -5,6 +5,7 @@ import { expandGraphLiteral } from "./graph_expand";
 import { cosineSimilarity } from "./native";
 import { type Reranker, rerankWithScores } from "./rerank";
 import { semanticSearch } from "./semantic";
+import { type SparseVec, sparseSearch } from "./sparse";
 import { blobToFloats } from "./vec";
 
 export type FusionMode = "graph_rrf" | "rrf_rerank" | "score_merge";
@@ -19,7 +20,7 @@ export interface GraphSearchResult {
   chunk_id: string;
   path: string;
   content?: string;
-  source: "seed" | "expansion" | "lexical";
+  source: "seed" | "expansion" | "lexical" | "sparse";
   hop: number;
   via_edge: { type: string; source_path: string; provenance: string | null } | null;
   root_seed: string | null;
@@ -42,6 +43,11 @@ export interface GraphSearchOptions {
    *  no-ops when chunk_fts is absent (FTS-less adapter / un-provisioned index). `count` defaults
    *  to seedCount. */
   lexical?: { enabled?: boolean; count?: number };
+  /** THE-388: bge-m3 learned-sparse stream fused into the RRF (parallel to the lexical stream).
+   *  Runs only when `querySparse` (the query's bge-m3 lexical_weights) is supplied AND chunk_sparse
+   *  holds data; no-op otherwise. `sparseCount` defaults to seedCount. */
+  querySparse?: SparseVec;
+  sparseCount?: number;
   /** THE-73 Phase 2: cap how many chunks per cluster_id reach the final result (KMeans
    *  diversification). Off when unset/0; chunks with a NULL cluster_id (unclustered) are never
    *  capped. Populate cluster_id offline via `obsidian-tc cluster`. graph_rrf mode only. */
@@ -63,7 +69,7 @@ interface Candidate {
   chunk_id: string;
   path: string;
   content: string;
-  source: "seed" | "expansion" | "lexical";
+  source: "seed" | "expansion" | "lexical" | "sparse";
   hop: number;
   via_edge: { type: string; source_path: string; provenance: string | null } | null;
   root_seed: string | null;
@@ -119,7 +125,12 @@ export async function graphSearch(
   const lexHits = lexicalEnabled
     ? bm25Chunks(db, opts.vaultId, opts.query, opts.lexical?.count ?? seedCount)
     : [];
-  if (seeds.length === 0 && lexHits.length === 0) return [];
+  // 1c. Learned-sparse seeds (THE-388): bge-m3 lexical_weights stream — empty unless the caller
+  //     supplies the query's sparse weights AND chunk_sparse holds data.
+  const sparseHits = opts.querySparse
+    ? sparseSearch(db, opts.vaultId, opts.querySparse, opts.sparseCount ?? seedCount)
+    : [];
+  if (seeds.length === 0 && lexHits.length === 0 && sparseHits.length === 0) return [];
 
   // 2. Seed-strength router: skip expansion when the baseline is already confident.
   //    semanticSearch score IS cosine, so no recompute (cleaner than the KMS path).
@@ -243,6 +254,29 @@ export async function graphSearch(
     }
     lexRank += 1;
   }
+  // 4c. Learned-sparse stream (THE-388): same shape as the lexical stream, over bge-m3 sparse
+  //     weights. Sparse-only chunks enter as candidates; a chunk also in another stream gets an
+  //     additive RRF bonus below.
+  const sparseRankById = new Map<string, number>();
+  let sparseRank = 0;
+  for (const h of sparseHits) {
+    if (isReadable && !isReadable(h.path)) continue;
+    sparseRankById.set(h.chunk_id, sparseRank);
+    if (!seen.has(h.chunk_id)) {
+      seen.add(h.chunk_id);
+      candidates.push({
+        chunk_id: h.chunk_id,
+        path: h.path,
+        content: h.content ?? "",
+        source: "sparse",
+        hop: 0,
+        via_edge: null,
+        root_seed: null,
+        streamRank: sparseRank,
+      });
+    }
+    sparseRank += 1;
+  }
   if (candidates.length === 0) return [];
 
   // 5. Fusion.
@@ -266,9 +300,18 @@ export async function graphSearch(
       const lr = lexRankById.get(c.chunk_id);
       if (lr !== undefined) s += 1 / (rrfK + lr);
     }
+    if (c.source !== "sparse") {
+      const sr = sparseRankById.get(c.chunk_id);
+      if (sr !== undefined) s += 1 / (rrfK + sr);
+    }
     return s;
   };
-  const sourceRank: Record<Candidate["source"], number> = { seed: 0, lexical: 1, expansion: 2 };
+  const sourceRank: Record<Candidate["source"], number> = {
+    seed: 0,
+    lexical: 1,
+    sparse: 2,
+    expansion: 3,
+  };
   const fused = [...candidates].sort((a, b) => {
     const d = rrf(b) - rrf(a);
     if (d !== 0) return d;
