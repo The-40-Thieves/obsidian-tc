@@ -11,7 +11,9 @@ import { type ExtractedLink, extractLinks } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { contentHash, resolveVaultPath, walkVault } from "../vault/paths";
 import { chunkNote } from "./chunk";
+import { deleteChunkColbert, ensureChunkColbert, upsertChunkColbert } from "./chunk_colbert";
 import { deleteChunkFtsRow, ensureChunkFts, upsertChunkFtsRow } from "./chunk_fts";
+import type { ColbertMatrix } from "./colbert";
 import { desiredEdges, reconcileVaultEdges } from "./edges";
 import {
   buildNoteRecord,
@@ -23,6 +25,7 @@ import {
   upsertNoteRow,
 } from "./fts";
 import { scanSecrets } from "./secrets";
+import { deleteChunkSparse, ensureChunkSparse, type SparseVec, upsertChunkSparse } from "./sparse";
 import { ensureVecChunks, floatBlob, upsertVec } from "./vec";
 
 export interface IndexStats {
@@ -85,6 +88,10 @@ interface NoteWritePlan {
   desiredIds: Set<string>;
   toEmbed: PlannedChunk[];
   vectors: number[][];
+  /** THE-388: filled by embedPlans only when the provider emits embedFull() (bge-m3), parallel to
+   *  vectors; written to chunk_sparse / chunk_colbert. Absent for dense-only providers. */
+  sparse?: SparseVec[];
+  colbert?: ColbertMatrix[];
   ts: number;
 }
 
@@ -191,21 +198,39 @@ export async function embedPlans(
     curTokens += t;
   }
   if (cur.length > 0) subBatches.push(cur);
-  const results: number[][][] = new Array(subBatches.length);
+  // THE-388: when the provider emits embedFull() (bge-m3), collect the sparse + ColBERT heads per
+  // sub-batch alongside the dense vector; dense-only providers take the embed() path unchanged.
+  const hasFull = typeof provider.embedFull === "function";
+  const denseResults: number[][][] = new Array(subBatches.length);
+  const sparseResults: SparseVec[][] = hasFull ? new Array(subBatches.length) : [];
+  const colbertResults: ColbertMatrix[][] = hasFull ? new Array(subBatches.length) : [];
   let next = 0;
   const worker = async (): Promise<void> => {
     for (let i = next++; i < subBatches.length; i = next++) {
-      results[i] = await provider.embed(subBatches[i] as string[]);
+      const batch = subBatches[i] as string[];
+      if (hasFull && provider.embedFull) {
+        const full = await provider.embedFull(batch);
+        denseResults[i] = full.map((f) => f.dense);
+        sparseResults[i] = full.map((f) => f.sparse);
+        colbertResults[i] = full.map((f) => f.colbert);
+      } else {
+        denseResults[i] = await provider.embed(batch);
+      }
     }
   };
   await Promise.all(
     Array.from({ length: Math.min(concurrency, subBatches.length) }, () => worker()),
   );
-  const flat = results.flat();
+  const flatDense = denseResults.flat();
+  const flatSparse = hasFull ? sparseResults.flat() : null;
+  const flatColbert = hasFull ? colbertResults.flat() : null;
   let off = 0;
   for (const p of plans) {
-    p.vectors = flat.slice(off, off + p.toEmbed.length);
-    off += p.toEmbed.length;
+    const n = p.toEmbed.length;
+    p.vectors = flatDense.slice(off, off + n);
+    if (flatSparse) p.sparse = flatSparse.slice(off, off + n);
+    if (flatColbert) p.colbert = flatColbert.slice(off, off + n);
+    off += n;
   }
 }
 
@@ -232,6 +257,8 @@ function applyNoteWrites(
   plan: NoteWritePlan,
   hasVec: boolean,
   hasChunkFts: boolean,
+  hasChunkSparse: boolean,
+  hasChunkColbert: boolean,
 ): { upserted: number; deleted: number } {
   // Prepare the prune DELETEs once (not three per pruned chunk). The vec0 DELETE is prepared only
   // when the extension loaded — the table may not exist otherwise.
@@ -251,6 +278,8 @@ function applyNoteWrites(
     delChunk.run(e.id);
     if (delVec) delVec.run(e.id);
     if (hasChunkFts) deleteChunkFtsRow(db, e.id);
+    if (hasChunkSparse) deleteChunkSparse(db, e.id);
+    if (hasChunkColbert) deleteChunkColbert(db, e.id);
     deleted += 1;
   }
   plan.toEmbed.forEach((d, i) => {
@@ -270,6 +299,9 @@ function applyNoteWrites(
     upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
     if (hasVec) upsertVec(db, d.id, vec);
     if (hasChunkFts) upsertChunkFtsRow(db, d.id, vaultId, plan.path, d.content);
+    if (hasChunkSparse && plan.sparse) upsertChunkSparse(db, d.id, vaultId, plan.sparse[i] ?? {});
+    if (hasChunkColbert && plan.colbert)
+      upsertChunkColbert(db, d.id, vaultId, plan.colbert[i] ?? []);
   });
   return { upserted: plan.toEmbed.length, deleted };
 }
@@ -315,6 +347,9 @@ export async function indexNote(
   const hasNotes = hasNotesTable(db);
   const hasFts = hasNotes && ensureNotesFts(db, { now });
   const hasChunkFts = ensureChunkFts(db, { now });
+  const hasEmbedFull = typeof provider.embedFull === "function";
+  const hasChunkSparse = hasEmbedFull && ensureChunkSparse(db);
+  const hasChunkColbert = hasEmbedFull && ensureChunkColbert(db);
   const note: NoteRecord | null =
     hasNotes && raw !== "" ? buildNoteRecord(path, raw, flagged, null, now()) : null;
   if (!plan) {
@@ -334,7 +369,16 @@ export async function indexNote(
   let result: { upserted: number; deleted: number };
   db.exec("BEGIN");
   try {
-    result = applyNoteWrites(db, provider, vaultId, plan, hasVec, hasChunkFts);
+    result = applyNoteWrites(
+      db,
+      provider,
+      vaultId,
+      plan,
+      hasVec,
+      hasChunkFts,
+      hasChunkSparse,
+      hasChunkColbert,
+    );
     if (note) upsertNoteRow(db, vaultId, note, hasFts, now());
     db.exec("COMMIT");
   } catch (err) {
@@ -355,6 +399,8 @@ export function deindexNote(db: Database, vaultId: string, path: string, hasVec:
   const hasNotes = hasNotesTable(db);
   const hasFts = hasNotes && ensureNotesFts(db);
   const hasChunkFts = ensureChunkFts(db);
+  const hasChunkSparse = tableExists(db, "chunk_sparse");
+  const hasChunkColbert = tableExists(db, "chunk_colbert");
   db.exec("BEGIN");
   try {
     const rows = db
@@ -368,6 +414,8 @@ export function deindexNote(db: Database, vaultId: string, path: string, hasVec:
       delChunk.run(r.id);
       if (delVec) delVec.run(r.id);
       if (hasChunkFts) deleteChunkFtsRow(db, r.id);
+      if (hasChunkSparse) deleteChunkSparse(db, r.id);
+      if (hasChunkColbert) deleteChunkColbert(db, r.id);
     }
     if (hasNotes) deleteNoteRow(db, vaultId, path, hasFts);
     db.exec("COMMIT");
@@ -404,6 +452,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const hasNotes = hasNotesTable(args.db);
   const hasFts = hasNotes && ensureNotesFts(args.db, { now });
   const hasChunkFts = ensureChunkFts(args.db, { now });
+  const hasEmbedFull = typeof args.provider.embedFull === "function";
+  const hasChunkSparse = hasEmbedFull && ensureChunkSparse(args.db);
+  const hasChunkColbert = hasEmbedFull && ensureChunkColbert(args.db);
   const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
   const walkedSet = new Set(walked.map((e) => e.relPath));
   const statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
@@ -453,7 +504,16 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     args.db.exec("BEGIN");
     try {
       for (const plan of applied) {
-        const r = applyNoteWrites(args.db, args.provider, args.vaultId, plan, hasVec, hasChunkFts);
+        const r = applyNoteWrites(
+          args.db,
+          args.provider,
+          args.vaultId,
+          plan,
+          hasVec,
+          hasChunkFts,
+          hasChunkSparse,
+          hasChunkColbert,
+        );
         stats.chunks_upserted += r.upserted;
         stats.chunks_deleted += r.deleted;
         if (r.upserted > 0 || r.deleted > 0) stats.notes_indexed += 1;

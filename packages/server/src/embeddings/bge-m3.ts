@@ -11,12 +11,10 @@
 import type { ColbertMatrix } from "../search/colbert";
 import type { SparseVec } from "../search/sparse";
 import { type FetchFn, postJson } from "./http";
+import type { MultiVectorEmbedding } from "./provider";
 
-export interface BgeM3Output {
-  dense: number[];
-  sparse: SparseVec;
-  colbert: ColbertMatrix;
-}
+/** bge-m3's three heads per input — the provider-layer MultiVectorEmbedding shape. */
+export type BgeM3Output = MultiVectorEmbedding;
 
 export interface BgeM3VllmOptions {
   /** vLLM OpenAI-compatible base, e.g. "http://127.0.0.1:8000/v1". */

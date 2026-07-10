@@ -1,9 +1,19 @@
 // Embedding provider abstraction (G2.2 component 8).
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import type { ColbertMatrix } from "../search/colbert";
+import type { SparseVec } from "../search/sparse";
 /** THE-308: how to encode the input. Asymmetric models (e.g. Cohere v3) embed a search query
  *  differently from a corpus document; "document" is the default (indexing is the common path). */
 export interface EmbedOptions {
   input?: "query" | "document";
+}
+/** THE-388: bge-m3 multi-representation output — a dense vector, learned-sparse weights, and a
+ *  ColBERT per-token matrix. Providers that can emit all three implement `embedFull()`; dense-only
+ *  providers omit it and the indexer stores dense only. */
+export interface MultiVectorEmbedding {
+  dense: number[];
+  sparse: SparseVec;
+  colbert: ColbertMatrix;
 }
 export interface EmbeddingProvider {
   readonly id: string;
@@ -11,6 +21,10 @@ export interface EmbeddingProvider {
   readonly model: string;
   readonly dimensions: number;
   embed(texts: string[], opts?: EmbedOptions): Promise<number[][]>;
+  /** THE-388: optional multi-representation encode. When present, the indexer stores the sparse +
+   *  ColBERT heads (chunk_sparse / chunk_colbert) alongside the dense vector, so the bge-m3 sparse
+   *  RRF stream + ColBERT rerank have data. Absent -> dense-only indexing, unchanged. */
+  embedFull?(texts: string[], opts?: EmbedOptions): Promise<MultiVectorEmbedding[]>;
 }
 const ENV_KEY: Record<string, string> = {
   openai: "OPENAI_API_KEY",
