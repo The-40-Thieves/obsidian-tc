@@ -11,6 +11,7 @@ export type CliCommand =
   | { kind: "help" }
   | { kind: "plugin-install"; vaultPath: string }
   | { kind: "cluster"; input?: string; k?: number }
+  | { kind: "activation-recompute"; input?: string }
   | { kind: "error"; message: string };
 
 export const USAGE = `obsidian-tc — MCP server for Obsidian
@@ -22,6 +23,7 @@ Usage:
   obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
   obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
   obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval (THE-73)
+  obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history (THE-227)
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 
@@ -94,6 +96,12 @@ export function parseCliArgs(argv: string[]): CliCommand {
         scan = rest.filter((_, idx) => idx !== ki && idx !== ki + 1);
       }
       return { kind: "cluster", input: flagValue(scan, "--config") ?? positional(scan), k };
+    }
+    if (first === "activation-recompute") {
+      return {
+        kind: "activation-recompute",
+        input: flagValue(rest, "--config") ?? positional(rest),
+      };
     }
     if (first.startsWith("-")) return { kind: "error", message: `unknown option: ${first}` };
     return { kind: "serve", input: first };

@@ -19,6 +19,7 @@ import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
+import { recomputeActivation } from "./experiential/activation";
 import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
@@ -189,6 +190,26 @@ async function main(): Promise<void> {
       );
     } finally {
       clusterDb.close?.();
+    }
+    return;
+  }
+
+  // THE-227: offline ACT-R activation recompute — reads chunk_retrievals and writes
+  // cached_activation_score into vault_object_state (both in the experiential store), so
+  // bubble_safe_rerank becomes non-inert once retrieval logging has populated the log.
+  if (cmd.kind === "activation-recompute") {
+    const actCfg = resolveOrUsageExit(cmd.input);
+    mkdirSync(actCfg.cacheDir, { recursive: true });
+    const edb = await provisionExperientialDb(
+      actCfg.cacheDir,
+      [{ version: "20260626_001", sql: experientialInitMigrationSql }],
+      { version: VERSION },
+    );
+    try {
+      const stats = recomputeActivation(edb, Date.now());
+      process.stdout.write(`activation recompute: ${stats.chunks} chunk(s) updated\n`);
+    } finally {
+      edb.close?.();
     }
     return;
   }

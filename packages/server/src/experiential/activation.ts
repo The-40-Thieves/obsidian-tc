@@ -1,0 +1,87 @@
+// ACT-R activation recompute — THE-227. Turns the append-only chunk_retrievals log into a
+// cached_activation_score per chunk in vault_object_state, so bubble_safe_rerank (graph_search) is
+// no longer inert. ACT-R base-level learning: a chunk's activation rises with how RECENTLY and how
+// OFTEN it was retrieved, and decays with time. Runs offline (obsidian-tc activation-recompute) over
+// the experiential store; the retrieval-LOGGING half (writing chunk_retrievals on each retrieval) is
+// a separate slice, so until that lands this recompute is a no-op over an empty log.
+import type { Database } from "../db/types";
+
+const MS_PER_DAY = 86_400_000;
+const MIN_DELTA_DAYS = 1 / 24; // floor a just-now access at 1 hour so t^-d stays finite
+const DEFAULT_DECAY = 0.5; // ACT-R base-level decay d
+
+export interface RetrievalEvent {
+  /** ms epoch. */
+  retrieved_at: number;
+  /** -1 | 0 | +1 (nullable). */
+  feedback?: number | null;
+}
+
+/**
+ * ACT-R base-level activation for one chunk, mapped to [0,1] for bubble_safe_rerank.
+ *
+ *   B = ln( Σ_j w_j * (Δdays_j)^-d ),  Δdays_j = max((now - t_j)/day, 1h)
+ *   activation = sigmoid(B) = 1 / (1 + e^-B)
+ *
+ * More recent + more frequent retrievals raise B. `sigmoid` maps B -> (0,1) with 0.5 at B=0 (a
+ * single access exactly 1 day ago), matching bubble_safe_rerank's 0.5 = inert 1.0x. No events ->
+ * 0.5 (cold start). Negative feedback halves an event's weight, positive doubles it (bounded).
+ */
+export function actrActivation(
+  events: RetrievalEvent[],
+  now: number,
+  opts: { decay?: number } = {},
+): number {
+  if (events.length === 0) return 0.5;
+  const d = opts.decay ?? DEFAULT_DECAY;
+  let sum = 0;
+  for (const e of events) {
+    const days = Math.max((now - e.retrieved_at) / MS_PER_DAY, MIN_DELTA_DAYS);
+    const w = e.feedback === -1 ? 0.5 : e.feedback === 1 ? 2 : 1;
+    sum += w * days ** -d;
+  }
+  if (sum <= 0) return 0.5;
+  return 1 / (1 + Math.exp(-Math.log(sum)));
+}
+
+export interface ActivationRecomputeStats {
+  chunks: number;
+}
+
+/**
+ * Recompute cached_activation_score for every chunk that has retrieval events, writing it (plus
+ * frequency + last_accessed + last_computed_at) into vault_object_state. Idempotent; a chunk with no
+ * events is left untouched (its score stays NULL -> the rerank stays inert for it). Operates on the
+ * experiential store (experiential.db), where both tables live.
+ */
+export function recomputeActivation(
+  edb: Database,
+  now: number,
+  opts: { decay?: number } = {},
+): ActivationRecomputeStats {
+  const rows = edb
+    .prepare("SELECT chunk_id, retrieved_at, feedback FROM chunk_retrievals ORDER BY chunk_id")
+    .all() as Array<{ chunk_id: string; retrieved_at: number; feedback: number | null }>;
+  const byChunk = new Map<string, RetrievalEvent[]>();
+  for (const r of rows) {
+    const list = byChunk.get(r.chunk_id) ?? [];
+    list.push({ retrieved_at: r.retrieved_at, feedback: r.feedback });
+    byChunk.set(r.chunk_id, list);
+  }
+  const upsert = edb.prepare(
+    "INSERT INTO vault_object_state (object_id, cached_activation_score, last_computed_at, frequency, last_accessed) VALUES (?, ?, ?, ?, ?) ON CONFLICT(object_id) DO UPDATE SET cached_activation_score = excluded.cached_activation_score, last_computed_at = excluded.last_computed_at, frequency = excluded.frequency, last_accessed = excluded.last_accessed",
+  );
+  edb.exec("BEGIN");
+  try {
+    for (const [chunkId, events] of byChunk) {
+      const activation = actrActivation(events, now, opts);
+      const lastAccessed = events.reduce((m, e) => Math.max(m, e.retrieved_at), 0);
+      upsert.run(chunkId, activation, now, events.length, lastAccessed);
+    }
+    edb.exec("COMMIT");
+  } catch (err) {
+    edb.exec("ROLLBACK");
+    throw err;
+  }
+  return { chunks: byChunk.size };
+}
