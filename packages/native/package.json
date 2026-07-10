@@ -1,6 +1,6 @@
 {
   "name": "@the-40-thieves/obsidian-tc-native",
-  "version": "1.3.6",
+  "version": "1.4.0",
   "description": "Native perf module for obsidian-tc — vector ops, BM25, sqlite-vec, V2 clustering hooks",
   "license": "AGPL-3.0-only",
   "publishConfig": {

@@ -6,6 +6,30 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-10
+
+### Added
+
+- **`session_bootstrap` tool (THE-101).** Server-side session bootstrap so any MCP client (Cursor,
+  ChatGPT, Cline, Continue), not just skill-enabled Claude, can triage its opening message
+  (lightweight | standard | deep) and preload the matching vault context notes through the headless
+  FilesystemBackend. The routing table (deep-mode paths + a domain signal-to-path map) is supplied
+  via the new `bootstrap` config block, never baked in; with none configured the tool degrades to
+  lightweight. Read-only. Tool surface 122 to 123.
+
+### Fixed
+
+- **Local-Ollama indexing robustness (THE-386, GH #171 / #172).** The default local-Ollama embedding
+  path could not index a real vault out of the box. Three fixes: (1) embed requests were aborted at a
+  hardcoded 30s with no knob, so a slow local model presented as a hang — added `embeddings.timeoutMs`
+  (default 120s), threaded through the provider adapters; (2) boot-reconcile failures were recorded
+  only in in-memory index health, never stderr, presenting as a permanent silent stall — a degraded
+  reconcile now emits a stderr warning per vault with a remediation hint; (3) a fixed 512-input embed
+  batch could pack ~87k tokens into one request and crash a stock local runner (`/tokenize: EOF`) —
+  batches are now capped by BOTH input count and estimated tokens (`embeddings.maxBatchTokens`,
+  default 8192), and a single over-budget text still goes alone. `embeddings.batchSize` /
+  `concurrency` / `maxBatchTokens` are all configurable.
+
 ## [1.3.6] - 2026-07-05
 
 ### Fixed
