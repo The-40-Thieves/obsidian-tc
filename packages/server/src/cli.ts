@@ -32,6 +32,7 @@ import { checkContradictions } from "./plane/jobs/contradiction";
 import { synthesisJob } from "./plane/jobs/synthesis";
 import { SleepTimePlane, startPlaneScheduler } from "./plane/plane";
 import { createPlurBackend } from "./plur/client";
+import { assignClusters } from "./search/cluster";
 import { ensureNotesFts } from "./search/fts";
 import {
   deindexNote,
@@ -161,6 +162,34 @@ async function main(): Promise<void> {
         ? `${JSON.stringify(redactConfig(resolved), null, 2)}\n`
         : "config valid\n",
     );
+    return;
+  }
+
+  // THE-73 Phase 2: offline chunk clustering (populates chunks.cluster_id for the graph_search
+  // diversification cap). Reuses the serve config + cache.db; does not start a server.
+  if (cmd.kind === "cluster") {
+    const clusterConfig = resolveOrUsageExit(cmd.input);
+    mkdirSync(clusterConfig.cacheDir, { recursive: true });
+    const clusterDb = await openDatabase(join(clusterConfig.cacheDir, "cache.db"));
+    try {
+      let total = 0;
+      for (const v of clusterConfig.vaults) {
+        const stats = assignClusters(clusterDb, v.id, cmd.k !== undefined ? { k: cmd.k } : {});
+        if (stats) {
+          total += stats.chunks;
+          process.stdout.write(
+            `clustered ${v.id}: ${stats.chunks} chunks -> ${stats.k} clusters (${stats.iters} iters)\n`,
+          );
+        } else {
+          process.stdout.write(`clustered ${v.id}: no embedded chunks (run index_vault first)\n`);
+        }
+      }
+      process.stdout.write(
+        `done: ${total} chunks across ${clusterConfig.vaults.length} vault(s)\n`,
+      );
+    } finally {
+      clusterDb.close?.();
+    }
     return;
   }
 

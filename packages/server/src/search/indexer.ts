@@ -11,6 +11,7 @@ import { type ExtractedLink, extractLinks } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { contentHash, resolveVaultPath, walkVault } from "../vault/paths";
 import { chunkNote } from "./chunk";
+import { deleteChunkFtsRow, ensureChunkFts, upsertChunkFtsRow } from "./chunk_fts";
 import { desiredEdges, reconcileVaultEdges } from "./edges";
 import {
   buildNoteRecord,
@@ -230,6 +231,7 @@ function applyNoteWrites(
   vaultId: string,
   plan: NoteWritePlan,
   hasVec: boolean,
+  hasChunkFts: boolean,
 ): { upserted: number; deleted: number } {
   // Prepare the prune DELETEs once (not three per pruned chunk). The vec0 DELETE is prepared only
   // when the extension loaded — the table may not exist otherwise.
@@ -248,6 +250,7 @@ function applyNoteWrites(
     delEmb.run(e.id);
     delChunk.run(e.id);
     if (delVec) delVec.run(e.id);
+    if (hasChunkFts) deleteChunkFtsRow(db, e.id);
     deleted += 1;
   }
   plan.toEmbed.forEach((d, i) => {
@@ -266,6 +269,7 @@ function applyNoteWrites(
     );
     upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
     if (hasVec) upsertVec(db, d.id, vec);
+    if (hasChunkFts) upsertChunkFtsRow(db, d.id, vaultId, plan.path, d.content);
   });
   return { upserted: plan.toEmbed.length, deleted };
 }
@@ -310,6 +314,7 @@ export async function indexNote(
   // through deindexNote; an empty note has nothing to index).
   const hasNotes = hasNotesTable(db);
   const hasFts = hasNotes && ensureNotesFts(db, { now });
+  const hasChunkFts = ensureChunkFts(db, { now });
   const note: NoteRecord | null =
     hasNotes && raw !== "" ? buildNoteRecord(path, raw, flagged, null, now()) : null;
   if (!plan) {
@@ -329,7 +334,7 @@ export async function indexNote(
   let result: { upserted: number; deleted: number };
   db.exec("BEGIN");
   try {
-    result = applyNoteWrites(db, provider, vaultId, plan, hasVec);
+    result = applyNoteWrites(db, provider, vaultId, plan, hasVec, hasChunkFts);
     if (note) upsertNoteRow(db, vaultId, note, hasFts, now());
     db.exec("COMMIT");
   } catch (err) {
@@ -349,6 +354,7 @@ export async function indexNote(
 export function deindexNote(db: Database, vaultId: string, path: string, hasVec: boolean): void {
   const hasNotes = hasNotesTable(db);
   const hasFts = hasNotes && ensureNotesFts(db);
+  const hasChunkFts = ensureChunkFts(db);
   db.exec("BEGIN");
   try {
     const rows = db
@@ -361,6 +367,7 @@ export function deindexNote(db: Database, vaultId: string, path: string, hasVec:
       delEmb.run(r.id);
       delChunk.run(r.id);
       if (delVec) delVec.run(r.id);
+      if (hasChunkFts) deleteChunkFtsRow(db, r.id);
     }
     if (hasNotes) deleteNoteRow(db, vaultId, path, hasFts);
     db.exec("COMMIT");
@@ -396,6 +403,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // indexing exactly as before.
   const hasNotes = hasNotesTable(args.db);
   const hasFts = hasNotes && ensureNotesFts(args.db, { now });
+  const hasChunkFts = ensureChunkFts(args.db, { now });
   const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
   const walkedSet = new Set(walked.map((e) => e.relPath));
   const statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
@@ -445,7 +453,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     args.db.exec("BEGIN");
     try {
       for (const plan of applied) {
-        const r = applyNoteWrites(args.db, args.provider, args.vaultId, plan, hasVec);
+        const r = applyNoteWrites(args.db, args.provider, args.vaultId, plan, hasVec, hasChunkFts);
         stats.chunks_upserted += r.upserted;
         stats.chunks_deleted += r.deleted;
         if (r.upserted > 0 || r.deleted > 0) stats.notes_indexed += 1;

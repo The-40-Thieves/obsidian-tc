@@ -10,6 +10,7 @@ export type CliCommand =
   | { kind: "version" }
   | { kind: "help" }
   | { kind: "plugin-install"; vaultPath: string }
+  | { kind: "cluster"; input?: string; k?: number }
   | { kind: "error"; message: string };
 
 export const USAGE = `obsidian-tc — MCP server for Obsidian
@@ -20,6 +21,7 @@ Usage:
   obsidian-tc config show [path]          Print the effective config with secrets redacted
   obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
   obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
+  obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval (THE-73)
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 
@@ -77,6 +79,21 @@ export function parseCliArgs(argv: string[]): CliCommand {
         return { kind: "plugin-install", vaultPath };
       }
       return { kind: "error", message: `unknown plugin subcommand: ${sub ?? "(none)"}` };
+    }
+    if (first === "cluster") {
+      // Parse --k first and drop it (+ its value) so the config positional is unambiguous.
+      let k: number | undefined;
+      let scan = rest;
+      const ki = rest.indexOf("--k");
+      if (ki >= 0) {
+        const kv = rest[ki + 1];
+        if (kv === undefined || kv.startsWith("-")) throw new CliError("--k requires a value");
+        k = Number.parseInt(kv, 10);
+        if (!Number.isFinite(k) || k < 1)
+          return { kind: "error", message: "--k must be a positive integer" };
+        scan = rest.filter((_, idx) => idx !== ki && idx !== ki + 1);
+      }
+      return { kind: "cluster", input: flagValue(scan, "--config") ?? positional(scan), k };
     }
     if (first.startsWith("-")) return { kind: "error", message: `unknown option: ${first}` };
     return { kind: "serve", input: first };
