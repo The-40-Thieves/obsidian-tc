@@ -291,6 +291,12 @@ async function main(): Promise<void> {
   // via an empty-content reindex (no embedding call). The boot reconcile guarantees full
   // convergence. Shares the one embedding provider + vec-availability flag.
   const embeddingProvider = createEmbeddingProvider(config.embeddings);
+  // GH #171/#172: thread the embed-batch knobs into every reconcile so local runners are tunable.
+  const embedConfig = {
+    batchSize: config.embeddings.batchSize,
+    concurrency: config.embeddings.concurrency,
+    maxBatchTokens: config.embeddings.maxBatchTokens,
+  };
   const hasVec = ensureVecChunks(db, embeddingProvider.dimensions, { now: Date.now });
   // THE-291: FTS5 probe (trigram notes_fts) — false on adapters without FTS5 or when
   // OBSIDIAN_TC_DISABLE_FTS=1; the query layer then keeps the disk-scan floor.
@@ -446,6 +452,7 @@ async function main(): Promise<void> {
       const s = await indexVault({
         db,
         provider: embeddingProvider,
+        embed: embedConfig,
         vaultId,
         root: vaultRegistry.resolve(vaultId).root,
         isReadable: indexReadable,
@@ -659,6 +666,7 @@ async function main(): Promise<void> {
       indexVault({
         db,
         provider: embeddingProvider,
+        embed: embedConfig,
         vaultId: v.id,
         root: vaultRegistry.resolve(v.id).root,
         isReadable: indexReadable,
@@ -682,6 +690,15 @@ async function main(): Promise<void> {
     indexHealth.reconcile = reconcileErrors.length === 0 ? "ok" : "degraded";
     indexHealth.reconcileAt = Date.now();
     indexHealth.reconcileErrors = reconcileErrors;
+    // GH #171: a swallowed boot-reconcile failure presents as a permanent silent stall. Surface it
+    // on stderr (not only in-memory indexHealth) so a misconfigured/slow embed backend is diagnosable.
+    for (const { vault, error } of reconcileErrors) {
+      process.stderr.write(
+        `[index] boot reconcile degraded for vault "${vault}": ${error}. ` +
+          `The search index may be incomplete; check the embeddings backend ` +
+          `(raise embeddings.timeoutMs / lower embeddings.batchSize for a slow or small local runner).\n`,
+      );
+    }
     // Best-effort contradiction sweep over chunks enqueued during the boot reconcile. No-op
     // without the gateway (roles null -> queue stays empty). A continuous draining schedule
     // (plane timer / session-close trigger) is a follow-up.

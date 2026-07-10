@@ -128,6 +128,16 @@ export const EmbeddingsConfigSchema = z.object({
   dimensions: z.number().int().positive().default(768),
   baseUrl: z.string().url().optional(),
   apiKey: z.string().optional(),
+  // GH #171/#172: local-runner indexing robustness. Local models are far slower than hosted APIs,
+  // and a stock local runner (llama-server) crashes on a token-dense batch, so these are
+  // configurable with local-safe defaults. `timeoutMs` bounds each embed request (was a hardcoded
+  // 30s with no knob). `batchSize` caps inputs/request; `maxBatchTokens` caps a request's estimated
+  // tokens (chars/4) so a dense sub-batch is split before it overruns a local runner's budget (a
+  // single over-budget text still goes alone). `concurrency` is how many embed requests run in flight.
+  timeoutMs: z.number().int().positive().default(120000),
+  batchSize: z.number().int().positive().default(512),
+  maxBatchTokens: z.number().int().positive().default(8192),
+  concurrency: z.number().int().positive().default(4),
 });
 
 export const HttpConfigSchema = z.object({

@@ -8,6 +8,8 @@ export interface EmbeddingsConfigLike {
   dimensions: number;
   baseUrl?: string;
   apiKey?: string;
+  /** GH #171: per-request embed timeout (ms). Undefined -> the postJson default. */
+  timeoutMs?: number;
 }
 export function createEmbeddingProvider(
   cfg: EmbeddingsConfigLike,
@@ -21,6 +23,7 @@ export function createEmbeddingProvider(
     baseUrl: cfg.baseUrl,
     apiKey,
     fetchFn: opts.fetchFn,
+    timeoutMs: cfg.timeoutMs,
   };
   switch (cfg.provider) {
     case "ollama":

@@ -95,10 +95,19 @@ interface PlanResult {
   flagged: string[];
 }
 
-// Provider-sized embed sub-batch + how many to run in flight (THE-277). OpenAI accepts up to 2048
-// inputs/request; 512 stays well under every provider's ceiling with a small concurrency window.
+// Provider-sized embed sub-batch + how many to run in flight (THE-277) — the defaults used when a
+// caller passes no embed config. GH #171/#172: a request is ALSO capped by estimated tokens
+// (EMBED_MAX_BATCH_TOKENS), so a token-dense sub-batch can't overrun a stock local runner's budget
+// and crash it regardless of the input count.
 const EMBED_BATCH = 512;
 const EMBED_CONCURRENCY = 4;
+const EMBED_MAX_BATCH_TOKENS = 8192;
+
+// Rough token estimate for batch budgeting (~4 chars/token). Provider-agnostic and intentionally
+// coarse: it only needs to prevent a runaway single request, not be exact.
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
 
 // Compute a note's write plan WITHOUT embedding — NO network, NO database writes, NO transaction.
 // Vectors are filled later by embedPlans, which batches the embed() calls across many notes so a
@@ -158,13 +167,29 @@ export async function embedPlans(
   plans: NoteWritePlan[],
   batchSize: number,
   concurrency: number,
+  maxBatchTokens: number = EMBED_MAX_BATCH_TOKENS,
 ): Promise<void> {
   const contents: string[] = [];
   for (const p of plans) for (const c of p.toEmbed) contents.push(c.content);
   if (contents.length === 0) return;
+  // Pack sub-batches greedily under BOTH caps: at most `batchSize` inputs and at most
+  // `maxBatchTokens` estimated tokens per request (GH #172 — a fixed 512-input batch packed ~87k
+  // tokens into one call and crashed a stock local runner). A single text that alone exceeds the
+  // token cap still goes in its own batch: never split, never dropped.
   const subBatches: string[][] = [];
-  for (let i = 0; i < contents.length; i += batchSize)
-    subBatches.push(contents.slice(i, i + batchSize));
+  let cur: string[] = [];
+  let curTokens = 0;
+  for (const text of contents) {
+    const t = estimateTokens(text);
+    if (cur.length > 0 && (cur.length >= batchSize || curTokens + t > maxBatchTokens)) {
+      subBatches.push(cur);
+      cur = [];
+      curTokens = 0;
+    }
+    cur.push(text);
+    curTokens += t;
+  }
+  if (cur.length > 0) subBatches.push(cur);
   const results: number[][][] = new Array(subBatches.length);
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -354,6 +379,10 @@ export interface IndexVaultArgs {
   isReadable: (rel: string) => boolean;
   now?: () => number;
   onIndexed?: IndexHook;
+  /** GH #171/#172: embed-batch tuning; each field falls back to its module default. Callers thread
+   *  config.embeddings.{batchSize,concurrency,maxBatchTokens} here so a slow or small local runner
+   *  can be tuned without touching code. */
+  embed?: { batchSize?: number; concurrency?: number; maxBatchTokens?: number };
   /** THE-291: fires when the notes/FTS metadata pass has committed (independent of embed
    *  success), so the caller can flip metadata readiness even if the embed pass later fails. */
   onNotesPass?: () => void;
@@ -406,7 +435,13 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // Batch the embed() calls across the whole batch (THE-277) BEFORE opening the write txn, so the
     // reconcile makes ceil(chunks/EMBED_BATCH) requests with a few in flight instead of one serial
     // round-trip per note. The write lock is still never held across a network call.
-    await embedPlans(args.provider, applied, EMBED_BATCH, EMBED_CONCURRENCY);
+    await embedPlans(
+      args.provider,
+      applied,
+      args.embed?.batchSize ?? EMBED_BATCH,
+      args.embed?.concurrency ?? EMBED_CONCURRENCY,
+      args.embed?.maxBatchTokens ?? EMBED_MAX_BATCH_TOKENS,
+    );
     args.db.exec("BEGIN");
     try {
       for (const plan of applied) {
