@@ -19,6 +19,7 @@ import { createEmbeddingProvider } from "../src/embeddings";
 import { pairSparse } from "../src/embeddings/bge-m3";
 import { graphSearch, seedZMargin } from "../src/search/graph_search";
 import type { Reranker } from "../src/search/rerank";
+import { lexicalRouteResults, routeQuery } from "../src/search/router";
 import { semanticSearch } from "../src/search/semantic";
 import type { SparseVec } from "../src/search/sparse";
 import {
@@ -119,6 +120,9 @@ export interface RunEvalOptions {
    *  bubble pass — the eval exercises the SAME mechanism the serve path gates behind
    *  experiential.activationRerank, killing the eval/serve skew. */
   activation?: (chunkId: string) => number | null;
+  /** THE-258: the deterministic class router — same rules as the serve path
+   *  (retrieval.classRouter): lexical short-circuit + temporal auto-stream. */
+  classRouter?: boolean;
   /** THE-404 spike: for z-HARD queries only (z1 < zThreshold, default 2.54), decompose the query
    *  into 2–3 atomic sub-queries via a small local instruct LLM (Ollama /api/chat), run the full
    *  graph search per sub-query (original included), and RRF-merge the ranked lists. Easy queries
@@ -204,6 +208,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       text: string,
       vec: number[],
       sparse?: SparseVec,
+      temporalOverride?: boolean,
     ): Promise<RankedChunk[]> => {
       const res = await graphSearch(opts.db, {
         query: text,
@@ -225,12 +230,25 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ...(opts.diversify ? { diversify: opts.diversify } : {}),
         ...(opts.gatedRerank ? { gatedRerank: opts.gatedRerank } : {}),
         ...(opts.fusionConvex ? { fusionMode: "convex" as const, convex: opts.fusionConvex } : {}),
-        ...(opts.temporal ? { temporal: { enabled: true } } : {}),
+        ...(opts.temporal || temporalOverride ? { temporal: { enabled: true } } : {}),
         ...(opts.activation ? { activationFor: opts.activation } : {}),
       });
       return normHits(res.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
     };
-    let graphHits = await runGraph(q.query_text, queryVec, querySparse);
+    // THE-258: the class router, same rules as serve. Lexical short-circuits to enriched
+    // BM25 (no embed on serve; the eval already has the vec but ranks identically);
+    // temporal auto-enables the stream; standard is byte-identical to the static engine.
+    const route = opts.classRouter
+      ? routeQuery(opts.db, opts.vaultId, q.query_text)
+      : { class: "standard" as const, signals: [] as string[] };
+    let graphHits =
+      route.class === "lexical"
+        ? normHits(
+            lexicalRouteResults(opts.db, opts.vaultId, q.query_text, TOP_K, opts.isReadable).map(
+              (r) => ({ chunk_id: r.chunk_id, path: r.path }),
+            ),
+          )
+        : await runGraph(q.query_text, queryVec, querySparse, route.class === "temporal");
     // THE-404 spike: z-HARD queries only — decompose into atomic sub-queries, run the full
     // pipeline per sub-query (each lands its own seeds + expansion), RRF-merge the ranked lists
     // (original included). Empty decomposition (LLM missing/broken) falls back to the plain path.
@@ -293,6 +311,9 @@ async function main(): Promise<void> {
   // THE-187: `--activation` — thread the experiential store's cached activation scores into
   // the graph bubble pass (the serve mechanism, measured).
   const activation = argv.includes("--activation");
+  // THE-258: `--class-router` — the deterministic class router (lexical short-circuit +
+  // temporal auto-stream), same rules as retrieval.classRouter on serve.
+  const classRouter = argv.includes("--class-router");
   // THE-404: `--decompose` — LLM sub-query decomposition for z-hard queries only
   // (DECOMPOSE_MODEL / DECOMPOSE_Z / DECOMPOSE_URL envs).
   const decompose = argv.includes("--decompose");
@@ -441,6 +462,7 @@ async function main(): Promise<void> {
     ...(zRouterArg !== undefined && !Number.isNaN(zRouterArg) ? { zRouter: zRouterArg } : {}),
     ...(temporal ? { temporal: true } : {}),
     ...(activationLookup ? { activation: activationLookup } : {}),
+    ...(classRouter ? { classRouter: true } : {}),
     ...(decompose
       ? {
           decompose: {
@@ -470,6 +492,7 @@ async function main(): Promise<void> {
     decompose ? `decompose(z<${process.env.DECOMPOSE_Z ?? 2.54})` : null,
     temporal ? "temporal stream" : null,
     activation ? "activation bubble" : null,
+    classRouter ? "class router" : null,
   ]
     .filter((f) => f !== null)
     .join(", ");
@@ -534,6 +557,7 @@ async function main(): Promise<void> {
       decompose && `decompose@${process.env.DECOMPOSE_Z ?? 2.54}`,
       temporal && "temporal",
       activation && "activation",
+      classRouter && "class-router",
     ].filter((x): x is string => typeof x === "string");
     writeFileSync(jsonPath, JSON.stringify({ flags, perQuery: report.perQuery }, null, 2));
     process.stdout.write(`wrote ${jsonPath}\n`);

@@ -793,6 +793,8 @@ async function main(): Promise<void> {
     ...(retrievalLog ? { retrievalLog } : {}),
     // THE-187/193: activation bubble lookup (dark unless experiential.activationRerank).
     ...(activationFor ? { activationFor } : {}),
+    // THE-258: class router (dark unless retrieval.classRouter).
+    classRouter: config.retrieval.classRouter,
   });
 
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over

@@ -128,6 +128,10 @@ export const RetrievalConfigSchema = z.object({
    *  overlapping low-rank noise outrank confident single-stream hits (measured: 10 beats 60 on
    *  every metric at n=32; 20 is indistinguishable from 60). */
   rrfK: z.number().int().positive().default(10),
+  /** THE-258: the deterministic class router (temporal auto-stream, lexical short-circuit
+   *  that skips the embedding round-trip; standard falls through unchanged). DARK by
+   *  default — flips only after the per-class + aggregate A/B passes the ship rule. */
+  classRouter: z.boolean().default(false),
 });
 
 /** THE-230: experiential-tier (membrane store, experiential.db) knobs. */

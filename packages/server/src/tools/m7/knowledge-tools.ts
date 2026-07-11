@@ -18,6 +18,7 @@ import {
 import type { GatewayRoles } from "../../plane/gateway";
 import { graphSearch } from "../../search/graph_search";
 import type { Reranker } from "../../search/rerank";
+import { lexicalRouteResults, routeQuery } from "../../search/router";
 import { semanticSearch } from "../../search/semantic";
 import type { VaultRegistry } from "../../vault/registry";
 import { defineTool } from "../m1/define";
@@ -36,6 +37,9 @@ export interface M7Deps {
   /** THE-187/193: cached_activation_score lookup for the graph bubble pass; absent -> inert
    *  (the config-gated dark default until the A/B passes the ship rule). */
   activationFor?: (chunkId: string) => number | null;
+  /** THE-258: the deterministic class router (retrieval.classRouter). Dark by default —
+   *  absent/false, every query takes the measured standard path. */
+  classRouter?: boolean;
 }
 
 function aclReadable(acl: FolderAcl | undefined, rel: string): boolean {
@@ -131,8 +135,31 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
       tags: ["knowledge", "search"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        // THE-258: class router (dark unless retrieval.classRouter). The lexical class
+        // short-circuits BEFORE the embedding round-trip — the router's cost win; temporal
+        // auto-enables the THE-221 stream; standard falls through unchanged.
+        const route = deps.classRouter
+          ? routeQuery(ctx.db, v.id, input.query)
+          : { class: "standard" as const, signals: [] as string[] };
+        if (route.class === "lexical") {
+          const results = lexicalRouteResults(ctx.db, v.id, input.query, input.final_top_k, (rel) =>
+            aclReadable(ctx.acl, rel),
+          );
+          deps.retrievalLog?.({
+            queryText: input.query,
+            surfaceType: "vault_graph_search",
+            sessionId: ctx.sessionId ?? null,
+            hits: results.map((r, i) => ({
+              chunkId: r.chunk_id,
+              rank: i + 1,
+              score: r.rerank_score,
+            })),
+          });
+          return { vault: v.id, mode_used: "lexical-route", route: route.signals, results };
+        }
         const queryVec = await embedQuery(input.query);
         const results = await graphSearch(ctx.db, {
+          ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
           query: input.query,
           queryVec,
           vaultId: v.id,
