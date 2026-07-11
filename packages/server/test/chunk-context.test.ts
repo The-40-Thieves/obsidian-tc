@@ -79,6 +79,31 @@ describe("THE-406 contextual chunk enrichment", () => {
     expect(seen).toHaveLength(2);
   });
 
+  it("divergence-rebuild reconstructs ENRICHED fts text when the flag is threaded (THE-408)", () => {
+    const db = baseDb();
+    // Simulate an enriched index whose chunk_fts rows were lost: chunks hold raw content +
+    // headings metadata; the first ensure sees the count divergence and rebuilds.
+    db.prepare(
+      "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      "c1",
+      "v1",
+      PATH,
+      "1",
+      JSON.stringify(["Setup"]),
+      "run the reconcile nightly",
+      "h",
+      1,
+      0,
+      0,
+    );
+    if (!ensureChunkFts(db, { enrich: true })) return; // FTS5 not compiled into this runtime
+    const row = db.prepare("SELECT content FROM chunk_fts WHERE chunk_id = 'c1'").get() as {
+      content: string;
+    };
+    expect(row.content).toBe("Vault Health — Setup\n\nrun the reconcile nightly");
+  });
+
   it("BM25 matches on the title but returns the raw content", async () => {
     const db = baseDb();
     if (!ensureChunkFts(db)) return; // FTS5 not compiled into this runtime — no-op path is pinned elsewhere

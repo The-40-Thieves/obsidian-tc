@@ -11,7 +11,7 @@ import { parseNote } from "../vault/frontmatter";
 import { type ExtractedLink, extractLinks } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { contentHash, resolveVaultPath, walkVault } from "../vault/paths";
-import { chunkNote } from "./chunk";
+import { chunkNote, enrichChunkText } from "./chunk";
 import { deleteChunkColbert, ensureChunkColbert, upsertChunkColbert } from "./chunk_colbert";
 import { deleteChunkFtsRow, ensureChunkFts, upsertChunkFtsRow } from "./chunk_fts";
 import type { ColbertMatrix } from "./colbert";
@@ -86,16 +86,9 @@ interface ExistingRow {
 // embeddings.chunkContext is on; content stays the raw display text everywhere.
 type PlannedChunk = ReturnType<typeof chunkNote>[number] & { id: string; embedText?: string };
 
-/** THE-406: context-enriched embed/BM25 text for a chunk — note title (path basename) + heading
- *  breadcrumb prefix. The chunker consumes heading lines into metadata, so without this the
- *  representation is title- and heading-blind: a note whose evidence lives in its name or its
- *  section headings is invisible to dense AND lexical retrieval. Exported for tests. */
-export function enrichChunkText(path: string, headings: string[], content: string): string {
-  const base = path.split(/[/\\]/).pop() ?? path;
-  const title = base.replace(/\.md$/i, "");
-  const crumb = headings.length > 0 ? ` — ${headings.join(" — ")}` : "";
-  return `${title}${crumb}\n\n${content}`;
-}
+// THE-408: enrichChunkText moved to ./chunk (import-cycle-free for chunk_fts); re-exported here
+// for existing importers (tests, scripts).
+export { enrichChunkText } from "./chunk";
 
 // A note's pending writes, computed (including the embed() network call) WITHOUT touching the
 // database or opening a transaction, so many plans can be applied inside one transaction.
@@ -470,7 +463,7 @@ export async function indexNote(
   // through deindexNote; an empty note has nothing to index).
   const hasNotes = hasNotesTable(db);
   const hasFts = hasNotes && ensureNotesFts(db, { now });
-  const hasChunkFts = ensureChunkFts(db, { now });
+  const hasChunkFts = ensureChunkFts(db, { now, enrich });
   const hasEmbedFull = typeof provider.embedFull === "function";
   const hasChunkSparse = hasEmbedFull && ensureChunkSparse(db);
   const hasChunkColbert = hasEmbedFull && ensureChunkColbert(db);
@@ -519,10 +512,18 @@ export async function indexNote(
  * empty-content reindex (which cannot distinguish a deleted note from an empty one for the
  * notes table).
  */
-export function deindexNote(db: Database, vaultId: string, path: string, hasVec: boolean): void {
+export function deindexNote(
+  db: Database,
+  vaultId: string,
+  path: string,
+  hasVec: boolean,
+  /** THE-408: embeddings.chunkContext — a divergence-rebuild fired from this path must match the
+   *  index's enrichment. */
+  enrich = false,
+): void {
   const hasNotes = hasNotesTable(db);
   const hasFts = hasNotes && ensureNotesFts(db);
-  const hasChunkFts = ensureChunkFts(db);
+  const hasChunkFts = ensureChunkFts(db, { enrich });
   const hasChunkSparse = tableExists(db, "chunk_sparse");
   const hasChunkColbert = tableExists(db, "chunk_colbert");
   db.exec("BEGIN");
@@ -580,7 +581,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // indexing exactly as before.
   const hasNotes = hasNotesTable(args.db);
   const hasFts = hasNotes && ensureNotesFts(args.db, { now });
-  const hasChunkFts = ensureChunkFts(args.db, { now });
+  const hasChunkFts = ensureChunkFts(args.db, { now, enrich: args.chunkContext === true });
   const hasEmbedFull = typeof args.provider.embedFull === "function";
   const hasChunkSparse = hasEmbedFull && ensureChunkSparse(args.db);
   const hasChunkColbert = hasEmbedFull && ensureChunkColbert(args.db);
@@ -737,7 +738,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       .all(args.vaultId) as Array<{ path: string }>;
     for (const row of known) {
       if (!walkedSet.has(row.path)) {
-        deindexNote(args.db, args.vaultId, row.path, hasVec);
+        deindexNote(args.db, args.vaultId, row.path, hasVec, args.chunkContext === true);
         stats.notes_deleted += 1;
       }
     }

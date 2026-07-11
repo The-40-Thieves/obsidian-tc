@@ -161,8 +161,11 @@ export const EmbeddingsConfigSchema = z.object({
    *  chunker strips heading lines into metadata, so title/heading-only evidence is otherwise
    *  invisible to both retrieval streams. Display content (chunks.content) stays raw. The chunk
    *  content hash covers the enriched text, so flipping this re-embeds the vault on the next
-   *  reconcile. Default off pending the THE-406 A/B gate. */
-  chunkContext: z.boolean().default(false),
+   *  reconcile. DEFAULT ON since THE-408: measured +0.223 nDCG@10 (p=0.0001) with the divergence
+   *  rebuild now enrichment-aware. UPGRADE NOTE: an index built with the flag off re-embeds in
+   *  full on the first reconcile after upgrading (hash change) — set `chunkContext: false` to
+   *  keep the old representation. */
+  chunkContext: z.boolean().default(true),
   /** THE-405: asymmetric instruct prefixes for models whose cards require them (e.g.
    *  Qwen3-Embedding's "Instruct: ...\nQuery: " on the query side, documents plain). Applied at
    *  the provider factory: `queryPrefix` on embeds marked input:"query", `documentPrefix` on

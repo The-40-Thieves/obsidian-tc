@@ -108,6 +108,18 @@ function makeChunk(index: string, headings: string[], content: string): Chunk {
   };
 }
 
+/** THE-406: context-enriched embed/BM25 text for a chunk — note title (path basename) + heading
+ *  breadcrumb prefix. The chunker consumes heading lines into metadata, so without this the
+ *  representation is title- and heading-blind: a note whose evidence lives in its name or its
+ *  section headings is invisible to dense AND lexical retrieval. Lives here (not indexer.ts) so
+ *  chunk_fts.ts can rebuild enriched text without an import cycle (THE-408). */
+export function enrichChunkText(path: string, headings: string[], content: string): string {
+  const base = path.split(/[/\\]/).pop() ?? path;
+  const title = base.replace(/\.md$/i, "");
+  const crumb = headings.length > 0 ? ` — ${headings.join(" — ")}` : "";
+  return `${title}${crumb}\n\n${content}`;
+}
+
 export function chunkNote(body: string, opts: ChunkOptions = {}): Chunk[] {
   const maxTokens = opts.maxTokens ?? 512;
   const sections = splitSections(body);

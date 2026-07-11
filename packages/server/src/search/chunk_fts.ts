@@ -7,6 +7,7 @@
 // per-write sync-detector is needed. Runtime-provisioned like notes_fts/vec_chunks: a cache.db
 // written under an FTS5-less adapter stays openable under one with FTS5.
 import type { Database } from "../db/types";
+import { enrichChunkText } from "./chunk";
 
 const chunkFtsCache = new WeakMap<Database, boolean>();
 
@@ -26,7 +27,15 @@ function chunksTableExists(db: Database): boolean {
  * chunks, so on a row-count divergence (first FTS-capable open of an older index, or writes made
  * under hasFts=false) it is rebuilt wholesale from chunks.content — no per-write sync-detector.
  */
-export function ensureChunkFts(db: Database, opts: { now?: () => number } = {}): boolean {
+export function ensureChunkFts(
+  db: Database,
+  /** THE-408: `enrich` is embeddings.chunkContext, threaded by the INDEXER call sites (the only
+   *  src callers). When set, a divergence-rebuild reconstructs the THE-406 enriched text instead
+   *  of raw chunk content, so the BM25 stream can never silently de-enrich under a live enriched
+   *  index. Callers that cannot know the flag omit it and get the raw rebuild — correct for
+   *  legacy raw indexes, which are the only place a flagless rebuild occurs. */
+  opts: { now?: () => number; enrich?: boolean } = {},
+): boolean {
   const cached = chunkFtsCache.get(db);
   if (cached !== undefined) return cached;
   if (process.env.OBSIDIAN_TC_DISABLE_FTS === "1") {
@@ -54,15 +63,36 @@ export function ensureChunkFts(db: Database, opts: { now?: () => number } = {}):
     const nChunks = (db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as { n: number }).n;
     const nFts = (db.prepare("SELECT COUNT(*) AS n FROM chunk_fts").get() as { n: number }).n;
     if (nChunks !== nFts) {
-      // THE-406 caveat: this wholesale rebuild reconstructs from RAW chunks.content — it cannot
-      // know the embeddings.chunkContext flag. With enrichment on, a divergence-rebuild holds
-      // un-enriched text until each row is next re-embedded (or the flag is flipped off+on,
-      // which re-hashes everything). Acceptable while the flag is experimental; make the rebuild
-      // enrichment-aware before flipping the default.
       db.exec("DELETE FROM chunk_fts");
-      db.exec(
-        "INSERT INTO chunk_fts (chunk_id, vault_id, path, content) SELECT id, vault_id, path, content FROM chunks",
-      );
+      if (opts.enrich === true) {
+        // THE-408: an enriched index rebuilds ENRICHED — reconstruct the THE-406 embed/BM25 text
+        // from path + headings + content in JS (the SQL-only path cannot parse the headings JSON).
+        const rows = db
+          .prepare("SELECT id, vault_id, path, headings, content FROM chunks")
+          .all() as Array<{
+          id: string;
+          vault_id: string;
+          path: string;
+          headings: string;
+          content: string;
+        }>;
+        const ins = db.prepare(
+          "INSERT INTO chunk_fts (chunk_id, vault_id, path, content) VALUES (?, ?, ?, ?)",
+        );
+        for (const r of rows) {
+          let crumbs: string[] = [];
+          try {
+            crumbs = JSON.parse(r.headings || "[]") as string[];
+          } catch {
+            // malformed headings metadata degrades to a title-only prefix, never a failed rebuild
+          }
+          ins.run(r.id, r.vault_id, r.path, enrichChunkText(r.path, crumbs, r.content));
+        }
+      } else {
+        db.exec(
+          "INSERT INTO chunk_fts (chunk_id, vault_id, path, content) SELECT id, vault_id, path, content FROM chunks",
+        );
+      }
     }
     chunkFtsCache.set(db, true);
     return true;

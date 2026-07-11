@@ -6,6 +6,24 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- **`embeddings.chunkContext` now defaults ON (THE-408).** Contextual chunk enrichment measured
+  +0.223 nDCG@10 (p=0.0001) and survived a 126-query re-test; with the divergence rebuild now
+  enrichment-aware there is no remaining representation-skew hazard. **Upgrade note:** an existing
+  index built with the flag off re-embeds in full on the first reconcile after upgrading (chunk
+  content hashes cover the enriched text). Set `embeddings.chunkContext: false` to keep the old
+  raw-text representation.
+
+### Fixed
+
+- **chunk_fts divergence-rebuild is enrichment-aware (THE-408).** A wholesale rebuild (first
+  FTS-capable open of an older index, or writes made without FTS5) previously reconstructed raw
+  chunk text even under an enriched index, silently de-enriching the BM25 stream while the dense
+  side stayed enriched. The indexer now threads `embeddings.chunkContext` into every
+  `ensureChunkFts` call site and the rebuild reconstructs the enriched text from
+  path + headings + content.
+
 ## [1.5.0] - 2026-07-11
 
 ### Changed

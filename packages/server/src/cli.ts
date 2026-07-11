@@ -451,7 +451,7 @@ async function main(): Promise<void> {
   };
   const deindexHook = (vaultId: string, path: string): void => {
     try {
-      deindexNote(db, vaultId, path, hasVec);
+      deindexNote(db, vaultId, path, hasVec, config.embeddings.chunkContext);
     } catch (e) {
       indexHealth.writeFailures++;
       indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
@@ -492,7 +492,7 @@ async function main(): Promise<void> {
     },
     deindex: (vaultId, path) => {
       try {
-        deindexNote(db, vaultId, path, hasVec);
+        deindexNote(db, vaultId, path, hasVec, config.embeddings.chunkContext);
       } catch (e) {
         indexHealth.writeFailures++;
         indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
