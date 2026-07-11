@@ -18,6 +18,7 @@ import { registerM4Tools } from "../src/tools/m4";
 import { registerM5Tools } from "../src/tools/m5";
 import { registerM6Tools } from "../src/tools/m6";
 import { registerM7Tools } from "../src/tools/m7";
+import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
@@ -25,7 +26,7 @@ import { openMemoryDb } from "./helpers";
  *  M1–M7 domains). Bump this WITH the docs headline (README/ARCHITECTURE/docs-site) and the
  *  EXPECTED_TOOL_COUNT in scripts/check-version-coherence.mjs (which asserts the docs match it) when
  *  a tool is added or removed. (Was mis-documented as 106 before this pin landed; the real count is 105.) */
-const REGISTERED_TOOL_COUNT = 128;
+const REGISTERED_TOOL_COUNT = 132;
 
 const schemaSql = readFileSync(
   fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
@@ -127,6 +128,7 @@ describe("THE-306 registered tool count", () => {
       reranker: {} as never,
       roles: {} as never,
     });
+    registerM8Tools(registry, {});
 
     expect(registry.list().length).toBe(REGISTERED_TOOL_COUNT);
   });

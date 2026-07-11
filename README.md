@@ -19,7 +19,7 @@ obsidian-tc gives agents **governed** access instead. Every tool call — no exc
 
 New here? Start with the [5-minute quickstart](./docs/QUICKSTART.md) or the [threat model and design rationale](./docs/WHY.md).
 
-## The interface: 3 tools, ~128 governed capabilities
+## The interface: 3 tools, ~132 governed capabilities
 
 By default the server advertises just **three meta-tools** instead of a wall of ~123:
 
@@ -35,7 +35,7 @@ obsidian-tc is a comprehensive Model Context Protocol (MCP) server for [Obsidian
 
 Three pillars:
 
-1. **Broad.** 128 tools covering the meaningful Obsidian operations, including native Bases (`.base`) support with a real expression-DSL evaluator — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
+1. **Broad.** 132 tools covering the meaningful Obsidian operations, including native Bases (`.base`) support with a real expression-DSL evaluator — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
 2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS with `kid` rotation), folder ACLs (per vault), read-only kill switch, human-in-the-loop elicit on destructive operations, compare-and-swap on writes, idempotency keys, bulk throttling.
 3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, structured CloudEvents emission on every tool call — all opt-in export streams that fail soft.
 

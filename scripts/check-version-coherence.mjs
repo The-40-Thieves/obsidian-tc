@@ -84,7 +84,7 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
 // canonical shipped-count phrase; the historical "103 at r2" G2.1 design numbers are intentionally
 // excluded (they describe the r2 spec surface, not the shipped surface).
 {
-  const EXPECTED_TOOL_COUNT = 128;
+  const EXPECTED_TOOL_COUNT = 132;
   const readText = (p) => {
     const target = resolve(ROOT, p);
     if (relative(ROOT, target).startsWith("..")) {

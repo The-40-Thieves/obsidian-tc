@@ -63,6 +63,7 @@ import {
 import { DEFAULT_MEMORY_FOLDER, DEFAULT_TRACE_FOLDER, registerM5Tools } from "./tools/m5";
 import { type M6Deps, registerM6Tools } from "./tools/m6";
 import { registerM7Tools } from "./tools/m7";
+import { registerM8Tools } from "./tools/m8";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { resolveMode, type VaultMode } from "./vault/mode";
@@ -280,7 +281,8 @@ async function main(): Promise<void> {
   const activationFor = config.experiential.activationRerank
     ? makeActivationLookup(experientialDb)
     : undefined;
-  if (!retrievalLog && !episodeCapture && !activationFor) experientialDb.close?.();
+  const experientialOpen = !!(retrievalLog || episodeCapture || activationFor);
+  if (!experientialOpen) experientialDb.close?.();
 
   // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
   // share the same in-memory counters. The scrape endpoint is started below only when
@@ -702,6 +704,12 @@ async function main(): Promise<void> {
     ...(retrievalLog ? { retrievalLog } : {}),
     // THE-187/193: activation bubble lookup (dark unless experiential.activationRerank).
     ...(activationFor ? { activationFor } : {}),
+  });
+
+  // M8 experiential domain (THE-229): work-memory retrieval + management verbs over
+  // agent_episodes / chunk_retrievals. With the store closed the tools report unavailable.
+  registerM8Tools(registry, {
+    ...(experientialOpen ? { edb: experientialDb } : {}),
   });
 
   // THE-295: acl (+ per-vault overrides) is hoisted above the ToolRegistry construction.
