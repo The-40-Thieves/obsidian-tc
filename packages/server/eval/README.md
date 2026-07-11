@@ -22,6 +22,10 @@ bun eval/compare.ts a.json b.json
 
 ## The ship rule (THE-399)
 
+**Status 2026-07-11: the set reached n=126 (THE-407)** — MDE is now ~0.05 nDCG, so rule 2's
+"statistically significant win once the set is large enough" arm is LIVE (still under BH-FDR,
+rule 3). The n≈126 growth items below are historical context.
+
 The measurement floor at n=32: with per-query ΔnDCG SD ≈ 0.20, the SE of a mean paired delta is
 ≈ 0.035 and the minimal detectable effect (α=.05, power .8) is ≈ **0.10 nDCG** — most real
 improvements are smaller than that. Until the golden set reaches **n ≈ 126** (detects Δ=0.05):
