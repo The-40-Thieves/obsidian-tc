@@ -16,6 +16,7 @@ import { loadConfig } from "../src/config/load";
 import { openDatabase } from "../src/db/open";
 import type { Database } from "../src/db/types";
 import { createEmbeddingProvider } from "../src/embeddings";
+import { pairSparse } from "../src/embeddings/bge-m3";
 import { graphSearch, seedZMargin } from "../src/search/graph_search";
 import type { Reranker } from "../src/search/rerank";
 import { semanticSearch } from "../src/search/semantic";
@@ -302,6 +303,7 @@ async function main(): Promise<void> {
         "--fusion convex enables THE-398 score-normalized convex-combination fusion (CONVEX_ALPHA env, default 0.7).\n" +
         "--z-router <t> enables THE-400 z-margin routing (skip expansion when top-1 z >= t; replaces sim/margin rule).\n" +
         "--decompose enables THE-404 sub-query decomposition for z-hard queries (Ollama; DECOMPOSE_MODEL/DECOMPOSE_Z envs).\n" +
+        "SPARSE_URL=<bge-m3 token_classify server> + --sparse fuses the learned-sparse stream into a NON-bge dense pipeline (THE-403).\n" +
         "--mmr enables THE-393 diversification (note-collapse maxPerNote=2 + MMR final pick).\n" +
         "Needs an indexed cache.db + a reachable embedding backend (config.embeddings).\n",
     );
@@ -314,7 +316,47 @@ async function main(): Promise<void> {
   if (!firstVault) throw new Error("config.vaults is empty");
 
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
-  const provider = createEmbeddingProvider(config.embeddings);
+  const baseProvider = createEmbeddingProvider(config.embeddings);
+  // THE-403: SPARSE_URL composes a MIXED provider — dense query vectors from the config provider
+  // (must match the index's embeddings, e.g. nomic), learned-sparse query weights from a bge-m3
+  // token_classify vLLM server. This is the "sparse stream alongside the nomic pipeline" gate;
+  // chunk_sparse must already be backfilled into the cache (same enriched text).
+  const sparseUrl = process.env.SPARSE_URL;
+  const provider = sparseUrl
+    ? {
+        embed: (texts: string[]) => baseProvider.embed(texts),
+        embedFull: async (texts: string[]) => {
+          const dense = await baseProvider.embed(texts);
+          const root = sparseUrl.replace(/\/$/, "").replace(/\/v1$/, "");
+          const model = "BAAI/bge-m3";
+          const post = async (url: string, body: unknown): Promise<unknown> => {
+            const r = await fetch(url, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            if (!r.ok) throw new Error(`${url} HTTP ${r.status}`);
+            return r.json();
+          };
+          const pool = (await post(`${root}/pooling`, {
+            model,
+            input: texts,
+            task: "token_classify",
+          })) as { data?: Array<{ data?: number[] }> };
+          const out: Array<{ dense: number[]; sparse: SparseVec }> = [];
+          for (let i = 0; i < texts.length; i++) {
+            const tok = (await post(`${root}/tokenize`, { model, prompt: texts[i] })) as {
+              tokens?: number[];
+            };
+            out.push({
+              dense: dense[i] ?? [],
+              sparse: pairSparse(tok.tokens ?? [], pool.data?.[i]?.data ?? []),
+            });
+          }
+          return out;
+        },
+      }
+    : baseProvider;
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
   // THE-394: a Cohere/Jina-shaped /rerank backend for the eval (TEI or vLLM), injected via
   // RERANK_URL. Production routes through the gateway seam; this keeps the A/B self-contained.
