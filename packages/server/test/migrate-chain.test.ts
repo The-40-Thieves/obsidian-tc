@@ -1,7 +1,7 @@
 // THE-233 integration: verify the MERGED migration chain applies clean on a fresh db AND on a
 // db that already has the pre-merge migrations (simulating an existing dev cache.db). Guards
 // the cli.ts migration array assembled across W-SCHEMA + W-WORKERS.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
@@ -23,6 +23,7 @@ const cacheChain = [
 const experientialChain = [
   { version: "20260626_001", sql: read("20260626_001_experiential_init.sql") },
   { version: "20260711_001", sql: read("20260711_001_experiential_outcome.sql") },
+  { version: "20260711_002", sql: read("20260711_002_agent_episodes.sql") },
 ];
 
 function tableExists(db: Database, name: string): boolean {
@@ -67,9 +68,14 @@ describe("merged migration chain (integration)", () => {
 
   it("experiential.db: the separate-store chain applies (the membrane)", () => {
     const db = openMemoryDb();
-    expect(runMigrations(db, experientialChain)).toEqual(["20260626_001", "20260711_001"]);
+    expect(runMigrations(db, experientialChain)).toEqual([
+      "20260626_001",
+      "20260711_001",
+      "20260711_002",
+    ]);
     expect(tableExists(db, "vault_object_state")).toBe(true);
     expect(tableExists(db, "chunk_retrievals")).toBe(true);
+    expect(tableExists(db, "agent_episodes")).toBe(true);
     // THE-230 outcome axis present and writable
     db.prepare(
       "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, outcome) VALUES ('x', 'c', 1, 1)",
@@ -79,5 +85,22 @@ describe("merged migration chain (integration)", () => {
     };
     expect(row.outcome).toBe(1);
     expect(runMigrations(db, experientialChain)).toEqual([]); // idempotent re-run
+  });
+
+  // Regression guard for the PR #207 install-smoke failure: a migration file that exists on
+  // disk but is never wired into cli.ts's runtime chain boots a server whose prepared
+  // statements target tables that were never created. Tests can't catch that via their own
+  // hand-built chains, so assert the SOURCE wiring: every src/migrations/*.sql filename must
+  // be referenced by cli.ts.
+  it("cli.ts references every migration file on disk", () => {
+    const migrationsDir = fileURLToPath(new URL("../src/migrations/", import.meta.url));
+    const cliSource = readFileSync(
+      fileURLToPath(new URL("../src/cli.ts", import.meta.url)),
+      "utf8",
+    );
+    const missing = readdirSync(migrationsDir)
+      .filter((f) => f.endsWith(".sql"))
+      .filter((f) => !cliSource.includes(f));
+    expect(missing).toEqual([]);
   });
 });

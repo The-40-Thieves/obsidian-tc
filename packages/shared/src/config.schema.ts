@@ -138,6 +138,14 @@ export const ExperientialConfigSchema = z.object({
    *  never log (THE-187 eval/serve hygiene). false keeps the experiential handle closed after
    *  boot provisioning (pre-THE-230 behavior). */
   logRetrievals: z.boolean().default(true),
+  /** THE-228: capture every dispatch outcome as an agent_episodes row (action axis: tool,
+   *  status, duration, sizes, hashes, attribution — no payloads). Local-only work-memory in
+   *  experiential.db; the sleep-time evaluator stamps retrieval-eligibility. */
+  captureEpisodes: z.boolean().default(true),
+  /** THE-228 content axis: also persist the raw parsed args (secret-scanned + size-capped)
+   *  on each episode. Default OFF until the THE-238 poisoning defense lands — the write-on
+   *  gate ordering. */
+  captureContent: z.boolean().default(false),
 });
 
 export const EmbeddingsConfigSchema = z.object({

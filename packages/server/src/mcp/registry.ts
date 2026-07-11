@@ -76,6 +76,24 @@ export interface ToolDefinition<I = unknown, O = unknown> {
 type VerifyElicit = (token: string, expectedHash: string, ctx: CallerContext) => boolean;
 type Status = "ok" | "error" | "skipped";
 
+/** THE-228: one dispatch outcome, as handed to the experiential episode bus. Carries the
+ *  audit-row fields plus the raw parsed input; content policy (redact / cap / drop) belongs
+ *  to the sink, never to the registry. */
+export interface DispatchEpisode {
+  ts: number;
+  vaultId: string;
+  tool: string;
+  caller: string | null;
+  sessionId: string | null;
+  status: Status;
+  errorCode: string | null;
+  durationMs: number;
+  resultSize: number;
+  argsHash: string;
+  /** Raw parsed input as received. */
+  args: unknown;
+}
+
 /** Map a terminal error code to the G2.4 tool-call status label (ok | denied | error). */
 function callStatusForError(code: string): ToolCallStatus {
   switch (code) {
@@ -197,6 +215,10 @@ export interface RegistryOptions {
    *  the client response is redacted to `{code:"internal"}`; this sink receives the real error +
    *  stack for operator diagnosis. Never wired to stdout (the MCP channel); best-effort. */
   onInternalError?: (tool: string, vaultId: string, err: unknown) => void;
+  /** THE-228 episode capture. Called once per dispatch outcome (every dispatch, session or
+   *  not) with the audit-row fields + raw parsed input; the experiential capture bus persists
+   *  it. Best-effort by contract: sink failures are swallowed and never break dispatch. */
+  onEpisode?: (e: DispatchEpisode) => void;
 }
 
 export class ToolRegistry {
@@ -219,6 +241,7 @@ export class ToolRegistry {
   private readonly sessionTracer?: RegistryOptions["sessionTracer"];
   private readonly onInternalError?: RegistryOptions["onInternalError"];
   private readonly aclResolver?: RegistryOptions["aclResolver"];
+  private readonly onEpisode?: RegistryOptions["onEpisode"];
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
@@ -234,6 +257,7 @@ export class ToolRegistry {
     this.sessionTracer = opts.sessionTracer;
     this.onInternalError = opts.onInternalError;
     this.aclResolver = opts.aclResolver;
+    this.onEpisode = opts.onEpisode;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -481,6 +505,27 @@ export class ToolRegistry {
           );
         } catch {
           /* tracing must never break dispatch */
+        }
+      }
+      // THE-228: hand the same outcome to the experiential episode bus — every dispatch,
+      // session or not. The bus owns content policy (redaction / caps / off) + persistence.
+      if (this.onEpisode) {
+        try {
+          this.onEpisode({
+            ts: Date.now(),
+            vaultId: ctx.vaultId,
+            tool: name,
+            caller: ctx.caller,
+            sessionId: ctx.sessionId ?? null,
+            status,
+            errorCode: code ?? null,
+            durationMs,
+            resultSize,
+            argsHash: hash,
+            args: rawInput,
+          });
+        } catch {
+          /* capture must never break dispatch */
         }
       }
     };

@@ -20,6 +20,7 @@ import { openDatabase } from "./db/open";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
 import { recomputeActivation } from "./experiential/activation";
+import { createEpisodeCapture } from "./experiential/episodes";
 import { createRetrievalLogger } from "./experiential/log";
 import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
@@ -99,11 +100,16 @@ const experientialOutcomeMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260711_001_experiential_outcome.sql", import.meta.url)),
   "utf8",
 );
+const experientialAgentEpisodesMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260711_002_agent_episodes.sql", import.meta.url)),
+  "utf8",
+);
 // The experiential.db chain, applied by every entry point that opens the store (serve +
 // activation-recompute) so they can never diverge on schema.
 const experientialMigrations = [
   { version: "20260626_001", sql: experientialInitMigrationSql },
   { version: "20260711_001", sql: experientialOutcomeMigrationSql },
+  { version: "20260711_002", sql: experientialAgentEpisodesMigrationSql },
 ];
 // THE-233 (W-WORKERS): sleep-time plane state tables (contradictions/syntheses/audit_reports/
 // job_runs). W-WORKERS left this committed-but-unwired by design; the integration wires it into
@@ -250,17 +256,26 @@ async function main(): Promise<void> {
   const experientialDb = await provisionExperientialDb(config.cacheDir, experientialMigrations, {
     version: VERSION,
   });
-  // THE-230: retrieval-logging half of the capture port. Enabled (default) -> the handle stays
-  // open for the process lifetime and serve-path search tools append retrieval events (the
-  // ACT-R recompute's input). Disabled -> provision schema only and release, the pre-THE-230
-  // behavior. Logging failures go to stderr and never fail the search (best-effort telemetry).
+  // THE-230/THE-228: the experiential capture port. Retrieval logging + the episode bus share
+  // the one experiential.db handle, held open for the process lifetime when either is enabled;
+  // with both off the store is provisioned-then-released (pre-capture behavior). Sink failures
+  // go to stderr and never fail the dispatch/search that fired them (best-effort telemetry).
   const retrievalLog = config.experiential.logRetrievals
     ? createRetrievalLogger(experientialDb, {
         onError: (e) =>
           process.stderr.write(`[retrieval-log] ${e instanceof Error ? e.message : String(e)}\n`),
       })
     : undefined;
-  if (!retrievalLog) experientialDb.close?.();
+  // THE-228: capture-everything episode bus (agent_episodes). The content axis (raw args) is
+  // a separate gate, default OFF until the THE-238 poisoning defense lands.
+  const episodeCapture = config.experiential.captureEpisodes
+    ? createEpisodeCapture(experientialDb, {
+        captureContent: config.experiential.captureContent,
+        onError: (e) =>
+          process.stderr.write(`[episodes] ${e instanceof Error ? e.message : String(e)}\n`),
+      })
+    : undefined;
+  if (!retrievalLog && !episodeCapture) experientialDb.close?.();
 
   // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
   // share the same in-memory counters. The scrape endpoint is started below only when
@@ -351,6 +366,8 @@ async function main(): Promise<void> {
       const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
       process.stderr.write(`[internal] ${tool} (vault ${vaultId}): ${detail}\n`);
     },
+    // THE-228: every dispatch outcome feeds the experiential episode bus (when enabled).
+    ...(episodeCapture ? { onEpisode: episodeCapture } : {}),
   });
   // Index-on-write (THE-255): a note mutation reindexes its path inline (best-effort and
   // backgrounded, so it never slows or fails a write); deindex drops a removed note's chunks
