@@ -20,6 +20,7 @@ import { openDatabase } from "./db/open";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
 import { makeActivationLookup, recomputeActivation } from "./experiential/activation";
+import { inferCitations } from "./experiential/citation";
 import { createEpisodeCapture } from "./experiential/episodes";
 import { createRetrievalLogger } from "./experiential/log";
 import { createGatewayClient, type GatewayClient } from "./gateway";
@@ -226,6 +227,53 @@ async function main(): Promise<void> {
       process.stdout.write(`activation recompute: ${stats.chunks} chunk(s) updated\n`);
     } finally {
       edb.close?.();
+    }
+    return;
+  }
+
+  // THE-170: on-demand citation inference — stage 1 ROUGE-L + stored-embedding cosine over a
+  // session transcript, stage 2 judge via the gateway role seam (5% parse kill switch), then
+  // stamp cited_in_response / citation_score on the scoped chunk_retrievals rows.
+  if (cmd.kind === "citation-infer") {
+    const cfg = resolveOrUsageExit(cmd.input);
+    if (!cmd.transcript || (!cmd.session && cmd.since === undefined)) {
+      process.stderr.write(
+        `citation-infer requires --transcript <file> and --session <id> or --since <ms> [--until <ms>]\n\n${USAGE}`,
+      );
+      process.exit(2);
+    }
+    const transcript = readFileSync(cmd.transcript, "utf8");
+    mkdirSync(cfg.cacheDir, { recursive: true });
+    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+    const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+      version: VERSION,
+    });
+    let gwc: GatewayClient | null = null;
+    try {
+      gwc = createGatewayClient({});
+    } catch {
+      gwc = null;
+    }
+    const provider = createEmbeddingProvider(cfg.embeddings);
+    try {
+      const stats = await inferCitations({
+        edb,
+        cacheDb,
+        transcript,
+        ...(cmd.session ? { sessionId: cmd.session } : {}),
+        ...(cmd.since !== undefined
+          ? { windowMs: [cmd.since, cmd.until ?? Date.now()] as [number, number] }
+          : {}),
+        embed: (texts) => provider.embed(texts, { input: "query" }),
+        judge: gwc ? (r) => gwc.judge(r).then((x) => ({ text: x.text, model: x.model })) : null,
+        log: (s) => process.stderr.write(`${s}\n`),
+      });
+      process.stdout.write(
+        `citation-infer: scoped=${stats.scoped} stage1Pass=${stats.stage1Pass} judged=${stats.judged} cited=${stats.cited} parseFailures=${stats.parseFailures}${stats.aborted ? " ABORTED(kill-switch)" : ""}\n`,
+      );
+    } finally {
+      edb.close?.();
+      cacheDb.close?.();
     }
     return;
   }

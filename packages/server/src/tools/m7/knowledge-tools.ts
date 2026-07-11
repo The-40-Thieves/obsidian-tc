@@ -146,6 +146,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         deps.retrievalLog?.({
           queryText: input.query,
           surfaceType: "vault_graph_search",
+          sessionId: ctx.sessionId ?? null,
           hits: results.map((r, i) => ({
             chunkId: r.chunk_id,
             rank: i + 1,
@@ -187,6 +188,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         deps.retrievalLog?.({
           queryText: input.proposal,
           surfaceType: "knowledge_challenge",
+          sessionId: ctx.sessionId ?? null,
           hits: hits.map((h, i) => ({ chunkId: h.chunk_id, rank: i + 1, score: h.score })),
         });
         // Enrich with note-level tags so isDecisionChunk's tag rule fires (not just the path

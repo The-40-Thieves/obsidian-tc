@@ -12,6 +12,14 @@ export type CliCommand =
   | { kind: "plugin-install"; vaultPath: string }
   | { kind: "cluster"; input?: string; k?: number }
   | { kind: "activation-recompute"; input?: string }
+  | {
+      kind: "citation-infer";
+      input?: string;
+      session?: string;
+      since?: number;
+      until?: number;
+      transcript?: string;
+    }
   | { kind: "error"; message: string };
 
 export const USAGE = `obsidian-tc — MCP server for Obsidian
@@ -101,6 +109,34 @@ export function parseCliArgs(argv: string[]): CliCommand {
       return {
         kind: "activation-recompute",
         input: flagValue(rest, "--config") ?? positional(rest),
+      };
+    }
+    // THE-170: on-demand citation inference over a session transcript.
+    if (first === "citation-infer") {
+      const num = (flag: string): number | undefined => {
+        const v = flagValue(rest, flag);
+        if (v === undefined) return undefined;
+        const n = Number(v);
+        if (!Number.isFinite(n)) throw new CliError(`${flag} must be a number`);
+        return n;
+      };
+      // Strip value-carrying flags so positional() cannot mistake a flag value for the config.
+      const scan = [...rest];
+      for (const f of ["--session", "--since", "--until", "--transcript", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const session = flagValue(rest, "--session");
+      const since = num("--since");
+      const until = num("--until");
+      const transcript = flagValue(rest, "--transcript");
+      return {
+        kind: "citation-infer",
+        input: flagValue(rest, "--config") ?? positional(scan),
+        ...(session !== undefined ? { session } : {}),
+        ...(since !== undefined ? { since } : {}),
+        ...(until !== undefined ? { until } : {}),
+        ...(transcript !== undefined ? { transcript } : {}),
       };
     }
     if (first.startsWith("-")) return { kind: "error", message: `unknown option: ${first}` };

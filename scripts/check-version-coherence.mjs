@@ -94,13 +94,13 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
   };
   const targets = [
     ["README.md", /~?(\d+) governed capabilities/],
-    ["README.md", /\*\*~?(\d+) tools across 28 domains\*\*/],
-    ["packages/server/README.md", /\((\d+) tools across 28 domains/],
+    ["README.md", /\*\*~?(\d+) tools across 29 domains\*\*/],
+    ["packages/server/README.md", /\((\d+) tools across 29 domains/],
     ["ARCHITECTURE.md", /(\d+)-tool G2\.1 surface/],
     ["docs/src/content/docs/index.md", /~?(\d+) typed tools/],
     ["docs/src/content/docs/getting-started/concepts.md", /~?(\d+) typed tools/],
     ["docs/src/content/docs/tools/index.md", /~?(\d+)-tool surface/],
-    ["docs/src/content/docs/roadmap.md", /(\d+) tools across 28 domains/],
+    ["docs/src/content/docs/roadmap.md", /(\d+) tools across 29 domains/],
   ];
   const drift = [];
   for (const [file, re] of targets) {
