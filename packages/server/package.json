@@ -1,6 +1,6 @@
 {
   "name": "obsidian-tc",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "MCP server for Obsidian — comprehensive tool surface for humans and autonomous agents",
   "license": "AGPL-3.0-only",
   "type": "module",

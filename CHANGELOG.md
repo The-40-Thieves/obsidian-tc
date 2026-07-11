@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-11
+
 ### Changed
 
 - **graph_rrf fusion constant k: 60 → 10 (THE-397), config-exposed as `retrieval.rrfK`.** With
