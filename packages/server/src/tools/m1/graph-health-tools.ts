@@ -31,6 +31,16 @@ function isExternal(kind: string, target: string): boolean {
   return kind === "markdown" && /^[a-z]+:\/\//i.test(target);
 }
 
+// Frontmatter has the key with a non-empty value (non-empty string/array, or any present scalar).
+function fmHas(fm: Record<string, unknown> | null, key: string): boolean {
+  if (!fm || !(key in fm)) return false;
+  const val = fm[key];
+  if (val == null) return false;
+  if (typeof val === "string") return val.trim().length > 0;
+  if (Array.isArray(val)) return val.length > 0;
+  return true;
+}
+
 interface Graph {
   notes: string[];
   out: Map<string, Set<string>>;
@@ -273,6 +283,77 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
           .slice(0, input.limit);
         return { vault: v.id, path: p, total: suggestions.length, suggestions };
+      },
+    }),
+
+    defineTool({
+      name: "audit_provenance",
+      description:
+        "Provenance audit: flag claim-bearing notes that lack a 'sources' frontmatter field (the evidence a note's claims rest on), and report coverage of sources/confidence/verified across the readable note set. Read-only. Excludes daily notes, templates, and index files by default; tune scope with include/exclude globs and the field name.",
+      inputSchema: z
+        .object({
+          vault: VaultId,
+          field: z.string().min(1).default("sources"),
+          include: z.array(z.string()).max(64).optional(),
+          exclude: z.array(z.string()).max(64).optional(),
+          limit: z.number().int().positive().max(2000).default(100),
+        })
+        .strict(),
+      requiredScopes: ["read:notes"],
+      handler: (input, ctx) => {
+        const v = deps.vaultRegistry.resolve(input.vault);
+        const DEFAULT_EXCLUDE = [
+          "01-daily/**",
+          "_templates/**",
+          "**/00-INDEX.md",
+          "**/_*-Index.md",
+          "**/*.excalidraw.md",
+        ];
+        const exclude = [...DEFAULT_EXCLUDE, ...(input.exclude ?? [])];
+        const inScope = (rel: string): boolean => {
+          if (input.include?.length && !input.include.some((g) => globMatch(g, rel))) return false;
+          return !exclude.some((g) => globMatch(g, rel));
+        };
+        const notes = readableNotes(v.root, ctx.acl).filter(inScope);
+        const field = input.field;
+        const byFolder = new Map<string, { scanned: number; missing: number }>();
+        const missing: string[] = [];
+        let withField = 0;
+        let withConfidence = 0;
+        let withVerified = 0;
+        for (const rel of notes) {
+          const fm = parseNote(readNote(resolveVaultPath(v.root, rel)).raw).frontmatter;
+          const top = rel.split("/")[0] ?? "";
+          const folder = byFolder.get(top) ?? { scanned: 0, missing: 0 };
+          folder.scanned++;
+          if (fmHas(fm, field)) withField++;
+          else {
+            folder.missing++;
+            missing.push(rel);
+          }
+          if (fmHas(fm, "confidence")) withConfidence++;
+          if (fm != null && "verified" in fm) withVerified++;
+          byFolder.set(top, folder);
+        }
+        const scanned = notes.length;
+        const round = (n: number): number => Number(n.toFixed(3));
+        return {
+          vault: v.id,
+          field,
+          scanned,
+          with_provenance: withField,
+          missing_provenance: missing.length,
+          coverage: scanned ? round(withField / scanned) : 1,
+          confidence_coverage: scanned ? round(withConfidence / scanned) : 0,
+          verified_coverage: scanned ? round(withVerified / scanned) : 0,
+          by_folder: Object.fromEntries(
+            [...byFolder.entries()]
+              .sort((a, b) => b[1].missing - a[1].missing || a[0].localeCompare(b[0]))
+              .map(([k, s]) => [k, s]),
+          ),
+          missing: missing.slice(0, input.limit),
+          truncated: missing.length > input.limit,
+        };
       },
     }),
   ];

@@ -22,7 +22,7 @@ tags:
 > **Scope note (updated 2026-07-02):** obsidian-tc is the **converged memory engine** — vault read/write, search, *and* the retrieval intelligence (GraphRAG with vector-seed + wikilink-expansion RRF, FTS5 BM25 and dense-vector search as separate modes, gateway-optional rerank) folded in from the now-retired knowledge-mcp-server. A general BM25+vector hybrid retriever is not yet shipped — the only RRF fuses GraphRAG's seed/expansion streams (THE-196) — and GraphRAG edges are single-vault today (THE-233). The earlier 2026-06-19 note — which scoped retrieval intelligence *out* and said to pair obsidian-tc with an external retrieval/RAG service — is **superseded** by the 2026-06-25 single-converged-product decision (`09-reference/decisions/2026-06-25-obsidian-tc-single-converged-product`; THE-233): obsidian-tc *is* the engine, not an access slice. The Python ML sidecar and its IPC contract, plus the native `kmeansAssign` / `actrDecayScore` reservations, were **removed with the V2 ML scope** — as of the 2026-07-02 truth pass (THE-298) those sections have been deleted from this document rather than kept as historical text (no sidecar code, config block, or `sidecar.call` helper exists in the shipped tree). The typed-atom MemIR substrate (claim atoms, `authoritative_claims`, bi-temporal) is a downstream engine-build phase (THE-235), not part of this v1.x converged line.
 
 **Status:** shipped in v1.0.2 (2026-06-21); reconciled to the shipped v1.x line on 2026-07-02 (THE-298 truth pass). This document records the architecture and topology committed for the v1.0 line as it actually ships.
-**Tool surface:** the 123-tool G2.1 surface across 28 domains — see [`docs/G2.1-tools.md`](docs/G2.1-tools.md) — extended additively post-1.0 (the facade meta-tools, structured-format additions). What `tools/list` *advertises* is shaped by the `toolFacade` mode (§10); every registered tool stays callable by name.
+**Tool surface:** the 128-tool G2.1 surface across 28 domains — see [`docs/G2.1-tools.md`](docs/G2.1-tools.md) — extended additively post-1.0 (the facade meta-tools, structured-format additions). What `tools/list` *advertises* is shaped by the `toolFacade` mode (§10); every registered tool stays callable by name.
 **Linear:** THE-115
 
 ## Scope and inheritance
@@ -671,7 +671,7 @@ Handled by the MCP TypeScript SDK, not custom code: the initialize exchange (STD
 
 ### Server-advertised capabilities
 
-- **`tools`**: yes — the full registered tool surface (the 123-tool G2.1 set plus post-1.0 additive tools). What `tools/list` *advertises* is shaped by the `toolFacade` mode: `triad` (default — `find_capability` / `describe_capability` / `call_capability`, with `find_capability` scored by the in-process tokenizer + BM25), `domain` (~a dozen domain meta-tools), or `flat` (the full surface). Every tool stays callable by name in every mode, and `call_capability` routes through the same dispatch pipeline (all gates fire unchanged).
+- **`tools`**: yes — the full registered tool surface (the 128-tool G2.1 set plus post-1.0 additive tools). What `tools/list` *advertises* is shaped by the `toolFacade` mode: `triad` (default — `find_capability` / `describe_capability` / `call_capability`, with `find_capability` scored by the in-process tokenizer + BM25), `domain` (~a dozen domain meta-tools), or `flat` (the full surface). Every tool stays callable by name in every mode, and `call_capability` routes through the same dispatch pipeline (all gates fire unchanged).
 - **`resources`**: yes — vault notes are advertised as MCP resources (`resources/list` + `resources/read` over `obsidian-tc://<vault>/<path>` URIs) when a vault registry is present, enforcing the same read scope + folder ACL inline.
 - **`prompts`**: yes — a small set of built-in static prompt templates (`prompts/list` + `prompts/get`).
 - **`elicitation`**: **as shipped, HITL does NOT use MCP's `elicitation` capability.** It uses a custom token pattern: a destructive / HITL-floor call returns an `elicit_required` error carrying the `args_hash` to confirm against; a token minted out-of-band via the `issueElicitToken` API is resubmitted as an `elicit_token` argument (single-use, 5-min TTL, bound to the tool + args through the hash, consumed via an atomic `UPDATE`). This works with any MCP client regardless of elicitation support. Adopting the native `elicitation` primitive is a possible V1.x change.
@@ -744,7 +744,7 @@ Shipped in v1.0.2 (2026-06-21); this record was reconciled to the shipped v1.x l
 
 ## References
 
-- [`docs/G2.1-tools.md`](docs/G2.1-tools.md) — the 123-tool surface specification (extended additively post-1.0)
+- [`docs/G2.1-tools.md`](docs/G2.1-tools.md) — the 128-tool surface specification (extended additively post-1.0)
 - [`CHANGELOG.md`](CHANGELOG.md) — the authoritative record of post-1.0 changes
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — development setup and conventions
 - MCP specification 2025-11-25 — https://modelcontextprotocol.io/specification/2025-11-25

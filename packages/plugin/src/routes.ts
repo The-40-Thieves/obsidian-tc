@@ -9,10 +9,15 @@
 // against installed community plugins is validated against a real vault, not in CI.
 // Any absent API or thrown error degrades to a typed envelope the server already
 // handles (plugin_missing / plugin_unreachable / invalid_input / dql_error).
-import { type App, apiVersion, normalizePath, type TFile } from "obsidian";
+import { type App, apiVersion, moment, normalizePath, type TFile } from "obsidian";
 
 /** Bridge protocol version reported by /probe (matches the server's expectation). */
 const API_VERSION = "1";
+
+// Obsidian re-exports moment.js at runtime but its bundled d.ts types the export without a
+// call signature; alias to a minimal callable to construct dates for the daily-notes bridge.
+type MomentLike = { isValid(): boolean; format(fmt: string): string };
+const makeMoment = moment as unknown as (input?: string) => MomentLike;
 
 // Server capability key -> the community plugin's Obsidian id. The server addresses
 // plugins by the left-hand name (e.g. "excalidraw"); the right-hand is the real id.
@@ -24,6 +29,9 @@ const CAP_IDS: Record<string, string> = {
   quickadd: "quickadd",
   "text-extractor": "text-extractor",
   "make-md": "make-md",
+  omnisearch: "omnisearch",
+  datacore: "datacore",
+  "metadata-menu": "metadata-menu",
 };
 
 export interface BridgeReq {
@@ -58,7 +66,16 @@ interface CommandsRegistry {
   listCommands(): CommandLite[];
   executeCommandById(id: string): boolean;
 }
-type InternalApp = App & { plugins?: PluginRegistry; commands?: CommandsRegistry };
+// Core (internal) plugins live under app.internalPlugins, separate from community plugins.
+interface InternalPluginLite {
+  enabled?: boolean;
+  instance?: { options?: Record<string, unknown> };
+}
+type InternalApp = App & {
+  plugins?: PluginRegistry;
+  commands?: CommandsRegistry;
+  internalPlugins?: { plugins?: Record<string, InternalPluginLite | undefined> };
+};
 
 const ok = (res: BridgeRes, result: unknown): void => {
   res.status(200).json({ ok: true, result });
@@ -80,6 +97,11 @@ const str = (o: Record<string, unknown>, k: string): string | undefined =>
 function communityPlugin(app: InternalApp, capKey: string): CommunityPlugin | undefined {
   const id = CAP_IDS[capKey];
   return id ? app.plugins?.plugins?.[id] : undefined;
+}
+
+/** Access a core (internal) plugin by id, e.g. "daily-notes". */
+function internalPlugin(app: InternalApp, id: string): InternalPluginLite | undefined {
+  return app.internalPlugins?.plugins?.[id];
 }
 
 // Resolve a community plugin's `api`, mapping absence onto the error taxonomy: the
@@ -142,6 +164,53 @@ interface QuickAddApi {
 interface TextExtractorApi {
   extractText?(file: TFile): Promise<string>;
   isInCache?(file: TFile): Promise<boolean>;
+}
+
+// --- Omnisearch adapter. Public API at plugin.api: search(query) -> ranked
+// ResultNoteApi[] ({score, path, basename, foundWords, matches:{match,offset}[],
+// excerpt}). Read-only; no vault mutation.
+interface OmnisearchMatchApi {
+  match: string;
+  offset: number;
+}
+interface OmnisearchResultApi {
+  score: number;
+  path: string;
+  basename: string;
+  excerpt: string;
+  foundWords?: string[];
+  matches?: OmnisearchMatchApi[];
+}
+interface OmnisearchApi {
+  search?(query: string): Promise<OmnisearchResultApi[]>;
+}
+
+// --- Datacore adapter. Public API at plugin.api (DatacoreApi): tryQuery(q) ->
+// Result<Indexable[], string> ({successful, value?, error?}) using datacore's own
+// query language (e.g. "@page and #tag"). Result objects expose
+// $path/$name/$tags/$types/$frontmatter. Read-only.
+interface DatacoreObject {
+  $path?: string;
+  $name?: string;
+  $tags?: string[];
+  $types?: string[];
+  $frontmatter?: Record<string, unknown>;
+}
+interface DatacoreApi {
+  tryQuery?(query: string): unknown;
+}
+
+// --- Metadata Menu adapter. Public API at plugin.api (IMetadataMenuApi):
+// namedFileFields(file) -> Promise<Record<fieldName, IFieldInfo{value, type, isValid,
+// sourceType}>>. Read-only field introspection.
+interface MetadataMenuFieldInfo {
+  value?: unknown;
+  type?: unknown;
+  isValid?: unknown;
+  sourceType?: unknown;
+}
+interface MetadataMenuApi {
+  namedFileFields?(file: TFile | string): Promise<Record<string, MetadataMenuFieldInfo>>;
 }
 
 function fileByPath(app: App, rel: string): TFile | null {
@@ -401,6 +470,142 @@ export function buildRoutes(
           items: Array.isArray(items) ? items : [],
           total: Array.isArray(items) ? items.length : 0,
         });
+      },
+    },
+
+    // Omnisearch — ranked full-text search via the plugin's public search() API.
+    {
+      method: "post",
+      path: "/omnisearch/search",
+      handler: async (req, res) => {
+        const api = requireApi<OmnisearchApi>(app, res, "omnisearch");
+        if (!api) return;
+        if (!api.search)
+          return fail(res, "plugin_unreachable", "omnisearch search API unavailable", {
+            plugin: "omnisearch",
+          });
+        const b = body(req);
+        const query = str(b, "query") ?? "";
+        if (!query) return fail(res, "invalid_input", "query is required");
+        const raw = await api.search(query);
+        const limit = typeof b.limit === "number" && b.limit > 0 ? b.limit : undefined;
+        const sliced = limit ? raw.slice(0, limit) : raw;
+        const items = sliced.map((r) => ({
+          path: r.path,
+          basename: r.basename,
+          score: r.score,
+          excerpt: r.excerpt,
+          found_words: r.foundWords ?? [],
+          matches: (r.matches ?? []).map((m) => ({ match: m.match, offset: m.offset })),
+        }));
+        ok(res, { items, total: items.length, query });
+      },
+    },
+
+    // Datacore — query via the Datacore plugin's own query language (Dataview's successor).
+    {
+      method: "post",
+      path: "/datacore/query",
+      handler: async (req, res) => {
+        const api = requireApi<DatacoreApi>(app, res, "datacore");
+        if (!api) return;
+        if (!api.tryQuery)
+          return fail(res, "plugin_unreachable", "datacore query API unavailable", {
+            plugin: "datacore",
+          });
+        const b = body(req);
+        const q = str(b, "query") ?? "";
+        if (!q) return fail(res, "invalid_input", "query is required");
+        const rRaw = await api.tryQuery(q);
+        const r = rRaw as { successful?: boolean; value?: unknown; error?: unknown } | undefined;
+        if (r && r.successful === false)
+          return fail(res, "dql_error", String(r.error ?? "datacore query failed"));
+        const rows: DatacoreObject[] = Array.isArray(r?.value)
+          ? (r.value as DatacoreObject[])
+          : Array.isArray(rRaw)
+            ? (rRaw as DatacoreObject[])
+            : [];
+        const limit = typeof b.limit === "number" && b.limit > 0 ? b.limit : undefined;
+        const sliced = limit ? rows.slice(0, limit) : rows;
+        const plain = (val: unknown): unknown => {
+          if (val === null || val === undefined) return val;
+          const t = typeof val;
+          if (t === "string" || t === "number" || t === "boolean") return val;
+          if (Array.isArray(val)) return val.map(plain);
+          if (t === "object") {
+            const o = val as Record<string, unknown>;
+            if ("value" in o) return plain(o.value);
+            return String(val);
+          }
+          return String(val);
+        };
+        const items = sliced.map((o) => ({
+          path: o?.$path,
+          name: o?.$name,
+          tags: o?.$tags ?? [],
+          types: o?.$types ?? [],
+          fields:
+            o?.$frontmatter && typeof o.$frontmatter === "object"
+              ? Object.fromEntries(
+                  Object.entries(o.$frontmatter).map(([k, val]) => [k, plain(val)]),
+                )
+              : {},
+        }));
+        ok(res, { items, total: items.length, query: q });
+      },
+    },
+
+    // Metadata Menu — read a note's typed fields (name -> value/type/validity/source).
+    {
+      method: "post",
+      path: "/metadata-menu/fields",
+      handler: async (req, res) => {
+        const api = requireApi<MetadataMenuApi>(app, res, "metadata-menu");
+        if (!api) return;
+        if (!api.namedFileFields)
+          return fail(res, "plugin_unreachable", "metadata-menu fields API unavailable", {
+            plugin: "metadata-menu",
+          });
+        const rel = str(body(req), "path") ?? "";
+        if (!rel) return fail(res, "invalid_input", "path is required");
+        const file = fileByPath(app, rel);
+        if (!file) return fail(res, "note_not_found", "note not found", { path: rel });
+        const raw = await api.namedFileFields(file);
+        const fields: Record<string, unknown> = {};
+        for (const [name, info] of Object.entries(raw ?? {})) {
+          fields[name] = {
+            value: info?.value ?? null,
+            type: typeof info?.type === "string" ? info.type : undefined,
+            is_valid: typeof info?.isValid === "boolean" ? info.isValid : undefined,
+            source_type: typeof info?.sourceType === "string" ? info.sourceType : undefined,
+          };
+        }
+        ok(res, { path: rel, fields, total: Object.keys(fields).length });
+      },
+    },
+
+    // Daily Notes (core) — resolve the daily note for a date via the plugin's folder+format.
+    {
+      method: "post",
+      path: "/daily-notes/resolve",
+      handler: (req, res) => {
+        const dn = internalPlugin(app, "daily-notes");
+        if (!dn?.enabled)
+          return fail(res, "plugin_unreachable", "core Daily Notes plugin is not enabled", {
+            plugin: "daily-notes",
+          });
+        const opts = dn.instance?.options ?? {};
+        const folder = typeof opts.folder === "string" ? opts.folder : "";
+        const format = typeof opts.format === "string" && opts.format ? opts.format : "YYYY-MM-DD";
+        const dateStr = str(body(req), "date");
+        const m = dateStr ? makeMoment(dateStr) : makeMoment();
+        if (!m.isValid())
+          return fail(res, "invalid_input", "date is not a valid date", { date: dateStr });
+        const rel = normalizePath(
+          folder ? `${folder}/${m.format(format)}.md` : `${m.format(format)}.md`,
+        );
+        const file = fileByPath(app, rel);
+        ok(res, { date: m.format("YYYY-MM-DD"), folder, format, path: rel, exists: !!file });
       },
     },
 

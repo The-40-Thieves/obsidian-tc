@@ -70,4 +70,30 @@ describe("THE-375 vault health + link recommendation", () => {
       v.cleanup();
     }
   });
+
+  it("audit_provenance flags notes missing the sources field and reports coverage", async () => {
+    const NL = String.fromCharCode(10);
+    const withSrc = ["---", "sources:", "  - '[[ref]]'", "---", "backed claim"].join(NL);
+    const noSrc = ["---", "type: note", "---", "unbacked claim"].join(NL);
+    const v = makeTestVault({
+      files: {
+        "claim-a.md": withSrc,
+        "claim-b.md": noSrc,
+        "01-daily/2026-07-10.md": "daily note, excluded by default",
+      },
+    });
+    try {
+      const r = await v.call("audit_provenance", { vault: "test" });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const d = r.data as { scanned: number; with_provenance: number; missing: string[] };
+        expect(d.scanned).toBe(2);
+        expect(d.with_provenance).toBe(1);
+        expect(d.missing).toContain("claim-b.md");
+        expect(d.missing).not.toContain("claim-a.md");
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
 });
