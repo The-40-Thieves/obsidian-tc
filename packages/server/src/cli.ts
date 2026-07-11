@@ -443,6 +443,7 @@ async function main(): Promise<void> {
       hasVec,
       Date.now,
       makeOnIndexed(vaultId),
+      config.embeddings.chunkContext,
     ).catch((e) => {
       indexHealth.writeFailures++;
       indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
@@ -483,6 +484,7 @@ async function main(): Promise<void> {
         hasVec,
         Date.now,
         makeOnIndexed(vaultId),
+        config.embeddings.chunkContext,
       ).catch((e) => {
         indexHealth.writeFailures++;
         indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
@@ -503,6 +505,7 @@ async function main(): Promise<void> {
         db,
         provider: embeddingProvider,
         embed: embedConfig,
+        chunkContext: config.embeddings.chunkContext,
         vaultId,
         root: vaultRegistry.resolve(vaultId).root,
         isReadable: indexReadable,
@@ -583,6 +586,9 @@ async function main(): Promise<void> {
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider,
+    // THE-406: index_vault must index with the same enrichment as the boot reconcile, or the two
+    // paths would re-embed each other's chunks back and forth (the hash covers the enriched text).
+    chunkContext: config.embeddings.chunkContext,
     // search_dql / search_vault(mode:dql) share the Dataview bridge; openBridge
     // applies the same degradation gate (plugin_missing / plugin_unreachable).
     dataviewBridge: (vaultId) => ({
@@ -723,6 +729,7 @@ async function main(): Promise<void> {
         db,
         provider: embeddingProvider,
         embed: embedConfig,
+        chunkContext: config.embeddings.chunkContext,
         vaultId: v.id,
         root: vaultRegistry.resolve(v.id).root,
         isReadable: indexReadable,

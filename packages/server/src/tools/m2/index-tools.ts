@@ -36,6 +36,7 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
         const stats = await indexVault({
           db: ctx.db,
           provider: deps.embeddingProvider,
+          chunkContext: deps.chunkContext,
           vaultId: v.id,
           root: v.root,
           sub,

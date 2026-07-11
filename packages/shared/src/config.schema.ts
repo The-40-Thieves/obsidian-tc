@@ -156,6 +156,13 @@ export const EmbeddingsConfigSchema = z.object({
   // wide MRL model such as Qwen3-8B at 4096 can be stored at 1024). Off by default; a non-MRL width
   // mismatch still errors rather than silently truncating meaningless prefixes.
   truncate: z.boolean().default(false),
+  /** THE-406: contextual chunk enrichment. When true, each chunk is embedded and BM25-indexed as
+   *  "{note title}{ — heading breadcrumb}\n\n{content}" instead of the bare section text — the
+   *  chunker strips heading lines into metadata, so title/heading-only evidence is otherwise
+   *  invisible to both retrieval streams. Display content (chunks.content) stays raw. The chunk
+   *  content hash covers the enriched text, so flipping this re-embeds the vault on the next
+   *  reconcile. Default off pending the THE-406 A/B gate. */
+  chunkContext: z.boolean().default(false),
 });
 
 export const HttpConfigSchema = z.object({

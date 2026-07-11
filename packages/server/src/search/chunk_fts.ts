@@ -54,6 +54,11 @@ export function ensureChunkFts(db: Database, opts: { now?: () => number } = {}):
     const nChunks = (db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as { n: number }).n;
     const nFts = (db.prepare("SELECT COUNT(*) AS n FROM chunk_fts").get() as { n: number }).n;
     if (nChunks !== nFts) {
+      // THE-406 caveat: this wholesale rebuild reconstructs from RAW chunks.content — it cannot
+      // know the embeddings.chunkContext flag. With enrichment on, a divergence-rebuild holds
+      // un-enriched text until each row is next re-embedded (or the flag is flipped off+on,
+      // which re-hashes everything). Acceptable while the flag is experimental; make the rebuild
+      // enrichment-aware before flipping the default.
       db.exec("DELETE FROM chunk_fts");
       db.exec(
         "INSERT INTO chunk_fts (chunk_id, vault_id, path, content) SELECT id, vault_id, path, content FROM chunks",
@@ -132,9 +137,12 @@ export function bm25Chunks(db: Database, vaultId: string, query: string, k: numb
   const match = chunkFtsMatch(query);
   if (match === null) return [];
   try {
+    // THE-406: match/rank on chunk_fts.content (context-enriched when embeddings.chunkContext is
+    // on) but RETURN chunks.content — the raw display text — so enrichment never leaks into
+    // search output. Rows are 1:1 by construction (written in the same transaction).
     return db
       .prepare(
-        "SELECT chunk_id, path, content, bm25(chunk_fts) AS rank FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ? ORDER BY rank LIMIT ?",
+        "SELECT chunk_fts.chunk_id AS chunk_id, chunk_fts.path AS path, chunks.content AS content, bm25(chunk_fts) AS rank FROM chunk_fts JOIN chunks ON chunks.id = chunk_fts.chunk_id WHERE chunk_fts.vault_id = ? AND chunk_fts MATCH ? ORDER BY rank LIMIT ?",
       )
       .all(vaultId, match, k) as LexicalHit[];
   } catch {

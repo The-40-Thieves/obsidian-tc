@@ -25,6 +25,10 @@ export interface M2Deps {
    *  when the boot reconcile's notes pass committed (independent of embedding success). Absent
    *  (tests) -> disk scans, the portable floor. */
   metadataIndex?: { hasFts: boolean; ready: () => boolean };
+  /** THE-406: embeddings.chunkContext — index_vault embeds/BM25-indexes chunks with the note-title
+   *  + heading-breadcrumb prefix. Must match the boot reconcile's value (cli.ts threads both from
+   *  the same config field); a mismatch would re-embed the vault on every alternating pass. */
+  chunkContext?: boolean;
 }
 
 export function registerM2Tools(registry: ToolRegistry, deps: M2Deps): void {

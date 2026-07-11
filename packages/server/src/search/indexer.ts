@@ -81,8 +81,21 @@ interface ExistingRow {
   content_hash: string;
 }
 
-// A note's chunk after secret-gating, carrying its stable chunk id.
-type PlannedChunk = ReturnType<typeof chunkNote>[number] & { id: string };
+// A note's chunk after secret-gating, carrying its stable chunk id. embedText (THE-406) is the
+// context-enriched text that is embedded + BM25-indexed INSTEAD of content when
+// embeddings.chunkContext is on; content stays the raw display text everywhere.
+type PlannedChunk = ReturnType<typeof chunkNote>[number] & { id: string; embedText?: string };
+
+/** THE-406: context-enriched embed/BM25 text for a chunk — note title (path basename) + heading
+ *  breadcrumb prefix. The chunker consumes heading lines into metadata, so without this the
+ *  representation is title- and heading-blind: a note whose evidence lives in its name or its
+ *  section headings is invisible to dense AND lexical retrieval. Exported for tests. */
+export function enrichChunkText(path: string, headings: string[], content: string): string {
+  const base = path.split(/[/\\]/).pop() ?? path;
+  const title = base.replace(/\.md$/i, "");
+  const crumb = headings.length > 0 ? ` — ${headings.join(" — ")}` : "";
+  return `${title}${crumb}\n\n${content}`;
+}
 
 // A note's pending writes, computed (including the embed() network call) WITHOUT touching the
 // database or opening a transaction, so many plans can be applied inside one transaction.
@@ -135,6 +148,7 @@ function computeNotePlan(
   path: string,
   raw: string,
   ts: number,
+  enrich: boolean,
 ): PlanResult {
   const body = parseNote(raw).body;
   // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
@@ -142,8 +156,20 @@ function computeNotePlan(
   // are logged; the matched value is never logged or thrown.
   let secretsSkipped = 0;
   const flagged: string[] = [];
+  // THE-406: with enrichment on, the content hash is computed over the ENRICHED text, so flipping
+  // embeddings.chunkContext re-embeds every chunk on the next pass instead of silently serving
+  // vectors built from a different representation.
   const desired = chunkNote(body)
-    .map((c) => ({ ...c, id: chunkId(vaultId, path, c.index) }))
+    .map((c) => {
+      if (!enrich) return { ...c, id: chunkId(vaultId, path, c.index) };
+      const embedText = enrichChunkText(path, c.headings, c.content);
+      return {
+        ...c,
+        id: chunkId(vaultId, path, c.index),
+        embedText,
+        contentHash: contentHash(embedText),
+      };
+    })
     .filter((c) => {
       const scan = scanSecrets(c.content);
       if (scan.clean) return true;
@@ -254,7 +280,8 @@ export async function embedPlans(
   maxBatchTokens: number = EMBED_MAX_BATCH_TOKENS,
 ): Promise<EmbedReport> {
   const contents: string[] = [];
-  for (const p of plans) for (const c of p.toEmbed) contents.push(c.content);
+  // THE-406: embed the enriched text when present; c.content remains the stored display text.
+  for (const p of plans) for (const c of p.toEmbed) contents.push(c.embedText ?? c.content);
   if (contents.length === 0) return { failed: [], rejections: 0 };
   // Pack sub-batches greedily under BOTH caps: at most `batchSize` inputs and at most
   // `maxBatchTokens` estimated tokens per request (GH #172 — a fixed 512-input batch packed ~87k
@@ -318,8 +345,9 @@ async function planNoteWrites(
   path: string,
   raw: string,
   ts: number,
+  enrich: boolean,
 ): Promise<PlanResult> {
-  const res = computeNotePlan(db, vaultId, path, raw, ts);
+  const res = computeNotePlan(db, vaultId, path, raw, ts, enrich);
   if (res.plan) {
     const { failed } = await embedPlans(provider, [res.plan], EMBED_BATCH, EMBED_CONCURRENCY);
     // Index-on-write is a single note: a quarantined chunk means the note cannot be applied,
@@ -385,7 +413,9 @@ function applyNoteWrites(
     );
     upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
     if (hasVec) upsertVec(db, d.id, vec);
-    if (hasChunkFts) upsertChunkFtsRow(db, d.id, vaultId, plan.path, d.content);
+    // THE-406: BM25 matches on the same text the dense vector embeds (enriched when the flag is
+    // on); bm25Chunks JOINs chunks for the raw display content, so search output is unchanged.
+    if (hasChunkFts) upsertChunkFtsRow(db, d.id, vaultId, plan.path, d.embedText ?? d.content);
     // THE-395: an empty head (the serving runtime could not produce it) is skipped, not stored —
     // an all-empty chunk_sparse / chunk_colbert would only bloat scans with dead rows.
     const sp = plan.sparse?.[i];
@@ -424,6 +454,8 @@ export async function indexNote(
   hasVec: boolean,
   now: () => number,
   onIndexed?: IndexHook,
+  /** THE-406: embeddings.chunkContext — enrich the embedded/BM25 text with title + breadcrumb. */
+  enrich = false,
 ): Promise<{ upserted: number; deleted: number; unchanged: number; secretsSkipped: number }> {
   const { plan, unchanged, secretsSkipped, flagged } = await planNoteWrites(
     db,
@@ -432,6 +464,7 @@ export async function indexNote(
     path,
     raw,
     now(),
+    enrich,
   );
   // THE-291: the metadata/FTS row rides the same write (skip empty content — a true delete goes
   // through deindexNote; an empty note has nothing to index).
@@ -529,6 +562,11 @@ export interface IndexVaultArgs {
    *  config.embeddings.{batchSize,concurrency,maxBatchTokens} here so a slow or small local runner
    *  can be tuned without touching code. */
   embed?: { batchSize?: number; concurrency?: number; maxBatchTokens?: number };
+  /** THE-406: embeddings.chunkContext — embed + BM25-index each chunk with a note-title +
+   *  heading-breadcrumb prefix (display content stays raw). Callers MUST thread the same value on
+   *  every index path (boot reconcile, index_vault tool, index-on-write): the chunk content hash
+   *  covers the enriched text, so mixed values would re-embed the same chunks back and forth. */
+  chunkContext?: boolean;
   /** THE-291: fires when the notes/FTS metadata pass has committed (independent of embed
    *  success), so the caller can flip metadata readiness even if the embed pass later fails. */
   onNotesPass?: () => void;
@@ -673,6 +711,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       rel,
       raw,
       now(),
+      args.chunkContext === true,
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;

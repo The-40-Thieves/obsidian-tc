@@ -16,6 +16,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Contextual chunk enrichment, flag-gated (THE-406).** `embeddings.chunkContext` embeds and
+  BM25-indexes each chunk as `"{note title} — {heading breadcrumb}\n\n{content}"` instead of the
+  bare section text. The chunker consumes heading lines into metadata, so a note whose evidence
+  lives in its name or headings was invisible to BOTH retrieval streams (the golden-set failure
+  taxonomy attributes ~49% of misses to promotion/representation, not recall). Display content is
+  unchanged; the chunk content hash covers the enriched text, so flipping the flag re-embeds on
+  the next reconcile. Default off pending its A/B gate.
+
 - **Configurable `bge-m3` embeddings provider (THE-395).** `embeddings.provider: "bge-m3"` speaks
   an OpenAI-compatible vLLM base (`baseUrl`, default `http://127.0.0.1:8000/v1`): dense via
   `/embeddings`, plus the learned-sparse and ColBERT heads via the THE-388 encoder at index time
