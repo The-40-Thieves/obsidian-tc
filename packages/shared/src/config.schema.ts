@@ -146,6 +146,10 @@ export const ExperientialConfigSchema = z.object({
    *  on each episode. Default OFF until the THE-238 poisoning defense lands — the write-on
    *  gate ordering. */
   captureContent: z.boolean().default(false),
+  /** THE-187/193: apply the ACT-R activation bubble pass (bubble_safe_rerank, adjacent-swap
+   *  bounded) on serve-path vault_graph_search using cached_activation_score. DARK by
+   *  default — flips only after an A/B on the golden set passes the ship rule. */
+  activationRerank: z.boolean().default(false),
 });
 
 export const EmbeddingsConfigSchema = z.object({

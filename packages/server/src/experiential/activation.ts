@@ -34,19 +34,48 @@ export interface RetrievalEvent {
 export function actrActivation(
   events: RetrievalEvent[],
   now: number,
-  opts: { decay?: number } = {},
+  opts: { decay?: number; staleFloor?: boolean } = {},
 ): number {
   if (events.length === 0) return 0.5;
   const d = opts.decay ?? DEFAULT_DECAY;
   let sum = 0;
+  let negativeEvidence = false;
   for (const e of events) {
     const days = Math.max((now - e.retrieved_at) / MS_PER_DAY, MIN_DELTA_DAYS);
     const wFeedback = e.feedback === -1 ? 0.5 : e.feedback === 1 ? 2 : 1;
     const wOutcome = e.outcome === -1 ? 0.5 : e.outcome === 1 ? 2 : 1;
+    if (e.feedback === -1 || e.outcome === -1) negativeEvidence = true;
     sum += wFeedback * wOutcome * days ** -d;
   }
   if (sum <= 0) return 0.5;
-  return 1 / (1 + Math.exp(-Math.log(sum)));
+  const raw = 1 / (1 + Math.exp(-Math.log(sum)));
+  // THE-193 stale-floor DECISION: clamp at 0.5 (neutral). Time alone never demotes a chunk
+  // below never-retrieved — without the floor, one old retrieval ranks BELOW no retrieval at
+  // all, a perverse ordering. Explicit negative evidence (feedback/outcome = -1) may still
+  // demote below neutral: the outcome axis stays live. staleFloor: false preserves the raw
+  // ACT-R curve for research runs.
+  if ((opts.staleFloor ?? true) && raw < 0.5 && !negativeEvidence) return 0.5;
+  return raw;
+}
+
+/**
+ * THE-187: serve-side activation lookup over an OPEN experiential.db handle — a prepared
+ * point read of cached_activation_score per chunk id (PK lookup, ~top-K calls per query).
+ * Returns null when the chunk has no state (bubble pass stays inert for it) and never
+ * throws: a read failure degrades to inert, not to a broken search.
+ */
+export function makeActivationLookup(edb: Database): (chunkId: string) => number | null {
+  const stmt = edb.prepare(
+    "SELECT cached_activation_score AS s FROM vault_object_state WHERE object_id = ?",
+  );
+  return (chunkId) => {
+    try {
+      const row = stmt.get(chunkId) as { s: number | null } | undefined;
+      return row?.s ?? null;
+    } catch {
+      return null;
+    }
+  };
 }
 
 export interface ActivationRecomputeStats {

@@ -33,6 +33,9 @@ export interface M7Deps {
   retrieval?: { rrfK?: number };
   /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging. */
   retrievalLog?: RetrievalLogger;
+  /** THE-187/193: cached_activation_score lookup for the graph bubble pass; absent -> inert
+   *  (the config-gated dark default until the A/B passes the ship rule). */
+  activationFor?: (chunkId: string) => number | null;
 }
 
 function aclReadable(acl: FolderAcl | undefined, rel: string): boolean {
@@ -137,6 +140,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
           reranker: deps.reranker,
           isReadable: (rel) => aclReadable(ctx.acl, rel),
+          ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
         });
         // THE-230: serve-path retrieval telemetry (best-effort; the logger never throws).
         deps.retrievalLog?.({

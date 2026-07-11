@@ -115,6 +115,10 @@ export interface RunEvalOptions {
   zRouter?: number;
   /** THE-221: conditional temporal stream (fires only on queries with explicit temporal intent). */
   temporal?: boolean;
+  /** THE-187: cached_activation_score lookup (experiential store) threaded into graphSearch's
+   *  bubble pass — the eval exercises the SAME mechanism the serve path gates behind
+   *  experiential.activationRerank, killing the eval/serve skew. */
+  activation?: (chunkId: string) => number | null;
   /** THE-404 spike: for z-HARD queries only (z1 < zThreshold, default 2.54), decompose the query
    *  into 2–3 atomic sub-queries via a small local instruct LLM (Ollama /api/chat), run the full
    *  graph search per sub-query (original included), and RRF-merge the ranked lists. Easy queries
@@ -222,6 +226,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ...(opts.gatedRerank ? { gatedRerank: opts.gatedRerank } : {}),
         ...(opts.fusionConvex ? { fusionMode: "convex" as const, convex: opts.fusionConvex } : {}),
         ...(opts.temporal ? { temporal: { enabled: true } } : {}),
+        ...(opts.activation ? { activationFor: opts.activation } : {}),
       });
       return normHits(res.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
     };
@@ -285,6 +290,9 @@ async function main(): Promise<void> {
   const convexAlpha = process.env.CONVEX_ALPHA ? Number(process.env.CONVEX_ALPHA) : undefined;
   // THE-221: `--temporal` — conditional temporal stream.
   const temporal = argv.includes("--temporal");
+  // THE-187: `--activation` — thread the experiential store's cached activation scores into
+  // the graph bubble pass (the serve mechanism, measured).
+  const activation = argv.includes("--activation");
   // THE-404: `--decompose` — LLM sub-query decomposition for z-hard queries only
   // (DECOMPOSE_MODEL / DECOMPOSE_Z / DECOMPOSE_URL envs).
   const decompose = argv.includes("--decompose");
@@ -370,6 +378,31 @@ async function main(): Promise<void> {
       }
     : baseProvider;
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  // THE-187: --activation loads the experiential store's cached scores once (read-only) into
+  // a map; a missing store/table degrades to an empty map (all-inert) with a stderr note.
+  let activationLookup: ((chunkId: string) => number | null) | undefined;
+  if (activation) {
+    const map = new Map<string, number>();
+    try {
+      const edb = await openDatabase(join(config.cacheDir, "experiential.db"));
+      try {
+        const rows = edb
+          .prepare(
+            "SELECT object_id, cached_activation_score AS s FROM vault_object_state WHERE cached_activation_score IS NOT NULL",
+          )
+          .all() as Array<{ object_id: string; s: number }>;
+        for (const r of rows) map.set(r.object_id, r.s);
+      } finally {
+        edb.close?.();
+      }
+    } catch (err) {
+      process.stderr.write(
+        `--activation: experiential store unavailable (${err instanceof Error ? err.message : String(err)}); running all-inert\n`,
+      );
+    }
+    process.stderr.write(`--activation: ${map.size} chunk(s) carry activation state\n`);
+    activationLookup = (chunkId) => map.get(chunkId) ?? null;
+  }
   // THE-394: a Cohere/Jina-shaped /rerank backend for the eval (TEI or vLLM), injected via
   // RERANK_URL. Production routes through the gateway seam; this keeps the A/B self-contained.
   const rerankUrl = process.env.RERANK_URL;
@@ -407,6 +440,7 @@ async function main(): Promise<void> {
       : {}),
     ...(zRouterArg !== undefined && !Number.isNaN(zRouterArg) ? { zRouter: zRouterArg } : {}),
     ...(temporal ? { temporal: true } : {}),
+    ...(activationLookup ? { activation: activationLookup } : {}),
     ...(decompose
       ? {
           decompose: {
@@ -435,6 +469,7 @@ async function main(): Promise<void> {
     zRouterArg !== undefined ? `z-router@${zRouterArg}` : null,
     decompose ? `decompose(z<${process.env.DECOMPOSE_Z ?? 2.54})` : null,
     temporal ? "temporal stream" : null,
+    activation ? "activation bubble" : null,
   ]
     .filter((f) => f !== null)
     .join(", ");
@@ -498,6 +533,7 @@ async function main(): Promise<void> {
       zRouterArg !== undefined && `z-router@${zRouterArg}`,
       decompose && `decompose@${process.env.DECOMPOSE_Z ?? 2.54}`,
       temporal && "temporal",
+      activation && "activation",
     ].filter((x): x is string => typeof x === "string");
     writeFileSync(jsonPath, JSON.stringify({ flags, perQuery: report.perQuery }, null, 2));
     process.stdout.write(`wrote ${jsonPath}\n`);

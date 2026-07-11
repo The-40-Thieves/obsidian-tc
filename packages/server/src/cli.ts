@@ -19,7 +19,7 @@ import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
-import { recomputeActivation } from "./experiential/activation";
+import { makeActivationLookup, recomputeActivation } from "./experiential/activation";
 import { createEpisodeCapture } from "./experiential/episodes";
 import { createRetrievalLogger } from "./experiential/log";
 import { createGatewayClient, type GatewayClient } from "./gateway";
@@ -275,7 +275,12 @@ async function main(): Promise<void> {
           process.stderr.write(`[episodes] ${e instanceof Error ? e.message : String(e)}\n`),
       })
     : undefined;
-  if (!retrievalLog && !episodeCapture) experientialDb.close?.();
+  // THE-187/193: serve-side activation lookup for the graph bubble pass — dark unless
+  // experiential.activationRerank flips after a ship-rule A/B.
+  const activationFor = config.experiential.activationRerank
+    ? makeActivationLookup(experientialDb)
+    : undefined;
+  if (!retrievalLog && !episodeCapture && !activationFor) experientialDb.close?.();
 
   // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
   // share the same in-memory counters. The scrape endpoint is started below only when
@@ -695,6 +700,8 @@ async function main(): Promise<void> {
     retrieval: config.retrieval,
     // THE-230: serve-path retrieval logging (experiential.logRetrievals).
     ...(retrievalLog ? { retrievalLog } : {}),
+    // THE-187/193: activation bubble lookup (dark unless experiential.activationRerank).
+    ...(activationFor ? { activationFor } : {}),
   });
 
   // THE-295: acl (+ per-vault overrides) is hoisted above the ToolRegistry construction.

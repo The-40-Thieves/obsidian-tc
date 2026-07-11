@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
-import { actrActivation, recomputeActivation } from "../src/experiential/activation";
+import {
+  actrActivation,
+  makeActivationLookup,
+  recomputeActivation,
+} from "../src/experiential/activation";
 import { openMemoryDb } from "./helpers";
 
 const read = (name: string) =>
@@ -42,7 +46,7 @@ describe("ACT-R activation recompute (THE-227)", () => {
     const recent = actrActivation([{ retrieved_at: NOW - DAY / 2 }], NOW); // 12h ago
     const old = actrActivation([{ retrieved_at: NOW - 100 * DAY }], NOW);
     expect(recent).toBeGreaterThan(0.5); // sub-day access -> above neutral
-    expect(old).toBeLessThan(0.5); // stale -> below neutral
+    expect(old).toBe(0.5); // stale WITHOUT negative evidence floors at neutral (THE-193)
     expect(recent).toBeGreaterThan(old);
     const frequent = actrActivation(
       [
@@ -62,6 +66,31 @@ describe("ACT-R activation recompute (THE-227)", () => {
     const up = actrActivation([{ retrieved_at: NOW - DAY / 2, feedback: 1 }], NOW);
     expect(down).toBeLessThan(base);
     expect(up).toBeGreaterThan(base);
+  });
+
+  it("THE-193 stale floor: time alone never demotes below neutral; negative evidence may", () => {
+    const staleClean = actrActivation([{ retrieved_at: NOW - 200 * DAY }], NOW);
+    expect(staleClean).toBe(0.5);
+    const staleNegFb = actrActivation([{ retrieved_at: NOW - 200 * DAY, feedback: -1 }], NOW);
+    expect(staleNegFb).toBeLessThan(0.5);
+    const staleNegOut = actrActivation([{ retrieved_at: NOW - 200 * DAY, outcome: -1 }], NOW);
+    expect(staleNegOut).toBeLessThan(0.5);
+    // research escape hatch: the raw ACT-R curve without the floor
+    const unfloored = actrActivation([{ retrieved_at: NOW - 200 * DAY }], NOW, {
+      staleFloor: false,
+    });
+    expect(unfloored).toBeLessThan(0.5);
+  });
+
+  it("makeActivationLookup: point reads, null for unknown, never throws", () => {
+    const db = edb0();
+    addRetrieval(db, "hot", NOW - DAY / 2); // 12h ago -> above the B=0 crossover at 1 day
+    recomputeActivation(db, NOW);
+    const lookup = makeActivationLookup(db);
+    expect(lookup("hot")).toBeGreaterThan(0.5);
+    expect(lookup("never-seen")).toBeNull();
+    db.exec("DROP TABLE vault_object_state");
+    expect(lookup("hot")).toBeNull(); // read failure degrades to inert
   });
 
   it("outcome axis folds multiplicatively with feedback (THE-230)", () => {
