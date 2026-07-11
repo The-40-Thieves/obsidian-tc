@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "obsidian-tc",
   "display_name": "Obsidian Turbocharged",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Model-agnostic, agent-ready Obsidian MCP server with RBAC, SLSA provenance, and native search.",
   "author": {
     "name": "The 40 Thieves",

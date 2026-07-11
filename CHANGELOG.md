@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-11
+
 ### Changed
 
 - **`embeddings.chunkContext` now defaults ON (THE-408).** Contextual chunk enrichment measured
@@ -25,6 +27,47 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   non-temporal queries — exactly the static configuration. Eval gains `--temporal`. Off by
   default pending its A/B. (The ticket's date-augmentation item is already satisfied by THE-406
   enrichment: dated titles are in the embedded text.)
+- **The experiential tier is live (THE-227 family — Phase 2 of the converged-engine plan).**
+  A physically separate membrane store (`experiential.db`) now captures work-memory:
+  - **Serve-path retrieval logging + the outcome axis (THE-230).** The search tools
+    (`search_semantic`, `search_vault` semantic mode, `vault_graph_search`,
+    `knowledge_challenge`) append retrieval events (chunk, rank, score, query text, surface,
+    session) to `chunk_retrievals` — tool-layer only, so eval runs never pollute the log.
+    Config `experiential.logRetrievals` (default on). A new `outcome` column (−1|0|+1,
+    migration `20260711_001`) folds multiplicatively with relevance feedback in the ACT-R
+    activation recompute (bounded weight ∈ [0.25, 4]).
+  - **agent_episodes capture bus (THE-228).** A new registry `onEpisode` hook fires once per
+    dispatch outcome (every dispatch, session or not); the bus appends append-only episodes
+    (migration `20260711_002`) with self-carried caller/session attribution, a per-caller
+    `prev_id` chain, and write-on controls stamped at birth (`eligibility='pending'`, blocked
+    tombstone, bi-temporal validity). Action-axis capture (`experiential.captureEpisodes`)
+    defaults on; the content axis (`experiential.captureContent`, secret-scanned + size-capped
+    raw args) defaults off.
+  - **Pre-ingest poisoning defense (THE-238).** A deterministic scanner (instruction-override
+    markers incl. es/fr/de calques, persistence/preference-drift and delayed-trigger
+    directives, hidden-text vectors — zero-width, bidi override, directive HTML comments,
+    opaque blobs — and exfil shapes) runs in memory on every capture regardless of content
+    persistence; high-risk content is born `ineligible` and never auto-raised. Per-channel
+    trust contracts (dispatch 0.6 > ambient 0.3 > import 0.2; risk only lowers trust). The
+    red-team acceptance harness ships in the test suite.
+  - **M8 experiential tool domain (THE-229) — 4 new tools, 132 total.** `work_search`
+    (memory retrieval with the reader contract enforced: eligible-only by default, tombstoned
+    and expired rows never surface, per-agent caller partition, trust floor 0.3),
+    `work_episodes` (inspection), `work_forget` (the tombstone as a first-party verb),
+    `record_retrieval_feedback` (manual feedback/outcome stamping).
+  - **Activation is measurable end-to-end (THE-187, THE-193).** The eval harness gains
+    `--activation` and the serve path gains `experiential.activationRerank` (dark by default)
+    — one bubble-pass mechanism on both paths, no eval/serve skew. Stale floor decided: clamp
+    at 0.5 (time alone never demotes below never-retrieved; explicit negative feedback/outcome
+    may). First live A/B at n=136: exact equivalence — ships dark per the ship rule.
+  - **Citation inference (THE-170).** `obsidian-tc citation-infer <config> --transcript <file>
+    (--session <id> | --since <ms> [--until <ms>])` — the two-stage gate (ROUGE-L +
+    stored-embedding cosine, then the gateway judge role with a 5% parse-failure kill switch)
+    stamps `cited_in_response`/`citation_score`. `session_id` is threaded into every
+    retrieval-log call.
+  - **Contribution report (THE-249).** `obsidian-tc contribution-report <config> [--since]
+    [--until] [--json]` — per-note output-contribution credits over the citation signal, with
+    top-contributor and dead-retrieved review lists.
 
 ### Fixed
 
@@ -34,6 +77,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   side stayed enriched. The indexer now threads `embeddings.chunkContext` into every
   `ensureChunkFts` call site and the rebuild reconstructs the enriched text from
   path + headings + content.
+- **Tool-count headline drift healed.** All eight documentation surfaces and the coherence
+  script's patterns now agree at 132 tools across 29 domains.
 
 ## [1.5.0] - 2026-07-11
 
