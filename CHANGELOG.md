@@ -16,6 +16,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Asymmetric embedding prefixes, config-driven (THE-405).** `embeddings.queryPrefix` /
+  `embeddings.documentPrefix` (both default empty) apply at the provider factory: query-side
+  embeds (`input: "query"`) get the query prefix, indexing gets the document prefix — the seam
+  models like Qwen3-Embedding require (`Instruct: ...\nQuery: ` on queries, documents plain).
+  Empty prefixes are the identity; nomic-style prefixes measured harmful on this vault, so
+  nothing changes unless a config opts in.
+
 - **Selective query-decomposition spike in the eval harness (THE-404).** `eval/run.ts --decompose`
   decomposes z-HARD queries only (z1 below `DECOMPOSE_Z`, default 2.54) into 2–3 atomic
   sub-queries via a small local instruct LLM (Ollama, `DECOMPOSE_MODEL`), runs the full graph

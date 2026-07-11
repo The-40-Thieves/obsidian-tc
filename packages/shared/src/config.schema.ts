@@ -163,6 +163,15 @@ export const EmbeddingsConfigSchema = z.object({
    *  content hash covers the enriched text, so flipping this re-embeds the vault on the next
    *  reconcile. Default off pending the THE-406 A/B gate. */
   chunkContext: z.boolean().default(false),
+  /** THE-405: asymmetric instruct prefixes for models whose cards require them (e.g.
+   *  Qwen3-Embedding's "Instruct: ...\nQuery: " on the query side, documents plain). Applied at
+   *  the provider factory: `queryPrefix` on embeds marked input:"query", `documentPrefix` on
+   *  everything else (indexing). BOTH default empty — nomic-style prefixes measured HARMFUL on
+   *  this vault (2026-07-11), so nothing changes unless a config opts in. Changing
+   *  `documentPrefix` re-embeds nothing by itself (hashes cover chunk text, not the prefix) —
+   *  pair a document-prefix change with a fresh cacheDir. */
+  queryPrefix: z.string().default(""),
+  documentPrefix: z.string().default(""),
 });
 
 export const HttpConfigSchema = z.object({

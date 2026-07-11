@@ -74,9 +74,13 @@ export interface EvalReport {
 export interface RunEvalOptions {
   db: Database;
   provider: {
-    embed: (texts: string[]) => Promise<number[][]>;
+    /** THE-405: query embeds pass input:"query" so an asymmetric-prefix provider conditions them. */
+    embed: (texts: string[], opts?: { input?: "query" | "document" }) => Promise<number[][]>;
     /** THE-395: multi-representation encode (bge-m3) — enables the sparse query side. */
-    embedFull?: (texts: string[]) => Promise<Array<{ dense: number[]; sparse: SparseVec }>>;
+    embedFull?: (
+      texts: string[],
+      opts?: { input?: "query" | "document" },
+    ) => Promise<Array<{ dense: number[]; sparse: SparseVec }>>;
   };
   golden: GoldenSet;
   vaultId: string;
@@ -174,11 +178,11 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
     let queryVec: number[] = [];
     let querySparse: SparseVec | undefined;
     if (opts.sparse && opts.provider.embedFull) {
-      const [full] = await opts.provider.embedFull([q.query_text]);
+      const [full] = await opts.provider.embedFull([q.query_text], { input: "query" });
       queryVec = full?.dense ?? [];
       querySparse = full?.sparse;
     } else {
-      const [qv] = await opts.provider.embed([q.query_text]);
+      const [qv] = await opts.provider.embed([q.query_text], { input: "query" });
       queryVec = qv ?? [];
     }
 
@@ -229,7 +233,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         opts.decompose.baseUrl ?? "http://127.0.0.1:11434",
       );
       if (subs.length > 0) {
-        const vecs = await opts.provider.embed(subs);
+        const vecs = await opts.provider.embed(subs, { input: "query" });
         const lists = [graphHits];
         for (let i = 0; i < subs.length; i++) {
           const sv = vecs[i];
@@ -324,9 +328,11 @@ async function main(): Promise<void> {
   const sparseUrl = process.env.SPARSE_URL;
   const provider = sparseUrl
     ? {
-        embed: (texts: string[]) => baseProvider.embed(texts),
+        embed: (texts: string[], o?: { input?: "query" | "document" }) =>
+          baseProvider.embed(texts, o),
+        // THE-403 usage is query-side only, so the dense half carries the query intent.
         embedFull: async (texts: string[]) => {
-          const dense = await baseProvider.embed(texts);
+          const dense = await baseProvider.embed(texts, { input: "query" });
           const root = sparseUrl.replace(/\/$/, "").replace(/\/v1$/, "");
           const model = "BAAI/bge-m3";
           const post = async (url: string, body: unknown): Promise<unknown> => {
