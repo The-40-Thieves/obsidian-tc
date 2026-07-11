@@ -86,8 +86,15 @@ reindex throughput is governed by:
 |---|---|---|
 | `timeoutMs` | per-request embed timeout | 120000 |
 | `batchSize` | max inputs per request | 512 |
-| `maxBatchTokens` | max estimated tokens per request (splits a dense sub-batch) | 8192 |
+| `maxBatchTokens` | max estimated tokens per request (splits a dense sub-batch) | 2048 |
 | `concurrency` | embed requests in flight | 4 |
+
+`maxBatchTokens` must stay under the provider's **loaded context** — Ollama defaults to `n_ctx`
+4096 and rejects (HTTP 400) any request whose summed tokens exceed it, and the internal chars/4
+estimate undercounts real tokenization (~2-2.5x on link-dense markdown). A rejected batch is
+bisected and retried automatically (extra round-trips, logged to stderr); a chunk rejected even as
+a single-text request is quarantined — its note is skipped that pass, reported via
+`notes_embed_failed` and degraded reconcile health, and retried on the next reconcile.
 
 ## Rollback
 

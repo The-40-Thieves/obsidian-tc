@@ -727,7 +727,16 @@ async function main(): Promise<void> {
           indexHealth.notesReady = true;
         },
       }).then(
-        () => ({ vault: v.id, error: null as string | null }),
+        // THE-390: a completed reconcile that had to SKIP notes (embed provider rejected a
+        // chunk even at single-text size) still degrades health — precise, non-fatal, retried
+        // next reconcile — instead of the old behavior of aborting the whole reindex.
+        (s) => ({
+          vault: v.id,
+          error:
+            s.notes_embed_failed > 0
+              ? `${s.notes_embed_failed} note(s) skipped: embed provider rejected their chunks (HTTP 400)`
+              : (null as string | null),
+        }),
         (e) => ({ vault: v.id, error: e instanceof Error ? e.message : String(e) }),
       ),
     ),
@@ -746,7 +755,8 @@ async function main(): Promise<void> {
       process.stderr.write(
         `[index] boot reconcile degraded for vault "${vault}": ${error}. ` +
           `The search index may be incomplete; check the embeddings backend ` +
-          `(raise embeddings.timeoutMs / lower embeddings.batchSize for a slow or small local runner).\n`,
+          `(raise embeddings.timeoutMs / lower embeddings.batchSize or embeddings.maxBatchTokens ` +
+          `for a slow or small-context local runner).\n`,
       );
     }
     // Best-effort contradiction sweep over chunks enqueued during the boot reconcile. No-op

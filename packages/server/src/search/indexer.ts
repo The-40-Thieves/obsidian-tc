@@ -4,6 +4,7 @@
 // ones, and prunes chunks that no longer exist in the note. chunk_embeddings is
 // deleted explicitly (not relying on FK cascade, which node:sqlite tests run with
 // foreign_keys off). vec_chunks is kept in lock-step only when the extension loaded.
+import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { parseNote } from "../vault/frontmatter";
@@ -42,6 +43,9 @@ export interface IndexStats {
   fts_enabled: boolean;
   notes_upserted: number;
   notes_deleted: number;
+  /** THE-390 (additive): notes skipped this pass because the embed provider rejected one of
+   *  their chunks even as a single-text request; retried automatically next reconcile. */
+  notes_embed_failed: number;
   model: string;
   dimensions: number;
 }
@@ -106,10 +110,14 @@ interface PlanResult {
 // Provider-sized embed sub-batch + how many to run in flight (THE-277) — the defaults used when a
 // caller passes no embed config. GH #171/#172: a request is ALSO capped by estimated tokens
 // (EMBED_MAX_BATCH_TOKENS), so a token-dense sub-batch can't overrun a stock local runner's budget
-// and crash it regardless of the input count.
+// and crash it regardless of the input count. THE-390: the token cap must stay UNDER the provider's
+// loaded context — Ollama defaults to n_ctx 4096 and 400-rejects a request whose SUMMED tokens
+// exceed it, and estimateTokens undercounts real tokenization (~2-2.5x on link-dense markdown).
+// 2048 estimated keeps a batch inside a 4096 context with that drift; must match the
+// EmbeddingsConfigSchema default.
 const EMBED_BATCH = 512;
 const EMBED_CONCURRENCY = 4;
-const EMBED_MAX_BATCH_TOKENS = 8192;
+const EMBED_MAX_BATCH_TOKENS = 2048;
 
 // Rough token estimate for batch budgeting (~4 chars/token). Provider-agnostic and intentionally
 // coarse: it only needs to prevent a runaway single request, not be exact.
@@ -165,6 +173,74 @@ function computeNotePlan(
   };
 }
 
+/** THE-390: outcome of an embedPlans pass. `failed` lists plans with at least one chunk the
+ *  provider rejected even as a single-text request (HTTP 400/413); their vectors are NOT
+ *  populated and they must not be applied — the content-hash skip retries them next reconcile.
+ *  `rejections` counts rejected requests that were bisected + retried (an operator signal that
+ *  `embeddings.maxBatchTokens` sits over the provider context and the pass is paying retries). */
+export interface EmbedReport {
+  failed: NoteWritePlan[];
+  rejections: number;
+}
+
+// A provider "request rejected" error — HTTP 400/413, most commonly Ollama refusing a request
+// whose summed tokens exceed the model's loaded n_ctx (THE-390). Distinct from an outage
+// (timeout / 5xx / network error), which must keep aborting the reconcile.
+function isEmbedRejection(e: unknown): boolean {
+  if (!(e instanceof ObsidianTcError) || e.code !== "embedding_provider_error") return false;
+  const status = e.details?.status;
+  return status === 400 || status === 413;
+}
+
+// One sub-batch's outputs, aligned to its input order; null marks a quarantined text.
+interface SubBatchOut {
+  dense: Array<number[] | null>;
+  sparse?: Array<SparseVec | null>;
+  colbert?: Array<ColbertMatrix | null>;
+}
+
+// Embed one sub-batch, bisecting on a provider rejection: the token budget is an ESTIMATE
+// (chars/4 undercounts real tokenization), so a packed batch can overshoot the provider context
+// and 400 — halve and retry instead of aborting the whole reconcile (THE-390). A single text
+// still rejected alone is quarantined as null, never silently truncated. Any other error
+// propagates unchanged: a dead backend must abort, not degrade into one failing request per text.
+async function embedSubBatch(
+  provider: EmbeddingProvider,
+  batch: string[],
+  useFull: boolean,
+  counters: { rejections: number },
+): Promise<SubBatchOut> {
+  try {
+    if (useFull && provider.embedFull) {
+      const full = await provider.embedFull(batch);
+      return {
+        dense: full.map((f) => f.dense),
+        sparse: full.map((f) => f.sparse),
+        colbert: full.map((f) => f.colbert),
+      };
+    }
+    return { dense: await provider.embed(batch) };
+  } catch (e) {
+    if (!isEmbedRejection(e)) throw e;
+    counters.rejections += 1;
+    if (batch.length === 1) {
+      return useFull ? { dense: [null], sparse: [null], colbert: [null] } : { dense: [null] };
+    }
+    const mid = Math.ceil(batch.length / 2);
+    const left = await embedSubBatch(provider, batch.slice(0, mid), useFull, counters);
+    const right = await embedSubBatch(provider, batch.slice(mid), useFull, counters);
+    return {
+      dense: left.dense.concat(right.dense),
+      ...(useFull
+        ? {
+            sparse: (left.sparse ?? []).concat(right.sparse ?? []),
+            colbert: (left.colbert ?? []).concat(right.colbert ?? []),
+          }
+        : {}),
+    };
+  }
+}
+
 // Embed all of `plans`' to-embed chunks in provider-sized sub-batches under bounded concurrency
 // (THE-277), then write the vectors back onto each plan IN ORDER. Batching across notes turns a
 // reconcile's K serial per-note embed round-trips into ceil(total_chunks / batchSize) requests with
@@ -176,10 +252,10 @@ export async function embedPlans(
   batchSize: number,
   concurrency: number,
   maxBatchTokens: number = EMBED_MAX_BATCH_TOKENS,
-): Promise<void> {
+): Promise<EmbedReport> {
   const contents: string[] = [];
   for (const p of plans) for (const c of p.toEmbed) contents.push(c.content);
-  if (contents.length === 0) return;
+  if (contents.length === 0) return { failed: [], rejections: 0 };
   // Pack sub-batches greedily under BOTH caps: at most `batchSize` inputs and at most
   // `maxBatchTokens` estimated tokens per request (GH #172 — a fixed 512-input batch packed ~87k
   // tokens into one call and crashed a stock local runner). A single text that alone exceeds the
@@ -201,37 +277,37 @@ export async function embedPlans(
   // THE-388: when the provider emits embedFull() (bge-m3), collect the sparse + ColBERT heads per
   // sub-batch alongside the dense vector; dense-only providers take the embed() path unchanged.
   const hasFull = typeof provider.embedFull === "function";
-  const denseResults: number[][][] = new Array(subBatches.length);
-  const sparseResults: SparseVec[][] = hasFull ? new Array(subBatches.length) : [];
-  const colbertResults: ColbertMatrix[][] = hasFull ? new Array(subBatches.length) : [];
+  const counters = { rejections: 0 };
+  const results: SubBatchOut[] = new Array(subBatches.length);
   let next = 0;
   const worker = async (): Promise<void> => {
     for (let i = next++; i < subBatches.length; i = next++) {
-      const batch = subBatches[i] as string[];
-      if (hasFull && provider.embedFull) {
-        const full = await provider.embedFull(batch);
-        denseResults[i] = full.map((f) => f.dense);
-        sparseResults[i] = full.map((f) => f.sparse);
-        colbertResults[i] = full.map((f) => f.colbert);
-      } else {
-        denseResults[i] = await provider.embed(batch);
-      }
+      results[i] = await embedSubBatch(provider, subBatches[i] as string[], hasFull, counters);
     }
   };
   await Promise.all(
     Array.from({ length: Math.min(concurrency, subBatches.length) }, () => worker()),
   );
-  const flatDense = denseResults.flat();
-  const flatSparse = hasFull ? sparseResults.flat() : null;
-  const flatColbert = hasFull ? colbertResults.flat() : null;
+  const flatDense = results.flatMap((r) => r.dense);
+  const flatSparse = hasFull ? results.flatMap((r) => r.sparse ?? []) : null;
+  const flatColbert = hasFull ? results.flatMap((r) => r.colbert ?? []) : null;
+  const failed: NoteWritePlan[] = [];
   let off = 0;
   for (const p of plans) {
     const n = p.toEmbed.length;
-    p.vectors = flatDense.slice(off, off + n);
-    if (flatSparse) p.sparse = flatSparse.slice(off, off + n);
-    if (flatColbert) p.colbert = flatColbert.slice(off, off + n);
+    const dense = flatDense.slice(off, off + n);
+    if (dense.some((v) => v === null)) {
+      // A quarantined chunk fails its whole NOTE: vectors stay empty so an accidental apply
+      // cannot write a bogus embedding, and the caller must exclude the plan (THE-390).
+      failed.push(p);
+    } else {
+      p.vectors = dense as number[][];
+      if (flatSparse) p.sparse = flatSparse.slice(off, off + n) as SparseVec[];
+      if (flatColbert) p.colbert = flatColbert.slice(off, off + n) as ColbertMatrix[];
+    }
     off += n;
   }
+  return { failed, rejections: counters.rejections };
 }
 
 // Single-note plan + embed (indexNote / index-on-write path). indexVault batches embeds instead.
@@ -244,7 +320,18 @@ async function planNoteWrites(
   ts: number,
 ): Promise<PlanResult> {
   const res = computeNotePlan(db, vaultId, path, raw, ts);
-  if (res.plan) await embedPlans(provider, [res.plan], EMBED_BATCH, EMBED_CONCURRENCY);
+  if (res.plan) {
+    const { failed } = await embedPlans(provider, [res.plan], EMBED_BATCH, EMBED_CONCURRENCY);
+    // Index-on-write is a single note: a quarantined chunk means the note cannot be applied,
+    // so keep the caller's existing best-effort failure semantics (counted as a write failure)
+    // rather than writing a partial note.
+    if (failed.length > 0) {
+      throw err.embeddingProviderError(
+        "provider rejected a single-chunk embed request (over its context?)",
+        { provider: provider.provider, path },
+      );
+    }
+  }
   return res;
 }
 
@@ -359,9 +446,9 @@ export async function indexNote(
       try {
         upsertNoteRow(db, vaultId, note, hasFts, now());
         db.exec("COMMIT");
-      } catch (err) {
+      } catch (e) {
         db.exec("ROLLBACK");
-        throw err;
+        throw e;
       }
     }
     return { upserted: 0, deleted: 0, unchanged, secretsSkipped };
@@ -381,9 +468,9 @@ export async function indexNote(
     );
     if (note) upsertNoteRow(db, vaultId, note, hasFts, now());
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (e) {
     db.exec("ROLLBACK");
-    throw err;
+    throw e;
   }
   fireIndexHook(onIndexed, plan);
   return { ...result, unchanged, secretsSkipped };
@@ -419,9 +506,9 @@ export function deindexNote(db: Database, vaultId: string, path: string, hasVec:
     }
     if (hasNotes) deleteNoteRow(db, vaultId, path, hasFts);
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (e) {
     db.exec("ROLLBACK");
-    throw err;
+    throw e;
   }
 }
 
@@ -472,6 +559,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     fts_enabled: hasFts,
     notes_upserted: 0,
     notes_deleted: 0,
+    notes_embed_failed: 0,
     model: args.provider.id,
     dimensions: args.provider.dimensions,
   };
@@ -494,16 +582,45 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // Batch the embed() calls across the whole batch (THE-277) BEFORE opening the write txn, so the
     // reconcile makes ceil(chunks/EMBED_BATCH) requests with a few in flight instead of one serial
     // round-trip per note. The write lock is still never held across a network call.
-    await embedPlans(
+    const report = await embedPlans(
       args.provider,
       applied,
       args.embed?.batchSize ?? EMBED_BATCH,
       args.embed?.concurrency ?? EMBED_CONCURRENCY,
       args.embed?.maxBatchTokens ?? EMBED_MAX_BATCH_TOKENS,
     );
+    if (report.rejections > 0) {
+      process.stderr.write(
+        `[index] vault "${args.vaultId}": ${report.rejections} embed request(s) exceeded the ` +
+          `provider's context (HTTP 400/413) and were bisected + retried. Lower ` +
+          `embeddings.maxBatchTokens to avoid the extra round-trips.\n`,
+      );
+    }
+    // THE-390: a chunk the provider rejects even alone quarantines its NOTE — the rest of the
+    // batch still applies and the reconcile completes (surfaced via stats + reconcile health;
+    // the content-hash skip retries the note next pass). Deliberate consequence: a quarantined
+    // note keeps serving its LAST-INDEXED chunks (stale-but-consistent) rather than being pruned
+    // to a search hole or failing the whole reindex; its notes/FTS metadata may be newer, which
+    // the notes pass already allows by design (THE-291 independence).
+    let toApply = applied;
+    if (report.failed.length > 0) {
+      const failedSet = new Set(report.failed);
+      toApply = applied.filter((p) => !failedSet.has(p));
+      stats.notes_embed_failed += report.failed.length;
+      const sample = report.failed
+        .slice(0, 3)
+        .map((p) => p.path)
+        .join(", ");
+      process.stderr.write(
+        `[index] vault "${args.vaultId}": embed provider rejected ${report.failed.length} ` +
+          `note(s) even at single-text size (${sample}${report.failed.length > 3 ? ", ..." : ""}) ` +
+          `— skipped this pass. If this persists, the chunk exceeds the provider's context; ` +
+          `use a larger-context embedding model.\n`,
+      );
+    }
     args.db.exec("BEGIN");
     try {
-      for (const plan of applied) {
+      for (const plan of toApply) {
         const r = applyNoteWrites(
           args.db,
           args.provider,
@@ -519,11 +636,11 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
         if (r.upserted > 0 || r.deleted > 0) stats.notes_indexed += 1;
       }
       args.db.exec("COMMIT");
-    } catch (err) {
+    } catch (e) {
       args.db.exec("ROLLBACK");
-      throw err;
+      throw e;
     }
-    for (const plan of applied) fireIndexHook(args.onIndexed, plan);
+    for (const plan of toApply) fireIndexHook(args.onIndexed, plan);
   };
   // THE-291: the notes/FTS pass is flushed INDEPENDENTLY of the chunk/embed pass, so a broken
   // embedding backend cannot block metadata/FTS readiness (they need no embeddings). Notes
@@ -537,9 +654,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     try {
       for (const rec of rows) upsertNoteRow(args.db, args.vaultId, rec, hasFts, now());
       args.db.exec("COMMIT");
-    } catch (err) {
+    } catch (e) {
       args.db.exec("ROLLBACK");
-      throw err;
+      throw e;
     }
     stats.notes_upserted += rows.length;
   };

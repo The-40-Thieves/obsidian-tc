@@ -6,6 +6,18 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **Embed batches no longer overrun a small provider context, and a rejected request no longer
+  aborts the whole reindex (THE-390).** Ollama loads models at `n_ctx` 4096 by default and
+  400-rejects any `/api/embed` request whose summed tokens exceed it; the chars/4 estimate
+  undercounts real tokenization (~2-2.5x on link-dense markdown), so the previous 8192-estimated
+  budget could overrun a 4096 context and halt the boot reconcile partway (`reconcile: degraded`,
+  `HTTP 400`). `embeddings.maxBatchTokens` now defaults to 2048; a rejected (HTTP 400/413) batch
+  is bisected and retried; a chunk rejected even as a single-text request quarantines its note —
+  skipped this pass, surfaced via `notes_embed_failed` + degraded reconcile health, retried next
+  reconcile — instead of aborting the reindex. Outage-class errors (timeout / 5xx) still abort.
+
 ## [1.4.0] - 2026-07-10
 
 ### Added

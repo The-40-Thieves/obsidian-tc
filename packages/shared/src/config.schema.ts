@@ -134,9 +134,14 @@ export const EmbeddingsConfigSchema = z.object({
   // 30s with no knob). `batchSize` caps inputs/request; `maxBatchTokens` caps a request's estimated
   // tokens (chars/4) so a dense sub-batch is split before it overruns a local runner's budget (a
   // single over-budget text still goes alone). `concurrency` is how many embed requests run in flight.
+  // THE-390: `maxBatchTokens` must stay UNDER the provider's loaded context — Ollama defaults to
+  // n_ctx 4096 and 400-rejects a request whose summed tokens exceed it, and the chars/4 estimate
+  // undercounts real tokenization (~2-2.5x on link-dense markdown). 2048 estimated keeps a batch
+  // inside a 4096 context with that drift; the indexer also bisects + retries a rejected batch,
+  // so an occasional overshoot costs a retry, not the reindex.
   timeoutMs: z.number().int().positive().default(120000),
   batchSize: z.number().int().positive().default(512),
-  maxBatchTokens: z.number().int().positive().default(8192),
+  maxBatchTokens: z.number().int().positive().default(2048),
   concurrency: z.number().int().positive().default(4),
   // THE-387: Matryoshka (MRL) dimension truncation. When true, a provider that returns vectors
   // WIDER than `dimensions` is truncated to the first `dimensions` components + renormalised (so a

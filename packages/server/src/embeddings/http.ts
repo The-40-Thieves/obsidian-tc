@@ -40,9 +40,12 @@ export async function postJson<T>(o: PostJsonOptions): Promise<T> {
     clearTimeout(timer);
   }
   if (!res.ok)
+    // `status` is structured (not only in the message) so the indexer can tell a rejected
+    // request (400/413: batch exceeds the provider context, THE-390) from an outage.
     throw err.embeddingProviderError(`HTTP ${res.status}`, {
       provider: o.provider,
       url: o.url,
+      status: res.status,
       hint: providerHint(o.provider, o.url),
     });
   return (await res.json()) as T;
