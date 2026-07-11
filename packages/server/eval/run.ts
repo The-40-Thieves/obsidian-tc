@@ -113,6 +113,8 @@ export interface RunEvalOptions {
   fusionConvex?: { alpha?: number };
   /** THE-400: route via z-margin at this threshold (replaces the sim/margin router rule). */
   zRouter?: number;
+  /** THE-221: conditional temporal stream (fires only on queries with explicit temporal intent). */
+  temporal?: boolean;
   /** THE-404 spike: for z-HARD queries only (z1 < zThreshold, default 2.54), decompose the query
    *  into 2–3 atomic sub-queries via a small local instruct LLM (Ollama /api/chat), run the full
    *  graph search per sub-query (original included), and RRF-merge the ranked lists. Easy queries
@@ -219,6 +221,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ...(opts.diversify ? { diversify: opts.diversify } : {}),
         ...(opts.gatedRerank ? { gatedRerank: opts.gatedRerank } : {}),
         ...(opts.fusionConvex ? { fusionMode: "convex" as const, convex: opts.fusionConvex } : {}),
+        ...(opts.temporal ? { temporal: { enabled: true } } : {}),
       });
       return normHits(res.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
     };
@@ -280,6 +283,8 @@ async function main(): Promise<void> {
   const fusionIdx = argv.indexOf("--fusion");
   const fusionArg = fusionIdx >= 0 ? argv[fusionIdx + 1] : undefined;
   const convexAlpha = process.env.CONVEX_ALPHA ? Number(process.env.CONVEX_ALPHA) : undefined;
+  // THE-221: `--temporal` — conditional temporal stream.
+  const temporal = argv.includes("--temporal");
   // THE-404: `--decompose` — LLM sub-query decomposition for z-hard queries only
   // (DECOMPOSE_MODEL / DECOMPOSE_Z / DECOMPOSE_URL envs).
   const decompose = argv.includes("--decompose");
@@ -307,6 +312,7 @@ async function main(): Promise<void> {
         "--fusion convex enables THE-398 score-normalized convex-combination fusion (CONVEX_ALPHA env, default 0.7).\n" +
         "--z-router <t> enables THE-400 z-margin routing (skip expansion when top-1 z >= t; replaces sim/margin rule).\n" +
         "--decompose enables THE-404 sub-query decomposition for z-hard queries (Ollama; DECOMPOSE_MODEL/DECOMPOSE_Z envs).\n" +
+        "--temporal enables the THE-221 conditional temporal stream (fires only on explicit temporal intent).\n" +
         "SPARSE_URL=<bge-m3 token_classify server> + --sparse fuses the learned-sparse stream into a NON-bge dense pipeline (THE-403).\n" +
         "--mmr enables THE-393 diversification (note-collapse maxPerNote=2 + MMR final pick).\n" +
         "Needs an indexed cache.db + a reachable embedding backend (config.embeddings).\n",
@@ -400,6 +406,7 @@ async function main(): Promise<void> {
       ? { gatedRerank: { enabled: true, ...(hardZ !== undefined ? { hardZ } : {}) } }
       : {}),
     ...(zRouterArg !== undefined && !Number.isNaN(zRouterArg) ? { zRouter: zRouterArg } : {}),
+    ...(temporal ? { temporal: true } : {}),
     ...(decompose
       ? {
           decompose: {
@@ -427,6 +434,7 @@ async function main(): Promise<void> {
     fusionArg === "convex" ? `convex fusion a=${convexAlpha ?? 0.7}` : null,
     zRouterArg !== undefined ? `z-router@${zRouterArg}` : null,
     decompose ? `decompose(z<${process.env.DECOMPOSE_Z ?? 2.54})` : null,
+    temporal ? "temporal stream" : null,
   ]
     .filter((f) => f !== null)
     .join(", ");
@@ -489,6 +497,7 @@ async function main(): Promise<void> {
       fusionArg === "convex" && `convex@${convexAlpha ?? 0.7}`,
       zRouterArg !== undefined && `z-router@${zRouterArg}`,
       decompose && `decompose@${process.env.DECOMPOSE_Z ?? 2.54}`,
+      temporal && "temporal",
     ].filter((x): x is string => typeof x === "string");
     writeFileSync(jsonPath, JSON.stringify({ flags, perQuery: report.perQuery }, null, 2));
     process.stdout.write(`wrote ${jsonPath}\n`);

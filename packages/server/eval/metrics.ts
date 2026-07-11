@@ -29,7 +29,7 @@ export interface RankedChunk {
   chunk_id: string;
   path: string;
   // Optional graph-aware metadata; populated by the graph adapter, undefined for baseline.
-  source?: "seed" | "expansion" | "lexical" | "sparse";
+  source?: "seed" | "expansion" | "lexical" | "sparse" | "temporal";
   hop?: number;
   via_edge?: { type: string; source_path: string; provenance: string | null } | null;
   root_seed?: string | null;

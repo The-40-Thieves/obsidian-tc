@@ -15,6 +15,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   content hashes cover the enriched text). Set `embeddings.chunkContext: false` to keep the old
   raw-text representation.
 
+### Added
+
+- **Conditional temporal retrieval stream, flag-gated (THE-221 Phase 1).** `temporal` on
+  vault_graph_search's engine options: when the query carries an explicit temporal constraint
+  (precision-first parser — prepositioned months/years, ISO dates, early/mid/late month, relative
+  forms; bare title-style "May 2026" tokens never route), chunks of notes whose filename date
+  falls in the parsed range join the fusion ranked by proximity to the range midpoint. Empty on
+  non-temporal queries — exactly the static configuration. Eval gains `--temporal`. Off by
+  default pending its A/B. (The ticket's date-augmentation item is already satisfied by THE-406
+  enrichment: dated titles are in the embedded text.)
+
 ### Fixed
 
 - **chunk_fts divergence-rebuild is enrichment-aware (THE-408).** A wholesale rebuild (first

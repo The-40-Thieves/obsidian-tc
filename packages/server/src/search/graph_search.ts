@@ -7,6 +7,7 @@ import { cosineSimilarity } from "./native";
 import { type Reranker, rerankWithScores } from "./rerank";
 import { semanticSearch } from "./semantic";
 import { type SparseVec, sparseSearch } from "./sparse";
+import { noteDateMs, parseTemporalIntent } from "./temporal";
 import { blobToFloats } from "./vec";
 
 // THE-398: "convex" fuses per-query min-max-NORMALIZED raw stream scores instead of ranks (Bruch
@@ -24,7 +25,7 @@ export interface GraphSearchResult {
   chunk_id: string;
   path: string;
   content?: string;
-  source: "seed" | "expansion" | "lexical" | "sparse";
+  source: "seed" | "expansion" | "lexical" | "sparse" | "temporal";
   hop: number;
   via_edge: { type: string; source_path: string; provenance: string | null } | null;
   root_seed: string | null;
@@ -131,6 +132,13 @@ export interface GraphSearchOptions {
    *  min-max normalized over its own per-query pool, absent streams contributing 0. Default 0.7.
    *  adaptiveRrf's per-stream tilt is RRF-specific and does not apply in convex mode. */
   convex?: { alpha?: number };
+  /** THE-221 Phase 1: conditional temporal stream. When enabled AND the query carries an explicit
+   *  temporal constraint (precision-first parser: prepositioned months/years, ISO dates,
+   *  early/mid/late-month, relative forms — see temporal.ts), chunks of notes whose FILENAME date
+   *  falls inside the parsed range join the fusion as a stream ranked by proximity to the range
+   *  midpoint. Empty on non-temporal queries — exactly the static configuration. `count` caps the
+   *  stream (default seedCount); `nowMs` is injectable for deterministic tests. Off by default. */
+  temporal?: { enabled?: boolean; count?: number; nowMs?: number };
   reranker?: Reranker | null;
   isReadable?: (path: string) => boolean;
   /** cached_activation_score lookup from vault_object_state (W-SCHEMA); inert when absent. */
@@ -141,7 +149,7 @@ interface Candidate {
   chunk_id: string;
   path: string;
   content: string;
-  source: "seed" | "expansion" | "lexical" | "sparse";
+  source: "seed" | "expansion" | "lexical" | "sparse" | "temporal";
   hop: number;
   via_edge: { type: string; source_path: string; provenance: string | null } | null;
   root_seed: string | null;
@@ -406,6 +414,59 @@ export async function graphSearch(
     }
     sparseRank += 1;
   }
+  // 4d. Temporal stream (THE-221): conditional on explicit temporal intent in the query; empty
+  //     otherwise, so non-temporal queries fuse exactly as before. Notes are matched by filename
+  //     date inside the parsed range and ranked by proximity to the range midpoint; a chunk also
+  //     found by another stream gets the additive RRF bonus below, like lexical/sparse.
+  const temporalRankById = new Map<string, number>();
+  if (opts.temporal?.enabled ?? false) {
+    const range = parseTemporalIntent(opts.query, opts.temporal?.nowMs ?? Date.now());
+    if (range) {
+      const mid = (range.start + range.end) / 2;
+      const dated = (
+        db
+          .prepare("SELECT DISTINCT path FROM chunks WHERE vault_id = ?")
+          .all(opts.vaultId) as Array<{
+          path: string;
+        }>
+      )
+        .map((r) => ({ path: r.path, date: noteDateMs(r.path) }))
+        .filter(
+          (p): p is { path: string; date: number } =>
+            p.date !== null && p.date >= range.start && p.date <= range.end,
+        )
+        .sort((a, b) => Math.abs(a.date - mid) - Math.abs(b.date - mid) || b.date - a.date);
+      const cap = opts.temporal?.count ?? seedCount;
+      let tRank = 0;
+      for (const p of dated) {
+        if (tRank >= cap) break;
+        if (isReadable && !isReadable(p.path)) continue;
+        const rows = db
+          .prepare(
+            "SELECT id, content FROM chunks WHERE vault_id = ? AND path = ? ORDER BY chunk_index",
+          )
+          .all(opts.vaultId, p.path) as Array<{ id: string; content: string }>;
+        for (const r of rows) {
+          if (tRank >= cap) break;
+          temporalRankById.set(r.id, tRank);
+          if (!seen.has(r.id)) {
+            seen.add(r.id);
+            candidates.push({
+              chunk_id: r.id,
+              path: p.path,
+              content: r.content,
+              source: "temporal",
+              hop: 0,
+              via_edge: null,
+              root_seed: null,
+              streamRank: tRank,
+            });
+          }
+          tRank += 1;
+        }
+      }
+    }
+  }
   if (candidates.length === 0) return [];
 
   // 5. Fusion.
@@ -447,6 +508,9 @@ export async function graphSearch(
     lexical: lexW,
     sparse: sparseW,
     expansion: denseW,
+    // THE-221: the temporal stream sits outside the lexical-vs-semantic axis the adaptive tilt
+    // reweights — date evidence is neither, so it fuses at neutral weight.
+    temporal: 1,
   };
   // RRF fusion (THE-73): each candidate's base contribution is w/(k + its own stream rank), PLUS an
   // additive lexical contribution when it also appears in the BM25 stream — a chunk matched by two
@@ -461,6 +525,10 @@ export async function graphSearch(
     if (c.source !== "sparse") {
       const sr = sparseRankById.get(c.chunk_id);
       if (sr !== undefined) s += sparseW / (rrfK + sr);
+    }
+    if (c.source !== "temporal") {
+      const tr = temporalRankById.get(c.chunk_id);
+      if (tr !== undefined) s += 1 / (rrfK + tr);
     }
     return s;
   };
@@ -485,6 +553,7 @@ export async function graphSearch(
     lexical: 1,
     sparse: 2,
     expansion: 3,
+    temporal: 4,
   };
   const fused = [...candidates].sort((a, b) => {
     const d = scoreOf(b) - scoreOf(a);
