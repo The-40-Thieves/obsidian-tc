@@ -16,7 +16,7 @@ import { loadConfig } from "../src/config/load";
 import { openDatabase } from "../src/db/open";
 import type { Database } from "../src/db/types";
 import { createEmbeddingProvider } from "../src/embeddings";
-import { graphSearch } from "../src/search/graph_search";
+import { graphSearch, seedZMargin } from "../src/search/graph_search";
 import type { Reranker } from "../src/search/rerank";
 import { semanticSearch } from "../src/search/semantic";
 import type { SparseVec } from "../src/search/sparse";
@@ -56,6 +56,9 @@ export interface EvalQueryResult {
   /** THE-394: hard query = top-1 dense cosine below the gate threshold (0.55). The acceptance
    *  for the gated reranker is a win on THIS subset. */
   hard: boolean;
+  /** THE-400: top-1 z-margin over the dense top-30 pool — the model-agnostic confidence signal;
+   *  logged per query so thresholds are picked from a calibration table, never guessed. */
+  z1: number;
 }
 
 export interface EvalReport {
@@ -103,6 +106,8 @@ export interface RunEvalOptions {
   gatedRerank?: { enabled?: boolean; hardTop1?: number; pool?: number };
   /** THE-398: convex-combination fusion (fusionMode "convex") with optional alpha. */
   fusionConvex?: { alpha?: number };
+  /** THE-400: route via z-margin at this threshold (replaces the sim/margin router rule). */
+  zRouter?: number;
 }
 
 /** Run the golden set: per query, compare the semantic baseline vs graph (GraphRAG) top-K. */
@@ -126,6 +131,8 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
     });
     const hard = (baseRaw[0]?.score ?? 0) < 0.55;
+    // THE-400: z over the SAME top-30 dense pool the graph side seeds from (seedCount default 30).
+    const z1 = seedZMargin(baseRaw.map((h) => h.score));
     const baseHits = normHits(baseRaw.map((h) => ({ chunk_id: h.chunk_id, path: h.path })));
     const graphRes = await graphSearch(opts.db, {
       query: q.query_text,
@@ -136,6 +143,9 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       ...(opts.seedCount !== undefined ? { seedCount: opts.seedCount } : {}),
       ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
       ...(opts.router ? { router: opts.router } : {}),
+      ...(opts.zRouter !== undefined
+        ? { router: { enabled: true, zThreshold: opts.zRouter } }
+        : {}),
       ...(opts.adaptiveRrf ? { adaptiveRrf: opts.adaptiveRrf } : {}),
       ...(opts.lexical ? { lexical: opts.lexical } : {}),
       ...(querySparse ? { querySparse } : {}),
@@ -152,6 +162,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       baseline: computeQueryMetrics(q, baseHits),
       graph: computeQueryMetrics(q, graphHits),
       hard,
+      z1,
     });
   }
 
@@ -182,13 +193,18 @@ async function main(): Promise<void> {
   const fusionIdx = argv.indexOf("--fusion");
   const fusionArg = fusionIdx >= 0 ? argv[fusionIdx + 1] : undefined;
   const convexAlpha = process.env.CONVEX_ALPHA ? Number(process.env.CONVEX_ALPHA) : undefined;
+  // THE-400: `--z-router <t>` routes on the z-margin; GATED_HARD_Z switches the rerank gate to z.
+  const zRouterIdx = argv.indexOf("--z-router");
+  const zRouterArg = zRouterIdx >= 0 ? Number(argv[zRouterIdx + 1]) : undefined;
+  const hardZ = process.env.GATED_HARD_Z ? Number(process.env.GATED_HARD_Z) : undefined;
   const jsonIdx = argv.indexOf("--json");
   const jsonPath = jsonIdx >= 0 ? argv[jsonIdx + 1] : undefined;
   const positional = argv.filter(
     (a, i) =>
       !a.startsWith("--") &&
       (jsonIdx < 0 || i !== jsonIdx + 1) &&
-      (fusionIdx < 0 || i !== fusionIdx + 1),
+      (fusionIdx < 0 || i !== fusionIdx + 1) &&
+      (zRouterIdx < 0 || i !== zRouterIdx + 1),
   );
   const configPath = positional[0];
   if (!configPath) {
@@ -199,6 +215,7 @@ async function main(): Promise<void> {
         "--graph-stream enables the THE-393 capped expansion stream (top seeds, per-seed cap, hub suppression).\n" +
         "--smooth-expansion enables THE-401 continuous expansion scoring (cos·λ^(hop−1)·hub-penalty; replaces hop-sort + hard cap).\n" +
         "--fusion convex enables THE-398 score-normalized convex-combination fusion (CONVEX_ALPHA env, default 0.7).\n" +
+        "--z-router <t> enables THE-400 z-margin routing (skip expansion when top-1 z >= t; replaces sim/margin rule).\n" +
         "--mmr enables THE-393 diversification (note-collapse maxPerNote=2 + MMR final pick).\n" +
         "Needs an indexed cache.db + a reachable embedding backend (config.embeddings).\n",
     );
@@ -245,7 +262,10 @@ async function main(): Promise<void> {
     ...(mmr ? { diversify: { maxPerNote: 2, mmr: { enabled: true } } } : {}),
     ...(noLexical ? { lexical: { enabled: false } } : {}),
     ...(sparseFlag ? { sparse: true } : {}),
-    ...(gatedRerank ? { gatedRerank: { enabled: true } } : {}),
+    ...(gatedRerank
+      ? { gatedRerank: { enabled: true, ...(hardZ !== undefined ? { hardZ } : {}) } }
+      : {}),
+    ...(zRouterArg !== undefined && !Number.isNaN(zRouterArg) ? { zRouter: zRouterArg } : {}),
     ...(fusionArg === "convex"
       ? { fusionConvex: { ...(convexAlpha !== undefined ? { alpha: convexAlpha } : {}) } }
       : {}),
@@ -260,8 +280,9 @@ async function main(): Promise<void> {
     mmr ? "note-collapse+MMR" : null,
     noLexical ? "lexical OFF" : null,
     sparseFlag ? "sparse stream" : null,
-    gatedRerank ? "gated rerank" : null,
+    gatedRerank ? `gated rerank${hardZ !== undefined ? ` z<${hardZ}` : ""}` : null,
     fusionArg === "convex" ? `convex fusion a=${convexAlpha ?? 0.7}` : null,
+    zRouterArg !== undefined ? `z-router@${zRouterArg}` : null,
   ]
     .filter((f) => f !== null)
     .join(", ");
@@ -296,6 +317,13 @@ async function main(): Promise<void> {
       `hard subset (${hardQ.length}/${report.perQuery.length}): recall ${hb.mean_recall_at_10.toFixed(3)} -> ${hg.mean_recall_at_10.toFixed(3)}; nDCG ${hb.mean_ndcg_at_10.toFixed(3)} -> ${hg.mean_ndcg_at_10.toFixed(3)}; MRR ${hb.mean_mrr_at_10.toFixed(3)} -> ${hg.mean_mrr_at_10.toFixed(3)}\n`,
     );
   }
+  // THE-400 calibration: the z1 distribution over the golden set (per-backbone), so routing /
+  // hardness thresholds are read off real quantiles instead of guessed.
+  const zs = report.perQuery.map((r) => r.z1).sort((a, b) => a - b);
+  const zq = (p: number): number => zs[Math.min(zs.length - 1, Math.floor(p * zs.length))] ?? 0;
+  process.stdout.write(
+    `\nz-margin calibration: min ${(zs[0] ?? 0).toFixed(2)}  p25 ${zq(0.25).toFixed(2)}  median ${zq(0.5).toFixed(2)}  p75 ${zq(0.75).toFixed(2)}  max ${(zs[zs.length - 1] ?? 0).toFixed(2)}\n`,
+  );
   process.stdout.write(
     `\nship gate (graph >= baseline +20pp multi-hop recall): ${report.recallDeltaPp >= 20 ? "PASS" : "below target"}; no-regression: ${report.noRegression ? "PASS" : "FAIL"}\n`,
   );
@@ -315,6 +343,7 @@ async function main(): Promise<void> {
       sparseFlag && "sparse",
       gatedRerank && "gated-rerank",
       fusionArg === "convex" && `convex@${convexAlpha ?? 0.7}`,
+      zRouterArg !== undefined && `z-router@${zRouterArg}`,
     ].filter((x): x is string => typeof x === "string");
     writeFileSync(jsonPath, JSON.stringify({ flags, perQuery: report.perQuery }, null, 2));
     process.stdout.write(`wrote ${jsonPath}\n`);

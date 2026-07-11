@@ -104,14 +104,27 @@ export interface GraphSearchOptions {
    *  fused candidates are reranked through opts.reranker (the gateway /rerank seam; graceful
    *  no-op fallback preserves the RRF order on absence/error) and the remainder keeps its RRF
    *  order below them. Easy queries never pay the call. Off by default. */
-  gatedRerank?: { enabled?: boolean; hardTop1?: number; pool?: number };
+  gatedRerank?: {
+    enabled?: boolean;
+    hardTop1?: number;
+    /** THE-400: when set, hardness is `z-margin < hardZ` (top-1 z-score over the seed-cosine
+     *  pool) instead of the absolute `top1 < hardTop1` cosine rule — absolute cosine thresholds
+     *  do not transfer across embedding models (the 0.55 gate fired 0/32 on nomic); the z-margin
+     *  is distribution-relative and model-agnostic. */
+    hardZ?: number;
+    pool?: number;
+  };
   /** THE-73 Phase 3: Ebbinghaus recency weight on the expansion stream — each expansion chunk's
    *  ordering score is multiplied by exp(-lambda * days_since_modified) from notes.mtime, so a stale
    *  hub note loses expansion priority. Off unless enabled; the similarity gate still uses raw
    *  cosine, so decay only reorders/cuts, never drops a chunk below similarityThreshold. lambda
    *  defaults to a ~139-day half-life; nowMs is injectable for deterministic tests. */
   decay?: { enabled?: boolean; lambda?: number; nowMs?: number };
-  router?: { enabled?: boolean; simThreshold?: number; margin?: number };
+  /** Seed-strength router. Default rule: top-1 cosine ≥ simThreshold AND top1−top4 ≥ margin ⇒
+   *  skip expansion. THE-400: when `zThreshold` is set the rule becomes `z-margin ≥ zThreshold`
+   *  (top-1 z-score over the whole seed-cosine pool) — model-agnostic where absolute cosine
+   *  thresholds are not. */
+  router?: { enabled?: boolean; simThreshold?: number; margin?: number; zThreshold?: number };
   /** THE-398: convex-combination fusion tuning (fusionMode "convex" only). `alpha` weighs the
    *  SEMANTIC side (dense seeds + graph expansion) against the LEXICAL side (BM25 + learned
    *  sparse): score = alpha·(seedNorm+expNorm) + (1−alpha)·(bm25Norm+sparseNorm), each stream
@@ -198,11 +211,18 @@ export async function graphSearch(
 
   // 2. Seed-strength router: skip expansion when the baseline is already confident.
   //    semanticSearch score IS cosine, so no recompute (cleaner than the KMS path).
+  //    THE-400: the z-margin (top-1 z-score over the seed pool) is the model-agnostic form of
+  //    "confident dense lock" — shared by the router's z-mode and the gated-rerank hardness gate.
+  const zMargin = seedZMargin(seeds.map((s) => s.score));
   let routedToSeedsOnly = false;
   if (routerEnabled) {
-    const top1 = seeds[0]?.score ?? 0;
-    const top4 = seeds[Math.min(3, seeds.length - 1)]?.score ?? top1;
-    if (top1 >= routerSim && top1 - top4 >= routerMargin) routedToSeedsOnly = true;
+    if (opts.router?.zThreshold !== undefined) {
+      routedToSeedsOnly = zMargin >= opts.router.zThreshold;
+    } else {
+      const top1 = seeds[0]?.score ?? 0;
+      const top4 = seeds[Math.min(3, seeds.length - 1)]?.score ?? top1;
+      if (top1 >= routerSim && top1 - top4 >= routerMargin) routedToSeedsOnly = true;
+    }
   }
 
   const seedChunkIds = new Set(seeds.map((s) => s.chunk_id));
@@ -491,7 +511,9 @@ export async function graphSearch(
     const gr = opts.gatedRerank;
     if ((gr?.enabled ?? false) && opts.reranker) {
       const top1 = seeds[0]?.score ?? 0;
-      if (!routedToSeedsOnly && top1 < (gr?.hardTop1 ?? 0.55)) {
+      // THE-400: hardZ (z-margin mode) replaces the absolute-cosine hardness rule when set.
+      const hard = gr?.hardZ !== undefined ? zMargin < gr.hardZ : top1 < (gr?.hardTop1 ?? 0.55);
+      if (!routedToSeedsOnly && hard) {
         const head = capped.slice(0, Math.min(gr?.pool ?? 20, capped.length));
         const ranked = await rerankWithScores(opts.query, head, head.length, opts.reranker);
         const rerankedIds = new Set(ranked.map((r) => r.item.chunk_id));
@@ -514,6 +536,18 @@ export async function graphSearch(
     opts.reranker,
   );
   return finalize(ranked, opts);
+}
+
+/** THE-400: top-1 z-margin over a (descending) score pool — (top1 − μ)/σ, population σ. The
+ *  model-agnostic dense-confidence signal: absolute cosine thresholds shift with the embedding
+ *  model's dimension/anisotropy, but "how far top-1 sits above its own candidate distribution"
+ *  transfers. 0 when the pool has fewer than 2 scores or zero variance (no signal). O(K) over
+ *  scores already in memory — no extra calls. Exported for the eval's calibration table. */
+export function seedZMargin(scores: number[]): number {
+  if (scores.length < 2) return 0;
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const sd = Math.sqrt(scores.reduce((a, b) => a + (b - mean) ** 2, 0) / scores.length);
+  return sd > 0 ? ((scores[0] ?? 0) - mean) / sd : 0;
 }
 
 // THE-398: min-max normalize a stream's raw scores to [0,1] over its own per-query pool. A

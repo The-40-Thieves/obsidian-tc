@@ -16,6 +16,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Z-margin confidence signal (THE-400).** `seedZMargin` — the top-1 z-score over the dense
+  seed-cosine pool — is the model-agnostic replacement for absolute cosine thresholds (which do
+  not transfer across embedding models; the 0.55 rerank gate fired 0/32 on nomic). Opt-in uses:
+  `router.zThreshold` (skip expansion on a confident dense lock) and `gatedRerank.hardZ` (rerank
+  only z-hard queries). The eval logs per-query `z1` + a calibration quantile line and gains
+  `--z-router <t>` / `GATED_HARD_Z`. Existing sim/margin + hardTop1 rules unchanged by default.
+
 - **Convex-combination fusion mode, flag-gated (THE-398).** `fusionMode: "convex"` fuses per-query
   min-max-normalized RAW stream scores (dense cosine, expansion cos·decay, negated BM25, sparse
   dot) as `α·semantic + (1−α)·lexical` (α default 0.7) instead of rank-based RRF — preserving the
