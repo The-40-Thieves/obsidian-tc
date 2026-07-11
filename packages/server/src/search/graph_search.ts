@@ -43,11 +43,13 @@ export interface GraphSearchOptions {
   /** THE-391: adaptive per-query RRF stream weighting. When enabled, the query's lexical
    *  specificity (mean IDF of its terms over chunk_fts, tokenizer-aligned — see adaptive_rrf.ts)
    *  tilts the fusion: rare/specific terms upweight the BM25 + learned-sparse streams, common
-   *  conceptual queries upweight the dense seed stream. Exactly static RRF when disabled
-   *  (default), when the signal is unavailable (no FTS5 / empty corpus / no term in corpus), or
-   *  at specificity 0.5. `gain` bounds the tilt: stream weights stay within [1-gain, 1+gain]
-   *  (default 0.5). The expansion stream always weighs 1 — graph evidence is orthogonal to the
-   *  lexical-vs-dense axis (THE-393 owns that stream's shape). */
+   *  conceptual queries upweight the SEMANTIC side — the dense seeds AND the graph expansion
+   *  together, so the tilt reweights the lexical-vs-semantic axis without ever distorting the
+   *  seed-vs-expansion balance (measured on the live index: pinning expansion at 1 while seeds
+   *  moved cost multi-hop recall, because multi-hop targets ride the expansion stream). Exactly
+   *  static RRF when disabled (default), when the signal is unavailable (no FTS5 / empty corpus /
+   *  no term in corpus), or at specificity 0.5. `gain` bounds the tilt: stream weights stay
+   *  within [1-gain, 1+gain] (default 0.5). */
   adaptiveRrf?: { enabled?: boolean; gain?: number };
   /** THE-73: chunk-level BM25 lexical stream fused into the RRF (third stream). Defaults on;
    *  no-ops when chunk_fts is absent (FTS-less adapter / un-provisioned index). `count` defaults
@@ -319,11 +321,15 @@ export async function graphSearch(
       sparseW = 1 + tilt;
     }
   }
+  // Expansion carries the SEMANTIC-side weight, same as the seeds: both are cosine evidence on
+  // the lexical-vs-semantic axis, and weighting them apart would let the tilt reorder seeds vs
+  // expansion — demoting the expansion stream that multi-hop targets ride (live-index eval:
+  // recall@10 0.231 pinned-at-1 vs 0.282 carrying denseW, adaptive gain 0.5, nomic-768 n=10).
   const streamWeight: Record<Candidate["source"], number> = {
     seed: denseW,
     lexical: lexW,
     sparse: sparseW,
-    expansion: 1,
+    expansion: denseW,
   };
   // RRF fusion (THE-73): each candidate's base contribution is w/(k + its own stream rank), PLUS an
   // additive lexical contribution when it also appears in the BM25 stream — a chunk matched by two

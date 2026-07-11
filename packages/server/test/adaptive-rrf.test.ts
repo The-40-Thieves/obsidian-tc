@@ -149,4 +149,36 @@ describe("THE-391 adaptive fusion tilt", () => {
     );
     expect(adaptiveIds).toEqual(staticIds);
   });
+
+  it("the tilt never reorders seeds vs expansion — both carry the semantic-side weight", async () => {
+    // Multi-hop targets ride the expansion stream: if the tilt down-weighted only the seed
+    // stream, a rare-term query would jump expansion hits over seeds (and vice versa on
+    // conceptual queries), distorting the graph ranking instead of the lexical-vs-semantic mix.
+    const db = seedDb();
+    addChunk(db, "seed", "S.md", "unrelated seed text", vd(0.99));
+    addChunk(db, "exp", "E.md", "linked note body", vd(0.5)); // reachable only via the edge
+    addChunk(db, "lex", "Z.md", "zebra keyword doc", vd(0.0)); // lexical-only
+    db.prepare(
+      "INSERT INTO vault_edges (vault_id, source_path, target_path, edge_type, provenance, created_at, updated_at) VALUES (?, ?, ?, 'links_to', 'wikilink', 0, 0)",
+    ).run(VAULT, "S.md", "E.md");
+    if (!ensureChunkFts(db)) return;
+    const opts = {
+      query: "zebra", // corpus-rare -> semantic side down-weighted under adaptive
+      queryVec: [1, 0, 0, 0],
+      vaultId: VAULT,
+      seedCount: 1, // seeds = {seed}; exp enters through expansion only
+      finalTopK: 10,
+      router: { enabled: false as const },
+    };
+    const staticIds = (await graphSearch(db, opts)).map((r) => r.chunk_id);
+    const adaptiveIds = (await graphSearch(db, { ...opts, adaptiveRrf: { enabled: true } })).map(
+      (r) => r.chunk_id,
+    );
+    expect(staticIds).toContain("exp");
+    expect(adaptiveIds).toContain("exp");
+    // Relative seed-vs-expansion order is identical with and without the tilt.
+    expect(staticIds.indexOf("seed") < staticIds.indexOf("exp")).toBe(
+      adaptiveIds.indexOf("seed") < adaptiveIds.indexOf("exp"),
+    );
+  });
 });
