@@ -6,6 +6,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Proactive lesson surfacing in vault_context (THE-231).** The composite call
+  now returns a `lessons` leg — decision/lesson/postmortem chunks relevant to
+  the query (engine-ranked hits first, BM25 backfill over lesson-class paths) —
+  and gains a session-bootstrap mode: omit `query` and the queued thread is
+  read from the memory folder's `_next-session.md` signal note, so every
+  session opens with its applicable past lessons (push, not pull). Composition
+  only: packing and ranking are untouched.
+
 ## [1.6.0] - 2026-07-11
 
 ### Changed

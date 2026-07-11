@@ -797,6 +797,9 @@ async function main(): Promise<void> {
     classRouter: config.retrieval.classRouter,
     // THE-132: vault_context's include_work leg reads the experiential store when open.
     ...(experientialOpen ? { edb: experientialDb } : {}),
+    // THE-231: same per-vault memory folder as M5 — vault_context's bootstrap mode reads
+    // the _next-session.md signal note from it.
+    memoryFolder: (vaultId) => memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
   });
 
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over

@@ -3,7 +3,7 @@
 // the include_work leg honoring the THE-229 reader contract (explicit opt-in; eligible-only;
 // work_unavailable without the experiential handle). Uses the lexical route (classRouter +
 // rare term) so no embedding backend is needed — same dispatch path as serve.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -74,6 +74,19 @@ function cacheDb0(): Database {
     NOW,
     NOW,
   );
+  // THE-231: a lesson-class chunk (decision-note path). Carries only "reconciler" so the
+  // rare-term df of "zylophrastic" stays at 3 (the lexical route's ceiling); FTS tokens are
+  // OR'd, so it still matches the two-term query for the lessons backfill.
+  ins.run(
+    "d1",
+    "09-reference/decisions/2026-06-20-zylo-choice.md",
+    "0",
+    "decision: adopt the reconciler despite the cost",
+    "h4",
+    40,
+    NOW,
+    NOW,
+  );
   ensureChunkFts(db, { now: () => NOW, enrich: false });
   // Minimal plane tables for the composite legs.
   db.exec(
@@ -112,10 +125,12 @@ function un<T>(r: unknown): T {
 const root = mkdtempSync(join(tmpdir(), "obtc-vc-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-function harness(edb?: Database) {
+function harness(edb?: Database, rootOverride?: string) {
   const cache = cacheDb0();
   const registry = new ToolRegistry({});
-  const vaultRegistry = new VaultRegistry([{ id: "main", name: "main", path: root }]);
+  const vaultRegistry = new VaultRegistry([
+    { id: "main", name: "main", path: rootOverride ?? root },
+  ]);
   const embeddingProvider = {
     provider: "ollama",
     model: "stub",
@@ -145,11 +160,14 @@ function harness(edb?: Database) {
 
 interface ContextData {
   route: string[];
+  query_source: string;
+  signal?: string;
   budget: { requested: number; chunk_budget: number; packed_tokens: number };
   stats: { chunks_considered: number; chunks_packed: number; notes: number };
   notes: Array<{ path: string; chunks: Array<{ chunk_id: string }> }>;
   syntheses: Array<{ iso_year: number; patterns: unknown }>;
   contradictions: Array<{ id: string }>;
+  lessons: Array<{ chunk_id: string; path: string; via: string }>;
   episodes?: Array<{ id: string }> | { work_unavailable: true };
 }
 
@@ -164,11 +182,14 @@ describe("vault_context (THE-132)", () => {
       ),
     );
     expect(res.route.some((s) => s.startsWith("rare-term:zylophrastic"))).toBe(true);
-    expect(res.stats.chunks_packed).toBe(3);
+    expect(res.query_source).toBe("input");
+    expect(res.stats.chunks_packed).toBe(4);
+    // THE-231: the decision-note chunk surfaces as an applicable lesson.
+    expect(res.lessons.map((l) => l.chunk_id)).toContain("d1");
     // consecutive same-note chunks grouped
     const rare = res.notes.find((n) => n.path === "notes/rare.md");
     expect(rare?.chunks.length).toBeGreaterThanOrEqual(1);
-    expect(res.notes.length).toBeLessThanOrEqual(3);
+    expect(res.notes.length).toBeLessThanOrEqual(4);
     // contradiction on a packed note surfaces
     expect(res.contradictions.map((c) => c.id)).toContain("cx1");
     // synthesis LIKE-matched on a significant query token
@@ -215,6 +236,51 @@ describe("vault_context (THE-132)", () => {
     );
     const eps = on.episodes as Array<{ id: string }>;
     expect(eps.map((e) => e.id)).toEqual(["ep-ok"]); // eligible-only; pending never surfaces
+  });
+
+  it("include_lessons: false suppresses the lessons leg", async () => {
+    const { registry, ctx } = harness();
+    const res = un<ContextData>(
+      await registry.dispatch(
+        "vault_context",
+        { vault: "main", query: "zylophrastic reconciler", include_lessons: false },
+        ctx,
+      ),
+    );
+    expect(res.lessons).toEqual([]);
+  });
+
+  it("bootstrap mode: no query reads the next-session signal note (THE-231)", async () => {
+    const root2 = mkdtempSync(join(tmpdir(), "obtc-vc-boot-"));
+    mkdirSync(join(root2, "memory"), { recursive: true });
+    writeFileSync(
+      join(root2, "memory", "_next-session.md"),
+      "---\ntags: [thread]\n---\nresume the zylophrastic reconciler migration thread",
+    );
+    try {
+      const { registry, ctx } = harness(undefined, root2);
+      const res = un<ContextData>(await registry.dispatch("vault_context", { vault: "main" }, ctx));
+      expect(res.query_source).toBe("next_session");
+      expect(res.signal).toBe("memory/_next-session.md");
+      expect(res.stats.chunks_packed).toBeGreaterThan(0);
+      expect(res.lessons.map((l) => l.chunk_id)).toContain("d1");
+    } finally {
+      rmSync(root2, { recursive: true, force: true });
+    }
+  });
+
+  it("no query and no signal note is invalid_input", async () => {
+    const root3 = mkdtempSync(join(tmpdir(), "obtc-vc-empty-"));
+    try {
+      const { registry, ctx } = harness(undefined, root3);
+      const r = (await registry.dispatch("vault_context", { vault: "main" }, ctx)) as {
+        ok: boolean;
+        error?: { code?: string };
+      };
+      expect(r.ok).toBe(false);
+    } finally {
+      rmSync(root3, { recursive: true, force: true });
+    }
   });
 
   it("packBudget: greedy, budget-bound, always packs at least one item", () => {

@@ -3,7 +3,8 @@
 // on the branch: vault_graph_search (W-RETRIEVAL GraphRAG) and knowledge_challenge (W-WORKERS
 // red-team core). Both degrade gracefully when the inference gateway is unconfigured.
 // knowledge_get_critical is intentionally absent (vendor-KB data model not in the tree).
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { existsSync, readFileSync } from "node:fs";
+import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
 import type { Database } from "../../db/types";
@@ -16,10 +17,12 @@ import {
   isDecisionChunk,
 } from "../../plane/challenge";
 import type { GatewayRoles } from "../../plane/gateway";
+import { bm25Chunks } from "../../search/chunk_fts";
 import { type GraphSearchResult, graphSearch } from "../../search/graph_search";
 import type { Reranker } from "../../search/rerank";
 import { lexicalRouteResults, routeQuery } from "../../search/router";
 import { semanticSearch } from "../../search/semantic";
+import { resolveVaultPath } from "../../vault/paths";
 import type { VaultRegistry } from "../../vault/registry";
 import { defineTool } from "../m1/define";
 
@@ -43,7 +46,16 @@ export interface M7Deps {
   /** THE-132/229: open experiential handle for vault_context's include_work leg; absent ->
    *  include_work reports work_unavailable. */
   edb?: Database;
+  /** THE-231: per-vault memory folder (same source as M5) — where the next-session signal
+   *  note lives for vault_context's bootstrap mode; absent -> "memory". */
+  memoryFolder?: (vaultId: string) => string;
 }
+
+/** THE-231: lesson-class paths — decision notes, lessons, postmortems, retros. Convention-based
+ *  (path substring), matching the vault layouts the challenge corpus already assumes. */
+const LESSON_PATH_RE = /decision|lesson|postmortem|retro/i;
+/** THE-231: the queued-thread signal note written at the end of the previous session. */
+const NEXT_SESSION_NOTE = "_next-session.md";
 
 /** THE-132: greedy budget packer — walk fused-rank order, spend token costs until the budget
  *  binds. Pure and exported for the packing pins. */
@@ -145,35 +157,59 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
     defineTool({
       name: "vault_context",
       description:
-        "Composite budgeted context in ONE call (the Honcho-style context() primitive): graph-reranked chunks packed to a token budget and grouped by note, recent synthesis patterns touching the query, and open contradictions on the packed notes — with source metadata and packing stats. include_work adds eligible work-memory episodes (the THE-229 reader contract; explicit opt-in, never default). Replaces the 2–3-call search+synthesis+contradiction pattern for session bootstrap and agent context assembly.",
+        "Composite budgeted context in ONE call (the Honcho-style context() primitive): graph-reranked chunks packed to a token budget and grouped by note, recent synthesis patterns touching the query, open contradictions on the packed notes, and applicable past lessons (decision/lesson/postmortem chunks relevant to the query) — with source metadata and packing stats. include_work adds eligible work-memory episodes (the THE-229 reader contract; explicit opt-in, never default). Omit query for session bootstrap: the queued thread is read from the memory folder's _next-session.md signal note, so every session opens with its applicable lessons (push, not pull).",
       inputSchema: z
         .object({
           vault: VaultId,
-          query: z.string().min(1),
+          query: z.string().min(1).optional(),
           token_budget: z.number().int().positive().max(64000).default(4000),
           k: z.number().int().positive().max(60).default(30),
           include_work: z.boolean().default(false),
+          include_lessons: z.boolean().default(true),
         })
         .strict(),
       requiredScopes: ["read:notes"],
       tags: ["knowledge", "search"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        // THE-231 bootstrap mode: with no query, the queued thread comes from the previous
+        // session's signal note — the session opens with its own context instead of asking.
+        let query = input.query;
+        let querySource: "input" | "next_session" = "input";
+        let signalPath: string | undefined;
+        if (query === undefined) {
+          const rel = `${deps.memoryFolder?.(v.id) ?? "memory"}/${NEXT_SESSION_NOTE}`;
+          const abs = resolveVaultPath(v.root, rel);
+          if (!aclReadable(ctx.acl, rel) || !existsSync(abs)) {
+            throw err.invalidInput("query omitted and no readable next-session signal note", {
+              signal: rel,
+            });
+          }
+          const text = readFileSync(abs, "utf8")
+            .replace(/^---[\s\S]*?---/, "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 600);
+          if (!text) throw err.invalidInput("next-session signal note is empty", { signal: rel });
+          query = text;
+          querySource = "next_session";
+          signalPath = rel;
+        }
         // Same front door as vault_graph_search: the class router when enabled, the measured
         // engine otherwise — vault_context adds composition, never a second retrieval path.
         const route = deps.classRouter
-          ? routeQuery(ctx.db, v.id, input.query)
+          ? routeQuery(ctx.db, v.id, query)
           : { class: "standard" as const, signals: [] as string[] };
         let results: GraphSearchResult[];
         if (route.class === "lexical") {
-          results = lexicalRouteResults(ctx.db, v.id, input.query, input.k, (rel) =>
+          results = lexicalRouteResults(ctx.db, v.id, query, input.k, (rel) =>
             aclReadable(ctx.acl, rel),
           );
         } else {
-          const queryVec = await embedQuery(input.query);
+          const queryVec = await embedQuery(query);
           results = await graphSearch(ctx.db, {
             ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
-            query: input.query,
+            query,
             queryVec,
             vaultId: v.id,
             finalTopK: input.k,
@@ -184,7 +220,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           });
         }
         deps.retrievalLog?.({
-          queryText: input.query,
+          queryText: query,
           surfaceType: "vault_context",
           sessionId: ctx.sessionId ?? null,
           hits: results.map((r, i) => ({
@@ -245,10 +281,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
 
         // Recent synthesis patterns touching the query (weekly rows; LIKE over the JSON text
         // on significant query tokens), newest first, capped to 2.
-        const sigTokens = (input.query.toLowerCase().match(/[a-z0-9][a-z0-9-]{3,}/g) ?? []).slice(
-          0,
-          3,
-        );
+        const sigTokens = (query.toLowerCase().match(/[a-z0-9][a-z0-9-]{3,}/g) ?? []).slice(0, 3);
         let syntheses: Array<{
           iso_year: number;
           iso_week: number;
@@ -283,6 +316,45 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
               patterns,
             };
           });
+        }
+
+        // THE-231 lessons leg: applicable past lessons — decision/lesson/postmortem chunks
+        // relevant to the query. Engine-ranked hits first (already relevance-ordered), then a
+        // BM25 backfill over lesson-class paths the engine's top-k missed. Composition only:
+        // packing and ranking are untouched, so no A/B is owed.
+        const lessons: Array<{
+          chunk_id: string;
+          path: string;
+          excerpt: string;
+          via: "engine" | "lexical";
+        }> = [];
+        if (input.include_lessons) {
+          const seen = new Set<string>();
+          for (const r of results) {
+            if (lessons.length >= 5) break;
+            if (!LESSON_PATH_RE.test(r.path)) continue;
+            seen.add(r.chunk_id);
+            lessons.push({
+              chunk_id: r.chunk_id,
+              path: r.path,
+              excerpt: (r.content ?? "").slice(0, 240),
+              via: "engine",
+            });
+          }
+          if (lessons.length < 5) {
+            for (const h of bm25Chunks(ctx.db, v.id, query, 40)) {
+              if (lessons.length >= 5) break;
+              if (seen.has(h.chunk_id) || !LESSON_PATH_RE.test(h.path)) continue;
+              if (!aclReadable(ctx.acl, h.path)) continue;
+              seen.add(h.chunk_id);
+              lessons.push({
+                chunk_id: h.chunk_id,
+                path: h.path,
+                excerpt: h.content.slice(0, 240),
+                via: "lexical",
+              });
+            }
+          }
         }
 
         // Optional work-memory leg — the THE-229 reader contract verbatim (eligible-only,
@@ -323,6 +395,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         return {
           vault: v.id,
           route: route.signals,
+          query_source: querySource,
+          ...(signalPath !== undefined ? { signal: signalPath } : {}),
           budget: {
             requested: input.token_budget,
             chunk_budget: chunkBudget,
@@ -334,10 +408,12 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             notes: notes.length,
             contradictions: contradictions.length,
             syntheses: syntheses.length,
+            lessons: lessons.length,
           },
           notes,
           syntheses,
           contradictions,
+          lessons,
           ...(episodes !== undefined ? { episodes } : {}),
         };
       },
