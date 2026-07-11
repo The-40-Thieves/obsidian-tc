@@ -1,13 +1,20 @@
 // bge-m3 multi-representation encoder — vLLM backend (THE-388). Talks to a vLLM server started with:
-//   vllm serve BAAI/bge-m3 --hf-overrides '{"architectures":["BgeM3EmbeddingModel"]}'
+//   vllm serve BAAI/bge-m3 --runner pooling
 // producing { dense, sparse, colbert } per input:
 //   - dense:   POST {base}/embeddings                    -> data[i].embedding (number[])
-//   - sparse:  POST {base}/pooling  task=token_classify  -> per-token scores, paired with /tokenize
-//   - colbert: POST {base}/pooling  task=token_embed     -> per-token vectors (number[][])
-// The in-process ONNX backend is a separate, infra-gated follow-up; BOTH backends return this same
-// shape so the storage + retrieval side (sparse.ts, colbert.ts, graph_search) is backend-agnostic.
-// The /pooling + /tokenize response shapes are ASSUMPTIONS to confirm against a live vLLM server
-// (none exists in CI); the parsing + token-pairing is unit-tested with a fetch mock.
+//   - sparse:  POST {root}/pooling  task=token_classify  -> per-token scores, paired with /tokenize
+//   - colbert: POST {root}/pooling  task=token_embed     -> per-token vectors (number[][])
+//
+// LIVE-VERIFIED SHAPES (2026-07-11, vllm/vllm-openai:latest — THE-395 findings):
+//   - Only the OpenAI-compatible surface is namespaced under /v1; /pooling and /tokenize live at
+//     the server ROOT (the /v1-prefixed forms 404).
+//   - /tokenize takes { model, prompt } (a single string per call), returning { tokens: number[] }.
+//   - The pooling task is configured PER SERVER (--pooler-config.task); a request naming a
+//     different task is rejected, and token_classify is not in the supported set at all
+//     (['embed', 'token_embed']). So a single server cannot produce all three heads today:
+//     the sparse and ColBERT heads DEGRADE to empty when their task is unavailable (memoized per
+//     server+task so a long reindex doesn't re-pay the failing round-trip), and the indexer skips
+//     storing empty heads. The in-process ONNX backend remains the path to true lexical_weights.
 import type { ColbertMatrix } from "../search/colbert";
 import type { SparseVec } from "../search/sparse";
 import { type FetchFn, postJson } from "./http";
@@ -55,7 +62,12 @@ interface TokenizeResponse {
 
 const DEFAULT_MODEL = "BAAI/bge-m3";
 
-/** Encode texts to { dense, sparse, colbert } via a vLLM bge-m3 server. */
+// A server that rejected a pooling task keeps rejecting it — remember per {root, task} so a
+// reconcile's thousands of sub-batches don't each re-pay the failing round-trip.
+const unsupportedTasks = new Set<string>();
+
+/** Encode texts to { dense, sparse, colbert } via a vLLM bge-m3 server. Heads whose pooling task
+ *  the server does not expose come back EMPTY ({} / []) rather than failing the encode. */
 export async function bgeM3VllmEncode(
   texts: string[],
   opts: BgeM3VllmOptions,
@@ -63,6 +75,7 @@ export async function bgeM3VllmEncode(
   if (texts.length === 0) return [];
   const model = opts.model ?? DEFAULT_MODEL;
   const base = opts.baseUrl.replace(/\/$/, "");
+  const root = base.replace(/\/v1$/, "");
   const common = { fetchFn: opts.fetchFn, timeoutMs: opts.timeoutMs, provider: "bge-m3-vllm" };
 
   const dense = await postJson<EmbeddingsResponse>({
@@ -70,34 +83,51 @@ export async function bgeM3VllmEncode(
     body: { model, input: texts },
     ...common,
   });
-  const sparse = await postJson<PoolingResponse>({
-    url: `${base}/pooling`,
-    body: { model, input: texts, task: "token_classify" },
-    ...common,
-  });
-  const tok = await postJson<TokenizeResponse>({
-    url: `${base}/tokenize`,
-    body: { model, input: texts },
-    ...common,
-  });
-  const colbert = await postJson<PoolingResponse>({
-    url: `${base}/pooling`,
-    body: { model, input: texts, task: "token_embed" },
-    ...common,
-  });
 
-  const tokLists = normalizeTokenLists(tok.tokens, texts.length);
+  let sparses: SparseVec[] = texts.map(() => ({}));
+  if (!unsupportedTasks.has(`${root}:token_classify`)) {
+    try {
+      const sparse = await postJson<PoolingResponse>({
+        url: `${root}/pooling`,
+        body: { model, input: texts, task: "token_classify" },
+        ...common,
+      });
+      const tokLists: number[][] = [];
+      for (const t of texts) {
+        const tok = await postJson<TokenizeResponse>({
+          url: `${root}/tokenize`,
+          body: { model, prompt: t },
+          ...common,
+        });
+        tokLists.push(Array.isArray(tok.tokens) ? (tok.tokens as number[]) : []);
+      }
+      sparses = texts.map((_, i) =>
+        pairSparse(tokLists[i] ?? [], asScores(sparse.data?.[i]?.data)),
+      );
+    } catch {
+      unsupportedTasks.add(`${root}:token_classify`);
+    }
+  }
+
+  let colberts: ColbertMatrix[] = texts.map(() => []);
+  if (!unsupportedTasks.has(`${root}:token_embed`)) {
+    try {
+      const colbert = await postJson<PoolingResponse>({
+        url: `${root}/pooling`,
+        body: { model, input: texts, task: "token_embed" },
+        ...common,
+      });
+      colberts = texts.map((_, i) => asMatrix(colbert.data?.[i]?.data));
+    } catch {
+      unsupportedTasks.add(`${root}:token_embed`);
+    }
+  }
+
   return texts.map((_, i) => ({
     dense: dense.data?.[i]?.embedding ?? [],
-    sparse: pairSparse(tokLists[i] ?? [], asScores(sparse.data?.[i]?.data)),
-    colbert: asMatrix(colbert.data?.[i]?.data),
+    sparse: sparses[i] ?? {},
+    colbert: colberts[i] ?? [],
   }));
-}
-
-/** /tokenize returns number[] for a single input, number[][] for a batch. Normalise to per-input. */
-function normalizeTokenLists(tokens: number[] | number[][] | undefined, count: number): number[][] {
-  if (!tokens || tokens.length === 0) return Array.from({ length: count }, () => []);
-  return Array.isArray(tokens[0]) ? (tokens as number[][]) : [tokens as number[]];
 }
 
 /** token_classify per-input data is one score per token (number[]); tolerate a [score] wrapper. */

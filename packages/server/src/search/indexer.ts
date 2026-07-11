@@ -386,9 +386,13 @@ function applyNoteWrites(
     upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
     if (hasVec) upsertVec(db, d.id, vec);
     if (hasChunkFts) upsertChunkFtsRow(db, d.id, vaultId, plan.path, d.content);
-    if (hasChunkSparse && plan.sparse) upsertChunkSparse(db, d.id, vaultId, plan.sparse[i] ?? {});
-    if (hasChunkColbert && plan.colbert)
-      upsertChunkColbert(db, d.id, vaultId, plan.colbert[i] ?? []);
+    // THE-395: an empty head (the serving runtime could not produce it) is skipped, not stored —
+    // an all-empty chunk_sparse / chunk_colbert would only bloat scans with dead rows.
+    const sp = plan.sparse?.[i];
+    if (hasChunkSparse && sp && Object.keys(sp).length > 0)
+      upsertChunkSparse(db, d.id, vaultId, sp);
+    const cb = plan.colbert?.[i];
+    if (hasChunkColbert && cb && cb.length > 0) upsertChunkColbert(db, d.id, vaultId, cb);
   });
   return { upserted: plan.toEmbed.length, deleted };
 }
