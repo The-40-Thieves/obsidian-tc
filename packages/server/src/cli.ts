@@ -795,6 +795,8 @@ async function main(): Promise<void> {
     ...(activationFor ? { activationFor } : {}),
     // THE-258: class router (dark unless retrieval.classRouter).
     classRouter: config.retrieval.classRouter,
+    // THE-132: vault_context's include_work leg reads the experiential store when open.
+    ...(experientialOpen ? { edb: experientialDb } : {}),
   });
 
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over

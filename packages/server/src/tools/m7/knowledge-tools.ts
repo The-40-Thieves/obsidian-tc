@@ -16,7 +16,7 @@ import {
   isDecisionChunk,
 } from "../../plane/challenge";
 import type { GatewayRoles } from "../../plane/gateway";
-import { graphSearch } from "../../search/graph_search";
+import { type GraphSearchResult, graphSearch } from "../../search/graph_search";
 import type { Reranker } from "../../search/rerank";
 import { lexicalRouteResults, routeQuery } from "../../search/router";
 import { semanticSearch } from "../../search/semantic";
@@ -40,6 +40,28 @@ export interface M7Deps {
   /** THE-258: the deterministic class router (retrieval.classRouter). Dark by default —
    *  absent/false, every query takes the measured standard path. */
   classRouter?: boolean;
+  /** THE-132/229: open experiential handle for vault_context's include_work leg; absent ->
+   *  include_work reports work_unavailable. */
+  edb?: Database;
+}
+
+/** THE-132: greedy budget packer — walk fused-rank order, spend token costs until the budget
+ *  binds. Pure and exported for the packing pins. */
+export function packBudget<T>(
+  items: T[],
+  tokenOf: (item: T) => number,
+  budget: number,
+): { packed: T[]; tokens: number } {
+  const packed: T[] = [];
+  let tokens = 0;
+  for (const item of items) {
+    const cost = Math.max(1, tokenOf(item));
+    if (tokens + cost > budget && packed.length > 0) break;
+    packed.push(item);
+    tokens += cost;
+    if (tokens >= budget) break;
+  }
+  return { packed, tokens };
 }
 
 function aclReadable(acl: FolderAcl | undefined, rel: string): boolean {
@@ -120,6 +142,207 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
   };
 
   return [
+    defineTool({
+      name: "vault_context",
+      description:
+        "Composite budgeted context in ONE call (the Honcho-style context() primitive): graph-reranked chunks packed to a token budget and grouped by note, recent synthesis patterns touching the query, and open contradictions on the packed notes — with source metadata and packing stats. include_work adds eligible work-memory episodes (the THE-229 reader contract; explicit opt-in, never default). Replaces the 2–3-call search+synthesis+contradiction pattern for session bootstrap and agent context assembly.",
+      inputSchema: z
+        .object({
+          vault: VaultId,
+          query: z.string().min(1),
+          token_budget: z.number().int().positive().max(64000).default(4000),
+          k: z.number().int().positive().max(60).default(30),
+          include_work: z.boolean().default(false),
+        })
+        .strict(),
+      requiredScopes: ["read:notes"],
+      tags: ["knowledge", "search"],
+      handler: async (input, ctx) => {
+        const v = deps.vaultRegistry.resolve(input.vault);
+        // Same front door as vault_graph_search: the class router when enabled, the measured
+        // engine otherwise — vault_context adds composition, never a second retrieval path.
+        const route = deps.classRouter
+          ? routeQuery(ctx.db, v.id, input.query)
+          : { class: "standard" as const, signals: [] as string[] };
+        let results: GraphSearchResult[];
+        if (route.class === "lexical") {
+          results = lexicalRouteResults(ctx.db, v.id, input.query, input.k, (rel) =>
+            aclReadable(ctx.acl, rel),
+          );
+        } else {
+          const queryVec = await embedQuery(input.query);
+          results = await graphSearch(ctx.db, {
+            ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
+            query: input.query,
+            queryVec,
+            vaultId: v.id,
+            finalTopK: input.k,
+            ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
+            reranker: deps.reranker,
+            isReadable: (rel) => aclReadable(ctx.acl, rel),
+            ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
+          });
+        }
+        deps.retrievalLog?.({
+          queryText: input.query,
+          surfaceType: "vault_context",
+          sessionId: ctx.sessionId ?? null,
+          hits: results.map((r, i) => ({
+            chunkId: r.chunk_id,
+            rank: i + 1,
+            score: r.rerank_score,
+          })),
+        });
+
+        // Token costs from the authored store (token_count), length/4 fallback. 15% of the
+        // budget is reserved for the synthesis + contradiction legs; chunks pack the rest.
+        const tokenByChunk = new Map<string, number>();
+        const ids = results.map((r) => r.chunk_id);
+        for (let i = 0; i < ids.length; i += 200) {
+          const batch = ids.slice(i, i + 200);
+          const rows = ctx.db
+            .prepare(
+              `SELECT id, token_count FROM chunks WHERE id IN (${batch.map(() => "?").join(",")})`,
+            )
+            .all(...batch) as Array<{ id: string; token_count: number }>;
+          for (const r of rows) tokenByChunk.set(r.id, r.token_count);
+        }
+        const chunkBudget = Math.floor(input.token_budget * 0.85);
+        const { packed, tokens: chunkTokens } = packBudget(
+          results,
+          (r) => tokenByChunk.get(r.chunk_id) ?? Math.ceil((r.content?.length ?? 80) / 4),
+          chunkBudget,
+        );
+        // Group consecutive same-note chunks so the packed block reads coherently.
+        const notes: Array<{
+          path: string;
+          chunks: Array<{
+            chunk_id: string;
+            content: string | undefined;
+            score: number;
+            source: string;
+            hop: number;
+          }>;
+        }> = [];
+        for (const r of packed) {
+          const last = notes[notes.length - 1];
+          const entry = {
+            chunk_id: r.chunk_id,
+            content: r.content,
+            score: r.rerank_score,
+            source: r.source,
+            hop: r.hop,
+          };
+          if (last && last.path === r.path) last.chunks.push(entry);
+          else notes.push({ path: r.path, chunks: [entry] });
+        }
+
+        // Open contradictions on the packed notes (reuses the challenge plumbing), capped.
+        const contradictions = openContradictionsForPaths(
+          ctx.db,
+          notes.map((n) => n.path),
+        ).slice(0, 5);
+
+        // Recent synthesis patterns touching the query (weekly rows; LIKE over the JSON text
+        // on significant query tokens), newest first, capped to 2.
+        const sigTokens = (input.query.toLowerCase().match(/[a-z0-9][a-z0-9-]{3,}/g) ?? []).slice(
+          0,
+          3,
+        );
+        let syntheses: Array<{
+          iso_year: number;
+          iso_week: number;
+          generated_at: number;
+          patterns: unknown;
+        }> = [];
+        if (sigTokens.length > 0 && tableExists(ctx.db, "syntheses")) {
+          const like = sigTokens.map(() => "(patterns LIKE ? OR clusters LIKE ?)").join(" OR ");
+          const params = sigTokens.flatMap((t) => [`%${t}%`, `%${t}%`]);
+          const rows = ctx.db
+            .prepare(
+              `SELECT iso_year, iso_week, generated_at, patterns FROM syntheses
+               WHERE ${like} ORDER BY generated_at DESC LIMIT 2`,
+            )
+            .all(...params) as Array<{
+            iso_year: number;
+            iso_week: number;
+            generated_at: number;
+            patterns: string;
+          }>;
+          syntheses = rows.map((r) => {
+            let patterns: unknown = r.patterns;
+            try {
+              patterns = JSON.parse(r.patterns);
+            } catch {
+              /* raw string fallback */
+            }
+            return {
+              iso_year: r.iso_year,
+              iso_week: r.iso_week,
+              generated_at: r.generated_at,
+              patterns,
+            };
+          });
+        }
+
+        // Optional work-memory leg — the THE-229 reader contract verbatim (eligible-only,
+        // no tombstoned/expired, caller partition), explicit opt-in per the ticket.
+        let episodes:
+          | Array<{
+              id: string;
+              ts: number;
+              tool: string | null;
+              status: string;
+              summary: string | null;
+            }>
+          | { work_unavailable: true }
+          | undefined;
+        if (input.include_work) {
+          if (!deps.edb) {
+            episodes = { work_unavailable: true };
+          } else {
+            episodes = deps.edb
+              .prepare(
+                `SELECT id, ts, tool, status, summary FROM agent_episodes
+                 WHERE blocked = 0 AND eligibility = 'eligible'
+                   AND (valid_until IS NULL OR valid_until > ?)
+                   AND (trust IS NULL OR trust >= 0.3)
+                   AND caller IS ?
+                 ORDER BY ts DESC LIMIT 5`,
+              )
+              .all(Date.now(), ctx.caller ?? null) as Array<{
+              id: string;
+              ts: number;
+              tool: string | null;
+              status: string;
+              summary: string | null;
+            }>;
+          }
+        }
+
+        return {
+          vault: v.id,
+          route: route.signals,
+          budget: {
+            requested: input.token_budget,
+            chunk_budget: chunkBudget,
+            packed_tokens: chunkTokens,
+          },
+          stats: {
+            chunks_considered: results.length,
+            chunks_packed: packed.length,
+            notes: notes.length,
+            contradictions: contradictions.length,
+            syntheses: syntheses.length,
+          },
+          notes,
+          syntheses,
+          contradictions,
+          ...(episodes !== undefined ? { episodes } : {}),
+        };
+      },
+    }),
+
     defineTool({
       name: "vault_graph_search",
       description:

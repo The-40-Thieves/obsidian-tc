@@ -1,0 +1,226 @@
+// THE-132 — vault_context. Pins the composite contract: engine ordering preserved, greedy
+// budget packing (85% chunk share), note grouping, the contradiction + synthesis legs, and
+// the include_work leg honoring the THE-229 reader contract (explicit opt-in; eligible-only;
+// work_unavailable without the experiential handle). Uses the lexical route (classRouter +
+// rare term) so no embedding backend is needed — same dispatch path as serve.
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterAll, describe, expect, it } from "vitest";
+import { runMigrations } from "../src/db/migrate";
+import type { Database } from "../src/db/types";
+import { ToolRegistry } from "../src/mcp/registry";
+import { ensureChunkFts } from "../src/search/chunk_fts";
+import { registerM7Tools } from "../src/tools/m7";
+import { packBudget } from "../src/tools/m7/knowledge-tools";
+import { VaultRegistry } from "../src/vault/registry";
+import { openMemoryDb } from "./helpers";
+
+const schemaSql = readFileSync(
+  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
+  "utf8",
+);
+const expSql = readFileSync(
+  fileURLToPath(new URL("../src/migrations/20260626_001_experiential_init.sql", import.meta.url)),
+  "utf8",
+);
+const episodesSql = readFileSync(
+  fileURLToPath(new URL("../src/migrations/20260711_002_agent_episodes.sql", import.meta.url)),
+  "utf8",
+);
+const outcomeSql = readFileSync(
+  fileURLToPath(
+    new URL("../src/migrations/20260711_001_experiential_outcome.sql", import.meta.url),
+  ),
+  "utf8",
+);
+const NOW = 1_700_000_000_000;
+
+function cacheDb0(): Database {
+  const db = openMemoryDb();
+  db.exec(schemaSql);
+  const ins = db.prepare(
+    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'main', ?, ?, '[]', ?, ?, ?, ?, ?)",
+  );
+  // Two chunks of the rare-term note (grouping) + one other note also carrying the term.
+  ins.run(
+    "r1",
+    "notes/rare.md",
+    "0",
+    "the zylophrastic reconciler pattern part one",
+    "h1",
+    40,
+    NOW,
+    NOW,
+  );
+  ins.run(
+    "r2",
+    "notes/rare.md",
+    "1",
+    "zylophrastic reconciler details part two",
+    "h2",
+    40,
+    NOW,
+    NOW,
+  );
+  ins.run(
+    "o1",
+    "notes/other.md",
+    "0",
+    "zylophrastic mention in another note entirely",
+    "h3",
+    40,
+    NOW,
+    NOW,
+  );
+  ensureChunkFts(db, { now: () => NOW, enrich: false });
+  // Minimal plane tables for the composite legs.
+  db.exec(
+    "CREATE TABLE contradictions (id TEXT PRIMARY KEY, source_path TEXT NOT NULL, conflict_path TEXT NOT NULL, judge_verdict TEXT NOT NULL, judge_rationale TEXT, status TEXT NOT NULL);" +
+      "CREATE TABLE syntheses (iso_year INTEGER NOT NULL, iso_week INTEGER NOT NULL, generated_at INTEGER NOT NULL, cluster_count INTEGER NOT NULL DEFAULT 0, pattern_count INTEGER NOT NULL DEFAULT 0, clusters TEXT NOT NULL, patterns TEXT NOT NULL, judge_model TEXT, PRIMARY KEY (iso_year, iso_week));",
+  );
+  db.prepare(
+    "INSERT INTO contradictions (id, source_path, conflict_path, judge_verdict, judge_rationale, status) VALUES ('cx1', 'notes/rare.md', 'notes/other.md', 'conflict', 'they disagree', 'open')",
+  ).run();
+  db.prepare(
+    "INSERT INTO syntheses (iso_year, iso_week, generated_at, clusters, patterns) VALUES (2026, 27, ?, '[]', ?)",
+  ).run(NOW, JSON.stringify(["zylophrastic reconciliation is weekly"]));
+  return db;
+}
+
+function edb0(): Database {
+  const db = openMemoryDb();
+  runMigrations(db, [
+    { version: "20260626_001", sql: expSql },
+    { version: "20260711_001", sql: outcomeSql },
+    { version: "20260711_002", sql: episodesSql },
+  ]);
+  db.prepare(
+    "INSERT INTO agent_episodes (id, ts, session_id, caller, channel, episode_type, tool, status, eligibility, trust, blocked, valid_from) VALUES ('ep-ok', ?, NULL, 'tester', 'dispatch', 'tool_call', 'read_note', 'ok', 'eligible', 0.6, 0, ?)",
+  ).run(NOW, NOW);
+  db.prepare(
+    "INSERT INTO agent_episodes (id, ts, session_id, caller, channel, episode_type, tool, status, eligibility, trust, blocked, valid_from) VALUES ('ep-pending', ?, NULL, 'tester', 'dispatch', 'tool_call', 'read_note', 'ok', 'pending', 0.6, 0, ?)",
+  ).run(NOW, NOW);
+  return db;
+}
+
+function un<T>(r: unknown): T {
+  return (r as { data: T }).data;
+}
+
+const root = mkdtempSync(join(tmpdir(), "obtc-vc-"));
+afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+function harness(edb?: Database) {
+  const cache = cacheDb0();
+  const registry = new ToolRegistry({});
+  const vaultRegistry = new VaultRegistry([{ id: "main", name: "main", path: root }]);
+  const embeddingProvider = {
+    provider: "ollama",
+    model: "stub",
+    dimensions: 768,
+    embed: async () => {
+      throw new Error("embed must not be called on the lexical route");
+    },
+  };
+  registerM7Tools(registry, {
+    vaultRegistry,
+    // biome-ignore lint/suspicious/noExplicitAny: stub backend for registration-only harness
+    embeddingProvider: embeddingProvider as any,
+    reranker: null,
+    roles: null,
+    classRouter: true,
+    ...(edb ? { edb } : {}),
+  });
+  const ctx = {
+    caller: "tester",
+    authenticated: true,
+    grantedScopes: new Set(["read:notes"]),
+    vaultId: "main",
+    db: cache,
+  };
+  return { registry, ctx };
+}
+
+interface ContextData {
+  route: string[];
+  budget: { requested: number; chunk_budget: number; packed_tokens: number };
+  stats: { chunks_considered: number; chunks_packed: number; notes: number };
+  notes: Array<{ path: string; chunks: Array<{ chunk_id: string }> }>;
+  syntheses: Array<{ iso_year: number; patterns: unknown }>;
+  contradictions: Array<{ id: string }>;
+  episodes?: Array<{ id: string }> | { work_unavailable: true };
+}
+
+describe("vault_context (THE-132)", () => {
+  it("packs to budget, groups by note, and returns the composite legs", async () => {
+    const { registry, ctx } = harness();
+    const res = un<ContextData>(
+      await registry.dispatch(
+        "vault_context",
+        { vault: "main", query: "zylophrastic reconciler", token_budget: 4000 },
+        ctx,
+      ),
+    );
+    expect(res.route.some((s) => s.startsWith("rare-term:zylophrastic"))).toBe(true);
+    expect(res.stats.chunks_packed).toBe(3);
+    // consecutive same-note chunks grouped
+    const rare = res.notes.find((n) => n.path === "notes/rare.md");
+    expect(rare?.chunks.length).toBeGreaterThanOrEqual(1);
+    expect(res.notes.length).toBeLessThanOrEqual(3);
+    // contradiction on a packed note surfaces
+    expect(res.contradictions.map((c) => c.id)).toContain("cx1");
+    // synthesis LIKE-matched on a significant query token
+    expect(res.syntheses).toHaveLength(1);
+    expect(res.syntheses[0]?.iso_year).toBe(2026);
+    // budget accounting
+    expect(res.budget.chunk_budget).toBe(3400);
+    expect(res.budget.packed_tokens).toBeLessThanOrEqual(res.budget.chunk_budget);
+    expect(res.episodes).toBeUndefined(); // include_work defaults off
+  });
+
+  it("a binding budget cuts the packed set in engine order", async () => {
+    const { registry, ctx } = harness();
+    const res = un<ContextData>(
+      await registry.dispatch(
+        "vault_context",
+        { vault: "main", query: "zylophrastic reconciler", token_budget: 60 },
+        ctx,
+      ),
+    );
+    // 85% of 60 = 51 tokens -> first chunk (40) fits, second (40) does not.
+    expect(res.stats.chunks_packed).toBe(1);
+    expect(res.budget.packed_tokens).toBeLessThanOrEqual(51);
+  });
+
+  it("include_work honors the reader contract; unavailable without the handle", async () => {
+    const noEdb = harness();
+    const off = un<ContextData>(
+      await noEdb.registry.dispatch(
+        "vault_context",
+        { vault: "main", query: "zylophrastic", include_work: true },
+        noEdb.ctx,
+      ),
+    );
+    expect(off.episodes).toEqual({ work_unavailable: true });
+
+    const withEdb = harness(edb0());
+    const on = un<ContextData>(
+      await withEdb.registry.dispatch(
+        "vault_context",
+        { vault: "main", query: "zylophrastic", include_work: true },
+        withEdb.ctx,
+      ),
+    );
+    const eps = on.episodes as Array<{ id: string }>;
+    expect(eps.map((e) => e.id)).toEqual(["ep-ok"]); // eligible-only; pending never surfaces
+  });
+
+  it("packBudget: greedy, budget-bound, always packs at least one item", () => {
+    const items = [10, 20, 30, 40];
+    expect(packBudget(items, (n) => n, 35)).toEqual({ packed: [10, 20], tokens: 30 });
+    expect(packBudget(items, (n) => n, 5)).toEqual({ packed: [10], tokens: 10 });
+    expect(packBudget([], (n: number) => n, 100)).toEqual({ packed: [], tokens: 0 });
+  });
+});

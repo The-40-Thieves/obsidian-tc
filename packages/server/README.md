@@ -9,7 +9,7 @@ See the [repo root README](../../README.md) for project overview and the
 
 ## Status
 
-✅ **Shipped — v1.6.0.** The full tool surface (132 tools across 29 domains, milestones
+✅ **Shipped — v1.6.0.** The full tool surface (133 tools across 29 domains, milestones
 M0–M7) is implemented and released. Built on Bun + Hono with Zod 4 schemas; runs under
 Node `>=24` (the test suite runs vitest under Node for `node:sqlite`).
 
