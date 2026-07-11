@@ -1,15 +1,18 @@
 // THE-228 — the agent_episodes capture bus. Consumes the registry's onEpisode hook (one call
 // per dispatch outcome, session or not) and appends one row per episode to agent_episodes in
 // the experiential store. Capture-everything on the ACTION axis; the CONTENT axis (raw args)
-// is gated by `captureContent` (default OFF until the THE-238 poisoning defense lands) and,
-// when on, args are secret-scanned (redaction, THE-227 constraint 1) and size-capped before
-// storage. Rows are born eligibility='pending' — the sleep-time evaluator (THE-222 pass)
-// stamps them 'eligible'/'ineligible', so the log stays complete while retrieval-use is
-// gated (write-on control 2 as an eligibility stamp, not a write block). Best-effort: a
-// capture failure goes to onError and never breaks the dispatch that fired it.
+// is gated by `captureContent` (default OFF until the THE-238 poisoning defense red-team
+// gate is green) and, when on, args are secret-scanned (redaction, THE-227 constraint 1)
+// and size-capped before storage. The THE-238 layer-1 poison scan runs on every capture
+// regardless of content persistence, stamping tags/trust/eligibility. Rows are born
+// eligibility='pending' (high poison risk -> 'ineligible') — the sleep-time evaluator
+// (THE-222 pass) stamps 'pending' rows 'eligible'/'ineligible', so the log stays complete
+// while retrieval-use is gated (write-on control 2 as an eligibility stamp, not a write
+// block). Best-effort: a capture failure goes to onError and never breaks the dispatch.
 import { randomBytes } from "node:crypto";
 import type { Database } from "../db/types";
 import type { DispatchEpisode } from "../mcp/registry";
+import { assessPoison, episodeTrust } from "./poison";
 
 /** Stable episode id, e.g. "ep_9f2c…". 9 random bytes = 18 hex chars. */
 export function genEpisodeId(): string {
@@ -67,8 +70,9 @@ export function createEpisodeCapture(edb: Database, opts: EpisodeCaptureOptions 
   const insert = edb.prepare(
     `INSERT INTO agent_episodes (
        id, ts, vault_id, session_id, caller, channel, episode_type, tool, status, error_code,
-       duration_ms, result_size, args_hash, args_json, secret_scan, valid_from, prev_id
-     ) VALUES (?, ?, ?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       duration_ms, result_size, args_hash, args_json, secret_scan, tags, trust, eligibility,
+       valid_from, prev_id
+     ) VALUES (?, ?, ?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const maxArgsBytes = opts.maxArgsBytes ?? 4096;
   const prevByCaller = new Map<string, string>();
@@ -77,14 +81,24 @@ export function createEpisodeCapture(edb: Database, opts: EpisodeCaptureOptions 
     try {
       const id = genEpisodeId();
       const ts = (opts.now ?? Date.now)();
+      // THE-238 layer 1: the poison scan runs on the payload IN MEMORY regardless of whether
+      // content is persisted — risk stamps eligibility/trust even when args_json stays null.
+      const raw = JSON.stringify(e.args ?? null);
+      const poison = assessPoison(raw);
       let argsJson: string | null = null;
       let scan = "off";
       if (opts.captureContent === true) {
-        const raw = JSON.stringify(e.args ?? null);
         const { text, redactions } = redactSecrets(raw);
         argsJson = text.length > maxArgsBytes ? `${text.slice(0, maxArgsBytes)}…[truncated]` : text;
         scan = redactions > 0 ? `redacted:${redactions}` : "clean";
       }
+      // Memory contract: risk only lowers trust; a high-risk episode is born ineligible and
+      // may never be auto-raised (human review only). Everything else is born pending for
+      // the sleep-time evaluator (THE-222).
+      const tags =
+        poison.signals.length > 0 ? JSON.stringify(poison.signals.map((s) => `poison:${s}`)) : null;
+      const trust = episodeTrust("dispatch", poison.risk);
+      const eligibility = poison.risk === "high" ? "ineligible" : "pending";
       const callerKey = e.caller ?? "";
       const prev = prevByCaller.get(callerKey) ?? null;
       insert.run(
@@ -101,6 +115,9 @@ export function createEpisodeCapture(edb: Database, opts: EpisodeCaptureOptions 
         e.argsHash,
         argsJson,
         scan,
+        tags,
+        trust,
+        eligibility,
         ts,
         prev,
       );
