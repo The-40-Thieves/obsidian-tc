@@ -77,6 +77,15 @@ export interface GraphSearchOptions {
     perSeedCap?: number;
     hubDegreeCap?: number;
   };
+  /** THE-401: smooth expansion scoring — replaces the lexicographic hop-then-cosine stream order
+   *  (which asserts cosine-0.05@1-hop > cosine-0.99@2-hop) and the hard hubDegreeCap drop (a
+   *  Heaviside step measured to cost bridge recall 0.7→0.4 at cap 40) with one continuous score:
+   *  S = cos(v,q) · lambda^(hop−1) · 1/(1 + (deg/hubMu)^hubGamma). Defaults tuned for THIS vault:
+   *  lambda 0.8; hubMu 75 (inflection between legitimate bridges at degree 58–72 and noise hubs at
+   *  80–157); hubGamma 6 — a deg-65 bridge keeps ~×0.70 while a deg-110 audit hub gets ~×0.09.
+   *  Composes with graphStream (frontier + per-seed caps still apply) but REPLACES its hard
+   *  degree drop. Composes multiplicatively with Ebbinghaus decay. Off by default. */
+  smoothExpansion?: { enabled?: boolean; lambda?: number; hubMu?: number; hubGamma?: number };
   /** THE-393: post-fusion diversification (graph_rrf mode only — the reranker modes own their
    *  final order). `maxPerNote` collapses the fused list to at most that many chunks per note
    *  BEFORE the final cut, so one long note cannot fill the top-K (results are path-grained
@@ -206,9 +215,14 @@ export async function graphSearch(
     // Hub suppression: a node with pathological degree (vault audits, index/dashboard pages)
     // reaches everything, so surfacing it as an expansion "connection" is structural, not
     // semantic. Degree is measured on vault_edges over the candidate nodes only.
-    const hubCap = gsEnabled ? (opts.graphStream?.hubDegreeCap ?? 40) : 0;
+    // THE-401: the smooth score needs degrees for every candidate; it REPLACES the hard cap.
+    const smooth = opts.smoothExpansion?.enabled ?? false;
+    const smLambda = opts.smoothExpansion?.lambda ?? 0.8;
+    const smMu = opts.smoothExpansion?.hubMu ?? 75;
+    const smGamma = opts.smoothExpansion?.hubGamma ?? 6;
+    const hubCap = !smooth && gsEnabled ? (opts.graphStream?.hubDegreeCap ?? 40) : 0;
     const degreeByPath =
-      hubCap > 0 ? nodeDegrees(db, opts.vaultId, paths) : new Map<string, number>();
+      hubCap > 0 || smooth ? nodeDegrees(db, opts.vaultId, paths) : new Map<string, number>();
     if (paths.length > 0) {
       const placeholders = paths.map(() => "?").join(",");
       const rows = db
@@ -239,6 +253,12 @@ export async function graphSearch(
             sim = rawSim * Math.exp(-decayLambda * days);
           }
         }
+        // THE-401: continuous hop decay + hub penalty fold into the stream-ordering score. The
+        // similarity GATE above still uses raw cosine, so smooth scoring reorders, never drops.
+        if (smooth) {
+          const deg = degreeByPath.get(r.path) ?? 0;
+          sim *= smLambda ** (node.hop - 1) / (1 + (deg / smMu) ** smGamma);
+        }
         scored.push({
           sim,
           cand: {
@@ -257,8 +277,10 @@ export async function graphSearch(
           },
         });
       }
-      // Expansion stream order: hop asc, similarity desc (KMS vault_graph_expand order).
-      scored.sort((a, b) => a.cand.hop - b.cand.hop || b.sim - a.sim);
+      // Expansion stream order: smooth mode ranks purely by the continuous score (hop decay is
+      // already inside `sim`); legacy order is hop asc, similarity desc (KMS vault_graph_expand).
+      if (smooth) scored.sort((a, b) => b.sim - a.sim || a.cand.hop - b.cand.hop);
+      else scored.sort((a, b) => a.cand.hop - b.cand.hop || b.sim - a.sim);
       // THE-393 per-seed cap: at most `perSeedCap` expansion chunks per root seed, so one
       // high-degree seed cannot own the whole stream. Infinity when the capped stream is off —
       // then this loop is exactly the historical slice(0, maxExpansionChunks).

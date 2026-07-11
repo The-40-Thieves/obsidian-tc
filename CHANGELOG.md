@@ -16,6 +16,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Smooth expansion scoring, flag-gated (THE-401).** `smoothExpansion` replaces the graph
+  stream's two hard discontinuities — the lexicographic hop-then-cosine order (any 1-hop beats
+  every 2-hop) and the `hubDegreeCap` Heaviside drop (measured to cost bridge recall 0.7→0.4 at
+  cap 40) — with one continuous score `cos · λ^(hop−1) · 1/(1+(deg/μ)^γ)` (defaults λ=0.8, μ=75,
+  γ=6, tuned to this vault's bridge-vs-hub degree split). Composes with `graphStream` caps and
+  Ebbinghaus decay; the similarity gate still uses raw cosine. Off by default pending its A/B.
+
 - **Contextual chunk enrichment, flag-gated (THE-406).** `embeddings.chunkContext` embeds and
   BM25-indexes each chunk as `"{note title} — {heading breadcrumb}\n\n{content}"` instead of the
   bare section text. The chunker consumes heading lines into metadata, so a note whose evidence

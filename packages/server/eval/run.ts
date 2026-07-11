@@ -94,6 +94,8 @@ export interface RunEvalOptions {
     hubDegreeCap?: number;
   };
   diversify?: { maxPerNote?: number; mmr?: { enabled?: boolean; lambda?: number } };
+  /** THE-401: smooth expansion scoring passthrough (continuous hop decay + hub penalty). */
+  smoothExpansion?: { enabled?: boolean; lambda?: number; hubMu?: number; hubGamma?: number };
   /** THE-395: encode the query via embedFull and fuse the learned-sparse RRF stream (requires
    *  a bge-m3 provider + an index with chunk_sparse rows). */
   sparse?: boolean;
@@ -136,6 +138,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       ...(opts.lexical ? { lexical: opts.lexical } : {}),
       ...(querySparse ? { querySparse } : {}),
       ...(opts.graphStream ? { graphStream: opts.graphStream } : {}),
+      ...(opts.smoothExpansion ? { smoothExpansion: opts.smoothExpansion } : {}),
       ...(opts.diversify ? { diversify: opts.diversify } : {}),
       ...(opts.gatedRerank ? { gatedRerank: opts.gatedRerank } : {}),
     });
@@ -167,6 +170,7 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const adaptive = argv.includes("--adaptive-rrf");
   const graphStream = argv.includes("--graph-stream");
+  const smoothExpansion = argv.includes("--smooth-expansion");
   const mmr = argv.includes("--mmr");
   const noLexical = argv.includes("--no-lexical");
   const sparseFlag = argv.includes("--sparse");
@@ -183,6 +187,7 @@ async function main(): Promise<void> {
         "Compares vault_graph_search vs the semantic baseline over the golden set (recall@10).\n" +
         "--adaptive-rrf enables THE-391 per-query IDF-weighted fusion for the graph side.\n" +
         "--graph-stream enables the THE-393 capped expansion stream (top seeds, per-seed cap, hub suppression).\n" +
+        "--smooth-expansion enables THE-401 continuous expansion scoring (cos·λ^(hop−1)·hub-penalty; replaces hop-sort + hard cap).\n" +
         "--mmr enables THE-393 diversification (note-collapse maxPerNote=2 + MMR final pick).\n" +
         "Needs an indexed cache.db + a reachable embedding backend (config.embeddings).\n",
     );
@@ -225,6 +230,7 @@ async function main(): Promise<void> {
     vaultId: firstVault.id,
     ...(adaptive ? { adaptiveRrf: { enabled: true } } : {}),
     ...(graphStream ? { graphStream: { enabled: true } } : {}),
+    ...(smoothExpansion ? { smoothExpansion: { enabled: true } } : {}),
     ...(mmr ? { diversify: { maxPerNote: 2, mmr: { enabled: true } } } : {}),
     ...(noLexical ? { lexical: { enabled: false } } : {}),
     ...(sparseFlag ? { sparse: true } : {}),
@@ -236,6 +242,7 @@ async function main(): Promise<void> {
   const flags = [
     adaptive ? "adaptive RRF" : null,
     graphStream ? "capped graph stream" : null,
+    smoothExpansion ? "smooth expansion" : null,
     mmr ? "note-collapse+MMR" : null,
     noLexical ? "lexical OFF" : null,
     sparseFlag ? "sparse stream" : null,
@@ -287,6 +294,7 @@ async function main(): Promise<void> {
     const flags = [
       adaptive && "adaptive-rrf",
       graphStream && "graph-stream",
+      smoothExpansion && "smooth-expansion",
       mmr && "mmr",
       noLexical && "no-lexical",
       sparseFlag && "sparse",
