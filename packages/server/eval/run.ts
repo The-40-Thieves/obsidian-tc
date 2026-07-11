@@ -8,7 +8,7 @@
 // The deterministic mechanism is already gated by test/graph-recall.test.ts + test/eval-run.test.ts;
 // this CLI produces the REAL numbers once an embedding backend (e.g. BGE-M3 via Ollama @ 1024d)
 // and a real index exist. No secrets in the tree.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -30,6 +30,7 @@ import {
   type QueryMetrics,
   type RankedChunk,
 } from "./metrics";
+import { describePaired } from "./stats";
 
 const TOP_K = 30;
 
@@ -170,7 +171,11 @@ async function main(): Promise<void> {
   const noLexical = argv.includes("--no-lexical");
   const sparseFlag = argv.includes("--sparse");
   const gatedRerank = argv.includes("--gated-rerank");
-  const positional = argv.filter((a) => !a.startsWith("--"));
+  const jsonIdx = argv.indexOf("--json");
+  const jsonPath = jsonIdx >= 0 ? argv[jsonIdx + 1] : undefined;
+  const positional = argv.filter(
+    (a, i) => !a.startsWith("--") && (jsonIdx < 0 || i !== jsonIdx + 1),
+  );
   const configPath = positional[0];
   if (!configPath) {
     process.stderr.write(
@@ -272,6 +277,24 @@ async function main(): Promise<void> {
   process.stdout.write(
     `\nship gate (graph >= baseline +20pp multi-hop recall): ${report.recallDeltaPp >= 20 ? "PASS" : "below target"}; no-regression: ${report.noRegression ? "PASS" : "FAIL"}\n`,
   );
+  // THE-399: paired statistics — graph vs baseline on the SAME queries. Raw p-values; the
+  // BH-FDR multiple-comparison policy + ship rule live in eval/README.md.
+  const dN = report.perQuery.map((r) => r.graph.ndcg_at_10 - r.baseline.ndcg_at_10);
+  const dR = report.perQuery.map((r) => r.graph.recall_at_10 - r.baseline.recall_at_10);
+  process.stdout.write(`\n${describePaired(dN, "graph-vs-baseline ΔnDCG@10 ")}\n`);
+  process.stdout.write(`${describePaired(dR, "graph-vs-baseline Δrecall@10")}\n`);
+  if (jsonPath) {
+    const flags = [
+      adaptive && "adaptive-rrf",
+      graphStream && "graph-stream",
+      mmr && "mmr",
+      noLexical && "no-lexical",
+      sparseFlag && "sparse",
+      gatedRerank && "gated-rerank",
+    ].filter((x): x is string => typeof x === "string");
+    writeFileSync(jsonPath, JSON.stringify({ flags, perQuery: report.perQuery }, null, 2));
+    process.stdout.write(`wrote ${jsonPath}\n`);
+  }
   process.exit(report.noRegression ? 0 : 1);
 }
 
