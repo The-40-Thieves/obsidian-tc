@@ -101,6 +101,8 @@ export interface RunEvalOptions {
   sparse?: boolean;
   /** THE-394: gated cross-encoder rerank passthrough (needs `reranker`). */
   gatedRerank?: { enabled?: boolean; hardTop1?: number; pool?: number };
+  /** THE-398: convex-combination fusion (fusionMode "convex") with optional alpha. */
+  fusionConvex?: { alpha?: number };
 }
 
 /** Run the golden set: per query, compare the semantic baseline vs graph (GraphRAG) top-K. */
@@ -141,6 +143,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       ...(opts.smoothExpansion ? { smoothExpansion: opts.smoothExpansion } : {}),
       ...(opts.diversify ? { diversify: opts.diversify } : {}),
       ...(opts.gatedRerank ? { gatedRerank: opts.gatedRerank } : {}),
+      ...(opts.fusionConvex ? { fusionMode: "convex" as const, convex: opts.fusionConvex } : {}),
     });
     const graphHits = normHits(graphRes.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
 
@@ -175,10 +178,17 @@ async function main(): Promise<void> {
   const noLexical = argv.includes("--no-lexical");
   const sparseFlag = argv.includes("--sparse");
   const gatedRerank = argv.includes("--gated-rerank");
+  // THE-398: `--fusion convex` switches the fusion; CONVEX_ALPHA overrides the 0.7 default.
+  const fusionIdx = argv.indexOf("--fusion");
+  const fusionArg = fusionIdx >= 0 ? argv[fusionIdx + 1] : undefined;
+  const convexAlpha = process.env.CONVEX_ALPHA ? Number(process.env.CONVEX_ALPHA) : undefined;
   const jsonIdx = argv.indexOf("--json");
   const jsonPath = jsonIdx >= 0 ? argv[jsonIdx + 1] : undefined;
   const positional = argv.filter(
-    (a, i) => !a.startsWith("--") && (jsonIdx < 0 || i !== jsonIdx + 1),
+    (a, i) =>
+      !a.startsWith("--") &&
+      (jsonIdx < 0 || i !== jsonIdx + 1) &&
+      (fusionIdx < 0 || i !== fusionIdx + 1),
   );
   const configPath = positional[0];
   if (!configPath) {
@@ -188,6 +198,7 @@ async function main(): Promise<void> {
         "--adaptive-rrf enables THE-391 per-query IDF-weighted fusion for the graph side.\n" +
         "--graph-stream enables the THE-393 capped expansion stream (top seeds, per-seed cap, hub suppression).\n" +
         "--smooth-expansion enables THE-401 continuous expansion scoring (cos·λ^(hop−1)·hub-penalty; replaces hop-sort + hard cap).\n" +
+        "--fusion convex enables THE-398 score-normalized convex-combination fusion (CONVEX_ALPHA env, default 0.7).\n" +
         "--mmr enables THE-393 diversification (note-collapse maxPerNote=2 + MMR final pick).\n" +
         "Needs an indexed cache.db + a reachable embedding backend (config.embeddings).\n",
     );
@@ -235,6 +246,9 @@ async function main(): Promise<void> {
     ...(noLexical ? { lexical: { enabled: false } } : {}),
     ...(sparseFlag ? { sparse: true } : {}),
     ...(gatedRerank ? { gatedRerank: { enabled: true } } : {}),
+    ...(fusionArg === "convex"
+      ? { fusionConvex: { ...(convexAlpha !== undefined ? { alpha: convexAlpha } : {}) } }
+      : {}),
     ...(reranker ? { reranker } : {}),
   });
 
@@ -247,6 +261,7 @@ async function main(): Promise<void> {
     noLexical ? "lexical OFF" : null,
     sparseFlag ? "sparse stream" : null,
     gatedRerank ? "gated rerank" : null,
+    fusionArg === "convex" ? `convex fusion a=${convexAlpha ?? 0.7}` : null,
   ]
     .filter((f) => f !== null)
     .join(", ");
@@ -299,6 +314,7 @@ async function main(): Promise<void> {
       noLexical && "no-lexical",
       sparseFlag && "sparse",
       gatedRerank && "gated-rerank",
+      fusionArg === "convex" && `convex@${convexAlpha ?? 0.7}`,
     ].filter((x): x is string => typeof x === "string");
     writeFileSync(jsonPath, JSON.stringify({ flags, perQuery: report.perQuery }, null, 2));
     process.stdout.write(`wrote ${jsonPath}\n`);

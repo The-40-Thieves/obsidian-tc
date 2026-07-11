@@ -9,7 +9,10 @@ import { semanticSearch } from "./semantic";
 import { type SparseVec, sparseSearch } from "./sparse";
 import { blobToFloats } from "./vec";
 
-export type FusionMode = "graph_rrf" | "rrf_rerank" | "score_merge";
+// THE-398: "convex" fuses per-query min-max-NORMALIZED raw stream scores instead of ranks (Bruch
+// et al., arXiv:2210.11934) — it preserves the dense model's confidence margins where RRF sees
+// only rank positions. Same downstream pipeline as graph_rrf (diversification, gated rerank).
+export type FusionMode = "graph_rrf" | "rrf_rerank" | "score_merge" | "convex";
 
 // THE-73 Phase 3: default Ebbinghaus decay rate per day for the expansion stream. exp(-0.005*days)
 // is a ~139-day half-life — gentle enough that a note stays retrievable for months, steep enough
@@ -109,6 +112,12 @@ export interface GraphSearchOptions {
    *  defaults to a ~139-day half-life; nowMs is injectable for deterministic tests. */
   decay?: { enabled?: boolean; lambda?: number; nowMs?: number };
   router?: { enabled?: boolean; simThreshold?: number; margin?: number };
+  /** THE-398: convex-combination fusion tuning (fusionMode "convex" only). `alpha` weighs the
+   *  SEMANTIC side (dense seeds + graph expansion) against the LEXICAL side (BM25 + learned
+   *  sparse): score = alpha·(seedNorm+expNorm) + (1−alpha)·(bm25Norm+sparseNorm), each stream
+   *  min-max normalized over its own per-query pool, absent streams contributing 0. Default 0.7.
+   *  adaptiveRrf's per-stream tilt is RRF-specific and does not apply in convex mode. */
+  convex?: { alpha?: number };
   reranker?: Reranker | null;
   isReadable?: (path: string) => boolean;
   /** cached_activation_score lookup from vault_object_state (W-SCHEMA); inert when absent. */
@@ -202,6 +211,9 @@ export async function graphSearch(
   // 3. Literal graph expansion (skipped when the router fires). Score each expansion
   //    chunk by cosine to the query and gate at similarityThreshold (KMS semantic_chunks).
   const expansionChunks: Candidate[] = [];
+  // THE-398: raw ordering score (cos, possibly decay/smooth-weighted) per KEPT expansion chunk —
+  // the convex fusion normalizes over exactly the chunks that entered the stream.
+  const expSimById = new Map<string, number>();
   if (!routedToSeedsOnly) {
     // THE-393 capped stream: expand only from the strongest seeds — a rank-25 seed's neighbors
     // are noise amplified through the graph, and hub suppression below needs a bounded frontier.
@@ -294,6 +306,7 @@ export async function graphSearch(
         if (taken >= perSeedCap) continue;
         perSeed.set(rootKey, taken + 1);
         s.cand.streamRank = rank++;
+        expSimById.set(s.cand.chunk_id, s.sim);
         expansionChunks.push(s.cand);
       }
     }
@@ -326,10 +339,13 @@ export async function graphSearch(
   //     candidates, and record ranks so a chunk that ALSO seeds/expands gets an additive RRF bonus
   //     below. ACL-filtered by path; a filtered hit does not consume a rank.
   const lexRankById = new Map<string, number>();
+  // THE-398: bm25() is negative-better; negate so the convex normalizer sees higher-is-better.
+  const lexScoreById = new Map<string, number>();
   let lexRank = 0;
   for (const h of lexHits) {
     if (isReadable && !isReadable(h.path)) continue;
     lexRankById.set(h.chunk_id, lexRank);
+    lexScoreById.set(h.chunk_id, -h.rank);
     if (!seen.has(h.chunk_id)) {
       seen.add(h.chunk_id);
       candidates.push({
@@ -349,10 +365,12 @@ export async function graphSearch(
   //     weights. Sparse-only chunks enter as candidates; a chunk also in another stream gets an
   //     additive RRF bonus below.
   const sparseRankById = new Map<string, number>();
+  const sparseScoreById = new Map<string, number>();
   let sparseRank = 0;
   for (const h of sparseHits) {
     if (isReadable && !isReadable(h.path)) continue;
     sparseRankById.set(h.chunk_id, sparseRank);
+    sparseScoreById.set(h.chunk_id, h.score);
     if (!seen.has(h.chunk_id)) {
       seen.add(h.chunk_id);
       candidates.push({
@@ -426,6 +444,22 @@ export async function graphSearch(
     }
     return s;
   };
+  // THE-398: convex-combination fusion — min-max normalize each stream's RAW scores over its own
+  // per-query pool (seed cosine, expansion cos·decay, negated bm25, sparse dot) and fuse with one
+  // alpha between the semantic and lexical sides. Presence in a stream a candidate is absent from
+  // contributes 0. Everything downstream (diversification, gated rerank) is shared with graph_rrf.
+  const isConvex = fusionMode === "convex";
+  let scoreOf: (c: Candidate) => number = rrf;
+  if (isConvex) {
+    const alpha = Math.min(1, Math.max(0, opts.convex?.alpha ?? 0.7));
+    const seedNorm = minMaxNorm(seeds.map((s) => [s.chunk_id, s.score] as const));
+    const expNorm = minMaxNorm([...expSimById.entries()]);
+    const lexNorm = minMaxNorm([...lexScoreById.entries()]);
+    const sparseNorm = minMaxNorm([...sparseScoreById.entries()]);
+    scoreOf = (c) =>
+      alpha * ((seedNorm.get(c.chunk_id) ?? 0) + (expNorm.get(c.chunk_id) ?? 0)) +
+      (1 - alpha) * ((lexNorm.get(c.chunk_id) ?? 0) + (sparseNorm.get(c.chunk_id) ?? 0));
+  }
   const sourceRank: Record<Candidate["source"], number> = {
     seed: 0,
     lexical: 1,
@@ -433,13 +467,13 @@ export async function graphSearch(
     expansion: 3,
   };
   const fused = [...candidates].sort((a, b) => {
-    const d = rrf(b) - rrf(a);
+    const d = scoreOf(b) - scoreOf(a);
     if (d !== 0) return d;
     if (a.source !== b.source) return sourceRank[a.source] - sourceRank[b.source];
     return a.streamRank - b.streamRank;
   });
 
-  if (fusionMode === "graph_rrf") {
+  if (fusionMode === "graph_rrf" || isConvex) {
     // THE-393 diversification pipeline: note-collapse first (exact path-grain guarantee), then
     // the legacy cluster cap if configured, then MMR picks the final K from what survives.
     let pool = fused;
@@ -450,7 +484,7 @@ export async function graphSearch(
     }
     const capped =
       (opts.diversify?.mmr?.enabled ?? false)
-        ? mmrSelect(db, pool, finalTopK, opts.diversify?.mmr?.lambda ?? 0.7, rrf)
+        ? mmrSelect(db, pool, finalTopK, opts.diversify?.mmr?.lambda ?? 0.7, scoreOf)
         : pool.slice(0, finalTopK);
     // THE-394: hard-query gate — rerank the head of the fused list only when the dense seeds
     // were weak (router silent + low top-1 cosine); everything else returns pure RRF order.
@@ -464,11 +498,11 @@ export async function graphSearch(
         const rest = capped.filter((c) => !rerankedIds.has(c.chunk_id));
         return [
           ...ranked.map(({ item, score }) => toResult(item, score)),
-          ...rest.map((c) => toResult(c, rrf(c))),
+          ...rest.map((c) => toResult(c, scoreOf(c))),
         ];
       }
     }
-    return capped.map((c) => toResult(c, rrf(c)));
+    return capped.map((c) => toResult(c, scoreOf(c)));
   }
 
   // rrf_rerank: rerank the top-RRF pool for the final order.
@@ -480,6 +514,21 @@ export async function graphSearch(
     opts.reranker,
   );
   return finalize(ranked, opts);
+}
+
+// THE-398: min-max normalize a stream's raw scores to [0,1] over its own per-query pool. A
+// single-member (or constant-score) stream normalizes to 1 — presence in the stream is evidence.
+function minMaxNorm(entries: Array<readonly [string, number]>): Map<string, number> {
+  const out = new Map<string, number>();
+  if (entries.length === 0) return out;
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const [, v] of entries) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  for (const [id, v] of entries) out.set(id, max > min ? (v - min) / (max - min) : 1);
+  return out;
 }
 
 // THE-73 Phase 3: note mtimes for the expansion paths (Ebbinghaus decay input). Absent notes table

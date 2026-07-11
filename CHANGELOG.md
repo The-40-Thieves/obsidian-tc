@@ -16,6 +16,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Convex-combination fusion mode, flag-gated (THE-398).** `fusionMode: "convex"` fuses per-query
+  min-max-normalized RAW stream scores (dense cosine, expansion cos·decay, negated BM25, sparse
+  dot) as `α·semantic + (1−α)·lexical` (α default 0.7) instead of rank-based RRF — preserving the
+  dense model's confidence margins that RRF discards (Bruch et al., arXiv:2210.11934). Shares the
+  graph_rrf diversification + gated-rerank pipeline; eval gains `--fusion convex` + `CONVEX_ALPHA`.
+  Off by default pending its A/B vs RRF k=10.
+
 - **Smooth expansion scoring, flag-gated (THE-401).** `smoothExpansion` replaces the graph
   stream's two hard discontinuities — the lexicographic hop-then-cosine order (any 1-hop beats
   every 2-hop) and the `hubDegreeCap` Heaviside drop (measured to cost bridge recall 0.7→0.4 at
