@@ -52,6 +52,9 @@ export interface EvalQueryResult {
   id: string;
   baseline: QueryMetrics;
   graph: QueryMetrics;
+  /** THE-394: hard query = top-1 dense cosine below the gate threshold (0.55). The acceptance
+   *  for the gated reranker is a win on THIS subset. */
+  hard: boolean;
 }
 
 export interface EvalReport {
@@ -93,6 +96,8 @@ export interface RunEvalOptions {
   /** THE-395: encode the query via embedFull and fuse the learned-sparse RRF stream (requires
    *  a bge-m3 provider + an index with chunk_sparse rows). */
   sparse?: boolean;
+  /** THE-394: gated cross-encoder rerank passthrough (needs `reranker`). */
+  gatedRerank?: { enabled?: boolean; hardTop1?: number; pool?: number };
 }
 
 /** Run the golden set: per query, compare the semantic baseline vs graph (GraphRAG) top-K. */
@@ -111,12 +116,12 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       queryVec = qv ?? [];
     }
 
-    const baseHits = normHits(
-      semanticSearch(opts.db, opts.vaultId, queryVec, {
-        k: TOP_K,
-        ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
-      }).map((h) => ({ chunk_id: h.chunk_id, path: h.path })),
-    );
+    const baseRaw = semanticSearch(opts.db, opts.vaultId, queryVec, {
+      k: TOP_K,
+      ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
+    });
+    const hard = (baseRaw[0]?.score ?? 0) < 0.55;
+    const baseHits = normHits(baseRaw.map((h) => ({ chunk_id: h.chunk_id, path: h.path })));
     const graphRes = await graphSearch(opts.db, {
       query: q.query_text,
       queryVec,
@@ -131,6 +136,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       ...(querySparse ? { querySparse } : {}),
       ...(opts.graphStream ? { graphStream: opts.graphStream } : {}),
       ...(opts.diversify ? { diversify: opts.diversify } : {}),
+      ...(opts.gatedRerank ? { gatedRerank: opts.gatedRerank } : {}),
     });
     const graphHits = normHits(graphRes.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
 
@@ -138,6 +144,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       id: q.id,
       baseline: computeQueryMetrics(q, baseHits),
       graph: computeQueryMetrics(q, graphHits),
+      hard,
     });
   }
 
@@ -162,6 +169,7 @@ async function main(): Promise<void> {
   const mmr = argv.includes("--mmr");
   const noLexical = argv.includes("--no-lexical");
   const sparseFlag = argv.includes("--sparse");
+  const gatedRerank = argv.includes("--gated-rerank");
   const positional = argv.filter((a) => !a.startsWith("--"));
   const configPath = positional[0];
   if (!configPath) {
@@ -184,6 +192,27 @@ async function main(): Promise<void> {
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
   const provider = createEmbeddingProvider(config.embeddings);
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  // THE-394: a Cohere/Jina-shaped /rerank backend for the eval (TEI or vLLM), injected via
+  // RERANK_URL. Production routes through the gateway seam; this keeps the A/B self-contained.
+  const rerankUrl = process.env.RERANK_URL;
+  const reranker: Reranker | null = rerankUrl
+    ? async (query, documents, topN) => {
+        const res = await fetch(`${rerankUrl.replace(/\/$/, "")}/rerank`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ query, documents, texts: documents, top_n: topN }),
+        });
+        if (!res.ok) throw new Error(`rerank HTTP ${res.status}`);
+        const body = (await res.json()) as
+          | { results?: Array<{ index: number; relevance_score?: number; score?: number }> }
+          | Array<{ index: number; score?: number; relevance_score?: number }>;
+        const rows = Array.isArray(body) ? body : (body.results ?? []);
+        return rows.map((r) => ({
+          index: r.index,
+          relevanceScore: r.relevance_score ?? r.score ?? 0,
+        }));
+      }
+    : null;
   const report = await runEval({
     db,
     provider,
@@ -194,6 +223,8 @@ async function main(): Promise<void> {
     ...(mmr ? { diversify: { maxPerNote: 2, mmr: { enabled: true } } } : {}),
     ...(noLexical ? { lexical: { enabled: false } } : {}),
     ...(sparseFlag ? { sparse: true } : {}),
+    ...(gatedRerank ? { gatedRerank: { enabled: true } } : {}),
+    ...(reranker ? { reranker } : {}),
   });
 
   const e = config.embeddings;
@@ -203,6 +234,7 @@ async function main(): Promise<void> {
     mmr ? "note-collapse+MMR" : null,
     noLexical ? "lexical OFF" : null,
     sparseFlag ? "sparse stream" : null,
+    gatedRerank ? "gated rerank" : null,
   ]
     .filter((f) => f !== null)
     .join(", ");
@@ -228,6 +260,15 @@ async function main(): Promise<void> {
   process.stdout.write(
     `bridge recall:  ${report.baselineAgg.bridge_recall_rate.toFixed(3)} -> ${report.graphAgg.bridge_recall_rate.toFixed(3)} (${pp(report.bridgeDeltaPp)})\n`,
   );
+  // THE-394 acceptance slice: the gated reranker must win on the HARD subset.
+  const hardQ = report.perQuery.filter((r) => r.hard);
+  if (hardQ.length > 0) {
+    const hb = aggregateMetrics(hardQ.map((r) => r.baseline));
+    const hg = aggregateMetrics(hardQ.map((r) => r.graph));
+    process.stdout.write(
+      `hard subset (${hardQ.length}/${report.perQuery.length}): recall ${hb.mean_recall_at_10.toFixed(3)} -> ${hg.mean_recall_at_10.toFixed(3)}; nDCG ${hb.mean_ndcg_at_10.toFixed(3)} -> ${hg.mean_ndcg_at_10.toFixed(3)}; MRR ${hb.mean_mrr_at_10.toFixed(3)} -> ${hg.mean_mrr_at_10.toFixed(3)}\n`,
+    );
+  }
   process.stdout.write(
     `\nship gate (graph >= baseline +20pp multi-hop recall): ${report.recallDeltaPp >= 20 ? "PASS" : "below target"}; no-regression: ${report.noRegression ? "PASS" : "FAIL"}\n`,
   );

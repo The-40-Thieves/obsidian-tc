@@ -85,6 +85,14 @@ export interface GraphSearchOptions {
    *  chunk, balanced by `lambda` (default 0.7; 1 = pure relevance, 0 = pure diversity). Both
    *  off by default. */
   diversify?: { maxPerNote?: number; mmr?: { enabled?: boolean; lambda?: number } };
+  /** THE-394: gated cross-encoder rerank for graph_rrf. Reranking every query costs a model
+   *  round-trip, and (measured at n=32) the RRF order is already strong on easy queries — so the
+   *  reranker fires ONLY on hard ones: the seed-strength router did not fire AND the top-1 seed
+   *  cosine sits below `hardTop1` (default 0.55). On a hard query the top `pool` (default 20)
+   *  fused candidates are reranked through opts.reranker (the gateway /rerank seam; graceful
+   *  no-op fallback preserves the RRF order on absence/error) and the remainder keeps its RRF
+   *  order below them. Easy queries never pay the call. Off by default. */
+  gatedRerank?: { enabled?: boolean; hardTop1?: number; pool?: number };
   /** THE-73 Phase 3: Ebbinghaus recency weight on the expansion stream — each expansion chunk's
    *  ordering score is multiplied by exp(-lambda * days_since_modified) from notes.mtime, so a stale
    *  hub note loses expansion priority. Off unless enabled; the similarity gate still uses raw
@@ -417,6 +425,22 @@ export async function graphSearch(
       (opts.diversify?.mmr?.enabled ?? false)
         ? mmrSelect(db, pool, finalTopK, opts.diversify?.mmr?.lambda ?? 0.7, rrf)
         : pool.slice(0, finalTopK);
+    // THE-394: hard-query gate — rerank the head of the fused list only when the dense seeds
+    // were weak (router silent + low top-1 cosine); everything else returns pure RRF order.
+    const gr = opts.gatedRerank;
+    if ((gr?.enabled ?? false) && opts.reranker) {
+      const top1 = seeds[0]?.score ?? 0;
+      if (!routedToSeedsOnly && top1 < (gr?.hardTop1 ?? 0.55)) {
+        const head = capped.slice(0, Math.min(gr?.pool ?? 20, capped.length));
+        const ranked = await rerankWithScores(opts.query, head, head.length, opts.reranker);
+        const rerankedIds = new Set(ranked.map((r) => r.item.chunk_id));
+        const rest = capped.filter((c) => !rerankedIds.has(c.chunk_id));
+        return [
+          ...ranked.map(({ item, score }) => toResult(item, score)),
+          ...rest.map((c) => toResult(c, rrf(c))),
+        ];
+      }
+    }
     return capped.map((c) => toResult(c, rrf(c)));
   }
 
