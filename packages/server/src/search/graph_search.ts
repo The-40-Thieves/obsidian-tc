@@ -143,7 +143,12 @@ export async function graphSearch(
   const hopLimit = opts.hopLimit ?? 2;
   const similarityThreshold = opts.similarityThreshold ?? 0.2;
   const fusionMode = opts.fusionMode ?? "graph_rrf";
-  const rrfK = opts.rrfK ?? 60;
+  // THE-397: k=10, not the folklore k=60. With ~30-item pools, k=60 lets a document at rank M
+  // in TWO streams outrank a rank-1 single-stream hit whenever k > M-2 (2/(k+M) > 1/(k+1)) —
+  // overlapping noise buries confident dense hits. Measured at n=32: k=10 Pareto-dominates k=60
+  // (nDCG .444 vs .426, recall .586 vs .569, MRR +.024, bridge equal; replicated on a second
+  // index), while k=20 ≈ k=60 — the effect appears only below the pool-size crossover.
+  const rrfK = opts.rrfK ?? 10;
   const rerankPool = opts.rerankPool ?? 40;
   const routerEnabled = opts.router?.enabled ?? true;
   const routerSim = opts.router?.simThreshold ?? 0.62;

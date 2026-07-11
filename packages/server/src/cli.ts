@@ -646,7 +646,13 @@ async function main(): Promise<void> {
 
   // M7 knowledge domain (THE-233 integration): GraphRAG search (W-RETRIEVAL) + decision
   // red-team (W-WORKERS challenge), wired to the gateway seams (graceful when absent).
-  registerM7Tools(registry, { vaultRegistry, embeddingProvider, reranker, roles });
+  registerM7Tools(registry, {
+    vaultRegistry,
+    embeddingProvider,
+    reranker,
+    roles,
+    retrieval: config.retrieval,
+  });
 
   // THE-295: acl (+ per-vault overrides) is hoisted above the ToolRegistry construction.
 

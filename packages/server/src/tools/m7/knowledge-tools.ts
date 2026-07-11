@@ -28,6 +28,8 @@ export interface M7Deps {
   reranker: Reranker | null;
   /** Generative roles → gateway extract/synthesize/judge; null when unconfigured. */
   roles: GatewayRoles | null;
+  /** THE-397: config-driven retrieval knobs (config.retrieval); absent -> graphSearch defaults. */
+  retrieval?: { rrfK?: number };
 }
 
 function aclReadable(acl: FolderAcl | undefined, rel: string): boolean {
@@ -129,6 +131,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           queryVec,
           vaultId: v.id,
           finalTopK: input.final_top_k,
+          ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
           reranker: deps.reranker,
           isReadable: (rel) => aclReadable(ctx.acl, rel),
         });

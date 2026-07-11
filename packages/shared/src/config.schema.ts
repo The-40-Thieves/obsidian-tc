@@ -122,6 +122,14 @@ export const AclConfigSchema = z.object({
   strictReadDefault: z.boolean().default(false),
 });
 
+/** THE-397: retrieval-fusion knobs (the first config-exposed retrieval section). */
+export const RetrievalConfigSchema = z.object({
+  /** RRF constant for graph_rrf fusion. Keep BELOW the stream pool size (~30): larger k lets
+   *  overlapping low-rank noise outrank confident single-stream hits (measured: 10 beats 60 on
+   *  every metric at n=32; 20 is indistinguishable from 60). */
+  rrfK: z.number().int().positive().default(10),
+});
+
 export const EmbeddingsConfigSchema = z.object({
   provider: z.enum(["ollama", "openai", "voyage", "cohere", "bge-m3"]).default("ollama"),
   model: z.string().default("nomic-embed-text"),
@@ -379,6 +387,7 @@ const ServerConfigObject = z.object({
   auth: AuthConfigSchema.prefault({ mode: "none" }),
   acl: AclConfigSchema.prefault({}),
   embeddings: EmbeddingsConfigSchema.prefault({}),
+  retrieval: RetrievalConfigSchema.prefault({}),
   transports: TransportsConfigSchema.prefault({}),
   governor: GovernorConfigSchema.prefault({}),
   writes: WritesConfigSchema,

@@ -6,6 +6,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- **graph_rrf fusion constant k: 60 → 10 (THE-397), config-exposed as `retrieval.rrfK`.** With
+  ~30-item stream pools, k=60 mathematically lets a document ranked ~30 in two streams outrank a
+  rank-1 single-stream dense hit, burying confident results under overlapping noise. Measured on
+  the n=32 golden set: k=10 is better-or-equal on all four gate metrics (nDCG@10 .444 vs .426,
+  recall@10 .586 vs .569, MRR +.024, bridge recall equal), replicated on a second index.
+
 ### Added
 
 - **Configurable `bge-m3` embeddings provider (THE-395).** `embeddings.provider: "bge-m3"` speaks
