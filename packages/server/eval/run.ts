@@ -75,6 +75,14 @@ export interface RunEvalOptions {
   router?: { enabled?: boolean; simThreshold?: number; margin?: number };
   /** THE-391: adaptive RRF passthrough — the A/B lever for the golden-set gate. */
   adaptiveRrf?: { enabled?: boolean; gain?: number };
+  /** THE-393: capped graph stream + diversification passthroughs (same A/B purpose). */
+  graphStream?: {
+    enabled?: boolean;
+    expansionSeeds?: number;
+    perSeedCap?: number;
+    hubDegreeCap?: number;
+  };
+  diversify?: { maxPerNote?: number; mmr?: { enabled?: boolean; lambda?: number } };
 }
 
 /** Run the golden set: per query, compare the semantic baseline vs graph (GraphRAG) top-K. */
@@ -101,6 +109,8 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
       ...(opts.router ? { router: opts.router } : {}),
       ...(opts.adaptiveRrf ? { adaptiveRrf: opts.adaptiveRrf } : {}),
+      ...(opts.graphStream ? { graphStream: opts.graphStream } : {}),
+      ...(opts.diversify ? { diversify: opts.diversify } : {}),
     });
     const graphHits = normHits(graphRes.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
 
@@ -128,13 +138,17 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const adaptive = argv.includes("--adaptive-rrf");
+  const graphStream = argv.includes("--graph-stream");
+  const mmr = argv.includes("--mmr");
   const positional = argv.filter((a) => !a.startsWith("--"));
   const configPath = positional[0];
   if (!configPath) {
     process.stderr.write(
-      "usage: bun eval/run.ts <config.json> [golden-set.yaml] [--adaptive-rrf]\n" +
+      "usage: bun eval/run.ts <config.json> [golden-set.yaml] [--adaptive-rrf] [--graph-stream] [--mmr]\n" +
         "Compares vault_graph_search vs the semantic baseline over the golden set (recall@10).\n" +
         "--adaptive-rrf enables THE-391 per-query IDF-weighted fusion for the graph side.\n" +
+        "--graph-stream enables the THE-393 capped expansion stream (top seeds, per-seed cap, hub suppression).\n" +
+        "--mmr enables THE-393 diversification (note-collapse maxPerNote=2 + MMR final pick).\n" +
         "Needs an indexed cache.db + a reachable embedding backend (config.embeddings).\n",
     );
     process.exit(2);
@@ -154,11 +168,20 @@ async function main(): Promise<void> {
     golden,
     vaultId: firstVault.id,
     ...(adaptive ? { adaptiveRrf: { enabled: true } } : {}),
+    ...(graphStream ? { graphStream: { enabled: true } } : {}),
+    ...(mmr ? { diversify: { maxPerNote: 2, mmr: { enabled: true } } } : {}),
   });
 
   const e = config.embeddings;
+  const flags = [
+    adaptive ? "adaptive RRF" : null,
+    graphStream ? "capped graph stream" : null,
+    mmr ? "note-collapse+MMR" : null,
+  ]
+    .filter((f) => f !== null)
+    .join(", ");
   process.stdout.write(
-    `\nTHE-233 retrieval eval — ${report.perQuery.length} queries (embeddings ${e.provider}:${e.model} @ ${e.dimensions}d${adaptive ? ", adaptive RRF" : ""})\n\n`,
+    `\nTHE-233 retrieval eval — ${report.perQuery.length} queries (embeddings ${e.provider}:${e.model} @ ${e.dimensions}d${flags ? `, ${flags}` : ""})\n\n`,
   );
   process.stdout.write(`${"query".padEnd(44)}baseline  graph\n`);
   for (const r of report.perQuery) {

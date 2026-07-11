@@ -64,6 +64,27 @@ export interface GraphSearchOptions {
    *  diversification). Off when unset/0; chunks with a NULL cluster_id (unclustered) are never
    *  capped. Populate cluster_id offline via `obsidian-tc cluster`. graph_rrf mode only. */
   maxPerCluster?: number;
+  /** THE-393: graph expansion as a CAPPED auxiliary stream. When enabled, expansion walks only
+   *  the top `expansionSeeds` seed notes (default 8), keeps at most `perSeedCap` expansion
+   *  chunks per root seed (default 3), and drops expansion candidates that are hub notes —
+   *  degree in vault_edges above `hubDegreeCap` (default 40; index/dashboard/audit pages are
+   *  exactly the high-degree offenders) — so a weak or high-degree seed cannot flood the fused
+   *  ranking ("hub drift" / structural flooding). Off by default: the expansion stream keeps
+   *  its historical shape (all seed paths, total cap only). */
+  graphStream?: {
+    enabled?: boolean;
+    expansionSeeds?: number;
+    perSeedCap?: number;
+    hubDegreeCap?: number;
+  };
+  /** THE-393: post-fusion diversification (graph_rrf mode only — the reranker modes own their
+   *  final order). `maxPerNote` collapses the fused list to at most that many chunks per note
+   *  BEFORE the final cut, so one long note cannot fill the top-K (results are path-grained
+   *  downstream). `mmr` re-picks the final K by Maximal Marginal Relevance over the fused pool:
+   *  relevance = min-max-normalized RRF score, redundancy = max cosine to an already-picked
+   *  chunk, balanced by `lambda` (default 0.7; 1 = pure relevance, 0 = pure diversity). Both
+   *  off by default. */
+  diversify?: { maxPerNote?: number; mmr?: { enabled?: boolean; lambda?: number } };
   /** THE-73 Phase 3: Ebbinghaus recency weight on the expansion stream — each expansion chunk's
    *  ordering score is multiplied by exp(-lambda * days_since_modified) from notes.mtime, so a stale
    *  hub note loses expansion priority. Off unless enabled; the similarity gate still uses raw
@@ -160,9 +181,21 @@ export async function graphSearch(
   //    chunk by cosine to the query and gate at similarityThreshold (KMS semantic_chunks).
   const expansionChunks: Candidate[] = [];
   if (!routedToSeedsOnly) {
-    const nodes = expandGraphLiteral(db, seedPaths, { vaultId: opts.vaultId, hopLimit });
+    // THE-393 capped stream: expand only from the strongest seeds — a rank-25 seed's neighbors
+    // are noise amplified through the graph, and hub suppression below needs a bounded frontier.
+    const gsEnabled = opts.graphStream?.enabled ?? false;
+    const expandFrom = gsEnabled
+      ? seedPaths.slice(0, opts.graphStream?.expansionSeeds ?? 8)
+      : seedPaths;
+    const nodes = expandGraphLiteral(db, expandFrom, { vaultId: opts.vaultId, hopLimit });
     const nodeByPath = new Map(nodes.map((n) => [n.path, n]));
     const paths = [...nodeByPath.keys()];
+    // Hub suppression: a node with pathological degree (vault audits, index/dashboard pages)
+    // reaches everything, so surfacing it as an expansion "connection" is structural, not
+    // semantic. Degree is measured on vault_edges over the candidate nodes only.
+    const hubCap = gsEnabled ? (opts.graphStream?.hubDegreeCap ?? 40) : 0;
+    const degreeByPath =
+      hubCap > 0 ? nodeDegrees(db, opts.vaultId, paths) : new Map<string, number>();
     if (paths.length > 0) {
       const placeholders = paths.map(() => "?").join(",");
       const rows = db
@@ -179,6 +212,7 @@ export async function graphSearch(
       for (const r of rows) {
         if (seedChunkIds.has(r.id)) continue;
         if (isReadable && !isReadable(r.path)) continue;
+        if (hubCap > 0 && (degreeByPath.get(r.path) ?? 0) > hubCap) continue;
         const node = nodeByPath.get(r.path);
         if (!node) continue;
         const rawSim = cosineSimilarity(opts.queryVec, blobToFloats(r.embedding));
@@ -212,8 +246,18 @@ export async function graphSearch(
       }
       // Expansion stream order: hop asc, similarity desc (KMS vault_graph_expand order).
       scored.sort((a, b) => a.cand.hop - b.cand.hop || b.sim - a.sim);
+      // THE-393 per-seed cap: at most `perSeedCap` expansion chunks per root seed, so one
+      // high-degree seed cannot own the whole stream. Infinity when the capped stream is off —
+      // then this loop is exactly the historical slice(0, maxExpansionChunks).
+      const perSeedCap = gsEnabled ? (opts.graphStream?.perSeedCap ?? 3) : Number.POSITIVE_INFINITY;
+      const perSeed = new Map<string, number>();
       let rank = 0;
-      for (const s of scored.slice(0, maxExpansionChunks)) {
+      for (const s of scored) {
+        if (expansionChunks.length >= maxExpansionChunks) break;
+        const rootKey = s.cand.root_seed ?? "";
+        const taken = perSeed.get(rootKey) ?? 0;
+        if (taken >= perSeedCap) continue;
+        perSeed.set(rootKey, taken + 1);
         s.cand.streamRank = rank++;
         expansionChunks.push(s.cand);
       }
@@ -361,10 +405,18 @@ export async function graphSearch(
   });
 
   if (fusionMode === "graph_rrf") {
+    // THE-393 diversification pipeline: note-collapse first (exact path-grain guarantee), then
+    // the legacy cluster cap if configured, then MMR picks the final K from what survives.
+    let pool = fused;
+    const maxPerNote = opts.diversify?.maxPerNote ?? 0;
+    if (maxPerNote > 0) pool = collapseByNote(pool, maxPerNote);
+    if (opts.maxPerCluster && opts.maxPerCluster > 0) {
+      pool = diversifyByCluster(db, opts.vaultId, pool, opts.maxPerCluster, finalTopK);
+    }
     const capped =
-      opts.maxPerCluster && opts.maxPerCluster > 0
-        ? diversifyByCluster(db, opts.vaultId, fused, opts.maxPerCluster, finalTopK)
-        : fused.slice(0, finalTopK);
+      (opts.diversify?.mmr?.enabled ?? false)
+        ? mmrSelect(db, pool, finalTopK, opts.diversify?.mmr?.lambda ?? 0.7, rrf)
+        : pool.slice(0, finalTopK);
     return capped.map((c) => toResult(c, rrf(c)));
   }
 
@@ -429,6 +481,125 @@ function diversifyByCluster(
     }
     out.push(c);
     if (out.length >= finalTopK) break;
+  }
+  return out;
+}
+
+// THE-393: undirected degree per node path over vault_edges (source + target sides), batched.
+// The measure only needs to catch pathological hubs, so exactness beyond the candidate set is
+// irrelevant. Missing table (pre-integration) yields an empty map — suppression no-ops.
+function nodeDegrees(db: Database, vaultId: string, paths: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (paths.length === 0) return out;
+  const CHUNK = 500;
+  try {
+    for (let i = 0; i < paths.length; i += CHUNK) {
+      const slice = paths.slice(i, i + CHUNK);
+      const placeholders = slice.map(() => "?").join(",");
+      for (const col of ["source_path", "target_path"]) {
+        const rows = db
+          .prepare(
+            `SELECT ${col} AS p, COUNT(*) AS n FROM vault_edges WHERE vault_id = ? AND ${col} IN (${placeholders}) GROUP BY ${col}`,
+          )
+          .all(vaultId, ...slice) as Array<{ p: string; n: number }>;
+        for (const r of rows) out.set(r.p, (out.get(r.p) ?? 0) + r.n);
+      }
+    }
+  } catch {
+    return new Map();
+  }
+  return out;
+}
+
+// THE-393: walk the fused ranking keeping at most maxPerNote chunks per note path — an exact
+// path-grain diversity guarantee (results are consumed per-path downstream), cheaper and more
+// direct than embedding-space partitioning.
+function collapseByNote(fused: Candidate[], maxPerNote: number): Candidate[] {
+  const counts = new Map<string, number>();
+  const out: Candidate[] = [];
+  for (const c of fused) {
+    const n = counts.get(c.path) ?? 0;
+    if (n >= maxPerNote) continue;
+    counts.set(c.path, n + 1);
+    out.push(c);
+  }
+  return out;
+}
+
+// THE-393: Maximal Marginal Relevance over the fused pool — greedy pick maximizing
+// lambda * relevance - (1 - lambda) * redundancy, where relevance is the min-max-normalized RRF
+// score and redundancy is the max cosine to an already-picked chunk. The rank-1 candidate is
+// always picked first (its relevance is 1 and nothing is selected yet), so MMR can only reorder
+// the tail, never displace the top hit. Pool is bounded at 3*K; chunks without a stored
+// embedding contribute zero redundancy (never over-penalized).
+function mmrSelect(
+  db: Database,
+  pool0: Candidate[],
+  k: number,
+  lambda: number,
+  score: (c: Candidate) => number,
+): Candidate[] {
+  const pool = pool0.slice(0, Math.max(k * 3, 45));
+  if (pool.length <= k) return pool;
+  const embById = loadEmbeddings(
+    db,
+    pool.map((c) => c.chunk_id),
+  );
+  // The native cosineSimilarity binding wants (plain array, typed array) — the same shape as the
+  // expansion-scoring call above — so hold both representations, aligned to the pool.
+  const embF32 = pool.map((c) => embById.get(c.chunk_id));
+  const embPlain = embF32.map((f) => (f ? Array.from(f) : undefined));
+  const scores = pool.map(score);
+  const max = Math.max(...scores);
+  const min = Math.min(...scores);
+  const rel = scores.map((s) => (max > min ? (s - min) / (max - min) : 1));
+  const chosen: number[] = [];
+  const chosenSet = new Set<number>();
+  while (chosen.length < k) {
+    let bestI = -1;
+    let bestV = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < pool.length; i++) {
+      if (chosenSet.has(i)) continue;
+      let redundancy = 0;
+      const ei = embPlain[i];
+      if (ei) {
+        for (const j of chosen) {
+          const ej = embF32[j];
+          if (ej) redundancy = Math.max(redundancy, cosineSimilarity(ei, ej));
+        }
+      }
+      const v = lambda * (rel[i] ?? 0) - (1 - lambda) * redundancy;
+      if (v > bestV) {
+        bestV = v;
+        bestI = i;
+      }
+    }
+    if (bestI < 0) break;
+    chosen.push(bestI);
+    chosenSet.add(bestI);
+  }
+  const picked: Candidate[] = [];
+  for (const i of chosen) {
+    const c = pool[i];
+    if (c) picked.push(c);
+  }
+  return picked;
+}
+
+// Active embeddings for a candidate set (chunk ids are globally unique — chk_ of a
+// vault+path+index hash — so no vault filter is needed), batched IN lookups.
+function loadEmbeddings(db: Database, ids: string[]): Map<string, Float32Array> {
+  const out = new Map<string, Float32Array>();
+  const CHUNK = 500;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK);
+    const placeholders = slice.map(() => "?").join(",");
+    const rows = db
+      .prepare(
+        `SELECT chunk_id, embedding FROM chunk_embeddings WHERE is_active = 1 AND chunk_id IN (${placeholders})`,
+      )
+      .all(...slice) as Array<{ chunk_id: string; embedding: Uint8Array }>;
+    for (const r of rows) out.set(r.chunk_id, blobToFloats(r.embedding));
   }
   return out;
 }
