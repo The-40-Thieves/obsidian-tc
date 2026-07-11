@@ -20,6 +20,7 @@ export type CliCommand =
       until?: number;
       transcript?: string;
     }
+  | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
   | { kind: "error"; message: string };
 
 export const USAGE = `obsidian-tc — MCP server for Obsidian
@@ -137,6 +138,31 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
         ...(transcript !== undefined ? { transcript } : {}),
+      };
+    }
+    // THE-249: per-note output-contribution report over the experiential telemetry.
+    if (first === "contribution-report") {
+      const num = (flag: string): number | undefined => {
+        const v = flagValue(rest, flag);
+        if (v === undefined) return undefined;
+        const n = Number(v);
+        if (!Number.isFinite(n)) throw new CliError(`${flag} must be a number`);
+        return n;
+      };
+      const scan = [...rest];
+      for (const f of ["--since", "--until", "--json", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const since = num("--since");
+      const until = num("--until");
+      const json = flagValue(rest, "--json");
+      return {
+        kind: "contribution-report",
+        input: flagValue(rest, "--config") ?? positional(scan),
+        ...(since !== undefined ? { since } : {}),
+        ...(until !== undefined ? { until } : {}),
+        ...(json !== undefined ? { json } : {}),
       };
     }
     if (first.startsWith("-")) return { kind: "error", message: `unknown option: ${first}` };
