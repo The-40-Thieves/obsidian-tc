@@ -108,6 +108,61 @@ export interface RunEvalOptions {
   fusionConvex?: { alpha?: number };
   /** THE-400: route via z-margin at this threshold (replaces the sim/margin router rule). */
   zRouter?: number;
+  /** THE-404 spike: for z-HARD queries only (z1 < zThreshold, default 2.54), decompose the query
+   *  into 2–3 atomic sub-queries via a small local instruct LLM (Ollama /api/chat), run the full
+   *  graph search per sub-query (original included), and RRF-merge the ranked lists. Easy queries
+   *  are untouched — the research consensus is that BLANKET augmentation harms private corpora. */
+  decompose?: { zThreshold?: number; model?: string; baseUrl?: string };
+}
+
+/** THE-404: 2–3 atomic sub-queries from a small local instruct model (temperature 0). Returns []
+ *  on any failure — the caller then falls back to the plain single-query path, so a missing or
+ *  broken LLM degrades the spike to the baseline, never breaks the eval. */
+async function decomposeQuery(query: string, model: string, baseUrl: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        options: { temperature: 0 },
+        messages: [
+          {
+            role: "system",
+            content:
+              "Decompose the user's question into 2-3 self-contained atomic search queries for a personal knowledge base. Each sub-query targets ONE entity or concept from the question, phrased in the question's own vocabulary. Output ONLY the sub-queries, one per line, no numbering, no commentary.",
+          },
+          { role: "user", content: query },
+        ],
+      }),
+    });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { message?: { content?: string } };
+    return (body.message?.content ?? "")
+      .split("\n")
+      .map((l) => l.replace(/^[\s\-*\d.)]+/, "").trim())
+      .filter((l) => l.length > 3)
+      .slice(0, 3);
+  } catch {
+    return [];
+  }
+}
+
+/** THE-404: RRF-merge ranked chunk lists (position-based, k=10), dedup by chunk_id. */
+function rrfMergeLists(lists: RankedChunk[][], topK: number): RankedChunk[] {
+  const score = new Map<string, { s: number; item: RankedChunk }>();
+  for (const list of lists) {
+    list.forEach((item, rank) => {
+      const cur = score.get(item.chunk_id);
+      const s = (cur?.s ?? 0) + 1 / (10 + rank);
+      score.set(item.chunk_id, { s, item: cur?.item ?? item });
+    });
+  }
+  return [...score.values()]
+    .sort((a, b) => b.s - a.s)
+    .slice(0, topK)
+    .map((e) => e.item);
 }
 
 /** Run the golden set: per query, compare the semantic baseline vs graph (GraphRAG) top-K. */
@@ -134,28 +189,55 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
     // THE-400: z over the SAME top-30 dense pool the graph side seeds from (seedCount default 30).
     const z1 = seedZMargin(baseRaw.map((h) => h.score));
     const baseHits = normHits(baseRaw.map((h) => ({ chunk_id: h.chunk_id, path: h.path })));
-    const graphRes = await graphSearch(opts.db, {
-      query: q.query_text,
-      queryVec,
-      vaultId: opts.vaultId,
-      finalTopK: TOP_K,
-      reranker: opts.reranker ?? null,
-      ...(opts.seedCount !== undefined ? { seedCount: opts.seedCount } : {}),
-      ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
-      ...(opts.router ? { router: opts.router } : {}),
-      ...(opts.zRouter !== undefined
-        ? { router: { enabled: true, zThreshold: opts.zRouter } }
-        : {}),
-      ...(opts.adaptiveRrf ? { adaptiveRrf: opts.adaptiveRrf } : {}),
-      ...(opts.lexical ? { lexical: opts.lexical } : {}),
-      ...(querySparse ? { querySparse } : {}),
-      ...(opts.graphStream ? { graphStream: opts.graphStream } : {}),
-      ...(opts.smoothExpansion ? { smoothExpansion: opts.smoothExpansion } : {}),
-      ...(opts.diversify ? { diversify: opts.diversify } : {}),
-      ...(opts.gatedRerank ? { gatedRerank: opts.gatedRerank } : {}),
-      ...(opts.fusionConvex ? { fusionMode: "convex" as const, convex: opts.fusionConvex } : {}),
-    });
-    const graphHits = normHits(graphRes.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
+    const runGraph = async (
+      text: string,
+      vec: number[],
+      sparse?: SparseVec,
+    ): Promise<RankedChunk[]> => {
+      const res = await graphSearch(opts.db, {
+        query: text,
+        queryVec: vec,
+        vaultId: opts.vaultId,
+        finalTopK: TOP_K,
+        reranker: opts.reranker ?? null,
+        ...(opts.seedCount !== undefined ? { seedCount: opts.seedCount } : {}),
+        ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
+        ...(opts.router ? { router: opts.router } : {}),
+        ...(opts.zRouter !== undefined
+          ? { router: { enabled: true, zThreshold: opts.zRouter } }
+          : {}),
+        ...(opts.adaptiveRrf ? { adaptiveRrf: opts.adaptiveRrf } : {}),
+        ...(opts.lexical ? { lexical: opts.lexical } : {}),
+        ...(sparse ? { querySparse: sparse } : {}),
+        ...(opts.graphStream ? { graphStream: opts.graphStream } : {}),
+        ...(opts.smoothExpansion ? { smoothExpansion: opts.smoothExpansion } : {}),
+        ...(opts.diversify ? { diversify: opts.diversify } : {}),
+        ...(opts.gatedRerank ? { gatedRerank: opts.gatedRerank } : {}),
+        ...(opts.fusionConvex ? { fusionMode: "convex" as const, convex: opts.fusionConvex } : {}),
+      });
+      return normHits(res.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
+    };
+    let graphHits = await runGraph(q.query_text, queryVec, querySparse);
+    // THE-404 spike: z-HARD queries only — decompose into atomic sub-queries, run the full
+    // pipeline per sub-query (each lands its own seeds + expansion), RRF-merge the ranked lists
+    // (original included). Empty decomposition (LLM missing/broken) falls back to the plain path.
+    if (opts.decompose && z1 < (opts.decompose.zThreshold ?? 2.54)) {
+      const subs = await decomposeQuery(
+        q.query_text,
+        opts.decompose.model ?? "llama3.2:3b",
+        opts.decompose.baseUrl ?? "http://127.0.0.1:11434",
+      );
+      if (subs.length > 0) {
+        const vecs = await opts.provider.embed(subs);
+        const lists = [graphHits];
+        for (let i = 0; i < subs.length; i++) {
+          const sv = vecs[i];
+          const st = subs[i];
+          if (sv && st) lists.push(await runGraph(st, sv));
+        }
+        graphHits = rrfMergeLists(lists, TOP_K);
+      }
+    }
 
     perQuery.push({
       id: q.id,
@@ -193,6 +275,9 @@ async function main(): Promise<void> {
   const fusionIdx = argv.indexOf("--fusion");
   const fusionArg = fusionIdx >= 0 ? argv[fusionIdx + 1] : undefined;
   const convexAlpha = process.env.CONVEX_ALPHA ? Number(process.env.CONVEX_ALPHA) : undefined;
+  // THE-404: `--decompose` — LLM sub-query decomposition for z-hard queries only
+  // (DECOMPOSE_MODEL / DECOMPOSE_Z / DECOMPOSE_URL envs).
+  const decompose = argv.includes("--decompose");
   // THE-400: `--z-router <t>` routes on the z-margin; GATED_HARD_Z switches the rerank gate to z.
   const zRouterIdx = argv.indexOf("--z-router");
   const zRouterArg = zRouterIdx >= 0 ? Number(argv[zRouterIdx + 1]) : undefined;
@@ -216,6 +301,7 @@ async function main(): Promise<void> {
         "--smooth-expansion enables THE-401 continuous expansion scoring (cos·λ^(hop−1)·hub-penalty; replaces hop-sort + hard cap).\n" +
         "--fusion convex enables THE-398 score-normalized convex-combination fusion (CONVEX_ALPHA env, default 0.7).\n" +
         "--z-router <t> enables THE-400 z-margin routing (skip expansion when top-1 z >= t; replaces sim/margin rule).\n" +
+        "--decompose enables THE-404 sub-query decomposition for z-hard queries (Ollama; DECOMPOSE_MODEL/DECOMPOSE_Z envs).\n" +
         "--mmr enables THE-393 diversification (note-collapse maxPerNote=2 + MMR final pick).\n" +
         "Needs an indexed cache.db + a reachable embedding backend (config.embeddings).\n",
     );
@@ -266,6 +352,15 @@ async function main(): Promise<void> {
       ? { gatedRerank: { enabled: true, ...(hardZ !== undefined ? { hardZ } : {}) } }
       : {}),
     ...(zRouterArg !== undefined && !Number.isNaN(zRouterArg) ? { zRouter: zRouterArg } : {}),
+    ...(decompose
+      ? {
+          decompose: {
+            ...(process.env.DECOMPOSE_MODEL ? { model: process.env.DECOMPOSE_MODEL } : {}),
+            ...(process.env.DECOMPOSE_Z ? { zThreshold: Number(process.env.DECOMPOSE_Z) } : {}),
+            ...(process.env.DECOMPOSE_URL ? { baseUrl: process.env.DECOMPOSE_URL } : {}),
+          },
+        }
+      : {}),
     ...(fusionArg === "convex"
       ? { fusionConvex: { ...(convexAlpha !== undefined ? { alpha: convexAlpha } : {}) } }
       : {}),
@@ -283,6 +378,7 @@ async function main(): Promise<void> {
     gatedRerank ? `gated rerank${hardZ !== undefined ? ` z<${hardZ}` : ""}` : null,
     fusionArg === "convex" ? `convex fusion a=${convexAlpha ?? 0.7}` : null,
     zRouterArg !== undefined ? `z-router@${zRouterArg}` : null,
+    decompose ? `decompose(z<${process.env.DECOMPOSE_Z ?? 2.54})` : null,
   ]
     .filter((f) => f !== null)
     .join(", ");
@@ -344,6 +440,7 @@ async function main(): Promise<void> {
       gatedRerank && "gated-rerank",
       fusionArg === "convex" && `convex@${convexAlpha ?? 0.7}`,
       zRouterArg !== undefined && `z-router@${zRouterArg}`,
+      decompose && `decompose@${process.env.DECOMPOSE_Z ?? 2.54}`,
     ].filter((x): x is string => typeof x === "string");
     writeFileSync(jsonPath, JSON.stringify({ flags, perQuery: report.perQuery }, null, 2));
     process.stdout.write(`wrote ${jsonPath}\n`);

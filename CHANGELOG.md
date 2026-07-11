@@ -16,6 +16,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Selective query-decomposition spike in the eval harness (THE-404).** `eval/run.ts --decompose`
+  decomposes z-HARD queries only (z1 below `DECOMPOSE_Z`, default 2.54) into 2–3 atomic
+  sub-queries via a small local instruct LLM (Ollama, `DECOMPOSE_MODEL`), runs the full graph
+  search per sub-query, and RRF-merges the ranked lists — the routed (never blanket) form the
+  2025–26 evidence supports for private corpora. Eval-only; no engine change.
+
 - **Z-margin confidence signal (THE-400).** `seedZMargin` — the top-1 z-score over the dense
   seed-cosine pool — is the model-agnostic replacement for absolute cosine thresholds (which do
   not transfer across embedding models; the 0.55 rerank gate fired 0/32 on nomic). Opt-in uses:
