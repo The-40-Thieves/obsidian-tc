@@ -166,13 +166,22 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
     k: number,
     minScore: number | undefined,
     returnContent: boolean,
-  ): Promise<SemanticHit[]> =>
-    semanticSearch(ctx.db, s.id, await embedQuery(query), {
+    surface: string,
+  ): Promise<SemanticHit[]> => {
+    const hits = semanticSearch(ctx.db, s.id, await embedQuery(query), {
       k,
       minScore,
       returnContent,
       isReadable: s.readable,
     });
+    // THE-230: serve-path retrieval telemetry (best-effort; the logger never throws).
+    deps.retrievalLog?.({
+      queryText: query,
+      surfaceType: surface,
+      hits: hits.map((h, i) => ({ chunkId: h.chunk_id, rank: i + 1, score: h.score })),
+    });
+    return hits;
+  };
 
   return [
     defineTool({
@@ -280,6 +289,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           input.k,
           input.min_score,
           input.return_content,
+          "search_semantic",
         );
         return { vault: s.id, mode_used: "semantic", items: projectHits(items, input.verbosity) };
       },
@@ -383,7 +393,9 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           }));
         };
         const semanticHits = async (): Promise<UnifiedHit[]> =>
-          (await semantic(ctx, s, asString(), input.limit ?? 50, undefined, false)).map((h) => ({
+          (
+            await semantic(ctx, s, asString(), input.limit ?? 50, undefined, false, "search_vault")
+          ).map((h) => ({
             path: h.path,
             score: h.score,
             mode_used: "semantic",

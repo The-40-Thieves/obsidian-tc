@@ -13,8 +13,11 @@ const DEFAULT_DECAY = 0.5; // ACT-R base-level decay d
 export interface RetrievalEvent {
   /** ms epoch. */
   retrieved_at: number;
-  /** -1 | 0 | +1 (nullable). */
+  /** Relevance: -1 | 0 | +1 (nullable) — "was this the right chunk". */
   feedback?: number | null;
+  /** THE-230 outcome axis: -1 | 0 | +1 (nullable) — "did acting on it lead somewhere good".
+   *  Folded multiplicatively with feedback, same bounded halving/doubling. */
+  outcome?: number | null;
 }
 
 /**
@@ -25,7 +28,8 @@ export interface RetrievalEvent {
  *
  * More recent + more frequent retrievals raise B. `sigmoid` maps B -> (0,1) with 0.5 at B=0 (a
  * single access exactly 1 day ago), matching bubble_safe_rerank's 0.5 = inert 1.0x. No events ->
- * 0.5 (cold start). Negative feedback halves an event's weight, positive doubles it (bounded).
+ * 0.5 (cold start). Negative feedback halves an event's weight, positive doubles it; the
+ * THE-230 outcome axis folds the same way multiplicatively (bounded w ∈ [0.25, 4]).
  */
 export function actrActivation(
   events: RetrievalEvent[],
@@ -37,8 +41,9 @@ export function actrActivation(
   let sum = 0;
   for (const e of events) {
     const days = Math.max((now - e.retrieved_at) / MS_PER_DAY, MIN_DELTA_DAYS);
-    const w = e.feedback === -1 ? 0.5 : e.feedback === 1 ? 2 : 1;
-    sum += w * days ** -d;
+    const wFeedback = e.feedback === -1 ? 0.5 : e.feedback === 1 ? 2 : 1;
+    const wOutcome = e.outcome === -1 ? 0.5 : e.outcome === 1 ? 2 : 1;
+    sum += wFeedback * wOutcome * days ** -d;
   }
   if (sum <= 0) return 0.5;
   return 1 / (1 + Math.exp(-Math.log(sum)));
@@ -60,12 +65,19 @@ export function recomputeActivation(
   opts: { decay?: number } = {},
 ): ActivationRecomputeStats {
   const rows = edb
-    .prepare("SELECT chunk_id, retrieved_at, feedback FROM chunk_retrievals ORDER BY chunk_id")
-    .all() as Array<{ chunk_id: string; retrieved_at: number; feedback: number | null }>;
+    .prepare(
+      "SELECT chunk_id, retrieved_at, feedback, outcome FROM chunk_retrievals ORDER BY chunk_id",
+    )
+    .all() as Array<{
+    chunk_id: string;
+    retrieved_at: number;
+    feedback: number | null;
+    outcome: number | null;
+  }>;
   const byChunk = new Map<string, RetrievalEvent[]>();
   for (const r of rows) {
     const list = byChunk.get(r.chunk_id) ?? [];
-    list.push({ retrieved_at: r.retrieved_at, feedback: r.feedback });
+    list.push({ retrieved_at: r.retrieved_at, feedback: r.feedback, outcome: r.outcome });
     byChunk.set(r.chunk_id, list);
   }
   const upsert = edb.prepare(

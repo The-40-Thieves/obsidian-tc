@@ -130,6 +130,16 @@ export const RetrievalConfigSchema = z.object({
   rrfK: z.number().int().positive().default(10),
 });
 
+/** THE-230: experiential-tier (membrane store, experiential.db) knobs. */
+export const ExperientialConfigSchema = z.object({
+  /** Append serve-path retrieval events (chunk id + rank + score + query text + surface) to
+   *  chunk_retrievals in experiential.db — local-only telemetry that feeds the ACT-R activation
+   *  recompute and flywheel usage stats. Eval-harness runs call the search cores directly and
+   *  never log (THE-187 eval/serve hygiene). false keeps the experiential handle closed after
+   *  boot provisioning (pre-THE-230 behavior). */
+  logRetrievals: z.boolean().default(true),
+});
+
 export const EmbeddingsConfigSchema = z.object({
   provider: z.enum(["ollama", "openai", "voyage", "cohere", "bge-m3"]).default("ollama"),
   model: z.string().default("nomic-embed-text"),
@@ -407,6 +417,7 @@ const ServerConfigObject = z.object({
   acl: AclConfigSchema.prefault({}),
   embeddings: EmbeddingsConfigSchema.prefault({}),
   retrieval: RetrievalConfigSchema.prefault({}),
+  experiential: ExperientialConfigSchema.prefault({}),
   transports: TransportsConfigSchema.prefault({}),
   governor: GovernorConfigSchema.prefault({}),
   writes: WritesConfigSchema,

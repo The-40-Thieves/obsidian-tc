@@ -22,6 +22,7 @@ const cacheChain = [
 ];
 const experientialChain = [
   { version: "20260626_001", sql: read("20260626_001_experiential_init.sql") },
+  { version: "20260711_001", sql: read("20260711_001_experiential_outcome.sql") },
 ];
 
 function tableExists(db: Database, name: string): boolean {
@@ -66,8 +67,17 @@ describe("merged migration chain (integration)", () => {
 
   it("experiential.db: the separate-store chain applies (the membrane)", () => {
     const db = openMemoryDb();
-    runMigrations(db, experientialChain);
+    expect(runMigrations(db, experientialChain)).toEqual(["20260626_001", "20260711_001"]);
     expect(tableExists(db, "vault_object_state")).toBe(true);
     expect(tableExists(db, "chunk_retrievals")).toBe(true);
+    // THE-230 outcome axis present and writable
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, outcome) VALUES ('x', 'c', 1, 1)",
+    ).run();
+    const row = db.prepare("SELECT outcome FROM chunk_retrievals WHERE id = 'x'").get() as {
+      outcome: number;
+    };
+    expect(row.outcome).toBe(1);
+    expect(runMigrations(db, experientialChain)).toEqual([]); // idempotent re-run
   });
 });

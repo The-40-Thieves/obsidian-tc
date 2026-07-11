@@ -2,6 +2,7 @@
 // cli.ts, so M2 lights up on both the stdio and HTTP edges alongside M0/M1.
 import type { BridgeClient } from "../../bridge";
 import type { EmbeddingProvider } from "../../embeddings";
+import type { RetrievalLogger } from "../../experiential/log";
 import type { ToolRegistry } from "../../mcp/registry";
 import type { VaultRegistry } from "../../vault/registry";
 import { buildIndexTools } from "./index-tools";
@@ -29,6 +30,9 @@ export interface M2Deps {
    *  + heading-breadcrumb prefix. Must match the boot reconcile's value (cli.ts threads both from
    *  the same config field); a mismatch would re-embed the vault on every alternating pass. */
   chunkContext?: boolean;
+  /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging
+   *  (tests, or experiential.logRetrievals=false). */
+  retrievalLog?: RetrievalLogger;
 }
 
 export function registerM2Tools(registry: ToolRegistry, deps: M2Deps): void {

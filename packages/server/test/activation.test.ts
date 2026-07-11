@@ -9,23 +9,31 @@ import type { Database } from "../src/db/types";
 import { actrActivation, recomputeActivation } from "../src/experiential/activation";
 import { openMemoryDb } from "./helpers";
 
-const EXP_SQL = readFileSync(
-  fileURLToPath(new URL("../src/migrations/20260626_001_experiential_init.sql", import.meta.url)),
-  "utf8",
-);
+const read = (name: string) =>
+  readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
+const EXP_CHAIN = [
+  { version: "20260626_001", sql: read("20260626_001_experiential_init.sql") },
+  { version: "20260711_001", sql: read("20260711_001_experiential_outcome.sql") },
+];
 const DAY = 86_400_000;
 const NOW = 1000 * DAY; // fixed clock
 
 function edb0(): Database {
   const db = openMemoryDb();
-  runMigrations(db, [{ version: "20260626_001", sql: EXP_SQL }]);
+  runMigrations(db, EXP_CHAIN);
   return db;
 }
 
-function addRetrieval(db: Database, chunkId: string, at: number, feedback: number | null = null) {
+function addRetrieval(
+  db: Database,
+  chunkId: string,
+  at: number,
+  feedback: number | null = null,
+  outcome: number | null = null,
+) {
   db.prepare(
-    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, feedback) VALUES (?, ?, ?, ?)",
-  ).run(`${chunkId}-${at}`, chunkId, at, feedback);
+    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, feedback, outcome) VALUES (?, ?, ?, ?, ?)",
+  ).run(`${chunkId}-${at}`, chunkId, at, feedback, outcome);
 }
 
 describe("ACT-R activation recompute (THE-227)", () => {
@@ -54,6 +62,30 @@ describe("ACT-R activation recompute (THE-227)", () => {
     const up = actrActivation([{ retrieved_at: NOW - DAY / 2, feedback: 1 }], NOW);
     expect(down).toBeLessThan(base);
     expect(up).toBeGreaterThan(base);
+  });
+
+  it("outcome axis folds multiplicatively with feedback (THE-230)", () => {
+    const base = actrActivation([{ retrieved_at: NOW - DAY / 2 }], NOW);
+    const badOutcome = actrActivation([{ retrieved_at: NOW - DAY / 2, outcome: -1 }], NOW);
+    const goodOutcome = actrActivation([{ retrieved_at: NOW - DAY / 2, outcome: 1 }], NOW);
+    expect(badOutcome).toBeLessThan(base);
+    expect(goodOutcome).toBeGreaterThan(base);
+    // relevant-but-dead-end (fb +1, outcome -1) cancels back to base weight
+    const canceled = actrActivation(
+      [{ retrieved_at: NOW - DAY / 2, feedback: 1, outcome: -1 }],
+      NOW,
+    );
+    expect(canceled).toBeCloseTo(base, 10);
+    // recompute reads the column end-to-end
+    const db = edb0();
+    addRetrieval(db, "deadend", NOW - DAY, 1, -1);
+    addRetrieval(db, "winner", NOW - DAY, 1, 1);
+    recomputeActivation(db, NOW);
+    const rows = db
+      .prepare("SELECT object_id, cached_activation_score FROM vault_object_state")
+      .all() as Array<{ object_id: string; cached_activation_score: number }>;
+    const byId = new Map(rows.map((r) => [r.object_id, r.cached_activation_score]));
+    expect(byId.get("winner") ?? 0).toBeGreaterThan(byId.get("deadend") ?? 0);
   });
 
   it("recomputeActivation writes cached_activation_score per retrieved chunk", () => {

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
+import type { RetrievalLogger } from "../../experiential/log";
 import type { ToolDefinition } from "../../mcp/registry";
 import {
   type ContradictionContext,
@@ -30,6 +31,8 @@ export interface M7Deps {
   roles: GatewayRoles | null;
   /** THE-397: config-driven retrieval knobs (config.retrieval); absent -> graphSearch defaults. */
   retrieval?: { rrfK?: number };
+  /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging. */
+  retrievalLog?: RetrievalLogger;
 }
 
 function aclReadable(acl: FolderAcl | undefined, rel: string): boolean {
@@ -135,6 +138,16 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           reranker: deps.reranker,
           isReadable: (rel) => aclReadable(ctx.acl, rel),
         });
+        // THE-230: serve-path retrieval telemetry (best-effort; the logger never throws).
+        deps.retrievalLog?.({
+          queryText: input.query,
+          surfaceType: "vault_graph_search",
+          hits: results.map((r, i) => ({
+            chunkId: r.chunk_id,
+            rank: i + 1,
+            score: r.rerank_score,
+          })),
+        });
         return { vault: v.id, mode_used: "graph", results };
       },
     }),
@@ -165,6 +178,12 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           k: CHALLENGE_RECALL,
           returnContent: true,
           isReadable: (rel) => aclReadable(ctx.acl, rel),
+        });
+        // THE-230: challenge recall is a real retrieval surface — log it like the search tools.
+        deps.retrievalLog?.({
+          queryText: input.proposal,
+          surfaceType: "knowledge_challenge",
+          hits: hits.map((h, i) => ({ chunkId: h.chunk_id, rank: i + 1, score: h.score })),
         });
         // Enrich with note-level tags so isDecisionChunk's tag rule fires (not just the path
         // prefix) and the judge sees the tags; the semantic hit itself carries no tags (THE-309).

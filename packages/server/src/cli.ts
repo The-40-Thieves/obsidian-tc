@@ -20,6 +20,7 @@ import { openDatabase } from "./db/open";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
 import { recomputeActivation } from "./experiential/activation";
+import { createRetrievalLogger } from "./experiential/log";
 import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
@@ -94,6 +95,16 @@ const experientialInitMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260626_001_experiential_init.sql", import.meta.url)),
   "utf8",
 );
+const experientialOutcomeMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260711_001_experiential_outcome.sql", import.meta.url)),
+  "utf8",
+);
+// The experiential.db chain, applied by every entry point that opens the store (serve +
+// activation-recompute) so they can never diverge on schema.
+const experientialMigrations = [
+  { version: "20260626_001", sql: experientialInitMigrationSql },
+  { version: "20260711_001", sql: experientialOutcomeMigrationSql },
+];
 // THE-233 (W-WORKERS): sleep-time plane state tables (contradictions/syntheses/audit_reports/
 // job_runs). W-WORKERS left this committed-but-unwired by design; the integration wires it into
 // the cache.db migration chain below.
@@ -200,11 +211,9 @@ async function main(): Promise<void> {
   if (cmd.kind === "activation-recompute") {
     const actCfg = resolveOrUsageExit(cmd.input);
     mkdirSync(actCfg.cacheDir, { recursive: true });
-    const edb = await provisionExperientialDb(
-      actCfg.cacheDir,
-      [{ version: "20260626_001", sql: experientialInitMigrationSql }],
-      { version: VERSION },
-    );
+    const edb = await provisionExperientialDb(actCfg.cacheDir, experientialMigrations, {
+      version: VERSION,
+    });
     try {
       const stats = recomputeActivation(edb, Date.now());
       process.stdout.write(`activation recompute: ${stats.chunks} chunk(s) updated\n`);
@@ -237,14 +246,21 @@ async function main(): Promise<void> {
   );
   // THE-233 (W-SCHEMA): provision the experiential tier as a physically separate store (the
   // membrane — low-trust per-retrieval state cannot FK into the authored atoms in cache.db,
-  // and a reset is a file truncate). Schema only here; the write-on-gate controls + handle
-  // threading ride with the capture port (a later slice), so we provision then release.
-  const experientialDb = await provisionExperientialDb(
-    config.cacheDir,
-    [{ version: "20260626_001", sql: experientialInitMigrationSql }],
-    { version: VERSION },
-  );
-  experientialDb.close?.();
+  // and a reset is a file truncate).
+  const experientialDb = await provisionExperientialDb(config.cacheDir, experientialMigrations, {
+    version: VERSION,
+  });
+  // THE-230: retrieval-logging half of the capture port. Enabled (default) -> the handle stays
+  // open for the process lifetime and serve-path search tools append retrieval events (the
+  // ACT-R recompute's input). Disabled -> provision schema only and release, the pre-THE-230
+  // behavior. Logging failures go to stderr and never fail the search (best-effort telemetry).
+  const retrievalLog = config.experiential.logRetrievals
+    ? createRetrievalLogger(experientialDb, {
+        onError: (e) =>
+          process.stderr.write(`[retrieval-log] ${e instanceof Error ? e.message : String(e)}\n`),
+      })
+    : undefined;
+  if (!retrievalLog) experientialDb.close?.();
 
   // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
   // share the same in-memory counters. The scrape endpoint is started below only when
@@ -586,6 +602,8 @@ async function main(): Promise<void> {
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider,
+    // THE-230: serve-path retrieval logging (experiential.logRetrievals).
+    ...(retrievalLog ? { retrievalLog } : {}),
     // THE-406: index_vault must index with the same enrichment as the boot reconcile, or the two
     // paths would re-embed each other's chunks back and forth (the hash covers the enriched text).
     chunkContext: config.embeddings.chunkContext,
@@ -658,6 +676,8 @@ async function main(): Promise<void> {
     reranker,
     roles,
     retrieval: config.retrieval,
+    // THE-230: serve-path retrieval logging (experiential.logRetrievals).
+    ...(retrievalLog ? { retrievalLog } : {}),
   });
 
   // THE-295: acl (+ per-vault overrides) is hoisted above the ToolRegistry construction.
