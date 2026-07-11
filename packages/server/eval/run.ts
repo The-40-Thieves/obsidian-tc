@@ -75,6 +75,8 @@ export interface RunEvalOptions {
   router?: { enabled?: boolean; simThreshold?: number; margin?: number };
   /** THE-391: adaptive RRF passthrough — the A/B lever for the golden-set gate. */
   adaptiveRrf?: { enabled?: boolean; gain?: number };
+  /** THE-73 lexical stream passthrough (eval sweeps disable it for a dense+graph reference). */
+  lexical?: { enabled?: boolean; count?: number };
   /** THE-393: capped graph stream + diversification passthroughs (same A/B purpose). */
   graphStream?: {
     enabled?: boolean;
@@ -109,6 +111,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
       ...(opts.router ? { router: opts.router } : {}),
       ...(opts.adaptiveRrf ? { adaptiveRrf: opts.adaptiveRrf } : {}),
+      ...(opts.lexical ? { lexical: opts.lexical } : {}),
       ...(opts.graphStream ? { graphStream: opts.graphStream } : {}),
       ...(opts.diversify ? { diversify: opts.diversify } : {}),
     });
@@ -140,6 +143,7 @@ async function main(): Promise<void> {
   const adaptive = argv.includes("--adaptive-rrf");
   const graphStream = argv.includes("--graph-stream");
   const mmr = argv.includes("--mmr");
+  const noLexical = argv.includes("--no-lexical");
   const positional = argv.filter((a) => !a.startsWith("--"));
   const configPath = positional[0];
   if (!configPath) {
@@ -170,6 +174,7 @@ async function main(): Promise<void> {
     ...(adaptive ? { adaptiveRrf: { enabled: true } } : {}),
     ...(graphStream ? { graphStream: { enabled: true } } : {}),
     ...(mmr ? { diversify: { maxPerNote: 2, mmr: { enabled: true } } } : {}),
+    ...(noLexical ? { lexical: { enabled: false } } : {}),
   });
 
   const e = config.embeddings;
@@ -177,6 +182,7 @@ async function main(): Promise<void> {
     adaptive ? "adaptive RRF" : null,
     graphStream ? "capped graph stream" : null,
     mmr ? "note-collapse+MMR" : null,
+    noLexical ? "lexical OFF" : null,
   ]
     .filter((f) => f !== null)
     .join(", ");
