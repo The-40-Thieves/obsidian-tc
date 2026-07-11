@@ -1,4 +1,5 @@
 import type { Database } from "../db/types";
+import { querySpecificity } from "./adaptive_rrf";
 import { bubbleSafeRerank } from "./bubble_safe_rerank";
 import { bm25Chunks } from "./chunk_fts";
 import { expandGraphLiteral } from "./graph_expand";
@@ -39,6 +40,15 @@ export interface GraphSearchOptions {
   fusionMode?: FusionMode;
   rrfK?: number;
   rerankPool?: number;
+  /** THE-391: adaptive per-query RRF stream weighting. When enabled, the query's lexical
+   *  specificity (mean IDF of its terms over chunk_fts, tokenizer-aligned — see adaptive_rrf.ts)
+   *  tilts the fusion: rare/specific terms upweight the BM25 + learned-sparse streams, common
+   *  conceptual queries upweight the dense seed stream. Exactly static RRF when disabled
+   *  (default), when the signal is unavailable (no FTS5 / empty corpus / no term in corpus), or
+   *  at specificity 0.5. `gain` bounds the tilt: stream weights stay within [1-gain, 1+gain]
+   *  (default 0.5). The expansion stream always weighs 1 — graph evidence is orthogonal to the
+   *  lexical-vs-dense axis (THE-393 owns that stream's shape). */
+  adaptiveRrf?: { enabled?: boolean; gain?: number };
   /** THE-73: chunk-level BM25 lexical stream fused into the RRF (third stream). Defaults on;
    *  no-ops when chunk_fts is absent (FTS-less adapter / un-provisioned index). `count` defaults
    *  to seedCount. */
@@ -290,19 +300,44 @@ export async function graphSearch(
     return finalize(ranked, opts);
   }
 
-  // RRF fusion (THE-73): each candidate's base contribution is 1/(k + its own stream rank), PLUS an
+  // THE-391 adaptive RRF: tilt the per-stream weights by the query's lexical specificity — rare
+  // terms trust the BM25/sparse ranks, common-vocabulary queries trust the dense seeds. Neutral
+  // (all 1, exactly static RRF) when disabled, when the signal is unavailable, or at
+  // specificity 0.5.
+  let denseW = 1;
+  let lexW = 1;
+  let sparseW = 1;
+  if (opts.adaptiveRrf?.enabled ?? false) {
+    // gain clamped to [0,1] so weights stay within [0,2] — an over-unity gain would drive a
+    // stream weight NEGATIVE and actively invert its ranking, never just reweight it.
+    const gain = Math.min(1, Math.max(0, opts.adaptiveRrf?.gain ?? 0.5));
+    const spec = querySpecificity(db, opts.vaultId, opts.query);
+    if (spec !== null) {
+      const tilt = gain * (2 * spec - 1);
+      denseW = 1 - tilt;
+      lexW = 1 + tilt;
+      sparseW = 1 + tilt;
+    }
+  }
+  const streamWeight: Record<Candidate["source"], number> = {
+    seed: denseW,
+    lexical: lexW,
+    sparse: sparseW,
+    expansion: 1,
+  };
+  // RRF fusion (THE-73): each candidate's base contribution is w/(k + its own stream rank), PLUS an
   // additive lexical contribution when it also appears in the BM25 stream — a chunk matched by two
   // streams outranks a single-stream hit (the point of hybrid). A lexical-only candidate already
   // carries its BM25 rank as streamRank, so its base term IS the lexical term (no double count).
   const rrf = (c: Candidate): number => {
-    let s = 1 / (rrfK + c.streamRank);
+    let s = streamWeight[c.source] / (rrfK + c.streamRank);
     if (c.source !== "lexical") {
       const lr = lexRankById.get(c.chunk_id);
-      if (lr !== undefined) s += 1 / (rrfK + lr);
+      if (lr !== undefined) s += lexW / (rrfK + lr);
     }
     if (c.source !== "sparse") {
       const sr = sparseRankById.get(c.chunk_id);
-      if (sr !== undefined) s += 1 / (rrfK + sr);
+      if (sr !== undefined) s += sparseW / (rrfK + sr);
     }
     return s;
   };

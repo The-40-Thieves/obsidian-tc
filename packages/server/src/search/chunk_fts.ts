@@ -92,16 +92,23 @@ export function deleteChunkFtsRow(db: Database, chunkId: string): void {
   db.prepare("DELETE FROM chunk_fts WHERE chunk_id = ?").run(chunkId);
 }
 
+/** Tokenise free text the way the lexical stream consumes it: lowercase, split on
+ *  non-alphanumerics, drop empties. Shared by chunkFtsMatch and the THE-391 specificity signal
+ *  so both sides of adaptive RRF agree on what a "query term" is. */
+export function queryTerms(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((t) => t.length > 0);
+}
+
 /**
  * Build an FTS5 MATCH expression from free text: split into alphanumeric terms, quote each (so FTS
  * operators / punctuation in the query are neutralised), OR-join for any-term BM25 matching. Returns
  * null when the query has no usable term (the caller then skips the lexical stream).
  */
 export function chunkFtsMatch(query: string): string | null {
-  const terms = query
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((t) => t.length > 0);
+  const terms = queryTerms(query);
   if (terms.length === 0) return null;
   return terms.map((t) => `"${t}"`).join(" OR ");
 }

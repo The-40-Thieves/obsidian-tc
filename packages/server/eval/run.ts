@@ -73,6 +73,8 @@ export interface RunEvalOptions {
   seedCount?: number;
   /** Seed-strength router config passthrough (eval sweeps tune/disable it). */
   router?: { enabled?: boolean; simThreshold?: number; margin?: number };
+  /** THE-391: adaptive RRF passthrough — the A/B lever for the golden-set gate. */
+  adaptiveRrf?: { enabled?: boolean; gain?: number };
 }
 
 /** Run the golden set: per query, compare the semantic baseline vs graph (GraphRAG) top-K. */
@@ -98,6 +100,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       ...(opts.seedCount !== undefined ? { seedCount: opts.seedCount } : {}),
       ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
       ...(opts.router ? { router: opts.router } : {}),
+      ...(opts.adaptiveRrf ? { adaptiveRrf: opts.adaptiveRrf } : {}),
     });
     const graphHits = normHits(graphRes.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
 
@@ -123,17 +126,21 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
 }
 
 async function main(): Promise<void> {
-  const configPath = process.argv[2];
+  const argv = process.argv.slice(2);
+  const adaptive = argv.includes("--adaptive-rrf");
+  const positional = argv.filter((a) => !a.startsWith("--"));
+  const configPath = positional[0];
   if (!configPath) {
     process.stderr.write(
-      "usage: bun eval/run.ts <config.json> [golden-set.yaml]\n" +
+      "usage: bun eval/run.ts <config.json> [golden-set.yaml] [--adaptive-rrf]\n" +
         "Compares vault_graph_search vs the semantic baseline over the golden set (recall@10).\n" +
+        "--adaptive-rrf enables THE-391 per-query IDF-weighted fusion for the graph side.\n" +
         "Needs an indexed cache.db + a reachable embedding backend (config.embeddings).\n",
     );
     process.exit(2);
   }
   const goldenPath =
-    process.argv[3] ?? fileURLToPath(new URL("./multi-hop-golden-set.yaml", import.meta.url));
+    positional[1] ?? fileURLToPath(new URL("./multi-hop-golden-set.yaml", import.meta.url));
   const config = loadConfig(configPath);
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults is empty");
@@ -141,11 +148,17 @@ async function main(): Promise<void> {
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
   const provider = createEmbeddingProvider(config.embeddings);
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
-  const report = await runEval({ db, provider, golden, vaultId: firstVault.id });
+  const report = await runEval({
+    db,
+    provider,
+    golden,
+    vaultId: firstVault.id,
+    ...(adaptive ? { adaptiveRrf: { enabled: true } } : {}),
+  });
 
   const e = config.embeddings;
   process.stdout.write(
-    `\nTHE-233 retrieval eval — ${report.perQuery.length} queries (embeddings ${e.provider}:${e.model} @ ${e.dimensions}d)\n\n`,
+    `\nTHE-233 retrieval eval — ${report.perQuery.length} queries (embeddings ${e.provider}:${e.model} @ ${e.dimensions}d${adaptive ? ", adaptive RRF" : ""})\n\n`,
   );
   process.stdout.write(`${"query".padEnd(44)}baseline  graph\n`);
   for (const r of report.perQuery) {
@@ -156,6 +169,12 @@ async function main(): Promise<void> {
   const pp = (n: number): string => `${n >= 0 ? "+" : ""}${n.toFixed(1)}pp`;
   process.stdout.write(
     `\nmean recall@10: ${report.baselineAgg.mean_recall_at_10.toFixed(3)} -> ${report.graphAgg.mean_recall_at_10.toFixed(3)} (${pp(report.recallDeltaPp)})\n`,
+  );
+  process.stdout.write(
+    `mean nDCG@10:   ${report.baselineAgg.mean_ndcg_at_10.toFixed(3)} -> ${report.graphAgg.mean_ndcg_at_10.toFixed(3)}\n`,
+  );
+  process.stdout.write(
+    `mean MRR@10:    ${report.baselineAgg.mean_mrr_at_10.toFixed(3)} -> ${report.graphAgg.mean_mrr_at_10.toFixed(3)}\n`,
   );
   process.stdout.write(
     `bridge recall:  ${report.baselineAgg.bridge_recall_rate.toFixed(3)} -> ${report.graphAgg.bridge_recall_rate.toFixed(3)} (${pp(report.bridgeDeltaPp)})\n`,
