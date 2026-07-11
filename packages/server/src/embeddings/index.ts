@@ -1,7 +1,13 @@
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { FetchFn } from "./http";
 import { type EmbeddingProvider, resolveApiKey } from "./provider";
-import { cohereProvider, ollamaProvider, openaiProvider, voyageProvider } from "./providers";
+import {
+  bgeM3Provider,
+  cohereProvider,
+  ollamaProvider,
+  openaiProvider,
+  voyageProvider,
+} from "./providers";
 export interface EmbeddingsConfigLike {
   provider: string;
   model: string;
@@ -37,6 +43,8 @@ export function createEmbeddingProvider(
       return voyageProvider(base);
     case "cohere":
       return cohereProvider(base);
+    case "bge-m3":
+      return bgeM3Provider(base);
     default:
       throw err.invalidInput(`unknown embeddings provider: ${cfg.provider}`, {
         provider: cfg.provider,

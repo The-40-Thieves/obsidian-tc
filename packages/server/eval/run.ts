@@ -19,6 +19,7 @@ import { createEmbeddingProvider } from "../src/embeddings";
 import { graphSearch } from "../src/search/graph_search";
 import type { Reranker } from "../src/search/rerank";
 import { semanticSearch } from "../src/search/semantic";
+import type { SparseVec } from "../src/search/sparse";
 import {
   type AggregateMetrics,
   aggregateMetrics,
@@ -64,7 +65,11 @@ export interface EvalReport {
 
 export interface RunEvalOptions {
   db: Database;
-  provider: { embed: (texts: string[]) => Promise<number[][]> };
+  provider: {
+    embed: (texts: string[]) => Promise<number[][]>;
+    /** THE-395: multi-representation encode (bge-m3) — enables the sparse query side. */
+    embedFull?: (texts: string[]) => Promise<Array<{ dense: number[]; sparse: SparseVec }>>;
+  };
   golden: GoldenSet;
   vaultId: string;
   reranker?: Reranker | null;
@@ -85,6 +90,9 @@ export interface RunEvalOptions {
     hubDegreeCap?: number;
   };
   diversify?: { maxPerNote?: number; mmr?: { enabled?: boolean; lambda?: number } };
+  /** THE-395: encode the query via embedFull and fuse the learned-sparse RRF stream (requires
+   *  a bge-m3 provider + an index with chunk_sparse rows). */
+  sparse?: boolean;
 }
 
 /** Run the golden set: per query, compare the semantic baseline vs graph (GraphRAG) top-K. */
@@ -92,8 +100,16 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
   const perQuery: EvalQueryResult[] = [];
   for (const raw of opts.golden.queries) {
     const q = normQuery(raw);
-    const [qv] = await opts.provider.embed([q.query_text]);
-    const queryVec = qv ?? [];
+    let queryVec: number[] = [];
+    let querySparse: SparseVec | undefined;
+    if (opts.sparse && opts.provider.embedFull) {
+      const [full] = await opts.provider.embedFull([q.query_text]);
+      queryVec = full?.dense ?? [];
+      querySparse = full?.sparse;
+    } else {
+      const [qv] = await opts.provider.embed([q.query_text]);
+      queryVec = qv ?? [];
+    }
 
     const baseHits = normHits(
       semanticSearch(opts.db, opts.vaultId, queryVec, {
@@ -112,6 +128,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       ...(opts.router ? { router: opts.router } : {}),
       ...(opts.adaptiveRrf ? { adaptiveRrf: opts.adaptiveRrf } : {}),
       ...(opts.lexical ? { lexical: opts.lexical } : {}),
+      ...(querySparse ? { querySparse } : {}),
       ...(opts.graphStream ? { graphStream: opts.graphStream } : {}),
       ...(opts.diversify ? { diversify: opts.diversify } : {}),
     });
@@ -144,6 +161,7 @@ async function main(): Promise<void> {
   const graphStream = argv.includes("--graph-stream");
   const mmr = argv.includes("--mmr");
   const noLexical = argv.includes("--no-lexical");
+  const sparseFlag = argv.includes("--sparse");
   const positional = argv.filter((a) => !a.startsWith("--"));
   const configPath = positional[0];
   if (!configPath) {
@@ -175,6 +193,7 @@ async function main(): Promise<void> {
     ...(graphStream ? { graphStream: { enabled: true } } : {}),
     ...(mmr ? { diversify: { maxPerNote: 2, mmr: { enabled: true } } } : {}),
     ...(noLexical ? { lexical: { enabled: false } } : {}),
+    ...(sparseFlag ? { sparse: true } : {}),
   });
 
   const e = config.embeddings;
@@ -183,6 +202,7 @@ async function main(): Promise<void> {
     graphStream ? "capped graph stream" : null,
     mmr ? "note-collapse+MMR" : null,
     noLexical ? "lexical OFF" : null,
+    sparseFlag ? "sparse stream" : null,
   ]
     .filter((f) => f !== null)
     .join(", ");

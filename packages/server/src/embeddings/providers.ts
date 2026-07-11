@@ -1,5 +1,11 @@
+import { bgeM3VllmEncode } from "./bge-m3";
 import { type FetchFn, postJson } from "./http";
-import { assertVectors, type EmbeddingProvider, type EmbedOptions } from "./provider";
+import {
+  assertVectors,
+  type EmbeddingProvider,
+  type EmbedOptions,
+  type MultiVectorEmbedding,
+} from "./provider";
 export interface AdapterOpts {
   model: string;
   dimensions: number;
@@ -89,6 +95,53 @@ export function cohereProvider(o: AdapterOpts): EmbeddingProvider {
       return assertVectors(r.embeddings?.float ?? [], o.dimensions, texts.length, {
         truncate: o.truncate,
       });
+    },
+  };
+}
+
+// THE-395: the configurable bge-m3 multi-representation provider — a vLLM server started with
+//   vllm serve BAAI/bge-m3 --hf-overrides '{"architectures":["BgeM3EmbeddingModel"]}'
+// embed() is the plain dense head (OpenAI-compatible /embeddings, so the query/index dense path
+// matches every other provider); embedFull() adds the learned-sparse + ColBERT heads (THE-388
+// encoder), which the indexer persists to chunk_sparse / chunk_colbert.
+export function bgeM3Provider(o: AdapterOpts): EmbeddingProvider {
+  const base = (o.baseUrl ?? "http://127.0.0.1:8000/v1").replace(/\/$/, "");
+  const model = o.model || "BAAI/bge-m3";
+  return {
+    id: `bge-m3:${model}`,
+    provider: "bge-m3",
+    model,
+    dimensions: o.dimensions,
+    async embed(texts: string[]): Promise<number[][]> {
+      const r = await postJson<{ data: Array<{ embedding: number[] }> }>({
+        url: `${base}/embeddings`,
+        body: { model, input: texts },
+        fetchFn: o.fetchFn,
+        timeoutMs: o.timeoutMs,
+        provider: "bge-m3-vllm",
+      });
+      return assertVectors(
+        (r.data ?? []).map((d) => d.embedding),
+        o.dimensions,
+        texts.length,
+        { truncate: o.truncate },
+      );
+    },
+    async embedFull(texts: string[]): Promise<MultiVectorEmbedding[]> {
+      const full = await bgeM3VllmEncode(texts, {
+        baseUrl: base,
+        model,
+        fetchFn: o.fetchFn,
+        timeoutMs: o.timeoutMs,
+      });
+      // The dense head obeys the same width contract as embed(); sparse/colbert ride along.
+      const dense = assertVectors(
+        full.map((f) => f.dense),
+        o.dimensions,
+        texts.length,
+        { truncate: o.truncate },
+      );
+      return full.map((f, i) => ({ ...f, dense: dense[i] ?? f.dense }));
     },
   };
 }

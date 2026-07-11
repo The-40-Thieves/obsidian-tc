@@ -123,7 +123,7 @@ export const AclConfigSchema = z.object({
 });
 
 export const EmbeddingsConfigSchema = z.object({
-  provider: z.enum(["ollama", "openai", "voyage", "cohere"]).default("ollama"),
+  provider: z.enum(["ollama", "openai", "voyage", "cohere", "bge-m3"]).default("ollama"),
   model: z.string().default("nomic-embed-text"),
   dimensions: z.number().int().positive().default(768),
   baseUrl: z.string().url().optional(),

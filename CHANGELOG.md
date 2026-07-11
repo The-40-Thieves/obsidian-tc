@@ -6,6 +6,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Configurable `bge-m3` embeddings provider (THE-395).** `embeddings.provider: "bge-m3"` speaks
+  an OpenAI-compatible vLLM base (`baseUrl`, default `http://127.0.0.1:8000/v1`): dense via
+  `/embeddings`, plus the learned-sparse and ColBERT heads via the THE-388 encoder at index time
+  (`chunk_sparse` / `chunk_colbert`), so a bge-m3 index carries all three representations. The
+  retrieval eval gains `--sparse` to fuse the learned-sparse RRF stream query-side.
+
 ### Fixed
 
 - **Embed batches no longer overrun a small provider context, and a rejected request no longer
