@@ -1,7 +1,12 @@
 ---
 title: Contributing
-description: Monorepo layout, toolchain, and how to build and test obsidian-tc.
+description: Monorepo layout and how to build and test obsidian-tc. The full contributor guide is CONTRIBUTING.md at the repo root.
 ---
+
+The **full contributor guide** — development setup, code conventions, commit and PR rules,
+testing expectations, adding a tool, and DCO sign-off — is the canonical
+[`CONTRIBUTING.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/CONTRIBUTING.md)
+at the repository root. This page is a quick local build-and-test reference.
 
 ## Layout
 

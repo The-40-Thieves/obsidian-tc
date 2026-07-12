@@ -1,5 +1,5 @@
 // THE-306: pin the registered tool count so a tool added or removed without updating the documented
-// headline fails CI. This assembles the full registry exactly as cli.ts does (server_health + M1–M7)
+// headline fails CI. This assembles the full registry exactly as cli.ts does (server_health + M1–M8)
 // against cheap stubs — registration only builds tool definitions (handlers close over deps), so no
 // live backends are needed. Bump REGISTERED_TOOL_COUNT together with the docs headline when the
 // surface changes; the docs side is asserted by scripts/check-version-coherence.mjs.
@@ -22,10 +22,10 @@ import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
-/** The v1.3.x shipped tool surface — the ACTUAL number the registry assembles (server_health + the
- *  M1–M7 domains). Bump this WITH the docs headline (README/ARCHITECTURE/docs-site) and the
+/** The shipped tool surface — the ACTUAL number the registry assembles (server_health + the
+ *  M1–M8 domains). Bump this WITH the docs headline (README/ARCHITECTURE/docs-site) and the
  *  EXPECTED_TOOL_COUNT in scripts/check-version-coherence.mjs (which asserts the docs match it) when
- *  a tool is added or removed. (Was mis-documented as 106 before this pin landed; the real count is 105.) */
+ *  a tool is added or removed. */
 const REGISTERED_TOOL_COUNT = 141;
 
 const schemaSql = readFileSync(
