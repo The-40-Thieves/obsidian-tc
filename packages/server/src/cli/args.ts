@@ -32,6 +32,16 @@ export type CliCommand =
       staleDays?: number;
       json?: string;
     }
+  | {
+      kind: "gaps";
+      input?: string;
+      vault?: string;
+      queries?: string;
+      threshold?: number;
+      minResults?: number;
+      json?: string;
+      calibrate?: string;
+    }
   | { kind: "error"; message: string };
 
 export const USAGE = `obsidian-tc — MCP server for Obsidian
@@ -50,6 +60,9 @@ Usage:
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
   obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]
                                           Knowledge-health scorecard from the derive layer (THE-44/46)
+  obsidian-tc gaps [path] --queries <file> [--vault id] [--threshold T] [--min-results N] [--json file]
+  obsidian-tc gaps [path] --calibrate <golden.yaml> [--vault id]
+                                          Knowledge-gap detector / threshold calibration (THE-48)
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 
@@ -180,6 +193,45 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
         ...(json !== undefined ? { json } : {}),
+      };
+    }
+    // THE-48: knowledge-gap detector over a batch of queries, or golden-set calibration.
+    if (first === "gaps") {
+      const num = (flag: string): number | undefined => {
+        const v = flagValue(rest, flag);
+        if (v === undefined) return undefined;
+        const n = Number(v);
+        if (!Number.isFinite(n)) throw new CliError(`${flag} must be a number`);
+        return n;
+      };
+      const scan = [...rest];
+      for (const f of [
+        "--vault",
+        "--queries",
+        "--threshold",
+        "--min-results",
+        "--json",
+        "--calibrate",
+        "--config",
+      ]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const vault = flagValue(rest, "--vault");
+      const queries = flagValue(rest, "--queries");
+      const threshold = num("--threshold");
+      const minResults = num("--min-results");
+      const json = flagValue(rest, "--json");
+      const calibrate = flagValue(rest, "--calibrate");
+      return {
+        kind: "gaps",
+        input: flagValue(rest, "--config") ?? positional(scan),
+        ...(vault !== undefined ? { vault } : {}),
+        ...(queries !== undefined ? { queries } : {}),
+        ...(threshold !== undefined ? { threshold } : {}),
+        ...(minResults !== undefined ? { minResults } : {}),
+        ...(json !== undefined ? { json } : {}),
+        ...(calibrate !== undefined ? { calibrate } : {}),
       };
     }
     // THE-44/46: knowledge-health scorecard over the derive layer (chunk_access_stats).

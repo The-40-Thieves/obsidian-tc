@@ -8,6 +8,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Knowledge-gap detector (THE-48).** New CLI `obsidian-tc gaps [path]
+  --queries <file> [--vault id] [--threshold T] [--min-results N] [--json
+  file]` runs a batch of queries through the live engine and flags the ones
+  with no real coverage — top-1 below the calibrated floor or too few results
+  — with nearest-context paths for issue drafting. `--calibrate <golden.yaml>`
+  replays the golden set and prints the top-1 score distribution; the shipped
+  default threshold (0.138) is the measured p5 on the n=136 set against the
+  live index (the original 0.75-cosine rule is meaningless on fused RRF
+  scores). The cycle-close session files "Knowledge gap:" issues from the
+  report; the server only detects.
+
 - **Derive-don't-mutate access instrumentation + knowledge-health scorecard
   (THE-44, THE-46).** `chunk_access_stats` — a VIEW over `chunk_retrievals`
   (access count, last access, citations, outcome balance; migration

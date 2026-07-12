@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { parse as parseYaml } from "yaml";
 import { version as VERSION } from "../package.json";
 import { FolderAcl, globMatch, isDefaultDenied } from "./acl";
 import { writeEvent } from "./audit";
@@ -23,6 +24,12 @@ import { makeActivationLookup, recomputeActivation } from "./experiential/activa
 import { inferCitations } from "./experiential/citation";
 import { contributionReport } from "./experiential/contribution";
 import { createEpisodeCapture } from "./experiential/episodes";
+import {
+  DEFAULT_GAP_THRESHOLD,
+  detectGaps,
+  parseQueriesFile,
+  scoreDistribution,
+} from "./experiential/gaps";
 import { createRetrievalLogger } from "./experiential/log";
 import { vaultMetrics } from "./experiential/metrics";
 import { evaluateEpisodes, extractPreferences } from "./experiential/reflect";
@@ -41,6 +48,7 @@ import { SleepTimePlane, startPlaneScheduler } from "./plane/plane";
 import { createPlurBackend } from "./plur/client";
 import { assignClusters } from "./search/cluster";
 import { ensureNotesFts } from "./search/fts";
+import { graphSearch } from "./search/graph_search";
 import {
   deindexNote,
   type IndexedChunk,
@@ -329,6 +337,74 @@ async function main(): Promise<void> {
       }
     } finally {
       edb.close?.();
+      cacheDb.close?.();
+    }
+    return;
+  }
+
+  // THE-48: the gap detector — run a batch of queries through the live engine and flag the
+  // ones with no real coverage (top-1 below the golden-set-calibrated floor, or too few
+  // results). --calibrate replays the golden set and prints the top-1 score distribution.
+  if (cmd.kind === "gaps") {
+    const cfg = resolveOrUsageExit(cmd.input);
+    if (!cmd.queries && !cmd.calibrate) {
+      process.stderr.write(
+        `gaps requires --queries <file> or --calibrate <golden.yaml>\n\n${USAGE}`,
+      );
+      process.exit(2);
+    }
+    mkdirSync(cfg.cacheDir, { recursive: true });
+    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+    const provider = createEmbeddingProvider(cfg.embeddings);
+    const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
+    const search = async (query: string): Promise<Array<{ path: string; score: number }>> => {
+      const [vec] = await provider.embed([query], { input: "query" });
+      const results = await graphSearch(cacheDb, {
+        query,
+        queryVec: vec ?? [],
+        vaultId,
+        finalTopK: 10,
+        ...(cfg.retrieval?.rrfK !== undefined ? { rrfK: cfg.retrieval.rrfK } : {}),
+        reranker: null,
+      });
+      return results.map((r) => ({ path: r.path, score: r.rerank_score }));
+    };
+    try {
+      if (cmd.calibrate) {
+        const golden = parseYaml(readFileSync(cmd.calibrate, "utf8")) as {
+          queries?: Array<{ id?: string; query_text?: string }>;
+        };
+        const qs = (golden.queries ?? []).filter((q) => typeof q.query_text === "string");
+        const tops: number[] = [];
+        for (const q of qs) {
+          const hits = await search(q.query_text as string);
+          if (hits[0]) tops.push(hits[0].score);
+        }
+        const d = scoreDistribution(tops);
+        process.stdout.write(
+          `calibrate (${vaultId}, n=${d.n}): min=${d.min.toFixed(4)} p5=${d.p5.toFixed(4)} p10=${d.p10.toFixed(4)} p25=${d.p25.toFixed(4)} median=${d.median.toFixed(4)}\n` +
+            `suggested threshold (p5): ${d.p5.toFixed(4)} (shipped default ${DEFAULT_GAP_THRESHOLD})\n`,
+        );
+        return;
+      }
+      const queries = parseQueriesFile(readFileSync(cmd.queries as string, "utf8"));
+      const report = await detectGaps(queries, search, {
+        ...(cmd.threshold !== undefined ? { threshold: cmd.threshold } : {}),
+        ...(cmd.minResults !== undefined ? { minResults: cmd.minResults } : {}),
+      });
+      process.stdout.write(
+        `gaps ${vaultId}: ${report.gaps}/${report.total} below threshold ${report.threshold} (gap rate ${(report.gap_rate * 100).toFixed(1)}%)\n`,
+      );
+      for (const i of report.items.filter((x) => x.gap)) {
+        process.stdout.write(
+          `  GAP ${i.id}: "${i.query.slice(0, 80)}" top=${i.top_score?.toFixed(4) ?? "none"} results=${i.results}\n`,
+        );
+      }
+      if (cmd.json) {
+        writeFileSync(cmd.json, JSON.stringify(report, null, 2));
+        process.stdout.write(`wrote ${cmd.json}\n`);
+      }
+    } finally {
       cacheDb.close?.();
     }
     return;
