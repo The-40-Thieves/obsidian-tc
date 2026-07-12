@@ -42,6 +42,15 @@ export type CliCommand =
       json?: string;
       calibrate?: string;
     }
+  | {
+      kind: "forget";
+      input?: string;
+      vault?: string;
+      episode?: string;
+      note?: string;
+      erase?: boolean;
+      verify?: boolean;
+    }
   | { kind: "error"; message: string };
 
 export const USAGE = `obsidian-tc — MCP server for Obsidian
@@ -63,6 +72,8 @@ Usage:
   obsidian-tc gaps [path] --queries <file> [--vault id] [--threshold T] [--min-results N] [--json file]
   obsidian-tc gaps [path] --calibrate <golden.yaml> [--vault id]
                                           Knowledge-gap detector / threshold calibration (THE-48)
+  obsidian-tc forget [path] (--episode <id> | --note <rel-path>) [--erase] [--vault id]
+  obsidian-tc forget [path] --verify      Dependency-aware deletion + hash-chained audit (THE-239)
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 
@@ -193,6 +204,26 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
         ...(json !== undefined ? { json } : {}),
+      };
+    }
+    // THE-239: dependency-aware deletion — forget an episode or propagate a note deletion.
+    if (first === "forget") {
+      const scan = [...rest].filter((a) => a !== "--erase" && a !== "--verify");
+      for (const f of ["--episode", "--note", "--vault", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const episode = flagValue(rest, "--episode");
+      const note = flagValue(rest, "--note");
+      const vault = flagValue(rest, "--vault");
+      return {
+        kind: "forget",
+        input: flagValue(rest, "--config") ?? positional(scan),
+        ...(episode !== undefined ? { episode } : {}),
+        ...(note !== undefined ? { note } : {}),
+        ...(vault !== undefined ? { vault } : {}),
+        ...(rest.includes("--erase") ? { erase: true } : {}),
+        ...(rest.includes("--verify") ? { verify: true } : {}),
       };
     }
     // THE-48: knowledge-gap detector over a batch of queries, or golden-set calibration.

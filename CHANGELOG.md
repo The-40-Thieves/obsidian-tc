@@ -8,6 +8,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Dependency-aware deletion + hash-chained forget audit (THE-239).** New CLI
+  `obsidian-tc forget [path] (--episode <id> | --note <rel-path>) [--erase]`,
+  plus `--verify`. Episode forget tombstones always and scrubs content fields
+  under `--erase` (the row skeleton keeps the attribution chain); note forget
+  propagates an already-deleted note through the derived stores — retrieval
+  history kept under the default tombstone/audit posture, deleted under
+  `--erase`; derived activation cleared; a prewarm bundle mentioning the
+  target invalidated; syntheses/contradictions/reflections reported, never
+  rewritten. Every forget appends to `forget_log` (migration 20260712_003), a
+  hash chain where editing, removing, or reordering any entry breaks
+  verification.
 - **Knowledge-gap detector (THE-48).** New CLI `obsidian-tc gaps [path]
   --queries <file> [--vault id] [--threshold T] [--min-results N] [--json
   file]` runs a batch of queries through the live engine and flags the ones

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
@@ -24,6 +24,7 @@ import { makeActivationLookup, recomputeActivation } from "./experiential/activa
 import { inferCitations } from "./experiential/citation";
 import { contributionReport } from "./experiential/contribution";
 import { createEpisodeCapture } from "./experiential/episodes";
+import { forgetEpisode, forgetNote, verifyForgetLog } from "./experiential/forget";
 import {
   DEFAULT_GAP_THRESHOLD,
   detectGaps,
@@ -128,6 +129,11 @@ const accessViewsMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260712_002_access_views.sql", import.meta.url)),
   "utf8",
 );
+// THE-239: the hash-chained forget audit log (dependency-aware deletion).
+const forgetLogMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260712_003_forget_log.sql", import.meta.url)),
+  "utf8",
+);
 // The experiential.db chain, applied by every entry point that opens the store (serve +
 // activation-recompute) so they can never diverge on schema.
 const experientialMigrations = [
@@ -136,6 +142,7 @@ const experientialMigrations = [
   { version: "20260711_002", sql: experientialAgentEpisodesMigrationSql },
   { version: "20260712_001", sql: preferenceProfileMigrationSql },
   { version: "20260712_002", sql: accessViewsMigrationSql },
+  { version: "20260712_003", sql: forgetLogMigrationSql },
 ];
 // THE-233 (W-WORKERS): sleep-time plane state tables (contradictions/syntheses/audit_reports/
 // job_runs). W-WORKERS left this committed-but-unwired by design; the integration wires it into
@@ -335,6 +342,92 @@ async function main(): Promise<void> {
         writeFileSync(cmd.json, JSON.stringify(report, null, 2));
         process.stdout.write(`wrote ${cmd.json}\n`);
       }
+    } finally {
+      edb.close?.();
+      cacheDb.close?.();
+    }
+    return;
+  }
+
+  // THE-239: dependency-aware deletion. Tombstone/erase one episode or propagate a note
+  // deletion through the derived stores; every forget appends to the hash-chained audit log.
+  if (cmd.kind === "forget") {
+    const cfg = resolveOrUsageExit(cmd.input);
+    if (!cmd.episode && !cmd.note && !cmd.verify) {
+      process.stderr.write(
+        `forget requires --episode <id>, --note <rel-path>, or --verify\n\n${USAGE}`,
+      );
+      process.exit(2);
+    }
+    mkdirSync(cfg.cacheDir, { recursive: true });
+    const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+      version: VERSION,
+    });
+    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+    try {
+      if (cmd.verify) {
+        const v = verifyForgetLog(edb);
+        process.stdout.write(
+          v.ok
+            ? `forget-log OK: ${v.entries} entr${v.entries === 1 ? "y" : "ies"}, chain intact\n`
+            : `forget-log BROKEN at seq ${v.breakAt} (${v.entries} entries)\n`,
+        );
+        if (!v.ok) process.exit(1);
+        return;
+      }
+      const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
+      if (cmd.episode) {
+        const r = forgetEpisode(edb, cmd.episode, {
+          nowMs: Date.now(),
+          ...(cmd.erase ? { erase: true } : {}),
+        });
+        if (!r.found) {
+          process.stderr.write(`forget: episode ${cmd.episode} not found\n`);
+          process.exit(1);
+        }
+        process.stdout.write(
+          `forgot episode ${cmd.episode} (${cmd.erase ? "erase" : "tombstone"})${r.already_blocked ? " [was already blocked]" : ""}` +
+            `${r.scrubbed_fields > 0 ? " content scrubbed" : ""}` +
+            `${r.preference_evidence_mentions > 0 ? `; NOTE: ${r.preference_evidence_mentions} preference-delta evidence mention(s) (append-only, review manually)` : ""}\n`,
+        );
+        return;
+      }
+      const rel = (cmd.note as string).replace(/\\/g, "/");
+      const vault = cfg.vaults.find((v) => v.id === vaultId);
+      const abs = vault ? join(vault.path, rel) : null;
+      if (abs && existsSync(abs)) {
+        process.stderr.write(
+          `forget: ${rel} still exists in the vault — delete the note first (delete_note or file manager), then forget propagates the derived state\n`,
+        );
+        process.exit(1);
+      }
+      const memFolder = vault?.memory?.folder ?? DEFAULT_MEMORY_FOLDER;
+      const r = forgetNote(edb, cacheDb, {
+        vaultId,
+        relPath: rel,
+        nowMs: Date.now(),
+        ...(cmd.erase ? { erase: true } : {}),
+        prewarmDir: cfg.cacheDir,
+        ...(vault ? { vaultRoot: vault.path, memoryFolder: memFolder } : {}),
+      });
+      process.stdout.write(
+        `forgot note ${rel} (${cmd.erase ? "erase" : "tombstone"}): ${r.chunk_ids.length} chunk(s), ` +
+          `retrievals ${cmd.erase ? `${r.retrieval_rows_deleted} deleted` : `${r.retrieval_rows} kept (audit)`}, ` +
+          `${r.activation_rows_deleted} activation row(s) cleared` +
+          `${r.prewarm_invalidated ? ", prewarm cache invalidated" : ""}\n`,
+      );
+      if (r.outdated_reflections.length > 0)
+        process.stdout.write(
+          `  outdated reflections (review): ${r.outdated_reflections.join(", ")}\n`,
+        );
+      if (r.syntheses_mentions > 0 || r.contradictions_mentions > 0)
+        process.stdout.write(
+          `  report-only: ${r.syntheses_mentions} synthesis row(s), ${r.contradictions_mentions} contradiction row(s) mention this path (they regenerate / are lifecycle-owned)\n`,
+        );
+      if (r.chunk_ids.length > 0)
+        process.stdout.write(
+          `  note: ${r.chunk_ids.length} chunk(s) still in the search index — run the server (boot reconcile deindexes deleted notes) or index_vault to finish\n`,
+        );
     } finally {
       edb.close?.();
       cacheDb.close?.();
