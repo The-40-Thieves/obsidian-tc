@@ -51,6 +51,28 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   per-surface breakdown, top notes) for the cycle-close session to stamp into
   a vault metrics note.
 
+### Changed
+
+- **vec0 index: per-vault partition key + metadata aux columns (THE-277).**
+  `vec_chunks` is now `vec0(chunk_id PK, vault_id partition key, +path, +model,
+  embedding)`: KNN prunes to the query vault's shard (the cross-vault crowding
+  class is structurally gone) and results carry their path without a join. A
+  legacy-shaped table is detected at boot and rebuilt in place from stored
+  `chunk_embeddings` — **no re-embed**.
+
+### Fixed
+
+- **`eval_dataview_field` no longer hangs to the bridge timeout.** The companion
+  route passed the note *path* where Dataview's `evaluate()` expects a
+  variable-context *object*; the rejected promise was uncaught, and LRA's express
+  router leaves an unanswered request hanging. The route now builds its context
+  from `dv.page(path)` (so `file.*` and frontmatter fields resolve inside the
+  expression), maps a missing page to `note_not_found` and evaluation throws to
+  `dql_error`. Systemically, **every companion route is now wrapped by a
+  catch-all at the registration boundary** — a throwing/rejecting handler answers
+  a typed `bridge_error` envelope instead of hanging its request until the
+  client's timeout.
+
 ## [1.7.0] - 2026-07-12
 
 ### Added

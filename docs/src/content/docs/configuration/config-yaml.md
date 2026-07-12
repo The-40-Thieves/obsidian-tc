@@ -109,6 +109,14 @@ Notes:
 - **TTLs** — `idempotencyTtlSeconds` (`86400`), `idempotencyReclaimSeconds` (`60`), `elicitTtlSeconds` (`300`).
 - **Per-vault** — `mode` (`live` | `headless` | `auto`), `workspace.traceFolder`, `bridges` (probe / OCR / Templater timeouts), `plugins` (force enable/disable, probe skip), and an optional per-vault `acl`.
 - **`toolVisibility`** (optional) — trims the advertised tool surface (`hidden` / `disabled` / `hiddenTags` / `disabledTags` / `requireReadOnly` / `allowed`); tools stay callable by name unless `disabled`.
+- **Live mode (plugin bridges)** — bridge tools need `vaults[].restApiUrl` **and**
+  `restApiKey`; without them the vault resolves **headless** and every bridge tool
+  returns the typed `requires_live_obsidian`. Use Local REST API's **non-encrypted
+  loopback server** (`http://127.0.0.1:27123`, enable it in the LRA settings) — the
+  bridge client does not trust LRA's self-signed HTTPS certificate. Mode is resolved
+  **once at startup** by probing `restApiUrl`; `reload_vault` re-validates the on-disk
+  config but the server keeps its startup config until restart, so config changes
+  (including these keys) take effect on the next server start.
 
 Secrets (`restApiKey`, embedding API keys, the JWT signing key) resolve from
 config-then-env and never appear in logs, error details, or audit rows.

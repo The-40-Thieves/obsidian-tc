@@ -68,7 +68,7 @@ claude mcp add obsidian-tc --env OBSIDIAN_TC_CONFIG=/ABSOLUTE/PATH/TO/obsidian-t
 ```
 
 Restart the client. By default the server advertises three meta-tools
-(`find_capability` / `describe_capability` / `call_capability`) that front ~105 governed
+(`find_capability` / `describe_capability` / `call_capability`) that front ~141 governed
 capabilities — ask your agent to `find_capability` for anything ("append to a note",
 "list tags") and it will discover the rest itself.
 
@@ -128,10 +128,46 @@ delete_note { "vault": "main", "path": "Inbox/from-agent.md", "elicit_token": "<
 Change any argument and the hash no longer matches; reuse the token and it is already
 consumed. The agent cannot mint its own token — that is the point.
 
+## 6. Optional: light up the plugin bridges (live mode)
+
+Everything above runs **headless** — pure filesystem + index. Bridge tools (Dataview
+DQL and field eval, Templater, QuickAdd, OCR, Excalidraw, Omnisearch, Datacore,
+Metadata Menu, Obsidian Git, the command palette, …) additionally talk to your
+*running* Obsidian through the companion plugin:
+
+1. In Obsidian, install + enable **Local REST API** (community plugins). In its
+   settings, **enable the non-encrypted (HTTP) server** — loopback only, default port
+   `27123` — and copy the API key. (The encrypted port serves a self-signed
+   certificate the bridge client does not trust; use the HTTP loopback port.)
+2. Install the companion plugin into the vault, then enable it in Obsidian:
+
+   ```bash
+   obsidian-tc plugin install --vault /absolute/path/to/your/vault
+   ```
+
+3. Give the vault entry the endpoint + key:
+
+   ```json
+   {
+     "id": "main",
+     "path": "/absolute/path/to/your/vault",
+     "restApiUrl": "http://127.0.0.1:27123",
+     "restApiKey": "<key from Local REST API settings>"
+   }
+   ```
+
+4. **Restart the server** (or your MCP client). Live/headless mode is resolved once
+   at startup by probing `restApiUrl` — `reload_vault` re-validates config but does
+   not re-resolve mode. Without these two keys every bridge tool returns the typed
+   `requires_live_obsidian` error while the filesystem tools keep working.
+
+Verify with `list_commands { "vault": "main" }` — it answers from the live app, and a
+missing third-party plugin surfaces as `plugin_missing` naming the plugin.
+
 ## Where next
 
 - [WHY.md](./WHY.md) — the threat model and what each gate buys you
 - [COHERENCE.md](./COHERENCE.md) — writing while Obsidian is open
 - [CUTOVER.md](./CUTOVER.md) — migrating from another Obsidian MCP server
-- `obsidian-tc plugin install --vault /path/to/vault` — the optional companion plugin
-  (Templater / Dataview / Tasks bridges); everything above works without it
+- Step 6 above — the optional companion plugin (Dataview / Templater / Git / OCR and
+  the other live bridges); steps 1–5 work without it

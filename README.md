@@ -149,6 +149,16 @@ The optional inference gateway (`OBSIDIAN_TC_GATEWAY_URL`) powers rerank and the
 everything else keeps working. Cloud embedding providers (OpenAI, Voyage, Cohere) are
 opt-in via a config file.
 
+### Plugin bridges (optional, live mode)
+
+Bridge tools (Dataview, Templater, QuickAdd, OCR, Excalidraw, Obsidian Git, the
+command palette, …) talk to your *running* Obsidian through the companion plugin and
+need two per-vault config keys: `restApiUrl` (Local REST API's non-encrypted loopback
+server, `http://127.0.0.1:27123`) and `restApiKey`. Live/headless mode is resolved
+once at server start; without the keys, bridge tools return the typed
+`requires_live_obsidian` while every filesystem tool keeps working. Setup walkthrough:
+[docs/QUICKSTART.md](./docs/QUICKSTART.md) step 6.
+
 ## Install in Cursor / VS Code
 
 One-click install (launches via `npx`; after installing, set the config path to your
