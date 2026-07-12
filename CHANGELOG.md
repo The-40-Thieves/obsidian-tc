@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-12
+
 ### Added
 
 - **Obsidian Git + Remotely Save bridges (THE-378, THE-381).** Seven new M4
