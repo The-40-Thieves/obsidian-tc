@@ -164,6 +164,17 @@ Metadata Menu, Obsidian Git, the command palette, …) additionally talk to your
 Verify with `list_commands { "vault": "main" }` — it answers from the live app, and a
 missing third-party plugin surfaces as `plugin_missing` naming the plugin.
 
+## 7. Optional: the generative tier (inference gateway)
+
+`reflect` synthesis, `knowledge_challenge` red-teaming, and the sleep-time
+consolidation plane need a text-generating model. Wire one with two env vars and a
+self-hosted LiteLLM container mapping the three role aliases (`extract` /
+`synthesize` / `judge`) — an all-local Ollama-backed setup keeps everything on your
+machine with zero API keys. Full recipe (container command, role→model policy,
+verification): the **Inference gateway** page in the docs site —
+[`docs/src/content/docs/configuration/inference-gateway.md`](./src/content/docs/configuration/inference-gateway.md).
+Everything in steps 1–6 works without it.
+
 ## Where next
 
 - [WHY.md](./WHY.md) — the threat model and what each gate buys you
