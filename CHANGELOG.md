@@ -8,6 +8,20 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **`reflect` — the third verb, as one callable operation (THE-222).** New MCP
+  tool (**134 total**): recall over the same measured front door, then a
+  gateway synthesis pass — a grounded answer with source provenance in one
+  query-scoped call. `mode: "challenge"` runs the adversarial red-team over the
+  decision-bearing recall; `persist: true` writes the derived note under the
+  memory folder's `reflections/` with `source_model` + exact chunk provenance
+  (gated on `write:notes`). Degrades gracefully without the gateway. The
+  sleep-time half runs via the new `obsidian-tc reflect` CLI command: the
+  evaluator pass stamps pending work episodes (born-ineligible rows are never
+  raised; unstable ok/error clusters are held; the optional judge can only
+  lower, with a parse-failure kill switch), and gateway-gated preference
+  extraction updates the new **versioned preference profile** — typed deltas
+  only (add/strengthen/weaken/retract with weight counters), never monolithic
+  regeneration.
 - **Anticipatory context prefetch (THE-136).** New CLI command
   `obsidian-tc prefetch [path] [--vault id] [--ttl-hours N]` composes
   vault_context's session-bootstrap bundle per vault and writes a prewarm cache

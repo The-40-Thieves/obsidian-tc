@@ -24,6 +24,7 @@ import { inferCitations } from "./experiential/citation";
 import { contributionReport } from "./experiential/contribution";
 import { createEpisodeCapture } from "./experiential/episodes";
 import { createRetrievalLogger } from "./experiential/log";
+import { evaluateEpisodes, extractPreferences } from "./experiential/reflect";
 import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
@@ -108,12 +109,18 @@ const experientialAgentEpisodesMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260711_002_agent_episodes.sql", import.meta.url)),
   "utf8",
 );
+// THE-222: the versioned preference profile (typed-delta updates only) for the reflect pass.
+const preferenceProfileMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260712_001_preference_profile.sql", import.meta.url)),
+  "utf8",
+);
 // The experiential.db chain, applied by every entry point that opens the store (serve +
 // activation-recompute) so they can never diverge on schema.
 const experientialMigrations = [
   { version: "20260626_001", sql: experientialInitMigrationSql },
   { version: "20260711_001", sql: experientialOutcomeMigrationSql },
   { version: "20260711_002", sql: experientialAgentEpisodesMigrationSql },
+  { version: "20260712_001", sql: preferenceProfileMigrationSql },
 ];
 // THE-233 (W-WORKERS): sleep-time plane state tables (contradictions/syntheses/audit_reports/
 // job_runs). W-WORKERS left this committed-but-unwired by design; the integration wires it into
@@ -316,6 +323,40 @@ async function main(): Promise<void> {
     } finally {
       edb.close?.();
       cacheDb.close?.();
+    }
+    return;
+  }
+
+  // THE-222: sleep-time reflect — the evaluator pass stamps pending agent_episodes eligibility
+  // (deterministic rules + optional judge that can only lower) and the gateway-gated preference
+  // extraction applies typed deltas to the versioned profile.
+  if (cmd.kind === "reflect") {
+    const cfg = resolveOrUsageExit(cmd.input);
+    mkdirSync(cfg.cacheDir, { recursive: true });
+    const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+      version: VERSION,
+    });
+    let gwc: GatewayClient | null = null;
+    try {
+      gwc = createGatewayClient({});
+    } catch {
+      gwc = null;
+    }
+    try {
+      const nowMs = Date.now();
+      const judge = gwc ? (r: Parameters<GatewayClient["judge"]>[0]) => gwc.judge(r) : null;
+      const stats = await evaluateEpisodes(edb, {
+        nowMs,
+        judge,
+        ...(cmd.maxJudged !== undefined ? { maxJudged: cmd.maxJudged } : {}),
+      });
+      const prefs = await extractPreferences(edb, { judge, nowMs });
+      process.stdout.write(
+        `reflect: scanned=${stats.scanned} promoted=${stats.promoted} held=${stats.held} denied=${stats.denied} judged=${stats.judged}${stats.judgeAborted ? " JUDGE-ABORTED" : ""}\n` +
+          `preferences: ${prefs.skipped ? "skipped (no gateway or no evidence)" : prefs.aborted ? "ABORTED (parse failure)" : `applied=${prefs.applied} version=${prefs.version}`}\n`,
+      );
+    } finally {
+      edb.close?.();
     }
     return;
   }

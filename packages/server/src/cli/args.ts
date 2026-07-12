@@ -22,6 +22,7 @@ export type CliCommand =
     }
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
   | { kind: "prefetch"; input?: string; vault?: string; ttlHours?: number }
+  | { kind: "reflect"; input?: string; maxJudged?: number }
   | { kind: "error"; message: string };
 
 export const USAGE = `obsidian-tc — MCP server for Obsidian
@@ -36,6 +37,8 @@ Usage:
   obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history (THE-227)
   obsidian-tc prefetch [path] [--vault id] [--ttl-hours N]
                                           Prewarm the session-bootstrap context cache (THE-136)
+  obsidian-tc reflect [path] [--max-judged N]
+                                          Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 
@@ -166,6 +169,26 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
         ...(json !== undefined ? { json } : {}),
+      };
+    }
+    // THE-222: sleep-time reflect — episode-eligibility evaluator + preference-profile update.
+    if (first === "reflect") {
+      const scan = [...rest];
+      for (const f of ["--max-judged", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const mv = flagValue(rest, "--max-judged");
+      let maxJudged: number | undefined;
+      if (mv !== undefined) {
+        maxJudged = Number.parseInt(mv, 10);
+        if (!Number.isFinite(maxJudged) || maxJudged < 0)
+          return { kind: "error", message: "--max-judged must be a non-negative integer" };
+      }
+      return {
+        kind: "reflect",
+        input: flagValue(rest, "--config") ?? positional(scan),
+        ...(maxJudged !== undefined ? { maxJudged } : {}),
       };
     }
     // THE-136: anticipatory prefetch — compose the bootstrap bundle and write the prewarm cache.
