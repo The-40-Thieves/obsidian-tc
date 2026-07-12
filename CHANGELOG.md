@@ -6,6 +6,34 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-07-12
+
+### Fixed
+
+- **bge-m3 sparse vectors are now reference-correct** (derived token/score
+  alignment + special-token filtering). Two defects corrupted every stored sparse
+  vector: vLLM's BgeM3 pooler strips BOS/EOS from `token_classify` scores while
+  `/tokenize` returns the full id list, and the positional pairing silently
+  truncated the mismatch — shifting **every weight one token left** — while
+  cls/eos/pad/unk weights were never filtered per the FlagEmbedding
+  `lexical_weights` contract. Alignment is now derived (equal lengths pair
+  directly; a 2-short score list pairs against the inner ids; any other mismatch
+  degrades the head to empty — never truncates), and XLM-R special ids are
+  dropped. **If you built a bge-m3 sparse index with an earlier version, rebuild
+  it** — the stored vectors are mis-keyed. Re-measured clean on the maintainer
+  vault (n=136 paired): the sparse RRF stream is statistically zero on every
+  metric vs the shipped BM25+dense+graph champion, so it remains off by default.
+
+### Changed
+
+- **The configuration reference is now complete** — every `ServerConfigSchema`
+  field with its default (including previously undocumented `snapshots`,
+  `bootstrap`, `writes.requireCas`, the embeddings batch/prefix knobs, HTTP
+  DNS-rebinding options, the `bge-m3` provider, and `plur.command`), the full
+  10-variable environment table, and a new **inference gateway** setup guide
+  (self-hosted LiteLLM recipe, role→model policy, verification, degradation
+  semantics) at `configuration/inference-gateway`.
+
 ## [1.8.0] - 2026-07-12
 
 ### Added
