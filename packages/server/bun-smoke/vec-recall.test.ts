@@ -79,3 +79,64 @@ test("semanticSearch degrades to brute force when the query dimension mismatches
   rmSync(root, { recursive: true, force: true });
   db.close?.();
 });
+
+test("THE-277: legacy vec_chunks rebuilds to the partition/aux shape from stored embeddings; KNN identical", async () => {
+  const db = await openDatabase(":memory:");
+  db.exec(schemaSql);
+  // Hand-create the LEGACY shape (pre-partition) and seed via the authored stores. The
+  // extension must be loaded on this fresh connection before any vec0 DDL.
+  const { loadVec } = await import("../src/search/vec");
+  expect(loadVec(db)).toBe(true);
+  db.exec(
+    "CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id TEXT PRIMARY KEY, embedding float[4] distance_metric=cosine)",
+  );
+  const insChunk = db.prepare(
+    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, 0, '[]', 'c', ?, 1, 1, 1)",
+  );
+  const insEmb = db.prepare(
+    "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, generated_at) VALUES (?, 'm', 4, ?, 1)",
+  );
+  const insLegacy = db.prepare("INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)");
+  const vecs: Record<string, number[]> = {
+    a1: [1, 0, 0, 0],
+    a2: [0.9, 0.1, 0, 0],
+    b1: [0, 1, 0, 0],
+  };
+  const vaultOf: Record<string, string> = { a1: "v1", a2: "v1", b1: "v2" };
+  const { floatBlob } = await import("../src/search/vec");
+  for (const [id, vec] of Object.entries(vecs)) {
+    insChunk.run(id, vaultOf[id], `${id}.md`, `h-${id}`);
+    insEmb.run(id, floatBlob(vec));
+    insLegacy.run(id, floatBlob(vec));
+  }
+  const q = [1, 0, 0, 0];
+  const pre = db
+    .prepare(
+      "SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = 3 ORDER BY distance",
+    )
+    .all(floatBlob(q)) as Array<{ chunk_id: string; distance: number }>;
+  expect(pre.map((r) => r.chunk_id)).toEqual(["a1", "a2", "b1"]);
+
+  // The rebuild: same vectors, new shape.
+  expect(ensureVecChunks(db, 4)).toBe(true);
+  const shaped = db.prepare("SELECT vault_id, path FROM vec_chunks LIMIT 1").get() as {
+    vault_id: string;
+  };
+  expect(shaped.vault_id).toBeDefined();
+  const count = db.prepare("SELECT count(*) AS c FROM vec_chunks").get() as { c: number };
+  expect(count.c).toBe(3);
+
+  // Partition-pruned KNN: only v1's vectors, identical distances to the legacy scan.
+  const { vecKnn } = await import("../src/search/vec");
+  const post = vecKnn(db, q, 3, "v1");
+  expect(post.map((r) => r.chunk_id)).toEqual(["a1", "a2"]);
+  expect(post[0]?.path).toBe("a1.md");
+  const preByid = new Map(pre.map((r) => [r.chunk_id, r.distance]));
+  for (const r of post)
+    expect(Math.abs((preByid.get(r.chunk_id) ?? 99) - r.distance)).toBeLessThan(1e-6);
+  // Migration recorded.
+  const rec = db
+    .prepare("SELECT 1 AS x FROM schema_migrations WHERE version = '20260712_004_vec_chunks_aux_4'")
+    .get() as { x: number } | undefined;
+  expect(rec?.x).toBe(1);
+});

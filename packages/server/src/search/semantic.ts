@@ -73,7 +73,10 @@ export function semanticSearch(
       // cross-vault / ACL existence side-channel where a global KNN's top-N is dominated by chunks
       // the caller cannot see (THE-287).
       const overFetch = k * 20 + 50;
-      const candidates = vecKnn(db, queryVec, overFetch);
+      // THE-277: the vault_id partition key prunes the KNN to this vault's shard — other
+      // vaults' vectors are never scanned, so cross-vault crowding (THE-287) is structurally
+      // gone; the over-fetch + fallback below still guards ACL-invisible chunks WITHIN the vault.
+      const candidates = vecKnn(db, queryVec, overFetch, vaultId);
       let out: SemanticHit[] = [];
       if (candidates.length > 0) {
         const placeholders = candidates.map(() => "?").join(", ");

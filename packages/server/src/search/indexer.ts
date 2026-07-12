@@ -405,7 +405,7 @@ function applyNoteWrites(
       plan.ts,
     );
     upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
-    if (hasVec) upsertVec(db, d.id, vec);
+    if (hasVec) upsertVec(db, d.id, vec, { vaultId, path: plan.path, model: provider.id });
     // THE-406: BM25 matches on the same text the dense vector embeds (enriched when the flag is
     // on); bm25Chunks JOINs chunks for the raw display content, so search output is unchanged.
     if (hasChunkFts) upsertChunkFtsRow(db, d.id, vaultId, plan.path, d.embedText ?? d.content);

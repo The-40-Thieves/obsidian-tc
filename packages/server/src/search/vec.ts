@@ -60,9 +60,51 @@ export function ensureVecChunks(
   if (!loadVec(db)) return false;
   const now = opts.now ?? Date.now;
   const version = `20260519_002_vec_chunks_${dims}`;
-  db.exec(
-    `CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(chunk_id TEXT PRIMARY KEY, embedding float[${dims}] distance_metric=cosine)`,
-  );
+  // THE-277 item 3 (sqlite-vec >= 0.1.9): vault_id as a PARTITION KEY pre-shards the KNN per
+  // vault (the cross-vault crowding THE-287 worked around becomes structurally impossible when
+  // the caller passes vaultId), and +path/+model aux columns kill the metadata JOIN for the
+  // fields the hot path needs. +content is deliberately NOT aux — it would duplicate the whole
+  // corpus text inside the vec file; content stays a batched JOIN only when requested.
+  const ddl = `CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(chunk_id TEXT PRIMARY KEY, vault_id TEXT partition key, +path TEXT, +model TEXT, embedding float[${dims}] distance_metric=cosine)`;
+  const hasTable =
+    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE name = 'vec_chunks'").get() !== undefined;
+  if (!hasTable) {
+    db.exec(ddl);
+  } else {
+    // Shape-detect a legacy (pre-partition) table and rebuild it IN PLACE from the stored
+    // embeddings — chunk_embeddings holds every active vector, so no re-embed is needed and
+    // the rebuilt index is bit-identical (same vectors, same cosine metric).
+    let legacy = false;
+    try {
+      db.prepare("SELECT vault_id FROM vec_chunks LIMIT 1").get();
+    } catch {
+      legacy = true;
+    }
+    if (legacy) {
+      db.exec("DROP TABLE vec_chunks");
+      db.exec(ddl);
+      const canBackfill =
+        db.prepare("SELECT 1 AS x FROM sqlite_master WHERE name = 'chunk_embeddings'").get() !==
+        undefined;
+      if (canBackfill) {
+        db.exec(
+          `INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding)
+           SELECT e.chunk_id, c.vault_id, c.path, e.model, e.embedding
+           FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id
+           WHERE e.is_active = 1 AND length(e.embedding) = ${dims * 4}`,
+        );
+      }
+      const rebuiltVersion = `20260712_004_vec_chunks_aux_${dims}`;
+      const rec = db
+        .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+        .get(rebuiltVersion);
+      if (!rec) {
+        db.prepare(
+          "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
+        ).run(rebuiltVersion, now(), "m2-runtime", 0, `vec0:partition+aux:${dims}`);
+      }
+    }
+  }
   const recorded = db
     .prepare("SELECT version FROM schema_migrations WHERE version = ?")
     .get(version);
@@ -77,11 +119,25 @@ export function ensureVecChunks(
 // k-NN over vec_chunks for a query vector; returns chunk_id + cosine distance
 // (0 = identical direction, 1 = orthogonal) nearest-first. Cosine similarity is
 // 1 - distance. Requires loadVec to have already succeeded on this connection.
+// THE-277: pass vaultId to prune the KNN to that vault's partition shard — the
+// scan never touches other vaults' vectors, and the aux path rides along free.
 export function vecKnn(
   db: Database,
   query: number[],
   k: number,
-): Array<{ chunk_id: string; distance: number }> {
+  vaultId?: string,
+): Array<{ chunk_id: string; distance: number; path?: string }> {
+  if (vaultId !== undefined) {
+    return db
+      .prepare(
+        "SELECT chunk_id, path, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ? AND vault_id = ? ORDER BY distance",
+      )
+      .all(floatBlob(query), k, vaultId) as Array<{
+      chunk_id: string;
+      distance: number;
+      path?: string;
+    }>;
+  }
   return db
     .prepare(
       "SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ? ORDER BY distance",
@@ -91,10 +147,14 @@ export function vecKnn(
 
 // Insert/replace a chunk's vector in vec_chunks. vec0 has no UPSERT, so this is
 // delete-then-insert. Call only when the extension is loaded on this connection.
-export function upsertVec(db: Database, chunkId: string, vector: number[]): void {
+export function upsertVec(
+  db: Database,
+  chunkId: string,
+  vector: number[],
+  meta: { vaultId: string; path: string; model: string },
+): void {
   db.prepare("DELETE FROM vec_chunks WHERE chunk_id = ?").run(chunkId);
-  db.prepare("INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)").run(
-    chunkId,
-    floatBlob(vector),
-  );
+  db.prepare(
+    "INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding) VALUES (?, ?, ?, ?, ?)",
+  ).run(chunkId, meta.vaultId, meta.path, meta.model, floatBlob(vector));
 }
