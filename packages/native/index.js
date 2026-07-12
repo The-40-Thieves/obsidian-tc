@@ -42,7 +42,7 @@ function isMuslFromReport() {
   if (!report) {
     return null;
   }
-  if (report.header && report.header.glibcVersionRuntime) {
+  if (report.header?.glibcVersionRuntime) {
     return false;
   }
   if (Array.isArray(report.sharedObjects) && report.sharedObjects.some(isFileMusl)) {

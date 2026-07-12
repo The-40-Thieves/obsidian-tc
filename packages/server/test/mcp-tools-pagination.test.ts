@@ -94,7 +94,8 @@ describe("tools/list annotations + title", () => {
     const r = new ToolRegistry();
     r.register(toolWith("read_thing", { requiredScopes: ["read:notes"] }));
     const { client, server } = await connect(r);
-    const tool = (await client.listTools()).tools[0]!;
+    const tool = (await client.listTools()).tools[0];
+    if (!tool) throw new Error("expected a tool in tools/list");
     expect(tool.title).toBe("Read Thing");
     expect(tool.annotations).toMatchObject({
       readOnlyHint: true,
@@ -109,7 +110,8 @@ describe("tools/list annotations + title", () => {
     const r = new ToolRegistry();
     r.register(toolWith("write_thing", { requiredScopes: ["write:notes"] }));
     const { client, server } = await connect(r);
-    const tool = (await client.listTools()).tools[0]!;
+    const tool = (await client.listTools()).tools[0];
+    if (!tool) throw new Error("expected a tool in tools/list");
     expect(tool.annotations?.readOnlyHint).toBe(false);
     expect(tool.annotations?.destructiveHint).toBe(false);
     await client.close();
@@ -120,7 +122,8 @@ describe("tools/list annotations + title", () => {
     const r = new ToolRegistry();
     r.register(toolWith("delete_thing", { requiredScopes: ["delete:notes"], destructive: true }));
     const { client, server } = await connect(r);
-    const tool = (await client.listTools()).tools[0]!;
+    const tool = (await client.listTools()).tools[0];
+    if (!tool) throw new Error("expected a tool in tools/list");
     expect(tool.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     await client.close();
     await server.close();

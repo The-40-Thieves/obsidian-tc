@@ -1,7 +1,5 @@
 // THE-280 — real Bases view keys honored; aliases deprecated.
 import { describe, expect, it } from "vitest";
-import { issueElicitToken } from "../src/elicit";
-import { argsHash } from "../src/hash";
 import { makeM3Vault } from "./m3-helpers";
 
 const REAL_BASE = `filters: file.hasTag("t")

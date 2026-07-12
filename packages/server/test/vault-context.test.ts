@@ -143,7 +143,6 @@ function harness(edb?: Database, rootOverride?: string, prewarmDir?: string) {
   };
   registerM7Tools(registry, {
     vaultRegistry,
-    // biome-ignore lint/suspicious/noExplicitAny: stub backend for registration-only harness
     embeddingProvider: embeddingProvider as any,
     reranker: null,
     roles: null,

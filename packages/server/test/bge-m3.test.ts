@@ -18,7 +18,7 @@ function mockFetch(
       ? "embeddings"
       : url.endsWith("/tokenize")
         ? "tokenize"
-        : "pooling:" + body.task;
+        : `pooling:${body.task}`;
     const payload = byKey[key];
     if (payload === undefined) {
       return new Response(JSON.stringify({ error: { message: "Unsupported task" } }), {

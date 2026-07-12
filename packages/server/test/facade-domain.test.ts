@@ -39,8 +39,8 @@ async function connect(registry: ToolRegistry) {
 }
 
 function textOf(res: unknown): unknown {
-  const content = (res as { content: { text: string }[] }).content;
-  return JSON.parse(content[0]!.text);
+  const content = (res as { content: [{ text: string }] }).content;
+  return JSON.parse(content[0].text);
 }
 
 function realReg(): ToolRegistry {

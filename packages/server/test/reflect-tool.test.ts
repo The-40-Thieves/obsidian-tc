@@ -51,7 +51,6 @@ function harness(roles: GatewayRoles | null, scopes: string[] = ["read:notes"]) 
   const vaultRegistry = new VaultRegistry([{ id: "main", name: "main", path: root }]);
   registerM7Tools(registry, {
     vaultRegistry,
-    // biome-ignore lint/suspicious/noExplicitAny: throwing stub — the lexical route never embeds
     embeddingProvider: {
       provider: "ollama",
       model: "stub",

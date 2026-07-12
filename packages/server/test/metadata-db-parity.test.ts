@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { runMigrations } from "../src/db/migrate";
-import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { indexVault } from "../src/search/indexer";

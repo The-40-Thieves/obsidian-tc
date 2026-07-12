@@ -4,7 +4,6 @@ import { runMigrations } from "../src/db/migrate";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { openMemoryDb } from "./helpers";
 
-// biome-ignore lint/suspicious/noExplicitAny: test db handle
 function freshDb(): any {
   const d = openMemoryDb();
   runMigrations(d, [
@@ -28,7 +27,6 @@ function reg(): ToolRegistry {
   return r;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: test db handle
 function ctx(db: any, over: Partial<CallerContext> = {}): CallerContext {
   return {
     caller: "t",

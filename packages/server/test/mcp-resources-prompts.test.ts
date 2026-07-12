@@ -144,7 +144,7 @@ describe("prompts", () => {
     const r = getPrompt("summarize_note", { path: "projects/x.md" });
     const m = r.messages[0];
     expect(m?.role).toBe("user");
-    if (!m || m.content.type !== "text") throw new Error("expected a text message");
+    if (m?.content.type !== "text") throw new Error("expected a text message");
     expect(m.content.text).toContain("projects/x.md");
   });
   it("throws on an unknown prompt or a missing required arg", () => {

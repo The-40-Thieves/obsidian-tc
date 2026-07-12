@@ -27,7 +27,6 @@ describe("THE-277 embedPlans batching", () => {
       { toEmbed: [{ content: "a" }, { content: "b" }], vectors: [] },
       { toEmbed: [{ content: "c" }], vectors: [] },
     ];
-    // biome-ignore lint/suspicious/noExplicitAny: MinPlan is the subset embedPlans touches
     await embedPlans(p, plans as any, 2, 4); // 3 contents, cap 2 -> 2 sub-batches (not 3 per-note)
     expect(calls()).toBe(2);
     expect(plans[0]?.vectors).toHaveLength(2);
@@ -37,7 +36,6 @@ describe("THE-277 embedPlans batching", () => {
   it("no-ops when there is nothing to embed", async () => {
     const { p, calls } = countingProvider();
     const plans: MinPlan[] = [{ toEmbed: [], vectors: [] }];
-    // biome-ignore lint/suspicious/noExplicitAny: MinPlan subset
     await embedPlans(p, plans as any, 512, 4);
     expect(calls()).toBe(0);
   });

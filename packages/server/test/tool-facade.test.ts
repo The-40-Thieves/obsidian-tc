@@ -41,8 +41,8 @@ function reg(): ToolRegistry {
 }
 
 function textOf(res: unknown): unknown {
-  const content = (res as { content: { text: string }[] }).content;
-  return JSON.parse(content[0]!.text);
+  const content = (res as { content: [{ text: string }] }).content;
+  return JSON.parse(content[0].text);
 }
 
 describe("tool-surface facade (THE-219)", () => {
