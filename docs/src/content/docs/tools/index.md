@@ -35,6 +35,9 @@ same authorization / ACL / HITL / idempotency / throttle pipeline.
 | **Structured formats** | Bases, Canvas, periodic notes, tasks, outlines | `read_base`, `update_canvas`, `create_periodic_note`, `list_tasks` |
 | **Plugin bridges** | Dataview, Templater, OCR, command execution, workspace | `eval_dataview_field`, `execute_template`, `execute_command` |
 | **Memory & capture** | memory store, capture queue, workspace traces, PLUR proxy | `add_observation`, `enqueue_capture`, `plur_recall` |
+| **Knowledge & context** | GraphRAG, composite context, reflection, red-team challenge | `vault_graph_search`, `vault_context`, `reflect`, `knowledge_challenge` |
+| **Work memory (experiential)** | quarantined agent-episode store with an eligibility-gated reader contract | `work_search`, `work_episodes`, `work_forget`, `record_retrieval_feedback` |
+| **Git & sync bridges** | Obsidian Git (commit is HITL-floored), Remotely Save backup signal | `git_status`, `git_diff`, `git_commit`, `remotely_save_status` |
 | **Bulk & URI** | bulk note create / move / set-property, `obsidian://` URI generation | `bulk_create_notes`, `bulk_move_notes`, `bulk_set_property`, `generate_uri` |
 | **Server admin** | health, config, ACL, metrics introspection | `server_health`, `get_server_config`, `inspect_acl`, `get_metrics` |
 

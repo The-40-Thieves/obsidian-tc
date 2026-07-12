@@ -21,7 +21,7 @@ New here? Start with the [5-minute quickstart](./docs/QUICKSTART.md) or the [thr
 
 ## The interface: 3 tools, ~141 governed capabilities
 
-By default the server advertises just **three meta-tools** instead of a wall of ~123:
+By default the server advertises just **three meta-tools** instead of a wall of 141:
 
 - **`find_capability`** — BM25 search over the caller-visible capability catalog ("how do I move a note?")
 - **`describe_capability`** — one capability's schema, required scopes, and safety hints
@@ -35,7 +35,7 @@ obsidian-tc is a comprehensive Model Context Protocol (MCP) server for [Obsidian
 
 Three pillars:
 
-1. **Broad.** 132 tools covering the meaningful Obsidian operations, including native Bases (`.base`) support with a real expression-DSL evaluator — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
+1. **Broad.** 141 tools covering the meaningful Obsidian operations — including native Bases (`.base`) support with a real expression-DSL evaluator, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
 2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS with `kid` rotation), folder ACLs (per vault), read-only kill switch, human-in-the-loop elicit on destructive operations, compare-and-swap on writes, idempotency keys, bulk throttling.
 3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, structured CloudEvents emission on every tool call — all opt-in export streams that fail soft.
 
@@ -43,7 +43,18 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 
 ## Status
 
-✅ **Shipped — v1.7.0** (2026-07-10). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.7.0`. The surface is **141 tools across 31 domains**, presented by default via the triad facade described above. v1.3.x adds (see the [CHANGELOG](./CHANGELOG.md)): per-vault ACLs with the root ACL as inherited default, mandatory symlink-canonical ACL enforcement, a notes-metadata table + trigram FTS5 search substrate with index-on-write coverage across every note mutation (disk-scan fallback when FTS is unavailable), vec0 KNN vault pushdown, an Obsidian Bases expression-DSL subset evaluator with realigned view keys, compute-abuse budgets (regex worker timeout, JSONLogic op budget), a periodic cache-maintenance sweep, single-serialization dispatch, `server_health` index/`notes_ready`/`fts_enabled` reporting and config-key parity, a companion API-version floor with a bundle shape self-check, asymmetric JWT via a local JWKS, the sleep-time consolidation scheduler, and the AGPL-3.0 relicense.
+✅ **Shipped — v1.7.0** (2026-07-12). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.7.0`. The surface is **141 tools across 31 domains**, presented by default via the triad facade described above.
+
+The v1.6–v1.7 line turned the server into a **measured memory engine** (full detail in the [CHANGELOG](./CHANGELOG.md)):
+
+- **Experiential work-memory tier** — a quarantined second store (never mixed with your authored notes): serve-path retrieval logging with an outcome axis, auto-captured agent work episodes with a pre-ingest poison scanner and evaluator-stamped eligibility, and reader tools under a strict contract (eligible-only, tombstones, trust floor, caller partition).
+- **Composite context surfaces** — `vault_context` (the one-call `get_context(query, token_budget)` primitive: budget-packed graph-reranked chunks, synthesis patterns, open contradictions, proactive lesson surfacing, opt-in work episodes; session bootstrap reads a `_next-session.md` signal note through a TTL-enforced prewarm cache) and `reflect` (grounded synthesis with source provenance, an adversarial challenge mode, and a versioned preference profile updated only by typed deltas).
+- **Dependency-aware deletion** — `forget` propagates a deletion through derived state, with tombstone-vs-erase modes and a hash-chained audit log where tampering with any entry breaks verification.
+- **New companion bridges** — Obsidian Git (status/diff/log/stage, with commits behind a hardcoded human-confirmation floor) and Remotely Save (independent backup verification).
+- **A knowledge-flywheel CLI family** — `metrics`, `gaps` (calibrated coverage floor), `prefetch`, `reflect`, `forget`, `citation-infer`, `contribution-report`, `activation-recompute`, `cluster`.
+- **Retrieval measured, not asserted** — an n=136 golden set with a statistical ship rule gates every ranking change (graph nDCG@10 0.786 / recall@10 0.871 / bridge recall 0.831); contextual chunk enrichment measured **+0.223 nDCG** and now defaults on; mechanisms that lost their A/B ship dark behind flags with the numbers recorded. The vec0 index carries a per-vault partition key and metadata aux columns, rebuilt in place from stored embeddings (no re-embed).
+
+Earlier v1.3.x hardening (per-vault ACLs, symlink-canonical enforcement, trigram FTS5 substrate, vec0 KNN pushdown, Bases expression-DSL evaluator, compute-abuse budgets, asymmetric JWT via local JWKS, the sleep-time consolidation scheduler, AGPL-3.0 relicense) is recorded in the CHANGELOG.
 
 | Milestone | Scope | Status |
 |---|---|---|
@@ -55,6 +66,8 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 | M5 | Memory + capture substrate — 15 tools (capture queue, memory entities + `[[link]]` graph, workspace sessions + JSONL traces, plur read proxy) | ✅ Merged |
 | M6 | Bulk + admin + URI — 7 tools | ✅ Merged |
 | M7 | Harden + ship: OpenTelemetry tracing, Prometheus `/metrics`, CloudEvents spool, rate limiter, 8-triple native prebuilds, release workflow | ✅ Shipped (v1.0.2) |
+| M7+ | Knowledge domain: GraphRAG (`vault_graph_search`), `knowledge_challenge`, composite `vault_context` + `reflect` | ✅ Shipped (v1.4–v1.7) |
+| M8 | Experiential work-memory tier: retrieval log, episode capture + poison defense, reader contract, preference profile, forget | ✅ Shipped (v1.6–v1.7) |
 
 This repository is public under [`The-40-Thieves`](https://github.com/The-40-Thieves), licensed AGPL-3.0-only.
 

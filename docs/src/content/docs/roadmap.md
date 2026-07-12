@@ -1,30 +1,48 @@
 ---
 title: Roadmap
-description: What ships in v1.0, what is deferred to v1.1, and what is out of scope.
+description: What has shipped through v1.7, and what remains deferred or out of scope.
 ---
 
-## v1.0 (current)
+## Shipped (current: v1.7.0)
 
-The complete G2.1 tool surface — 141 tools across 31 domains — plus the M7
-hardening gate: conditional OpenTelemetry tracing, the Prometheus catalog and
-`/metrics` endpoint, the MORGIANA CloudEvents spool, a dispatch-wide rate limiter,
-a >80% coverage gate, the 8-triple native prebuild (linux/darwin/win x64+arm64,
-plus linux x64+arm64 musl) + release workflow, and this documentation site.
+The complete G2.1 tool surface — 141 tools across 31 domains — plus everything the
+v1.x line added on top of the v1.0 hardening gate (OpenTelemetry, Prometheus,
+CloudEvents, rate limiter, 8-triple native prebuilds, this docs site):
 
-## Deferred to v1.1
+- **The measured retrieval engine** (v1.4–v1.7): enriched BM25 + enriched dense +
+  hop-ordered wikilink expansion fused under RRF k=10 — a general hybrid retriever,
+  gated by an n=136 golden set with a statistical ship rule (permutation test, FDR,
+  a non-inferiority floor). Contextual chunk enrichment measured **+0.223 nDCG** and
+  defaults on. k-means clustering and ACT-R activation recompute run as offline CLI
+  passes. Per-vault GraphRAG edge isolation shipped. Mechanisms that lost their A/B
+  (cross-encoder rerankers, learned sparse, ColBERT, convex fusion, query
+  decomposition, MMR, the class router's lexical short-circuit) ship **dark** behind
+  flags, with the numbers recorded on their tickets.
+- **The experiential work-memory tier** (v1.6): a quarantined second store with
+  serve-path retrieval logging, auto-captured work episodes (poison-scanned,
+  evaluator-stamped eligibility), and reader tools under a strict contract.
+- **Composite context surfaces** (v1.7): `vault_context` (budget-packed one-call
+  context with lesson surfacing and a TTL-enforced prewarm cache) and `reflect`
+  (grounded synthesis + adversarial challenge + a typed-delta preference profile).
+- **Dependency-aware deletion** with a hash-chained forget audit; **Obsidian Git**
+  and **Remotely Save** companion bridges; a **knowledge-flywheel CLI family**
+  (`metrics`, `gaps`, `prefetch`, `reflect`, `forget`, `citation-infer`,
+  `contribution-report`, `activation-recompute`, `cluster`); and a vec0 index with
+  a per-vault partition key, rebuilt in place from stored embeddings.
+
+## Deferred
 
 - cosign binary signing and CycloneDX SBOM generation.
-- The richer `obsidian-tc serve / init / auth / …` subcommand CLI (v1.0 ships a
-  config-path launcher).
 - Per-tool reference pages auto-generated from the live tool registry.
+- A per-scope HITL-raise (today per-scope overrides only tighten; isolate unattended
+  automation on a second instance instead).
 
-## Out of scope
+## Out of scope for the v1.x line
 
-The converged-engine decision (2026-06-25) folded retrieval intelligence *into* obsidian-tc — GraphRAG (`vault_graph_search`; vector-seed + wikilink-expansion RRF), FTS5 BM25 text search, dense-vector search, and gateway-optional rerank all ship in the v1.x line. This **supersedes** the earlier "obsidian-tc is an access MCP; pair it with an external retrieval/RAG service" framing.
-
-What remains out of scope for the v1.x line:
-
-- A **general BM25 + vector hybrid retriever** — RRF over lexical *and* dense rankings for all vault search. Today RRF fuses only the GraphRAG seed/expansion streams; `search_vault` auto mode runs text, then semantic on zero hits. Tracked as THE-196.
-- **Clustering and graph ML** — k-means, the removed Python ML sidecar, and ACT-R decay. The native hooks were removed.
-- The **typed-atom MemIR substrate** (claim atoms, bi-temporal `authoritative_claims`) — a downstream engine-build phase (THE-235).
-- **Multi-vault GraphRAG edge isolation** — `vault_edges` is single-vault today; per-vault edge scoping is a follow-up (THE-233).
+- The **typed-atom MemIR substrate** (claim atoms, bi-temporal
+  `authoritative_claims`) — a downstream engine-build phase, parked with an explicit
+  revisit trigger (THE-235).
+- **Cross-store fused ranking** between the authored vault and the experiential
+  store — the stores federate at query time by design (separate legs, never one
+  ranked list), so score calibration across them has no substrate (THE-237,
+  closed with that verdict).

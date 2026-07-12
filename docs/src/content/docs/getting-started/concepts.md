@@ -26,6 +26,22 @@ meta-tools taking `{ action, args }`; **`flat`** advertises every tool. In every
 mode each tool stays callable by name, and `tools/list` is further filtered per
 caller scopes + tool-visibility ACL.
 
+## The memory engine
+
+Beyond vault access, the server maintains a **quarantined experiential store**
+(`experiential.db`, physically separate from your authored notes): every serve-path
+retrieval is logged, every agent tool call is captured as a work episode
+(poison-scanned at write; retrievable only after an evaluator stamps it eligible),
+and derived usage statistics are views over that log — nothing ever mutates the
+authored store. Two composite tools sit on top: **`vault_context`** returns a
+budget-packed context bundle in one call (graph-reranked chunks, synthesis
+patterns, open contradictions, applicable past lessons — with a TTL-enforced
+prewarm cache for session bootstrap), and **`reflect`** produces a grounded,
+source-attributed synthesis with an adversarial challenge mode. Deletion
+propagates: the `forget` CLI clears derived state and appends to a hash-chained
+audit log. Retrieval quality is gated by a golden-set eval harness — ranking
+changes ship only with measured wins.
+
 ## Scopes & scope classes
 
 Every tool declares the scopes it requires (`family:resource`, e.g. `read:notes`,

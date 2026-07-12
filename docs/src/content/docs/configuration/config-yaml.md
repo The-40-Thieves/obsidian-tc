@@ -7,6 +7,19 @@ obsidian-tc reads one **JSON** config file, passed as the first CLI argument or 
 `OBSIDIAN_TC_CONFIG`. (You can also pass a vault folder directly for zero-config
 startup.) The full shape:
 
+Retrieval and memory-engine knobs (all defaults shown below): `retrieval.rrfK` is
+the RRF fusion constant (k=10 shipped after a measured sweep); `retrieval.classRouter`
+enables the dark query-class router (off — its lexical short-circuit lost its A/B).
+Under `experiential`: `logRetrievals` appends serve-path retrieval events to the
+quarantined experiential store (local-only telemetry feeding activation recompute and
+citation inference); `captureEpisodes` auto-captures agent tool-call outcomes as work
+episodes (the action axis); `captureContent` additionally stores secret-scanned call
+arguments (the content axis — **off by default**, opt in deliberately);
+`activationRerank` applies cached ACT-R activation in the graph rerank (dark until its
+A/B wins). `embeddings.chunkContext` (default **true**) embeds each chunk with its
+note title + heading breadcrumb — measured +0.223 nDCG; the first reconcile after
+enabling re-embeds in full.
+
 ```json
 {
   "vaults": [
@@ -26,6 +39,13 @@ startup.) The full shape:
   ],
   "cacheDir": "/home/user/.cache/obsidian-tc",
   "toolFacade": { "mode": "triad" },
+  "retrieval": { "rrfK": 10, "classRouter": false },
+  "experiential": {
+    "logRetrievals": true,
+    "captureEpisodes": true,
+    "captureContent": false,
+    "activationRerank": false
+  },
   "toolVisibility": { "hidden": [], "disabled": [], "requireReadOnly": false },
   "auth": {
     "mode": "jwt",

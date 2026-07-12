@@ -19,10 +19,10 @@ tags:
 
 # obsidian-tc — Architecture and Topology
 
-> **Scope note (updated 2026-07-02):** obsidian-tc is the **converged memory engine** — vault read/write, search, *and* the retrieval intelligence (GraphRAG with vector-seed + wikilink-expansion RRF, FTS5 BM25 and dense-vector search as separate modes, gateway-optional rerank) folded in from the now-retired knowledge-mcp-server. A general BM25+vector hybrid retriever is not yet shipped — the only RRF fuses GraphRAG's seed/expansion streams (THE-196) — and GraphRAG edges are single-vault today (THE-233). The earlier 2026-06-19 note — which scoped retrieval intelligence *out* and said to pair obsidian-tc with an external retrieval/RAG service — is **superseded** by the 2026-06-25 single-converged-product decision (`09-reference/decisions/2026-06-25-obsidian-tc-single-converged-product`; THE-233): obsidian-tc *is* the engine, not an access slice. The Python ML sidecar and its IPC contract, plus the native `kmeansAssign` / `actrDecayScore` reservations, were **removed with the V2 ML scope** — as of the 2026-07-02 truth pass (THE-298) those sections have been deleted from this document rather than kept as historical text (no sidecar code, config block, or `sidecar.call` helper exists in the shipped tree). The typed-atom MemIR substrate (claim atoms, `authoritative_claims`, bi-temporal) is a downstream engine-build phase (THE-235), not part of this v1.x converged line.
+> **Scope note (updated 2026-07-12):** obsidian-tc is the **converged memory engine** — vault read/write, search, *and* the retrieval intelligence folded in from the now-retired knowledge-mcp-server, then measured far past it. The 2026-07 retrieval campaign shipped: a general BM25+dense hybrid (enriched BM25 + enriched dense + hop-ordered wikilink expansion fused under RRF k=10 — this closed THE-196), contextual chunk enrichment (+0.223 nDCG, default on), per-vault GraphRAG edge isolation (THE-310), k-means chunk clustering + ACT-R activation recompute as offline CLI passes, and an n=136 golden-set eval harness with a statistical ship rule; mechanisms that lost their A/B (rerankers, learned sparse, ColBERT, convex fusion, query decomposition, MMR, the class router's lexical short-circuit) ship dark behind flags with numbers recorded. The v1.6–v1.7 line added the **experiential work-memory tier** (§11) and the composite context surfaces (`vault_context`, `reflect`). The earlier 2026-06-19 note — which scoped retrieval intelligence *out* — is **superseded** by the 2026-06-25 single-converged-product decision (THE-233): obsidian-tc *is* the engine. The Python ML sidecar and native `kmeansAssign`/`actrDecayScore` reservations were removed (THE-298 truth pass). The typed-atom MemIR substrate (claim atoms, `authoritative_claims`, bi-temporal) remains a downstream engine-build phase (THE-235), not part of this v1.x line.
 
-**Status:** shipped in v1.0.2 (2026-06-21); reconciled to the shipped v1.x line on 2026-07-02 (THE-298 truth pass). This document records the architecture and topology committed for the v1.0 line as it actually ships.
-**Tool surface:** the 141-tool G2.1 surface across 29 domains — see [`docs/G2.1-tools.md`](docs/G2.1-tools.md) — extended additively post-1.0 (the facade meta-tools, structured-format additions). What `tools/list` *advertises* is shaped by the `toolFacade` mode (§10); every registered tool stays callable by name.
+**Status:** shipped in v1.0.2 (2026-06-21); reconciled 2026-07-02 (THE-298 truth pass); memory-engine sections added 2026-07-12 at v1.7.0. This document records the architecture and topology of the v1.x line as it actually ships.
+**Tool surface:** the 141-tool G2.1 surface across 31 domains — see [`docs/G2.1-tools.md`](docs/G2.1-tools.md) — extended additively post-1.0 (the facade meta-tools, structured formats, the knowledge domain, the M8 work-memory domain, the git and remotely-save bridges). What `tools/list` *advertises* is shaped by the `toolFacade` mode (§10); every registered tool stays callable by name.
 **Linear:** THE-115
 
 ## Scope and inheritance
@@ -701,6 +701,64 @@ Protocol evolution is the most likely external factor to invalidate G2.2 decisio
 
 ---
 
+## 11. The memory engine (v1.6–v1.7)
+
+The experiential tier is a **membrane**: a physically separate `experiential.db` beside the
+authored `cache.db`, with its own migration chain (applied identically by every entry point
+that opens it). Nothing in it can reach an authored chunk except through query-time
+composition; there are no cross-file foreign keys.
+
+**Write side.**
+- `chunk_retrievals` — every serve-path retrieval (search, graph, context, reflect) appends
+  hits at the TOOL layer (eval runs never log), carrying rank/score/surface/session and two
+  later-stamped axes: `outcome` (−1/0/+1 feedback) and `cited_in_response` (two-stage citation
+  inference: ROUGE-L + stored-embedding cosine, then an optional gateway judge with a
+  parse-failure kill switch).
+- `agent_episodes` — the registry's `onEpisode` hook captures every dispatch outcome
+  (capture-everything on the ACTION axis; the CONTENT axis `experiential.captureContent`
+  defaults OFF and is secret-scanned when on). Rows are born `pending` with a channel trust;
+  a deterministic pre-ingest poison scanner marks injection-shaped content born-`ineligible`
+  (never auto-raised). Bi-temporal validity + a per-caller `prev_id` chain.
+
+**Evaluation (`obsidian-tc reflect`, sleep-time).** Pending episodes promote to `eligible`
+under deterministic rules; unstable clusters (same caller+tool+args showing both ok and
+error) are held; an optional gateway judge reviews a capped sample and can only LOWER.
+The same pass runs gateway-gated preference extraction into a **versioned preference
+profile** updated only by typed deltas (add/strengthen/weaken/retract with weight counters —
+never monolithic regeneration), with an append-only delta audit.
+
+**Read side.** M8 tools (`work_search`, `work_episodes`, `work_forget`,
+`record_retrieval_feedback`) enforce the reader contract: eligible-only by default,
+tombstones honored, expiry honored, trust floor 0.3, caller partition. `vault_context`'s
+opt-in `include_work` leg rides the same contract.
+
+**Composite surfaces (M7).** `vault_context(query?, token_budget)` returns budget-packed
+graph-reranked chunks grouped by note + synthesis patterns + open contradictions + a lessons
+leg (decision/postmortem chunks, engine-first with BM25 backfill); with no query it
+bootstraps from the memory folder's `_next-session.md` through a **prewarm cache whose TTL
+is enforced at read time** (plus a signal-content hash, so an edited note invalidates).
+`reflect(query, mode?)` is the third verb: recall → gateway synthesis with source
+provenance, a challenge mode delegating to the red-team core, and opt-in persistence with
+`source_model` + chunk-id frontmatter.
+
+**Deletion.** `forget` propagates: episodes tombstone (erase mode scrubs content but keeps
+the attribution skeleton); an already-deleted note's derived state is cleared (activation
+always; retrieval history kept under the audit default, deleted under erase; prewarm bundles
+invalidated; regenerating artifacts reported, never rewritten). Every forget appends to a
+**hash-chained `forget_log`** — editing, removing, or reordering any entry breaks
+verification.
+
+**Derive layer + flywheel.** Access statistics are views over the retrieval log
+(`chunk_access_stats`), never columns mutated on the authored store; `linear:` frontmatter
+links notes to issues. The `metrics` and `gaps` CLIs (gap floor calibrated as p5 of the
+golden set's top-1 scores) feed a cycle-close session that writes the scorecard back into
+the vault.
+
+**Vector index.** `vec_chunks` is a vec0 table with `vault_id` as a **partition key** (KNN
+prunes to the query vault's shard — the cross-vault crowding class is structurally gone) and
+`+path`/`+model` aux columns; a legacy-shaped table is rebuilt in place from
+`chunk_embeddings` at boot, no re-embed.
+
 ## Cross-cutting items for G2.3-G2.5 (carry-forward + new)
 
 Inherited from G2.1 r2:
@@ -740,7 +798,7 @@ Architectural hooks baked into V1 so V2 is an upgrade, not a rewrite:
 
 ## Status
 
-Shipped in v1.0.2 (2026-06-21); this record was reconciled to the shipped v1.x line on 2026-07-02 (THE-298 truth pass — shared-DB storage truth, sidecar removal, shipped HITL/auth/probe/CLI behavior). The full design (G2.1–G2.5) is committed and implemented; this document is the architecture record for the v1.x line.
+Shipped in v1.0.2 (2026-06-21); reconciled to the shipped v1.x line on 2026-07-02 (THE-298 truth pass — shared-DB storage truth, sidecar removal, shipped HITL/auth/probe/CLI behavior); §11 (the memory engine) added 2026-07-12 at v1.7.0, covering the experiential tier, composite context surfaces, dependency-aware deletion, the derive/flywheel layer, and the partitioned vector index. The full design (G2.1–G2.5) is committed and implemented; this document is the architecture record for the v1.x line.
 
 ## References
 
