@@ -6,6 +6,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Derive-don't-mutate access instrumentation + knowledge-health scorecard
+  (THE-44, THE-46).** `chunk_access_stats` — a VIEW over `chunk_retrievals`
+  (access count, last access, citations, outcome balance; migration
+  20260712_002) — replaces the original mutate-the-chunk-store design, and the
+  `linear:` frontmatter convention replaces a `linked_issue_id` column. New CLI
+  `obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms]
+  [--stale-days N] [--json file]` emits the cycle scorecard (totals, windowed
+  retrieval/citation counts, staleness cuts, linear-linked coverage,
+  per-surface breakdown, top notes) for the cycle-close session to stamp into
+  a vault metrics note.
+
 ## [1.7.0] - 2026-07-12
 
 ### Added

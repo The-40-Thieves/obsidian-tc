@@ -24,6 +24,7 @@ import { inferCitations } from "./experiential/citation";
 import { contributionReport } from "./experiential/contribution";
 import { createEpisodeCapture } from "./experiential/episodes";
 import { createRetrievalLogger } from "./experiential/log";
+import { vaultMetrics } from "./experiential/metrics";
 import { evaluateEpisodes, extractPreferences } from "./experiential/reflect";
 import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
@@ -114,6 +115,11 @@ const preferenceProfileMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260712_001_preference_profile.sql", import.meta.url)),
   "utf8",
 );
+// THE-44: derive-don't-mutate access instrumentation (chunk_access_stats view).
+const accessViewsMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260712_002_access_views.sql", import.meta.url)),
+  "utf8",
+);
 // The experiential.db chain, applied by every entry point that opens the store (serve +
 // activation-recompute) so they can never diverge on schema.
 const experientialMigrations = [
@@ -121,6 +127,7 @@ const experientialMigrations = [
   { version: "20260711_001", sql: experientialOutcomeMigrationSql },
   { version: "20260711_002", sql: experientialAgentEpisodesMigrationSql },
   { version: "20260712_001", sql: preferenceProfileMigrationSql },
+  { version: "20260712_002", sql: accessViewsMigrationSql },
 ];
 // THE-233 (W-WORKERS): sleep-time plane state tables (contradictions/syntheses/audit_reports/
 // job_runs). W-WORKERS left this committed-but-unwired by design; the integration wires it into
@@ -318,6 +325,47 @@ async function main(): Promise<void> {
       }
       if (cmd.json) {
         writeFileSync(cmd.json, JSON.stringify(report, null, 2));
+        process.stdout.write(`wrote ${cmd.json}\n`);
+      }
+    } finally {
+      edb.close?.();
+      cacheDb.close?.();
+    }
+    return;
+  }
+
+  // THE-44/46: the knowledge-health scorecard, computed from the derive layer on demand. The
+  // cycle-close session runs this and stamps the result into a vault metrics note; retrieval
+  // quality (nDCG/recall) comes from the eval harness and is merged there, not here.
+  if (cmd.kind === "metrics") {
+    const cfg = resolveOrUsageExit(cmd.input);
+    mkdirSync(cfg.cacheDir, { recursive: true });
+    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+    const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+      version: VERSION,
+    });
+    try {
+      const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
+      const m = vaultMetrics(edb, cacheDb, {
+        vaultId,
+        nowMs: Date.now(),
+        ...(cmd.since !== undefined ? { since: cmd.since } : {}),
+        ...(cmd.until !== undefined ? { until: cmd.until } : {}),
+        ...(cmd.staleDays !== undefined ? { staleDays: cmd.staleDays } : {}),
+      });
+      process.stdout.write(
+        `metrics ${vaultId}: chunks=${m.totals.chunks} notes=${m.totals.notes} new=${m.totals.new_chunks} retrievals=${m.totals.retrievals} citations=${m.totals.citations}\n` +
+          `access: accessed=${m.access.chunks_accessed} stale=${m.access.stale_chunks} never=${m.access.never_accessed_chunks}\n` +
+          `linear-linked notes: ${m.linked.notes_with_linear} (${m.linked.distinct_issues} issues)\n`,
+      );
+      for (const s of m.surfaces) process.stdout.write(`  surface ${s.surface}: ${s.retrievals}\n`);
+      for (const t of m.top_notes.slice(0, 10)) {
+        process.stdout.write(
+          `  ${t.access_count}x ${t.path}${t.citations > 0 ? ` [${t.citations} cited]` : ""}\n`,
+        );
+      }
+      if (cmd.json) {
+        writeFileSync(cmd.json, JSON.stringify(m, null, 2));
         process.stdout.write(`wrote ${cmd.json}\n`);
       }
     } finally {

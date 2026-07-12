@@ -23,6 +23,15 @@ export type CliCommand =
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
   | { kind: "prefetch"; input?: string; vault?: string; ttlHours?: number }
   | { kind: "reflect"; input?: string; maxJudged?: number }
+  | {
+      kind: "metrics";
+      input?: string;
+      vault?: string;
+      since?: number;
+      until?: number;
+      staleDays?: number;
+      json?: string;
+    }
   | { kind: "error"; message: string };
 
 export const USAGE = `obsidian-tc — MCP server for Obsidian
@@ -39,6 +48,8 @@ Usage:
                                           Prewarm the session-bootstrap context cache (THE-136)
   obsidian-tc reflect [path] [--max-judged N]
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
+  obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]
+                                          Knowledge-health scorecard from the derive layer (THE-44/46)
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 
@@ -168,6 +179,35 @@ export function parseCliArgs(argv: string[]): CliCommand {
         input: flagValue(rest, "--config") ?? positional(scan),
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
+        ...(json !== undefined ? { json } : {}),
+      };
+    }
+    // THE-44/46: knowledge-health scorecard over the derive layer (chunk_access_stats).
+    if (first === "metrics") {
+      const num = (flag: string): number | undefined => {
+        const v = flagValue(rest, flag);
+        if (v === undefined) return undefined;
+        const n = Number(v);
+        if (!Number.isFinite(n)) throw new CliError(`${flag} must be a number`);
+        return n;
+      };
+      const scan = [...rest];
+      for (const f of ["--vault", "--since", "--until", "--stale-days", "--json", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const vault = flagValue(rest, "--vault");
+      const since = num("--since");
+      const until = num("--until");
+      const staleDays = num("--stale-days");
+      const json = flagValue(rest, "--json");
+      return {
+        kind: "metrics",
+        input: flagValue(rest, "--config") ?? positional(scan),
+        ...(vault !== undefined ? { vault } : {}),
+        ...(since !== undefined ? { since } : {}),
+        ...(until !== undefined ? { until } : {}),
+        ...(staleDays !== undefined ? { staleDays } : {}),
         ...(json !== undefined ? { json } : {}),
       };
     }
