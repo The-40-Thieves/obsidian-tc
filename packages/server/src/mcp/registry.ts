@@ -293,7 +293,8 @@ export class ToolRegistry {
       scopes_required: this.tools.get(name)?.requiredScopes ?? [],
       status: result.ok ? "ok" : callStatusForError(result.error.code),
       duration_ms: result.meta.duration_ms,
-      elicit_token: ctx.elicitToken ?? null,
+      // THE-288 hardening: emit a one-way fingerprint, never the raw single-use HITL token.
+      elicit_token: ctx.elicitToken ? callerHash(ctx.elicitToken) : null,
       result_size: result.meta.result_size,
       overflow_bytes: result.meta.overflow_bytes ?? null,
       error: result.ok ? null : { code: result.error.code, message: result.error.message },
@@ -723,18 +724,40 @@ export class ToolRegistry {
         this.relay(ctx.vaultId, "tc.elicit.consumed", {
           tool: name,
           caller_hash: callerHash(ctx.caller),
-          elicit_token: ctx.elicitToken ?? null,
+          // THE-288 hardening: fingerprint, not the raw token (see morgianaData).
+          elicit_token: ctx.elicitToken ? callerHash(ctx.elicitToken) : null,
         });
       }
 
       const handlerStart = now();
       const out = await def.handler(parsed.data, ctx);
       const handlerMs = Math.max(0, now() - handlerStart);
+      // THE-278 hardening (warn-mode): the handler's success payload must match the advertised
+      // outputSchema. Validate and surface drift to the operator, but never throw — a schema
+      // mismatch must not turn a working call into a client-visible failure.
+      if (def.outputSchema) {
+        const outCheck = def.outputSchema.safeParse(out);
+        if (!outCheck.success) {
+          try {
+            this.onInternalError?.(
+              `output_schema:${name}`,
+              ctx.vaultId,
+              new Error(`output does not match advertised outputSchema: ${outCheck.error.message}`),
+            );
+          } catch {
+            /* diagnostics sink must never break dispatch */
+          }
+        }
+      }
       const json = JSON.stringify(out ?? null);
       const resultSize = Buffer.byteLength(json, "utf8");
       const duration = Math.max(0, now() - start);
 
       if (resultSize > this.maxResponseBytes) {
+        // KNOWN GAP (idempotency post-effect retry, tracked separately): the handler's side effect
+        // has already committed by here, but deleting the claim lets a retry with the same key
+        // re-execute it. The real fix is a durable claim state-machine (effect-committed vs
+        // response-recorded); intentionally not changed in this hardening pass to keep it low-risk.
         if (idemClaimed && idemKey) {
           this.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
           try {
