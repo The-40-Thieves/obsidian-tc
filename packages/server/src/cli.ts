@@ -47,6 +47,7 @@ import {
   indexVault,
 } from "./search/indexer";
 import { nativeLoaded } from "./search/native";
+import { prewarmPathFor, writePrewarm } from "./search/prefetch";
 import type { Reranker } from "./search/rerank";
 import { ensureVecChunks } from "./search/vec";
 import { RateLimiter } from "./throttle";
@@ -314,6 +315,83 @@ async function main(): Promise<void> {
       }
     } finally {
       edb.close?.();
+      cacheDb.close?.();
+    }
+    return;
+  }
+
+  // THE-136: anticipatory prefetch — compose vault_context's bootstrap bundle per vault (the
+  // same registry surface serve exposes, dispatched as caller "prefetch-worker") and write the
+  // prewarm cache. The compose here is always live (no prewarmDir on this registry — this
+  // command IS the producer); the serve-path bootstrap reader enforces the TTL + signal hash.
+  if (cmd.kind === "prefetch") {
+    const cfg = resolveOrUsageExit(cmd.input);
+    mkdirSync(cfg.cacheDir, { recursive: true });
+    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+    const provider = createEmbeddingProvider(cfg.embeddings);
+    const pfVaultRegistry = new VaultRegistry(cfg.vaults);
+    const memByVault = new Map<string, string>();
+    for (const v of cfg.vaults) if (v.memory) memByVault.set(v.id, v.memory.folder);
+    const pfRegistry = new ToolRegistry({});
+    registerM7Tools(pfRegistry, {
+      vaultRegistry: pfVaultRegistry,
+      embeddingProvider: provider,
+      reranker: null,
+      roles: null,
+      retrieval: cfg.retrieval,
+      classRouter: cfg.retrieval.classRouter,
+      memoryFolder: (vaultId) => memByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
+    });
+    const ttlHours = cmd.ttlHours ?? 6;
+    const targets = cmd.vault ? cfg.vaults.filter((v) => v.id === cmd.vault) : cfg.vaults;
+    if (cmd.vault && targets.length === 0) {
+      process.stderr.write(`prefetch: unknown vault ${cmd.vault}\n`);
+      process.exit(2);
+    }
+    try {
+      for (const v of targets) {
+        const res = (await pfRegistry.dispatch(
+          "vault_context",
+          { vault: v.id },
+          {
+            caller: "prefetch-worker",
+            authenticated: true,
+            grantedScopes: new Set(["read:notes"]),
+            vaultId: v.id,
+            db: cacheDb,
+          },
+        )) as {
+          ok: boolean;
+          data?: Record<string, unknown> & {
+            signal?: string;
+            signal_hash?: string;
+            stats?: { chunks_packed?: number };
+          };
+          error?: { message?: string };
+        };
+        if (!res.ok || !res.data) {
+          process.stdout.write(
+            `prefetch ${v.id}: skipped (${res.error?.message ?? "no signal note"})\n`,
+          );
+          continue;
+        }
+        const now = Date.now();
+        // THE-136 floor: a prefetch that packs nothing writes an empty marker, never a wrong
+        // bundle (RRF scores are positional, so emptiness is the enforceable relevance floor).
+        const empty = (res.data.stats?.chunks_packed ?? 0) === 0;
+        writePrewarm(prewarmPathFor(cfg.cacheDir, v.id), {
+          generated_at: now,
+          expires_at: now + ttlHours * 3_600_000,
+          signal: String(res.data.signal ?? ""),
+          signal_hash: String(res.data.signal_hash ?? ""),
+          empty,
+          ...(empty ? {} : { bundle: res.data }),
+        });
+        process.stdout.write(
+          `prefetch ${v.id}: ${empty ? "empty (floor)" : `${res.data.stats?.chunks_packed} chunk(s)`} ttl=${ttlHours}h\n`,
+        );
+      }
+    } finally {
       cacheDb.close?.();
     }
     return;
@@ -800,6 +878,9 @@ async function main(): Promise<void> {
     // THE-231: same per-vault memory folder as M5 — vault_context's bootstrap mode reads
     // the _next-session.md signal note from it.
     memoryFolder: (vaultId) => memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
+    // THE-136: bootstrap mode reads the prewarm cache (TTL + signal-hash enforced) and
+    // writes through on a live compose.
+    prewarmDir: config.cacheDir,
   });
 
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over

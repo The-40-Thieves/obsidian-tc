@@ -21,6 +21,7 @@ export type CliCommand =
       transcript?: string;
     }
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
+  | { kind: "prefetch"; input?: string; vault?: string; ttlHours?: number }
   | { kind: "error"; message: string };
 
 export const USAGE = `obsidian-tc — MCP server for Obsidian
@@ -33,6 +34,8 @@ Usage:
   obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
   obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval (THE-73)
   obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history (THE-227)
+  obsidian-tc prefetch [path] [--vault id] [--ttl-hours N]
+                                          Prewarm the session-bootstrap context cache (THE-136)
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 
@@ -163,6 +166,28 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
         ...(json !== undefined ? { json } : {}),
+      };
+    }
+    // THE-136: anticipatory prefetch — compose the bootstrap bundle and write the prewarm cache.
+    if (first === "prefetch") {
+      const scan = [...rest];
+      for (const f of ["--vault", "--ttl-hours", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const vault = flagValue(rest, "--vault");
+      const tv = flagValue(rest, "--ttl-hours");
+      let ttlHours: number | undefined;
+      if (tv !== undefined) {
+        ttlHours = Number(tv);
+        if (!Number.isFinite(ttlHours) || ttlHours <= 0)
+          return { kind: "error", message: "--ttl-hours must be a positive number" };
+      }
+      return {
+        kind: "prefetch",
+        input: flagValue(rest, "--config") ?? positional(scan),
+        ...(vault !== undefined ? { vault } : {}),
+        ...(ttlHours !== undefined ? { ttlHours } : {}),
       };
     }
     if (first.startsWith("-")) return { kind: "error", message: `unknown option: ${first}` };

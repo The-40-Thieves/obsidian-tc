@@ -8,6 +8,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Anticipatory context prefetch (THE-136).** New CLI command
+  `obsidian-tc prefetch [path] [--vault id] [--ttl-hours N]` composes
+  vault_context's session-bootstrap bundle per vault and writes a prewarm cache
+  (`prewarm-<vault>.json` in the cache dir, atomic tmp+rename). Bootstrap mode
+  now reads that cache — with the TTL **enforced at read time** and a
+  signal-content hash so an edited `_next-session.md` invalidates immediately
+  (the FlowState-QMD staleness bug, fixed and pinned by test) — and writes
+  through on a live compose. A prefetch that packs nothing writes an empty
+  marker, never a wrong bundle.
 - **Proactive lesson surfacing in vault_context (THE-231).** The composite call
   now returns a `lessons` leg — decision/lesson/postmortem chunks relevant to
   the query (engine-ranked hits first, BM25 backfill over lesson-class paths) —

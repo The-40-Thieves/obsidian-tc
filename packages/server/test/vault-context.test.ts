@@ -3,6 +3,7 @@
 // the include_work leg honoring the THE-229 reader contract (explicit opt-in; eligible-only;
 // work_unavailable without the experiential handle). Uses the lexical route (classRouter +
 // rare term) so no embedding backend is needed — same dispatch path as serve.
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,7 @@ import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import { ToolRegistry } from "../src/mcp/registry";
 import { ensureChunkFts } from "../src/search/chunk_fts";
+import { prewarmPathFor, writePrewarm } from "../src/search/prefetch";
 import { registerM7Tools } from "../src/tools/m7";
 import { packBudget } from "../src/tools/m7/knowledge-tools";
 import { VaultRegistry } from "../src/vault/registry";
@@ -125,7 +127,7 @@ function un<T>(r: unknown): T {
 const root = mkdtempSync(join(tmpdir(), "obtc-vc-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-function harness(edb?: Database, rootOverride?: string) {
+function harness(edb?: Database, rootOverride?: string, prewarmDir?: string) {
   const cache = cacheDb0();
   const registry = new ToolRegistry({});
   const vaultRegistry = new VaultRegistry([
@@ -147,6 +149,7 @@ function harness(edb?: Database, rootOverride?: string) {
     roles: null,
     classRouter: true,
     ...(edb ? { edb } : {}),
+    ...(prewarmDir ? { prewarmDir } : {}),
   });
   const ctx = {
     caller: "tester",
@@ -266,6 +269,86 @@ describe("vault_context (THE-132)", () => {
       expect(res.lessons.map((l) => l.chunk_id)).toContain("d1");
     } finally {
       rmSync(root2, { recursive: true, force: true });
+    }
+  });
+
+  it("bootstrap serves a fresh prewarm entry without recomposing (THE-136)", async () => {
+    const root4 = mkdtempSync(join(tmpdir(), "obtc-vc-warm-"));
+    const warmDir = mkdtempSync(join(tmpdir(), "obtc-warm-"));
+    mkdirSync(join(root4, "memory"), { recursive: true });
+    // "zylo thread" routes STANDARD (df=0 tokens) — a live compose would hit the throwing
+    // embed stub, so a successful response proves the cache served it.
+    writeFileSync(join(root4, "memory", "_next-session.md"), "zylo thread");
+    const hash = createHash("sha256").update("zylo thread").digest("hex");
+    writePrewarm(prewarmPathFor(warmDir, "main"), {
+      generated_at: 111,
+      expires_at: Date.now() + 60_000,
+      signal: "memory/_next-session.md",
+      signal_hash: hash,
+      empty: false,
+      bundle: { sentinel: true },
+    });
+    try {
+      const { registry, ctx } = harness(undefined, root4, warmDir);
+      const res = un<{ sentinel?: boolean; prefetched?: boolean; prefetch_generated_at?: number }>(
+        await registry.dispatch("vault_context", { vault: "main" }, ctx),
+      );
+      expect(res.sentinel).toBe(true);
+      expect(res.prefetched).toBe(true);
+      expect(res.prefetch_generated_at).toBe(111);
+    } finally {
+      rmSync(root4, { recursive: true, force: true });
+      rmSync(warmDir, { recursive: true, force: true });
+    }
+  });
+
+  it("expired and empty prewarm entries fall through to a live compose + write-through", async () => {
+    const root5 = mkdtempSync(join(tmpdir(), "obtc-vc-stale-"));
+    const warm5 = mkdtempSync(join(tmpdir(), "obtc-warm5-"));
+    mkdirSync(join(root5, "memory"), { recursive: true });
+    const signalText = "resume the zylophrastic reconciler migration thread";
+    writeFileSync(join(root5, "memory", "_next-session.md"), signalText);
+    const hash = createHash("sha256").update(signalText).digest("hex");
+    const file = prewarmPathFor(warm5, "main");
+    // Expired entry: reader must refuse it (the FlowState bug) and compose live.
+    writePrewarm(file, {
+      generated_at: 5,
+      expires_at: 10,
+      signal: "memory/_next-session.md",
+      signal_hash: hash,
+      empty: false,
+      bundle: { sentinel: true },
+    });
+    try {
+      const { registry, ctx } = harness(undefined, root5, warm5);
+      const live = un<ContextData & { prefetched?: boolean }>(
+        await registry.dispatch("vault_context", { vault: "main" }, ctx),
+      );
+      expect(live.prefetched).toBeUndefined();
+      expect(live.query_source).toBe("next_session");
+      expect(live.stats.chunks_packed).toBeGreaterThan(0);
+      // Write-through refreshed the file with the live bundle.
+      const refreshed = JSON.parse(readFileSync(file, "utf8"));
+      expect(refreshed.generated_at).toBeGreaterThan(5);
+      expect(refreshed.empty).toBe(false);
+      expect(refreshed.bundle?.query_source).toBe("next_session");
+
+      // Fresh EMPTY marker (the prefetch floor): also a miss — live compose again.
+      writePrewarm(file, {
+        generated_at: 7,
+        expires_at: Date.now() + 60_000,
+        signal: "memory/_next-session.md",
+        signal_hash: hash,
+        empty: true,
+      });
+      const again = un<ContextData & { prefetched?: boolean }>(
+        await registry.dispatch("vault_context", { vault: "main" }, ctx),
+      );
+      expect(again.prefetched).toBeUndefined();
+      expect(again.stats.chunks_packed).toBeGreaterThan(0);
+    } finally {
+      rmSync(root5, { recursive: true, force: true });
+      rmSync(warm5, { recursive: true, force: true });
     }
   });
 

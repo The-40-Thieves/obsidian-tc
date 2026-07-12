@@ -3,6 +3,7 @@
 // on the branch: vault_graph_search (W-RETRIEVAL GraphRAG) and knowledge_challenge (W-WORKERS
 // red-team core). Both degrade gracefully when the inference gateway is unconfigured.
 // knowledge_get_critical is intentionally absent (vendor-KB data model not in the tree).
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
@@ -19,6 +20,12 @@ import {
 import type { GatewayRoles } from "../../plane/gateway";
 import { bm25Chunks } from "../../search/chunk_fts";
 import { type GraphSearchResult, graphSearch } from "../../search/graph_search";
+import {
+  DEFAULT_PREFETCH_TTL_MS,
+  prewarmPathFor,
+  readPrewarm,
+  writePrewarm,
+} from "../../search/prefetch";
 import type { Reranker } from "../../search/rerank";
 import { lexicalRouteResults, routeQuery } from "../../search/router";
 import { semanticSearch } from "../../search/semantic";
@@ -49,6 +56,10 @@ export interface M7Deps {
   /** THE-231: per-vault memory folder (same source as M5) — where the next-session signal
    *  note lives for vault_context's bootstrap mode; absent -> "memory". */
   memoryFolder?: (vaultId: string) => string;
+  /** THE-136: directory holding the prewarm cache (prewarm-<vault>.json). When set, bootstrap
+   *  mode reads a fresh entry instead of cold-querying and writes through on a live compose;
+   *  absent -> every bootstrap composes live. */
+  prewarmDir?: string;
 }
 
 /** THE-231: lesson-class paths — decision notes, lessons, postmortems, retros. Convention-based
@@ -177,6 +188,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         let query = input.query;
         let querySource: "input" | "next_session" = "input";
         let signalPath: string | undefined;
+        let signalHash: string | undefined;
         if (query === undefined) {
           const rel = `${deps.memoryFolder?.(v.id) ?? "memory"}/${NEXT_SESSION_NOTE}`;
           const abs = resolveVaultPath(v.root, rel);
@@ -194,6 +206,24 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           query = text;
           querySource = "next_session";
           signalPath = rel;
+          // THE-136: prewarm-cache hit — the anticipatory prefetch already composed this
+          // bundle. The reader enforces the TTL and the signal hash (an edited note misses);
+          // an empty marker (the prefetch floor) falls through to a live compose. Cache hits
+          // are not retrieval-logged: no live retrieval happened, the prefetch run logged its.
+          signalHash = createHash("sha256").update(text).digest("hex");
+          if (deps.prewarmDir) {
+            const cached = readPrewarm(prewarmPathFor(deps.prewarmDir, v.id), {
+              nowMs: (ctx.now ?? Date.now)(),
+              signalHash,
+            });
+            if (cached && !cached.empty && cached.bundle) {
+              return {
+                ...cached.bundle,
+                prefetched: true,
+                prefetch_generated_at: cached.generated_at,
+              };
+            }
+          }
         }
         // Same front door as vault_graph_search: the class router when enabled, the measured
         // engine otherwise — vault_context adds composition, never a second retrieval path.
@@ -392,11 +422,12 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           }
         }
 
-        return {
+        const response = {
           vault: v.id,
           route: route.signals,
           query_source: querySource,
           ...(signalPath !== undefined ? { signal: signalPath } : {}),
+          ...(signalHash !== undefined ? { signal_hash: signalHash } : {}),
           budget: {
             requested: input.token_budget,
             chunk_budget: chunkBudget,
@@ -416,6 +447,25 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           lessons,
           ...(episodes !== undefined ? { episodes } : {}),
         };
+        // THE-136 write-through: a live bootstrap compose refreshes the prewarm cache so the
+        // next bootstrap within the TTL is a hit even without a scheduled prefetch run.
+        // Best-effort; atomic (tmp + rename) so no reader catches a torn file.
+        if (querySource === "next_session" && deps.prewarmDir && signalHash !== undefined) {
+          try {
+            const now = (ctx.now ?? Date.now)();
+            writePrewarm(prewarmPathFor(deps.prewarmDir, v.id), {
+              generated_at: now,
+              expires_at: now + DEFAULT_PREFETCH_TTL_MS,
+              signal: signalPath ?? "",
+              signal_hash: signalHash,
+              empty: packed.length === 0,
+              ...(packed.length === 0 ? {} : { bundle: response }),
+            });
+          } catch {
+            /* the cache is an optimization; the response is already composed */
+          }
+        }
+        return response;
       },
     }),
 
