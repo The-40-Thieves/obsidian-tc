@@ -31,10 +31,31 @@ export interface BgeM3VllmOptions {
   timeoutMs?: number;
 }
 
+// XLM-RoBERTa special token ids: <s>=0, <pad>=1, </s>=2, <unk>=3. FlagEmbedding's
+// _process_token_weights drops these BEFORE pooling — without the filter, <s> carries
+// content-term-magnitude weight on ~every input, so every query matches every document
+// on the cls key and the sparse ranking degrades (measured on the live index: cls present
+// in 99.7% of stored vectors at mean weight 0.17, ranking among the top content terms).
+const XLMR_SPECIAL_IDS: ReadonlySet<number> = new Set([0, 1, 2, 3]);
+
 /**
- * Build a bge-m3 sparse vector from a token-classify pass: pair token ids with scores, keep positive
- * weights, and dedup a repeated token id to its MAX weight (bge-m3's lexical_weights semantics).
- * Pure — the certain core of the vLLM sparse parse.
+ * Align /tokenize ids to token_classify scores. vLLM's BgeM3 pooler strips BOS/EOS from the
+ * SCORES while /tokenize returns the full id list: equal lengths pair directly; a 2-short
+ * scores list pairs against tokens.slice(1, -1); any other mismatch returns null so the
+ * caller degrades the head to empty. NEVER positionally truncate a mismatch — that shifts
+ * every weight onto the wrong token id and the corrupted vector is indistinguishable from
+ * a valid one downstream (this exact defect invalidated the first THE-403 sparse index).
+ */
+export function alignTokensToScores(tokens: number[], scores: number[]): number[] | null {
+  if (scores.length === tokens.length) return tokens;
+  if (scores.length === tokens.length - 2) return tokens.slice(1, -1);
+  return null;
+}
+
+/**
+ * Build a bge-m3 sparse vector from a token-classify pass: drop special tokens, keep positive
+ * weights, and dedup a repeated token id to its MAX weight (FlagEmbedding lexical_weights
+ * semantics). Pure — the certain core of the vLLM sparse parse.
  */
 export function pairSparse(tokenIds: number[], scores: number[]): SparseVec {
   const out: SparseVec = {};
@@ -42,7 +63,7 @@ export function pairSparse(tokenIds: number[], scores: number[]): SparseVec {
   for (let i = 0; i < n; i++) {
     const id = tokenIds[i];
     const w = scores[i];
-    if (id === undefined || w === undefined || w <= 0) continue;
+    if (id === undefined || w === undefined || w <= 0 || XLMR_SPECIAL_IDS.has(id)) continue;
     const key = String(id);
     const prev = out[key];
     if (prev === undefined || w > prev) out[key] = w;
@@ -101,9 +122,12 @@ export async function bgeM3VllmEncode(
         });
         tokLists.push(Array.isArray(tok.tokens) ? (tok.tokens as number[]) : []);
       }
-      sparses = texts.map((_, i) =>
-        pairSparse(tokLists[i] ?? [], asScores(sparse.data?.[i]?.data)),
-      );
+      sparses = texts.map((_, i) => {
+        const toks = tokLists[i] ?? [];
+        const sc = asScores(sparse.data?.[i]?.data);
+        const aligned = alignTokensToScores(toks, sc);
+        return aligned ? pairSparse(aligned, sc) : {};
+      });
     } catch {
       unsupportedTasks.add(`${root}:token_classify`);
     }

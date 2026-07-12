@@ -4,7 +4,7 @@
 // to empty instead of failing the encode (memoized per server+task, so each test uses its own
 // fake base URL).
 import { describe, expect, it } from "vitest";
-import { bgeM3VllmEncode, pairSparse } from "../src/embeddings/bge-m3";
+import { alignTokensToScores, bgeM3VllmEncode, pairSparse } from "../src/embeddings/bge-m3";
 import type { FetchFn } from "../src/embeddings/http";
 
 function mockFetch(
@@ -35,9 +35,25 @@ function mockFetch(
 
 describe("bge-m3 vLLM encoder (THE-388 / THE-395 shapes)", () => {
   it("pairSparse dedups a repeated token id to its max weight and drops non-positive", () => {
-    expect(pairSparse([1, 2, 1], [0.3, 0.5, 0.8])).toEqual({ "1": 0.8, "2": 0.5 });
-    expect(pairSparse([1, 2], [0, -1])).toEqual({});
+    expect(pairSparse([100, 200, 100], [0.3, 0.5, 0.8])).toEqual({ "100": 0.8, "200": 0.5 });
+    expect(pairSparse([100, 200], [0, -1])).toEqual({});
     expect(pairSparse([], [])).toEqual({});
+  });
+
+  it("pairSparse drops XLM-R special tokens (<s>/<pad>/</s>/<unk>) even at positive weight", () => {
+    // The FlagEmbedding lexical_weights contract: cls/eos/pad/unk never enter the sparse
+    // vector — otherwise every query matches every document on the cls key.
+    expect(pairSparse([0, 1, 2, 3, 777], [0.9, 0.9, 0.9, 0.9, 0.4])).toEqual({ "777": 0.4 });
+  });
+
+  it("alignTokensToScores handles full, BOS/EOS-stripped, and mismatched score lists", () => {
+    // equal lengths: pair directly
+    expect(alignTokensToScores([0, 10, 20, 2], [1, 2, 3, 4])).toEqual([0, 10, 20, 2]);
+    // vLLM BgeM3 pooler strips BOS/EOS from scores: pair against the inner ids
+    expect(alignTokensToScores([0, 10, 20, 2], [0.5, 0.6])).toEqual([10, 20]);
+    // anything else is a hard mismatch: degrade, never truncate (weight-shift corruption)
+    expect(alignTokensToScores([0, 10, 20, 2], [0.5])).toBeNull();
+    expect(alignTokensToScores([0, 10, 2], [0.1, 0.2, 0.3, 0.4])).toBeNull();
   });
 
   it("encodes dense + sparse + colbert (root pooling, prompt tokenize)", async () => {
