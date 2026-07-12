@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-12
+
 ### Added
 
 - **`reflect` — the third verb, as one callable operation (THE-222).** New MCP

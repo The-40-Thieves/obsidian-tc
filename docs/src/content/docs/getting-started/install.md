@@ -40,7 +40,7 @@ arm64 is not a `bun --compile` target; use the npm install there.)
 ```sh
 docker run --rm -v "$HOME/vaults:/vaults" \
   -v "$HOME/.config/obsidian-tc:/config" \
-  ghcr.io/the-40-thieves/obsidian-tc:1.6.0 /config/config.json
+  ghcr.io/the-40-thieves/obsidian-tc:1.7.0 /config/config.json
 ```
 
 The image is an `oven/bun:1-slim` build (Debian, glibc): the native prebuilds are
