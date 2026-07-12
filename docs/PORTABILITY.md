@@ -56,7 +56,7 @@ won (`true` = compiled binary active, `false` = JS fallback).
 
 The server bundle (`packages/server/dist/cli.js`) runs under **both Node (>= 24) and Bun** — the
 DB adapter is auto-selected at runtime: `better-sqlite3` under Node, `bun:sqlite` under Bun
-(`node:sqlite` is used only by the test suite). `bun:sqlite` is imported lazily inside the Bun
+(`node:sqlite` is the last-resort fallback when `better-sqlite3` can't be resolved — e.g. the packed `.mcpb`, which ships no `node_modules` — and is also what the test suite runs on). `bun:sqlite` is imported lazily inside the Bun
 adapter, so the node-targeted bundle carries no static `bun:` import and Node loads it cleanly
 (the earlier "Node cannot resolve `bun:`" limitation was fixed in #58). Run the published CLI:
 

@@ -29,10 +29,12 @@ CloudEvents, rate limiter, 8-triple native prebuilds, this docs site):
   (`metrics`, `gaps`, `prefetch`, `reflect`, `forget`, `citation-infer`,
   `contribution-report`, `activation-recompute`, `cluster`); and a vec0 index with
   a per-vault partition key, rebuilt in place from stored embeddings.
+- CycloneDX SBOMs, generated per package on release (`npm sbom`, THE-299) and uploaded as
+  build artifacts (non-blocking).
 
 ## Deferred
 
-- cosign binary signing and CycloneDX SBOM generation.
+- cosign binary signing.
 - Per-tool reference pages auto-generated from the live tool registry.
 - A per-scope HITL-raise (today per-scope overrides only tighten; isolate unattended
   automation on a second instance instead).

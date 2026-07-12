@@ -70,7 +70,7 @@ No subscription, no CouchDB.
 
 The server watches `vaultPath` and reindexes changed files. For pass-based sync (a git pull,
 a completed `ob sync`), trigger a reindex explicitly so changes are picked up immediately
-rather than on the next watch tick. <!-- TODO: document the exact reindex command/endpoint -->
+rather than on the next watch tick — trigger it by calling the `index_vault` tool, which reindexes the changed files immediately.
 
 ## What never syncs
 

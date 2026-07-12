@@ -13,8 +13,8 @@ permissions:
 # THE-141); it is now an 8-platform matrix — linux/darwin/win each x64 + arm64, plus linux x64 +
 # arm64 musl. linux-arm64-gnu cross-compiles on the x64 ubuntu runner (gcc-aarch64-linux-gnu step
 # below); win-arm64 via the bundled MSVC ARM64 tools; the two musl targets via `napi build -x`
-# (cargo-zigbuild + setup-zig, gated to the musl rows). No cosign/SBOM
-# (deferred to v1.1); text bun.lock. Fires only on a
+# (cargo-zigbuild + setup-zig, gated to the musl rows). CycloneDX SBOMs
+# generated per package below (THE-299, non-blocking); cosign still deferred; text bun.lock. Fires only on a
 # human-pushed v* tag — it is config-verified here, not executed. R5/THE-214: the sub-packages
 # now publish under the owned @the-40-thieves scope (obsidian-tc-shared / obsidian-tc-native);
 # the server stays the owned unscoped obsidian-tc. The pin-workspace-deps step below rewrites
