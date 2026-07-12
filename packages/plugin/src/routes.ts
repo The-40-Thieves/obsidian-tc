@@ -91,6 +91,24 @@ const fail = (
   res.status(200).json({ ok: false, code, message, ...(details ? { details } : {}) });
 };
 
+// A handler that throws (or rejects) must still answer: LRA's express router does not
+// catch async rejections, so an unanswered request hangs the bridge client until its
+// timeout and surfaces as a cause-less plugin_unreachable. Every registered handler is
+// wrapped at buildRoutes' boundary.
+const safeHandler = (h: RouteHandler): RouteHandler => {
+  return async (req, res) => {
+    try {
+      await h(req, res);
+    } catch (e) {
+      try {
+        fail(res, "bridge_error", e instanceof Error ? e.message : String(e));
+      } catch {
+        // response already committed — nothing more to send
+      }
+    }
+  };
+};
+
 const body = (req: BridgeReq): Record<string, unknown> =>
   typeof req.body === "object" && req.body !== null ? (req.body as Record<string, unknown>) : {};
 const str = (o: Record<string, unknown>, k: string): string | undefined =>
@@ -182,7 +200,13 @@ interface DataviewEvalResult {
 }
 interface DataviewApi {
   query?(source: string): Promise<DataviewQueryResult>;
-  evaluate?(expr: string, file?: string): Promise<DataviewEvalResult> | DataviewEvalResult;
+  // evaluate() takes a variable-context OBJECT — not a file path; page(path) builds the
+  // per-note context so `file.*` and frontmatter fields resolve inside the expression.
+  evaluate?(
+    expr: string,
+    context?: Record<string, unknown>,
+  ): Promise<DataviewEvalResult> | DataviewEvalResult;
+  page?(path: string): Record<string, unknown> | undefined;
 }
 
 // --- QuickAdd / Text Extractor adapters --------------------------------------------
@@ -253,7 +277,7 @@ export function buildRoutes(
   shapeWarnings: string[] = [],
 ): RouteDef[] {
   const app = appArg as unknown as InternalApp;
-  return [
+  const defs: RouteDef[] = [
     {
       method: "get",
       path: "/probe",
@@ -509,9 +533,21 @@ export function buildRoutes(
             plugin: "dataview",
           });
         const b = body(req);
-        const r = await dv.evaluate(str(b, "expression") ?? "", str(b, "path"));
-        if (!r.successful) return fail(res, "dql_error", r.error ?? "evaluation failed");
-        ok(res, { value: r.value, type: typeof r.value });
+        const path = str(b, "path");
+        let context: Record<string, unknown> | undefined;
+        if (path) {
+          const page = dv.page?.(path);
+          if (!page)
+            return fail(res, "note_not_found", `dataview has no indexed page for: ${path}`);
+          context = page;
+        }
+        try {
+          const r = await dv.evaluate(str(b, "expression") ?? "", context);
+          if (!r.successful) return fail(res, "dql_error", r.error ?? "evaluation failed");
+          ok(res, { value: r.value, type: typeof r.value });
+        } catch (e) {
+          fail(res, "dql_error", e instanceof Error ? e.message : String(e));
+        }
       },
     },
 
@@ -890,4 +926,5 @@ export function buildRoutes(
       },
     },
   ];
+  return defs.map((d) => ({ ...d, handler: safeHandler(d.handler) }));
 }
