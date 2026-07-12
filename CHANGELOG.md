@@ -8,6 +8,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Obsidian Git + Remotely Save bridges (THE-378, THE-381).** Seven new M4
+  companion-bridge tools (surface **141 across 31 domains**): `git_status`,
+  `git_diff`, `git_log` (read; repo-wide surfaces fail closed under a read
+  whitelist), `git_stage` (write, per-path ACL), and `git_commit`
+  (`execute:git` — a hardcoded HITL floor, so commits always require human
+  confirmation); plus `remotely_save_status` / `remotely_save_trigger`, an
+  independent backup-verification signal. Agent git now flows through the
+  ACL/HITL pipeline instead of shelling out; the plugin side duck-types
+  obsidian-git's gitManager defensively (git failures degrade to `git_error`,
+  never a 500) and `/probe` advertises both capabilities.
 - **Dependency-aware deletion + hash-chained forget audit (THE-239).** New CLI
   `obsidian-tc forget [path] (--episode <id> | --note <rel-path>) [--erase]`,
   plus `--verify`. Episode forget tombstones always and scrubs content fields

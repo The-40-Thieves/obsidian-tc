@@ -12,11 +12,13 @@ import { buildDailyNotesTools } from "./daily-notes-tools";
 import { buildDatacoreTools } from "./datacore-tools";
 import { buildDataviewTools } from "./dataview-tools";
 import { buildExcalidrawTools } from "./excalidraw-tools";
+import { buildGitTools } from "./git-tools";
 import { buildMakeMdTools } from "./makemd-tools";
 import { buildMetadataMenuTools } from "./metadata-menu-tools";
 import { buildOcrTools } from "./ocr-tools";
 import { buildOmnisearchTools } from "./omnisearch-tools";
 import { buildQuickAddTools } from "./quickadd-tools";
+import { buildRemotelySaveTools } from "./remotely-save-tools";
 import type { M4Deps } from "./shared";
 import { buildTasksTools } from "./tasks-tools";
 import { buildTemplaterTools } from "./templater-tools";
@@ -38,4 +40,7 @@ export function registerM4Tools(registry: ToolRegistry, deps: M4Deps): void {
   for (const tool of buildMakeMdTools(deps)) registry.register(tool);
   for (const tool of buildMetadataMenuTools(deps)) registry.register(tool);
   for (const tool of buildCommandTools(deps)) registry.register(tool);
+  // THE-378/381: git + remotely-save bridges (domains 30/31).
+  for (const tool of buildGitTools(deps)) registry.register(tool);
+  for (const tool of buildRemotelySaveTools(deps)) registry.register(tool);
 }

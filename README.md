@@ -19,7 +19,7 @@ obsidian-tc gives agents **governed** access instead. Every tool call — no exc
 
 New here? Start with the [5-minute quickstart](./docs/QUICKSTART.md) or the [threat model and design rationale](./docs/WHY.md).
 
-## The interface: 3 tools, ~134 governed capabilities
+## The interface: 3 tools, ~141 governed capabilities
 
 By default the server advertises just **three meta-tools** instead of a wall of ~123:
 
@@ -27,7 +27,7 @@ By default the server advertises just **three meta-tools** instead of a wall of 
 - **`describe_capability`** — one capability's schema, required scopes, and safety hints
 - **`call_capability`** — invoke the named capability; the call routes through the same auth/scope/ACL/HITL/idempotency/throttle pipeline as a direct call, and the target's own schema validates the arguments
 
-This keeps agent context lean while the full surface — 134 tools across 29 domains — stays reachable, and every tool remains directly callable by name. `toolFacade.mode` selects the shape: `triad` (default), `domain` (~a dozen domain meta-tools like `notes`, `search`, `vault`), or `flat` (the full advertised surface, the pre-facade behavior). The facade is boundary-only: no gate is ever bypassed, whichever mode you pick.
+This keeps agent context lean while the full surface — 141 tools across 31 domains — stays reachable, and every tool remains directly callable by name. `toolFacade.mode` selects the shape: `triad` (default), `domain` (~a dozen domain meta-tools like `notes`, `search`, `vault`), or `flat` (the full advertised surface, the pre-facade behavior). The facade is boundary-only: no gate is ever bypassed, whichever mode you pick.
 
 ## What it is
 
@@ -43,7 +43,7 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 
 ## Status
 
-✅ **Shipped — v1.7.0** (2026-07-10). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.7.0`. The surface is **134 tools across 29 domains**, presented by default via the triad facade described above. v1.3.x adds (see the [CHANGELOG](./CHANGELOG.md)): per-vault ACLs with the root ACL as inherited default, mandatory symlink-canonical ACL enforcement, a notes-metadata table + trigram FTS5 search substrate with index-on-write coverage across every note mutation (disk-scan fallback when FTS is unavailable), vec0 KNN vault pushdown, an Obsidian Bases expression-DSL subset evaluator with realigned view keys, compute-abuse budgets (regex worker timeout, JSONLogic op budget), a periodic cache-maintenance sweep, single-serialization dispatch, `server_health` index/`notes_ready`/`fts_enabled` reporting and config-key parity, a companion API-version floor with a bundle shape self-check, asymmetric JWT via a local JWKS, the sleep-time consolidation scheduler, and the AGPL-3.0 relicense.
+✅ **Shipped — v1.7.0** (2026-07-10). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.7.0`. The surface is **141 tools across 31 domains**, presented by default via the triad facade described above. v1.3.x adds (see the [CHANGELOG](./CHANGELOG.md)): per-vault ACLs with the root ACL as inherited default, mandatory symlink-canonical ACL enforcement, a notes-metadata table + trigram FTS5 search substrate with index-on-write coverage across every note mutation (disk-scan fallback when FTS is unavailable), vec0 KNN vault pushdown, an Obsidian Bases expression-DSL subset evaluator with realigned view keys, compute-abuse budgets (regex worker timeout, JSONLogic op budget), a periodic cache-maintenance sweep, single-serialization dispatch, `server_health` index/`notes_ready`/`fts_enabled` reporting and config-key parity, a companion API-version floor with a bundle shape self-check, asymmetric JWT via a local JWKS, the sleep-time consolidation scheduler, and the AGPL-3.0 relicense.
 
 | Milestone | Scope | Status |
 |---|---|---|
