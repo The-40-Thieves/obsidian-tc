@@ -1,0 +1,43 @@
+name: ci-model-service
+on:
+  pull_request:
+    paths:
+      - 'services/bge-m3-service/**'
+      - '.github/workflows/ci-model-service.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# The Python BGE-M3 model service (services/bge-m3-service). Its heavy model deps (torch,
+# FlagEmbedding, sentence-transformers) are lazy-imported INSIDE methods, so CI installs only the
+# light surface (fastapi + pydantic + httpx + pytest) and the tests mock the model layer. No GPU,
+# no weights: this gates the contracts, config, the single-worker scheduler, and the HTTP surface
+# (auth, 413/429). The live model load + golden-set retrieval eval run off-CI on GPU hardware.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/bge-m3-service
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: install package (no heavy deps) + light test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-deps -e .
+          pip install "fastapi>=0.115" "pydantic>=2.9" httpx pytest pytest-asyncio ruff
+      - name: ruff
+        run: ruff check .
+      - name: py_compile
+        run: python -m py_compile obsidian_tc_bge/*.py
+      - name: pytest
+        run: pytest -q

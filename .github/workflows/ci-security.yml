@@ -1,0 +1,57 @@
+name: ci-security
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'  # weekly: catch newly disclosed advisories against a static tree
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Supply-chain + secret gates that complement the always-on CodeQL (default setup, 4 languages)
+# and Semgrep. gitleaks GATES (a committed secret must block) and scans the working tree (--no-git):
+# the PR gate is about what ships, not 483 commits of immutable history. Benign secret-shaped content
+# (scanner regexes, fake test fixtures, doc examples, build output) is allowlisted in .gitleaks.toml.
+# The dependency audits are continue-on-error: a newly disclosed transitive advisory should surface,
+# not wall off an unrelated feature PR. gitleaks runs via the official image to avoid the org-license
+# requirement of gitleaks-action.
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: gitleaks (secret scan of the working tree; honors .gitleaks.toml)
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --no-git --source /repo --config /repo/.gitleaks.toml --no-banner --redact --exit-code 1
+
+  cargo-audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: packages/native
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: cargo audit
+        run: cargo audit
+
+  bun-audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: bun audit
+        run: bun audit
