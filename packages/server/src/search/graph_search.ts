@@ -1,7 +1,9 @@
 import type { Database } from "../db/types";
 import { querySpecificity } from "./adaptive_rrf";
 import { bubbleSafeRerank } from "./bubble_safe_rerank";
+import { loadChunkColbert } from "./chunk_colbert";
 import { bm25Chunks } from "./chunk_fts";
+import { type ColbertMatrix, colbertRerank } from "./colbert";
 import { expandGraphLiteral } from "./graph_expand";
 import { cosineSimilarity } from "./native";
 import { type Reranker, rerankWithScores } from "./rerank";
@@ -64,6 +66,10 @@ export interface GraphSearchOptions {
    *  holds data; no-op otherwise. `sparseCount` defaults to seedCount. */
   querySparse?: SparseVec;
   sparseCount?: number;
+  /** THE-388: ColBERT late-interaction rerank of the fused top-K. Runs only when the query's
+   *  ColBERT matrix is supplied AND chunk_colbert holds data; a no-op otherwise. */
+  queryColbert?: ColbertMatrix;
+  colbertPool?: number;
   /** THE-73 Phase 2: cap how many chunks per cluster_id reach the final result (KMeans
    *  diversification). Off when unset/0; chunks with a NULL cluster_id (unclustered) are never
    *  capped. Populate cluster_id offline via `obsidian-tc cluster`. graph_rrf mode only. */
@@ -173,6 +179,13 @@ interface ChunkEmbRow {
  * (D1 gateway passthrough at integration; graceful no-op fallback otherwise).
  */
 export async function graphSearch(
+  db: Database,
+  opts: GraphSearchOptions,
+): Promise<GraphSearchResult[]> {
+  return colbertRerankResults(db, await graphSearchCore(db, opts), opts);
+}
+
+async function graphSearchCore(
   db: Database,
   opts: GraphSearchOptions,
 ): Promise<GraphSearchResult[]> {
@@ -834,6 +847,26 @@ function toResult(c: Candidate, score: number): GraphSearchResult {
 }
 
 // Apply the optional activation bubble pass (inert without activationFor), then project.
+// THE-388: optional ColBERT late-interaction rerank of the fused top-K. Runs only when the query's
+// ColBERT matrix is supplied AND chunk_colbert holds data; a no-op otherwise. Reranks the top
+// colbertPool results by maxSim (bounded compute), leaving the tail order intact.
+function colbertRerankResults(
+  db: Database,
+  results: GraphSearchResult[],
+  opts: GraphSearchOptions,
+): GraphSearchResult[] {
+  const q = opts.queryColbert;
+  if (!q || q.length === 0 || results.length === 0) return results;
+  const poolN = Math.min(opts.colbertPool ?? 40, results.length);
+  const pool = results.slice(0, poolN);
+  const docById = loadChunkColbert(
+    db,
+    pool.map((r) => r.chunk_id),
+  );
+  if (docById.size === 0) return results;
+  return [...colbertRerank(pool, q, docById), ...results.slice(poolN)];
+}
+
 function finalize(
   ranked: Array<{ item: Candidate; score: number }>,
   opts: GraphSearchOptions,

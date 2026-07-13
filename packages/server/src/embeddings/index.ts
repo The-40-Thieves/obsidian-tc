@@ -1,4 +1,5 @@
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { buildModelTierProvider } from "../model";
 import type { FetchFn } from "./http";
 import { type EmbeddingProvider, type EmbedOptions, resolveApiKey } from "./provider";
 import {
@@ -21,6 +22,18 @@ export interface EmbeddingsConfigLike {
   /** THE-405: asymmetric instruct prefixes (see config schema docs). Both default empty. */
   queryPrefix?: string;
   documentPrefix?: string;
+  /** #237: polyglot model tier — Qwen3 dense (Rust TEI) + BGE-M3 multi-vector (Python service).
+   *  Required when `provider === "model-tier"`. */
+  modelTier?: {
+    dense: { baseUrl: string; model?: string; revision?: string; pooling?: string };
+    full?: {
+      baseUrl: string;
+      model?: string;
+      revision?: string;
+      authToken?: string;
+      dimensions?: number;
+    };
+  };
 }
 
 /** THE-405: prefix seam applied at the factory so EVERY provider shares it — embeds marked
@@ -47,6 +60,9 @@ export function createEmbeddingProvider(
   opts: { fetchFn?: FetchFn; override?: EmbeddingProvider } = {},
 ): EmbeddingProvider {
   if (opts.override) return opts.override;
+  // The model tier owns its own (asymmetric) prefixing — Qwen Instruct on the dense query, BGE bare —
+  // so it bypasses the shared withPrefixes wrapper below.
+  if (cfg.provider === "model-tier") return buildModelTierProvider(cfg, { fetchFn: opts.fetchFn });
   const apiKey = resolveApiKey(cfg.provider, cfg.apiKey);
   const base = {
     model: cfg.model,

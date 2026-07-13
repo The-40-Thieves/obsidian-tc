@@ -132,6 +132,15 @@ export const RetrievalConfigSchema = z.object({
    *  that skips the embedding round-trip; standard falls through unchanged). DARK by
    *  default — flips only after the per-class + aggregate A/B passes the ship rule. */
   classRouter: z.boolean().default(false),
+  /** Serve-path bge-m3 learned-sparse RRF stream. When on AND the embeddings provider emits the
+   *  multi-vector heads (embedFull: bge-m3 or model-tier), each query is also encoded to its sparse
+   *  weights and fused as the "sparse" RRF stream. OFF by default - opt-in, measured on the golden
+   *  set before shipping on (a no-op without a multi-vector provider). */
+  sparse: z.boolean().default(false),
+  /** Serve-path bge-m3 ColBERT late-interaction rerank of the fused top-K. When on AND the provider
+   *  emits the multi-vector heads, the query ColBERT matrix reranks the top-K by maxSim. OFF by
+   *  default - opt-in, measured on the golden set (a no-op without a multi-vector provider). */
+  colbert: z.boolean().default(false),
 });
 
 /** THE-230: experiential-tier (membrane store, experiential.db) knobs. */
@@ -157,7 +166,9 @@ export const ExperientialConfigSchema = z.object({
 });
 
 export const EmbeddingsConfigSchema = z.object({
-  provider: z.enum(["ollama", "openai", "voyage", "cohere", "bge-m3"]).default("ollama"),
+  provider: z
+    .enum(["ollama", "openai", "voyage", "cohere", "bge-m3", "model-tier"])
+    .default("ollama"),
   model: z.string().default("nomic-embed-text"),
   dimensions: z.number().int().positive().default(768),
   baseUrl: z.string().url().optional(),
@@ -201,6 +212,29 @@ export const EmbeddingsConfigSchema = z.object({
    *  pair a document-prefix change with a fresh cacheDir. */
   queryPrefix: z.string().default(""),
   documentPrefix: z.string().default(""),
+  /** #237: polyglot model tier - dense retrieval from Qwen3 via the Rust TEI service,
+   *  sparse+ColBERT from BGE-M3 via the Python service (services/bge-m3-service). Required when
+   *  provider is "model-tier". The two are SEPARATE streams fused by RRF on ranks;
+   *  embeddings.dimensions is the Qwen dense width (the vec0 column). */
+  modelTier: z
+    .object({
+      dense: z.object({
+        baseUrl: z.string().url(),
+        model: z.string().default("Qwen/Qwen3-Embedding-0.6B"),
+        revision: z.string().optional(),
+        pooling: z.string().default("last-token"),
+      }),
+      full: z
+        .object({
+          baseUrl: z.string().url(),
+          model: z.string().default("BAAI/bge-m3"),
+          revision: z.string().optional(),
+          authToken: z.string().optional(),
+          dimensions: z.number().int().positive().default(1024),
+        })
+        .optional(),
+    })
+    .optional(),
 });
 
 export const HttpConfigSchema = z.object({

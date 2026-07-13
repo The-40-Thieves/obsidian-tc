@@ -35,6 +35,7 @@ import { enforcePathAcl } from "../../vault/acl-path";
 import { resolveVaultPath } from "../../vault/paths";
 import type { VaultRegistry } from "../../vault/registry";
 import { defineTool } from "../m1/define";
+import { resolveQueryColbert, resolveQuerySparse } from "./query-sparse";
 
 export interface M7Deps {
   vaultRegistry: VaultRegistry;
@@ -44,7 +45,7 @@ export interface M7Deps {
   /** Generative roles → gateway extract/synthesize/judge; null when unconfigured. */
   roles: GatewayRoles | null;
   /** THE-397: config-driven retrieval knobs (config.retrieval); absent -> graphSearch defaults. */
-  retrieval?: { rrfK?: number };
+  retrieval?: { rrfK?: number; sparse?: boolean; colbert?: boolean };
   /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging. */
   retrievalLog?: RetrievalLogger;
   /** THE-187/193: cached_activation_score lookup for the graph bubble pass; absent -> inert
@@ -172,6 +173,10 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
     const [vec] = await deps.embeddingProvider.embed([q], { input: "query" });
     return vec ?? [];
   };
+  const embedQuerySparse = (q: string) =>
+    resolveQuerySparse(deps.embeddingProvider, q, deps.retrieval?.sparse);
+  const embedQueryColbert = (q: string) =>
+    resolveQueryColbert(deps.embeddingProvider, q, deps.retrieval?.colbert);
 
   return [
     defineTool({
@@ -246,6 +251,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           );
         } else {
           const queryVec = await embedQuery(query);
+          const querySparse = await embedQuerySparse(query);
+          const queryColbert = await embedQueryColbert(query);
           results = await graphSearch(ctx.db, {
             ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
             query,
@@ -253,6 +260,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             vaultId: v.id,
             finalTopK: input.k,
             ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
+            ...(querySparse ? { querySparse } : {}),
+            ...(queryColbert ? { queryColbert } : {}),
             reranker: deps.reranker,
             isReadable: (rel) => aclReadable(ctx.acl, rel),
             ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
@@ -509,6 +518,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           );
         } else {
           const queryVec = await embedQuery(input.query);
+          const querySparse = await embedQuerySparse(input.query);
+          const queryColbert = await embedQueryColbert(input.query);
           results = await graphSearch(ctx.db, {
             ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
             query: input.query,
@@ -516,6 +527,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             vaultId: v.id,
             finalTopK: input.k,
             ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
+            ...(querySparse ? { querySparse } : {}),
+            ...(queryColbert ? { queryColbert } : {}),
             reranker: deps.reranker,
             isReadable: (rel) => aclReadable(ctx.acl, rel),
             ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
@@ -675,6 +688,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           return { vault: v.id, mode_used: "lexical-route", route: route.signals, results };
         }
         const queryVec = await embedQuery(input.query);
+        const querySparse = await embedQuerySparse(input.query);
+        const queryColbert = await embedQueryColbert(input.query);
         const results = await graphSearch(ctx.db, {
           ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
           query: input.query,
@@ -682,6 +697,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           vaultId: v.id,
           finalTopK: input.final_top_k,
           ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
+          ...(querySparse ? { querySparse } : {}),
+          ...(queryColbert ? { queryColbert } : {}),
           reranker: deps.reranker,
           isReadable: (rel) => aclReadable(ctx.acl, rel),
           ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
