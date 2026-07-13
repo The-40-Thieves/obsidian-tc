@@ -5,6 +5,7 @@ export { type BgeClientOptions, bgeModelClient } from "./bge";
 export { composeModelClient, type ModelClientParts } from "./compose";
 export {
   buildModelTierProvider,
+  buildModelTierReranker,
   type ModelProviderOptions,
   type ModelTierConfigLike,
   type ModelTierDenseConfig,

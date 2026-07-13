@@ -39,6 +39,7 @@ import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { startMetricsEndpoint } from "./metrics/endpoint";
 import { MetricsRecorder } from "./metrics/registry";
+import { buildModelTierReranker } from "./model";
 import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
@@ -875,9 +876,12 @@ async function main(): Promise<void> {
   }
   const gw = gateway;
   // W-RETRIEVAL rerank seam -> gateway /rerank passthrough (graceful no-op fallback when null).
-  const reranker: Reranker | null = gw
+  const gatewayReranker: Reranker | null = gw
     ? (q, docs, topN) => gw.rerank({ query: q, documents: docs, topN }).then((r) => r.results)
     : null;
+  // Prefer the model-tier BGE /v1/rerank (bge-reranker-v2-m3) when its service is configured;
+  // else the gateway passthrough. Dark until a rerank stage is enabled in graphSearch.
+  const reranker: Reranker | null = buildModelTierReranker(config.embeddings) ?? gatewayReranker;
   // W-WORKERS generative seam -> gateway extract/synthesize/judge roles (null -> jobs/challenge no-op).
   const roles: GatewayRoles | null = gw
     ? {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FetchFn } from "../src/embeddings/http";
 import type { ModelClient } from "../src/model";
-import { buildModelTierProvider, modelClientProvider } from "../src/model";
+import { buildModelTierProvider, buildModelTierReranker, modelClientProvider } from "../src/model";
 
 // embed() and embedFull() return DIFFERENT dense vectors so a test can prove the merge takes dense
 // from embed (Qwen) and sparse/ColBERT from embedFull (BGE), not the other way round.
@@ -147,5 +147,41 @@ describe("buildModelTierProvider (config -> provider)", () => {
       { fetchFn },
     );
     expect(p.embedFull).toBeUndefined();
+  });
+});
+
+describe("buildModelTierReranker (live Reranker seam via /v1/rerank)", () => {
+  it("returns a Reranker backed by /v1/rerank when the full BGE backend is configured", async () => {
+    const fetchFn = (async () =>
+      new Response(
+        JSON.stringify({
+          model: "bge-reranker-v2-m3",
+          results: [{ index: 1, relevance_score: 0.8 }],
+        }),
+        { status: 200 },
+      )) as unknown as FetchFn;
+    const rerank = buildModelTierReranker(
+      {
+        dimensions: 2,
+        modelTier: {
+          dense: { baseUrl: "http://tei:8080" },
+          full: { baseUrl: "http://bge:8002", authToken: "t" },
+        },
+      },
+      { fetchFn },
+    );
+    expect(rerank).not.toBeNull();
+    const hits = await rerank?.("q", ["a", "b"], 5);
+    expect(hits).toEqual([{ index: 1, relevanceScore: 0.8 }]);
+  });
+
+  it("returns null when no full backend is configured (falls back to the gateway reranker)", () => {
+    expect(
+      buildModelTierReranker({
+        dimensions: 2,
+        modelTier: { dense: { baseUrl: "http://tei:8080" } },
+      }),
+    ).toBeNull();
+    expect(buildModelTierReranker({ dimensions: 2 })).toBeNull();
   });
 });

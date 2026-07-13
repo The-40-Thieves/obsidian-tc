@@ -8,6 +8,7 @@
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { FetchFn } from "../embeddings/http";
 import type { EmbeddingProvider, EmbedOptions, MultiVectorEmbedding } from "../embeddings/provider";
+import type { Reranker } from "../search/rerank";
 import { bgeModelClient } from "./bge";
 import { composeModelClient } from "./compose";
 import type { ModelClient } from "./ports";
@@ -140,4 +141,29 @@ export function buildModelTierProvider(
     queryPrefix: cfg.queryPrefix,
     documentPrefix: cfg.documentPrefix,
   });
+}
+
+/** A live Reranker (the search rerank seam) backed by the model tier's BGE /v1/rerank
+ *  (bge-reranker-v2-m3), when the full (BGE) backend is configured. Null otherwise, so the caller
+ *  falls back to the gateway reranker. This only chooses WHICH reranker answers - it stays dark
+ *  until a rerank stage is actually enabled in graphSearch. */
+export function buildModelTierReranker(
+  cfg: ModelTierConfigLike,
+  opts: { fetchFn?: FetchFn } = {},
+): Reranker | null {
+  const full = cfg.modelTier?.full;
+  if (!full) return null;
+  const client = bgeModelClient({
+    baseUrl: full.baseUrl,
+    dimensions: full.dimensions ?? DEFAULT_FULL_DIM,
+    model: full.model ?? DEFAULT_FULL_MODEL,
+    revision: full.revision,
+    authToken: full.authToken,
+    truncate: cfg.truncate,
+    fetchFn: opts.fetchFn,
+    timeoutMs: cfg.timeoutMs,
+  });
+  const rerank = client.rerank;
+  if (!rerank) return null;
+  return (query, documents, topN) => rerank({ query, documents, topN }).then((r) => r.results);
 }
