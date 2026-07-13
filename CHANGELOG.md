@@ -6,6 +6,50 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-13
+
+### Added
+
+- **Polyglot model tier** behind the `ModelClient` boundary (#239, #245, #246,
+  #247), all **off by default** (no behavior change unless configured).
+  `embeddings.provider: "model-tier"` serves dense retrieval from **Qwen3 via
+  HuggingFace TEI** (`services/qwen-tei`) and **BGE-M3 multi-vector** (dense +
+  learned-sparse + ColBERT, one `/v1/encode`) via the Python
+  `services/bge-m3-service`, fused as SEPARATE RRF streams (never adding a Qwen
+  cosine to a BGE score). Serve-path `retrieval.sparse`, `retrieval.colbert`,
+  and a live `bge-reranker-v2-m3` cross-encoder are wired through the search
+  Reranker seam — all gated off, pending a golden-set measure on your vault.
+- **Native batched cosine** `cosineBatch` (#238, THE-420): one N-API crossing
+  per query on the brute-force fallback path (~2.8x over the JS implementation),
+  shipping with the repo's first benchmark harness.
+- **Model-service and security CI, plus a Python test suite** (#248): a 16-test
+  pytest suite for `services/bge-m3-service` (mock model layer, no torch/GPU); a
+  path-filtered `ci-model-service` workflow (ruff + py_compile + pytest); and
+  `ci-security` (a gitleaks gate over the working tree + cargo-audit + bun-audit,
+  with a weekly cron).
+
+### Fixed
+
+- **v1.8.1 code audit — 13 fixes** across security, correctness, and robustness
+  (#244): the bge-m3 bare-`catch` that disabled sparse/ColBERT on any transient
+  error, the `/excalidraw/write` empty-scaffold overwrite data-loss, the
+  gatedRerank absolute-cosine no-op, and the MMR-under-cluster-cap no-op; plus a
+  reranker z-margin gate, atomic `forget`, vec dim-mismatch recording, and
+  companion-plugin robustness.
+- **Dispatch hardening** (#236): redact the HITL token from telemetry; warn on
+  output-schema drift.
+
+### Changed
+
+- **Rust/Python/TS workload-partition ADR** and build order (#237): partition by
+  compute profile — Rust for batched CPU kernels, Python for GPU/ML behind the
+  service boundary, TypeScript for the control plane.
+- Docs freshness pass and duplicate-stale-claim fixes (#234, #235).
+- The model tier is **optional**: the server runs unchanged without the services
+  (dense-only, existing providers). If you enable it, pin `BGE_MODEL_REVISION`
+  and the TEI model image, and measure the new retrieval streams on your golden
+  set before turning any of them on.
+
 ## [1.8.1] - 2026-07-12
 
 ### Fixed
