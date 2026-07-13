@@ -66,6 +66,24 @@ describe("forget_log hash chain (THE-239)", () => {
   });
 });
 
+describe("forget atomicity (C1)", () => {
+  it("rolls back the episode tombstone when the audit append fails", () => {
+    const edb = edb0();
+    edb
+      .prepare(
+        `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, outcome, eligibility, blocked, valid_from)
+         VALUES ('e1', ?, 'alice', 'dispatch', 'tool_call', 'read_note', 'ok', NULL, NULL, 'eligible', 0, ?)`,
+      )
+      .run(NOW, NOW);
+    edb.exec("DROP TABLE forget_log"); // force appendForgetLog to throw mid-forget
+    expect(() => forgetEpisode(edb, "e1", { nowMs: NOW })).toThrow();
+    const row = edb.prepare("SELECT blocked FROM agent_episodes WHERE id = 'e1'").get() as {
+      blocked: number;
+    };
+    expect(row.blocked).toBe(0); // tombstone rolled back — never blocked without an audit row
+  });
+});
+
 describe("forgetEpisode", () => {
   function seedEpisode(edb: Database, id: string): void {
     edb

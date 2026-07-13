@@ -544,9 +544,17 @@ export async function graphSearch(
     const expNorm = minMaxNorm([...expSimById.entries()]);
     const lexNorm = minMaxNorm([...lexScoreById.entries()]);
     const sparseNorm = minMaxNorm([...sparseScoreById.entries()]);
+    // THE-221/THE-398: the temporal stream sits OUTSIDE the lexical-vs-semantic alpha split (date
+    // evidence is neither axis) — mirror RRF's unconditional temporal term (:529-532) so a
+    // temporal-only candidate isn't scored 0 and sunk under convex fusion. Empty (hence a no-op)
+    // whenever the temporal stream is off.
+    const tempNorm = minMaxNorm(
+      [...temporalRankById.entries()].map(([id, tr]) => [id, 1 / (rrfK + tr)] as const),
+    );
     scoreOf = (c) =>
       alpha * ((seedNorm.get(c.chunk_id) ?? 0) + (expNorm.get(c.chunk_id) ?? 0)) +
-      (1 - alpha) * ((lexNorm.get(c.chunk_id) ?? 0) + (sparseNorm.get(c.chunk_id) ?? 0));
+      (1 - alpha) * ((lexNorm.get(c.chunk_id) ?? 0) + (sparseNorm.get(c.chunk_id) ?? 0)) +
+      (tempNorm.get(c.chunk_id) ?? 0);
   }
   const sourceRank: Record<Candidate["source"], number> = {
     seed: 0,
@@ -569,7 +577,12 @@ export async function graphSearch(
     const maxPerNote = opts.diversify?.maxPerNote ?? 0;
     if (maxPerNote > 0) pool = collapseByNote(pool, maxPerNote);
     if (opts.maxPerCluster && opts.maxPerCluster > 0) {
-      pool = diversifyByCluster(db, opts.vaultId, pool, opts.maxPerCluster, finalTopK);
+      // Don't pre-truncate to finalTopK when an MMR pass follows: mmrSelect early-returns the pool
+      // UNCHANGED when it receives ≤ k candidates, so a cluster cap that trims to finalTopK would
+      // silently disable MMR. Leave it a pool larger than k (matching mmrSelect's max(k*3,45) bound).
+      const capLimit =
+        (opts.diversify?.mmr?.enabled ?? false) ? Math.max(finalTopK * 3, 45) : finalTopK;
+      pool = diversifyByCluster(db, opts.vaultId, pool, opts.maxPerCluster, capLimit);
     }
     const capped =
       (opts.diversify?.mmr?.enabled ?? false)

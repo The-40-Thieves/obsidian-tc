@@ -178,9 +178,24 @@ describe("preference profile (ACE typed deltas)", () => {
     expect(back?.value).toBe("v2");
   });
 
+  it("does not log a phantom audit row for a delta on a non-existent key (C4)", () => {
+    const db = edb0();
+    const r = applyPreferenceDeltas(
+      db,
+      [
+        { key: "never-added", op: "strengthen" },
+        { key: "also-missing", op: "retract" },
+      ],
+      NOW,
+    );
+    expect(r.applied).toBe(0); // neither key exists -> nothing applied
+    const n = (db.prepare("SELECT COUNT(*) AS n FROM preference_deltas").get() as { n: number }).n;
+    expect(n).toBe(0); // and no phantom audit rows
+  });
+
   it("extractPreferences: skipped without a judge; aborted on a parse failure applies nothing", async () => {
     const db = edb0();
-    seed(db, "o1", { outcome: 1 });
+    seed(db, "o1", { outcome: 1, eligibility: "eligible" });
     expect(await extractPreferences(db, { judge: null, nowMs: NOW })).toMatchObject({
       skipped: true,
     });
@@ -197,5 +212,20 @@ describe("preference profile (ACE typed deltas)", () => {
     const ok = await extractPreferences(db, { judge: good, nowMs: NOW });
     expect(ok).toMatchObject({ skipped: false, aborted: false, applied: 1 });
     expect(preferenceProfile(db).entries[0]?.key).toBe("fast-reads");
+  });
+
+  it("excludes ineligible episodes from the judge even when they carry an outcome (A3)", async () => {
+    const db = edb0();
+    // both carry a (test-seeded) non-null outcome; only the eligible one may reach the judge.
+    seed(db, "good", { eligibility: "eligible", outcome: 1, tool: "read_note" });
+    seed(db, "poison", { eligibility: "ineligible", outcome: 1, tool: "exfiltrate_secrets" });
+    let seenPrompt = "";
+    const judge = async (req: unknown) => {
+      seenPrompt = JSON.stringify(req);
+      return { text: JSON.stringify({ deltas: [] }), model: "mock" };
+    };
+    await extractPreferences(db, { judge, nowMs: NOW });
+    expect(seenPrompt).toContain("read_note"); // the eligible episode reached the judge…
+    expect(seenPrompt).not.toContain("exfiltrate_secrets"); // …the ineligible one did NOT.
   });
 });

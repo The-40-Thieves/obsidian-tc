@@ -5,7 +5,7 @@
 // the readable note set (wikilinks/markdown links resolved via the shared vault index).
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { parseNote } from "../../vault/frontmatter";
@@ -16,7 +16,9 @@ import { defineTool } from "./define";
 import type { M1Deps } from "./index";
 
 function readable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
+  if (!acl) return true;
+  if (isDefaultDenied(rel)) return false;
+  if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
   return acl.readPaths.some((g) => globMatch(g, rel));
 }
 function readableNotes(root: string, acl: FolderAcl | undefined): string[] {

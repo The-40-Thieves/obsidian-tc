@@ -147,6 +147,24 @@ describe("THE-393 diversification", () => {
     expect(mmr.map((r) => r.chunk_id)).toEqual(["top", "div"]);
   });
 
+  it("MMR still runs when maxPerCluster is set (cluster cap no longer starves MMR — B4)", async () => {
+    const db = seedDb();
+    addChunk(db, "top", "T.md", "top hit", vd(0.95));
+    addChunk(db, "dupe", "D.md", "near duplicate of top", vd(0.94));
+    addChunk(db, "div", "V.md", "diverse doc", [0.1, 0, Math.sqrt(1 - 0.01), 0]);
+    // maxPerCluster set but cluster_id never populated (the common case). Before the fix,
+    // diversifyByCluster truncated the pool to finalTopK and mmrSelect early-returned it
+    // unchanged (pure RRF order → "dupe"); with the fix MMR runs and swaps in the diverse pick.
+    const res = await graphSearch(db, {
+      ...BASE,
+      seedCount: 3,
+      finalTopK: 2,
+      maxPerCluster: 5,
+      diversify: { mmr: { enabled: true, lambda: 0.5 } },
+    });
+    expect(res.map((r) => r.chunk_id)).toEqual(["top", "div"]);
+  });
+
   it("all options off reproduces the historical ranking exactly", async () => {
     const db = seedDb();
     addChunk(db, "seed", "S.md", "seed body", vd(0.99));

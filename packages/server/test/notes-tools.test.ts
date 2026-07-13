@@ -510,6 +510,32 @@ describe("THE-252 writes.requireCas (config-gated strict CAS)", () => {
     }
   });
 
+  it("requires prev_hash on upsert of an existing note (no CAS bypass via upsert)", async () => {
+    const v = makeTestVault({ files: { "a.md": "old" }, requireCas: true });
+    try {
+      // upsert on an EXISTING note takes the same clobber path as overwrite, so requireCas applies.
+      const up = await v.call("write_note", {
+        vault: "test",
+        path: "a.md",
+        content: "new",
+        mode: "upsert",
+      });
+      expect(up.ok).toBe(false);
+      if (!up.ok) expect(up.error.code).toBe("invalid_input");
+
+      // upsert of a NEW note is a create — no prev_hash required, so it succeeds.
+      const created = await v.call("write_note", {
+        vault: "test",
+        path: "fresh.md",
+        content: "hi",
+        mode: "upsert",
+      });
+      expect(created.ok).toBe(true);
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("default (requireCas off) still allows overwrite/append without prev_hash", async () => {
     const v = makeTestVault({ files: { "a.md": "line1" } });
     try {

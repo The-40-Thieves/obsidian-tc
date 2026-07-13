@@ -83,8 +83,11 @@ interface TokenizeResponse {
 
 const DEFAULT_MODEL = "BAAI/bge-m3";
 
-// A server that rejected a pooling task keeps rejecting it — remember per {root, task} so a
-// reconcile's thousands of sub-batches don't each re-pay the failing round-trip.
+// A server that rejects a pooling task as UNSUPPORTED (HTTP 400) keeps rejecting it — remember
+// per {root, model, task} so a reconcile's thousands of sub-batches don't each re-pay the failing
+// round-trip. Transient failures (timeout / 5xx / a /tokenize blip) are NOT memoized: they degrade
+// only THIS batch to empty and are retried next batch, so one transient error can't silently
+// disable the head for the life of the process (and two models behind one URL can't collide).
 const unsupportedTasks = new Set<string>();
 
 /** Encode texts to { dense, sparse, colbert } via a vLLM bge-m3 server. Heads whose pooling task
@@ -106,7 +109,7 @@ export async function bgeM3VllmEncode(
   });
 
   let sparses: SparseVec[] = texts.map(() => ({}));
-  if (!unsupportedTasks.has(`${root}:token_classify`)) {
+  if (!unsupportedTasks.has(`${root}:${model}:token_classify`)) {
     try {
       const sparse = await postJson<PoolingResponse>({
         url: `${root}/pooling`,
@@ -128,13 +131,15 @@ export async function bgeM3VllmEncode(
         const aligned = alignTokensToScores(toks, sc);
         return aligned ? pairSparse(aligned, sc) : {};
       });
-    } catch {
-      unsupportedTasks.add(`${root}:token_classify`);
+    } catch (e) {
+      // Only memoize a genuine "unsupported task" (HTTP 400); let transient errors retry.
+      if ((e as { details?: { status?: number } }).details?.status === 400)
+        unsupportedTasks.add(`${root}:${model}:token_classify`);
     }
   }
 
   let colberts: ColbertMatrix[] = texts.map(() => []);
-  if (!unsupportedTasks.has(`${root}:token_embed`)) {
+  if (!unsupportedTasks.has(`${root}:${model}:token_embed`)) {
     try {
       const colbert = await postJson<PoolingResponse>({
         url: `${root}/pooling`,
@@ -142,8 +147,9 @@ export async function bgeM3VllmEncode(
         ...common,
       });
       colberts = texts.map((_, i) => asMatrix(colbert.data?.[i]?.data));
-    } catch {
-      unsupportedTasks.add(`${root}:token_embed`);
+    } catch (e) {
+      if ((e as { details?: { status?: number } }).details?.status === 400)
+        unsupportedTasks.add(`${root}:${model}:token_embed`);
     }
   }
 

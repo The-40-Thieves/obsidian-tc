@@ -124,6 +124,33 @@ describe("bge-m3 vLLM encoder (THE-388 / THE-395 shapes)", () => {
     expect(classifyCalls).toHaveLength(1); // second encode skipped the known-bad task
   });
 
+  it("does NOT memoize a transient (5xx) pooling error — retries on the next encode (B1)", async () => {
+    let classifyCalls = 0;
+    const fetchFn = (async (url: string, init?: { body?: string }) => {
+      const body = JSON.parse(init?.body ?? "{}") as { task?: string };
+      if (url.endsWith("/embeddings"))
+        return new Response(JSON.stringify({ data: [{ embedding: [1, 0] }] }), { status: 200 });
+      if (url.endsWith("/tokenize"))
+        return new Response(JSON.stringify({ tokens: [101] }), { status: 200 });
+      if (body.task === "token_classify") {
+        classifyCalls += 1;
+        // first batch: a transient 503 (GPU busy); second batch: success.
+        return classifyCalls === 1
+          ? new Response(JSON.stringify({ error: "busy" }), { status: 503 })
+          : new Response(JSON.stringify({ data: [{ data: [0.7] }] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: "unsupported" }), { status: 400 });
+    }) as unknown as FetchFn;
+
+    // transient failure degrades THIS batch to empty — but must NOT poison the head.
+    const first = await bgeM3VllmEncode(["a"], { baseUrl: "http://transient/v1", fetchFn });
+    expect(first[0]?.sparse).toEqual({});
+    // next batch retries the head (not permanently disabled) and now succeeds.
+    const second = await bgeM3VllmEncode(["a"], { baseUrl: "http://transient/v1", fetchFn });
+    expect(second[0]?.sparse).toEqual({ "101": 0.7 });
+    expect(classifyCalls).toBe(2); // retried, not skipped
+  });
+
   it("returns [] for no input", async () => {
     expect(await bgeM3VllmEncode([], { baseUrl: "http://x/v1", fetchFn: mockFetch({}) })).toEqual(
       [],

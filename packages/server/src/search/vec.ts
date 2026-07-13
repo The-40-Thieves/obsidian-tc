@@ -86,13 +86,29 @@ export function ensureVecChunks(
       const canBackfill =
         db.prepare("SELECT 1 AS x FROM sqlite_master WHERE name = 'chunk_embeddings'").get() !==
         undefined;
+      // A pre-partition rebuild only backfills vectors whose byte length matches the CURRENT dims
+      // (dims*4). Active embeddings at a DIFFERENT dimensionality (a model/dim swap not yet
+      // re-embedded) are excluded and would otherwise vanish from the KNN index silently. Count the
+      // skip so it lands in the migration checksum below (this module has no logger, and refusing
+      // outright would brick a legitimate mid-swap rebuild).
+      let skipped = 0;
       if (canBackfill) {
-        db.exec(
-          `INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding)
-           SELECT e.chunk_id, c.vault_id, c.path, e.model, e.embedding
-           FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id
-           WHERE e.is_active = 1 AND length(e.embedding) = ${dims * 4}`,
-        );
+        const active = (
+          db
+            .prepare(
+              "SELECT COUNT(*) AS n FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE e.is_active = 1",
+            )
+            .get() as { n: number }
+        ).n;
+        const inserted = db
+          .prepare(
+            `INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding)
+             SELECT e.chunk_id, c.vault_id, c.path, e.model, e.embedding
+             FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id
+             WHERE e.is_active = 1 AND length(e.embedding) = ${dims * 4}`,
+          )
+          .run().changes as number;
+        skipped = active - inserted;
       }
       const rebuiltVersion = `20260712_004_vec_chunks_aux_${dims}`;
       const rec = db
@@ -101,7 +117,13 @@ export function ensureVecChunks(
       if (!rec) {
         db.prepare(
           "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
-        ).run(rebuiltVersion, now(), "m2-runtime", 0, `vec0:partition+aux:${dims}`);
+        ).run(
+          rebuiltVersion,
+          now(),
+          "m2-runtime",
+          0,
+          `vec0:partition+aux:${dims}${skipped > 0 ? `:skipped${skipped}` : ""}`,
+        );
       }
     }
   }

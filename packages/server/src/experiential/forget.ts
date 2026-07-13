@@ -111,37 +111,49 @@ export function forgetEpisode(
     };
   }
   const alreadyBlocked = row.blocked === 1;
-  edb
-    .prepare(
-      "UPDATE agent_episodes SET blocked = 1, valid_until = COALESCE(valid_until, ?) WHERE id = ?",
-    )
-    .run(opts.nowMs, id);
+  // THE-239: the tombstone/scrub mutation and the hash-chain append must be atomic — a crash
+  // between them would leave the episode blocked/scrubbed with NO audit row, breaking the
+  // "every forget is audited" guarantee. Wrap both in one transaction (mirrors activation.ts).
   let scrubbed = 0;
-  if (opts.erase) {
-    scrubbed = edb
-      .prepare(
-        "UPDATE agent_episodes SET args_json = NULL, summary = NULL, tags = NULL, error_code = NULL WHERE id = ?",
-      )
-      .run(id).changes as number;
-  }
-  // Preference-delta evidence is free text (no FK by design) — report mentions, never rewrite
-  // the append-only delta audit.
-  const mentions = (
+  let mentions = 0;
+  let head: string;
+  edb.exec("BEGIN");
+  try {
     edb
-      .prepare("SELECT COUNT(*) AS n FROM preference_deltas WHERE evidence LIKE ?")
-      .get(`%${id}%`) as { n: number }
-  ).n;
-  const head = appendForgetLog(edb, {
-    ts: opts.nowMs,
-    kind: "episode",
-    target: id,
-    mode: opts.erase ? "erase" : "tombstone",
-    details: {
-      already_blocked: alreadyBlocked,
-      scrubbed: scrubbed > 0,
-      preference_evidence_mentions: mentions,
-    },
-  });
+      .prepare(
+        "UPDATE agent_episodes SET blocked = 1, valid_until = COALESCE(valid_until, ?) WHERE id = ?",
+      )
+      .run(opts.nowMs, id);
+    if (opts.erase) {
+      scrubbed = edb
+        .prepare(
+          "UPDATE agent_episodes SET args_json = NULL, summary = NULL, tags = NULL, error_code = NULL WHERE id = ?",
+        )
+        .run(id).changes as number;
+    }
+    // Preference-delta evidence is free text (no FK by design) — report mentions, never rewrite
+    // the append-only delta audit.
+    mentions = (
+      edb
+        .prepare("SELECT COUNT(*) AS n FROM preference_deltas WHERE evidence LIKE ?")
+        .get(`%${id}%`) as { n: number }
+    ).n;
+    head = appendForgetLog(edb, {
+      ts: opts.nowMs,
+      kind: "episode",
+      target: id,
+      mode: opts.erase ? "erase" : "tombstone",
+      details: {
+        already_blocked: alreadyBlocked,
+        scrubbed: scrubbed > 0,
+        preference_evidence_mentions: mentions,
+      },
+    });
+    edb.exec("COMMIT");
+  } catch (e) {
+    edb.exec("ROLLBACK");
+    throw e;
+  }
   return {
     found: true,
     already_blocked: alreadyBlocked,
@@ -187,10 +199,10 @@ export function forgetNote(
       .all(opts.vaultId, opts.relPath) as Array<{ id: string }>
   ).map((r) => r.id);
 
-  // Retrieval history: erase deletes, audit keeps (counted either way).
+  // Retrieval history is COUNTED up front (read-only); the erase/delete + activation cleanup run
+  // inside the audit transaction below, so the derived-state mutation and the hash-chain append
+  // commit together (a crash between would delete state with no audit row).
   let retrievalRows = 0;
-  let retrievalDeleted = 0;
-  let activationDeleted = 0;
   if (chunkIds.length > 0) {
     const ph = chunkIds.map(() => "?").join(",");
     retrievalRows = (
@@ -198,15 +210,6 @@ export function forgetNote(
         .prepare(`SELECT COUNT(*) AS n FROM chunk_retrievals WHERE chunk_id IN (${ph})`)
         .get(...chunkIds) as { n: number }
     ).n;
-    if (opts.erase) {
-      retrievalDeleted = edb
-        .prepare(`DELETE FROM chunk_retrievals WHERE chunk_id IN (${ph})`)
-        .run(...chunkIds).changes as number;
-    }
-    // Derived activation state has no audit value once the source is gone.
-    activationDeleted = edb
-      .prepare(`DELETE FROM vault_object_state WHERE object_id IN (${ph})`)
-      .run(...chunkIds).changes as number;
   }
 
   // Prewarm cache: if the cached bundle mentions the path or any chunk id, drop the file —
@@ -262,22 +265,48 @@ export function forgetNote(
     }
   }
 
-  const head = appendForgetLog(edb, {
-    ts: opts.nowMs,
-    kind: "note",
-    target: opts.relPath,
-    mode: opts.erase ? "erase" : "tombstone",
-    details: {
-      chunks: chunkIds.length,
-      retrieval_rows: retrievalRows,
-      retrieval_rows_deleted: retrievalDeleted,
-      activation_rows_deleted: activationDeleted,
-      prewarm_invalidated: prewarmInvalidated,
-      outdated_reflections: outdatedReflections,
-      syntheses_mentions: synthMentions,
-      contradictions_mentions: contraMentions,
-    },
-  });
+  // THE-239: the derived-state DELETEs + the hash-chain append are one transaction — a crash
+  // between them would erase retrieval/activation state with no audit row. The filesystem effects
+  // above (prewarm/reflections) stay OUTSIDE: a file delete can't roll back and is TTL-bounded.
+  let retrievalDeleted = 0;
+  let activationDeleted = 0;
+  let head: string;
+  edb.exec("BEGIN");
+  try {
+    if (chunkIds.length > 0) {
+      const ph = chunkIds.map(() => "?").join(",");
+      // Retrieval history: erase deletes, audit keeps.
+      if (opts.erase) {
+        retrievalDeleted = edb
+          .prepare(`DELETE FROM chunk_retrievals WHERE chunk_id IN (${ph})`)
+          .run(...chunkIds).changes as number;
+      }
+      // Derived activation state has no audit value once the source is gone.
+      activationDeleted = edb
+        .prepare(`DELETE FROM vault_object_state WHERE object_id IN (${ph})`)
+        .run(...chunkIds).changes as number;
+    }
+    head = appendForgetLog(edb, {
+      ts: opts.nowMs,
+      kind: "note",
+      target: opts.relPath,
+      mode: opts.erase ? "erase" : "tombstone",
+      details: {
+        chunks: chunkIds.length,
+        retrieval_rows: retrievalRows,
+        retrieval_rows_deleted: retrievalDeleted,
+        activation_rows_deleted: activationDeleted,
+        prewarm_invalidated: prewarmInvalidated,
+        outdated_reflections: outdatedReflections,
+        syntheses_mentions: synthMentions,
+        contradictions_mentions: contraMentions,
+      },
+    });
+    edb.exec("COMMIT");
+  } catch (e) {
+    edb.exec("ROLLBACK");
+    throw e;
+  }
   return {
     chunk_ids: chunkIds,
     retrieval_rows: retrievalRows,

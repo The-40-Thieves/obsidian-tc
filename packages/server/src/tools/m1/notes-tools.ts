@@ -424,9 +424,13 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           throw err.noteExists("note already exists; use overwrite or upsert", { path: rel });
         if (input.mode === "overwrite" && !ex.exists)
           throw err.noteNotFound("note does not exist; use create or upsert", { path: rel });
-        if (deps.requireCas && input.mode === "overwrite" && input.prev_hash === undefined)
+        // Gate CAS on whether the op actually overwrites existing content — not the literal
+        // mode string. `upsert` on an existing note takes the same clobber path as `overwrite`
+        // (reports mode_used:"overwrite" below), so it must satisfy requireCas too.
+        const willOverwrite = input.mode === "overwrite" || (input.mode === "upsert" && ex.exists);
+        if (deps.requireCas && willOverwrite && input.prev_hash === undefined)
           throw err.invalidInput(
-            "prev_hash is required for overwrite when writes.requireCas is enabled; read the note first",
+            "prev_hash is required to overwrite an existing note when writes.requireCas is enabled; read the note first",
             { path: rel },
           );
 

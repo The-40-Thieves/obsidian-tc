@@ -179,7 +179,10 @@ function probeResult(app: InternalApp, pluginVersion: string, shapeWarnings: str
     plugin_version: pluginVersion,
     obsidian_version: apiVersion,
     obsidianTcApiVersion: API_VERSION,
-    vault_path: app.vault.getName(),
+    // getName() is the vault's display name, not its filesystem path; on desktop the
+    // FileSystemAdapter exposes the real base path. Fall back to the name (e.g. on mobile).
+    vault_path:
+      (app.vault.adapter as { getBasePath?: () => string }).getBasePath?.() ?? app.vault.getName(),
     capabilities,
     // THE-282: startup shape self-check results (Obsidian internals this plugin duck-types).
     shape_ok: shapeWarnings.length === 0,
@@ -417,11 +420,20 @@ export function buildRoutes(
           !paths.every((p) => typeof p === "string")
         )
           return fail(res, "invalid_input", "paths must be a non-empty string array");
+        let staged = 0;
         try {
-          for (const p of paths as string[]) await gm.stage(p, true);
-          ok(res, { staged: paths.length });
+          for (const p of paths as string[]) {
+            await gm.stage(p, true);
+            staged++;
+          }
+          ok(res, { staged });
         } catch (e) {
-          fail(res, "git_error", e instanceof Error ? e.message : String(e));
+          // Report how many paths were staged before the failure — a bare error hides the
+          // partial state (some staged, some not), leaving the caller unable to resume safely.
+          fail(res, "git_error", e instanceof Error ? e.message : String(e), {
+            staged,
+            total: paths.length,
+          });
         }
       },
     },
@@ -622,10 +634,16 @@ export function buildRoutes(
             plugin: "text-extractor",
           });
         const raw = body(req).paths;
-        const paths = Array.isArray(raw) ? (raw as string[]) : [];
+        const paths = Array.isArray(raw) ? (raw as unknown[]) : [];
         const start = Date.now();
         const results: { path: string; ok: boolean; text?: string; error?: string }[] = [];
         for (const rel of paths) {
+          // Validate per-item so one non-string element yields a per-path error instead of
+          // throwing out of fileByPath and aborting the whole batch.
+          if (typeof rel !== "string") {
+            results.push({ path: String(rel), ok: false, error: "path must be a string" });
+            continue;
+          }
           const file = fileByPath(app, rel);
           if (!file) {
             results.push({ path: rel, ok: false, error: "not found" });
@@ -668,10 +686,15 @@ export function buildRoutes(
         const b = body(req);
         const rel = str(b, "path") ?? "";
         const existing = fileByPath(app, rel);
-        if (b.mode === "create" && existing && b.overwrite !== true)
-          return fail(res, "note_exists", "drawing already exists", { path: rel });
-        // The companion persists the file; rich element merging is performed by the
-        // Excalidraw plugin when the note is next opened. Verified live.
+        // The scaffold is content-free, so writing it over an existing drawing DESTROYS the
+        // scene. Only ever scaffold a NEW file (or an explicit overwrite:true reset); never
+        // silently clobber existing content — regardless of `mode` (a `mode:"update"` on a
+        // populated drawing previously wiped it to boilerplate).
+        if (existing && b.overwrite !== true) {
+          if (b.mode === "create")
+            return fail(res, "note_exists", "drawing already exists", { path: rel });
+          return ok(res, { path: rel, plugin_used: true, unchanged: true });
+        }
         const scaffold = "---\nexcalidraw-plugin: parsed\n---\n# Excalidraw Data\n";
         if (existing) await app.vault.modify(existing, scaffold);
         else await app.vault.create(normalizePath(rel), scaffold);

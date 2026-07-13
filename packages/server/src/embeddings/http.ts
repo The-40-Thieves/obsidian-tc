@@ -48,5 +48,15 @@ export async function postJson<T>(o: PostJsonOptions): Promise<T> {
       status: res.status,
       hint: providerHint(o.provider, o.url),
     });
-  return (await res.json()) as T;
+  try {
+    return (await res.json()) as T;
+  } catch {
+    // A 2xx with a malformed / non-JSON body: surface the typed provider error (with
+    // provider/url/hint) instead of leaking a raw SyntaxError to callers.
+    throw err.embeddingProviderError("invalid JSON in response body", {
+      provider: o.provider,
+      url: o.url,
+      hint: providerHint(o.provider, o.url),
+    });
+  }
 }

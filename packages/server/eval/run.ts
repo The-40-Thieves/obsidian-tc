@@ -109,7 +109,7 @@ export interface RunEvalOptions {
    *  a bge-m3 provider + an index with chunk_sparse rows). */
   sparse?: boolean;
   /** THE-394: gated cross-encoder rerank passthrough (needs `reranker`). */
-  gatedRerank?: { enabled?: boolean; hardTop1?: number; pool?: number };
+  gatedRerank?: { enabled?: boolean; hardTop1?: number; hardZ?: number; pool?: number };
   /** THE-398: convex-combination fusion (fusionMode "convex") with optional alpha. */
   fusionConvex?: { alpha?: number };
   /** THE-400: route via z-margin at this threshold (replaces the sim/margin router rule). */
@@ -200,9 +200,13 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       k: TOP_K,
       ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
     });
-    const hard = (baseRaw[0]?.score ?? 0) < 0.55;
-    // THE-400: z over the SAME top-30 dense pool the graph side seeds from (seedCount default 30).
+    // THE-400: z-margin over the SAME top-30 dense pool the graph side seeds from (seedCount
+    // default 30). The hard-query subset uses the MODEL-AGNOSTIC z-margin, not an absolute cosine:
+    // `top1 < 0.55` fired 0/32 on nomic (dense cosines never dip that low), making the reranker
+    // acceptance slice degenerate. z1 < 1.0 == "top-1 within ~1σ of the seed pool" (ambiguous), and
+    // matches the gated-rerank hardZ default wired below.
     const z1 = seedZMargin(baseRaw.map((h) => h.score));
+    const hard = z1 < 1.0;
     const baseHits = normHits(baseRaw.map((h) => ({ chunk_id: h.chunk_id, path: h.path })));
     const runGraph = async (
       text: string,
@@ -457,7 +461,9 @@ async function main(): Promise<void> {
     ...(noLexical ? { lexical: { enabled: false } } : {}),
     ...(sparseFlag ? { sparse: true } : {}),
     ...(gatedRerank
-      ? { gatedRerank: { enabled: true, ...(hardZ !== undefined ? { hardZ } : {}) } }
+      ? // Default the hardness gate to the model-agnostic z-margin (GATED_HARD_Z overrides); the
+        // absolute-cosine default (0.55) never fires on nomic, so the reranker A/B was degenerate.
+        { gatedRerank: { enabled: true, hardZ: hardZ ?? 1.0 } }
       : {}),
     ...(zRouterArg !== undefined && !Number.isNaN(zRouterArg) ? { zRouter: zRouterArg } : {}),
     ...(temporal ? { temporal: true } : {}),
