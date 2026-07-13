@@ -24,6 +24,18 @@ export function cosineSimilarity(a: number[], b: Float32Array | number[]): numbe
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
+/** Batched cosine: one query vs N concatenated f32 docs of length `dim`; scores in row order.
+ *  Empty for a bad shape. Mirrors the Rust `cosine_batch` (reuses cosineSimilarity per doc). */
+export function cosineBatch(query: number[], docsFlat: Float32Array, dim: number): Float64Array {
+  if (dim <= 0 || query.length !== dim || docsFlat.length % dim !== 0) return new Float64Array(0);
+  const n = docsFlat.length / dim;
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    out[i] = cosineSimilarity(query, docsFlat.subarray(i * dim, i * dim + dim));
+  }
+  return out;
+}
+
 /** Lowercase tokenizer over Unicode alphabetic + numbers (matches Rust is_alphanumeric). Mirrors the Rust. */
 export function tokenize(text: string): string[] {
   const out: string[] = [];

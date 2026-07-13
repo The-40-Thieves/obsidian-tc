@@ -7,7 +7,7 @@
 // The query path is ACL-filtered: chunks whose note is not read-visible are
 // dropped before scoring, so semantic search never leaks across the read ACL.
 import type { Database } from "../db/types";
-import { cosineSimilarity } from "./native";
+import { cosineBatch } from "./native";
 import { blobToFloats, loadVec, vecKnn } from "./vec";
 
 export interface SemanticHit {
@@ -104,12 +104,29 @@ export function semanticSearch(
       "SELECT c.id AS id, c.path AS path, c.content AS content, e.model AS model, e.embedding AS embedding FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ?",
     )
     .all(vaultId) as BruteRow[];
+  // THE-420: score the whole candidate set in ONE native crossing instead of one per row.
+  // Per-pair cosine across the boundary is dominated by re-marshaling the f64 query on every
+  // call (measured 13-22x slower than JS); cosineBatch marshals the query once and scans the
+  // corpus in native. ACL-filter FIRST so invisible chunks are never scored; chunk_embeddings
+  // can hold mixed dims (e.model varies), which the per-pair path scored 0 — preserved here.
+  const visible = rows.filter((r) => readable(r.path));
+  const dim = queryVec.length;
+  const same = visible.filter((r) => r.embedding.byteLength === dim * 4);
+  const mismatched = visible.filter((r) => r.embedding.byteLength !== dim * 4);
+  const flat = new Float32Array(same.length * dim);
+  same.forEach((r, i) => {
+    flat.set(blobToFloats(r.embedding), i * dim);
+  });
+  const scores = same.length > 0 ? cosineBatch(queryVec, flat, dim) : new Float64Array(0);
   const scored: SemanticHit[] = [];
-  for (const r of rows) {
-    if (!readable(r.path)) continue;
-    const score = cosineSimilarity(queryVec, blobToFloats(r.embedding));
-    if (opts.minScore !== undefined && score < opts.minScore) continue;
+  same.forEach((r, i) => {
+    const score = scores[i] ?? 0;
+    if (opts.minScore !== undefined && score < opts.minScore) return;
     scored.push(hit(r.id, r.path, score, r.model, r.content, opts.returnContent));
+  });
+  for (const r of mismatched) {
+    if (opts.minScore !== undefined && opts.minScore > 0) continue;
+    scored.push(hit(r.id, r.path, 0, r.model, r.content, opts.returnContent));
   }
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, k);

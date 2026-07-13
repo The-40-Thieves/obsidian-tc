@@ -11,7 +11,7 @@
 
 #[cfg(unix)]
 use napi::bindgen_prelude::Buffer;
-use napi::bindgen_prelude::Float32Array;
+use napi::bindgen_prelude::{Float32Array, Float64Array};
 use napi_derive::napi;
 
 /// Cosine similarity between a query and a document vector. Used by the semantic
@@ -44,6 +44,28 @@ fn cosine_core(a: &[f64], b: &[f32]) -> f64 {
         return 0.0;
     }
     dot / (norm_a.sqrt() * norm_b.sqrt())
+}
+
+/// Score a whole candidate set in ONE N-API crossing. `docs_flat` is N document vectors of
+/// length `dim` concatenated (row-major, f32); returns N cosine scores in row order. The batched
+/// analogue of `cosine_similarity`: on the brute-force recall path the per-call boundary cost of
+/// scoring a corpus one pair at a time dominates the compute (THE-420), so retrieval crosses the
+/// JS<->native boundary once for the whole candidate set instead of once per vector.
+#[napi]
+pub fn cosine_batch(query: Vec<f64>, docs_flat: Float32Array, dim: u32) -> Float64Array {
+    Float64Array::new(cosine_batch_core(&query, &docs_flat, dim as usize))
+}
+
+/// Pure core: one f64 query vs N concatenated f32 docs. Reuses `cosine_core` per doc so each
+/// score is bit-identical to the per-pair `cosine_similarity` and the JS fallback.
+fn cosine_batch_core(query: &[f64], docs_flat: &[f32], dim: usize) -> Vec<f64> {
+    if dim == 0 || query.len() != dim || docs_flat.len() % dim != 0 {
+        return Vec::new();
+    }
+    docs_flat
+        .chunks_exact(dim)
+        .map(|doc| cosine_core(query, doc))
+        .collect()
 }
 
 /// Tokenize text into lowercase alphanumeric terms for lexical (BM25) scoring.
@@ -246,6 +268,30 @@ mod tests {
     #[test]
     fn mismatched_length() {
         assert_eq!(cosine_core(&[1.0, 2.0], &[1.0, 2.0, 3.0]), 0.0);
+    }
+
+    #[test]
+    fn cosine_batch_scores_rows_in_order() {
+        let scores = cosine_batch_core(&[1.0, 0.0], &[1.0, 0.0, 0.0, 1.0], 2);
+        assert_eq!(scores.len(), 2);
+        assert!((scores[0] - 1.0).abs() < 1e-6);
+        assert!(scores[1].abs() < 1e-6);
+    }
+
+    #[test]
+    fn cosine_batch_matches_per_pair() {
+        let q = [0.1, 0.2, 0.3];
+        let docs: [f32; 6] = [0.2, 0.1, 0.4, 0.9, 0.0, 0.1];
+        let batch = cosine_batch_core(&q, &docs, 3);
+        assert_eq!(batch[0], cosine_core(&q, &docs[0..3]));
+        assert_eq!(batch[1], cosine_core(&q, &docs[3..6]));
+    }
+
+    #[test]
+    fn cosine_batch_rejects_bad_shape() {
+        assert!(cosine_batch_core(&[1.0, 2.0], &[1.0, 2.0, 3.0], 2).is_empty());
+        assert!(cosine_batch_core(&[1.0], &[1.0, 2.0], 2).is_empty());
+        assert!(cosine_batch_core(&[], &[], 0).is_empty());
     }
 
     #[test]

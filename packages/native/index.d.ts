@@ -4,6 +4,14 @@
 /** Cosine similarity between two equal-length vectors; 0 for empty/mismatched inputs. */
 export declare function cosineSimilarity(a: number[], b: Float32Array | number[]): number;
 
+/** Batched cosine: one query vs N concatenated f32 docs of length `dim`; scores in row order
+ *  (empty for a bad shape). One N-API crossing for a whole candidate set. */
+export declare function cosineBatch(
+  query: number[],
+  docsFlat: Float32Array,
+  dim: number,
+): Float64Array;
+
 /** Tokenize text into lowercase alphanumeric terms for BM25 scoring. */
 export declare function tokenize(text: string): string[];
 

@@ -23,6 +23,18 @@ function cosineSimilarity(a, b) {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
+/** Batched cosine: one query vs N concatenated f32 docs of length `dim`; scores in row order.
+ *  Empty for a bad shape. Mirrors the Rust `cosine_batch`. */
+function cosineBatch(query, docsFlat, dim) {
+  if (dim <= 0 || query.length !== dim || docsFlat.length % dim !== 0) return new Float64Array(0);
+  const n = docsFlat.length / dim;
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    out[i] = cosineSimilarity(query, docsFlat.subarray(i * dim, i * dim + dim));
+  }
+  return out;
+}
+
 /** Lowercase tokenizer over Unicode alphabetic + numbers (matches Rust is_alphanumeric). Mirrors the Rust. */
 function tokenize(text) {
   const out = [];
@@ -47,5 +59,6 @@ function bm25Score(tf, docLen, avgDocLen, docFreq, docCount) {
 }
 
 module.exports.cosineSimilarity = cosineSimilarity;
+module.exports.cosineBatch = cosineBatch;
 module.exports.tokenize = tokenize;
 module.exports.bm25Score = bm25Score;

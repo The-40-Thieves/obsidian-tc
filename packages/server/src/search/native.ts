@@ -10,6 +10,7 @@ import { createRequire } from "node:module";
 
 export interface NativeOps {
   cosineSimilarity(a: number[], b: Float32Array | number[]): number;
+  cosineBatch(query: number[], docsFlat: Float32Array, dim: number): Float64Array;
   tokenize(text: string): string[];
   bm25Score(
     tf: number,
@@ -35,6 +36,17 @@ export function jsCosineSimilarity(a: number[], b: Float32Array | number[]): num
   }
   if (na === 0 || nb === 0) return 0;
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+/** Batched cosine: one query vs N concatenated f32 docs of length `dim`; scores in row order
+ *  (empty for a bad shape). Mirrors the Rust `cosine_batch`; reuses jsCosineSimilarity per doc. */
+export function jsCosineBatch(query: number[], docsFlat: Float32Array, dim: number): Float64Array {
+  if (dim <= 0 || query.length !== dim || docsFlat.length % dim !== 0) return new Float64Array(0);
+  const n = docsFlat.length / dim;
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++)
+    out[i] = jsCosineSimilarity(query, docsFlat.subarray(i * dim, i * dim + dim));
+  return out;
 }
 
 /** Lowercase tokenizer over Unicode alphabetic + numbers (matches Rust is_alphanumeric). Mirrors the Rust. */
@@ -110,5 +122,6 @@ export const nativeLoaded: boolean = native !== null;
 
 export const cosineSimilarity: NativeOps["cosineSimilarity"] =
   native?.cosineSimilarity ?? jsCosineSimilarity;
+export const cosineBatch: NativeOps["cosineBatch"] = native?.cosineBatch ?? jsCosineBatch;
 export const tokenize: NativeOps["tokenize"] = native?.tokenize ?? jsTokenize;
 export const bm25Score: NativeOps["bm25Score"] = native?.bm25Score ?? jsBm25Score;

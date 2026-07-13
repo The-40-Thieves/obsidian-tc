@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   bm25Score,
+  cosineBatch,
   cosineSimilarity,
   jsBm25Score,
+  jsCosineBatch,
   jsCosineSimilarity,
   jsTokenize,
   loadNative,
@@ -34,6 +36,12 @@ describe("vector/lexical primitives — JS fallbacks", () => {
     expect(jsBm25Score(2, 50, 100, 2, 10)).toBeGreaterThan(jsBm25Score(2, 200, 100, 2, 10));
     expect(jsBm25Score(5, 100, 100, 2, 10)).toBeGreaterThan(jsBm25Score(1, 100, 100, 2, 10));
   });
+
+  it("cosineBatch: scores rows in order; bad shape -> empty", () => {
+    expect(Array.from(jsCosineBatch([1, 0], new Float32Array([1, 0, 0, 1]), 2))).toEqual([1, 0]);
+    expect(jsCosineBatch([1, 2], new Float32Array([1, 2, 3]), 2).length).toBe(0);
+    expect(jsCosineBatch([1, 2], new Float32Array([]), 2).length).toBe(0);
+  });
 });
 
 describe("active backend (native when built, else JS) matches the JS reference", () => {
@@ -53,6 +61,14 @@ describe("active backend (native when built, else JS) matches the JS reference",
     expect(tokenize("Alpha, beta_gamma 42")).toEqual(jsTokenize("Alpha, beta_gamma 42"));
     expect(bm25Score(3, 120, 95, 2, 50)).toBeCloseTo(jsBm25Score(3, 120, 95, 2, 50), 6);
   });
+
+  it("cosineBatch agrees with the JS reference and with per-pair cosine (strict ===)", () => {
+    const q = [0.1, 0.2, 0.3];
+    const flat = new Float32Array([0.2, 0.1, 0.4, 0.9, 0.0, 0.1]);
+    expect(Array.from(cosineBatch(q, flat, 3))).toEqual(Array.from(jsCosineBatch(q, flat, 3)));
+    expect(cosineBatch(q, flat, 3)[0]).toBe(cosineSimilarity(q, flat.subarray(0, 3)));
+    expect(cosineBatch(q, flat, 3)[1]).toBe(cosineSimilarity(q, flat.subarray(3, 6)));
+  });
 });
 
 describe("loadNative selector — OBSIDIAN_TC_FORCE_JS_FALLBACK escape hatch", () => {
@@ -62,6 +78,7 @@ describe("loadNative selector — OBSIDIAN_TC_FORCE_JS_FALLBACK escape hatch", (
   // process or deleting build artifacts, so the selector is tested deterministically.
   const fakeNative: NativeOps = {
     cosineSimilarity: () => 1,
+    cosineBatch: () => new Float64Array(),
     tokenize: () => ["native"],
     bm25Score: () => 1,
   };

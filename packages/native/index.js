@@ -138,6 +138,9 @@ const impl = native !== null ? native : require("./fallback.js");
 /** True when the compiled native binary is active; false when on the pure-JS fallback. */
 module.exports.nativeLoaded = native !== null;
 module.exports.cosineSimilarity = impl.cosineSimilarity;
+// cosineBatch: present on a freshly built native module; on an older binary (or the JS fallback)
+// impl.cosineBatch resolves from fallback.js. NOT added to isComplete() so an older .node still loads.
+module.exports.cosineBatch = impl.cosineBatch;
 module.exports.tokenize = impl.tokenize;
 module.exports.bm25Score = impl.bm25Score;
 // THE-272: symlink-safe, TOCTOU-free vault I/O. Present only when the compiled native module is
