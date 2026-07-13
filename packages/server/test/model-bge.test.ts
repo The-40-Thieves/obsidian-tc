@@ -168,3 +168,57 @@ describe("composeModelClient (fan methods to their owning backend)", () => {
     expect(mc.rerank).toBeUndefined();
   });
 });
+
+describe("bgeModelClient.rerank (cross-encoder via /v1/rerank)", () => {
+  it("posts {query,documents,top_n} and maps relevance_score -> relevanceScore", async () => {
+    const calls: Array<{ url: string; body?: unknown; auth?: string }> = [];
+    const fetchFn = (async (
+      input: unknown,
+      init?: { body?: unknown; headers?: Record<string, string> },
+    ) => {
+      calls.push({
+        url: String(input),
+        body: JSON.parse(String(init?.body)),
+        auth: (init?.headers as Record<string, string> | undefined)?.authorization,
+      });
+      return new Response(
+        JSON.stringify({
+          model: "BAAI/bge-reranker-v2-m3",
+          results: [
+            { index: 1, relevance_score: 0.9 },
+            { index: 0, relevance_score: 0.2 },
+          ],
+        }),
+        { status: 200 },
+      );
+    }) as unknown as FetchFn;
+    const mc = bgeModelClient({
+      baseUrl: "http://bge:8002",
+      dimensions: 2,
+      authToken: "tok",
+      fetchFn,
+    });
+    const r = await mc.rerank?.({ query: "q", documents: ["a", "b"], topN: 2 });
+    expect(r?.model).toBe("BAAI/bge-reranker-v2-m3");
+    expect(r?.results).toEqual([
+      { index: 1, relevanceScore: 0.9 },
+      { index: 0, relevanceScore: 0.2 },
+    ]);
+    expect(calls[0]?.url).toBe("http://bge:8002/v1/rerank");
+    expect(calls[0]?.body).toMatchObject({ query: "q", documents: ["a", "b"], top_n: 2 });
+    expect(calls[0]?.auth).toBe("Bearer tok");
+  });
+
+  it("composeModelClient routes rerank to the BGE backend", async () => {
+    const fetchFn = (async () =>
+      new Response(JSON.stringify({ model: "m", results: [{ index: 0, relevance_score: 1 }] }), {
+        status: 200,
+      })) as unknown as FetchFn;
+    const full = bgeModelClient({ baseUrl: "http://bge:8002", dimensions: 2, fetchFn });
+    const dense = { embed: full.embed };
+    const mc = composeModelClient({ dense, full });
+    expect(mc.rerank).toBeDefined();
+    const r = await mc.rerank?.({ query: "q", documents: ["a"] });
+    expect(r?.results[0]).toEqual({ index: 0, relevanceScore: 1 });
+  });
+});

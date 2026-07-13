@@ -19,6 +19,10 @@ class Settings:
     max_concurrent: int
     max_request_items: int
     max_text_chars: int
+    reranker_model_id: str
+    reranker_revision: str
+    reranker_max_length: int
+    max_rerank_documents: int
 
 
 def _env_int(name: str, default: int) -> int:
@@ -40,4 +44,8 @@ def load_settings() -> Settings:
         max_concurrent=_env_int("BGE_MAX_CONCURRENT", 32),
         max_request_items=_env_int("BGE_MAX_REQUEST_ITEMS", 256),
         max_text_chars=_env_int("BGE_MAX_TEXT_CHARS", 100000),
+        reranker_model_id=os.environ.get("BGE_RERANKER_MODEL_ID", "BAAI/bge-reranker-v2-m3"),
+        reranker_revision=os.environ.get("BGE_RERANKER_REVISION", "main"),
+        reranker_max_length=_env_int("BGE_RERANKER_MAX_LENGTH", 512),
+        max_rerank_documents=_env_int("BGE_MAX_RERANK_DOCUMENTS", 512),
     )

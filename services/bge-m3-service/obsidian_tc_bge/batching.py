@@ -37,3 +37,16 @@ class Scheduler:
                 return await loop.run_in_executor(None, self._encoder.encode, texts, outputs)
         finally:
             self._inflight -= 1
+
+    async def run(self, fn, *args):
+        # Gate an arbitrary blocking model call (e.g. the reranker) through the same
+        # single-worker semaphore + inflight cap, so encode and rerank never contend on the GPU.
+        if self._inflight >= self._max:
+            raise OverloadError(f"queue full ({self._inflight}/{self._max})")
+        self._inflight += 1
+        try:
+            async with self._gate:
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, lambda: fn(*args))
+        finally:
+            self._inflight -= 1

@@ -57,6 +57,18 @@ loopback by default; the bearer token is defence-in-depth, not the only control.
   service returns `429` instead of growing an unbounded queue.
 - **Request-size limits** - too many items or an over-long text returns `413`, never an OOM.
 
+## Reranking
+
+`POST /v1/rerank` - cross-encoder rerank via **bge-reranker-v2-m3**, loaded lazily on first call
+(a separate model from the bge-m3 encoder, so a dense/encode-only deployment never pays its VRAM).
+Request `{ "query": "...", "documents": ["...", "..."], "top_n": 10 }`; response
+`{ "model", "revision", "results": [{ "index", "relevance_score" }] }` sorted by descending
+relevance (sigmoid of the cross-encoder logit). Gated through the same single-worker scheduler as
+encode (the GPU is not re-entrant); a `413` past `BGE_MAX_RERANK_DOCUMENTS`. Env vars:
+`BGE_RERANKER_MODEL_ID` (default `BAAI/bge-reranker-v2-m3`), `BGE_RERANKER_REVISION`,
+`BGE_RERANKER_MAX_LENGTH` (512), `BGE_MAX_RERANK_DOCUMENTS` (512). The TS `bgeModelClient.rerank`
+adapter speaks this, and `composeModelClient` routes `ModelClient.rerank` to it.
+
 ## Configuration (environment)
 
 | Var | Default | Meaning |

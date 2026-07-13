@@ -9,13 +9,23 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 
 from .batching import OverloadError, Scheduler
 from .config import load_settings
-from .contracts import EncodeRequest, EncodeResponse, HealthStatus, ModelInfo
+from .contracts import (
+    EncodeRequest,
+    EncodeResponse,
+    HealthStatus,
+    ModelInfo,
+    RerankHit,
+    RerankRequest,
+    RerankResponse,
+)
 from .health import Readiness
 from .model import BgeM3Encoder
+from .reranker import BgeReranker
 
 settings = load_settings()
 readiness = Readiness()
-_state: dict[str, object] = {"encoder": None, "scheduler": None}
+_state: dict[str, object] = {"encoder": None, "scheduler": None, "reranker": None}
+_reranker_lock = asyncio.Lock()
 
 
 @asynccontextmanager
@@ -90,3 +100,43 @@ async def encode(req: EncodeRequest) -> EncodeResponse:
     except OverloadError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     return EncodeResponse(model=settings.model_id, revision=encoder.revision, items=items)
+
+
+def _load_reranker() -> BgeReranker:
+    encoder: BgeM3Encoder = _state["encoder"]  # type: ignore[assignment]
+    return BgeReranker(
+        settings.reranker_model_id,
+        settings.reranker_revision,
+        getattr(encoder, "device", "cpu"),
+        settings.reranker_max_length,
+    )
+
+
+async def _reranker() -> BgeReranker:
+    if _state.get("reranker") is None:
+        async with _reranker_lock:
+            if _state.get("reranker") is None:
+                loop = asyncio.get_running_loop()
+                _state["reranker"] = await loop.run_in_executor(None, _load_reranker)
+    return _state["reranker"]  # type: ignore[return-value]
+
+
+@app.post("/v1/rerank", response_model=RerankResponse, dependencies=[Depends(require_auth)])
+async def rerank(req: RerankRequest) -> RerankResponse:
+    if not readiness.ready:
+        raise HTTPException(status_code=503, detail=readiness.error or "model not ready")
+    if len(req.documents) > settings.max_rerank_documents:
+        raise HTTPException(
+            status_code=413, detail=f"too many documents (max {settings.max_rerank_documents})"
+        )
+    scheduler: Scheduler = _state["scheduler"]  # type: ignore[assignment]
+    reranker = await _reranker()
+    try:
+        ranked = await scheduler.run(reranker.rerank, req.query, req.documents, req.top_n)
+    except OverloadError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    return RerankResponse(
+        model=settings.reranker_model_id,
+        revision=reranker.revision,
+        results=[RerankHit(index=i, relevance_score=s) for i, s in ranked],
+    )

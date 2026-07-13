@@ -49,3 +49,21 @@ class ModelInfo(BaseModel):
 class HealthStatus(BaseModel):
     status: str
     detail: str | None = None
+
+
+class RerankRequest(BaseModel):
+    model: str | None = None
+    query: str
+    documents: list[str] = Field(min_length=1)
+    top_n: int | None = None
+
+
+class RerankHit(BaseModel):
+    index: int
+    relevance_score: float
+
+
+class RerankResponse(BaseModel):
+    model: str
+    revision: str
+    results: list[RerankHit]

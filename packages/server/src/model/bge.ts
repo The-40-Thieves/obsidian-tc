@@ -10,7 +10,14 @@ import { type FetchFn, postJson } from "../embeddings/http";
 import type { MultiVectorEmbedding } from "../embeddings/provider";
 import { assertVectors } from "../embeddings/provider";
 import type { SparseVec } from "../search/sparse";
-import type { EmbedFullResult, EmbedRequest, EmbedResult, ModelClient } from "./ports";
+import type {
+  EmbedFullResult,
+  EmbedRequest,
+  EmbedResult,
+  ModelClient,
+  RerankRequest,
+  RerankResult,
+} from "./ports";
 
 export interface BgeClientOptions {
   /** BGE-M3 service base URL WITHOUT a /v1 suffix, e.g. "http://127.0.0.1:8002". */
@@ -42,6 +49,11 @@ interface EncodeResponse {
   model?: string;
   revision?: string;
   items?: EncodeItem[];
+}
+
+interface RerankWire {
+  model?: string;
+  results?: Array<{ index: number; relevance_score: number }>;
 }
 
 /** Zip the service's parallel {token_ids, weights} into the token-id -> weight map SparseVec is. The
@@ -120,6 +132,26 @@ export function bgeModelClient(opts: BgeClientOptions): ModelClient {
         colbert: it.colbert?.vectors ?? [],
       }));
       return { ...meta(resp), items };
+    },
+
+    // Cross-encoder rerank via the service's /v1/rerank (bge-reranker-v2-m3). A retrieval model,
+    // so it lives on ModelClient.rerank; composeModelClient routes rerank here.
+    async rerank(req: RerankRequest): Promise<RerankResult> {
+      const resp = await postJson<RerankWire>({
+        url: `${base}/v1/rerank`,
+        body: { query: req.query, documents: req.documents, top_n: req.topN },
+        headers,
+        fetchFn: opts.fetchFn,
+        timeoutMs: opts.timeoutMs,
+        provider: "bge-reranker",
+      });
+      return {
+        model: resp.model ?? "bge-reranker-v2-m3",
+        results: (resp.results ?? []).map((r) => ({
+          index: r.index,
+          relevanceScore: r.relevance_score,
+        })),
+      };
     },
   };
 }
