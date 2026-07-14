@@ -8,10 +8,10 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { ServerConfigSchema, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import type { CapabilitySnapshot } from "../src/bridge";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
@@ -21,11 +21,6 @@ import { registerM1Tools } from "../src/tools/m1";
 import type { M6Deps } from "../src/tools/m6/shared";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 
 const DEFAULT_THROTTLE = ServerConfigSchema.parse({ vaults: [{ id: "x", path: "/x" }] }).throttle;
 
@@ -96,7 +91,7 @@ export function makeM6Vault(opts: M6VaultOptions): M6Vault {
   for (const [rel, content] of Object.entries(opts.files ?? {})) write(rel, content);
 
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([{ id, name: id, path: root }]);

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { ToolRegistry } from "../src/mcp/registry";
 import { ensureChunkFts } from "../src/search/chunk_fts";
@@ -19,10 +20,6 @@ import { packBudget } from "../src/tools/m7/knowledge-tools";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 const expSql = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260626_001_experiential_init.sql", import.meta.url)),
   "utf8",
@@ -41,7 +38,7 @@ const NOW = 1_700_000_000_000;
 
 function cacheDb0(): Database {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   const ins = db.prepare(
     "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'main', ?, ?, '[]', ?, ?, ?, ?, ?)",
   );
@@ -90,16 +87,15 @@ function cacheDb0(): Database {
     NOW,
   );
   ensureChunkFts(db, { now: () => NOW, enrich: false });
-  // Minimal plane tables for the composite legs.
-  db.exec(
-    "CREATE TABLE contradictions (id TEXT PRIMARY KEY, source_path TEXT NOT NULL, conflict_path TEXT NOT NULL, judge_verdict TEXT NOT NULL, judge_rationale TEXT, status TEXT NOT NULL);" +
-      "CREATE TABLE syntheses (iso_year INTEGER NOT NULL, iso_week INTEGER NOT NULL, generated_at INTEGER NOT NULL, cluster_count INTEGER NOT NULL DEFAULT 0, pattern_count INTEGER NOT NULL DEFAULT 0, clusters TEXT NOT NULL, patterns TEXT NOT NULL, judge_model TEXT, PRIMARY KEY (iso_year, iso_week));",
-  );
+  // The plane tables (contradictions, syntheses) come from the migration chain now. This fixture used
+  // to CREATE its own, looser versions — missing five NOT NULL columns and using a judge_verdict value
+  // ('conflict') that the real schema does not define — so these legs were never exercised against the
+  // shape production actually has. The rows below satisfy the real constraints.
   db.prepare(
-    "INSERT INTO contradictions (id, source_path, conflict_path, judge_verdict, judge_rationale, status) VALUES ('cx1', 'notes/rare.md', 'notes/other.md', 'conflict', 'they disagree', 'open')",
-  ).run();
+    "INSERT INTO contradictions (id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, judge_verdict, judge_rationale, status, detected_at) VALUES ('cx1', 'c-src', 'notes/rare.md', 'c-cfl', 'notes/other.md', 'sha-src', 'sha-cfl', 'contradiction', 'they disagree', 'open', ?)",
+  ).run(NOW);
   db.prepare(
-    "INSERT INTO syntheses (iso_year, iso_week, generated_at, clusters, patterns) VALUES (2026, 27, ?, '[]', ?)",
+    "INSERT INTO syntheses (iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns) VALUES (2026, 27, ?, 0, 1, '[]', ?)",
   ).run(NOW, JSON.stringify(["zylophrastic reconciliation is weekly"]));
   return db;
 }

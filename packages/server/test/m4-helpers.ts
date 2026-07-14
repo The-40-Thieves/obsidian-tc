@@ -8,7 +8,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import {
@@ -19,6 +18,7 @@ import {
   type FakeRoute,
   fakeBridgeTransport,
 } from "../src/bridge";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
@@ -26,11 +26,6 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 
 const BASE = "http://127.0.0.1:27124";
 
@@ -95,7 +90,7 @@ export function makeM4Vault(opts: M4VaultOptions = {}): M4Vault {
   for (const [rel, content] of Object.entries(opts.files ?? {})) write(rel, content);
 
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([{ id, path: root }]);

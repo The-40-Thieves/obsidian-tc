@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexNote, indexVault } from "../src/search/indexer";
@@ -11,13 +11,9 @@ import { FilesystemBackend } from "../src/vault/backend";
 import { assertLive, resolveMode } from "../src/vault/mode";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 function freshDb(): Database {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   return db;
 }
 function tmpVault(): string {

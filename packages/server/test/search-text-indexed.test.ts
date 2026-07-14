@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import { ensureNotesFts } from "../src/search/fts";
@@ -12,10 +13,6 @@ import { indexVault } from "../src/search/indexer";
 import { searchText, searchTextIndexed, type TextOptions } from "../src/search/text";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 const notesSql = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260702_001_notes.sql", import.meta.url)),
   "utf8",
@@ -41,7 +38,7 @@ async function harness(): Promise<{
   cleanup: () => void;
 }> {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   runMigrations(db, [{ version: "20260702_001", sql: notesSql }], { version: "test" });
   const hasFts = ensureNotesFts(db);
   const root = mkdtempSync(join(tmpdir(), "obtc-3b-"));

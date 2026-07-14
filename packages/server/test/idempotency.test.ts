@@ -1,21 +1,15 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { argsHash } from "../src/hash";
 import { type CallerContext, type RegistryOptions, ToolRegistry } from "../src/mcp/registry";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
-
 function freshDb(): Database {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   return db;
 }
 

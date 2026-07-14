@@ -18,6 +18,7 @@ import { provisionExperientialDb } from "./db/experiential";
 import { startMaintenanceSweep } from "./db/maintenance";
 import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
+import { provisionCacheDb } from "./db/provision";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
 import { makeActivationLookup, recomputeActivation } from "./experiential/activation";
@@ -91,24 +92,6 @@ import { ActiveSessionTracker, appendTrace, getSession } from "./workspace/sessi
 // truth, bumped by the release pipeline. Matches MCP versioning guidance (extract from
 // package metadata, do not hardcode); resolveJsonModule is on, so bun inlines it at build.
 
-// The migration SQL is read relative to this module; the build copies
-// src/migrations -> dist/migrations (scripts/copy-assets.mjs) so the bundled
-// dist/cli.js resolves it the same way it does from source.
-const initialMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260519_001_initial.sql", import.meta.url)),
-  "utf8",
-);
-const entityUniqueMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260519_002_entity_unique.sql", import.meta.url)),
-  "utf8",
-);
-// THE-233 (W-SCHEMA): the wikilink edge graph (vault_graph_expand walks this) lands in the
-// authored cache.db alongside chunks; the experiential tier DDL is read here too (bundle-safe
-// ./migrations resolution) and applied to a physically separate experiential.db below.
-const vaultEdgesMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260626_001_vault_edges.sql", import.meta.url)),
-  "utf8",
-);
 const experientialInitMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260626_001_experiential_init.sql", import.meta.url)),
   "utf8",
@@ -146,34 +129,6 @@ const experientialMigrations = [
   { version: "20260712_002", sql: accessViewsMigrationSql },
   { version: "20260712_003", sql: forgetLogMigrationSql },
 ];
-// THE-233 (W-WORKERS): sleep-time plane state tables (contradictions/syntheses/audit_reports/
-// job_runs). W-WORKERS left this committed-but-unwired by design; the integration wires it into
-// the cache.db migration chain below.
-const planeMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260626_002_plane.sql", import.meta.url)),
-  "utf8",
-);
-// THE-291: per-note metadata table (notes_fts is runtime-provisioned, never in this chain).
-const notesMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260702_001_notes.sql", import.meta.url)),
-  "utf8",
-);
-// THE-310: vault_id on vault_edges so multi-vault GraphRAG reconcile/expansion is isolated.
-const vaultEdgesVaultIdMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260703_001_vault_edges_vault_id.sql", import.meta.url)),
-  "utf8",
-);
-// THE-374: point-in-time snapshot store (snapshot_blobs + note_snapshots) for restore_note.
-const snapshotsMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260709_001_snapshots.sql", import.meta.url)),
-  "utf8",
-);
-// Graph densification (graphify spec-donor port): confidence + source_fingerprint on vault_edges for
-// derived (virtual / LLM-inferred) edges. See docs/plans/2026-07-13-graph-densification.md.
-const vaultEdgesDerivedMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260713_001_vault_edges_derived.sql", import.meta.url)),
-  "utf8",
-);
 async function main(): Promise<void> {
   const cmd = parseCliArgs(process.argv.slice(2));
   if (cmd.kind === "version") {
@@ -718,20 +673,7 @@ async function main(): Promise<void> {
 
   mkdirSync(config.cacheDir, { recursive: true });
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
-  runMigrations(
-    db,
-    [
-      { version: "20260519_001", sql: initialMigrationSql },
-      { version: "20260519_002", sql: entityUniqueMigrationSql },
-      { version: "20260626_001", sql: vaultEdgesMigrationSql },
-      { version: "20260626_002", sql: planeMigrationSql },
-      { version: "20260702_001", sql: notesMigrationSql },
-      { version: "20260703_001", sql: vaultEdgesVaultIdMigrationSql },
-      { version: "20260709_001", sql: snapshotsMigrationSql },
-      { version: "20260713_001", sql: vaultEdgesDerivedMigrationSql },
-    ],
-    { version: VERSION },
-  );
+  provisionCacheDb(db, { version: VERSION });
   // THE-233 (W-SCHEMA): provision the experiential tier as a physically separate store (the
   // membrane — low-trust per-retrieval state cannot FK into the authored atoms in cache.db,
   // and a reset is a file truncate).

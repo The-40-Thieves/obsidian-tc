@@ -2,24 +2,19 @@
 // cli.ts assembles it), and a note created through the M1 write path is indexed
 // and then found by both lexical and semantic M2 search — all through the full
 // M0 dispatch pipeline against a real on-disk temp vault, with audit rows asserted.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
+import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 
 function dataOf(res: ToolResult): any {
   if (!res.ok) throw new Error(`expected ok, got ${res.error.code}`);
@@ -30,7 +25,7 @@ describe("M1 + M2 cross-milestone integration (one shared registry)", () => {
   it("write_note -> index_vault -> search finds the note end-to-end", async () => {
     const root = mkdtempSync(join(tmpdir(), "obtc-m12-"));
     const db = openMemoryDb();
-    db.exec(schemaSql);
+    provisionCacheDb(db);
     const vaultRegistry = new VaultRegistry([{ id: "test", path: root }]);
     const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
     const registry = new ToolRegistry();

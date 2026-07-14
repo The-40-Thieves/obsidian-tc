@@ -5,8 +5,8 @@
 import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import {
   appendTrace,
@@ -20,14 +20,9 @@ import {
 } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
-
 function freshDb(): Database {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   return db;
 }
 

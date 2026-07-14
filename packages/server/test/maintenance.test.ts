@@ -1,18 +1,12 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { runMaintenanceSweep, startMaintenanceSweep } from "../src/db/maintenance";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
-
 function freshDb(): Database {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   return db;
 }
 

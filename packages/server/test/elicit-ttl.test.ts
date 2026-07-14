@@ -2,20 +2,14 @@
 // default that cli.ts sets from config at startup. These tests assert the minted token's lifetime
 // tracks the configured default and that an explicit per-call ttlSeconds still overrides it. The
 // afterEach restores the built-in 300s default so state never leaks between tests.
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { provisionCacheDb } from "../src/db/provision";
 import { issueElicitToken, setDefaultElicitTtlSeconds } from "../src/elicit";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
-
 function freshDb() {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   return db;
 }
 

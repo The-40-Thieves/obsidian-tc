@@ -3,10 +3,9 @@
 // unreachable or unconfigured, and that the router's dql mode enforces read:dataview
 // inline (deny-by-default). Self-contained inline harness — the M2 search harness
 // stays bridge-free, so the existing "plugin_missing (no bridge)" test is unchanged.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -15,17 +14,13 @@ import {
   type FakeRoute,
   fakeBridgeTransport,
 } from "../src/bridge";
+import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { ToolRegistry } from "../src/mcp/registry";
 import type { M2Deps } from "../src/tools/m2";
 import { buildSearchTools } from "../src/tools/m2/search-tools";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 
 interface Rig {
   call: (
@@ -44,7 +39,7 @@ function makeRig(opts: {
 }): Rig {
   const root = mkdtempSync(join(tmpdir(), "obtc-dql-"));
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   const vaultRegistry = new VaultRegistry([{ id: "test", path: root }]);
   const requests: FakeRequestInfo[] = [];
   const client = createBridgeClient({

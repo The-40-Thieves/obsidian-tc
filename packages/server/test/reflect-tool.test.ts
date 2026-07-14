@@ -5,8 +5,8 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import type { GatewayRoles } from "../src/plane/gateway";
 import { ensureChunkFts } from "../src/search/chunk_fts";
@@ -14,15 +14,11 @@ import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 const NOW = 1_700_000_000_000;
 
 function cacheDb0() {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   const ins = db.prepare(
     "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'main', ?, 0, '[]', ?, ?, 40, ?, ?)",
   );

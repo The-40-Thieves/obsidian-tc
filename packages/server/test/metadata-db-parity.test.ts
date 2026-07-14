@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { runMigrations } from "../src/db/migrate";
+import { provisionCacheDb } from "../src/db/provision";
 import type { EmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { indexVault } from "../src/search/indexer";
@@ -13,10 +14,6 @@ import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 const notesSql = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260702_001_notes.sql", import.meta.url)),
   "utf8",
@@ -36,7 +33,7 @@ const FILES: Record<string, string> = {
 
 async function harness(withIndex: boolean) {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   runMigrations(db, [{ version: "20260702_001", sql: notesSql }], { version: "test" });
   const root = mkdtempSync(join(tmpdir(), "obtc-3bii-"));
   for (const [rel, content] of Object.entries(FILES)) {

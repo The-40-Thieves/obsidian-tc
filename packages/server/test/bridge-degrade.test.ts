@@ -1,22 +1,16 @@
 // Proves the execute:<plugin> security mechanism end-to-end through dispatch:
 // the degradation gate (requirePlugin), deny-by-default scope checks, and the
 // hardcoded HITL floor on the execute family (scopes.ts HITL_FLOOR_FAMILIES).
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { CapabilitySnapshot } from "../src/bridge/capabilities";
 import { requirePlugin } from "../src/bridge/degrade";
+import { provisionCacheDb } from "../src/db/provision";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { defineTool } from "../src/tools/m1/define";
 import { openMemoryDb } from "./helpers";
-
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 
 function thrownCode(fn: () => unknown): string {
   try {
@@ -56,7 +50,7 @@ describe("requirePlugin degradation gate", () => {
 
 describe("execute:<plugin> scope + HITL floor through dispatch", () => {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
   registry.register(
     defineTool({

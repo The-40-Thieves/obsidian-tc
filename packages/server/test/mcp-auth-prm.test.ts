@@ -1,17 +1,12 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
+import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { createHealthTool } from "../src/tools/admin/health";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 const AS = "https://as.example.com";
 const RES = "https://mcp.example.com/mcp";
 const POST = {
@@ -25,7 +20,7 @@ function authOf(input: unknown): ServerConfig["auth"] {
 }
 async function boot(auth: ServerConfig["auth"]) {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   const registry = new ToolRegistry();
   registry.register(
     createHealthTool({

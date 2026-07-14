@@ -3,11 +3,11 @@
 // against cheap stubs — registration only builds tool definitions (handlers close over deps), so no
 // live backends are needed. Bump REGISTERED_TOOL_COUNT together with the docs headline when the
 // surface changes; the docs side is asserted by scripts/check-version-coherence.mjs.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { RateLimiter } from "../src/throttle";
 import { createHealthTool } from "../src/tools/admin/health";
@@ -28,11 +28,6 @@ import { openMemoryDb } from "./helpers";
  *  a tool is added or removed. */
 const REGISTERED_TOOL_COUNT = 141;
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
-
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },
   write: { perMinute: 1e6, burst: 1e6 },
@@ -47,7 +42,7 @@ describe("THE-306 registered tool count", () => {
 
   it("registers exactly the documented tool surface", () => {
     const db = openMemoryDb();
-    db.exec(schemaSql);
+    provisionCacheDb(db);
     const vaultRegistry = new VaultRegistry([{ id: "t", name: "t", path: root }]);
     const rateLimiter = new RateLimiter(NO_THROTTLE as never);
     const registry = new ToolRegistry({ rateLimiter });

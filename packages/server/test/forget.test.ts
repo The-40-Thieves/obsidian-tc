@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import {
   appendForgetLog,
@@ -20,10 +21,6 @@ import { openMemoryDb } from "./helpers";
 
 const sql = (p: string): string =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${p}`, import.meta.url)), "utf8");
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 const NOW = 1_700_000_000_000;
 
 function edb0(): Database {
@@ -135,7 +132,7 @@ describe("forgetNote", () => {
   function rig() {
     const edb = edb0();
     const cache = openMemoryDb();
-    cache.exec(schemaSql);
+    provisionCacheDb(cache);
     const ins = cache.prepare(
       "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'main', ?, 0, '[]', 'c', ?, 10, ?, ?)",
     );

@@ -1,21 +1,16 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
+import { provisionCacheDb } from "../src/db/provision";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
 import { createHealthTool } from "../src/tools/admin/health";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 describe("mcp transport round-trip", () => {
   it("server_health round-trips transport -> dispatch -> audit", async () => {
     const db = openMemoryDb();
-    db.exec(schemaSql);
+    provisionCacheDb(db);
 
     const registry = new ToolRegistry();
     registry.register(

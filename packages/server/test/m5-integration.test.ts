@@ -9,11 +9,11 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { type FakeRequestInfo, fakeBridgeTransport } from "../src/bridge";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { elicitVerifier } from "../src/elicit";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
@@ -23,10 +23,6 @@ import { registerM5Tools } from "../src/tools/m5";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 const PLUR_TOKEN = "plur-key";
 
 interface IntegrationVault {
@@ -48,7 +44,7 @@ function makeVault(opts: { plur?: boolean } = {}): IntegrationVault {
   const root = mkdtempSync(join(tmpdir(), "obtc-m5int-"));
   const id = "test";
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
   const vaultRegistry = new VaultRegistry([{ id, path: root }]);
 

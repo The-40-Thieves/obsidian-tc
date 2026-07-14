@@ -6,16 +6,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { vaultMetrics } from "../src/experiential/metrics";
 import { openMemoryDb } from "./helpers";
 
 const sql = (p: string): string =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${p}`, import.meta.url)), "utf8");
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 const notesSql = sql("20260702_001_notes.sql");
 const DAY = 86_400_000;
 const NOW = 1_700_000_000_000;
@@ -51,7 +48,7 @@ function logHit(
 
 function cache0(): Database {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   db.exec(notesSql);
   const ins = db.prepare(
     "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'main', ?, 0, '[]', 'c', ?, 10, ?, ?)",

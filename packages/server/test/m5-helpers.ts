@@ -6,10 +6,10 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { type FakeRequestInfo, type FakeRoute, fakeBridgeTransport } from "../src/bridge";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
@@ -18,11 +18,6 @@ import { createPlurClient } from "../src/plur/client";
 import { registerM5Tools } from "../src/tools/m5";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 
 const PLUR_ENDPOINT = "http://127.0.0.1:7077";
 export const PLUR_TOKEN = "plur-secret";
@@ -83,7 +78,7 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
   for (const [rel, content] of Object.entries(opts.files ?? {})) write(rel, content);
 
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([{ id, path: root }]);

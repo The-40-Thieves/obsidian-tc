@@ -5,16 +5,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import { ensureNotesFts, hasNotesTable } from "../src/search/fts";
 import { deindexNote, indexNote, indexVault } from "../src/search/indexer";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
 const notesSql = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260702_001_notes.sql", import.meta.url)),
   "utf8",
@@ -22,7 +19,7 @@ const notesSql = readFileSync(
 
 function freshDb(): Database {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   runMigrations(db, [{ version: "20260702_001", sql: notesSql }], { version: "test" });
   return db;
 }

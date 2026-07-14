@@ -92,15 +92,17 @@ describe("merged migration chain (integration)", () => {
   // statements target tables that were never created. Tests can't catch that via their own
   // hand-built chains, so assert the SOURCE wiring: every src/migrations/*.sql filename must
   // be referenced by cli.ts.
-  it("cli.ts references every migration file on disk", () => {
+  it("every migration file on disk is referenced by a chain (cli.ts or db/provision.ts)", () => {
     const migrationsDir = fileURLToPath(new URL("../src/migrations/", import.meta.url));
-    const cliSource = readFileSync(
-      fileURLToPath(new URL("../src/cli.ts", import.meta.url)),
-      "utf8",
-    );
+    // The cache.db chain moved to db/provision.ts (the single source of truth now shared with the
+    // tests); cli.ts still assembles the SEPARATE experiential chain. The invariant is unchanged: a
+    // migration referenced by neither silently never runs.
+    const chainSources = ["../src/cli.ts", "../src/db/provision.ts"]
+      .map((rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"))
+      .join("\n");
     const missing = readdirSync(migrationsDir)
       .filter((f) => f.endsWith(".sql"))
-      .filter((f) => !cliSource.includes(f));
+      .filter((f) => !chainSources.includes(f));
     expect(missing).toEqual([]);
   });
 });

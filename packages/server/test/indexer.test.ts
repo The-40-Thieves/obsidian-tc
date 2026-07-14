@@ -192,8 +192,18 @@ describe("index_vault (incremental chunk + embed)", () => {
       root: v.root,
       isReadable: () => true,
     });
-    // One batch (3 < BATCH), so one transaction — not one per note.
-    expect(begins).toBe(1);
+    // TWO transactions for one batch: the chunk batch, then the notes flush. The P2 invariant is that
+    // transactions do not scale with the note COUNT — three notes still cost two, not three.
+    //
+    // This read 1 until the tests began provisioning from the real migration chain. Under the old
+    // schema.sql fixture the `notes` table did not exist, so flushNotes() returned early and its
+    // transaction never happened: the assertion passed because a subsystem was missing, not because the
+    // code did what it claimed.
+    //
+    // It also surfaces a real, PRE-EXISTING atomicity gap: chunks and notes commit SEPARATELY, so a
+    // crash between them leaves chunks written with no matching notes row. Not introduced here — just
+    // no longer hidden.
+    expect(begins).toBe(2);
     expect((v.db.prepare("SELECT count(*) c FROM chunks").get() as { c: number }).c).toBe(3);
     v.cleanup();
   });

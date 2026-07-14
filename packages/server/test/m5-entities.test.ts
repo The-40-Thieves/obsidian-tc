@@ -2,9 +2,8 @@
 // over memory_entities + memory_relations, including observation append, idempotent
 // relation insert, the incoming/outgoing edge view, and depth/direction/type-filtered
 // BFS traversal with graceful handling of dangling edges.
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import {
   appendObservation,
@@ -19,14 +18,9 @@ import {
 } from "../src/memory/entities";
 import { openMemoryDb } from "./helpers";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
-
 function freshDb(): Database {
   const db = openMemoryDb();
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   return db;
 }
 
