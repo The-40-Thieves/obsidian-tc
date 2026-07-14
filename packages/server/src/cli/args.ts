@@ -65,9 +65,9 @@ Usage:
   obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval (THE-73)
   obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history (THE-227)
   obsidian-tc prefetch [path] [--vault id] [--ttl-hours N]
+                                          Prewarm the session-bootstrap context cache (THE-136)
   obsidian-tc densify-llm [path] [--vault id]
                                           LLM Pass-3 semantic-edge densification via the local gateway (graph densification)
-                                          Prewarm the session-bootstrap context cache (THE-136)
   obsidian-tc reflect [path] [--max-judged N]
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
   obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]

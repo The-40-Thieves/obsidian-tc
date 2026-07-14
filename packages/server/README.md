@@ -33,6 +33,7 @@ config + caches (no server needed):
 | `citation-infer --transcript <f>` | Stamp `cited_in_response` on retrieval events from a session transcript |
 | `contribution-report` | Per-note output-contribution report (top contributors + dead-retrieved) |
 | `prefetch [--vault id] [--ttl-hours N]` | Prewarm the session-bootstrap context cache (TTL enforced at read) |
+| `densify-llm [--vault id]` | LLM Pass-3 semantic-edge densification via the local gateway (graph densification, experimental; refuses if no gateway resolves) |
 | `reflect [--max-judged N]` | Sleep-time pass: stamp episode eligibility + update the preference profile |
 | `metrics [--since ms] [--until ms] [--json f]` | Knowledge-health scorecard from the derive layer |
 | `gaps --queries <f> / --calibrate <golden.yaml>` | Knowledge-gap detector / threshold calibration |

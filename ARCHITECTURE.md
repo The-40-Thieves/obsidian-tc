@@ -759,6 +759,8 @@ prunes to the query vault's shard — the cross-vault crowding class is structur
 `+path`/`+model` aux columns; a legacy-shaped table is rebuilt in place from
 `chunk_embeddings` at boot, no re-embed.
 
+**Graph densification (experimental, dark).** `vault_edges` ships with only human-authored edges (`links_to` / `unresolved`, `edge_kind='literal'`), so a multi-hop query whose bridge notes are not explicitly linked cannot traverse. Graph densification (`retrieval.densify.*`, all off by default) adds *derived* edges on their own edge_types — `shared_tag` (frontmatter tag co-occurrence), `similar_to` (vec0 kNN, no egress), and `semantically_similar_to` (LLM Pass-3 through the **local** gateway, injection-defended, batch-only via the `densify-llm` CLI) — reconciled full-state per kind so they never touch the literal layer. The walk optionally unions them under `includeInWalk`, down-weighted (`derivedWeight`) so a soft edge never outranks an authored link at equal hop. Boundaries: derived + rebuildable, **never** written back into notes as wikilinks (the isnad boundary), hub exclusion at edge creation, no remote egress by default. It is **unmeasured** — the THE-135 query-time virtual-hop hit an 80% bridge-recall ceiling below the champion (0.831), so it ships dark pending a multi-hop golden-set A/B, joining sparse / ColBERT / rerank. Design note: `docs/plans/2026-07-13-graph-densification.md`.
+
 ## Cross-cutting items for G2.3-G2.5 (carry-forward + new)
 
 Inherited from G2.1 r2:

@@ -6,6 +6,26 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Graph densification (experimental, off by default)** (#250): derived edges
+  added to the `vault_edges` graph beyond authored wikilinks — `shared_tag`
+  (frontmatter tag co-occurrence), `similar_to` (vec0 kNN semantic neighbours, no
+  egress), and `semantically_similar_to` (LLM Pass-3 via the local inference
+  gateway, injection-defended, batch-only). The graph walk can optionally traverse
+  them, down-weighted vs authored links. Governed by `retrieval.densify.*` (every
+  flag off/conservative by default). Derived and rebuildable — never written back
+  into notes as wikilinks; hub tags/nodes emit no edges. **Unmeasured and dark**:
+  it ships behind flags pending a multi-hop golden-set A/B (the prior THE-135
+  virtual-hop hit an 80% bridge-recall ceiling below the champion's 0.831), exactly
+  like `retrieval.sparse` / `retrieval.colbert`. See
+  `docs/plans/2026-07-13-graph-densification.md`.
+- **Densify follow-ups** (#251): `index_vault` threads `retrieval.densify`
+  (`tagEdges` / `knnEdges` build derived edges during indexing, full-state per
+  kind), and a new `obsidian-tc densify-llm [path] [--vault id]` CLI runner builds
+  the LLM Pass-3 `semantically_similar_to` layer via the local gateway (refuses if
+  no gateway resolves). Both off by default.
+
 ## [1.9.0] - 2026-07-13
 
 ### Added

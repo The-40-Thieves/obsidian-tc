@@ -58,7 +58,22 @@ so any subset of this document is a valid config.
     "queryPrefix": "",
     "documentPrefix": ""
   },
-  "retrieval": { "rrfK": 10, "classRouter": false },
+  "retrieval": {
+    "rrfK": 10,
+    "classRouter": false,
+    "sparse": false,
+    "colbert": false,
+    "densify": {
+      "tagEdges": false,
+      "maxTagFanout": 25,
+      "knnEdges": false,
+      "knnK": 8,
+      "includeInWalk": false,
+      "derivedWeight": 0.5,
+      "llmEdges": false,
+      "confidenceFloor": 0.55
+    }
+  },
   "experiential": {
     "logRetrievals": true,
     "captureEpisodes": true,
@@ -183,10 +198,29 @@ server never binds a routable address.
 | --- | --- | --- |
 | `retrieval.rrfK` | 10 | RRF fusion constant. Keep below the stream pool size (~30): k=10 beat k=60 on every metric — larger k lets overlapping low-rank noise outrank confident single-stream hits. |
 | `retrieval.classRouter` | false | The deterministic query-class router (temporal auto-stream + lexical short-circuit). **Dark by measurement** — flips only if its A/B passes the ship rule. |
+| `retrieval.sparse` | false | Serve-path bge-m3 learned-sparse RRF stream (needs a multi-vector `embedFull` provider). **Dark** — a no-op without one, measured on the golden set before any flip. |
+| `retrieval.colbert` | false | Serve-path bge-m3 ColBERT late-interaction rerank of the fused top-K (needs a multi-vector provider). **Dark** — measured before any flip. |
 | `experiential.logRetrievals` | true | Append serve-path retrieval events to the quarantined `experiential.db` (local-only telemetry feeding activation recompute + flywheel stats; eval runs never log). |
 | `experiential.captureEpisodes` | true | Capture every dispatch outcome as a work-memory episode (action axis: tool, status, sizes, hashes — no payloads). |
 | `experiential.captureContent` | **false** | Content axis: also persist secret-scanned, size-capped call args. Off by default — opt in deliberately. |
 | `experiential.activationRerank` | false | ACT-R activation rerank pass on serve-path graph search. **Dark** pending its A/B. |
+
+### `retrieval.densify` — graph densification (experimental)
+
+Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a multi-hop query can reach bridge notes that were never explicitly linked. **All off/conservative by default and unmeasured** — the prior THE-135 virtual-hop sat at an 80% bridge-recall ceiling *below* the current champion (bridge recall 0.831), so densification ships dark behind these flags pending a multi-hop golden-set A/B, exactly like `retrieval.sparse` / `retrieval.colbert`. Derived edges are rebuildable cache and are **never** written back into notes as wikilinks; hub tags and hub nodes emit no edges.
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `tagEdges` | false | Emit `shared_tag` edges between notes sharing a frontmatter tag (deterministic, no egress). Built during `index_vault`. |
+| `maxTagFanout` | 25 | A tag on more than this many notes is a hub, not a signal — it emits no edges. |
+| `knnEdges` | false | Emit `similar_to` edges from vec0 kNN semantic neighbours (no egress; needs a populated vector index). Built during `index_vault`. |
+| `knnK` | 8 | Neighbours kept per note for `knnEdges`. |
+| `includeInWalk` | false | Let the graph walk traverse derived edges, down-weighted vs authored links (annotate, never outrank an authored link at equal hop). |
+| `derivedWeight` | 0.5 | Expansion down-weight applied when a hop is reached via a derived edge. |
+| `llmEdges` | false | Build `semantically_similar_to` edges via LLM Pass-3 through the **local** inference gateway. Batch-only via the `densify-llm` CLI — not the inline index pass; sends note content to the model (local by default). |
+| `confidenceFloor` | 0.55 | Minimum discrete-rubric confidence (0.55/0.65/0.75/0.85/0.95) to keep an LLM edge. |
+
+`llmEdges` is produced out-of-band by `obsidian-tc densify-llm` (below), not by indexing; `tagEdges` and `knnEdges` build inline during `index_vault` when set.
 
 ## `transports`
 

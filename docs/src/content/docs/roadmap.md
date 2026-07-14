@@ -3,7 +3,7 @@ title: Roadmap
 description: What has shipped through v1.8, and what remains deferred or out of scope.
 ---
 
-## Shipped (current: v1.8.1)
+## Shipped (current: v1.9.0)
 
 The complete G2.1 tool surface — 141 tools across 31 domains — plus everything the
 v1.x line added on top of the v1.0 hardening gate (OpenTelemetry, Prometheus,
@@ -17,7 +17,7 @@ CloudEvents, rate limiter, 8-triple native prebuilds, this docs site):
   passes. Per-vault GraphRAG edge isolation shipped. Mechanisms that lost their A/B
   (cross-encoder rerankers, learned sparse, ColBERT, convex fusion, query
   decomposition, MMR, the class router's lexical short-circuit) ship **dark** behind
-  flags, with the numbers recorded on their tickets.
+  flags, with the numbers recorded on their tickets. **Graph densification** (derived `shared_tag` / vec0-kNN / LLM Pass-3 edges beyond authored wikilinks, `retrieval.densify.*`) is wired but **unmeasured** — it ships dark pending a multi-hop golden-set A/B (the prior THE-135 virtual-hop hit an 80% bridge-recall ceiling below the 0.831 champion).
 - **The experiential work-memory tier** (v1.6): a quarantined second store with
   serve-path retrieval logging, auto-captured work episodes (poison-scanned,
   evaluator-stamped eligibility), and reader tools under a strict contract.

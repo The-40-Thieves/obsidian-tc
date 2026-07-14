@@ -40,7 +40,7 @@ prewarm cache for session bootstrap), and **`reflect`** produces a grounded,
 source-attributed synthesis with an adversarial challenge mode. Deletion
 propagates: the `forget` CLI clears derived state and appends to a hash-chained
 audit log. Retrieval quality is gated by a golden-set eval harness — ranking
-changes ship only with measured wins.
+changes ship only with measured wins. Experimental retrieval mechanisms — learned-sparse and ColBERT rerank streams, and **graph densification** (derived tag / kNN / LLM edges added to the wikilink graph, `retrieval.densify.*`) — ship **off by default** behind flags until they clear that bar.
 
 ## Scopes & scope classes
 
