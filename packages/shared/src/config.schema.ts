@@ -156,6 +156,9 @@ export const RetrievalConfigSchema = z.object({
       knnEdges: z.boolean().default(false),
       /** Neighbors per note for knnEdges. */
       knnK: z.number().int().positive().default(8),
+      /** Drop knnEdges below this cosine similarity. 0 (default) keeps every neighbor the kNN returns.
+       *  Exposed because the ablation tested a 0.80 floor that was not, until now, a selectable config. */
+      knnMinSim: z.number().min(0).max(1).default(0),
       /** Let the graph walk traverse derived edges, down-weighted vs authored links. Increment C. */
       includeInWalk: z.boolean().default(false),
       /** Down-weight factor for expansion reached via a derived edge (annotate, not gate). */

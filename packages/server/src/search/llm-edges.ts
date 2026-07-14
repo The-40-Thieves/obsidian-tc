@@ -152,9 +152,11 @@ export interface SemanticExtractionResult {
   totalBatches: number;
   /** Batches whose gateway call THREW (transport / connection failure). */
   failedBatches: number;
-  /** Batches that ANSWERED but whose response could not be read as a JSON edge array — a model that is
-   *  misconfigured, refusing, or emitting prose. Counted separately from a transport failure but treated
-   *  the same by any caller doing a full-state reconcile.
+  /** Batches that ANSWERED but carried no usable edge: the response could not be read as a JSON edge
+   *  array at all, OR it was a NONEMPTY array from which nothing structurally valid survived (a refusal
+   *  string, an edge naming an unknown path). A model that is misconfigured, refusing, or emitting prose.
+   *  Counted separately from a transport failure but treated the same by any caller doing a full-state
+   *  reconcile. A literal `[]` is NOT counted here — that is a trustworthy "found nothing".
    *
    *  Both counters exist for one reason: an unusable batch yields the SAME empty `edges` as a genuine
    *  "the model found no relationships", and a full-state write of that empty set would prune the whole
@@ -170,8 +172,9 @@ export interface SemanticExtractionResult {
  * inferred between notes that land in the SAME batch — no cross-batch pair is ever compared. Callers
  * that need deterministic batches must feed `notes` in a stable order (runLlmDensify sorts by path).
  *
- * A batch is UNUSABLE in two ways, and both are counted: the gateway call throws (`failedBatches`), or it
- * answers with something the parser cannot read as a JSON edge array (`unparseableBatches` — a model that
+ * A batch is UNUSABLE in three ways, and all are counted: the gateway call throws (`failedBatches`); it
+ * answers with something the parser cannot read as a JSON edge array; or it answers with a NONEMPTY array
+ * from which no structurally valid edge survives (the latter two -> `unparseableBatches` — a model that
  * is misconfigured, refusing, or emitting prose). Neither is a trustworthy "no relationships" answer, and
  * both yield the same empty `edges` as one. Only an EMPTY-BUT-VALID array counts as the model genuinely
  * finding nothing.
@@ -214,11 +217,19 @@ export async function extractSemanticEdges(
       unparseableBatches += 1;
       continue;
     }
+    let accepted = 0;
     for (const e of parseSemanticEdges(text, shaByPath, opts)) {
+      accepted += 1;
       const pk = key(e.source_path, e.target_path);
       const existing = byPair.get(pk);
       if (!existing || (existing.confidence ?? 0) < (e.confidence ?? 0)) byPair.set(pk, e);
     }
+    // Array-ness alone is NOT the contract. `["refusal"]`, or edges naming paths outside the batch, parse
+    // as a NONEMPTY array and still yield nothing — downstream that is byte-identical to a genuine empty
+    // answer. Only a literal `[]` is a trustworthy "no relationships found"; a nonempty array from which
+    // nothing structurally valid survives is a model that did not honor the contract, and it must not be
+    // allowed to authorize a full-state prune of the existing layer.
+    if (parsed.length > 0 && accepted === 0) unparseableBatches += 1;
   }
   return { edges: [...byPair.values()], totalBatches, failedBatches, unparseableBatches };
 }

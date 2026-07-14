@@ -95,6 +95,36 @@ describe("runLlmDensify", () => {
     expect(edgeCount(d)).toBe(1); // untouched — a garbage-answering model cannot erase the layer
   });
 
+  it("REFUSES when the model returns a NONEMPTY array carrying no usable edge — the layer survives", async () => {
+    const d = makeDb();
+    await runLlmDensify(d, "v1", oneEdge);
+    expect(edgeCount(d)).toBe(1);
+    // The subtlest outage of all, and the one the first guard missed: valid JSON, a nonempty ARRAY, so
+    // the array-ness check passes — but nothing in it survives parseSemanticEdges. Zero accepted edges,
+    // downstream indistinguishable from a genuine "no relationships found".
+    for (const text of [
+      JSON.stringify(["I cannot help with that."]),
+      JSON.stringify([{ source: "GHOST.md", target: "NOPE.md", confidence: 0.95 }]),
+    ]) {
+      const junk = { extract: async () => ({ text, model: "m" }) } as unknown as GatewayClient;
+      await expect(runLlmDensify(d, "v1", junk)).rejects.toThrow(/unusable|refusing/i);
+      expect(edgeCount(d)).toBe(1); // untouched
+    }
+  });
+
+  it("a LITERAL empty array is still a TRUSTWORTHY empty answer — it DOES prune", async () => {
+    const d = makeDb();
+    await runLlmDensify(d, "v1", oneEdge);
+    expect(edgeCount(d)).toBe(1);
+    // The other edge of the same blade. `[]` means the model looked and found nothing; that IS
+    // authoritative, and a full-state reconcile SHOULD drop the now-stale edge. Refusing here too would
+    // make the layer append-only and un-prunable, which is a different bug in the opposite direction.
+    const empty = { extract: async () => ({ text: "[]", model: "m" }) } as unknown as GatewayClient;
+    const res = await runLlmDensify(d, "v1", empty);
+    expect(res.edges).toBe(0);
+    expect(edgeCount(d)).toBe(0);
+  });
+
   it("batches deterministically (notes ordered by path), so the model sees a stable pairing", async () => {
     const d = makeDb();
     const seen: string[][] = [];

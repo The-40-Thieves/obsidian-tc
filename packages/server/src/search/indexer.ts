@@ -610,7 +610,13 @@ export interface IndexVaultArgs {
   /** Graph densification (docs/plans/2026-07-13-graph-densification.md): build derived edges during
    *  index_vault. tagEdges = shared-frontmatter-tag co-occurrence; knnEdges = vec0 kNN neighbors.
    *  Off unless threaded from config.retrieval.densify. Full-state per kind (toggling off prunes). */
-  densify?: { tagEdges?: boolean; knnEdges?: boolean; knnK?: number; maxTagFanout?: number };
+  densify?: {
+    tagEdges?: boolean;
+    knnEdges?: boolean;
+    knnK?: number;
+    knnMinSim?: number;
+    maxTagFanout?: number;
+  };
   /** THE-291: fires when the notes/FTS metadata pass has committed (independent of embed
    *  success), so the caller can flip metadata readiness even if the embed pass later fails. */
   onNotesPass?: () => void;
@@ -823,7 +829,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       reconcileDerivedEdges(args.db, args.vaultId, tagDesired, ["shared_tag"], now);
 
       const knnDesired = args.densify?.knnEdges
-        ? computeKnnEdges(args.db, args.vaultId, { k: args.densify.knnK ?? 8 })
+        ? computeKnnEdges(args.db, args.vaultId, {
+            k: args.densify.knnK ?? 8,
+            minSim: args.densify.knnMinSim ?? 0,
+          })
         : [];
       reconcileDerivedEdges(args.db, args.vaultId, knnDesired, ["similar_to"], now);
     }

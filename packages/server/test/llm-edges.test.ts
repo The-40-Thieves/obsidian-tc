@@ -91,6 +91,24 @@ describe("extractSemanticEdges — unusable batches are counted, not silently sw
     expect(res.failedBatches).toBe(0);
     expect(res.unparseableBatches).toBe(0); // the model answered, validly, with nothing
   });
+
+  it("a NONEMPTY array with ZERO structurally valid edges is UNPARSEABLE, not 'found nothing'", async () => {
+    // Array-ness alone is not the contract. Each of these parses as a nonempty JSON array and yields no
+    // edge: a refusal string, an edge naming paths outside the batch, an object with no edge fields at
+    // all. Scoring them as a valid empty answer is exactly what would let a full-state reconcile prune
+    // the entire existing layer on the say-so of a model that never honored the output contract.
+    for (const text of [
+      JSON.stringify(["I cannot help with that."]),
+      JSON.stringify([{ source: "GHOST.md", target: "NOPE.md", confidence: 0.95 }]),
+      JSON.stringify([{ nonsense: true }]),
+    ]) {
+      const junk = { extract: async () => ({ text, model: "m" }) } as unknown as GatewayClient;
+      const res = await extractSemanticEdges(junk, notes, { batchSize: 99 }); // one batch
+      expect(res.edges).toEqual([]);
+      expect(res.failedBatches).toBe(0); // the transport was fine
+      expect(res.unparseableBatches).toBe(1); // ...and the answer still carried nothing usable
+    }
+  });
 });
 
 describe("extractSemanticEdges", () => {
