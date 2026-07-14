@@ -1,0 +1,40 @@
+{
+  "what": "graphSearch() serving-path latency, per query. NOT the eval loop (which also runs a semantic baseline).",
+  "protocol": {
+    "reps": 3,
+    "queries": 136,
+    "measuredCallsPerArm": 408,
+    "warmup": "5 queries, both arms, discarded",
+    "alternation": "arm order flips per (rep, query) so cache warmth cannot favor one arm",
+    "topK": 30,
+    "note": "query embedding measured SEPARATELY and NOT included in the arm timings (it is arm-independent)"
+  },
+  "queryEmbedding_ms": {
+    "n": 136,
+    "median": 33.6,
+    "p90": 43.4,
+    "p95": 49.9,
+    "mean": 50
+  },
+  "control_graphSearch_ms": {
+    "n": 408,
+    "median": 466.5,
+    "p90": 602.5,
+    "p95": 655.4,
+    "mean": 444.8
+  },
+  "tag_graphSearch_ms": {
+    "n": 408,
+    "median": 688.4,
+    "p90": 888.6,
+    "p95": 947.3,
+    "mean": 656.5
+  },
+  "ratio_median": 1.48,
+  "userVisible_ms": {
+    "control": 500.1,
+    "tag": 722,
+    "deltaPct": 44.4,
+    "note": "embed + graphSearch. The embedding term is identical across arms and dilutes the ratio."
+  }
+}

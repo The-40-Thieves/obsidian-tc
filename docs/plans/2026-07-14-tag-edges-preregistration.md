@@ -21,9 +21,12 @@ queries would be circular - it would re-measure the noise that produced the sign
 > Enabling tag co-occurrence derived edges in the graph walk improves nDCG@10 on **multi-hop** queries
 > relative to the authored-wikilink-only walk.
 
-Restricted to multi-hop because the exploratory per-class breakdown showed the effect is confined there,
-and showed single-hop / lexical / temporal queries are *byte-identical* to control (they never traverse
-far enough to reach a derived edge). Testing them again would only add noise and multiplicity.
+Restricted to multi-hop because the exploratory per-class breakdown showed the effect is confined there:
+single-hop, lexical, and temporal queries scored *byte-identically* to control, so the derived layer
+changed nothing observable for them. (That is an observation, not a mechanism — a derived node can be
+walked without altering the final top ten. The measurement record retracted the stronger "they never
+traverse far enough" claim, and this document should not quietly keep it.) Testing those classes again
+would add noise and multiplicity for an effect that has never been seen there.
 
 ## Configuration under test (frozen)
 
@@ -51,41 +54,71 @@ the point estimate: a guardrail passes iff the bootstrap 95% CI lower bound of i
 A point delta above the floor with a CI reaching well below it has not demonstrated non-inferiority, it
 has merely failed to demonstrate harm, and those are different claims.
 
-## Statistical power (calculated, not asserted)
+## Statistical power (a planning estimate, and what actually binds it)
 
-An earlier draft of this document said "on the order of 120+ multi-hop queries". That number was
-**asserted, not computed** — which is precisely the sin this whole document exists to prevent. Here is the
-calculation, from the published exploratory data.
+An earlier draft asserted "120+ multi-hop queries" with no calculation — the exact sin this document
+exists to prevent. Corrected below. But the corrected *number* then got over-trusted too, so both the
+estimate and its limits are stated here.
 
-Paired per-query deltas (tag - control, nDCG@10) over the 68 multi-hop queries in the golden set:
+### The closed form (planning estimate only)
 
-- observed mean = **0.00895**
-- observed SD = **0.03824**
+Paired per-query deltas (tag - control, nDCG@10) over the 68 multi-hop queries: mean **0.00895**,
+SD **0.03824**. For a paired test at alpha = 0.10 two-sided and 80% power,
+n = (z(0.95) + z(0.80))^2 * SD^2 / delta^2:
 
-For a paired test at alpha = 0.10 (two-sided) and 80% power, n = (z(0.95) + z(0.80))^2 * SD^2 / delta^2
-with z(0.95) = 1.6449 and z(0.80) = 0.8416:
-
-| target delta | required n (multi-hop queries) |
+| target delta | n (normal approximation) |
 |---|---|
-| +0.013 (the observed `hop` effect) | **54** |
+| +0.013 (the observed `hop` effect) | 54 |
 | **+0.010 (the cost gate)** | **91** |
 | +0.005 | 362 |
 
-**The confirmatory set must carry at least 91 multi-hop queries** to detect the effect the cost gate
-requires. The current golden set has **68** — underpowered for this purpose, by calculation rather than by
-vibe. Reproduce from the committed artifacts:
+**This is an approximation, and its assumption is false.** It models the paired mean as normal. The actual
+distribution is severely zero-inflated: **58 of the 68 deltas are exactly 0**, and all the mass sits in 10
+movers. A confirmatory corpus may also have a different variance entirely. So 91 is a planning figure, not
+a guarantee — and "provably needs >= 91", which an earlier summary of this work claimed, is wrong.
 
-```
-# deltas: tag.json minus ctl.json on graph.ndcg_at_10, over ids prefixed hop- / orig-
-docs/plans/data/2026-07-14-densification/{ctl,tag}.json
-```
+### The simulation (what actually binds it)
 
-A run on fewer than 91 multi-hop queries is **underpowered by construction**, and a null from it must be
-reported as **inconclusive, not as a refutation**. If 91 cannot be mined, say so and do not run the test.
+Resampling the **empirical** distribution and running the **actual** test (sign-flip permutation,
+alpha = 0.10, true mean delta = +0.010), under an H1 that preserves the mechanism — a query either does
+not move, or it moves by an amount drawn from the observed movers, rescaled so the population mean hits
+the target. Rarer movers must move harder to produce the same mean, which is the regime that costs power:
+
+| n | movers 15% (as observed) | movers 10% | movers 5% |
+|---|---|---|---|
+| 68 | 90% | 71% | 24% |
+| 91 | 98% | 91% | 45% |
+| 120 | 100% | 100% | 64% |
+| **160** | 100% | 100% | **84%** |
+| 200 | 100% | 100% | 94% |
+
+The finding is not the row, it is the column. **If the new corpus moves queries as often as this one did,
+even n=68 is adequately powered. If tag edges bite a third as often — entirely plausible in a vault with a
+different tagging habit, which is the whole point of confirming elsewhere — then n=160 is the floor.**
+The binding uncertainty is the **mover rate**, not the query count.
+
+**Frozen requirement: the confirmatory set carries at least 160 multi-hop queries**, chosen so the test
+stays >= 80% powered even if derived edges move queries three times more rarely than they did here. A run
+on fewer is underpowered against that contingency, and a null from it must be reported as **inconclusive,
+not as a refutation**. If 160 cannot be mined, say so and do not run the test.
+
+A first version of this simulation was wrong and is recorded because the error is instructive: it shifted
+the whole empirical distribution to the alternative mean, which turns all 58 zeros into the same *constant
+positive value*. A sign-flip test on a near-constant vector rejects almost always, so it reported 99% power
+at n=68 — an artifact of destroying the exact structure that makes this problem hard.
+
+Reproduce from the committed artifacts (`ctl.json`, `tag.json`: deltas on `graph.ndcg_at_10` over ids
+prefixed `hop-` / `orig-`).
 
 ## Query mining and relevance judgment (frozen procedure)
 
-- Queries are mined by the existing golden-set procedure, from note pairs, **before** any arm is run.
+- Queries are mined by the procedure that built the current set, cited precisely rather than gestured at:
+  the construction notes in **PR #187** (multi-hop expansion) and **PR #192** (the `hop-` / `lex-` /
+  `tmp-` classes), whose criteria are restated in the header of
+  `packages/server/eval/multi-hop-golden-set.yaml` — cross-domain note pairs, no direct A-C edge, bridge
+  degree 2-20, each lexical term appearing in at most two notes vault-wide. Mining happens **before** any
+  arm is run. If the confirmatory corpus is a different vault, these criteria are re-applied to it; they
+  are not re-invented.
 - Relevance judgments are fixed **at mining time** and are never revised after seeing an arm's output.
 - The person or process assigning relevance is **blind to arm assignment** — trivially satisfied when
   judgments precede the runs, which is why the order above is mandatory, not incidental.
@@ -170,7 +203,10 @@ data exists.
 - **p < 0.10 and dNDCG >= 0.010** -> **MECHANISM CONFIRMED**, and Gate 2 opens. Not a ship. Pick path
   (a) or (b) above and produce the evidence that path requires.
 - **p < 0.10 and dNDCG < 0.010** -> real but not worth ~2x walk cost. Stays off. Pursue pruning.
-- **p >= 0.10** -> the exploratory result was noise on 10 queries. Stays off. Record the null and stop.
+- **p >= 0.10** -> **MECHANISM NOT CONFIRMED.** Stays off, record the null, stop. Note the wording: this
+  is *not* a finding that the exploratory result "was noise". At 80% planned power a false negative
+  remains a live possibility, and the effect is small enough that a modest variance increase would hide
+  it. "Not confirmed" is what the test can say; "was noise" is what it cannot.
 - **dNDCG <= 0 on multi-hop** -> abandon the mechanism entirely; do not re-test it on a third set.
 
 The third and fourth outcomes are the likely ones, and saying so here is the point of pre-registering.
