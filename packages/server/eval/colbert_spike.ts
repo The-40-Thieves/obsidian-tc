@@ -53,6 +53,19 @@ async function tokenEmbed(base: string, model: string, texts: string[]): Promise
   return texts.map((_, i) => body.data?.[i]?.data ?? []);
 }
 
+function readGoldenOrExplain(goldenPath: string): string {
+  try {
+    return readFileSync(goldenPath, "utf8");
+  } catch {
+    throw new Error(
+      `golden set not found: ${goldenPath}\n\n` +
+        "The golden set is PRIVATE and is not committed: it keys queries to real note paths, which makes " +
+        "it a map of the vault's contents. See eval/multi-hop-golden-set.example.yaml for the schema, " +
+        "put your own at eval/multi-hop-golden-set.yaml (gitignored), or pass a path as the 2nd argument.",
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const configPath = process.argv[2];
   if (!configPath) {
@@ -67,7 +80,7 @@ async function main(): Promise<void> {
   const config = loadConfig(configPath);
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults is empty");
-  const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
+  const golden = GoldenSetSchema.parse(parseYaml(readGoldenOrExplain(goldenPath)));
   const provider = createEmbeddingProvider(config.embeddings);
   const model = config.embeddings.model;
   const db = await openDatabase(join(config.cacheDir, "cache.db"));

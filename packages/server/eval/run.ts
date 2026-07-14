@@ -298,6 +298,19 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
   };
 }
 
+function readGoldenOrExplain(goldenPath: string): string {
+  try {
+    return readFileSync(goldenPath, "utf8");
+  } catch {
+    throw new Error(
+      `golden set not found: ${goldenPath}\n\n` +
+        "The golden set is PRIVATE and is not committed: it keys queries to real note paths, which makes " +
+        "it a map of the vault's contents. See eval/multi-hop-golden-set.example.yaml for the schema, " +
+        "put your own at eval/multi-hop-golden-set.yaml (gitignored), or pass a path as the 2nd argument.",
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const adaptive = argv.includes("--adaptive-rrf");
@@ -359,7 +372,7 @@ async function main(): Promise<void> {
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults is empty");
 
-  const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
+  const golden = GoldenSetSchema.parse(parseYaml(readGoldenOrExplain(goldenPath)));
   const baseProvider = createEmbeddingProvider(config.embeddings);
   // THE-403: SPARSE_URL composes a MIXED provider — dense query vectors from the config provider
   // (must match the index's embeddings, e.g. nomic), learned-sparse query weights from a bge-m3

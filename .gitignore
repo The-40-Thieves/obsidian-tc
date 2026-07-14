@@ -67,3 +67,11 @@ coverage/
 
 # Internal THE-233 migration-planning doc — kept local/private, never published.
 MERGE-PROGRESS.md
+
+# The golden set maps queries to REAL note paths in a personal vault — it is a map of that vault's
+# contents (folder taxonomy, note titles, and what the author writes about). It is private data, not
+# source. Keep it local; commit only multi-hop-golden-set.example.yaml.
+packages/server/eval/multi-hop-golden-set.yaml
+packages/server/eval/*-golden-set*.yaml
+!packages/server/eval/multi-hop-golden-set.example.yaml
+packages/server/eval/baseline.json

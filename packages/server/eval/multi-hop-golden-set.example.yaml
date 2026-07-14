@@ -1,0 +1,41 @@
+# Golden set — SCHEMA EXAMPLE (synthetic).
+#
+# The real golden set is NOT in this repository and must never be committed to it. It keys every query to
+# real note paths inside a personal vault, which makes it a map of that vault's contents: folder taxonomy,
+# note titles, and natural-language descriptions of what the author writes about. An earlier version of
+# this project published exactly that to a public repo for two weeks. Do not do it again.
+#
+# To run the eval, put your own golden set at:
+#
+#     packages/server/eval/multi-hop-golden-set.yaml     (gitignored)
+#
+# or pass a path:  bun eval/run.ts <config.json> <path/to/golden.yaml>
+#
+# Construction criteria (unchanged, and the part that is actually reusable):
+#   - multi-hop: cross-domain note pairs, no direct A->C edge, bridge degree 2-20
+#   - lexical:   each term appears in at most two notes vault-wide
+#   - temporal:  answerable only by date-ordering
+#   - relevance judgments fixed at MINING time, before any arm is run
+
+queries:
+  - id: alpha-to-gamma
+    query_text: "How does the thing described in alpha relate to the theme in gamma?"
+    seed_domain: alpha
+    target_domain: gamma
+    seed_paths:
+      - "alpha/Seed Note.md"
+    target_paths:
+      - "gamma/Target Note.md"
+      - "gamma/Other Target.md"
+    bridge_paths:
+      - "beta/Bridge Note.md"
+
+  - id: lex-distinctive-term
+    query_text: "What is the distinctive-term protocol?"
+    seed_domain: beta
+    target_domain: beta
+    seed_paths:
+      - "beta/Protocol.md"
+    target_paths:
+      - "beta/Protocol.md"
+    bridge_paths: []

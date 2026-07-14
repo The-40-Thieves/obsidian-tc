@@ -128,7 +128,7 @@ surface until a companion-backed active-file bridge ships; everything else cuts 
      "vaults": [
        {
          "id": "second-brain",
-         "path": "E:/Obsidian/Second Brain",
+         "path": "C:/path/to/your/vault",
          "restApiUrl": "https://127.0.0.1:27124",
          "restApiKey": "<LRA bearer key>",
          "acl": { "writePaths": ["Projects/**", "Inbox/**"] }
@@ -147,7 +147,7 @@ surface until a companion-backed active-file bridge ships; everything else cuts 
 3. **Install the companion plugin** (bridge for commands, Templater, Dataview DQL,
    Excalidraw, QuickAdd, make.md, Tasks DSL, OCR):
    ```bash
-   obsidian-tc plugin install --vault "E:/Obsidian/Second Brain"
+   obsidian-tc plugin install --vault "C:/path/to/your/vault"
    ```
    This copies the vendored `manifest.json` + `main.js` into
    `<vault>/.obsidian/plugins/obsidian-tc/` (plugin id `obsidian-tc`, name "Obsidian

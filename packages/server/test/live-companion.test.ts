@@ -13,7 +13,7 @@
 //        -> <vault>/.obsidian/plugins/obsidian-tc/
 //   3. enable "obsidian-tc" in Obsidian (Settings -> Community plugins) and reload the app.
 // Then, from packages/server:
-//   OBSIDIAN_TC_LIVE=1 OBSIDIAN_TC_LIVE_VAULT="E:/Obsidian/Second Brain" \
+//   OBSIDIAN_TC_LIVE=1 OBSIDIAN_TC_LIVE_VAULT="C:/path/to/your/vault" \
 //   OBSIDIAN_TC_LIVE_EXPECT="dataview,text-extractor" \
 //   node ./node_modules/vitest/vitest.mjs run test/live-companion.test.ts
 //
