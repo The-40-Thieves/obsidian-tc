@@ -30,6 +30,9 @@ export interface M2Deps {
    *  + heading-breadcrumb prefix. Must match the boot reconcile's value (cli.ts threads both from
    *  the same config field); a mismatch would re-embed the vault on every alternating pass. */
   chunkContext?: boolean;
+  /** Graph densification: index_vault builds derived edges (tag + kNN) when set. Threaded from
+   *  config.retrieval.densify, mirroring chunkContext. */
+  densify?: { tagEdges?: boolean; knnEdges?: boolean; knnK?: number; maxTagFanout?: number };
   /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging
    *  (tests, or experiential.logRetrievals=false). */
   retrievalLog?: RetrievalLogger;

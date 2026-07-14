@@ -49,6 +49,7 @@ import { synthesisJob } from "./plane/jobs/synthesis";
 import { SleepTimePlane, startPlaneScheduler } from "./plane/plane";
 import { createPlurBackend } from "./plur/client";
 import { assignClusters } from "./search/cluster";
+import { runLlmDensify } from "./search/densify-runner";
 import { ensureNotesFts } from "./search/fts";
 import { graphSearch } from "./search/graph_search";
 import {
@@ -272,6 +273,41 @@ async function main(): Promise<void> {
   // THE-170: on-demand citation inference — stage 1 ROUGE-L + stored-embedding cosine over a
   // session transcript, stage 2 judge via the gateway role seam (5% parse kill switch), then
   // stamp cited_in_response / citation_score on the scoped chunk_retrievals rows.
+  // Graph densification LLM Pass-3 batch (docs/plans/2026-07-13-graph-densification.md): infer semantic
+  // edges via the LOCAL gateway (extract role -> local model) and reconcile them into vault_edges. The
+  // gateway must be configured; without it the extractor is a no-op, so refuse rather than write nothing.
+  if (cmd.kind === "densify-llm") {
+    const cfg = resolveOrUsageExit(cmd.input);
+    mkdirSync(cfg.cacheDir, { recursive: true });
+    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+    let gwc: GatewayClient | null = null;
+    try {
+      gwc = createGatewayClient({});
+    } catch {
+      gwc = null;
+    }
+    if (!gwc) {
+      process.stderr.write(
+        "densify-llm requires a configured inference gateway (extract role -> local model); none resolved.\n",
+      );
+      cacheDb.close?.();
+      process.exit(2);
+    }
+    const floor = cfg.retrieval?.densify?.confidenceFloor;
+    try {
+      const vaultIds = cmd.vault ? [cmd.vault] : cfg.vaults.map((v) => v.id);
+      for (const vid of vaultIds) {
+        const res = await runLlmDensify(cacheDb, vid, gwc, {
+          ...(floor !== undefined ? { confidenceFloor: floor } : {}),
+        });
+        process.stdout.write(`densify-llm[${vid}]: notes=${res.notes} edges=${res.edges}\n`);
+      }
+    } finally {
+      cacheDb.close?.();
+    }
+    return;
+  }
+
   if (cmd.kind === "citation-infer") {
     const cfg = resolveOrUsageExit(cmd.input);
     if (!cmd.transcript || (!cmd.session && cmd.since === undefined)) {
@@ -1068,6 +1104,7 @@ async function main(): Promise<void> {
     // THE-406: index_vault must index with the same enrichment as the boot reconcile, or the two
     // paths would re-embed each other's chunks back and forth (the hash covers the enriched text).
     chunkContext: config.embeddings.chunkContext,
+    densify: config.retrieval.densify,
     // search_dql / search_vault(mode:dql) share the Dataview bridge; openBridge
     // applies the same degradation gate (plugin_missing / plugin_unreachable).
     dataviewBridge: (vaultId) => ({

@@ -22,6 +22,7 @@ export type CliCommand =
     }
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
   | { kind: "prefetch"; input?: string; vault?: string; ttlHours?: number }
+  | { kind: "densify-llm"; input?: string; vault?: string }
   | { kind: "reflect"; input?: string; maxJudged?: number }
   | {
       kind: "metrics";
@@ -64,6 +65,8 @@ Usage:
   obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval (THE-73)
   obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history (THE-227)
   obsidian-tc prefetch [path] [--vault id] [--ttl-hours N]
+  obsidian-tc densify-llm [path] [--vault id]
+                                          LLM Pass-3 semantic-edge densification via the local gateway (graph densification)
                                           Prewarm the session-bootstrap context cache (THE-136)
   obsidian-tc reflect [path] [--max-judged N]
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
@@ -151,6 +154,20 @@ export function parseCliArgs(argv: string[]): CliCommand {
       return {
         kind: "activation-recompute",
         input: flagValue(rest, "--config") ?? positional(rest),
+      };
+    }
+    // Graph densification LLM Pass-3 batch runner.
+    if (first === "densify-llm") {
+      const scan = [...rest];
+      for (const f of ["--vault", "--config", "--batch-size", "--confidence-floor"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const vault = flagValue(rest, "--vault");
+      return {
+        kind: "densify-llm",
+        input: flagValue(rest, "--config") ?? positional(scan),
+        ...(vault !== undefined ? { vault } : {}),
       };
     }
     // THE-170: on-demand citation inference over a session transcript.
