@@ -58,4 +58,33 @@ describe("expandGraphLiteral — derived edge traversal", () => {
     });
     expect(nodes.some((n) => n.path === "Z.md")).toBe(false);
   });
+
+  it("at EQUAL hop, an authored (literal) edge wins the tie over a derived one", () => {
+    const db = openMemoryDb();
+    db.exec(
+      `CREATE TABLE vault_edges (
+         source_path TEXT NOT NULL, target_path TEXT NOT NULL, edge_type TEXT NOT NULL,
+         edge_kind TEXT NOT NULL DEFAULT 'literal', provenance TEXT,
+         vault_id TEXT NOT NULL DEFAULT '', confidence REAL, source_fingerprint TEXT,
+         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+       );`,
+    );
+    const ins = db.prepare(
+      "INSERT INTO vault_edges (vault_id, source_path, target_path, edge_type, edge_kind, provenance, created_at, updated_at) VALUES (?,?,?,?,?,?,1,1)",
+    );
+    // C is reachable from A at hop 1 BOTH ways: an authored wikilink AND a kNN edge.
+    ins.run("v1", "A.md", "C.md", "links_to", "literal", "wikilink_forward");
+    ins.run("v1", "A.md", "C.md", "similar_to", "virtual", "cosine_knn");
+    const nodes = expandGraphLiteral(db, ["A.md"], {
+      vaultId: "v1",
+      hopLimit: 2,
+      includeDerived: true,
+    });
+    const c = nodes.find((n) => n.path === "C.md");
+    expect(c?.hop).toBe(1);
+    // The authored edge must win the tie: otherwise a genuinely wikilinked note is labelled 'derived'
+    // and down-weighted by derivedWeight purely because a kNN edge reached it on the same hop.
+    expect(c?.edge_kind).toBe("literal");
+    expect(c?.via_edge_type).toBe("links_to");
+  });
 });

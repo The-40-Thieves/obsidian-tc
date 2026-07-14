@@ -47,7 +47,7 @@ describe("parseSemanticEdges", () => {
         edge_kind: "derived",
         provenance: "llm_pass3",
         confidence: 0.85,
-        source_fingerprint: "sha-a",
+        source_fingerprint: "sha-a+sha-b",
       },
     ]);
   });
@@ -68,7 +68,7 @@ describe("parseSemanticEdges", () => {
 });
 
 describe("extractSemanticEdges", () => {
-  it("calls the extract role, dedups across batches, and tolerates a failing batch", async () => {
+  it("calls the extract role, dedups across batches, and REPORTS a failing batch", async () => {
     let n = 0;
     const client = {
       extract: async () => {
@@ -86,9 +86,12 @@ describe("extractSemanticEdges", () => {
       { path: "B.md", content: "b", sha: "sha-b" },
       { path: "C.md", content: "c", sha: "sha-c" },
     ];
-    // batchSize 2: batch1 (A,B) -> one edge; batch2 (C) throws -> contributes nothing; job returns.
-    const edges = await extractSemanticEdges(client, notes, { batchSize: 2 });
-    expect(edges.map((e) => `${e.source_path}-${e.target_path}`)).toEqual(["A.md-B.md"]);
+    // batchSize 2: batch1 (A,B) -> one edge; batch2 (C) THROWS. The failure must be REPORTED, not
+    // swallowed — a caller doing a full-state reconcile has to be able to refuse to write.
+    const res = await extractSemanticEdges(client, notes, { batchSize: 2 });
+    expect(res.edges.map((e) => `${e.source_path}-${e.target_path}`)).toEqual(["A.md-B.md"]);
+    expect(res.totalBatches).toBe(2);
+    expect(res.failedBatches).toBe(1);
     expect(n).toBe(2);
   });
 });

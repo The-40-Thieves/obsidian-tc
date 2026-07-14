@@ -21,17 +21,21 @@ function makeDb(): any {
   return d;
 }
 
+const oneEdge = {
+  extract: async () => ({
+    text: '[{"source":"A.md","target":"B.md","confidence":0.75}]',
+    model: "local",
+  }),
+} as unknown as GatewayClient;
+
+const edgeCount = (d: any): number =>
+  (d.prepare("SELECT COUNT(*) AS n FROM vault_edges").get() as { n: number }).n;
+
 describe("runLlmDensify", () => {
   it("assembles notes from chunks, extracts via the gateway, reconciles semantically_similar_to edges", async () => {
-    const client = {
-      extract: async () => ({
-        text: '[{"source":"A.md","target":"B.md","confidence":0.75}]',
-        model: "local",
-      }),
-    } as unknown as GatewayClient;
     const d = makeDb();
-    const res = await runLlmDensify(d, "v1", client);
-    expect(res).toEqual({ notes: 2, edges: 1 }); // A.md (2 chunks collapsed) + B.md
+    const res = await runLlmDensify(d, "v1", oneEdge);
+    expect(res).toEqual({ notes: 2, edges: 1, batches: 1 }); // A.md (2 chunks collapsed) + B.md
     const rows = d
       .prepare(
         "SELECT source_path, target_path, edge_type, edge_kind, provenance, confidence FROM vault_edges",
@@ -49,18 +53,42 @@ describe("runLlmDensify", () => {
     ]);
   });
 
-  it("is full-state: a re-run returning nothing prunes the prior LLM layer", async () => {
+  it("is full-state: a SUCCESSFUL re-run that finds nothing prunes the prior LLM layer", async () => {
     const d = makeDb();
-    const yes = {
-      extract: async () => ({
-        text: '[{"source":"A.md","target":"B.md","confidence":0.75}]',
-        model: "m",
-      }),
-    } as unknown as GatewayClient;
-    await runLlmDensify(d, "v1", yes);
+    await runLlmDensify(d, "v1", oneEdge);
+    expect(edgeCount(d)).toBe(1);
     const empty = { extract: async () => ({ text: "[]", model: "m" }) } as unknown as GatewayClient;
     const res = await runLlmDensify(d, "v1", empty);
     expect(res.edges).toBe(0);
-    expect((d.prepare("SELECT COUNT(*) AS n FROM vault_edges").get() as { n: number }).n).toBe(0);
+    expect(edgeCount(d)).toBe(0); // the model answered "nothing" — that IS authoritative
+  });
+
+  it("REFUSES to reconcile when a gateway batch fails — the prior LLM layer survives", async () => {
+    const d = makeDb();
+    await runLlmDensify(d, "v1", oneEdge);
+    expect(edgeCount(d)).toBe(1);
+    // Every request throws: an all-failed run yields the same empty edge set as "found nothing", and
+    // writing it would wipe the layer. The runner must throw instead of reconciling.
+    const down = {
+      extract: async () => {
+        throw new Error("gateway unreachable");
+      },
+    } as unknown as GatewayClient;
+    await expect(runLlmDensify(d, "v1", down)).rejects.toThrow(/refusing to reconcile/i);
+    expect(edgeCount(d)).toBe(1); // untouched — no silent data loss on an outage
+  });
+
+  it("batches deterministically (notes ordered by path), so the model sees a stable pairing", async () => {
+    const d = makeDb();
+    const seen: string[][] = [];
+    const spy = {
+      extract: async (req: any) => {
+        const user = req.messages[1].content as string;
+        seen.push([...user.matchAll(/path="([^"]+)"/g)].map((m) => m[1] as string));
+        return { text: "[]", model: "m" };
+      },
+    } as unknown as GatewayClient;
+    await runLlmDensify(d, "v1", spy, { batchSize: 10 });
+    expect(seen[0]).toEqual(["A.md", "B.md"]); // ORDER BY path, not incidental row order
   });
 });

@@ -551,6 +551,44 @@ export function deindexNote(
   }
 }
 
+/** Does vault_edges carry the densification columns (migration 20260713_001: confidence +
+ *  source_fingerprint)? A vault_edges provisioned BEFORE that migration — or a bare fixture — has neither,
+ *  and the derived-edge upsert would throw and take the whole index pass down with it. No columns means no
+ *  derived edge can exist, so there is nothing to reconcile and nothing to prune: skipping is safe. */
+function hasDerivedEdgeColumns(db: Database): boolean {
+  try {
+    const cols = db.prepare("PRAGMA table_info(vault_edges)").all() as Array<{ name: string }>;
+    const names = new Set(cols.map((c) => c.name));
+    return names.has("confidence") && names.has("source_fingerprint");
+  } catch {
+    return false;
+  }
+}
+
+/** Per-note frontmatter tag sets (notes.tags is a JSON array). A note with unparseable tags contributes
+ *  none — one bad row never aborts the index pass. */
+function readNoteTags(db: Database, vaultId: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const rows = db.prepare("SELECT path, tags FROM notes WHERE vault_id = ?").all(vaultId) as Array<{
+    path: string;
+    tags: string | null;
+  }>;
+  for (const row of rows) {
+    try {
+      const parsed = row.tags ? (JSON.parse(row.tags) as unknown) : [];
+      if (Array.isArray(parsed)) {
+        out.set(
+          row.path,
+          parsed.filter((t): t is string => typeof t === "string"),
+        );
+      }
+    } catch {
+      // unparseable tags -> this note contributes none
+    }
+  }
+  return out;
+}
+
 export interface IndexVaultArgs {
   db: Database;
   provider: EmbeddingProvider;
@@ -763,44 +801,31 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.edges_inserted = edgeStats.inserted;
     stats.edges_deleted = edgeStats.deleted;
     // Densification (docs/plans/2026-07-13-graph-densification.md): derived edges — shared-tag
-    // co-occurrence + vec0 kNN neighbors — reconciled on their OWN edge_types (the literal reconcile
-    // above never touches them). Off unless the caller threads retrieval.densify. Each kind is
-    // full-state, so toggling a flag off prunes its edges on the next pass. kNN needs vec_chunks
-    // (populated by the embed pass above; computeKnnEdges returns [] when sqlite-vec is unavailable).
-    if (args.densify?.tagEdges && tableExists(args.db, "notes")) {
-      const noteTags = new Map<string, string[]>();
-      const tagRows = args.db
-        .prepare("SELECT path, tags FROM notes WHERE vault_id = ?")
-        .all(args.vaultId) as Array<{ path: string; tags: string | null }>;
-      for (const row of tagRows) {
-        try {
-          const parsed = row.tags ? (JSON.parse(row.tags) as unknown) : [];
-          if (Array.isArray(parsed)) {
-            noteTags.set(
-              row.path,
-              parsed.filter((t): t is string => typeof t === "string"),
-            );
-          }
-        } catch {
-          // A note with unparseable tags contributes none; never abort the index pass.
-        }
-      }
-      reconcileDerivedEdges(
-        args.db,
-        args.vaultId,
-        tagCooccurrenceEdges(noteTags, { maxTagFanout: args.densify.maxTagFanout ?? 25 }),
-        ["shared_tag"],
-        now,
-      );
-    }
-    if (args.densify?.knnEdges) {
-      reconcileDerivedEdges(
-        args.db,
-        args.vaultId,
-        computeKnnEdges(args.db, args.vaultId, { k: args.densify.knnK ?? 8 }),
-        ["similar_to"],
-        now,
-      );
+    // co-occurrence + vec0 kNN neighbors — reconciled on their OWN edge_types, so the literal layer and
+    // the LLM layer (semantically_similar_to, built out-of-band by the densify-llm runner) are never
+    // touched here.
+    //
+    // The reconcile runs on EVERY pass, with an EMPTY desired set when a flag is off. That is what makes
+    // "turn the flag off" actually prune. Gating the reconcile behind the flag (the original shape) left
+    // previously-generated rows in vault_edges forever: invisible while includeInWalk was false, but
+    // ready to reappear the moment it flipped. Reconciling to empty is a cheap no-op once the layer is
+    // already empty. kNN needs vec_chunks (populated by the embed pass above; computeKnnEdges returns []
+    // when sqlite-vec is unavailable).
+    // Guarded on the densification columns: reconciling unconditionally against a vault_edges that
+    // predates migration 20260713_001 would throw on the upsert and kill the entire index pass.
+    if (hasDerivedEdgeColumns(args.db)) {
+      const tagDesired =
+        args.densify?.tagEdges && tableExists(args.db, "notes")
+          ? tagCooccurrenceEdges(readNoteTags(args.db, args.vaultId), {
+              maxTagFanout: args.densify.maxTagFanout ?? 25,
+            })
+          : [];
+      reconcileDerivedEdges(args.db, args.vaultId, tagDesired, ["shared_tag"], now);
+
+      const knnDesired = args.densify?.knnEdges
+        ? computeKnnEdges(args.db, args.vaultId, { k: args.densify.knnK ?? 8 })
+        : [];
+      reconcileDerivedEdges(args.db, args.vaultId, knnDesired, ["similar_to"], now);
     }
   }
   return stats;

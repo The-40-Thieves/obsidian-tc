@@ -5,10 +5,15 @@
 // EGRESS BOUNDARY (docs/plans/2026-07-13-graph-densification.md + the 2026-06-26 vault-egress decision):
 // routed through the local inference gateway (LiteLLM `extract` role -> local qwen), so note content
 // never leaves the machine by default; a remote model is the operator's explicit privacy call. Source
-// note bodies are wrapped in hash-stamped <untrusted_source> delimiters and injection sentinels are
-// defanged before insertion, so a note that says "ignore previous instructions" is inert DATA, never a
-// command (graphify SECURITY.md). Batch-only, off by default, derived + rebuildable, never written back
-// into notes as wikilinks (the isnad boundary).
+// note bodies are wrapped in hash-stamped <untrusted_source> delimiters and known chat-template /
+// jailbreak sentinels are defanged before insertion.
+//
+// That is DEFENSE IN DEPTH, not a guarantee. Delimiters and token-defanging do NOT make natural-language
+// instructions inside a note reliably inert — a determined injection can still steer the model. The real
+// blast-radius limit is the OUTPUT contract: parseSemanticEdges accepts only edges between KNOWN note
+// paths with a discrete-rubric confidence, so the worst a successful injection buys is a wrong or extra
+// edge inside a dark, down-weighted, fully rebuildable layer. Batch-only, off by default, never written
+// back into notes as wikilinks (the isnad boundary).
 import type { GatewayClient } from "../gateway/client";
 import type { DerivedEdge } from "./derived-edges";
 
@@ -84,8 +89,9 @@ function extractJsonArray(raw: string): unknown {
  * Parse an LLM edge response into validated DerivedEdges. Accepts a raw JSON array or a ```json fenced
  * block of {source, target, confidence}. Drops anything whose source/target is not a known note path,
  * self-loops, and confidence below the floor; snaps confidence to the rubric; dedups canonical pairs
- * (max confidence). source_fingerprint is the source note's content hash, so the edge self-flags stale
- * when that note changes.
+ * (max confidence). source_fingerprint records BOTH endpoints' content hashes in canonical order (the
+ * edge is undirected, and the model's declared "source" may not survive canonicalization). It is stored
+ * for a FUTURE staleness sweep — nothing compares it against current note content today.
  */
 export function parseSemanticEdges(
   raw: string,
@@ -116,7 +122,7 @@ export function parseSemanticEdges(
         edge_kind: "derived",
         provenance: "llm_pass3",
         confidence: snapped,
-        source_fingerprint: shaByPath.get(a) ?? null,
+        source_fingerprint: `${shaByPath.get(a) ?? ""}+${shaByPath.get(b) ?? ""}`,
       });
     }
   }
@@ -141,23 +147,40 @@ export function buildExtractionMessages(
   ];
 }
 
+export interface SemanticExtractionResult {
+  edges: DerivedEdge[];
+  totalBatches: number;
+  /** Batches whose gateway call THREW. A caller doing a full-state reconcile MUST refuse to write when
+   *  this is > 0: an all-failed run yields the same empty `edges` as "the model found no relationships",
+   *  and writing that would prune the entire existing layer. */
+  failedBatches: number;
+}
+
 /**
  * Extract semantic edges for a set of notes via the gateway's `extract` role (local model by default).
- * Batches to bound each prompt; returns validated, deduped DerivedEdges (edge_type
- * semantically_similar_to). Never throws on a bad model response — a batch that returns unparseable
- * output contributes nothing and the job continues. Reconcile the result with
- * reconcileDerivedEdges(db, vaultId, edges, ["semantically_similar_to"]).
+ *
+ * Batching bounds each prompt, but it also BOUNDS WHAT THE MODEL CAN SEE: relationships are only ever
+ * inferred between notes that land in the SAME batch — no cross-batch pair is ever compared. Callers
+ * that need deterministic batches must feed `notes` in a stable order (runLlmDensify sorts by path).
+ *
+ * A batch whose gateway call throws contributes nothing AND is counted in `failedBatches`; a batch that
+ * merely returns unparseable output contributes nothing and is NOT counted as failed (the model answered,
+ * it just said nothing usable). Reconcile with reconcileDerivedEdges(db, vaultId, edges,
+ * ["semantically_similar_to"]) — but only when failedBatches is 0.
  */
 export async function extractSemanticEdges(
   client: GatewayClient,
   notes: SourceNote[],
   opts: { batchSize?: number; confidenceFloor?: number } = {},
-): Promise<DerivedEdge[]> {
+): Promise<SemanticExtractionResult> {
   const batchSize = opts.batchSize ?? 12;
   const shaByPath = new Map(notes.map((n) => [n.path, n.sha]));
   const byPair = new Map<string, DerivedEdge>();
+  let totalBatches = 0;
+  let failedBatches = 0;
   for (let i = 0; i < notes.length; i += batchSize) {
     const batch = notes.slice(i, i + batchSize);
+    totalBatches += 1;
     let text = "";
     try {
       const res = await client.extract({
@@ -166,6 +189,7 @@ export async function extractSemanticEdges(
       });
       text = res.text ?? "";
     } catch {
+      failedBatches += 1;
       continue;
     }
     for (const e of parseSemanticEdges(text, shaByPath, opts)) {
@@ -174,5 +198,5 @@ export async function extractSemanticEdges(
       if (!existing || (existing.confidence ?? 0) < (e.confidence ?? 0)) byPair.set(pk, e);
     }
   }
-  return [...byPair.values()];
+  return { edges: [...byPair.values()], totalBatches, failedBatches };
 }

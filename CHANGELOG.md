@@ -26,6 +26,24 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   the LLM Pass-3 `semantically_similar_to` layer via the local gateway (refuses if
   no gateway resolves). Both off by default.
 
+### Fixed
+
+- **Graph densification correctness hardening** (external audit of the first cut;
+  all in the dark, unreleased feature — no v1.9.0 behaviour changes): a failed
+  gateway run no longer erases the LLM edge layer (`extractSemanticEdges` reports
+  `failedBatches`; the runner refuses to reconcile a partial run); turning
+  `tagEdges` / `knnEdges` off now actually prunes those edges (the reconcile runs
+  every pass with an empty desired set, instead of being gated behind the flag);
+  derived edges are upserted so a changed confidence / fingerprint refreshes
+  instead of being silently kept stale; an authored (literal) edge now wins an
+  equal-hop tie in the walk, so a wikilinked note is never mislabelled derived and
+  down-weighted; the LLM runner orders notes by path for deterministic batching;
+  and the edge fingerprint covers both endpoints rather than the alphabetically
+  first one. Two doc overclaims corrected: the fingerprint does not "self-flag
+  stale" (no sweep exists yet), and the prompt-injection wrapping is
+  defense-in-depth, not a guarantee of inertness — the output contract (known
+  paths + discrete confidences) is the real blast-radius limit.
+
 ## [1.9.0] - 2026-07-13
 
 ### Added

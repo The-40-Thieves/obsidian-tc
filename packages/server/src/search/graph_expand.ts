@@ -45,8 +45,12 @@ const DERIVED_EDGE_TYPES = ["similar_to", "shared_tag", "semantically_similar_to
 /**
  * Walk the undirected edge graph from `seedPaths`, scoped to `opts.vaultId`. Returns one node per
  * (root_seed, reached path) at hop > 0, shallowest hop. Cycle-guarded via a newline-delimited visited
- * set (paths never contain newlines). One MIN(hop) aggregate lets the bare columns
- * (predecessor/provenance/type/kind) take the shallowest-arrival row's values (SQLite bare-column rule).
+ * set (paths never contain newlines). One MIN() aggregate over a COMPOSITE rank lets the bare columns
+ * (hop/predecessor/provenance/type/kind) take the winning row's values (SQLite bare-column rule). The
+ * rank is `hop*2 + (kind == 'literal' ? 0 : 1)`: a shallower hop always wins, and at EQUAL hop an
+ * AUTHORED (literal) edge beats a derived one. Without that tiebreak the pick was arbitrary, so a node
+ * genuinely reachable by a wikilink could be labelled 'derived' and down-weighted merely because a kNN
+ * edge happened to reach it on the same hop.
  */
 export function expandGraphLiteral(
   db: Database,
@@ -82,7 +86,8 @@ export function expandGraphLiteral(
          WHERE w.hop < ? AND instr(w.visited, char(10) || u.target_path || char(10)) = 0
        )
        SELECT root_seed, current_path AS path, predecessor_path, via_provenance,
-              via_type AS via_edge_type, via_kind AS via_edge_kind, MIN(hop) AS hop
+              via_type AS via_edge_type, via_kind AS via_edge_kind, hop,
+              MIN(hop * 2 + (CASE WHEN via_kind = 'literal' THEN 0 ELSE 1 END)) AS rank_key
        FROM walk
        WHERE hop > 0
        GROUP BY root_seed, current_path`,

@@ -101,3 +101,42 @@ require an index built WITH derived edges, then a densify-on vs densify-off A/B 
 Honest expectation: the THE-135 query-time virtual-hop hit an 80% bridge-recall ceiling below the current
 champion, so this likely stays dark unless stored-kNN + tag + LLM edges clear a bar the virtual-hop could
 not. The measurement decides; the code ships dark either way.
+
+## Correctness hardening (2026-07-14) — from an external audit of the first cut
+
+An external review of the merged feature found eight real defects. All are fixed; two were overclaims in
+these very docs, corrected below.
+
+1. **A failed gateway run no longer erases the LLM layer.** `extractSemanticEdges` now returns
+   `{edges, totalBatches, failedBatches}`, and `runLlmDensify` REFUSES to reconcile when `failedBatches > 0`.
+   Previously a per-batch failure was swallowed, so an all-failed run produced an empty edge set that the
+   full-state reconcile happily wrote — silently pruning every existing LLM edge on a transient outage.
+2. **Turning a flag off now actually prunes.** The indexer reconciles the tag / kNN layers on EVERY pass
+   with an empty desired set when the flag is off. Gating the reconcile behind the flag (the original
+   shape) stranded previously-generated rows in `vault_edges` forever.
+3. **Edges are upserted, not ignored.** The row key is only `(source, target, edge_type)`, so a changed
+   confidence or fingerprint on an existing pair could never land under `INSERT OR IGNORE`. It is now
+   `ON CONFLICT ... DO UPDATE`.
+4. **Authored edges win an equal-hop tie.** The walk's aggregation ranks by
+   `hop*2 + (kind == 'literal' ? 0 : 1)`, so a node reachable by a real wikilink is never labelled derived
+   and down-weighted just because a kNN edge tied with it. Previously SQLite's bare-column pick was arbitrary.
+5. **Batching is deterministic.** The runner orders notes `BY path`. Note that batching also BOUNDS what the
+   model can see: relationships are only inferred WITHIN a batch — cross-batch pairs are never compared.
+   That is a real limitation of the current design, not a bug.
+6. **The fingerprint covers both endpoints.** The edge is undirected and canonicalized alphabetically, so
+   hashing only the first endpoint could fingerprint the wrong note. It now records both.
+
+### Two corrections to earlier claims in this document
+
+- **The fingerprint does NOT "self-flag stale."** `source_fingerprint` is *recorded* for a future staleness
+  sweep. **No sweep exists** — nothing compares it against current note content today; a re-run simply
+  refreshes it. The earlier wording here was aspirational.
+- **The injection defense is defense-in-depth, not inertness.** `<untrusted_source>` delimiters and
+  sentinel-defanging do NOT make natural-language instructions inside a note reliably inert. The real
+  blast-radius limit is the OUTPUT contract: only edges between known note paths with a discrete-rubric
+  confidence are accepted, so a successful injection buys at most a wrong edge in a dark, down-weighted,
+  rebuildable layer.
+
+Still open (tracked, not blocking the dark feature): the staleness sweep itself, and a batching strategy
+that lets semantically related notes co-occur (e.g. seeding each batch from kNN neighbours) rather than
+relying on path order.

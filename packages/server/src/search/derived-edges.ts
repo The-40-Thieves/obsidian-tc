@@ -24,14 +24,18 @@ export interface DerivedEdge {
   provenance: string;
   /** Discrete rubric score for inferred edges; null for structural (shared_tag). */
   confidence: number | null;
-  /** Hash of the cited source content for the staleness sweep; null when the edge derives from both
-   *  endpoints' metadata rather than one source's body (shared_tag). */
+  /** Content hash of the edge's source material, RECORDED for a future staleness sweep. No sweep exists
+   *  yet: nothing compares this against current note content today, so an edge does NOT self-flag as
+   *  stale — a re-run simply refreshes it (upsert). Null for edges derived from metadata rather than
+   *  note bodies (shared_tag, kNN). */
   source_fingerprint: string | null;
 }
 
 export interface DerivedReconcileStats {
   desired: number;
   inserted: number;
+  /** Existing edges whose confidence / fingerprint / provenance were REFRESHED by the upsert. */
+  updated: number;
   deleted: number;
 }
 
@@ -135,28 +139,39 @@ export function reconcileDerivedEdges(
     }
   }
 
-  const ins = db.prepare(
-    "INSERT OR IGNORE INTO vault_edges (vault_id, source_path, target_path, edge_type, edge_kind, provenance, confidence, source_fingerprint, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  // UPSERT, not INSERT OR IGNORE. The row key is only (vault, source, target, edge_type), so an edge
+  // whose CONFIDENCE or SOURCE_FINGERPRINT changed is the same row — under INSERT OR IGNORE it was
+  // silently kept at its stale value and could never be refreshed. Now a re-run updates it in place.
+  const up = db.prepare(
+    `INSERT INTO vault_edges (vault_id, source_path, target_path, edge_type, edge_kind, provenance, confidence, source_fingerprint, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(vault_id, source_path, target_path, edge_type) DO UPDATE SET
+       edge_kind = excluded.edge_kind,
+       provenance = excluded.provenance,
+       confidence = excluded.confidence,
+       source_fingerprint = excluded.source_fingerprint,
+       updated_at = excluded.updated_at`,
   );
   let inserted = 0;
+  let updated = 0;
   for (const e of desired) {
-    if (!currentKeys.has(key(e.source_path, e.target_path, e.edge_type))) {
-      ins.run(
-        vaultId,
-        e.source_path,
-        e.target_path,
-        e.edge_type,
-        e.edge_kind,
-        e.provenance,
-        e.confidence,
-        e.source_fingerprint,
-        ts,
-        ts,
-      );
-      inserted += 1;
-    }
+    const isNew = !currentKeys.has(key(e.source_path, e.target_path, e.edge_type));
+    up.run(
+      vaultId,
+      e.source_path,
+      e.target_path,
+      e.edge_type,
+      e.edge_kind,
+      e.provenance,
+      e.confidence,
+      e.source_fingerprint,
+      ts,
+      ts,
+    );
+    if (isNew) inserted += 1;
+    else updated += 1;
   }
-  return { desired: desired.length, inserted, deleted };
+  return { desired: desired.length, inserted, updated, deleted };
 }
 
 export interface KnnNeighbor {

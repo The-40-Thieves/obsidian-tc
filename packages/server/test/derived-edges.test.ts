@@ -174,3 +174,31 @@ describe("knnEdgesFromNeighbors", () => {
     expect(top1.map((e) => e.target_path)).toEqual(["B.md"]); // D filtered, C dropped by k=1
   });
 });
+
+describe("reconcileDerivedEdges — upsert semantics", () => {
+  it("refreshes confidence + fingerprint on an existing edge instead of keeping the stale value", () => {
+    const db = edgesDb();
+    const before: DerivedEdge = {
+      source_path: "A.md",
+      target_path: "B.md",
+      edge_type: "similar_to",
+      edge_kind: "virtual",
+      provenance: "cosine_knn",
+      confidence: 0.5,
+      source_fingerprint: "old",
+    };
+    expect(reconcileDerivedEdges(db, "v1", [before], ["similar_to"], () => 1).inserted).toBe(1);
+    // Same (source, target, edge_type) — the row key is unchanged, so INSERT OR IGNORE would have kept
+    // confidence 0.5 forever. The upsert must refresh the scored fields in place.
+    const after: DerivedEdge = { ...before, confidence: 0.9, source_fingerprint: "new" };
+    const stats = reconcileDerivedEdges(db, "v1", [after], ["similar_to"], () => 2);
+    expect(stats.inserted).toBe(0);
+    expect(stats.updated).toBe(1);
+    const row = db.prepare("SELECT confidence, source_fingerprint FROM vault_edges").get() as {
+      confidence: number;
+      source_fingerprint: string;
+    };
+    expect(row.confidence).toBe(0.9);
+    expect(row.source_fingerprint).toBe("new");
+  });
+});
