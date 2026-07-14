@@ -197,12 +197,14 @@ the tag result is **suggestive, not established**.
 
 Storage is **inexpensive** (not free). Latency is not.
 
-**Protocol** (the first pass reported none, which was a fair complaint): seeds sampled **uniformly at
-random** from the 3,000-odd notes with at least one authored outgoing link — *not* degree-ordered — with
-a fixed LCG seed, so the identical seed sequence is replayed against both arms (paired). **30 measured
-walks** per arm per K after **5 discarded warmup walks**; `hopLimit: 2`; one walk per query seeded with K
-paths, which is the serve pattern. Raw artifact:
-[`data/2026-07-14-densification/bench-walk.json`](data/2026-07-14-densification/bench-walk.json).
+Two benchmarks, because they answer different questions and an earlier draft conflated them.
+
+### The graph walk (the mechanism)
+
+Seeds sampled **uniformly at random** from the **1,021** notes carrying at least one authored outgoing
+link — *not* degree-ordered — with a fixed LCG seed, so the identical seed sequence is replayed against
+both arms (paired). **30 measured walks** per arm per K after **5 discarded warmup walks**; `hopLimit: 2`.
+Raw: [`bench-walk.json`](data/2026-07-14-densification/bench-walk.json).
 
 | | control | tag | ratio |
 |---|---|---|---|
@@ -211,21 +213,39 @@ paths, which is the serve pattern. Raw artifact:
 | walk, K=1 (median / p95) | 61.5 / 75.3 ms | 160.2 / 184.6 ms | **2.60x** |
 | walk, K=5 (median / p95) | 81.7 / 151.4 ms | 224.4 / 345.1 ms | **2.75x** |
 | walk, K=10 (median / p95) | 107.8 / 167.2 ms | 294.3 / 347.4 ms | **2.73x** |
-| **end-to-end search** | **347 ms/query** | **461 ms/query** | **+33%** |
 
-The end-to-end row is the one that matters operationally, and the first pass never took it: wall clock
-for the full 136-query golden-set run, including query embedding and fusion. The walk is ~2.7x, but the
-walk is only part of a query — so the user-visible cost of tag edges is **+114 ms per search (+33%)**.
+### The serving path (what a user actually pays)
 
-Two corrections to the first pass. It seeded from the **highest-degree** notes and called that a "worst
-case" whose ratio was therefore conservative. Wrong in direction: uniform-random seeds give a **larger**
-ratio (2.6-2.75x) than hub seeds did (1.8-2.4x), because a hub's 2-hop frontier is already enormous in
-the control arm and the derived edges add proportionally less. And it reported no dispersion at all —
-percentiles are above.
+`graphSearch()` itself — **not** the eval loop. This distinction cost a wrong number: the first pass
+reported "347 -> 461 ms/query (+33%)" as end-to-end user-visible latency, but that was the wall clock of
+`eval/run.ts`, which runs a **semantic baseline search AND a graph search per query** in order to compare
+them. Production runs only the graph search. That figure measured a harness.
 
-The cost is in the **walk**, not the storage: the tag index with `includeDerived=false` benchmarks within
-noise of control. Densifying is cheap; *traversing* the dense graph is what costs, because a 76% larger
-edge set means a materially larger 2-hop frontier (at K=1: 122 -> 258 nodes per walk).
+Measured properly — 136 golden queries x 3 reps per arm, arms **alternating** per query so cache warmth
+cannot favor one, 5 warmup queries discarded, query embedding timed **separately** because it is
+arm-independent and folding it into a ratio would silently dilute the result. Raw:
+[`bench-serve.json`](data/2026-07-14-densification/bench-serve.json).
+
+| | control | tag | delta |
+|---|---|---|---|
+| `graphSearch` (median / p95) | 466.5 / 655.4 ms | 688.4 / 947.3 ms | **1.48x** |
+| query embedding (median) | 33.6 ms | 33.6 ms | identical (arm-independent) |
+| **user-visible (embed + search)** | **500 ms** | **722 ms** | **+222 ms, +44%** |
+
+The corrected number is **worse than the one I got wrong**: +44%, not +33%. Note the walk ratio (2.7x) and
+the serving ratio (1.48x) are both real — `graphSearch` does more than walk (dense retrieval, RRF fusion,
+scoring), so the walk's 2.7x is diluted into 1.48x by the time it reaches the caller. The 2.7x is the
+mechanism's cost; the **+44% is the bill**.
+
+A further correction to the first pass: it seeded from the **highest-degree** notes and called that a
+"worst case" whose ratio was therefore conservative. Wrong in direction — uniform-random seeds give a
+**larger** ratio (2.6-2.75x) than hub seeds did (1.8-2.4x), because a hub's 2-hop frontier is already
+enormous in the control arm, so derived edges add proportionally less.
+
+Storage is **inexpensive, not free**. The cost is in the **walk**, not the bytes: the tag index with
+`includeDerived=false` benchmarks within noise of control. Densifying is cheap; *traversing* the dense
+graph is what costs, because a 76% larger edge set means a materially larger 2-hop frontier (at K=1:
+122 -> 258 nodes per walk).
 
 ## 9. Verdict
 
@@ -275,3 +295,10 @@ Recorded because the errors are the useful part:
   prove no observable change, not absence of traversal (section 6).
 - The latency benchmark reported no protocol, no dispersion, and no end-to-end figure, and wrongly framed
   hub seeds as a conservative worst case. Re-run properly; the true ratio is **larger** (section 8).
+- "**347 -> 461 ms/query (+33%) end-to-end**" - **that was the EVAL LOOP, not the serving path.**
+  `eval/run.ts` runs a semantic baseline search *and* a graph search per query, to compare them;
+  production runs only the graph search. The figure measured a harness. `graphSearch` itself was then
+  benchmarked (alternating arms, 3 reps, embedding timed separately): the real user-visible cost is
+  **+222 ms, +44%** — worse than the number I got wrong (section 8).
+- The walk benchmark's seed frame was described as "3,000-odd notes". It is **1,021** — the artifact said
+  so (`seedFrameSize`) and the prose did not match it.

@@ -51,15 +51,37 @@ the point estimate: a guardrail passes iff the bootstrap 95% CI lower bound of i
 A point delta above the floor with a CI reaching well below it has not demonstrated non-inferiority, it
 has merely failed to demonstrate harm, and those are different claims.
 
-## Statistical power (declared in advance)
+## Statistical power (calculated, not asserted)
 
-The exploratory effect was +0.0045 nDCG@10 overall, concentrated in multi-hop (+0.013 on `hop`), and it
-moved only 10 of 136 queries. An effect that sparse is why the confirmatory set must be **sized, not
-inherited**: at the exploratory per-query variance, detecting a multi-hop delta of +0.010 at 80% power
-requires on the order of **120+ multi-hop queries** — roughly double the 68 multi-hop queries in the
-current golden set. A confirmatory run on fewer than ~120 multi-hop queries is **underpowered by
-construction**, and a null from it must be reported as inconclusive rather than as a refutation. If that
-many cannot be mined, say so and do not run the test.
+An earlier draft of this document said "on the order of 120+ multi-hop queries". That number was
+**asserted, not computed** — which is precisely the sin this whole document exists to prevent. Here is the
+calculation, from the published exploratory data.
+
+Paired per-query deltas (tag - control, nDCG@10) over the 68 multi-hop queries in the golden set:
+
+- observed mean = **0.00895**
+- observed SD = **0.03824**
+
+For a paired test at alpha = 0.10 (two-sided) and 80% power, n = (z(0.95) + z(0.80))^2 * SD^2 / delta^2
+with z(0.95) = 1.6449 and z(0.80) = 0.8416:
+
+| target delta | required n (multi-hop queries) |
+|---|---|
+| +0.013 (the observed `hop` effect) | **54** |
+| **+0.010 (the cost gate)** | **91** |
+| +0.005 | 362 |
+
+**The confirmatory set must carry at least 91 multi-hop queries** to detect the effect the cost gate
+requires. The current golden set has **68** — underpowered for this purpose, by calculation rather than by
+vibe. Reproduce from the committed artifacts:
+
+```
+# deltas: tag.json minus ctl.json on graph.ndcg_at_10, over ids prefixed hop- / orig-
+docs/plans/data/2026-07-14-densification/{ctl,tag}.json
+```
+
+A run on fewer than 91 multi-hop queries is **underpowered by construction**, and a null from it must be
+reported as **inconclusive, not as a refutation**. If 91 cannot be mined, say so and do not run the test.
 
 ## Query mining and relevance judgment (frozen procedure)
 
@@ -78,18 +100,47 @@ only in edge rows — the same discipline the exploratory run used, for the same
 
 ## Decision rule (frozen)
 
-**SHIP** requires *all three*:
+This test can conclude **MECHANISM CONFIRMED**. It cannot conclude **SHIP**. An earlier draft used "SHIP"
+as the success label and then, two sections later, explained that a pass would not actually authorize
+enabling the flag — an incoherence worth naming rather than smoothing over. The two are separate gates and
+they are now separate sections.
 
-1. Primary endpoint p < 0.10 **and** dNDCG > 0.
-2. Every guardrail satisfies delta > -0.015 (the project's standing non-inferiority floor).
+### Gate 1 — MECHANISM CONFIRMED (what this test decides)
+
+All three required:
+
+1. **Effect:** primary endpoint p < 0.10 **and** dNDCG > 0.
+2. **Non-inferiority:** every guardrail's bootstrap **95% CI lower bound > -0.015**. Not the point
+   estimate — a point delta above the floor whose CI reaches well below it has not demonstrated
+   non-inferiority, it has merely failed to demonstrate harm.
 3. **Cost gate:** dNDCG >= 0.010 on the primary endpoint.
 
-Clause 3 is the one the exploratory run forced into existence. Derived-edge traversal costs a measured
-**1.8-2.4x on graph-walk latency**. A statistically real but tiny effect does not justify that: a PASS
-with dNDCG < 0.010 is **not a ship**. It licenses only further work - pruning tag edges by fanout or
-IDF to cut the frontier, and re-testing the pruned variant under a fresh pre-registration.
+Clause 3 exists because the mechanism is not cheap. Measured: derived-edge traversal costs **2.6-2.75x on
+the graph walk**, and **+44% (+222 ms) on user-visible search latency** (`graphSearch` 466 -> 688 ms
+median, plus an arm-independent 34 ms query embedding). A statistically real but tiny effect does not
+justify that bill.
 
-**KILL** otherwise. The feature stays default-off, the flag stays for re-test, and the null is recorded.
+**NOT CONFIRMED** otherwise: the feature stays default-off, the flag stays for re-test, the null is
+recorded, and no further gate is opened.
+
+### Gate 2 — AUTHORIZED TO SHIP (what this test does NOT decide)
+
+CONFIRMED does not license flipping `includeInWalk`, because **that flag is global**. There is no class
+gate on it and never has been. So confirming the mechanism on multi-hop queries leaves exactly two paths,
+and both need their own evidence:
+
+- **(a) Build the class gate.** The deterministic `classRouter` already classifies queries (and is itself
+  off by default). Route derived edges only to the multi-hop class, then **re-measure BOTH quality and
+  latency through the actual classifier** — not just cost. A router misclassification does not merely
+  waste time, it changes *which* retrieval path a query takes, so it can move quality in either direction.
+  Reusing this test's quality numbers for a routed deployment would be invalid.
+- **(b) Ship globally** and accept +44% on **every** query, including the single-hop, lexical, and
+  temporal ones the exploratory run measured to derive **zero** benefit. If this path is taken it requires
+  a **declared latency budget** decided before the measurement: a p95 user-visible search budget the
+  deployed configuration must fit inside. Absent such a budget, (b) is not a decision, it is a shrug.
+
+Writing this down before the data is the point. Otherwise a PASS quietly becomes a one-line flag flip that
+taxes every query in the vault to help a tenth of them.
 
 ## Data (the load-bearing constraint)
 
@@ -116,18 +167,8 @@ data exists.
 
 ## Pre-committed interpretation
 
-- **p < 0.10 and dNDCG >= 0.010** -> tag edges are real and worth their latency. **But note what
-  "ship for multi-hop" would actually require**: `includeInWalk` is a global flag. It is not, and has
-  never been, restricted to multi-hop queries — there is no class gate on it. So a PASS does not license
-  flipping the existing flag on. It licenses exactly one of:
-  **(a)** build a class gate first (the deterministic `classRouter` already classifies queries, and is
-  itself off by default), ship tag edges only on the multi-hop route, and re-measure the cost on that
-  route; or
-  **(b)** ship globally and eat the measured **+33% end-to-end latency on every query**, including the
-  single-hop, lexical, and temporal ones the exploratory run showed derive **zero** benefit — which is a
-  bad trade on its face and should not be taken without a further argument.
-  Writing "(a) or (b)" here, before the data, is the point: otherwise a PASS would quietly become a
-  one-line flag flip that taxes every query in the vault to help a tenth of them.
+- **p < 0.10 and dNDCG >= 0.010** -> **MECHANISM CONFIRMED**, and Gate 2 opens. Not a ship. Pick path
+  (a) or (b) above and produce the evidence that path requires.
 - **p < 0.10 and dNDCG < 0.010** -> real but not worth ~2x walk cost. Stays off. Pursue pruning.
 - **p >= 0.10** -> the exploratory result was noise on 10 queries. Stays off. Record the null and stop.
 - **dNDCG <= 0 on multi-hop** -> abandon the mechanism entirely; do not re-test it on a third set.
