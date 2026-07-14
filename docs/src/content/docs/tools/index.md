@@ -11,6 +11,8 @@ scope class that selects its rate-limit tier. `tools/list` also derives MCP
 and `icons`. Advertised schemas are **JSON Schema 2020-12** (the MCP `2025-11-25`
 default dialect), matching the negotiated protocol version.
 
+For how to connect and call these over MCP — stdio or HTTP, auth, and the discover → describe → call flow — see the [API Reference](/tools/api-reference/).
+
 ## Tool-surface facade
 
 What `tools/list` advertises is controlled by `toolFacade.mode`:
