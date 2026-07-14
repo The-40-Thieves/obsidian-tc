@@ -152,11 +152,16 @@ export interface SemanticExtractionResult {
   totalBatches: number;
   /** Batches whose gateway call THREW (transport / connection failure). */
   failedBatches: number;
-  /** Batches that ANSWERED but carried no usable edge: the response could not be read as a JSON edge
-   *  array at all, OR it was a NONEMPTY array from which nothing structurally valid survived (a refusal
-   *  string, an edge naming an unknown path). A model that is misconfigured, refusing, or emitting prose.
-   *  Counted separately from a transport failure but treated the same by any caller doing a full-state
-   *  reconcile. A literal `[]` is NOT counted here — that is a trustworthy "found nothing".
+  /** Batches that ANSWERED but never honored the output CONTRACT: the response could not be read as a
+   *  JSON edge array at all, OR it was a nonempty array from which nothing STRUCTURALLY valid survived
+   *  (a refusal string, an edge naming an unknown path). A model misconfigured, refusing, or emitting
+   *  prose. Counted separately from a transport failure but treated the same by a full-state reconcile.
+   *
+   *  Two things are deliberately NOT counted here, because both are trustworthy answers whose stored set
+   *  is legitimately empty: a literal `[]` ("I looked and found nothing"), and a structurally valid edge
+   *  array whose every edge falls below the configured confidenceFloor ("I found only weak links, and you
+   *  told me to ignore those"). Treating a POLICY filter as damage would freeze the layer against its own
+   *  configuration — the opposite failure, and just as bad.
    *
    *  Both counters exist for one reason: an unusable batch yields the SAME empty `edges` as a genuine
    *  "the model found no relationships", and a full-state write of that empty set would prune the whole
@@ -217,19 +222,32 @@ export async function extractSemanticEdges(
       unparseableBatches += 1;
       continue;
     }
-    let accepted = 0;
-    for (const e of parseSemanticEdges(text, shaByPath, opts)) {
-      accepted += 1;
+    // TWO different questions, and conflating them is a bug in either direction:
+    //
+    //   STRUCTURE — did the model honor the output contract at all (known paths, distinct, snappable
+    //   confidence)? Parse with floor 0 to ask this WITHOUT the policy filter in the way.
+    //
+    //   POLICY — of the edges it validly proposed, which clear the operator's confidenceFloor? An edge
+    //   dropped here is a configuration choice, NOT a defective response.
+    //
+    // A model that validly reports three weak-but-real links at 0.55, under a configured floor of 0.75,
+    // honored the contract perfectly and its desired stored set is legitimately empty. Scoring that as
+    // "unusable" would refuse reconciliation forever and freeze the layer — the exact opposite failure
+    // from the one this guard exists to prevent.
+    const candidates = parseSemanticEdges(text, shaByPath, { confidenceFloor: 0 });
+    if (parsed.length > 0 && candidates.length === 0) {
+      // Nonempty array, nothing structurally valid in it: `["refusal"]`, or edges naming unknown paths.
+      // A model that never honored the contract may not authorize a full-state prune.
+      unparseableBatches += 1;
+      continue;
+    }
+    const floor = opts.confidenceFloor ?? 0.55;
+    for (const e of candidates) {
+      if ((e.confidence ?? 0) < floor) continue; // policy, not damage
       const pk = key(e.source_path, e.target_path);
       const existing = byPair.get(pk);
       if (!existing || (existing.confidence ?? 0) < (e.confidence ?? 0)) byPair.set(pk, e);
     }
-    // Array-ness alone is NOT the contract. `["refusal"]`, or edges naming paths outside the batch, parse
-    // as a NONEMPTY array and still yield nothing — downstream that is byte-identical to a genuine empty
-    // answer. Only a literal `[]` is a trustworthy "no relationships found"; a nonempty array from which
-    // nothing structurally valid survives is a model that did not honor the contract, and it must not be
-    // allowed to authorize a full-state prune of the existing layer.
-    if (parsed.length > 0 && accepted === 0) unparseableBatches += 1;
   }
   return { edges: [...byPair.values()], totalBatches, failedBatches, unparseableBatches };
 }

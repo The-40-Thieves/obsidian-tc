@@ -112,6 +112,24 @@ describe("runLlmDensify", () => {
     }
   });
 
+  it("a valid BELOW-FLOOR answer is trustworthy too — it prunes, it does not refuse", async () => {
+    const d = makeDb();
+    await runLlmDensify(d, "v1", oneEdge);
+    expect(edgeCount(d)).toBe(1);
+    // Structurally perfect, honestly answered, and entirely below the configured floor. If the guard
+    // treated this as damage, a vault whose model only ever finds weak links could never prune a stale
+    // edge again — the layer would be frozen by its own confidenceFloor setting.
+    const weak = {
+      extract: async () => ({
+        text: JSON.stringify([{ source: "A.md", target: "B.md", confidence: 0.55 }]),
+        model: "m",
+      }),
+    } as unknown as GatewayClient;
+    const res = await runLlmDensify(d, "v1", weak, { confidenceFloor: 0.85 });
+    expect(res.edges).toBe(0);
+    expect(edgeCount(d)).toBe(0); // pruned, because the answer was trustworthy
+  });
+
   it("a LITERAL empty array is still a TRUSTWORTHY empty answer — it DOES prune", async () => {
     const d = makeDb();
     await runLlmDensify(d, "v1", oneEdge);

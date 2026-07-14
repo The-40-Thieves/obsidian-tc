@@ -92,6 +92,37 @@ describe("extractSemanticEdges — unusable batches are counted, not silently sw
     expect(res.unparseableBatches).toBe(0); // the model answered, validly, with nothing
   });
 
+  it("a VALID array whose every edge is BELOW the floor is trustworthy — policy, not damage", async () => {
+    // The mirror image of the guard, and the one it originally got wrong. These edges are structurally
+    // perfect: known paths, distinct, snappable confidence. The model honored the contract exactly. It
+    // simply found only weak links — and the operator's floor says to ignore weak links. The desired
+    // stored set is legitimately EMPTY, and calling that "unusable" would refuse reconciliation forever,
+    // freezing the layer against its own configuration.
+    const weak = {
+      extract: async () => ({
+        text: JSON.stringify([{ source: "A.md", target: "B.md", confidence: 0.55 }]),
+        model: "m",
+      }),
+    } as unknown as GatewayClient;
+    const res = await extractSemanticEdges(weak, notes, { batchSize: 99, confidenceFloor: 0.75 });
+    expect(res.edges).toEqual([]); // nothing cleared the floor...
+    expect(res.failedBatches).toBe(0);
+    expect(res.unparseableBatches).toBe(0); // ...but the ANSWER was never in question
+  });
+
+  it("the same response DOES yield an edge once the floor allows it — proving the floor was the filter", async () => {
+    const weak = {
+      extract: async () => ({
+        text: JSON.stringify([{ source: "A.md", target: "B.md", confidence: 0.55 }]),
+        model: "m",
+      }),
+    } as unknown as GatewayClient;
+    const res = await extractSemanticEdges(weak, notes, { batchSize: 99, confidenceFloor: 0.55 });
+    expect(res.edges).toHaveLength(1);
+    expect(res.edges[0]?.confidence).toBeCloseTo(0.55, 3);
+    expect(res.unparseableBatches).toBe(0);
+  });
+
   it("a NONEMPTY array with ZERO structurally valid edges is UNPARSEABLE, not 'found nothing'", async () => {
     // Array-ness alone is not the contract. Each of these parses as a nonempty JSON array and yields no
     // edge: a refusal string, an edge naming paths outside the batch, an object with no edge fields at
