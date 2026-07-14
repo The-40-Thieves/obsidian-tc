@@ -31,14 +31,30 @@ bun eval/compare.ts <A>.json <B>.json      # paired by query id; permutation p +
 | `knn80.json` | control + 3,173 `similar_to` (confidence >= 0.80) |
 | `knn80-strict.json` | control + 3,122 `similar_to` (confidence > 0.80) |
 | `trt.json` | control + both derived layers |
-| `bench-walk.json` | graph-walk latency, both arms, with its sampling protocol inline |
+| `bench-walk.json` | graph-walk latency (the mechanism), both arms, sampling protocol inline |
+| `bench-serve.json` | `graphSearch()` serving latency (the bill), both arms, protocol inline |
 
 Every arm is the SAME index snapshot (nomic-768, `chunkContext: true`) with different edge rows, so the
 embeddings are byte-identical across arms and only the graph differs.
 
+## The two benchmarks are not the same number
+
+`bench-walk` measures the graph expansion alone: **2.6-2.75x**. `bench-serve` measures `graphSearch()`,
+which is what a query actually runs — dense retrieval, the walk, RRF fusion, scoring: **1.48x**, or
+**+44%** user-visible once the (arm-independent) 34 ms query embedding is added. The walk ratio is the
+mechanism's cost; the serving ratio is what anyone actually pays. Do not quote the first as the second.
+
+Neither is the wall clock of `eval/run.ts` — that harness runs a semantic baseline search *and* a graph
+search per query in order to compare them, so its timings describe the harness, not a serving path. An
+earlier version of the record made exactly that mistake.
+
 ## What is and is not here
 
-Metrics only. **Query ids are hashed** (`sha256(id)[0:12]`, class prefix preserved) because the originals
-are topic slugs derived from real note titles. Hashing is deterministic, so arms still pair on id — which
-is all `compare.ts` needs — and the per-class split still works off the prefix. No note paths, no note
-content, no vault structure. `bench-walk.json` was aggregate-only to begin with.
+Metrics only. **Query ids are random opaque tokens** (class prefix preserved), generated once from a
+CSPRNG with the mapping discarded. They are deliberately NOT hashes of the originals: the originals are
+low-entropy title-derived slugs, so a digest — even a truncated one — would be dictionary-attackable by
+anyone holding a list of candidate note titles. `compare.ts` only needs ids to be stable *across arms*,
+never to be derived from anything. The per-class split works off the prefix.
+
+No note paths, no note content, no vault structure. The benchmark artifacts were aggregate-only to begin
+with.
