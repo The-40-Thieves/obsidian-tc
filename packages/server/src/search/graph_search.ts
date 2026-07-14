@@ -739,7 +739,18 @@ function nodeDegrees(db: Database, vaultId: string, paths: string[]): Map<string
       for (const col of ["source_path", "target_path"]) {
         const rows = db
           .prepare(
-            `SELECT ${col} AS p, COUNT(*) AS n FROM vault_edges WHERE vault_id = ? AND ${col} IN (${placeholders}) GROUP BY ${col}`,
+            // Hub degree counts AUTHORED structure only. A hub is a node the operator wired into many
+            // notes (an index page, a dashboard) — not a node that happens to sit in many kNN
+            // neighbourhoods. Counting derived edges here let densification sabotage itself: doubling the
+            // edge count inflated every degree, pushing legitimate bridge notes past the hub threshold
+            // and suppressing the exact nodes densification exists to surface (measured: bridge recall
+            // 0.831 -> 0.824 with derived edges counted). Excluding the derived types leaves the literal
+            // graph's degrees byte-identical, so the shipped champion is unaffected.
+            `SELECT ${col} AS p, COUNT(*) AS n FROM vault_edges
+             WHERE vault_id = ?
+               AND edge_type NOT IN ('shared_tag', 'similar_to', 'semantically_similar_to')
+               AND ${col} IN (${placeholders})
+             GROUP BY ${col}`,
           )
           .all(vaultId, ...slice) as Array<{ p: string; n: number }>;
         for (const r of rows) out.set(r.p, (out.get(r.p) ?? 0) + r.n);
