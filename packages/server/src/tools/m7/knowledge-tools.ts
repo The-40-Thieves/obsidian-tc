@@ -45,7 +45,12 @@ export interface M7Deps {
   /** Generative roles → gateway extract/synthesize/judge; null when unconfigured. */
   roles: GatewayRoles | null;
   /** THE-397: config-driven retrieval knobs (config.retrieval); absent -> graphSearch defaults. */
-  retrieval?: { rrfK?: number; sparse?: boolean; colbert?: boolean };
+  retrieval?: {
+    rrfK?: number;
+    sparse?: boolean;
+    colbert?: boolean;
+    densify?: { includeInWalk?: boolean; derivedWeight?: number };
+  };
   /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging. */
   retrievalLog?: RetrievalLogger;
   /** THE-187/193: cached_activation_score lookup for the graph bubble pass; absent -> inert
@@ -260,6 +265,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             vaultId: v.id,
             finalTopK: input.k,
             ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
+            ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
             ...(querySparse ? { querySparse } : {}),
             ...(queryColbert ? { queryColbert } : {}),
             reranker: deps.reranker,
@@ -527,6 +533,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             vaultId: v.id,
             finalTopK: input.k,
             ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
+            ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
             ...(querySparse ? { querySparse } : {}),
             ...(queryColbert ? { queryColbert } : {}),
             reranker: deps.reranker,
@@ -697,6 +704,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           vaultId: v.id,
           finalTopK: input.final_top_k,
           ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
+          ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
           ...(querySparse ? { querySparse } : {}),
           ...(queryColbert ? { queryColbert } : {}),
           reranker: deps.reranker,

@@ -43,6 +43,9 @@ export interface GraphSearchOptions {
   maxExpansionChunks?: number;
   hopLimit?: number;
   similarityThreshold?: number;
+  /** Graph densification (docs/plans/2026-07-13-graph-densification.md): traverse derived edges
+   *  (kNN similar_to, shared_tag) in the walk, down-weighted vs authored links. Off by default. */
+  densify?: { includeInWalk?: boolean; derivedWeight?: number };
   fusionMode?: FusionMode;
   rrfK?: number;
   rerankPool?: number;
@@ -262,7 +265,11 @@ async function graphSearchCore(
     const expandFrom = gsEnabled
       ? seedPaths.slice(0, opts.graphStream?.expansionSeeds ?? 8)
       : seedPaths;
-    const nodes = expandGraphLiteral(db, expandFrom, { vaultId: opts.vaultId, hopLimit });
+    const nodes = expandGraphLiteral(db, expandFrom, {
+      vaultId: opts.vaultId,
+      hopLimit,
+      includeDerived: opts.densify?.includeInWalk ?? false,
+    });
     const nodeByPath = new Map(nodes.map((n) => [n.path, n]));
     const paths = [...nodeByPath.keys()];
     // Hub suppression: a node with pathological degree (vault audits, index/dashboard pages)
@@ -312,6 +319,10 @@ async function graphSearchCore(
           const deg = degreeByPath.get(r.path) ?? 0;
           sim *= smLambda ** (node.hop - 1) / (1 + (deg / smMu) ** smGamma);
         }
+        // Densification: a derived (kNN / shared-tag) edge is a softer signal than an authored
+        // wikilink, so down-weight expansion reached via one — it ranks/annotates, never outranks a
+        // literal edge at equal hop. No-op on the literal-only walk (edge_kind always 'literal').
+        if (node.edge_kind !== "literal") sim *= opts.densify?.derivedWeight ?? 0.5;
         scored.push({
           sim,
           cand: {

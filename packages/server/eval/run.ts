@@ -236,6 +236,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ...(opts.fusionConvex ? { fusionMode: "convex" as const, convex: opts.fusionConvex } : {}),
         ...(opts.temporal || temporalOverride ? { temporal: { enabled: true } } : {}),
         ...(opts.activation ? { activationFor: opts.activation } : {}),
+        ...(process.env.DENSIFY === "1" ? { densify: { includeInWalk: true } } : {}),
       });
       return normHits(res.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
     };

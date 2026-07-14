@@ -15,6 +15,7 @@ import { chunkNote, enrichChunkText } from "./chunk";
 import { deleteChunkColbert, ensureChunkColbert, upsertChunkColbert } from "./chunk_colbert";
 import { deleteChunkFtsRow, ensureChunkFts, upsertChunkFtsRow } from "./chunk_fts";
 import type { ColbertMatrix } from "./colbert";
+import { computeKnnEdges, reconcileDerivedEdges, tagCooccurrenceEdges } from "./derived-edges";
 import { desiredEdges, reconcileVaultEdges } from "./edges";
 import {
   buildNoteRecord,
@@ -568,6 +569,10 @@ export interface IndexVaultArgs {
    *  every index path (boot reconcile, index_vault tool, index-on-write): the chunk content hash
    *  covers the enriched text, so mixed values would re-embed the same chunks back and forth. */
   chunkContext?: boolean;
+  /** Graph densification (docs/plans/2026-07-13-graph-densification.md): build derived edges during
+   *  index_vault. tagEdges = shared-frontmatter-tag co-occurrence; knnEdges = vec0 kNN neighbors.
+   *  Off unless threaded from config.retrieval.densify. Full-state per kind (toggling off prunes). */
+  densify?: { tagEdges?: boolean; knnEdges?: boolean; knnK?: number; maxTagFanout?: number };
   /** THE-291: fires when the notes/FTS metadata pass has committed (independent of embed
    *  success), so the caller can flip metadata readiness even if the embed pass later fails. */
   onNotesPass?: () => void;
@@ -757,6 +762,46 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     );
     stats.edges_inserted = edgeStats.inserted;
     stats.edges_deleted = edgeStats.deleted;
+    // Densification (docs/plans/2026-07-13-graph-densification.md): derived edges — shared-tag
+    // co-occurrence + vec0 kNN neighbors — reconciled on their OWN edge_types (the literal reconcile
+    // above never touches them). Off unless the caller threads retrieval.densify. Each kind is
+    // full-state, so toggling a flag off prunes its edges on the next pass. kNN needs vec_chunks
+    // (populated by the embed pass above; computeKnnEdges returns [] when sqlite-vec is unavailable).
+    if (args.densify?.tagEdges && tableExists(args.db, "notes")) {
+      const noteTags = new Map<string, string[]>();
+      const tagRows = args.db
+        .prepare("SELECT path, tags FROM notes WHERE vault_id = ?")
+        .all(args.vaultId) as Array<{ path: string; tags: string | null }>;
+      for (const row of tagRows) {
+        try {
+          const parsed = row.tags ? (JSON.parse(row.tags) as unknown) : [];
+          if (Array.isArray(parsed)) {
+            noteTags.set(
+              row.path,
+              parsed.filter((t): t is string => typeof t === "string"),
+            );
+          }
+        } catch {
+          // A note with unparseable tags contributes none; never abort the index pass.
+        }
+      }
+      reconcileDerivedEdges(
+        args.db,
+        args.vaultId,
+        tagCooccurrenceEdges(noteTags, { maxTagFanout: args.densify.maxTagFanout ?? 25 }),
+        ["shared_tag"],
+        now,
+      );
+    }
+    if (args.densify?.knnEdges) {
+      reconcileDerivedEdges(
+        args.db,
+        args.vaultId,
+        computeKnnEdges(args.db, args.vaultId, { k: args.densify.knnK ?? 8 }),
+        ["similar_to"],
+        now,
+      );
+    }
   }
   return stats;
 }

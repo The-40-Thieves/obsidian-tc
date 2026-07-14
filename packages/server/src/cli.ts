@@ -167,6 +167,12 @@ const snapshotsMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260709_001_snapshots.sql", import.meta.url)),
   "utf8",
 );
+// Graph densification (graphify spec-donor port): confidence + source_fingerprint on vault_edges for
+// derived (virtual / LLM-inferred) edges. See docs/plans/2026-07-13-graph-densification.md.
+const vaultEdgesDerivedMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260713_001_vault_edges_derived.sql", import.meta.url)),
+  "utf8",
+);
 async function main(): Promise<void> {
   const cmd = parseCliArgs(process.argv.slice(2));
   if (cmd.kind === "version") {
@@ -674,6 +680,7 @@ async function main(): Promise<void> {
       { version: "20260702_001", sql: notesMigrationSql },
       { version: "20260703_001", sql: vaultEdgesVaultIdMigrationSql },
       { version: "20260709_001", sql: snapshotsMigrationSql },
+      { version: "20260713_001", sql: vaultEdgesDerivedMigrationSql },
     ],
     { version: VERSION },
   );
@@ -975,6 +982,7 @@ async function main(): Promise<void> {
         provider: embeddingProvider,
         embed: embedConfig,
         chunkContext: config.embeddings.chunkContext,
+        densify: config.retrieval.densify,
         vaultId,
         root: vaultRegistry.resolve(vaultId).root,
         isReadable: indexReadable,
@@ -1221,6 +1229,7 @@ async function main(): Promise<void> {
         provider: embeddingProvider,
         embed: embedConfig,
         chunkContext: config.embeddings.chunkContext,
+        densify: config.retrieval.densify,
         vaultId: v.id,
         root: vaultRegistry.resolve(v.id).root,
         isReadable: indexReadable,

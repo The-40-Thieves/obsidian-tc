@@ -141,6 +141,33 @@ export const RetrievalConfigSchema = z.object({
    *  emits the multi-vector heads, the query ColBERT matrix reranks the top-K by maxSim. OFF by
    *  default - opt-in, measured on the golden set (a no-op without a multi-vector provider). */
   colbert: z.boolean().default(false),
+  /** Graph densification (graphify spec-donor port): derived edges added to vault_edges beyond the
+   *  literal wikilink layer, to reach multi-hop targets whose bridge notes are not explicitly linked.
+   *  All OFF by default and measured on the multi-hop golden set before any flip — the THE-135
+   *  frontier-leaf virtual-hop hit an 80% bridge-recall ceiling and the champion is already past it,
+   *  so densification ships dark unless it wins. See docs/plans/2026-07-13-graph-densification.md. */
+  densify: z
+    .object({
+      /** Emit shared-frontmatter-tag co-occurrence edges (edge_type shared_tag). */
+      tagEdges: z.boolean().default(false),
+      /** A tag on more than this many notes is a hub, not a signal — it emits no edges. */
+      maxTagFanout: z.number().int().positive().default(25),
+      /** Emit vec0 kNN semantic-neighbor edges (edge_type similar_to). Increment B. */
+      knnEdges: z.boolean().default(false),
+      /** Neighbors per note for knnEdges. */
+      knnK: z.number().int().positive().default(8),
+      /** Let the graph walk traverse derived edges, down-weighted vs authored links. Increment C. */
+      includeInWalk: z.boolean().default(false),
+      /** Down-weight factor for expansion reached via a derived edge (annotate, not gate). */
+      derivedWeight: z.number().positive().default(0.5),
+      /** Build LLM-inferred semantic edges (semantically_similar_to) via the local gateway.
+       *  Batch-only (the densify-llm runner, not the inline index pass) — it sends note content to
+       *  the model, local by default. OFF. */
+      llmEdges: z.boolean().default(false),
+      /** Minimum discrete-rubric confidence to keep an LLM edge. */
+      confidenceFloor: z.number().min(0).max(1).default(0.55),
+    })
+    .prefault({}),
 });
 
 /** THE-230: experiential-tier (membrane store, experiential.db) knobs. */
