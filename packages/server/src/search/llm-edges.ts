@@ -93,40 +93,80 @@ function extractJsonArray(raw: string): unknown {
  * edge is undirected, and the model's declared "source" may not survive canonicalization). It is stored
  * for a FUTURE staleness sweep — nothing compares it against current note content today.
  */
+/**
+ * One array entry -> one edge, or null if the entry VIOLATES the output contract (not an object; missing
+ * or non-string source/target; a self-loop; a path the batch never contained; a confidence that will not
+ * snap to the rubric). The confidenceFloor is deliberately NOT applied here — a below-floor edge is a
+ * valid answer the operator chose to discard, which is a different thing from a broken one, and the two
+ * must stay distinguishable all the way up to the reconcile decision.
+ */
+function toEdge(item: unknown, shaByPath: Map<string, string>): DerivedEdge | null {
+  if (!item || typeof item !== "object") return null;
+  const rec = item as Record<string, unknown>;
+  const source = typeof rec.source === "string" ? rec.source : null;
+  const target = typeof rec.target === "string" ? rec.target : null;
+  if (!source || !target || source === target) return null;
+  if (!shaByPath.has(source) || !shaByPath.has(target)) return null;
+  const snapped = snapConfidence(rec.confidence);
+  if (snapped === null) return null;
+  const [a, b] = source < target ? [source, target] : [target, source];
+  return {
+    source_path: a,
+    target_path: b,
+    edge_type: "semantically_similar_to",
+    edge_kind: "derived",
+    provenance: "llm_pass3",
+    confidence: snapped,
+    source_fingerprint: `${shaByPath.get(a) ?? ""}+${shaByPath.get(b) ?? ""}`,
+  };
+}
+
+interface BatchParse {
+  /** Structurally valid edges, deduped by canonical pair (max confidence). Floor NOT yet applied. */
+  candidates: DerivedEdge[];
+  /** Array entries that violated the output contract. */
+  invalid: number;
+  /** Total array entries the model returned. */
+  items: number;
+}
+
+/**
+ * Parse one batch response into candidates + an explicit violation COUNT.
+ *
+ * The count is the whole point. Judging a batch by "did anything survive?" cannot tell a clean answer
+ * apart from a partly-garbage one: a response carrying one good edge alongside a refusal string and a
+ * hallucinated path yields a nonempty result and looks fine — while proving the model did not honor the
+ * contract. Under FULL-STATE reconcile semantics that is not a partial success to salvage; it is an
+ * untrustworthy batch, and salvaging it would let the one surviving edge authorize deleting every other
+ * edge in the layer. Returns null when the response is not a JSON array at all.
+ */
+function parseBatch(raw: string, shaByPath: Map<string, string>): BatchParse | null {
+  const json = extractJsonArray(raw);
+  if (!Array.isArray(json)) return null;
+  const byPair = new Map<string, DerivedEdge>();
+  let invalid = 0;
+  for (const item of json) {
+    const e = toEdge(item, shaByPath);
+    if (!e) {
+      invalid += 1;
+      continue;
+    }
+    const pk = key(e.source_path, e.target_path);
+    const existing = byPair.get(pk);
+    if (!existing || (existing.confidence ?? 0) < (e.confidence ?? 0)) byPair.set(pk, e);
+  }
+  return { candidates: [...byPair.values()], invalid, items: json.length };
+}
+
 export function parseSemanticEdges(
   raw: string,
   shaByPath: Map<string, string>,
   opts: { confidenceFloor?: number } = {},
 ): DerivedEdge[] {
   const floor = opts.confidenceFloor ?? 0.55;
-  const json = extractJsonArray(raw);
-  if (!Array.isArray(json)) return [];
-  const byPair = new Map<string, DerivedEdge>();
-  for (const item of json) {
-    if (!item || typeof item !== "object") continue;
-    const rec = item as Record<string, unknown>;
-    const source = typeof rec.source === "string" ? rec.source : null;
-    const target = typeof rec.target === "string" ? rec.target : null;
-    if (!source || !target || source === target) continue;
-    if (!shaByPath.has(source) || !shaByPath.has(target)) continue;
-    const snapped = snapConfidence(rec.confidence);
-    if (snapped === null || snapped < floor) continue;
-    const [a, b] = source < target ? [source, target] : [target, source];
-    const pk = key(a, b);
-    const existing = byPair.get(pk);
-    if (!existing || (existing.confidence ?? 0) < snapped) {
-      byPair.set(pk, {
-        source_path: a,
-        target_path: b,
-        edge_type: "semantically_similar_to",
-        edge_kind: "derived",
-        provenance: "llm_pass3",
-        confidence: snapped,
-        source_fingerprint: `${shaByPath.get(a) ?? ""}+${shaByPath.get(b) ?? ""}`,
-      });
-    }
-  }
-  return [...byPair.values()];
+  const parsed = parseBatch(raw, shaByPath);
+  if (!parsed) return [];
+  return parsed.candidates.filter((e) => (e.confidence ?? 0) >= floor);
 }
 
 export function buildExtractionMessages(
@@ -152,9 +192,18 @@ export interface SemanticExtractionResult {
   totalBatches: number;
   /** Batches whose gateway call THREW (transport / connection failure). */
   failedBatches: number;
-  /** Batches that ANSWERED but whose response could not be read as a JSON edge array — a model that is
-   *  misconfigured, refusing, or emitting prose. Counted separately from a transport failure but treated
-   *  the same by any caller doing a full-state reconcile.
+  /** Batches that ANSWERED but did not honor the output CONTRACT: the response was not a JSON edge array
+   *  at all (prose, a refusal), or ANY entry in it violated the contract — a bare string, an edge naming a
+   *  path outside the batch, a self-loop, an unsnappable confidence. Judged per ENTRY, not on the total
+   *  that survived: a batch mixing one good edge with a hallucinated path proves the model ignored the
+   *  contract, and under full-state reconcile that lone survivor would otherwise authorize deleting the
+   *  entire rest of the layer. Counted apart from a transport failure, treated the same by the reconcile.
+   *
+   *  Two things are deliberately NOT counted here, because both are trustworthy answers whose stored set
+   *  is legitimately empty: a literal `[]` ("I looked and found nothing"), and a fully valid edge array
+   *  whose every edge falls below the configured confidenceFloor ("I found only weak links, and you told
+   *  me to ignore those"). Treating a POLICY filter as damage would freeze the layer against its own
+   *  configuration — the opposite failure, and just as bad.
    *
    *  Both counters exist for one reason: an unusable batch yields the SAME empty `edges` as a genuine
    *  "the model found no relationships", and a full-state write of that empty set would prune the whole
@@ -170,8 +219,9 @@ export interface SemanticExtractionResult {
  * inferred between notes that land in the SAME batch — no cross-batch pair is ever compared. Callers
  * that need deterministic batches must feed `notes` in a stable order (runLlmDensify sorts by path).
  *
- * A batch is UNUSABLE in two ways, and both are counted: the gateway call throws (`failedBatches`), or it
- * answers with something the parser cannot read as a JSON edge array (`unparseableBatches` — a model that
+ * A batch is UNUSABLE in three ways, and all are counted: the gateway call throws (`failedBatches`); it
+ * answers with something the parser cannot read as a JSON edge array; or it answers with a NONEMPTY array
+ * from which no structurally valid edge survives (the latter two -> `unparseableBatches` — a model that
  * is misconfigured, refusing, or emitting prose). Neither is a trustworthy "no relationships" answer, and
  * both yield the same empty `edges` as one. Only an EMPTY-BUT-VALID array counts as the model genuinely
  * finding nothing.
@@ -186,7 +236,6 @@ export async function extractSemanticEdges(
   opts: { batchSize?: number; confidenceFloor?: number } = {},
 ): Promise<SemanticExtractionResult> {
   const batchSize = opts.batchSize ?? 12;
-  const shaByPath = new Map(notes.map((n) => [n.path, n.sha]));
   const byPair = new Map<string, DerivedEdge>();
   let totalBatches = 0;
   let failedBatches = 0;
@@ -194,6 +243,13 @@ export async function extractSemanticEdges(
   for (let i = 0; i < notes.length; i += batchSize) {
     const batch = notes.slice(i, i + batchSize);
     totalBatches += 1;
+    // BATCH-LOCAL, not run-global. The prompt shows the model only this batch's notes and tells it to use
+    // only those paths, so "is this a known path?" must be asked against the batch — not against every
+    // note in the vault. A run-global map accepts an edge from a path in THIS batch to one the model was
+    // never shown, which is not a relationship it could have read: it is a guess (or a leak from an
+    // earlier batch in a stateful backend), and it would be stored as if it were evidence. The edge would
+    // also be unreachable for the model to have justified, since it never saw the other endpoint's text.
+    const batchSha = new Map(batch.map((n) => [n.path, n.sha]));
     let text = "";
     try {
       const res = await client.extract({
@@ -205,16 +261,33 @@ export async function extractSemanticEdges(
       failedBatches += 1;
       continue;
     }
-    // The model answered — but did it answer with an EDGE ARRAY? A response the parser cannot read at all
-    // is not "no relationships found"; it is an unusable batch. Without this check, a model that refuses,
-    // emits prose, or is simply misconfigured produces the same empty edge set as a genuine empty answer,
-    // and the full-state reconcile downstream would prune the entire existing layer on that basis.
-    const parsed = extractJsonArray(text);
-    if (parsed === null || !Array.isArray(parsed)) {
-      unparseableBatches += 1;
+    // THREE questions, and conflating any two of them is a bug:
+    //
+    //   SHAPE    — is it a JSON array at all? (parseBatch returns null if not)
+    //   CONTRACT — did EVERY entry honor the output contract? (parsed.invalid)
+    //   POLICY   — of the valid edges, which clear the operator's confidenceFloor?
+    //
+    // CONTRACT is judged per ENTRY, not on the surviving total. "Did anything survive?" cannot separate a
+    // clean answer from a partly-garbage one: a response carrying one good edge next to a refusal string
+    // and a hallucinated path survives, looks fine, and proves the model ignored the contract. Under
+    // full-state reconcile that single survivor would authorize deleting the entire rest of the layer. So
+    // ANY violation poisons the whole batch.
+    //
+    // POLICY is not damage. A model that validly reports three weak-but-real links at 0.55, under a
+    // configured floor of 0.75, honored the contract perfectly and its desired set is legitimately empty.
+    // Refusing THAT would freeze the layer against its own configuration — the opposite failure.
+    const parsed = parseBatch(text, batchSha);
+    if (parsed === null) {
+      unparseableBatches += 1; // not an array: prose, a refusal, a misconfigured model
       continue;
     }
-    for (const e of parseSemanticEdges(text, shaByPath, opts)) {
+    if (parsed.invalid > 0) {
+      unparseableBatches += 1; // at least one entry broke the contract — trust none of it
+      continue;
+    }
+    const floor = opts.confidenceFloor ?? 0.55;
+    for (const e of parsed.candidates) {
+      if ((e.confidence ?? 0) < floor) continue; // policy, not damage
       const pk = key(e.source_path, e.target_path);
       const existing = byPair.get(pk);
       if (!existing || (existing.confidence ?? 0) < (e.confidence ?? 0)) byPair.set(pk, e);

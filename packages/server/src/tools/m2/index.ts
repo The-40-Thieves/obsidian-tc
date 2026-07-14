@@ -32,7 +32,13 @@ export interface M2Deps {
   chunkContext?: boolean;
   /** Graph densification: index_vault builds derived edges (tag + kNN) when set. Threaded from
    *  config.retrieval.densify, mirroring chunkContext. */
-  densify?: { tagEdges?: boolean; knnEdges?: boolean; knnK?: number; maxTagFanout?: number };
+  densify?: {
+    tagEdges?: boolean;
+    knnEdges?: boolean;
+    knnK?: number;
+    knnMinSim?: number;
+    maxTagFanout?: number;
+  };
   /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging
    *  (tests, or experiential.logRetrievals=false). */
   retrievalLog?: RetrievalLogger;
