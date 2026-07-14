@@ -52,9 +52,6 @@ export const CanvasDoc = z
   })
   .passthrough();
 
-export type CanvasNodeT = z.infer<typeof CanvasNode>;
-export type CanvasEdgeT = z.infer<typeof CanvasEdge>;
-
 export interface ParsedCanvas {
   /** The on-disk object — mutate this for writes so unknown keys are preserved. */
   raw: Record<string, unknown>;

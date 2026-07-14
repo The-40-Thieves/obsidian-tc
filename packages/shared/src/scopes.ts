@@ -1,5 +1,4 @@
 export const SCOPE_FAMILIES = ["read", "write", "delete", "execute", "admin", "bulk"] as const;
-export type ScopeFamily = (typeof SCOPE_FAMILIES)[number];
 export type Scope = string;
 
 // Scopes that always require a HITL elicit confirmation (G2.4 A.3 hardcoded floors).

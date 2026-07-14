@@ -47,10 +47,6 @@ export const BaseDoc = z
   })
   .passthrough();
 
-export type BaseSourceT = z.infer<typeof BaseSource>;
-export type BaseViewT = z.infer<typeof BaseView>;
-export type BaseDocT = z.infer<typeof BaseDoc>;
-
 export interface ParsedBase {
   /** The on-disk mapping — mutate this for writes so unknown keys are preserved. */
   raw: Record<string, unknown>;

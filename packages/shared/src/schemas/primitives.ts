@@ -34,12 +34,9 @@ export const Pagination = z.object({
   limit: z.number().int().positive().max(1000).optional(),
   cursor: z.string().optional(),
 });
-export type PaginationInput = z.infer<typeof Pagination>;
-
 /** Shared write options. `idempotency_key` is accepted as a forward-compat
  *  surface in M1 (replay lands with the Policy layer in a later milestone). */
 export const WriteOptions = z.object({
   idempotency_key: z.string().min(1).max(128).optional(),
   create_dirs: z.boolean().default(true),
 });
-export type WriteOptionsInput = z.infer<typeof WriteOptions>;

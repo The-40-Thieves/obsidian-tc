@@ -330,8 +330,6 @@ export const WritesConfigSchema = z
     requireCas: z.boolean().default(false),
   })
   .prefault({});
-export type WritesConfig = z.infer<typeof WritesConfigSchema>;
-
 // Observability config (G2.4 §Observability — finalized in M7/THE-183). Three opt-in
 // export streams plus retention, all fully defaulted so a config predating M7 validates
 // unchanged. OTEL is a no-op unless `otel.endpoint` is set; the Prometheus `/metrics`
@@ -372,8 +370,6 @@ export const ObservabilityConfigSchema = z.object({
     })
     .prefault({}),
 });
-export type ObservabilityConfig = z.infer<typeof ObservabilityConfigSchema>;
-
 // THE-374: point-in-time snapshot policy. When enabled, destructive note writes first capture
 // the prior state (content-addressed) so restore_note can roll back; retention caps versions/note.
 export const SnapshotsConfigSchema = z
@@ -382,8 +378,6 @@ export const SnapshotsConfigSchema = z
     retention: z.number().int().positive().max(1000).default(10),
   })
   .prefault({});
-export type SnapshotsConfig = z.infer<typeof SnapshotsConfigSchema>;
-
 // THE-292 — periodic cache.db maintenance sweep (expired idempotency/elicit rows + event_log
 // retention + PRAGMA optimize). Fully defaulted: a config predating it validates unchanged.
 export const MaintenanceConfigSchema = z
@@ -421,8 +415,6 @@ export const PlurConfigSchema = z.object({
   // ["node", "/abs/@plur-ai/cli/dist/index.js"]. Takes precedence over `endpoint`.
   command: z.array(z.string().min(1)).min(1).optional(),
 });
-export type PlurConfig = z.infer<typeof PlurConfigSchema>;
-
 // Static tool-visibility scoping (THE-219 — parity with turbovault's tool_visibility).
 // Shapes the *advertised* tool surface at the Registry.listVisible()/dispatch chokepoints
 // without rebuilding capability. Two strengths, with precedence disabled > hidden > listed:
@@ -451,8 +443,6 @@ export type ToolVisibilityConfig = z.infer<typeof ToolVisibilityConfigSchema>;
 export const ToolFacadeConfigSchema = z.object({
   mode: z.enum(["triad", "domain", "flat"]).default("triad"),
 });
-export type ToolFacadeConfig = z.infer<typeof ToolFacadeConfigSchema>;
-
 // Session-bootstrap routing (THE-101). Server-level, not per-vault: the routing table is a
 // judgment value supplied by config, never baked into the public tree. session_bootstrap triages
 // the opening message to lightweight | standard | deep and reads the resolved context notes. A
@@ -465,8 +455,6 @@ export const BootstrapDomainSchema = z.object({
   signals: z.array(z.string().min(1)).min(1),
   paths: z.array(z.string().min(1)).min(1),
 });
-export type BootstrapDomain = z.infer<typeof BootstrapDomainSchema>;
-
 export const DEFAULT_DEEP_PHRASES = [
   "where did we leave off",
   "what's open",

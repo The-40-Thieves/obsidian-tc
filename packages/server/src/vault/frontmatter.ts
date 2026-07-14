@@ -47,11 +47,6 @@ export function parseNote(raw: string): ParsedNote {
   };
 }
 
-/** Read just the frontmatter, or null when absent/empty. */
-export function readFrontmatter(raw: string): Frontmatter | null {
-  return parseNote(raw).frontmatter;
-}
-
 /** Serialize a single key/value entry (used for added/changed keys). */
 function emitEntry(key: string, value: unknown): string {
   return YAML.stringify({ [key]: value }, { lineWidth: 0 }).replace(/\n+$/, "");

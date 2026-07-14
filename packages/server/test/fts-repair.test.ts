@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
+import { provisionCacheDb } from "../src/db/provision";
 import { ensureNotesFts, upsertNoteRow } from "../src/search/fts";
 import { openMemoryDb } from "./helpers";
 
@@ -19,8 +20,7 @@ const FTS_DDL =
 /** A fresh connection each time — ensureNotesFts memoizes per Database, so reuse would hide the repair. */
 function dbWithNotes(): any {
   const db = openMemoryDb();
-  db.exec(readFileSync(`${SRC}/schema.sql`, "utf8"));
-  db.exec(readFileSync(`${SRC}/migrations/20260702_001_notes.sql`, "utf8"));
+  provisionCacheDb(db); // the same chain production runs — no bespoke fixture schema
   return db;
 }
 
