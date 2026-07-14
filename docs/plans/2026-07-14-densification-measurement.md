@@ -41,6 +41,18 @@ Five SQLite index copies, all derived from one snapshot of the live enriched ind
 `confidence` on a `similar_to` edge *is* its cosine similarity, so a similarity floor is a `DELETE`.
 This is why the ablation was cheap enough to run at all.
 
+Two caveats on `knn80`, both real:
+
+- **It approximates a `minSim=0.80` rebuild rather than reproducing one.** `confidence` is stored rounded
+  to three decimals (`Math.round(sim * 1000) / 1000`), so `DELETE ... WHERE confidence < 0.8` retains an
+  edge whose raw similarity was 0.7995. Measured: **51 of the 3,173 retained `similar_to` edges (1.6%)
+  sit exactly at 0.800** and are therefore ambiguous. The arm matches a true rebuild to within those 51
+  edges — small enough that it cannot flip a p=0.61 null, but it is an approximation, not an equivalence.
+- **At the time it was measured, `minSim` was not a selectable configuration.** It existed only as an
+  internal argument to `computeKnnEdges`; nothing threaded it from `config.retrieval.densify`. The arm
+  therefore tested a hypothetical. That is now fixed — `retrieval.densify.knnMinSim` (default 0) exposes
+  it, so the tested configuration is one an operator can actually select.
+
 ## 3. Retrieval parameters (identical in every arm)
 
 `hopLimit: 2` - `rrfK: 10` - `TOP_K: 30` - `derivedWeight: 0.5` (derived edges down-weighted in the
@@ -70,13 +82,32 @@ the arm-validity check.
 | knn80 | +0.001 | [-0.003, 0.004] | 0.61 | +0.000 | +0.001 | -0.007 |
 | trt (combined) | +0.002 | [-0.003, 0.008] | 0.51 | +0.000 | +0.004 | -0.007 |
 
-**The combined arm masked the tag signal.** Testing the two mechanisms together produced a null
-(p=0.51); separating them showed tag is the only arm whose CI excludes zero. The audit that demanded
-separable arms was right, and this is the finding it produced.
+Separating the mechanisms is what surfaced the tag result at all: tested together, the combined arm is a
+null (p=0.51); tag alone is the only arm whose CI excludes zero. The audit that demanded separable arms
+was right, and this is the finding it produced.
 
-kNN is **inert at every threshold**. The `minSim: 0` default looks unsafe but is empirically harmless:
-the kNN confidence distribution is min 0.571 / mean 0.809, so a 0.5 floor drops zero edges - and
-raising the floor to 0.80 still moves nothing (p=0.61).
+**But "kNN dilutes tag" is NOT established, and an earlier draft of this document claimed it was.** That
+claim rested on tag-vs-control being significant while combined-vs-control was not — which is the classic
+error of reading a *difference between* two comparisons off their separate p-values. The direct paired
+contrast settles it:
+
+| combined vs **tag** (paired, n=136) | delta | 95% CI | p |
+|---|---|---|---|
+| dNDCG@10 | -0.002 | [-0.006, 0.000] | **0.3164** |
+| drecall@10 | -0.005 | [-0.012, 0.000] | 0.5080 |
+| dMRR@10 | +0.000 | [0.000, 0.000] | 1.0000 |
+| dbridge | -0.007 | [-0.022, 0.000] | 1.0000 |
+
+Adding kNN on top of tag does not significantly change anything. The point estimate leans negative, and
+that is all that can be said. The matching -0.007 bridge figure across every kNN-bearing arm is likewise
+**descriptive** — with p=1.00 there is no evidence of a population-level kNN bridge penalty.
+
+**kNN showed no measurable benefit at the two similarity floors tested.** Not "inert at every threshold" —
+that was also an overreach. What was actually tested: floors of **0 and 0.80**, at **k=8**, at
+**derivedWeight=0.5**, on **one vault**, with **one backbone**. The promised `derivedWeight` sweep was not
+run. The kNN confidence distribution (min 0.571 / mean 0.809) does mean the `minSim: 0` default is
+empirically harmless here — a 0.5 floor would drop zero edges — but none of that licenses rejecting the
+mechanism in general.
 
 ## 6. Where the tag effect lives (per-class breakdown)
 
@@ -100,6 +131,22 @@ the 10 queries that moved improved.
 of 126 zeros and 10 non-zeros is, in effect, a **sign test on 10 observations** - and indeed
 P(>=9 of 10 positive under H0) = 0.011, which is the p=0.0102 we measured. The effective n is 10, not
 136. Neither multi-hop subgroup reaches significance on its own.
+
+## 6b. Guardrails: non-inferiority, stated properly
+
+An earlier draft said tag "costs nothing on the other metrics." Non-significance does not establish
+absence of harm, and that phrasing was wrong. The claim that *is* supported comes from the CI bounds
+against the project's standing non-inferiority margin, delta > -0.015:
+
+| tag guardrail | delta | 95% CI | CI lower bound vs -0.015 |
+|---|---|---|---|
+| recall@10 | +0.005 | [0.000, 0.012] | 0.000 > -0.015 -> **passes** |
+| MRR@10 | +0.004 | [0.000, 0.011] | 0.000 > -0.015 -> **passes** |
+| bridge recall | 0.000 | [0.000, 0.000] | 0.000 > -0.015 -> **passes** |
+
+Every guardrail's CI lower bound clears the margin, so **non-inferiority is established at delta=-0.015**.
+That is a stronger and more defensible statement than "no significant regression," and it is the one the
+ship rule actually asks for.
 
 ## 7. Multiplicity
 
@@ -137,8 +184,10 @@ is what costs, because a 76% larger edge set means a materially larger 2-hop fro
 2. Even taking the point estimate at face value, **+0.0045 nDCG for ~2x graph-walk latency is a bad
    trade.** The cost is certain and the benefit is not.
 
-**kNN edges stay default-off** - inert at every similarity threshold tested, and they cost the same
-walk latency for nothing. This one is a clean negative.
+**kNN edges stay default-off** - no measurable benefit at either floor tested, and they cost the same walk
+latency for nothing. But this is a *scoped* negative, not a dead mechanism: two floors, one k, one
+`derivedWeight`, one vault, one backbone. Re-opening it means a real sweep (k, floor, weight), and that
+would need its own pre-registration.
 
 Nothing is deleted. Both mechanisms remain behind their flags, correct and tested, so a future re-test
 is one config change away. The tag hypothesis is worth confirming properly, and the protocol for doing
@@ -155,3 +204,12 @@ Recorded because the errors are the useful part:
 - "Hub-degree suppression may be self-sabotaging the derived arms" - **refuted by the data.** Results
   were byte-identical with and without the fix, because `nodeDegrees` only runs when `smoothExpansion`
   or `graphStream` is on, and both default off. #256 fixed a real latent bug; it changed no number here.
+- "The combined arm **masked** the tag signal" / "kNN dilutes tag" - **not established.** Inferred from
+  one comparison being significant and the other not, which does not license a claim about the
+  difference between them. The direct paired combined-vs-tag contrast is p=0.32 (section 5).
+- "kNN is inert at **every** threshold" - **overreach.** Two floors were tested, at one k, one weight,
+  one vault, one backbone. The `derivedWeight` sweep was never run.
+- "Tag costs nothing on the other metrics" - **replaced.** Non-significance is not equivalence; the
+  supported claim is the non-inferiority result in section 6b, which rests on CI bounds, not p-values.
+- The `knn80` arm was described as equivalent to a `minSim=0.80` rebuild. It is an **approximation** to
+  within 51 boundary edges, because stored confidence is rounded to three decimals (section 2).

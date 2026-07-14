@@ -4,6 +4,11 @@
 amended once the confirmatory data has been observed; if the protocol turns out to be wrong, it is
 abandoned and re-written from scratch as a new pre-registration, and that fact is recorded.
 
+> **Amended 2026-07-14, before any confirmatory run.** An external audit found the original data clause
+> would have accepted a post-hoc split of the same 136 queries as "independent" confirmation. It would
+> not have been: all 136 generated the hypothesis. The clause is tightened below. This amendment is
+> legitimate precisely because no confirmatory data has been observed - the freeze binds from here.
+
 ## Why this document exists
 
 The exploratory run ([measurement record](2026-07-14-densification-measurement.md)) found tag edges
@@ -65,9 +70,18 @@ The confirmatory set **must not be** the 136-query golden set that generated the
 - **(a)** A second vault with its own independently mined golden set. *Preferred* - it also tests
   whether the effect survives a different tag taxonomy, which is the real generalization question,
   since the mechanism depends entirely on how the author tags.
-- **(b)** A fresh query split mined from the same vault, with queries disjoint from all 136. *Weaker* -
-  same corpus, same tag habits; it confirms the effect is not query-sampling noise but not that it
-  generalizes beyond this vault's tagging style.
+- **(b)** **Newly mined** queries from the same vault that have **never been evaluated** against any arm.
+  *Weaker* - same corpus, same tag habits; it would confirm the effect is not query-sampling noise, but
+  not that it generalizes beyond this vault's tagging style.
+
+**A post-hoc partition of the existing 136 does not qualify and is explicitly forbidden.** All 136
+queries were evaluated on every arm, and every one of them contributed to discovering the tag hypothesis.
+Splitting them after the fact yields a "held-out" set that was never held out. Confirmation requires
+genuinely untouched data.
+
+**Out of scope for this pre-registration:** kNN. Its scoped negative (two floors, one k, one weight) does
+not settle the mechanism, but re-opening it means a k / floor / `derivedWeight` sweep, and a sweep is a
+new multiplicity problem that needs its own protocol. It may not be smuggled into this test.
 
 No exclusions. Every query in the confirmatory set is analyzed. The analysis is run **once**, after the
 data exists.
