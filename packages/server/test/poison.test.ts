@@ -55,7 +55,7 @@ const EXFIL_ATTACKS = [
 
 const BENIGN = [
   JSON.stringify({ vault: "main", query: "retrieval lane closeout notes", k: 10 }),
-  JSON.stringify({ path: "02-projects/converged-memory-engine-build-plan.md" }),
+  JSON.stringify({ path: "02-projects/example-build-plan.md" }),
   JSON.stringify({ path: "notes/daily.md", content: "Met with the team; he always arrives late." }),
   JSON.stringify({ dql: "TABLE file.name FROM \"09-reference\" WHERE contains(tags, 'decision')" }),
   JSON.stringify({ content: "The password field is required on the login form." }),

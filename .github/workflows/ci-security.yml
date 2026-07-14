@@ -21,6 +21,21 @@ concurrency:
 # not wall off an unrelated feature PR. gitleaks runs via the official image to avoid the org-license
 # requirement of gitleaks-action.
 jobs:
+  vault-leak:
+    # This public repo served a map of a personal vault for two weeks: 227 real note paths, 136 plain-
+    # English descriptions of their contents, and a committed SQLite index holding the FULL TEXT of 100
+    # notes. Six code reviews missed it -- every one audited the DIFF, none audited the REPO.
+    #
+    # STRUCTURAL only: CI has no vault, so it cannot tell a real note title from an invented one. The
+    # deep check (--vault <path>) runs where the vault lives, which is where such a leak originates.
+    name: vault leak (structural)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-vault-leak.mjs
   gitleaks:
     runs-on: ubuntu-latest
     steps:

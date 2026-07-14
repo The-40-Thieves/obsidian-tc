@@ -133,7 +133,7 @@ surface until a companion-backed active-file bridge ships; everything else cuts 
          "restApiKey": "<LRA bearer key>",
          "acl": { "writePaths": ["Projects/**", "Inbox/**"] }
        },
-       { "id": "archive", "path": "E:/Obsidian/Archive", "acl": { "readOnly": true } }
+       { "id": "archive", "path": "C:/path/to/another/vault", "acl": { "readOnly": true } }
      ],
      "acl": { "strictReadDefault": false }
    }

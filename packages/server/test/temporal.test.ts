@@ -69,11 +69,11 @@ describe("THE-221 parseTemporalIntent", () => {
 
 describe("THE-221 noteDateMs", () => {
   it("extracts the leading filename date; null otherwise", () => {
-    expect(noteDateMs("01-daily/2026-05-05.md")).toBe(Date.UTC(2026, 4, 5));
-    expect(noteDateMs("09-reference/decisions/2026-06-12-acestep-modal-deployment.md")).toBe(
+    expect(noteDateMs("01-daily/2030-01-01.md")).toBe(Date.UTC(2030, 0, 1));
+    expect(noteDateMs("09-reference/decisions/2026-06-12-example-decision.md")).toBe(
       Date.UTC(2026, 5, 12),
     );
-    expect(noteDateMs("02-projects/AI OS Futures.md")).toBeNull();
+    expect(noteDateMs("02-projects/Undated Example.md")).toBeNull();
   });
 });
 
@@ -89,7 +89,7 @@ describe("THE-221 temporal stream in graphSearch", () => {
        );`,
     );
     addChunk(db, "cS", "S.md", vd(0.95)); // dense seed, undated
-    addChunk(db, "cD", "01-daily/2026-05-05.md", vd(0.05)); // dated, invisible to vector seeds
+    addChunk(db, "cD", "01-daily/2030-01-01.md", vd(0.05)); // dated, invisible to vector seeds
     addChunk(db, "cE", "09-reference/2026-06-20-other.md", vd(0.05)); // dated, out of range
     return db;
   }
@@ -107,8 +107,8 @@ describe("THE-221 temporal stream in graphSearch", () => {
 
   it("surfaces an in-range dated note as source temporal; out-of-range stays absent", async () => {
     const db = corpus();
-    const res = await run(db, true, "what happened on 2026-05-05");
-    const hit = res.find((r) => r.path === "01-daily/2026-05-05.md");
+    const res = await run(db, true, "what happened on 2030-01-01");
+    const hit = res.find((r) => r.path === "01-daily/2030-01-01.md");
     expect(hit?.source).toBe("temporal");
     expect(res.some((r) => r.path === "09-reference/2026-06-20-other.md")).toBe(false);
   });
