@@ -29,8 +29,9 @@ describe("config schema", () => {
 
   it("applies observability defaults (export streams off/local by default, M7)", () => {
     const c = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }] });
-    expect(c.observability.traceDetail).toBe("standard");
-    expect(c.observability.tracesSampleRate).toBe(1);
+    // traceDetail / tracesSampleRate used to be asserted here. They were removed from the schema: no
+    // sampling was ever applied and no detail switch existed, so they promised behavior the code does
+    // not implement. A test asserting a default for a key nothing reads only locks the lie in place.
     // OTEL is a no-op until an endpoint is set.
     expect(c.observability.otel.endpoint).toBeUndefined();
     expect(c.observability.otel.headers).toEqual({});
@@ -40,17 +41,20 @@ describe("config schema", () => {
     expect(c.observability.morgiana.spool).toBe(true);
     expect(c.observability.morgiana.httpEndpoint).toBeUndefined();
     expect(c.observability.morgiana.httpHeaders).toEqual({});
-    expect(c.observability.retention).toEqual({
-      morgianaEventsDays: 90,
-      tracesDays: 90,
-      eventLogDays: 30,
-    });
+    // Retention prunes event_log and nothing else. morgianaEventsDays / tracesDays were declared and
+    // read by nothing — morgiana spools and trace files grew without bound whatever they were set to —
+    // so they are gone. This assertion is now exhaustive on purpose: it fails if a key is re-added
+    // without the code that honors it.
+    expect(c.observability.retention).toEqual({ eventLogDays: 30 });
   });
 
   it("accepts the full G2.4 observability shape and fills inner gaps", () => {
     const c = ServerConfigSchema.parse({
       vaults: [{ id: "m", path: "/v" }],
       observability: {
+        // Deliberately still passing the two REMOVED keys. This is the back-compat claim under test:
+        // the schema is not .strict(), so an existing operator config that still carries them must
+        // keep validating, with the keys simply ignored. Asserting it beats claiming it.
         traceDetail: "verbose",
         tracesSampleRate: 0.5,
         otel: { endpoint: "http://localhost:4318", headers: { Authorization: "Bearer x" } },
@@ -59,15 +63,14 @@ describe("config schema", () => {
         retention: { eventLogDays: 7 },
       },
     });
-    expect(c.observability.traceDetail).toBe("verbose");
-    expect(c.observability.tracesSampleRate).toBe(0.5);
+    // The removed keys parsed without error and were dropped — an old config still boots.
+    expect((c.observability as Record<string, unknown>).traceDetail).toBeUndefined();
+    expect((c.observability as Record<string, unknown>).tracesSampleRate).toBeUndefined();
     expect(c.observability.otel.endpoint).toBe("http://localhost:4318");
     expect(c.observability.otel.headers).toEqual({ Authorization: "Bearer x" });
     expect(c.observability.prometheus).toEqual({ enabled: true, port: 9999, bind: "0.0.0.0" });
     expect(c.observability.morgiana.spool).toBe(false);
     expect(c.observability.morgiana.httpEndpoint).toBe("https://morgiana.internal/events");
-    // Unspecified inner retention fields still fill their defaults.
-    expect(c.observability.retention.tracesDays).toBe(90);
     expect(c.observability.retention.eventLogDays).toBe(7);
   });
 

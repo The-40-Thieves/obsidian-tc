@@ -340,8 +340,9 @@ export type WritesConfig = z.infer<typeof WritesConfigSchema>;
 // the rest of the config. (M6 shipped a placeholder `otel: boolean` / `morgiana: {mode}`
 // shape; M7 finalizes it to the G2.4 shape before the v1.0 additive-only freeze.)
 export const ObservabilityConfigSchema = z.object({
-  traceDetail: z.enum(["standard", "verbose"]).default("standard"),
-  tracesSampleRate: z.number().min(0).max(1).default(1),
+  // traceDetail / tracesSampleRate were declared here and read by NOTHING: no sampling was ever applied
+  // and no detail switch existed. Removed rather than left as a lie in a schema operators trust. Re-add
+  // them together with the code that honors them.
   otel: z
     .object({
       endpoint: z.string().url().optional(),
@@ -364,8 +365,9 @@ export const ObservabilityConfigSchema = z.object({
     .prefault({}),
   retention: z
     .object({
-      morgianaEventsDays: z.number().int().positive().default(90),
-      tracesDays: z.number().int().positive().default(90),
+      // morgianaEventsDays / tracesDays were declared and read by nothing: the maintenance sweep prunes
+      // event_log and nothing else, so morgiana spools and trace files grow without bound whatever these
+      // were set to. Removed rather than left implying a retention policy that does not exist.
       eventLogDays: z.number().int().positive().default(30),
     })
     .prefault({}),

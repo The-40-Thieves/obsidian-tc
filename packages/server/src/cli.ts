@@ -293,6 +293,18 @@ async function main(): Promise<void> {
       cacheDb.close?.();
       process.exit(2);
     }
+    // retrieval.densify.llmEdges is the off-switch for the LLM edge layer — the one code path that
+    // sends note CONTENT to a model. It defaulted to false and gated NOTHING: this command read
+    // confidenceFloor and ran regardless of the flag. An off-by-default switch that cannot turn
+    // anything off is worse than no switch, because the operator believes it protects them.
+    if (cfg.retrieval?.densify?.llmEdges !== true) {
+      process.stderr.write(
+        "densify-llm is disabled: set retrieval.densify.llmEdges = true in your config to enable it.\n" +
+          "It sends note content to the configured model (local gateway by default), so it is opt-in.\n",
+      );
+      cacheDb.close?.();
+      process.exit(2);
+    }
     const floor = cfg.retrieval?.densify?.confidenceFloor;
     try {
       const vaultIds = cmd.vault ? [cmd.vault] : cfg.vaults.map((v) => v.id);
