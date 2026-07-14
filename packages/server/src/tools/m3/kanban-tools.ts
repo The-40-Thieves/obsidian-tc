@@ -5,19 +5,15 @@
 // plugin) and an agent moves/adds cards without breaking the plugin's parsing conventions.
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M3Deps } from "./index";
-
-function readable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
-}
 
 function isBoard(fm: Record<string, unknown> | null): boolean {
   return !!fm && fm["kanban-plugin"] === "board";
@@ -95,7 +91,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         const boards: Array<{ path: string; columns: number; cards: number }> = [];
         for (const e of walkVault(v.root, { sub, extensions: [".md"] })) {
-          if (!readable(ctx.acl, e.relPath)) continue;
+          if (!readableRel(ctx.acl, e.relPath)) continue;
           const parsed = parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw);
           if (!isBoard(parsed.frontmatter)) continue;
           const { columns } = parseBoard(parsed.body);

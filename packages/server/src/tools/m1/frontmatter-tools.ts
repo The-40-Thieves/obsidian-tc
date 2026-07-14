@@ -7,9 +7,10 @@
 // merge do not. Property keys are top-level by default; pass nested=true for dotted-path access (THE-198).
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import type { Frontmatter } from "../../vault/frontmatter";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { requireConfirmation } from "../../vault/hitl";
@@ -20,14 +21,6 @@ import { defineTool } from "./define";
 import type { M1Deps } from "./index";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-function readable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl) return true;
-  if (isDefaultDenied(rel)) return false;
-  const list = acl.readPaths;
-  if (list === undefined) return acl.strictReadDefault !== true;
-  return list.some((g) => globMatch(g, rel));
-}
 
 function typeOf(v: unknown): string {
   if (v === null) return "null";
@@ -330,14 +323,14 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             .all(v.id) as Array<{ path: string; frontmatter: string | null }>;
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readable(ctx.acl, r.path)) continue;
+            if (!readableRel(ctx.acl, r.path)) continue;
             if (scanned >= input.max_notes) break;
             scanned++;
             tally(r.frontmatter ? (JSON.parse(r.frontmatter) as Record<string, unknown>) : null);
           }
         } else {
           const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-            readable(ctx.acl, e.relPath),
+            readableRel(ctx.acl, e.relPath),
           );
           for (const e of entries) {
             if (scanned >= input.max_notes) break;
@@ -385,7 +378,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             .all(v.id) as Array<{ path: string; frontmatter: string | null }>;
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readable(ctx.acl, r.path)) continue;
+            if (!readableRel(ctx.acl, r.path)) continue;
             const fm = r.frontmatter
               ? (JSON.parse(r.frontmatter) as Record<string, unknown>)
               : null;
@@ -393,7 +386,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           }
         } else {
           const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-            readable(ctx.acl, e.relPath),
+            readableRel(ctx.acl, e.relPath),
           );
           for (const e of entries) {
             const fm = parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw).frontmatter;

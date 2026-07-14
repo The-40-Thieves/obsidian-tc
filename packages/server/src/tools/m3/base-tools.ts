@@ -20,7 +20,7 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import { BaseDoc, baseViews, parseBase, selectView, serializeBase } from "../../formats/base";
 import {
   type BasesNoteCtx,
@@ -32,6 +32,7 @@ import {
 import type { ToolDefinition } from "../../mcp/registry";
 import { applyLogic, evaluatesTruthy } from "../../search/jsonlogic";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links";
@@ -43,11 +44,6 @@ import type { M3Deps } from "./index";
 function requireBaseExt(rel: string): void {
   if (!rel.toLowerCase().endsWith(".base"))
     throw err.invalidInput("path must be a .base file", { path: rel });
-}
-
-function readableAcl(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
 }
 
 function baseName(p: string): string {
@@ -370,7 +366,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
 
         let candidates = walkVault(v.root, { extensions: [".md"] })
           .map((e) => e.relPath)
-          .filter((p) => readableAcl(ctx.acl, p));
+          .filter((p) => readableRel(ctx.acl, p));
         if (sType === "folder") {
           const f = normalizeVaultPath(String(sValue ?? ""));
           candidates = f === "" ? candidates : candidates.filter((p) => p.startsWith(`${f}/`));

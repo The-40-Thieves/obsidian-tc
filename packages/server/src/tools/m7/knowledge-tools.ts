@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { RetrievalLogger } from "../../experiential/log";
@@ -32,6 +32,7 @@ import type { Reranker } from "../../search/rerank";
 import { lexicalRouteResults, routeQuery } from "../../search/router";
 import { semanticSearch } from "../../search/semantic";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { resolveVaultPath } from "../../vault/paths";
 import type { VaultRegistry } from "../../vault/registry";
 import { defineTool } from "../m1/define";
@@ -100,13 +101,6 @@ export function packBudget<T>(
     if (tokens >= budget) break;
   }
   return { packed, tokens };
-}
-
-function aclReadable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl) return true;
-  if (isDefaultDenied(rel)) return false;
-  if (!acl.readPaths) return acl.strictReadDefault !== true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
 }
 
 const CHALLENGE_RECALL = 30;
@@ -211,7 +205,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         if (query === undefined) {
           const rel = `${deps.memoryFolder?.(v.id) ?? "memory"}/${NEXT_SESSION_NOTE}`;
           const abs = resolveVaultPath(v.root, rel);
-          if (!aclReadable(ctx.acl, rel) || !existsSync(abs)) {
+          if (!readableRel(ctx.acl, rel) || !existsSync(abs)) {
             throw err.invalidInput("query omitted and no readable next-session signal note", {
               signal: rel,
             });
@@ -252,7 +246,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         let results: GraphSearchResult[];
         if (route.class === "lexical") {
           results = lexicalRouteResults(ctx.db, v.id, query, input.k, (rel) =>
-            aclReadable(ctx.acl, rel),
+            readableRel(ctx.acl, rel),
           );
         } else {
           const queryVec = await embedQuery(query);
@@ -269,7 +263,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             ...(querySparse ? { querySparse } : {}),
             ...(queryColbert ? { queryColbert } : {}),
             reranker: deps.reranker,
-            isReadable: (rel) => aclReadable(ctx.acl, rel),
+            isReadable: (rel) => readableRel(ctx.acl, rel),
             ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
           });
         }
@@ -399,7 +393,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             for (const h of bm25Chunks(ctx.db, v.id, query, 40)) {
               if (lessons.length >= 5) break;
               if (seen.has(h.chunk_id) || !LESSON_PATH_RE.test(h.path)) continue;
-              if (!aclReadable(ctx.acl, h.path)) continue;
+              if (!readableRel(ctx.acl, h.path)) continue;
               seen.add(h.chunk_id);
               lessons.push({
                 chunk_id: h.chunk_id,
@@ -520,7 +514,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         let results: GraphSearchResult[];
         if (route.class === "lexical") {
           results = lexicalRouteResults(ctx.db, v.id, input.query, input.k, (rel) =>
-            aclReadable(ctx.acl, rel),
+            readableRel(ctx.acl, rel),
           );
         } else {
           const queryVec = await embedQuery(input.query);
@@ -537,7 +531,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             ...(querySparse ? { querySparse } : {}),
             ...(queryColbert ? { queryColbert } : {}),
             reranker: deps.reranker,
-            isReadable: (rel) => aclReadable(ctx.acl, rel),
+            isReadable: (rel) => readableRel(ctx.acl, rel),
             ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
           });
         }
@@ -680,7 +674,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           : { class: "standard" as const, signals: [] as string[] };
         if (route.class === "lexical") {
           const results = lexicalRouteResults(ctx.db, v.id, input.query, input.final_top_k, (rel) =>
-            aclReadable(ctx.acl, rel),
+            readableRel(ctx.acl, rel),
           );
           deps.retrievalLog?.({
             queryText: input.query,
@@ -708,7 +702,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           ...(querySparse ? { querySparse } : {}),
           ...(queryColbert ? { queryColbert } : {}),
           reranker: deps.reranker,
-          isReadable: (rel) => aclReadable(ctx.acl, rel),
+          isReadable: (rel) => readableRel(ctx.acl, rel),
           ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
         });
         // THE-230: serve-path retrieval telemetry (best-effort; the logger never throws).
@@ -751,7 +745,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         const hits = semanticSearch(ctx.db, v.id, queryVec, {
           k: CHALLENGE_RECALL,
           returnContent: true,
-          isReadable: (rel) => aclReadable(ctx.acl, rel),
+          isReadable: (rel) => readableRel(ctx.acl, rel),
         });
         // THE-230: challenge recall is a real retrieval surface — log it like the search tools.
         deps.retrievalLog?.({

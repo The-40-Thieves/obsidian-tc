@@ -16,7 +16,7 @@ import {
   VaultPath,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import {
   formatMoment,
   type Period,
@@ -27,6 +27,7 @@ import {
 } from "../../formats/periodic";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
 import { noteExists, readNote, statNote, writeNoteAtomic } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
@@ -43,11 +44,6 @@ const LIST_WINDOW: Record<Period, number> = {
   yearly: 10,
 };
 const LIST_MAX_STEPS = 5000;
-
-function readableAcl(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
-}
 
 function stepDate(date: Date, period: Period, n = 1): Date {
   const d = new Date(date.getTime());
@@ -393,7 +389,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           }
           const name = formatMoment(d, config.format);
           const rel = `${folder ? `${folder}/` : ""}${name}.md`;
-          if (!readableAcl(ctx.acl, rel)) continue;
+          if (!readableRel(ctx.acl, rel)) continue;
           const st = statNote(resolveVaultPath(v.root, rel));
           if (st)
             found.push({ period: input.period, date: toISODate(d), path: rel, mtime: st.mtime });

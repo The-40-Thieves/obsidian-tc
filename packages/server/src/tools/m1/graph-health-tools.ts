@@ -5,9 +5,10 @@
 // the readable note set (wikilinks/markdown links resolved via the shared vault index).
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
+import { type FolderAcl, globMatch } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
 import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
@@ -15,16 +16,10 @@ import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/pat
 import { defineTool } from "./define";
 import type { M1Deps } from "./index";
 
-function readable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl) return true;
-  if (isDefaultDenied(rel)) return false;
-  if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
-}
 function readableNotes(root: string, acl: FolderAcl | undefined): string[] {
   return walkVault(root, { extensions: [".md"] })
     .map((e) => e.relPath)
-    .filter((rel) => readable(acl, rel));
+    .filter((rel) => readableRel(acl, rel));
 }
 function bodyOf(root: string, rel: string): string {
   return parseNote(readNote(resolveVaultPath(root, rel)).raw).body;

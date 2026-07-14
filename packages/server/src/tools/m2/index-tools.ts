@@ -3,18 +3,14 @@
 // notes through the read ACL (per-source), writes only the index DB.
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { indexVault } from "../../search/indexer";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M2Deps } from "./index";
-
-function isReadable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
-}
 
 export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
   return [
@@ -41,7 +37,7 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
           vaultId: v.id,
           root: v.root,
           sub,
-          isReadable: (rel) => isReadable(ctx.acl, rel),
+          isReadable: (rel) => readableRel(ctx.acl, rel),
           now: ctx.now,
         });
         return { vault: v.id, ...stats };

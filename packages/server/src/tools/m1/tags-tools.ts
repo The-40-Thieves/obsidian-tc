@@ -6,9 +6,10 @@
 // frontmatter `tags` list or the body, per the `location` argument.
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { type Frontmatter, parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -23,14 +24,6 @@ import { defineTool } from "./define";
 import type { M1Deps } from "./index";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-function readable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl) return true;
-  if (isDefaultDenied(rel)) return false;
-  const list = acl.readPaths;
-  if (list === undefined) return acl.strictReadDefault !== true;
-  return list.some((g) => globMatch(g, rel));
-}
 
 /** Normalize a frontmatter `tags` field value (list or string) to a tag list. */
 function fieldTags(val: unknown): string[] {
@@ -122,14 +115,14 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             .all(v.id) as Array<{ path: string; tags: string }>;
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readable(ctx.acl, r.path)) continue;
+            if (!readableRel(ctx.acl, r.path)) continue;
             if (scanned >= input.max_notes) break;
             scanned++;
             for (const t of JSON.parse(r.tags) as string[]) counts.set(t, (counts.get(t) ?? 0) + 1);
           }
         } else {
           const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-            readable(ctx.acl, e.relPath),
+            readableRel(ctx.acl, e.relPath),
           );
           for (const e of entries) {
             if (scanned >= input.max_notes) break;
@@ -313,7 +306,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             .all(v.id) as Array<{ path: string; tags: string }>;
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readable(ctx.acl, r.path)) continue;
+            if (!readableRel(ctx.acl, r.path)) continue;
             const hit = (JSON.parse(r.tags) as string[]).filter((t) => tagMatches(input.tag, t));
             if (hit.length === 0) continue;
             if (matches.length >= input.limit) {
@@ -324,7 +317,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           }
         } else {
           const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-            readable(ctx.acl, e.relPath),
+            readableRel(ctx.acl, e.relPath),
           );
           for (const e of entries) {
             const all = noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw).all;

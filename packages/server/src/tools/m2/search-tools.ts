@@ -13,14 +13,14 @@ import {
   VaultPath,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { Database } from "../../db/types";
 import type { ToolDefinition } from "../../mcp/registry";
 import { evaluatesTruthy } from "../../search/jsonlogic";
 import { type SemanticHit, semanticSearch } from "../../search/semantic";
 import { searchRegex, searchText, searchTextIndexed } from "../../search/text";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -40,13 +40,6 @@ interface Page<T> {
   items: T[];
   total: number;
   next_cursor?: string;
-}
-
-function aclReadable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl) return true;
-  if (isDefaultDenied(rel)) return false;
-  if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
 }
 
 function underRoot(rel: string, sub: string | undefined): boolean {
@@ -150,7 +143,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       id: v.id,
       rootPath: v.root,
       sub,
-      readable: (rel) => aclReadable(ctx.acl, rel) && underRoot(rel, sub),
+      readable: (rel) => readableRel(ctx.acl, rel) && underRoot(rel, sub),
     };
   };
 

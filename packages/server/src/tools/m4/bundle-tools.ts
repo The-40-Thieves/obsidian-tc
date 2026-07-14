@@ -5,9 +5,10 @@
 // explicit `truncated` flag (no silent drops).
 import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -15,11 +16,6 @@ import { defineTool } from "../m1/define";
 import type { M4Deps } from "./shared";
 
 type Format = "markdown" | "xml";
-
-function readable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
-}
 
 function escapeXmlAttr(s: string): string {
   return s
@@ -92,7 +88,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
         enforcePathAcl(ctx.acl, "read", sub, v.root);
         const all = walkVault(v.root, { sub, extensions: input.extensions })
           .map((e) => e.relPath)
-          .filter((rel) => readable(ctx.acl, rel));
+          .filter((rel) => readableRel(ctx.acl, rel));
         const capped = all.slice(0, input.max_files);
         const entries = capped.map((rel) => ({
           rel,

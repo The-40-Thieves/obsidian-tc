@@ -14,7 +14,7 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import {
   CanvasDoc,
   CanvasEdge,
@@ -28,6 +28,7 @@ import {
 import { detectJsonIndent } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -37,11 +38,6 @@ import type { M3Deps } from "./index";
 function requireCanvasExt(rel: string): void {
   if (!rel.toLowerCase().endsWith(".canvas"))
     throw err.invalidInput("path must be a .canvas file", { path: rel });
-}
-
-function readableAcl(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
 }
 
 const NodeArray = z.array(CanvasNode);
@@ -275,10 +271,10 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
         const canvasPaths = input.paths?.length
           ? input.paths
               .map(normalizeVaultPath)
-              .filter((p) => p.toLowerCase().endsWith(".canvas") && readableAcl(ctx.acl, p))
+              .filter((p) => p.toLowerCase().endsWith(".canvas") && readableRel(ctx.acl, p))
           : walkVault(v.root, { sub, extensions: [".canvas"] })
               .map((e) => e.relPath)
-              .filter((p) => readableAcl(ctx.acl, p));
+              .filter((p) => readableRel(ctx.acl, p));
 
         const f = input.filter;
         const items: Array<{

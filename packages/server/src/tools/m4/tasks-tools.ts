@@ -5,10 +5,14 @@
 // path; ordinary edits are not gated.
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { filterBridgeItemsByAcl, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import {
+  filterBridgeItemsByAcl,
+  readableRel,
+  readEnumerationUnrestricted,
+} from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import { readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -38,11 +42,6 @@ function paginate<T>(items: T[], limit?: number, cursor?: string): Page<T> {
   const nextStart = start + slice.length;
   const next = nextStart < items.length ? String(nextStart) : undefined;
   return { items: slice, total: items.length, ...(next ? { next_cursor: next } : {}) };
-}
-
-function readable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl || acl.readPaths === undefined) return true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
 }
 
 function matchDue(
@@ -109,7 +108,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
 
         const items: Record<string, unknown>[] = [];
         for (const rel of rels) {
-          if (!readable(ctx.acl, rel)) continue;
+          if (!readableRel(ctx.acl, rel)) continue;
           if (sub && !(rel === sub || rel.startsWith(`${sub}/`))) continue;
           let raw: string;
           try {

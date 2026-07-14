@@ -19,9 +19,10 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../vault/links";
@@ -49,15 +50,6 @@ function dirOf(rel: string): string {
 function basenameNoExt(p: string): string {
   const b = p.includes("/") ? p.slice(p.lastIndexOf("/") + 1) : p;
   return b.replace(/\.md$/i, "");
-}
-
-/** Non-throwing read-ACL predicate, for listing (enforcePathAcl throws). */
-function readable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl) return true;
-  if (isDefaultDenied(rel)) return false;
-  const list = acl.readPaths;
-  if (list === undefined) return acl.strictReadDefault !== true;
-  return list.some((g) => globMatch(g, rel));
 }
 
 const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
@@ -375,7 +367,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           sub,
           recursive: input.recursive,
           extensions: input.extensions ?? [".md"],
-        }).filter((e) => readable(ctx.acl, e.relPath));
+        }).filter((e) => readableRel(ctx.acl, e.relPath));
         const after = input.cursor;
         const visible = after ? entries.filter((e) => e.relPath > after) : entries;
         const limit = input.limit ?? 200;

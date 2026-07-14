@@ -7,9 +7,10 @@
 // ACL and gates on requireConfirmation.
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch, isDefaultDenied } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links";
@@ -22,19 +23,11 @@ import type { M1Deps } from "./index";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function readable(acl: FolderAcl | undefined, rel: string): boolean {
-  if (!acl) return true;
-  if (isDefaultDenied(rel)) return false;
-  const list = acl.readPaths;
-  if (list === undefined) return acl.strictReadDefault !== true;
-  return list.some((g) => globMatch(g, rel));
-}
-
 /** Read-ACL-visible `.md` note paths (optionally under a folder). */
 function readableNotes(root: string, acl: FolderAcl | undefined, sub?: string): string[] {
   return walkVault(root, { sub, extensions: [".md"] })
     .map((e) => e.relPath)
-    .filter((rel) => readable(acl, rel));
+    .filter((rel) => readableRel(acl, rel));
 }
 
 function bodyOf(root: string, rel: string): string {
