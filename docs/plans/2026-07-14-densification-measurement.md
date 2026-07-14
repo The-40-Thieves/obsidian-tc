@@ -1,7 +1,7 @@
 # Graph densification: measurement record and verdict
 
-Status: **complete**. Date: 2026-07-14. Vault: `E:\Obsidian\Second Brain` (live snapshot, copied; the
-live index was never mutated). Golden set: n=136, 5 query classes.
+Status: **complete**. Date: 2026-07-14. Vault: the maintainer's personal vault (live snapshot, copied;
+the live index was never mutated). Golden set: n=136, 5 query classes — private, not committed.
 
 This is the full experimental record for the densification feature shipped (default-off) in #250-#256.
 It supersedes the informal numbers quoted while the work was in flight; an external audit correctly
