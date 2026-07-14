@@ -150,10 +150,17 @@ export function buildExtractionMessages(
 export interface SemanticExtractionResult {
   edges: DerivedEdge[];
   totalBatches: number;
-  /** Batches whose gateway call THREW. A caller doing a full-state reconcile MUST refuse to write when
-   *  this is > 0: an all-failed run yields the same empty `edges` as "the model found no relationships",
-   *  and writing that would prune the entire existing layer. */
+  /** Batches whose gateway call THREW (transport / connection failure). */
   failedBatches: number;
+  /** Batches that ANSWERED but whose response could not be read as a JSON edge array — a model that is
+   *  misconfigured, refusing, or emitting prose. Counted separately from a transport failure but treated
+   *  the same by any caller doing a full-state reconcile.
+   *
+   *  Both counters exist for one reason: an unusable batch yields the SAME empty `edges` as a genuine
+   *  "the model found no relationships", and a full-state write of that empty set would prune the whole
+   *  existing layer. A full-state reconcile is authoritative ONLY when failedBatches + unparseableBatches
+   *  is 0 — i.e. every batch produced a trustworthy answer. */
+  unparseableBatches: number;
 }
 
 /**
@@ -163,10 +170,15 @@ export interface SemanticExtractionResult {
  * inferred between notes that land in the SAME batch — no cross-batch pair is ever compared. Callers
  * that need deterministic batches must feed `notes` in a stable order (runLlmDensify sorts by path).
  *
- * A batch whose gateway call throws contributes nothing AND is counted in `failedBatches`; a batch that
- * merely returns unparseable output contributes nothing and is NOT counted as failed (the model answered,
- * it just said nothing usable). Reconcile with reconcileDerivedEdges(db, vaultId, edges,
- * ["semantically_similar_to"]) — but only when failedBatches is 0.
+ * A batch is UNUSABLE in two ways, and both are counted: the gateway call throws (`failedBatches`), or it
+ * answers with something the parser cannot read as a JSON edge array (`unparseableBatches` — a model that
+ * is misconfigured, refusing, or emitting prose). Neither is a trustworthy "no relationships" answer, and
+ * both yield the same empty `edges` as one. Only an EMPTY-BUT-VALID array counts as the model genuinely
+ * finding nothing.
+ *
+ * Reconcile with reconcileDerivedEdges(db, vaultId, edges, ["semantically_similar_to"]) ONLY when
+ * failedBatches + unparseableBatches is 0 — otherwise a full-state write would prune the existing layer
+ * on the strength of a run that never actually answered.
  */
 export async function extractSemanticEdges(
   client: GatewayClient,
@@ -178,6 +190,7 @@ export async function extractSemanticEdges(
   const byPair = new Map<string, DerivedEdge>();
   let totalBatches = 0;
   let failedBatches = 0;
+  let unparseableBatches = 0;
   for (let i = 0; i < notes.length; i += batchSize) {
     const batch = notes.slice(i, i + batchSize);
     totalBatches += 1;
@@ -192,11 +205,20 @@ export async function extractSemanticEdges(
       failedBatches += 1;
       continue;
     }
+    // The model answered — but did it answer with an EDGE ARRAY? A response the parser cannot read at all
+    // is not "no relationships found"; it is an unusable batch. Without this check, a model that refuses,
+    // emits prose, or is simply misconfigured produces the same empty edge set as a genuine empty answer,
+    // and the full-state reconcile downstream would prune the entire existing layer on that basis.
+    const parsed = extractJsonArray(text);
+    if (parsed === null || !Array.isArray(parsed)) {
+      unparseableBatches += 1;
+      continue;
+    }
     for (const e of parseSemanticEdges(text, shaByPath, opts)) {
       const pk = key(e.source_path, e.target_path);
       const existing = byPair.get(pk);
       if (!existing || (existing.confidence ?? 0) < (e.confidence ?? 0)) byPair.set(pk, e);
     }
   }
-  return { edges: [...byPair.values()], totalBatches, failedBatches };
+  return { edges: [...byPair.values()], totalBatches, failedBatches, unparseableBatches };
 }

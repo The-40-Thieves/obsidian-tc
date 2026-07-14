@@ -11,9 +11,11 @@ import { extractSemanticEdges, type SourceNote } from "./llm-edges";
 //
 // FULL-STATE, BUT ONLY ON A COMPLETE RUN. The reconcile is full-state (a re-run replaces the prior LLM
 // layer), which means an EMPTY result would prune every existing LLM edge. That is only correct when the
-// model genuinely found nothing — never when the gateway failed. So a run with ANY failed batch throws
-// BEFORE reconciling and leaves the prior layer intact: "every request failed" must never be mistaken for
-// "no relationships exist".
+// model GENUINELY found nothing — never when a batch failed to produce a trustworthy answer. Two ways it
+// can fail: the gateway throws, or the model answers with something unreadable (misconfigured, refusing,
+// emitting prose). BOTH produce the same empty edge set as a real "nothing found". So a run with ANY
+// unusable batch throws BEFORE reconciling and leaves the prior layer intact: neither "every request
+// failed" nor "every response was garbage" may be mistaken for "no relationships exist".
 //
 // Note ordering is explicit (ORDER BY path) so batch composition — and therefore which note pairs the
 // model can even compare — is deterministic across runs, not a function of incidental row order.
@@ -38,13 +40,23 @@ export async function runLlmDensify(
     };
   });
 
-  const { edges, totalBatches, failedBatches } = await extractSemanticEdges(client, notes, opts);
-  if (failedBatches > 0) {
-    // Refuse to treat a partial run as authoritative. Nothing is written; the prior LLM layer survives.
+  const { edges, totalBatches, failedBatches, unparseableBatches } = await extractSemanticEdges(
+    client,
+    notes,
+    opts,
+  );
+  // A full-state reconcile is authoritative ONLY if EVERY batch produced a trustworthy answer. Two ways a
+  // batch fails to: the gateway threw, or the model answered with something unreadable (misconfigured,
+  // refusing, emitting prose). BOTH yield the same empty edge set as a genuine "no relationships found",
+  // and writing that empty set would prune the entire existing layer. Refuse; write nothing.
+  const unusable = failedBatches + unparseableBatches;
+  if (unusable > 0) {
     throw new Error(
-      `densify-llm: ${failedBatches}/${totalBatches} gateway batches failed — refusing to reconcile ` +
-        "(a partial run must never be mistaken for an authoritative empty set; the existing " +
-        "semantically_similar_to layer is left intact). Fix the gateway and re-run.",
+      `densify-llm: ${unusable}/${totalBatches} batches were unusable ` +
+        `(${failedBatches} gateway failure(s), ${unparseableBatches} unparseable response(s)) — refusing ` +
+        "to reconcile. An unusable run is indistinguishable from 'the model found no relationships' by " +
+        "its edge set alone, so writing it would erase the existing semantically_similar_to layer. That " +
+        "layer is left intact. Fix the gateway/model and re-run.",
     );
   }
   reconcileDerivedEdges(db, vaultId, edges, ["semantically_similar_to"], Date.now);

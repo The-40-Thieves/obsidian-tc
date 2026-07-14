@@ -67,6 +67,32 @@ describe("parseSemanticEdges", () => {
   });
 });
 
+describe("extractSemanticEdges — unusable batches are counted, not silently swallowed", () => {
+  // (runner-level coverage of the same hole lives in densify-runner.test.ts)
+  const notes = [
+    { path: "A.md", content: "a", sha: "sha-a" },
+    { path: "B.md", content: "b", sha: "sha-b" },
+  ];
+
+  it("counts an UNPARSEABLE response (model refused / emitted prose) as unparseable, not as success", async () => {
+    const prose = {
+      extract: async () => ({ text: "I'm sorry, I can't help with that.", model: "m" }),
+    } as unknown as GatewayClient;
+    const res = await extractSemanticEdges(prose, notes, { batchSize: 2 });
+    expect(res.edges).toEqual([]);
+    expect(res.failedBatches).toBe(0); // it answered — the transport was fine
+    expect(res.unparseableBatches).toBe(1); // ...but the answer was unusable
+  });
+
+  it("an EMPTY-BUT-VALID array is a genuine 'found nothing' — NOT unparseable", async () => {
+    const empty = { extract: async () => ({ text: "[]", model: "m" }) } as unknown as GatewayClient;
+    const res = await extractSemanticEdges(empty, notes, { batchSize: 2 });
+    expect(res.edges).toEqual([]);
+    expect(res.failedBatches).toBe(0);
+    expect(res.unparseableBatches).toBe(0); // the model answered, validly, with nothing
+  });
+});
+
 describe("extractSemanticEdges", () => {
   it("calls the extract role, dedups across batches, and REPORTS a failing batch", async () => {
     let n = 0;
@@ -92,6 +118,7 @@ describe("extractSemanticEdges", () => {
     expect(res.edges.map((e) => `${e.source_path}-${e.target_path}`)).toEqual(["A.md-B.md"]);
     expect(res.totalBatches).toBe(2);
     expect(res.failedBatches).toBe(1);
+    expect(res.unparseableBatches).toBe(0);
     expect(n).toBe(2);
   });
 });

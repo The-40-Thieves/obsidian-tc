@@ -78,6 +78,23 @@ describe("runLlmDensify", () => {
     expect(edgeCount(d)).toBe(1); // untouched — no silent data loss on an outage
   });
 
+  it("REFUSES when the model ANSWERS but every response is unusable — the layer survives", async () => {
+    const d = makeDb();
+    await runLlmDensify(d, "v1", oneEdge);
+    expect(edgeCount(d)).toBe(1);
+    // The transport is healthy and the model replies — with prose. So failedBatches stays 0 and `edges`
+    // is empty, which is byte-for-byte what a genuine "no relationships found" looks like. Before the
+    // unparseable-batch guard, the full-state reconcile accepted that and WIPED the layer.
+    const prose = {
+      extract: async () => ({
+        text: "Sure! Here are some thoughts about your notes...",
+        model: "m",
+      }),
+    } as unknown as GatewayClient;
+    await expect(runLlmDensify(d, "v1", prose)).rejects.toThrow(/unusable|refusing/i);
+    expect(edgeCount(d)).toBe(1); // untouched — a garbage-answering model cannot erase the layer
+  });
+
   it("batches deterministically (notes ordered by path), so the model sees a stable pairing", async () => {
     const d = makeDb();
     const seen: string[][] = [];
