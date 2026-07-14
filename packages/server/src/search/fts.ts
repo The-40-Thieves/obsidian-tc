@@ -61,16 +61,32 @@ export function ensureNotesFts(db: Database, opts: { now?: () => number } = {}):
         "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
       ).run(version, now(), "m2-runtime", 0, "fts5:trigram");
     }
-    const nNotes = (db.prepare("SELECT COUNT(*) AS n FROM notes").get() as { n: number }).n;
-    const nFts = (db.prepare("SELECT COUNT(*) AS n FROM notes_fts").get() as { n: number }).n;
-    if (nNotes !== nFts) {
-      db.exec(
-        "DELETE FROM notes WHERE NOT EXISTS (SELECT 1 FROM notes_fts f WHERE f.vault_id = notes.vault_id AND f.path = notes.path)",
-      );
-      db.exec(
-        "DELETE FROM notes_fts WHERE NOT EXISTS (SELECT 1 FROM notes n WHERE n.vault_id = notes_fts.vault_id AND n.path = notes_fts.path)",
-      );
-    }
+    // DIVERGENCE REPAIR. `notes` is DURABLE; `notes_fts` is a DERIVED index, runtime-provisioned and
+    // rebuildable from the vault files. So the repair may never delete from `notes` on the strength of
+    // an FTS row being absent — that is treating the derived index as the source of truth, and it is the
+    // same mistake that produced four data-loss bugs in vault_edges.
+    //
+    // The divergence is REACHABLE without any corruption: notes_fts is not created by a migration, and
+    // upsertNoteRow writes it only when hasFts. One run under OBSIDIAN_TC_DISABLE_FTS=1 (or a single
+    // swallowed error below, which caches hasFts=false for the whole connection) leaves `notes`
+    // populated and `notes_fts` empty or absent. The old code then read nFts=0, concluded every note was
+    // an orphan, and deleted the lot. On indexNote() — the SINGLE-note path — only the one changed note
+    // was re-added, so the rest of the vault's metadata stayed gone until a full re-index, silently
+    // degrading FTS/lexical search, find_notes_by_*, and the tag read that feeds densification.
+    //
+    // FTS content cannot be backfilled from `notes` (it stores content_hash, not the body), which is
+    // presumably why deletion looked like the only option. It is not: blank the content_hash instead.
+    // That marks the note stale, so the next index pass re-reads it from disk and repopulates BOTH
+    // tables via the existing backfill path — and the metadata survives in the meantime.
+    //
+    // Runs unconditionally rather than behind a count check: equal counts do not imply equal SETS, and
+    // ensureNotesFts is memoized per connection, so this executes once.
+    db.exec(
+      "DELETE FROM notes_fts WHERE NOT EXISTS (SELECT 1 FROM notes n WHERE n.vault_id = notes_fts.vault_id AND n.path = notes_fts.path)",
+    );
+    db.exec(
+      "UPDATE notes SET content_hash = '' WHERE NOT EXISTS (SELECT 1 FROM notes_fts f WHERE f.vault_id = notes.vault_id AND f.path = notes.path)",
+    );
     ftsCache.set(db, true);
     return true;
   } catch {

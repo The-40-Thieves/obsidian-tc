@@ -36,6 +36,19 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/check-vault-leak.mjs
+
+  config-threading:
+    # knnMinSim shipped DECLARED but unthreaded: it typechecked, it validated, it was documented, and
+    # nothing read it. An ablation arm was measured against a config no operator could select. A config
+    # key that reaches no consumer is a promise to the operator the code does not keep.
+    name: config threading
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-config-threading.mjs
   gitleaks:
     runs-on: ubuntu-latest
     steps:
