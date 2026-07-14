@@ -16,7 +16,7 @@ Three derived-edge mechanisms, all off by default, all writing to `vault_edges` 
 
 | edge_type | source | confidence |
 |---|---|---|
-| `shared_tag` | frontmatter tag co-occurrence, hub tags excluded at `maxTagFanout=25` | 1.0 |
+| `shared_tag` | frontmatter tag co-occurrence, hub tags excluded at `maxTagFanout=25` | `null` (a tag pair is not a similarity) |
 | `similar_to` | vec0 kNN over existing chunk embeddings, `k=8` | cosine similarity |
 | `semantically_similar_to` | LLM Pass-3 via the local gateway | model-assigned, snapped to a rubric |
 
@@ -29,13 +29,22 @@ Five SQLite index copies, all derived from one snapshot of the live enriched ind
 (nomic-768, `chunkContext: true`) so the embeddings are byte-identical across arms. All arms carry the
 `20260713_001` derived-edge columns, so schema is identical too - only edge rows differ.
 
-| arm | edges | how built |
+| arm | total edges | composition |
 |---|---|---|
-| `ctl` | 11,033 | control: authored wikilinks only (`links_to`) |
+| `ctl` | 11,033 | 10,828 `links_to` + 205 `unresolved` |
 | `tag` | 19,410 | control + 8,377 `shared_tag` |
-| `knn` | ~22,800 | control + `similar_to` (k=8, no similarity floor) |
-| `knn80` | - | `knn` with `similar_to` edges below cosine 0.80 deleted |
-| `trt` | 25,164 | control + both (the combined arm) |
+| `knn` | 16,787 | control + 5,754 `similar_to` (k=8, no floor) |
+| `knn80` | 14,206 | control + 3,173 `similar_to` (confidence >= 0.80) |
+| `knn80-strict` | 14,155 | control + 3,122 `similar_to` (confidence > 0.80) — the boundary check, see below |
+| `trt` | 25,164 | control + both derived layers (the combined arm) |
+
+Two notes on the control, because an earlier draft of this table was wrong on both:
+
+- The `knn` arm was reported as "~22,800" edges. It is **16,787**. That number was estimated rather than
+  queried, and it was simply incorrect; every count in this table is now read from the arm databases.
+- The control is **not** "authored wikilinks only". It is 10,828 `links_to` plus **205 `unresolved`**
+  rows (wikilinks pointing at notes that do not exist). Only `links_to` is traversed by the walk, so the
+  `unresolved` rows are inert here — but the arm is not what the old caption said it was.
 
 `knn80` and the single-mechanism arms were derived from `trt` **by deletion**, not by re-running kNN:
 `confidence` on a `similar_to` edge *is* its cosine similarity, so a similarity floor is a `DELETE`.
@@ -46,8 +55,15 @@ Two caveats on `knn80`, both real:
 - **It approximates a `minSim=0.80` rebuild rather than reproducing one.** `confidence` is stored rounded
   to three decimals (`Math.round(sim * 1000) / 1000`), so `DELETE ... WHERE confidence < 0.8` retains an
   edge whose raw similarity was 0.7995. Measured: **51 of the 3,173 retained `similar_to` edges (1.6%)
-  sit exactly at 0.800** and are therefore ambiguous. The arm matches a true rebuild to within those 51
-  edges — small enough that it cannot flip a p=0.61 null, but it is an approximation, not an equivalence.
+  sit exactly at 0.800** and are therefore ambiguous.
+
+  An earlier draft waved this away as "too few to flip a p=0.61 null." That is not an inference edge
+  counts can support — one edge can move several queries. So it was **measured instead**: the
+  `knn80-strict` arm deletes `confidence <= 0.800` (3,122 edges, i.e. every ambiguous edge resolved the
+  OTHER way) and was evaluated end to end. Result, paired vs control: **dNDCG +0.001, 95% CI
+  [-0.003, 0.004], p=0.6074** — identical to `knn80` to three decimals on every metric. Both sides of the
+  rounding boundary give the same null, so the approximation is empirically immaterial *here*. A true
+  rebuild remains the cleanest answer for any future kNN arm, and `knnMinSim` now exists to do it.
 - **At the time it was measured, `minSim` was not a selectable configuration.** It existed only as an
   internal argument to `computeKnnEdges`; nothing threaded it from `config.retrieval.densify`. The arm
   therefore tested a hypothetical. That is now fixed — `retrieval.densify.knnMinSim` (default 0) exposes
@@ -122,15 +138,27 @@ mechanism in general.
 
 This is the most informative result in the record, and it cuts both ways.
 
-**For the mechanism:** the effect is confined *exactly* to the classes where tag edges can act. Every
-single-hop, lexical, and temporal query is byte-identical to control - those queries never traverse the
-graph far enough to reach a derived edge. A spurious effect would not respect that boundary. And 9 of
-the 10 queries that moved improved.
+**For the mechanism:** the effect is confined *exactly* to the classes where tag edges plausibly act.
+Every single-hop, lexical, and temporal query scores byte-identically to control, and 9 of the 10 queries
+that moved improved.
 
-**Against the result:** only 10 of 136 queries moved at all. A sign-flip permutation test on a vector
-of 126 zeros and 10 non-zeros is, in effect, a **sign test on 10 observations** - and indeed
-P(>=9 of 10 positive under H0) = 0.011, which is the p=0.0102 we measured. The effective n is 10, not
-136. Neither multi-hop subgroup reaches significance on its own.
+Stated carefully, because an earlier draft overclaimed: identical metrics show the derived layer changed
+**nothing observable** for those classes. They do NOT prove those queries "never traverse far enough to
+reach a derived edge" — a derived node can be walked, and reranked, without altering the final top ten.
+And class-concentrated noise is possible: chance does not distribute itself evenly across strata. The
+class pattern is **mechanistically consistent** with a real effect and is the strongest thing in favor of
+one. It is not proof against a spurious result.
+
+**Against the result:** only 10 of 136 queries moved at all. A sign-flip permutation test over a vector
+of 126 zeros and 10 non-zeros draws all of its evidence from those 10 — the **effective n is 10, not
+136**. Neither multi-hop subgroup reaches significance on its own.
+
+An earlier draft pushed that intuition too far and claimed the permutation p "is" the sign test:
+P(>=9 of 10 positive) = 0.0107, which looked like a match for the measured 0.0102. That was wrong twice
+over. The permutation test is **two-sided**, so the comparable sign-test probability is 0.0215, not
+0.0107 — and the permutation test also uses the delta MAGNITUDES, not just their signs, so it is not a
+sign test at all. The numerical near-agreement was a coincidence. "Effective n = 10" is a sound and
+sobering description of where the evidence comes from; "this is a sign test" is not.
 
 ## 6b. Guardrails: non-inferiority, stated properly
 
@@ -150,31 +178,54 @@ ship rule actually asks for.
 
 ## 7. Multiplicity
 
-Sixteen tests were run across this campaign (4 arms x 4 metrics). Benjamini-Hochberg at q=0.10 gives a
-threshold of 0.10 x 1/16 = **0.00625** for the smallest p-value. Tag's p=0.0102 **does not clear it**.
+The confirmatory family is the **16** arm-vs-control tests (4 arms x 4 metrics). Benjamini-Hochberg at
+q=0.10 gives a threshold of 0.10 x 1/16 = **0.00625** for the smallest p-value. Tag's p=0.0102 **does not
+clear it**.
+
+Everything reported *after* that family was added in response to audit — the 4 combined-vs-tag contrasts
+(section 5), the 5 per-class analyses (section 6), and the `knn80-strict` boundary arm (section 2). Those
+are **exploratory diagnostics, not members of the confirmatory family**, and they are labelled as such
+rather than folded in to inflate the denominator. The distinction does not rescue anything: enlarging the
+family only lowers the BH threshold, so tag fails it a fortiori. But "16 tests across this campaign" is no
+longer a literally accurate count of tests *run*, and the accounting should say which family the
+correction applies to.
 
 Under the project's own pre-declared ship rule (BH-FDR at q=0.10, non-inferiority floor delta > -0.015),
 the tag result is **suggestive, not established**.
 
 ## 8. Operational cost
 
-Storage is free. Latency is not.
+Storage is **inexpensive** (not free). Latency is not.
 
-| | control | tag |
-|---|---|---|
-| index size | 289 MB | 294 MB (**+1.7%**) |
-| edges | 11,033 | 19,410 (+76%) |
-| 2-hop walk, 1 seed | 77 ms median | **189 ms** (2.4x) |
-| 2-hop walk, 5 seeds | 135 ms median | **293 ms** (2.2x) |
-| 2-hop walk, 10 seeds | 265 ms median | **481 ms** (1.8x) |
+**Protocol** (the first pass reported none, which was a fair complaint): seeds sampled **uniformly at
+random** from the 3,000-odd notes with at least one authored outgoing link — *not* degree-ordered — with
+a fixed LCG seed, so the identical seed sequence is replayed against both arms (paired). **30 measured
+walks** per arm per K after **5 discarded warmup walks**; `hopLimit: 2`; one walk per query seeded with K
+paths, which is the serve pattern. Raw artifact:
+[`data/2026-07-14-densification/bench-walk.json`](data/2026-07-14-densification/bench-walk.json).
 
-(Seeds drawn from the highest-degree notes, so the absolute figures are a worst case; the **ratio** is
-the robust number.)
+| | control | tag | ratio |
+|---|---|---|---|
+| index size | 289 MB | 294 MB | **+1.7%** |
+| edges | 11,033 | 19,410 | +76% |
+| walk, K=1 (median / p95) | 61.5 / 75.3 ms | 160.2 / 184.6 ms | **2.60x** |
+| walk, K=5 (median / p95) | 81.7 / 151.4 ms | 224.4 / 345.1 ms | **2.75x** |
+| walk, K=10 (median / p95) | 107.8 / 167.2 ms | 294.3 / 347.4 ms | **2.73x** |
+| **end-to-end search** | **347 ms/query** | **461 ms/query** | **+33%** |
 
-The cost is in the **walk**, not the storage: the tag index with `includeDerived=false` benchmarks at
-86 ms - within noise of the 77 ms control. Densifying the graph is cheap; *traversing* the dense graph
-is what costs, because a 76% larger edge set means a materially larger 2-hop frontier
-(481 -> 632 nodes per walk at 1 seed).
+The end-to-end row is the one that matters operationally, and the first pass never took it: wall clock
+for the full 136-query golden-set run, including query embedding and fusion. The walk is ~2.7x, but the
+walk is only part of a query — so the user-visible cost of tag edges is **+114 ms per search (+33%)**.
+
+Two corrections to the first pass. It seeded from the **highest-degree** notes and called that a "worst
+case" whose ratio was therefore conservative. Wrong in direction: uniform-random seeds give a **larger**
+ratio (2.6-2.75x) than hub seeds did (1.8-2.4x), because a hub's 2-hop frontier is already enormous in
+the control arm and the derived edges add proportionally less. And it reported no dispersion at all —
+percentiles are above.
+
+The cost is in the **walk**, not the storage: the tag index with `includeDerived=false` benchmarks within
+noise of control. Densifying is cheap; *traversing* the dense graph is what costs, because a 76% larger
+edge set means a materially larger 2-hop frontier (at K=1: 122 -> 258 nodes per walk).
 
 ## 9. Verdict
 
@@ -212,4 +263,15 @@ Recorded because the errors are the useful part:
 - "Tag costs nothing on the other metrics" - **replaced.** Non-significance is not equivalence; the
   supported claim is the non-inferiority result in section 6b, which rests on CI bounds, not p-values.
 - The `knn80` arm was described as equivalent to a `minSim=0.80` rebuild. It is an **approximation** to
-  within 51 boundary edges, because stored confidence is rounded to three decimals (section 2).
+  within 51 boundary edges, because stored confidence is rounded to three decimals. Resolving those 51
+  edges the other way (`knn80-strict`) was then measured, and changes nothing (section 2).
+- The `knn` arm's edge count was reported as "~22,800". It is **16,787** — estimated instead of queried.
+  The control was described as `links_to` only; it also carries 205 `unresolved` rows (section 2).
+- `shared_tag` confidence was documented as 1.0. The implementation stores `null` (section 1).
+- "P(>=9 of 10) = 0.011, which is the p we measured" - **wrong.** The permutation test is two-sided (the
+  comparable sign probability is 0.0215) and uses magnitudes, not just signs. It is not a sign test; the
+  numerical agreement was coincidence. "Effective n = 10" survives; "this is a sign test" does not.
+- "Those queries never traverse far enough to reach a derived edge" - **not shown.** Identical metrics
+  prove no observable change, not absence of traversal (section 6).
+- The latency benchmark reported no protocol, no dispersion, and no end-to-end figure, and wrongly framed
+  hub seeds as a conservative worst case. Re-run properly; the true ratio is **larger** (section 8).

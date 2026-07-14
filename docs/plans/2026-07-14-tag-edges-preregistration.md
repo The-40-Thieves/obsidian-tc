@@ -46,7 +46,35 @@ no additional test may be added later to rescue a null.
 ## Guardrail metrics (reported, not significance-tested)
 
 recall@10, MRR@10, bridge recall - computed on the **full** confirmatory query set. These are checked
-only against the non-inferiority floor, not for significance.
+only against the non-inferiority floor, not for significance. **The check is on the CI LOWER BOUND**, not
+the point estimate: a guardrail passes iff the bootstrap 95% CI lower bound of its delta exceeds -0.015.
+A point delta above the floor with a CI reaching well below it has not demonstrated non-inferiority, it
+has merely failed to demonstrate harm, and those are different claims.
+
+## Statistical power (declared in advance)
+
+The exploratory effect was +0.0045 nDCG@10 overall, concentrated in multi-hop (+0.013 on `hop`), and it
+moved only 10 of 136 queries. An effect that sparse is why the confirmatory set must be **sized, not
+inherited**: at the exploratory per-query variance, detecting a multi-hop delta of +0.010 at 80% power
+requires on the order of **120+ multi-hop queries** — roughly double the 68 multi-hop queries in the
+current golden set. A confirmatory run on fewer than ~120 multi-hop queries is **underpowered by
+construction**, and a null from it must be reported as inconclusive rather than as a refutation. If that
+many cannot be mined, say so and do not run the test.
+
+## Query mining and relevance judgment (frozen procedure)
+
+- Queries are mined by the existing golden-set procedure, from note pairs, **before** any arm is run.
+- Relevance judgments are fixed **at mining time** and are never revised after seeing an arm's output.
+- The person or process assigning relevance is **blind to arm assignment** — trivially satisfied when
+  judgments precede the runs, which is why the order above is mandatory, not incidental.
+- Ties and near-misses are resolved at mining time and recorded; no post-hoc adjudication.
+
+## Frozen environment
+
+The confirmatory run pins, and records in its result note: the **repository commit**, the **corpus
+snapshot** (vault content hash / date), the **embedding model + dimensions + `chunkContext` setting**,
+and the **index build** used for both arms. Both arms must be copies of ONE index snapshot, differing
+only in edge rows — the same discipline the exploratory run used, for the same reason.
 
 ## Decision rule (frozen)
 
@@ -88,8 +116,18 @@ data exists.
 
 ## Pre-committed interpretation
 
-- **p < 0.10 and dNDCG >= 0.010** -> tag edges are real and worth their latency. Ship default-on for
-  multi-hop, with the latency regression documented.
+- **p < 0.10 and dNDCG >= 0.010** -> tag edges are real and worth their latency. **But note what
+  "ship for multi-hop" would actually require**: `includeInWalk` is a global flag. It is not, and has
+  never been, restricted to multi-hop queries — there is no class gate on it. So a PASS does not license
+  flipping the existing flag on. It licenses exactly one of:
+  **(a)** build a class gate first (the deterministic `classRouter` already classifies queries, and is
+  itself off by default), ship tag edges only on the multi-hop route, and re-measure the cost on that
+  route; or
+  **(b)** ship globally and eat the measured **+33% end-to-end latency on every query**, including the
+  single-hop, lexical, and temporal ones the exploratory run showed derive **zero** benefit — which is a
+  bad trade on its face and should not be taken without a further argument.
+  Writing "(a) or (b)" here, before the data, is the point: otherwise a PASS would quietly become a
+  one-line flag flip that taxes every query in the vault to help a tenth of them.
 - **p < 0.10 and dNDCG < 0.010** -> real but not worth ~2x walk cost. Stays off. Pursue pruning.
 - **p >= 0.10** -> the exploratory result was noise on 10 queries. Stays off. Record the null and stop.
 - **dNDCG <= 0 on multi-hop** -> abandon the mechanism entirely; do not re-test it on a third set.

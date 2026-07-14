@@ -1,0 +1,82 @@
+{
+  "protocol": {
+    "reps": 30,
+    "warmup": 5,
+    "hopLimit": 2,
+    "kValues": [
+      1,
+      5,
+      10
+    ],
+    "seedSampling": "uniform at random from notes with >=1 authored outgoing link (NOT degree-ordered)",
+    "seedFrameSize": 1021,
+    "rngSeed": 20260714,
+    "note": "identical seed sequence replayed against BOTH arms (paired)",
+    "machine": "same host, arms are copies of one index snapshot, readonly connections"
+  },
+  "arms": {
+    "K=1/control": {
+      "n": 30,
+      "min": 44.7,
+      "median": 61.5,
+      "p90": 70.8,
+      "p95": 75.3,
+      "max": 75.8,
+      "mean": 61.3,
+      "nodesPerWalk": 122
+    },
+    "K=1/tag": {
+      "n": 30,
+      "min": 128.8,
+      "median": 160.2,
+      "p90": 180.8,
+      "p95": 184.6,
+      "max": 187.1,
+      "mean": 162.5,
+      "nodesPerWalk": 258
+    },
+    "K=1/ratio_median": 2.6,
+    "K=5/control": {
+      "n": 30,
+      "min": 65.1,
+      "median": 81.7,
+      "p90": 146.9,
+      "p95": 151.4,
+      "max": 180.6,
+      "mean": 92,
+      "nodesPerWalk": 750
+    },
+    "K=5/tag": {
+      "n": 30,
+      "min": 173.7,
+      "median": 224.4,
+      "p90": 300.9,
+      "p95": 345.1,
+      "max": 357.4,
+      "mean": 228.9,
+      "nodesPerWalk": 1320
+    },
+    "K=5/ratio_median": 2.75,
+    "K=10/control": {
+      "n": 30,
+      "min": 73,
+      "median": 107.8,
+      "p90": 157.5,
+      "p95": 167.2,
+      "max": 180.7,
+      "mean": 115.7,
+      "nodesPerWalk": 1451
+    },
+    "K=10/tag": {
+      "n": 30,
+      "min": 227,
+      "median": 294.3,
+      "p90": 343.4,
+      "p95": 347.4,
+      "max": 412,
+      "mean": 295.1,
+      "nodesPerWalk": 2671
+    },
+    "K=10/ratio_median": 2.73
+  }
+}
