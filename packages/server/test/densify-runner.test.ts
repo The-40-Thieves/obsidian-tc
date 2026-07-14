@@ -130,6 +130,27 @@ describe("runLlmDensify", () => {
     expect(edgeCount(d)).toBe(0); // pruned, because the answer was trustworthy
   });
 
+  it("REFUSES on a MIXED batch — one good edge cannot license deleting the rest of the layer", async () => {
+    const d = makeDb();
+    await runLlmDensify(d, "v1", oneEdge);
+    expect(edgeCount(d)).toBe(1);
+    // A response with a valid edge AND contract violations. The valid edge is real, but the batch is not
+    // trustworthy, and a full-state reconcile driven by it would prune everything else on the strength of
+    // a model that just hallucinated two paths. Refuse, and keep the layer.
+    const mixed = {
+      extract: async () => ({
+        text: JSON.stringify([
+          { source: "A.md", target: "B.md", confidence: 0.85 },
+          "I cannot determine the rest.",
+          { source: "GHOST.md", target: "PHANTOM.md", confidence: 0.95 },
+        ]),
+        model: "m",
+      }),
+    } as unknown as GatewayClient;
+    await expect(runLlmDensify(d, "v1", mixed)).rejects.toThrow(/unusable|refusing/i);
+    expect(edgeCount(d)).toBe(1); // untouched
+  });
+
   it("a LITERAL empty array is still a TRUSTWORTHY empty answer — it DOES prune", async () => {
     const d = makeDb();
     await runLlmDensify(d, "v1", oneEdge);

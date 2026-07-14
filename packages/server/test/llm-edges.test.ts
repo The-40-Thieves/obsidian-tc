@@ -123,6 +123,62 @@ describe("extractSemanticEdges — unusable batches are counted, not silently sw
     expect(res.unparseableBatches).toBe(0);
   });
 
+  it("a MIXED array — one good edge beside contract violations — poisons the WHOLE batch", async () => {
+    // The subtlest of the lot, and the one a "did anything survive?" guard cannot catch. This response
+    // carries a perfectly good edge. It also carries a bare string and an edge naming paths that were
+    // never in the batch. Something survives, so the batch looks usable — while proving the model did not
+    // honor the contract. Under FULL-STATE reconcile that single survivor would become the entire desired
+    // set and authorize deleting every other edge in the layer. Partial garbage is not partial success.
+    const mixed = {
+      extract: async () => ({
+        text: JSON.stringify([
+          { source: "A.md", target: "B.md", confidence: 0.85 }, // valid
+          "model refusal", // not an object
+          { source: "UNKNOWN.md", target: "MISSING.md", confidence: 0.95 }, // paths not in the batch
+        ]),
+        model: "m",
+      }),
+    } as unknown as GatewayClient;
+    const res = await extractSemanticEdges(mixed, notes, { batchSize: 99 });
+    expect(res.edges).toEqual([]); // the good edge is discarded WITH the bad ones
+    expect(res.failedBatches).toBe(0);
+    expect(res.unparseableBatches).toBe(1);
+  });
+
+  it("each contract violation is enough on its own: self-loop, unknown path, unsnappable confidence", async () => {
+    for (const bad of [
+      { source: "A.md", target: "A.md", confidence: 0.85 }, // self-loop
+      { source: "A.md", target: "GHOST.md", confidence: 0.85 }, // path outside the batch
+      { source: "A.md", target: "B.md", confidence: "high" }, // confidence will not snap
+    ]) {
+      const client = {
+        extract: async () => ({
+          text: JSON.stringify([{ source: "A.md", target: "B.md", confidence: 0.85 }, bad]),
+          model: "m",
+        }),
+      } as unknown as GatewayClient;
+      const res = await extractSemanticEdges(client, notes, { batchSize: 99 });
+      expect(res.unparseableBatches).toBe(1);
+      expect(res.edges).toEqual([]);
+    }
+  });
+
+  it("a fully VALID multi-edge array is still accepted — the guard is not just refusing everything", async () => {
+    const good = {
+      extract: async () => ({
+        text: JSON.stringify([
+          { source: "A.md", target: "B.md", confidence: 0.85 },
+          { source: "B.md", target: "A.md", confidence: 0.75 }, // same canonical pair, lower conf
+        ]),
+        model: "m",
+      }),
+    } as unknown as GatewayClient;
+    const res = await extractSemanticEdges(good, notes, { batchSize: 99 });
+    expect(res.unparseableBatches).toBe(0);
+    expect(res.edges).toHaveLength(1); // deduped to the canonical pair, max confidence
+    expect(res.edges[0]?.confidence).toBeCloseTo(0.85, 3);
+  });
+
   it("a NONEMPTY array with ZERO structurally valid edges is UNPARSEABLE, not 'found nothing'", async () => {
     // Array-ness alone is not the contract. Each of these parses as a nonempty JSON array and yields no
     // edge: a refusal string, an edge naming paths outside the batch, an object with no edge fields at
