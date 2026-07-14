@@ -3,27 +3,16 @@
 // markdown commit is dropped — the synthesis record persists to the syntheses table; writing a
 // vault note is an integration concern. Anchor-folder pulls are simplified to "recent chunks +
 // open contradictions" (folder taxonomy is vault-specific and lands at integration).
+
+import { type IsoWeek, isoWeek } from "../../util/iso-week";
 import { type GatewayRoles, prompt } from "../gateway";
 import type { Job, JobContext, JobResult } from "../plane";
+
+export { type IsoWeek, isoWeek };
 
 const RECENT_LIMIT = 200;
 const CONTRADICTION_LIMIT = 50;
 const CONTENT_TRUNCATE = 1000;
-
-export interface IsoWeek {
-  year: number;
-  week: number;
-}
-
-/** ISO 8601 week (UTC): week 1 contains the first Thursday of the year. */
-export function isoWeek(d: Date): IsoWeek {
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const dayNum = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return { year: date.getUTCFullYear(), week };
-}
 
 interface ChunkRow {
   path: string;

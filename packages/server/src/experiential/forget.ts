@@ -14,6 +14,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 
 export interface ForgetLogEntry {
@@ -318,11 +319,4 @@ export function forgetNote(
     contradictions_mentions: contraMentions,
     head,
   };
-}
-
-function tableExists(db: Database, name: string): boolean {
-  return (
-    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name = ?").get(name) !==
-    undefined
-  );
 }

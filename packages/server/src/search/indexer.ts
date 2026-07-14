@@ -5,6 +5,7 @@
 // deleted explicitly (not relying on FK cascade, which node:sqlite tests run with
 // foreign_keys off). vec_chunks is kept in lock-step only when the extension loaded.
 import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { parseNote } from "../vault/frontmatter";
@@ -62,13 +63,6 @@ export interface IndexedChunk {
 /** THE-233 W-INGEST seam: notified of newly-embedded chunks. W-WORKERS wires the
  *  contradiction-check enqueue here at integration; default is no hook. */
 export type IndexHook = (chunks: IndexedChunk[]) => void;
-
-function tableExists(db: Database, name: string): boolean {
-  return (
-    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
-    undefined
-  );
-}
 
 // Stable, content-independent id for a chunk slot. Re-chunking the same note
 // reproduces these ids, so content_hash alone decides re-embed vs. skip.

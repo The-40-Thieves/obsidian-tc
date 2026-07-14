@@ -12,7 +12,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { isoWeek } from "../util/iso-week";
 import { normalizeVaultPath } from "../vault/paths";
+
+export { isoWeek };
 
 export type Period = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
 
@@ -46,19 +49,6 @@ function ordinal(n: number): string {
   const s = ["th", "st", "nd", "rd"];
   const v = n % 100;
   return n + (s[(v - 20) % 10] ?? s[v] ?? "th");
-}
-
-/** ISO-8601 week number + week-year for a UTC date. */
-export function isoWeek(d: Date): { week: number; year: number } {
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const dayNum = (date.getUTCDay() + 6) % 7; // Mon=0 .. Sun=6
-  date.setUTCDate(date.getUTCDate() - dayNum + 3); // move to the Thursday of this week
-  const weekYear = date.getUTCFullYear();
-  const firstThursday = new Date(Date.UTC(weekYear, 0, 4));
-  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
-  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
-  const week = 1 + Math.round((date.getTime() - firstThursday.getTime()) / (7 * 24 * 3600 * 1000));
-  return { week, year: weekYear };
 }
 
 const MOMENT_TOKEN = /\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|DD|Do|D|dddd|ddd|GGGG|gggg|WW|ww|wo|Q/g;

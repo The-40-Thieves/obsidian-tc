@@ -9,6 +9,7 @@ import { dirname } from "node:path";
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
+import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { RetrievalLogger } from "../../experiential/log";
@@ -104,13 +105,6 @@ export function packBudget<T>(
 }
 
 const CHALLENGE_RECALL = 30;
-
-function tableExists(db: Database, name: string): boolean {
-  return (
-    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
-    undefined
-  );
-}
 
 /** Note-level frontmatter tags for the given paths (THE-309), so isDecisionChunk's tag rule can
  *  fire on the retrieved evidence — the semantic hit itself carries no tags. Scoped to the vault. */

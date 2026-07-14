@@ -6,6 +6,8 @@
 //     correct and ACL-aware; the only path available under node:sqlite (vitest).
 // The query path is ACL-filtered: chunks whose note is not read-visible are
 // dropped before scoring, so semantic search never leaks across the read ACL.
+
+import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import { cosineBatch } from "./native";
 import { blobToFloats, loadVec, vecKnn } from "./vec";
@@ -23,13 +25,6 @@ export interface SemanticOptions {
   minScore?: number;
   returnContent?: boolean;
   isReadable?: (path: string) => boolean;
-}
-
-function tableExists(db: Database, name: string): boolean {
-  const row = db
-    .prepare("SELECT 1 AS x FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?")
-    .get(name);
-  return row !== undefined;
 }
 
 export interface MetaRow {
@@ -63,7 +58,7 @@ export function semanticSearch(
   // embedding-model change, which makes sqlite-vec throw — degrades to the brute-force scan
   // below instead of propagating the error.
   let vecHits: SemanticHit[] | null = null;
-  if (loadVec(db) && tableExists(db, "vec_chunks")) {
+  if (loadVec(db) && tableExists(db, "vec_chunks", { includeViews: true })) {
     try {
       // Over-fetch generously; the metadata join scopes to this vault IN SQL (the KNN is global
       // over vec_chunks, so a shared cache.db can surface other vaults' candidates) and JS applies

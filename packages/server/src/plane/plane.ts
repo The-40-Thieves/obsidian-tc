@@ -3,6 +3,8 @@
 // detector into in-process jobs. These are LOCAL jobs invoked programmatically, NOT crons:
 // the scheduling trigger (a server-lifecycle timer / session-close hook) is wired in the
 // integration slice. Each run is recorded to job_runs when that table exists.
+
+import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import type { GatewayRoles } from "./gateway";
 
@@ -22,13 +24,6 @@ export interface JobResult {
 export interface Job {
   name: string;
   run(ctx: JobContext): Promise<JobResult>;
-}
-
-function tableExists(db: Database, name: string): boolean {
-  return (
-    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
-    undefined
-  );
 }
 
 export class SleepTimePlane {
