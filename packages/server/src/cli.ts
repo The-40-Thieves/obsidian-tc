@@ -233,6 +233,19 @@ async function main(): Promise<void> {
   // gateway must be configured; without it the extractor is a no-op, so refuse rather than write nothing.
   if (cmd.kind === "densify-llm") {
     const cfg = resolveOrUsageExit(cmd.input);
+    // retrieval.densify.llmEdges is the off-switch for the LLM edge layer — the one code path that sends
+    // note CONTENT to a model. It is checked FIRST: before the cache db is opened, before a gateway
+    // client is built. It used to be checked last, so the gateway-missing error fired ahead of it and an
+    // operator on a host with no gateway was told the wrong thing entirely — never learning the feature
+    // was simply disabled. A safety gate that only fires once the unsafe machinery is already set up is a
+    // gate in name only.
+    if (cfg.retrieval?.densify?.llmEdges !== true) {
+      process.stderr.write(
+        "densify-llm is disabled: set retrieval.densify.llmEdges = true in your config to enable it.\n" +
+          "It sends note content to the configured model (local gateway by default), so it is opt-in.\n",
+      );
+      process.exit(2);
+    }
     mkdirSync(cfg.cacheDir, { recursive: true });
     const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
     let gwc: GatewayClient | null = null;
@@ -244,18 +257,6 @@ async function main(): Promise<void> {
     if (!gwc) {
       process.stderr.write(
         "densify-llm requires a configured inference gateway (extract role -> local model); none resolved.\n",
-      );
-      cacheDb.close?.();
-      process.exit(2);
-    }
-    // retrieval.densify.llmEdges is the off-switch for the LLM edge layer — the one code path that
-    // sends note CONTENT to a model. It defaulted to false and gated NOTHING: this command read
-    // confidenceFloor and ran regardless of the flag. An off-by-default switch that cannot turn
-    // anything off is worse than no switch, because the operator believes it protects them.
-    if (cfg.retrieval?.densify?.llmEdges !== true) {
-      process.stderr.write(
-        "densify-llm is disabled: set retrieval.densify.llmEdges = true in your config to enable it.\n" +
-          "It sends note content to the configured model (local gateway by default), so it is opt-in.\n",
       );
       cacheDb.close?.();
       process.exit(2);
