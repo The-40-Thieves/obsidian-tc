@@ -236,7 +236,6 @@ export async function extractSemanticEdges(
   opts: { batchSize?: number; confidenceFloor?: number } = {},
 ): Promise<SemanticExtractionResult> {
   const batchSize = opts.batchSize ?? 12;
-  const shaByPath = new Map(notes.map((n) => [n.path, n.sha]));
   const byPair = new Map<string, DerivedEdge>();
   let totalBatches = 0;
   let failedBatches = 0;
@@ -244,6 +243,13 @@ export async function extractSemanticEdges(
   for (let i = 0; i < notes.length; i += batchSize) {
     const batch = notes.slice(i, i + batchSize);
     totalBatches += 1;
+    // BATCH-LOCAL, not run-global. The prompt shows the model only this batch's notes and tells it to use
+    // only those paths, so "is this a known path?" must be asked against the batch — not against every
+    // note in the vault. A run-global map accepts an edge from a path in THIS batch to one the model was
+    // never shown, which is not a relationship it could have read: it is a guess (or a leak from an
+    // earlier batch in a stateful backend), and it would be stored as if it were evidence. The edge would
+    // also be unreachable for the model to have justified, since it never saw the other endpoint's text.
+    const batchSha = new Map(batch.map((n) => [n.path, n.sha]));
     let text = "";
     try {
       const res = await client.extract({
@@ -270,7 +276,7 @@ export async function extractSemanticEdges(
     // POLICY is not damage. A model that validly reports three weak-but-real links at 0.55, under a
     // configured floor of 0.75, honored the contract perfectly and its desired set is legitimately empty.
     // Refusing THAT would freeze the layer against its own configuration — the opposite failure.
-    const parsed = parseBatch(text, shaByPath);
+    const parsed = parseBatch(text, batchSha);
     if (parsed === null) {
       unparseableBatches += 1; // not an array: prose, a refusal, a misconfigured model
       continue;

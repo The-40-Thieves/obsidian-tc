@@ -123,6 +123,37 @@ describe("extractSemanticEdges — unusable batches are counted, not silently sw
     expect(res.unparseableBatches).toBe(0);
   });
 
+  it("rejects a cross-BATCH edge: a path the model was never SHOWN is not a known path", async () => {
+    // Both A.md and B.md exist in the run. But with batchSize 1 the model sees exactly ONE of them per
+    // prompt, and the system prompt tells it to use only the given paths. An A -> B edge is therefore
+    // impossible to have READ: the model never saw B's text in that call. Validating against a run-global
+    // path map would accept it anyway — the path "exists", after all — and store a guess as evidence.
+    // Every batch here violates the contract, so every batch is unusable and nothing is written.
+    const cross = {
+      extract: async () => ({
+        text: JSON.stringify([{ source: "A.md", target: "B.md", confidence: 0.95 }]),
+        model: "m",
+      }),
+    } as unknown as GatewayClient;
+    const res = await extractSemanticEdges(cross, notes, { batchSize: 1 }); // one note per prompt
+    expect(res.totalBatches).toBe(2);
+    expect(res.unparseableBatches).toBe(2); // neither batch could have justified that edge
+    expect(res.edges).toEqual([]);
+  });
+
+  it("the SAME edge is accepted when both endpoints are in the batch — scope is the only difference", async () => {
+    const cross = {
+      extract: async () => ({
+        text: JSON.stringify([{ source: "A.md", target: "B.md", confidence: 0.95 }]),
+        model: "m",
+      }),
+    } as unknown as GatewayClient;
+    const res = await extractSemanticEdges(cross, notes, { batchSize: 2 }); // both notes in one prompt
+    expect(res.totalBatches).toBe(1);
+    expect(res.unparseableBatches).toBe(0);
+    expect(res.edges).toHaveLength(1);
+  });
+
   it("a MIXED array — one good edge beside contract violations — poisons the WHOLE batch", async () => {
     // The subtlest of the lot, and the one a "did anything survive?" guard cannot catch. This response
     // carries a perfectly good edge. It also carries a bare string and an edge naming paths that were
