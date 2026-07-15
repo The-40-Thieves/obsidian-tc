@@ -88,7 +88,7 @@ if (VAULT) {
   };
   walk(VAULT);
 
-  const PATH_RE = /[0-9]{2}-[a-z-]+(?:\/[^"'`\n\\]+)*\.md/gi;
+  const PATH_RE = /[0-9]{2}-[a-z-]+(?:\/[^"'`\n\\/]+)*\.md/gi;
   for (const f of tracked) {
     if (!isText(f) || f === SELF) continue;
     let body;
