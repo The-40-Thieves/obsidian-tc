@@ -787,13 +787,23 @@ export class ToolRegistry {
         // delete the claim — that would let a retry with the same key re-execute the committed effect.
         // Instead FINALIZE it with the real over-limit size and a tiny marker (never the oversized
         // payload), so a retry replays the same overflow error via the result_size re-check on the
-        // claimed-row path. The effect runs at most once; the terminal outcome is stable.
+        // claimed-row path. Under normal DB operation the effect runs at most once. CAVEAT: if the
+        // finalize below itself faults (caught), the claim stays in-flight and can be reclaimed after
+        // idempotencyReclaimSeconds, so a retry could re-execute — at-most-once is not guaranteed under
+        // a finalize fault. The full guarantee needs a durable effect/response state machine (THE-413).
         if (idemClaimed && idemKey) {
           this.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
           try {
             this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, "null", resultSize, now());
-          } catch {
-            /* best-effort: record the terminal overflow so retries do not re-execute */
+          } catch (finalizeErr) {
+            // A finalize fault here leaves the claim in-flight (reclaimable) — the THE-413 residual.
+            // Surface it to the operator sink rather than swallowing it; it must not mask the overflow
+            // response the caller is about to receive.
+            try {
+              this.onInternalError?.(`idempotency_finalize:${name}`, ctx.vaultId, finalizeErr);
+            } catch {
+              /* diagnostics sink must never break dispatch */
+            }
           }
         }
         const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
