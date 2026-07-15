@@ -1,0 +1,13 @@
+{
+  "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
+  "acl": {
+    "readOnly": false,
+    "strictReadDefault": true,
+    "readPaths": ["02-projects/**", "09-reference/**"],
+    "writePaths": ["02-projects/**"],
+    "deletePaths": []
+  },
+  "writes": { "requireCas": true },
+  "snapshots": { "enabled": true, "retention": 20 },
+  "transports": { "stdio": true, "http": { "enabled": false } }
+}
