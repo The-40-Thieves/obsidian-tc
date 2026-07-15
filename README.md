@@ -197,7 +197,7 @@ servers (tool counts and features as of 2026-07 — these projects move; check t
 
 | | Tools | Search | Auth / ACL / HITL | Observability |
 |---|---|---|---|---|
-| **obsidian-tc** | ~123 (3-tool facade) | FTS5 BM25 · vector (vec0) · GraphRAG RRF | JWT (HS256/JWKS) + per-vault folder ACL + HITL elicit | OTel + Prometheus + CloudEvents |
+| **obsidian-tc** | 141 (3-tool facade) | FTS5 BM25 · vector (vec0) · GraphRAG RRF | JWT (HS256/JWKS) + per-vault folder ACL + HITL elicit | OTel + Prometheus + CloudEvents |
 | [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~14 | text / regex | JWT/OAuth + folder-scoped paths + read-only mode + HITL; MCP 2025-11-25 pagination | console logs |
 | [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian) | ~13 | text + JsonLogic / DQL | Local REST API key | console logs |
 | [StevenStavrakis/obsidian-mcp](https://github.com/StevenStavrakis/obsidian-mcp) | ~11 | text | path validation, no auth layer | console logs |
