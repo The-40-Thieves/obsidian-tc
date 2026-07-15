@@ -641,23 +641,26 @@ export class ToolRegistry {
               // absent/oversized payload. A normal success always finalizes with size <= the budget,
               // so this never fires on a legitimate cached result.
               if (row.result_size != null && row.result_size > this.maxResponseBytes) {
+                // Hoist the narrowed size into a const so it stays `number` inside the meter closure
+                // (TS drops the `!= null` narrowing on a property access captured by a later-called fn).
+                const overSize = row.result_size;
                 const duration = Math.max(0, now() - start);
                 const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
-                  result_size: row.result_size,
+                  result_size: overSize,
                   limit: this.maxResponseBytes,
                 });
-                audit("error", duration, row.result_size, e.code);
+                audit("error", duration, overSize, e.code);
                 this.meter((m) => {
                   m.incIdempotencyHit(ctx.vaultId, name);
-                  m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, row.result_size);
+                  m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, overSize);
                 });
                 return {
                   ok: false,
                   error: e.toJSON(),
                   meta: {
                     duration_ms: duration,
-                    result_size: row.result_size,
-                    overflow_bytes: row.result_size - this.maxResponseBytes,
+                    result_size: overSize,
+                    overflow_bytes: overSize - this.maxResponseBytes,
                   },
                 };
               }
