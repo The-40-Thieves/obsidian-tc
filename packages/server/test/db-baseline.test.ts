@@ -58,7 +58,7 @@ describe.skipIf(!bsqlOk)("THE-273 db adapter baseline + statement cache", () => 
     const a = db.prepareCached?.("SELECT 1 AS x");
     const b = db.prepareCached?.("SELECT 1 AS x");
     expect(a).toBe(b);
-    expect((a?.get() as { x: number }).x).toBe(1);
+    expect((a?.get() as { x: number } | undefined)?.x).toBe(1);
     db.close?.();
     rmSync(dir, { recursive: true, force: true });
   });

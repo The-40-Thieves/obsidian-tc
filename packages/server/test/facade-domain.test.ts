@@ -65,8 +65,8 @@ describe("domain-verb facade (THE-275)", () => {
     expect(names).toEqual(["links", "notes", "search", "vault"]);
     const notes = tools.find((t) => t.name === "notes");
     const actions = (
-      (notes?.inputSchema as { properties?: { action?: { enum?: string[] } } }).properties?.action
-        ?.enum ?? []
+      (notes?.inputSchema as { properties?: { action?: { enum?: string[] } } } | undefined)
+        ?.properties?.action?.enum ?? []
     ).sort();
     expect(actions).toEqual(["delete_note", "read_note", "write_note"]);
     await client.close();
