@@ -9,10 +9,17 @@ class BgeReranker:
     def __init__(self, model_id: str, revision: str, device: str, max_length: int) -> None:
         # CrossEncoder (sentence-transformers), not FlagReranker: the latter trips a slow-tokenizer
         # bug ("XLMRobertaTokenizer has no attribute prepare_for_model") on this model.
+        import torch
         from sentence_transformers import CrossEncoder
 
+        # sentence-transformers 5.x passes device straight to torch.to(), which rejects "auto"
+        # (only concrete types like cuda/cpu). The encoder resolves it too; the reranker had relied
+        # on ST to resolve it, which broke across the ST 3 -> 5 major.
+        resolved = device
+        if device == "auto":
+            resolved = "cuda" if torch.cuda.is_available() else "cpu"
         self._model = CrossEncoder(
-            model_id, device=device, max_length=max_length, trust_remote_code=False
+            model_id, device=resolved, max_length=max_length, trust_remote_code=False
         )
         self.model_id = model_id
         self.revision = self._resolve_revision(model_id, revision)
