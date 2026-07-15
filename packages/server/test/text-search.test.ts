@@ -74,10 +74,16 @@ describe("searchRegex", () => {
 
   it("times out a catastrophic pattern that slips the heuristic, then recovers (THE-293)", async () => {
     const v = makeM2Vault({ files: { "evil.md": `b${"a".repeat(64)}c` } });
-    // No groups, so hasNestedQuantifier passes; exponential backtracking on a near-miss line.
-    // Alternation fan-out with no mandatory literal run the engine can pre-search for
-    // (a long a{n} suffix lets newer V8 fast-fail via memchr before any backtracking).
-    const evil = `${"(a|aa)".repeat(30)}b`;
+    // hasNestedQuantifier passes: the (a|aa) groups are concatenated (no `)` is ever
+    // immediately followed by `*` `+` or `{`), and the final group is followed by a
+    // backreference. That trailing `\1` is load-bearing; do NOT "simplify" it away. A
+    // backreference forces V8's Irregexp onto its plain backtracking interpreter, disabling
+    // the memchr/Boyer-Moore fast-fail and min-length pruning. Without it, a trailing literal
+    // (e.g. `...b`) lets V8 fast-fail in microseconds, so searchRegex resolves `[]` before the
+    // 50ms budget and this `.rejects` flakes (engine/JIT/version sensitive). With it, the
+    // exponential alternation fan-out backtracks every time and reliably exceeds 50ms (measured
+    // ~1.1s warm / ~6s cold per exec), so the worker is terminated on overrun.
+    const evil = `${"(a|aa)".repeat(22)}\\1c`;
     await expect(
       searchRegex(v.root, { pattern: evil, timeoutMs: 50, limit: 10 }),
     ).rejects.toMatchObject({ code: "compute_budget_exceeded" });
