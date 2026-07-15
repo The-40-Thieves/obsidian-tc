@@ -728,6 +728,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     }
     for (const plan of toApply) fireIndexHook(args.onIndexed, plan);
   };
+  // The two-transaction split (notes vs chunks) is a deliberate atomicity gap; it is safe ONLY because
+  // the next index_vault self-heals either side (an absent chunk set re-embeds; a missing notes row is
+  // rewritten). That invariant is pinned by test/index-selfheal.test.ts — do not break it.
   // THE-291: the notes/FTS pass is flushed INDEPENDENTLY of the chunk/embed pass, so a broken
   // embedding backend cannot block metadata/FTS readiness (they need no embeddings). Notes
   // batches commit inline during the walk; chunk plans still batch through the embed flush.
