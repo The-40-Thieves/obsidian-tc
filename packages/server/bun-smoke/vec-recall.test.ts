@@ -3,24 +3,19 @@
 // vec0 path is exercised — and the gate that enforces "CI has the extension": if
 // sqlite-vec fails to load on the runner, vec_enabled is false and this test fails.
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { openDatabase } from "../src/db/open";
+import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
 import { semanticSearch } from "../src/search/semantic";
 import { ensureVecChunks } from "../src/search/vec";
 
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
-
 test("sqlite-vec loads under bun:sqlite and vec0 recall ranks by cosine", async () => {
   const db = await openDatabase(":memory:");
-  db.exec(schemaSql);
+  provisionCacheDb(db);
 
   // The extension MUST load on this runtime — this is the CI gate.
   expect(ensureVecChunks(db, 32)).toBe(true);
@@ -57,7 +52,7 @@ test("sqlite-vec loads under bun:sqlite and vec0 recall ranks by cosine", async 
 
 test("semanticSearch degrades to brute force when the query dimension mismatches vec0 (no crash)", async () => {
   const db = await openDatabase(":memory:");
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   expect(ensureVecChunks(db, 32)).toBe(true); // vec_chunks is bound to 32 dims
 
   const root = mkdtempSync(join(tmpdir(), "obtc-vecdim-"));
@@ -82,7 +77,7 @@ test("semanticSearch degrades to brute force when the query dimension mismatches
 
 test("THE-277: legacy vec_chunks rebuilds to the partition/aux shape from stored embeddings; KNN identical", async () => {
   const db = await openDatabase(":memory:");
-  db.exec(schemaSql);
+  provisionCacheDb(db);
   // Hand-create the LEGACY shape (pre-partition) and seed via the authored stores. The
   // extension must be loaded on this fresh connection before any vec0 DDL.
   const { loadVec } = await import("../src/search/vec");

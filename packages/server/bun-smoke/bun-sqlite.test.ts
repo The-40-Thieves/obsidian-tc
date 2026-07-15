@@ -3,18 +3,12 @@
 // Bun executes it, exercising the real bun:sqlite path that node:sqlite tests
 // can't cover.
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { openDatabase } from "../src/db/open";
-
-const schemaSql = readFileSync(
-  fileURLToPath(new URL("../src/schema.sql", import.meta.url)),
-  "utf8",
-);
+import { provisionCacheDb } from "../src/db/provision";
 
 test("openDatabase selects bun:sqlite under Bun and round-trips the real schema", async () => {
   const db = await openDatabase(":memory:");
-  db.exec(schemaSql); // full V1 multi-statement DDL must apply cleanly
+  provisionCacheDb(db); // full migration chain must apply cleanly under bun:sqlite
   db.exec("CREATE TABLE _t (id INTEGER PRIMARY KEY, v TEXT);");
   const r = db.prepare("INSERT INTO _t (v) VALUES (?)").run("x");
   expect(r.changes).toBe(1);

@@ -10,8 +10,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = join(root, "dist");
 mkdirSync(dist, { recursive: true });
 cpSync(join(root, "src", "migrations"), join(dist, "migrations"), { recursive: true });
-cpSync(join(root, "src", "schema.sql"), join(dist, "schema.sql"));
-console.log("copied SQL assets -> dist/");
+console.log("copied migration assets -> dist/");
 
 // Make dist/cli.js a proper executable. `bun build` emits no shebang, so the published `bin`
 // starts with `import{...}` and has none. npm's launcher shim only inserts the interpreter when it
