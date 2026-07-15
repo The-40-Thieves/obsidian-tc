@@ -266,23 +266,25 @@ otherwise.
 
 ---
 
-## 8. Vault conventions (example house style, adapt to yours)
+## 8. Vault conventions (a synthetic example, adapt to yours)
 
-This is one real vault's structure and rules. It is a good default; change folder
-names and fields to match yours. The point is **consistency**: a vault only
-compounds if every write lands in the right place with the right metadata.
+This is a synthetic example convention set, not any real vault, following a
+numbered-folder (PARA-style) taxonomy with generic placeholder categories. It is a
+reasonable default; change the categories and fields to match yours. The point is
+**consistency**: a vault only compounds if every write lands in the right place
+with the right metadata.
 
 **Folder routing**
 
 | Folder | For | Filename |
 | --- | --- | --- |
 | `00-inbox/` | raw captures awaiting routing | `YYYY-MM-DD-topic.md` |
-| `01-daily/` | day log (append only) | `YYYY-MM-DD.md` |
-| `02-projects/` | active project state, one per project | `kebab-case.md` |
-| `03-health/` | personal/health notes (often ACL-restricted) | free-form |
-| `04-writing/` | drafts, briefs, published | `slug.md` |
-| `05-creative/` | fiction / worldbuilding canon | `Title Case.md` |
-| `06-music/` | tool docs, prompts, releases | per subtype |
+| `01-daily/` | daily log (append only) | `YYYY-MM-DD.md` |
+| `02-projects/` | active projects, one per project | `kebab-case.md` |
+| `03-areas/` | ongoing areas of responsibility (ACL-restrict any sensitive ones) | free-form |
+| `04-writing/` | drafts and published pieces | `slug.md` |
+| `05-resources/<topic>/` | reference material by topic | `Title Case.md` |
+| `06-media/` | media project notes | per subtype |
 | `07-people/` | one note per person | `First Last.md` |
 | `08-research/<domain>/` | structured research | `Title Case.md` |
 | `09-reference/` | evergreen protocols, registries, indexes | `Title Case.md` |

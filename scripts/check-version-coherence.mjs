@@ -143,6 +143,7 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
     ["README.md", /Shipped v(\d+\.\d+\.\d+)/],
     ["packages/server/README.md", /Shipped\D+v(\d+\.\d+\.\d+)/],
     ["docs/src/content/docs/index.md", /v(\d+\.\d+\.\d+) is the current release/],
+    ["docs/src/content/docs/roadmap.md", /Shipped \(current: v(\d+\.\d+\.\d+)\)/],
   ];
   const vdrift = [];
   for (const [file, re] of anchors) {
