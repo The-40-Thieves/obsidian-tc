@@ -1,7 +1,7 @@
 [package]
 name = "obsidian-tc-native"
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
 license = "AGPL-3.0-only"
 description = "Native perf module for obsidian-tc"
 repository = "https://github.com/The-40-Thieves/obsidian-tc"
@@ -29,7 +29,7 @@ napi-build = "2"
 # THE-272: symlink-safe, TOCTOU-free vault file I/O via per-component openat(O_NOFOLLOW). Unix only —
 # the Windows path uses std (symlink creation there is admin/developer-mode gated).
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "0.38", features = ["fs"] }
+rustix = { version = "1", features = ["fs"] }
 
 [profile.release]
 lto = true
