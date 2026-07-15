@@ -3,7 +3,6 @@
 // notes through the read ACL (per-source), writes only the index DB.
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { indexVault } from "../../search/indexer";
 import { enforcePathAcl } from "../../vault/acl-path";

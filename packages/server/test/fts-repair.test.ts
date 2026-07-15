@@ -1,19 +1,10 @@
-// The notes/notes_fts divergence repair must never delete the DURABLE table.
-//
-// notes_fts is runtime-provisioned (no migration creates it) and upsertNoteRow writes it only when
-// hasFts. So a single run under OBSIDIAN_TC_DISABLE_FTS=1 — or one swallowed error inside
-// ensureNotesFts, which memoizes hasFts=false for the whole connection — leaves `notes` populated and
-// `notes_fts` empty. The repair then read nFts=0, concluded every note was an orphan, and deleted all of
-// them. Because ensureNotesFts is called from indexNote() (the SINGLE-note path), one file save wiped the
-// vault's note metadata and re-added exactly one row.
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import { ensureNotesFts, upsertNoteRow } from "../src/search/fts";
 import { openMemoryDb } from "./helpers";
 
-const SRC = fileURLToPath(new URL("../src", import.meta.url));
+const _SRC = fileURLToPath(new URL("../src", import.meta.url));
 const FTS_DDL =
   "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(vault_id UNINDEXED, path, title, content, tokenize='trigram')";
 

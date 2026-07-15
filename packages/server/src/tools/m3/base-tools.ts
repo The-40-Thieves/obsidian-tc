@@ -20,7 +20,6 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import type { FolderAcl } from "../../acl";
 import { BaseDoc, baseViews, parseBase, selectView, serializeBase } from "../../formats/base";
 import {
   type BasesNoteCtx,

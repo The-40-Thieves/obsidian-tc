@@ -16,7 +16,6 @@ import { parseCliArgs, redactConfig, resolveServeConfig, USAGE } from "./cli/arg
 import { installPlugin } from "./cli/plugin-install";
 import { provisionExperientialDb } from "./db/experiential";
 import { startMaintenanceSweep } from "./db/maintenance";
-import { runMigrations } from "./db/migrate";
 import { openDatabase } from "./db/open";
 import { provisionCacheDb } from "./db/provision";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
@@ -140,12 +139,12 @@ function resolveOrUsageExit(input?: string): ServerConfig {
   }
 }
 
-async function run_version(cmd: Cmd<"version">): Promise<void> {
+async function run_version(_cmd: Cmd<"version">): Promise<void> {
   process.stdout.write(`${VERSION}\n`);
   return;
 }
 
-async function run_help(cmd: Cmd<"help">): Promise<void> {
+async function run_help(_cmd: Cmd<"help">): Promise<void> {
   process.stdout.write(USAGE);
   return;
 }

@@ -14,7 +14,6 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import type { FolderAcl } from "../../acl";
 import {
   CanvasDoc,
   CanvasEdge,
