@@ -4,7 +4,6 @@
     "noEmit": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
       "@the-40-thieves/obsidian-tc-shared": ["../shared/src/index.ts"]
     }
