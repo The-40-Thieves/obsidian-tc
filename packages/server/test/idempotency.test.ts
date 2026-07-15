@@ -289,6 +289,32 @@ describe("dispatch idempotency metrics (THE-197)", () => {
       'obsidian_tc_idempotency_cache_skipped_total{vault="v1",tool="big_keyed"} 1',
     );
   });
+
+  it("replays the overflow error on retry without re-executing the committed effect", async () => {
+    const db = freshDb();
+    const metrics = new MetricsRecorder();
+    let runs = 0;
+    const reg = new ToolRegistry({ metrics, maxResponseBytes: 10 });
+    reg.register({
+      name: "big_keyed2",
+      description: "big keyed write with a side effect",
+      inputSchema: z.object({ idempotency_key: z.string().optional() }),
+      requiredScopes: ["write:notes"],
+      handler: () => {
+        runs += 1;
+        return { blob: "x".repeat(1000) };
+      },
+    });
+    const first = await reg.dispatch("big_keyed2", { idempotency_key: "K" }, ctx(db));
+    expect(first.ok).toBe(false);
+    if (!first.ok) expect(first.error.code).toBe("overflow");
+    expect(runs).toBe(1);
+    // retry with the same key: the committed effect must NOT run again; replay the overflow error.
+    const second = await reg.dispatch("big_keyed2", { idempotency_key: "K" }, ctx(db));
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.error.code).toBe("overflow");
+    expect(runs).toBe(1);
+  });
 });
 
 describe("idempotency reclaim window (THE-293)", () => {

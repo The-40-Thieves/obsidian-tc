@@ -95,6 +95,8 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
   const targets = [
     ["README.md", /~?(\d+) governed capabilities/],
     ["README.md", /\*\*~?(\d+) tools across 31 domains\*\*/],
+    // comparison-table cell — was a stale "~123" outside the inventory until the 2026-07-15 audit.
+    ["README.md", /\*\*obsidian-tc\*\* \| ~?(\d+) \(3-tool facade\)/],
     ["packages/server/README.md", /\((\d+) tools across 31 domains/],
     ["ARCHITECTURE.md", /(\d+)-tool G2\.1 surface/],
     ["docs/src/content/docs/index.md", /~?(\d+) typed tools/],

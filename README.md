@@ -3,7 +3,7 @@
 > Obsidian Turbocharged — governed, agent-ready vault access over MCP.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-![Status: Shipped v1.9.0](https://img.shields.io/badge/Status-Shipped_v1.9.0-success)
+![Status: Shipped v1.9.1](https://img.shields.io/badge/Status-Shipped_v1.9.1-success)
 
 ```bash
 npm install -g obsidian-tc      # Node >= 24 or Bun >= 1.1
@@ -43,7 +43,7 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 
 ## Status
 
-✅ **Shipped — v1.9.0** (2026-07-12). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.9.0`. The surface is **141 tools across 31 domains**, presented by default via the triad facade described above.
+✅ **Shipped — v1.9.1** (2026-07-12). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.9.1`. The surface is **141 tools across 31 domains**, presented by default via the triad facade described above.
 
 The v1.6–v1.7 line turned the server into a **measured memory engine** (full detail in the [CHANGELOG](./CHANGELOG.md)):
 
@@ -197,7 +197,7 @@ servers (tool counts and features as of 2026-07 — these projects move; check t
 
 | | Tools | Search | Auth / ACL / HITL | Observability |
 |---|---|---|---|---|
-| **obsidian-tc** | ~123 (3-tool facade) | FTS5 BM25 · vector (vec0) · GraphRAG RRF | JWT (HS256/JWKS) + per-vault folder ACL + HITL elicit | OTel + Prometheus + CloudEvents |
+| **obsidian-tc** | 141 (3-tool facade) | FTS5 BM25 · vector (vec0) · GraphRAG RRF | JWT (HS256/JWKS) + per-vault folder ACL + HITL elicit | OTel + Prometheus + CloudEvents |
 | [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~14 | text / regex | JWT/OAuth + folder-scoped paths + read-only mode + HITL; MCP 2025-11-25 pagination | console logs |
 | [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian) | ~13 | text + JsonLogic / DQL | Local REST API key | console logs |
 | [StevenStavrakis/obsidian-mcp](https://github.com/StevenStavrakis/obsidian-mcp) | ~11 | text | path validation, no auth layer | console logs |

@@ -635,6 +635,35 @@ export class ToolRegistry {
                 { key: idemKey },
               );
             if (row.completed_at != null) {
+              // Terminal-overflow replay: the original call committed its side effect but its response
+              // exceeded the byte budget, so the claim was finalized with the real over-limit size and
+              // no payload. Replay the SAME overflow error rather than re-executing or returning an
+              // absent/oversized payload. A normal success always finalizes with size <= the budget,
+              // so this never fires on a legitimate cached result.
+              if (row.result_size != null && row.result_size > this.maxResponseBytes) {
+                // Hoist the narrowed size into a const so it stays `number` inside the meter closure
+                // (TS drops the `!= null` narrowing on a property access captured by a later-called fn).
+                const overSize = row.result_size;
+                const duration = Math.max(0, now() - start);
+                const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
+                  result_size: overSize,
+                  limit: this.maxResponseBytes,
+                });
+                audit("error", duration, overSize, e.code);
+                this.meter((m) => {
+                  m.incIdempotencyHit(ctx.vaultId, name);
+                  m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, overSize);
+                });
+                return {
+                  ok: false,
+                  error: e.toJSON(),
+                  meta: {
+                    duration_ms: duration,
+                    result_size: overSize,
+                    overflow_bytes: overSize - this.maxResponseBytes,
+                  },
+                };
+              }
               try {
                 const cachedStr = bufToString(row.result);
                 const cached = JSON.parse(cachedStr) as unknown;
@@ -754,16 +783,17 @@ export class ToolRegistry {
       const duration = Math.max(0, now() - start);
 
       if (resultSize > this.maxResponseBytes) {
-        // KNOWN GAP (idempotency post-effect retry, tracked separately): the handler's side effect
-        // has already committed by here, but deleting the claim lets a retry with the same key
-        // re-execute it. The real fix is a durable claim state-machine (effect-committed vs
-        // response-recorded); intentionally not changed in this hardening pass to keep it low-risk.
+        // Idempotency post-effect: the handler's side effect has ALREADY committed by here. Do not
+        // delete the claim — that would let a retry with the same key re-execute the committed effect.
+        // Instead FINALIZE it with the real over-limit size and a tiny marker (never the oversized
+        // payload), so a retry replays the same overflow error via the result_size re-check on the
+        // claimed-row path. The effect runs at most once; the terminal outcome is stable.
         if (idemClaimed && idemKey) {
           this.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
           try {
-            this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+            this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, "null", resultSize, now());
           } catch {
-            /* best-effort cleanup */
+            /* best-effort: record the terminal overflow so retries do not re-execute */
           }
         }
         const e = new ObsidianTcError("overflow", "response exceeds byte budget", {

@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-07-15
+
 ### Added
 
 - **Graph densification (experimental, off by default)** (#250): derived edges
@@ -25,9 +27,46 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   kind), and a new `obsidian-tc densify-llm [path] [--vault id]` CLI runner builds
   the LLM Pass-3 `semantically_similar_to` layer via the local gateway (refuses if
   no gateway resolves). Both off by default.
+- **Experiential activation recompute on the serve path** (#259): the ACT-R
+  activation recompute now runs during `serve` (gated on capture, on the
+  maintenance cadence), not only via the CLI, so cached activation scores stay
+  fresh as retrieval logs accrue. `activationRerank` remains off by default.
 
 ### Fixed
 
+- **Data-loss fix (affects v1.9.0): the FTS divergence repair deleted durable
+  note metadata.** `ensureNotesFts` treated an empty or absent derived
+  `notes_fts` index as authoritative and ran `DELETE FROM notes` (the durable
+  table). Reachable without corruption via the supported `OBSIDIAN_TC_DISABLE_FTS=1`
+  flag (or a swallowed FTS error): one run leaves `notes` populated and
+  `notes_fts` empty or absent, and the next wipes note metadata (on the
+  single-note index path, one file save wiped the vault and re-added one row),
+  silently degrading FTS/lexical search until a full re-index. The repair now only
+  prunes FTS orphans and blanks the stale `content_hash`; it never deletes from
+  `notes`.
+- **Read-ACL: `strictReadDefault` was ignored in 8 tool files (affects v1.9.0).**
+  Consolidated to a single read-ACL predicate so `strictReadDefault` is honored
+  uniformly across the frontmatter / graph-health / links / notes / tags / index /
+  search / base / canvas / kanban / periodic / tasks / knowledge read tools; added
+  ACL single-source and enumeration regression tests.
+- **Idempotency post-effect retry no longer re-executes a committed side effect.**
+  When a keyed write's response exceeded the byte budget, the claim was deleted, so
+  a retry with the same key re-ran the already-committed effect. The claim is now
+  finalized with the terminal overflow outcome and the replay path re-checks the
+  budget, so a retry replays the overflow error instead of re-executing.
+- **Built-CLI asset resolution** (in the bundle, not source): the migrations
+  directory and cache provisioning now resolve against the built `dist` bundle, so
+  the shipped CLI boots. The regression was invisible to the source tests and caught
+  only by the install-smoke.
+- **ReDoS in the vault-leak guard's path regex** removed (`js/redos`).
+- **BGE-M3 reranker `device="auto"`** is resolved to cuda/cpu before
+  `CrossEncoder` (sentence-transformers 5.x passes device straight to
+  `torch.to()`, which rejects "auto"), so the optional service loads its reranker
+  under default config (#263).
+- **Config off-switches**: `retrieval.densify.llmEdges` is now a real off-switch,
+  and four keys that gated nothing were removed.
+- Doc coherence: the README comparison-table tool count (`~123` to 141) is now
+  covered by the version-coherence gate.
 - **Graph densification correctness hardening** (external audit of the first cut;
   all in the dark, unreleased feature — no v1.9.0 behaviour changes): a failed
   gateway run no longer erases the LLM edge layer (`extractSemanticEdges` reports
@@ -43,6 +82,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   stale" (no sweep exists yet), and the prompt-injection wrapping is
   defense-in-depth, not a guarantee of inertness — the output contract (known
   paths + discrete confidences) is the real blast-radius limit.
+
+### Security
+
+- **Repository vault-data containment.** The multi-hop golden set is private vault
+  data and is no longer committed (moved out of the repo); a CI guard now rejects
+  vault data (databases, golden-set shapes, known vault paths) before it can land;
+  and a real vault path that a merge brought onto `main` was scrubbed.
+
+### Documentation
+
+- **Agent onboarding guide** (`SKILLS.md`, #265): a working guide for AI agents and
+  the humans configuring them, covering the governance mental model, setup and the
+  companion plugin, the find/describe/call discovery loop, a capability map by
+  intent, the genuinely new features, safe-operation rules, agent playbooks, an
+  example vault-convention set, and a config quick reference.
 
 ## [1.9.0] - 2026-07-13
 
