@@ -32,7 +32,7 @@
     "release": "bun scripts/release.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.15",
+    "@biomejs/biome": "^2.5.4",
     "typescript": "^5.7.0"
   },
   "engines": {
