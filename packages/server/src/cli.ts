@@ -129,543 +129,513 @@ const experientialMigrations = [
   { version: "20260712_002", sql: accessViewsMigrationSql },
   { version: "20260712_003", sql: forgetLogMigrationSql },
 ];
-async function main(): Promise<void> {
-  const cmd = parseCliArgs(process.argv.slice(2));
-  if (cmd.kind === "version") {
-    process.stdout.write(`${VERSION}\n`);
-    return;
-  }
-  if (cmd.kind === "help") {
-    process.stdout.write(USAGE);
-    return;
-  }
-  if (cmd.kind === "error") {
-    process.stderr.write(`${cmd.message}\n\n${USAGE}`);
+type Cmd<K extends string> = Extract<ReturnType<typeof parseCliArgs>, { kind: K }>;
+
+function resolveOrUsageExit(input?: string): ServerConfig {
+  try {
+    return resolveServeConfig(input);
+  } catch (e) {
+    process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
     process.exit(2);
   }
-  if (cmd.kind === "plugin-install") {
-    const pluginSrcDir = fileURLToPath(new URL("./plugin/", import.meta.url));
-    try {
-      const r = installPlugin(cmd.vaultPath, pluginSrcDir);
-      process.stdout.write(
-        `installed ${r.pluginName} v${r.pluginVersion} -> ${r.dest}\n` +
-          `Enable it in Obsidian: Settings -> Community plugins -> ${r.pluginId}.\n`,
-      );
-    } catch (e) {
-      process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
-      process.exit(2);
-    }
-    return;
-  }
-  // resolveServeConfig surfaces user-facing CliErrors (no path given, missing file, bad
-  // config). Both the `config` subcommands and `serve` treat these as usage errors: print the
-  // message + usage to stderr and exit 2, distinct from the `fatal:`/exit 1 in main().catch
-  // that is reserved for genuine server crashes.
-  const resolveOrUsageExit = (input?: string): ServerConfig => {
-    try {
-      return resolveServeConfig(input);
-    } catch (e) {
-      process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
-      process.exit(2);
-    }
-  };
-  if (cmd.kind === "config-show" || cmd.kind === "config-validate") {
-    const resolved = resolveOrUsageExit(cmd.configPath);
+}
+
+async function run_version(cmd: Cmd<"version">): Promise<void> {
+  process.stdout.write(`${VERSION}\n`);
+  return;
+}
+
+async function run_help(cmd: Cmd<"help">): Promise<void> {
+  process.stdout.write(USAGE);
+  return;
+}
+
+async function run_error(cmd: Cmd<"error">): Promise<void> {
+  process.stderr.write(`${cmd.message}\n\n${USAGE}`);
+  process.exit(2);
+}
+
+async function run_plugin_install(cmd: Cmd<"plugin-install">): Promise<void> {
+  const pluginSrcDir = fileURLToPath(new URL("./plugin/", import.meta.url));
+  try {
+    const r = installPlugin(cmd.vaultPath, pluginSrcDir);
     process.stdout.write(
-      cmd.kind === "config-show"
-        ? `${JSON.stringify(redactConfig(resolved), null, 2)}\n`
-        : "config valid\n",
+      `installed ${r.pluginName} v${r.pluginVersion} -> ${r.dest}\n` +
+        `Enable it in Obsidian: Settings -> Community plugins -> ${r.pluginId}.\n`,
     );
-    return;
+  } catch (e) {
+    process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
+    process.exit(2);
   }
+  return;
+}
 
-  // THE-73 Phase 2: offline chunk clustering (populates chunks.cluster_id for the graph_search
-  // diversification cap). Reuses the serve config + cache.db; does not start a server.
-  if (cmd.kind === "cluster") {
-    const clusterConfig = resolveOrUsageExit(cmd.input);
-    mkdirSync(clusterConfig.cacheDir, { recursive: true });
-    const clusterDb = await openDatabase(join(clusterConfig.cacheDir, "cache.db"));
-    try {
-      let total = 0;
-      for (const v of clusterConfig.vaults) {
-        const stats = assignClusters(clusterDb, v.id, cmd.k !== undefined ? { k: cmd.k } : {});
-        if (stats) {
-          total += stats.chunks;
-          process.stdout.write(
-            `clustered ${v.id}: ${stats.chunks} chunks -> ${stats.k} clusters (${stats.iters} iters)\n`,
-          );
-        } else {
-          process.stdout.write(`clustered ${v.id}: no embedded chunks (run index_vault first)\n`);
-        }
+async function run_config_show(cmd: Cmd<"config-show" | "config-validate">): Promise<void> {
+  const resolved = resolveOrUsageExit(cmd.configPath);
+  process.stdout.write(
+    cmd.kind === "config-show"
+      ? `${JSON.stringify(redactConfig(resolved), null, 2)}\n`
+      : "config valid\n",
+  );
+  return;
+}
+
+async function run_cluster(cmd: Cmd<"cluster">): Promise<void> {
+  const clusterConfig = resolveOrUsageExit(cmd.input);
+  mkdirSync(clusterConfig.cacheDir, { recursive: true });
+  const clusterDb = await openDatabase(join(clusterConfig.cacheDir, "cache.db"));
+  try {
+    let total = 0;
+    for (const v of clusterConfig.vaults) {
+      const stats = assignClusters(clusterDb, v.id, cmd.k !== undefined ? { k: cmd.k } : {});
+      if (stats) {
+        total += stats.chunks;
+        process.stdout.write(
+          `clustered ${v.id}: ${stats.chunks} chunks -> ${stats.k} clusters (${stats.iters} iters)\n`,
+        );
+      } else {
+        process.stdout.write(`clustered ${v.id}: no embedded chunks (run index_vault first)\n`);
       }
-      process.stdout.write(
-        `done: ${total} chunks across ${clusterConfig.vaults.length} vault(s)\n`,
-      );
-    } finally {
-      clusterDb.close?.();
     }
-    return;
+    process.stdout.write(`done: ${total} chunks across ${clusterConfig.vaults.length} vault(s)\n`);
+  } finally {
+    clusterDb.close?.();
   }
+  return;
+}
 
-  // THE-227: offline ACT-R activation recompute — reads chunk_retrievals and writes
-  // cached_activation_score into vault_object_state (both in the experiential store), so
-  // bubble_safe_rerank becomes non-inert once retrieval logging has populated the log.
-  if (cmd.kind === "activation-recompute") {
-    const actCfg = resolveOrUsageExit(cmd.input);
-    mkdirSync(actCfg.cacheDir, { recursive: true });
-    const edb = await provisionExperientialDb(actCfg.cacheDir, experientialMigrations, {
-      version: VERSION,
-    });
-    try {
-      const stats = recomputeActivation(edb, Date.now());
-      process.stdout.write(`activation recompute: ${stats.chunks} chunk(s) updated\n`);
-    } finally {
-      edb.close?.();
-    }
-    return;
+async function run_activation_recompute(cmd: Cmd<"activation-recompute">): Promise<void> {
+  const actCfg = resolveOrUsageExit(cmd.input);
+  mkdirSync(actCfg.cacheDir, { recursive: true });
+  const edb = await provisionExperientialDb(actCfg.cacheDir, experientialMigrations, {
+    version: VERSION,
+  });
+  try {
+    const stats = recomputeActivation(edb, Date.now());
+    process.stdout.write(`activation recompute: ${stats.chunks} chunk(s) updated\n`);
+  } finally {
+    edb.close?.();
   }
+  return;
+}
 
-  // THE-170: on-demand citation inference — stage 1 ROUGE-L + stored-embedding cosine over a
-  // session transcript, stage 2 judge via the gateway role seam (5% parse kill switch), then
-  // stamp cited_in_response / citation_score on the scoped chunk_retrievals rows.
-  // Graph densification LLM Pass-3 batch (docs/plans/2026-07-13-graph-densification.md): infer semantic
-  // edges via the LOCAL gateway (extract role -> local model) and reconcile them into vault_edges. The
-  // gateway must be configured; without it the extractor is a no-op, so refuse rather than write nothing.
-  if (cmd.kind === "densify-llm") {
-    const cfg = resolveOrUsageExit(cmd.input);
-    // retrieval.densify.llmEdges is the off-switch for the LLM edge layer — the one code path that sends
-    // note CONTENT to a model. It is checked FIRST: before the cache db is opened, before a gateway
-    // client is built. It used to be checked last, so the gateway-missing error fired ahead of it and an
-    // operator on a host with no gateway was told the wrong thing entirely — never learning the feature
-    // was simply disabled. A safety gate that only fires once the unsafe machinery is already set up is a
-    // gate in name only.
-    if (cfg.retrieval?.densify?.llmEdges !== true) {
-      process.stderr.write(
-        "densify-llm is disabled: set retrieval.densify.llmEdges = true in your config to enable it.\n" +
-          "It sends note content to the configured model (local gateway by default), so it is opt-in.\n",
-      );
-      process.exit(2);
-    }
-    mkdirSync(cfg.cacheDir, { recursive: true });
-    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
-    let gwc: GatewayClient | null = null;
-    try {
-      gwc = createGatewayClient({});
-    } catch {
-      gwc = null;
-    }
-    if (!gwc) {
-      process.stderr.write(
-        "densify-llm requires a configured inference gateway (extract role -> local model); none resolved.\n",
-      );
-      cacheDb.close?.();
-      process.exit(2);
-    }
-    const floor = cfg.retrieval?.densify?.confidenceFloor;
-    try {
-      const vaultIds = cmd.vault ? [cmd.vault] : cfg.vaults.map((v) => v.id);
-      for (const vid of vaultIds) {
-        const res = await runLlmDensify(cacheDb, vid, gwc, {
-          ...(floor !== undefined ? { confidenceFloor: floor } : {}),
-        });
-        process.stdout.write(`densify-llm[${vid}]: notes=${res.notes} edges=${res.edges}\n`);
-      }
-    } finally {
-      cacheDb.close?.();
-    }
-    return;
+async function run_densify_llm(cmd: Cmd<"densify-llm">): Promise<void> {
+  const cfg = resolveOrUsageExit(cmd.input);
+  // retrieval.densify.llmEdges is the off-switch for the LLM edge layer — the one code path that sends
+  // note CONTENT to a model. It is checked FIRST: before the cache db is opened, before a gateway
+  // client is built. It used to be checked last, so the gateway-missing error fired ahead of it and an
+  // operator on a host with no gateway was told the wrong thing entirely — never learning the feature
+  // was simply disabled. A safety gate that only fires once the unsafe machinery is already set up is a
+  // gate in name only.
+  if (cfg.retrieval?.densify?.llmEdges !== true) {
+    process.stderr.write(
+      "densify-llm is disabled: set retrieval.densify.llmEdges = true in your config to enable it.\n" +
+        "It sends note content to the configured model (local gateway by default), so it is opt-in.\n",
+    );
+    process.exit(2);
   }
-
-  if (cmd.kind === "citation-infer") {
-    const cfg = resolveOrUsageExit(cmd.input);
-    if (!cmd.transcript || (!cmd.session && cmd.since === undefined)) {
-      process.stderr.write(
-        `citation-infer requires --transcript <file> and --session <id> or --since <ms> [--until <ms>]\n\n${USAGE}`,
-      );
-      process.exit(2);
-    }
-    const transcript = readFileSync(cmd.transcript, "utf8");
-    mkdirSync(cfg.cacheDir, { recursive: true });
-    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
-    const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
-      version: VERSION,
-    });
-    let gwc: GatewayClient | null = null;
-    try {
-      gwc = createGatewayClient({});
-    } catch {
-      gwc = null;
-    }
-    const provider = createEmbeddingProvider(cfg.embeddings);
-    try {
-      const stats = await inferCitations({
-        edb,
-        cacheDb,
-        transcript,
-        ...(cmd.session ? { sessionId: cmd.session } : {}),
-        ...(cmd.since !== undefined
-          ? { windowMs: [cmd.since, cmd.until ?? Date.now()] as [number, number] }
-          : {}),
-        embed: (texts) => provider.embed(texts, { input: "query" }),
-        judge: gwc ? (r) => gwc.judge(r).then((x) => ({ text: x.text, model: x.model })) : null,
-        log: (s) => process.stderr.write(`${s}\n`),
+  mkdirSync(cfg.cacheDir, { recursive: true });
+  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  let gwc: GatewayClient | null = null;
+  try {
+    gwc = createGatewayClient({});
+  } catch {
+    gwc = null;
+  }
+  if (!gwc) {
+    process.stderr.write(
+      "densify-llm requires a configured inference gateway (extract role -> local model); none resolved.\n",
+    );
+    cacheDb.close?.();
+    process.exit(2);
+  }
+  const floor = cfg.retrieval?.densify?.confidenceFloor;
+  try {
+    const vaultIds = cmd.vault ? [cmd.vault] : cfg.vaults.map((v) => v.id);
+    for (const vid of vaultIds) {
+      const res = await runLlmDensify(cacheDb, vid, gwc, {
+        ...(floor !== undefined ? { confidenceFloor: floor } : {}),
       });
-      process.stdout.write(
-        `citation-infer: scoped=${stats.scoped} stage1Pass=${stats.stage1Pass} judged=${stats.judged} cited=${stats.cited} parseFailures=${stats.parseFailures}${stats.aborted ? " ABORTED(kill-switch)" : ""}\n`,
-      );
-    } finally {
-      edb.close?.();
-      cacheDb.close?.();
+      process.stdout.write(`densify-llm[${vid}]: notes=${res.notes} edges=${res.edges}\n`);
     }
-    return;
+  } finally {
+    cacheDb.close?.();
   }
+  return;
+}
 
-  // THE-249: per-note output-contribution report — cited_in_response credits aggregated per
-  // path (top contributors + the dead-retrieved review list), replacing the manual audit.
-  if (cmd.kind === "contribution-report") {
-    const cfg = resolveOrUsageExit(cmd.input);
-    mkdirSync(cfg.cacheDir, { recursive: true });
-    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
-    const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
-      version: VERSION,
-    });
-    try {
-      const report = contributionReport(edb, cacheDb, {
-        ...(cmd.since !== undefined ? { since: cmd.since } : {}),
-        ...(cmd.until !== undefined ? { until: cmd.until } : {}),
-      });
-      const top = report.notes.slice(0, 20);
-      const dead = report.notes.filter((n) => n.contributions === 0).slice(0, 20);
-      process.stdout.write(
-        `contribution-report: ${report.totals.retrievedPaths} retrieved path(s), ` +
-          `${report.totals.contributingPaths} contributing, ${report.totals.deadRetrievedPaths} dead-retrieved\n`,
-      );
-      for (const n of top) {
-        process.stdout.write(
-          `  ${n.contributions}/${n.retrievals}  ${n.path}${n.callers.length ? ` [${n.callers.join(",")}]` : ""}\n`,
-        );
-      }
-      if (dead.length > 0) {
-        process.stdout.write("dead-retrieved (retrieved, never cited):\n");
-        for (const n of dead) process.stdout.write(`  0/${n.retrievals}  ${n.path}\n`);
-      }
-      if (cmd.json) {
-        writeFileSync(cmd.json, JSON.stringify(report, null, 2));
-        process.stdout.write(`wrote ${cmd.json}\n`);
-      }
-    } finally {
-      edb.close?.();
-      cacheDb.close?.();
-    }
-    return;
+async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<void> {
+  const cfg = resolveOrUsageExit(cmd.input);
+  if (!cmd.transcript || (!cmd.session && cmd.since === undefined)) {
+    process.stderr.write(
+      `citation-infer requires --transcript <file> and --session <id> or --since <ms> [--until <ms>]\n\n${USAGE}`,
+    );
+    process.exit(2);
   }
-
-  // THE-239: dependency-aware deletion. Tombstone/erase one episode or propagate a note
-  // deletion through the derived stores; every forget appends to the hash-chained audit log.
-  if (cmd.kind === "forget") {
-    const cfg = resolveOrUsageExit(cmd.input);
-    if (!cmd.episode && !cmd.note && !cmd.verify) {
-      process.stderr.write(
-        `forget requires --episode <id>, --note <rel-path>, or --verify\n\n${USAGE}`,
-      );
-      process.exit(2);
-    }
-    mkdirSync(cfg.cacheDir, { recursive: true });
-    const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
-      version: VERSION,
+  const transcript = readFileSync(cmd.transcript, "utf8");
+  mkdirSync(cfg.cacheDir, { recursive: true });
+  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+    version: VERSION,
+  });
+  let gwc: GatewayClient | null = null;
+  try {
+    gwc = createGatewayClient({});
+  } catch {
+    gwc = null;
+  }
+  const provider = createEmbeddingProvider(cfg.embeddings);
+  try {
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript,
+      ...(cmd.session ? { sessionId: cmd.session } : {}),
+      ...(cmd.since !== undefined
+        ? { windowMs: [cmd.since, cmd.until ?? Date.now()] as [number, number] }
+        : {}),
+      embed: (texts) => provider.embed(texts, { input: "query" }),
+      judge: gwc ? (r) => gwc.judge(r).then((x) => ({ text: x.text, model: x.model })) : null,
+      log: (s) => process.stderr.write(`${s}\n`),
     });
-    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
-    try {
-      if (cmd.verify) {
-        const v = verifyForgetLog(edb);
-        process.stdout.write(
-          v.ok
-            ? `forget-log OK: ${v.entries} entr${v.entries === 1 ? "y" : "ies"}, chain intact\n`
-            : `forget-log BROKEN at seq ${v.breakAt} (${v.entries} entries)\n`,
-        );
-        if (!v.ok) process.exit(1);
-        return;
-      }
-      const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
-      if (cmd.episode) {
-        const r = forgetEpisode(edb, cmd.episode, {
-          nowMs: Date.now(),
-          ...(cmd.erase ? { erase: true } : {}),
-        });
-        if (!r.found) {
-          process.stderr.write(`forget: episode ${cmd.episode} not found\n`);
-          process.exit(1);
-        }
-        process.stdout.write(
-          `forgot episode ${cmd.episode} (${cmd.erase ? "erase" : "tombstone"})${r.already_blocked ? " [was already blocked]" : ""}` +
-            `${r.scrubbed_fields > 0 ? " content scrubbed" : ""}` +
-            `${r.preference_evidence_mentions > 0 ? `; NOTE: ${r.preference_evidence_mentions} preference-delta evidence mention(s) (append-only, review manually)` : ""}\n`,
-        );
-        return;
-      }
-      const rel = (cmd.note as string).replace(/\\/g, "/");
-      const vault = cfg.vaults.find((v) => v.id === vaultId);
-      const abs = vault ? join(vault.path, rel) : null;
-      if (abs && existsSync(abs)) {
-        process.stderr.write(
-          `forget: ${rel} still exists in the vault — delete the note first (delete_note or file manager), then forget propagates the derived state\n`,
-        );
-        process.exit(1);
-      }
-      const memFolder = vault?.memory?.folder ?? DEFAULT_MEMORY_FOLDER;
-      const r = forgetNote(edb, cacheDb, {
-        vaultId,
-        relPath: rel,
+    process.stdout.write(
+      `citation-infer: scoped=${stats.scoped} stage1Pass=${stats.stage1Pass} judged=${stats.judged} cited=${stats.cited} parseFailures=${stats.parseFailures}${stats.aborted ? " ABORTED(kill-switch)" : ""}\n`,
+    );
+  } finally {
+    edb.close?.();
+    cacheDb.close?.();
+  }
+  return;
+}
+
+async function run_contribution_report(cmd: Cmd<"contribution-report">): Promise<void> {
+  const cfg = resolveOrUsageExit(cmd.input);
+  mkdirSync(cfg.cacheDir, { recursive: true });
+  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+    version: VERSION,
+  });
+  try {
+    const report = contributionReport(edb, cacheDb, {
+      ...(cmd.since !== undefined ? { since: cmd.since } : {}),
+      ...(cmd.until !== undefined ? { until: cmd.until } : {}),
+    });
+    const top = report.notes.slice(0, 20);
+    const dead = report.notes.filter((n) => n.contributions === 0).slice(0, 20);
+    process.stdout.write(
+      `contribution-report: ${report.totals.retrievedPaths} retrieved path(s), ` +
+        `${report.totals.contributingPaths} contributing, ${report.totals.deadRetrievedPaths} dead-retrieved\n`,
+    );
+    for (const n of top) {
+      process.stdout.write(
+        `  ${n.contributions}/${n.retrievals}  ${n.path}${n.callers.length ? ` [${n.callers.join(",")}]` : ""}\n`,
+      );
+    }
+    if (dead.length > 0) {
+      process.stdout.write("dead-retrieved (retrieved, never cited):\n");
+      for (const n of dead) process.stdout.write(`  0/${n.retrievals}  ${n.path}\n`);
+    }
+    if (cmd.json) {
+      writeFileSync(cmd.json, JSON.stringify(report, null, 2));
+      process.stdout.write(`wrote ${cmd.json}\n`);
+    }
+  } finally {
+    edb.close?.();
+    cacheDb.close?.();
+  }
+  return;
+}
+
+async function run_forget(cmd: Cmd<"forget">): Promise<void> {
+  const cfg = resolveOrUsageExit(cmd.input);
+  if (!cmd.episode && !cmd.note && !cmd.verify) {
+    process.stderr.write(
+      `forget requires --episode <id>, --note <rel-path>, or --verify\n\n${USAGE}`,
+    );
+    process.exit(2);
+  }
+  mkdirSync(cfg.cacheDir, { recursive: true });
+  const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+    version: VERSION,
+  });
+  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  try {
+    if (cmd.verify) {
+      const v = verifyForgetLog(edb);
+      process.stdout.write(
+        v.ok
+          ? `forget-log OK: ${v.entries} entr${v.entries === 1 ? "y" : "ies"}, chain intact\n`
+          : `forget-log BROKEN at seq ${v.breakAt} (${v.entries} entries)\n`,
+      );
+      if (!v.ok) process.exit(1);
+      return;
+    }
+    const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
+    if (cmd.episode) {
+      const r = forgetEpisode(edb, cmd.episode, {
         nowMs: Date.now(),
         ...(cmd.erase ? { erase: true } : {}),
-        prewarmDir: cfg.cacheDir,
-        ...(vault ? { vaultRoot: vault.path, memoryFolder: memFolder } : {}),
       });
+      if (!r.found) {
+        process.stderr.write(`forget: episode ${cmd.episode} not found\n`);
+        process.exit(1);
+      }
       process.stdout.write(
-        `forgot note ${rel} (${cmd.erase ? "erase" : "tombstone"}): ${r.chunk_ids.length} chunk(s), ` +
-          `retrievals ${cmd.erase ? `${r.retrieval_rows_deleted} deleted` : `${r.retrieval_rows} kept (audit)`}, ` +
-          `${r.activation_rows_deleted} activation row(s) cleared` +
-          `${r.prewarm_invalidated ? ", prewarm cache invalidated" : ""}\n`,
+        `forgot episode ${cmd.episode} (${cmd.erase ? "erase" : "tombstone"})${r.already_blocked ? " [was already blocked]" : ""}` +
+          `${r.scrubbed_fields > 0 ? " content scrubbed" : ""}` +
+          `${r.preference_evidence_mentions > 0 ? `; NOTE: ${r.preference_evidence_mentions} preference-delta evidence mention(s) (append-only, review manually)` : ""}\n`,
       );
-      if (r.outdated_reflections.length > 0)
-        process.stdout.write(
-          `  outdated reflections (review): ${r.outdated_reflections.join(", ")}\n`,
-        );
-      if (r.syntheses_mentions > 0 || r.contradictions_mentions > 0)
-        process.stdout.write(
-          `  report-only: ${r.syntheses_mentions} synthesis row(s), ${r.contradictions_mentions} contradiction row(s) mention this path (they regenerate / are lifecycle-owned)\n`,
-        );
-      if (r.chunk_ids.length > 0)
-        process.stdout.write(
-          `  note: ${r.chunk_ids.length} chunk(s) still in the search index — run the server (boot reconcile deindexes deleted notes) or index_vault to finish\n`,
-        );
-    } finally {
-      edb.close?.();
-      cacheDb.close?.();
+      return;
     }
-    return;
-  }
-
-  // THE-48: the gap detector — run a batch of queries through the live engine and flag the
-  // ones with no real coverage (top-1 below the golden-set-calibrated floor, or too few
-  // results). --calibrate replays the golden set and prints the top-1 score distribution.
-  if (cmd.kind === "gaps") {
-    const cfg = resolveOrUsageExit(cmd.input);
-    if (!cmd.queries && !cmd.calibrate) {
+    const rel = (cmd.note as string).replace(/\\/g, "/");
+    const vault = cfg.vaults.find((v) => v.id === vaultId);
+    const abs = vault ? join(vault.path, rel) : null;
+    if (abs && existsSync(abs)) {
       process.stderr.write(
-        `gaps requires --queries <file> or --calibrate <golden.yaml>\n\n${USAGE}`,
+        `forget: ${rel} still exists in the vault — delete the note first (delete_note or file manager), then forget propagates the derived state\n`,
       );
-      process.exit(2);
+      process.exit(1);
     }
-    mkdirSync(cfg.cacheDir, { recursive: true });
-    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
-    const provider = createEmbeddingProvider(cfg.embeddings);
-    const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
-    const search = async (query: string): Promise<Array<{ path: string; score: number }>> => {
-      const [vec] = await provider.embed([query], { input: "query" });
-      const results = await graphSearch(cacheDb, {
-        query,
-        queryVec: vec ?? [],
-        vaultId,
-        finalTopK: 10,
-        ...(cfg.retrieval?.rrfK !== undefined ? { rrfK: cfg.retrieval.rrfK } : {}),
-        reranker: null,
-      });
-      return results.map((r) => ({ path: r.path, score: r.rerank_score }));
-    };
-    try {
-      if (cmd.calibrate) {
-        const golden = parseYaml(readFileSync(cmd.calibrate, "utf8")) as {
-          queries?: Array<{ id?: string; query_text?: string }>;
-        };
-        const qs = (golden.queries ?? []).filter((q) => typeof q.query_text === "string");
-        const tops: number[] = [];
-        for (const q of qs) {
-          const hits = await search(q.query_text as string);
-          if (hits[0]) tops.push(hits[0].score);
-        }
-        const d = scoreDistribution(tops);
-        process.stdout.write(
-          `calibrate (${vaultId}, n=${d.n}): min=${d.min.toFixed(4)} p5=${d.p5.toFixed(4)} p10=${d.p10.toFixed(4)} p25=${d.p25.toFixed(4)} median=${d.median.toFixed(4)}\n` +
-            `suggested threshold (p5): ${d.p5.toFixed(4)} (shipped default ${DEFAULT_GAP_THRESHOLD})\n`,
-        );
-        return;
-      }
-      const queries = parseQueriesFile(readFileSync(cmd.queries as string, "utf8"));
-      const report = await detectGaps(queries, search, {
-        ...(cmd.threshold !== undefined ? { threshold: cmd.threshold } : {}),
-        ...(cmd.minResults !== undefined ? { minResults: cmd.minResults } : {}),
-      });
-      process.stdout.write(
-        `gaps ${vaultId}: ${report.gaps}/${report.total} below threshold ${report.threshold} (gap rate ${(report.gap_rate * 100).toFixed(1)}%)\n`,
-      );
-      for (const i of report.items.filter((x) => x.gap)) {
-        process.stdout.write(
-          `  GAP ${i.id}: "${i.query.slice(0, 80)}" top=${i.top_score?.toFixed(4) ?? "none"} results=${i.results}\n`,
-        );
-      }
-      if (cmd.json) {
-        writeFileSync(cmd.json, JSON.stringify(report, null, 2));
-        process.stdout.write(`wrote ${cmd.json}\n`);
-      }
-    } finally {
-      cacheDb.close?.();
-    }
-    return;
-  }
-
-  // THE-44/46: the knowledge-health scorecard, computed from the derive layer on demand. The
-  // cycle-close session runs this and stamps the result into a vault metrics note; retrieval
-  // quality (nDCG/recall) comes from the eval harness and is merged there, not here.
-  if (cmd.kind === "metrics") {
-    const cfg = resolveOrUsageExit(cmd.input);
-    mkdirSync(cfg.cacheDir, { recursive: true });
-    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
-    const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
-      version: VERSION,
+    const memFolder = vault?.memory?.folder ?? DEFAULT_MEMORY_FOLDER;
+    const r = forgetNote(edb, cacheDb, {
+      vaultId,
+      relPath: rel,
+      nowMs: Date.now(),
+      ...(cmd.erase ? { erase: true } : {}),
+      prewarmDir: cfg.cacheDir,
+      ...(vault ? { vaultRoot: vault.path, memoryFolder: memFolder } : {}),
     });
-    try {
-      const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
-      const m = vaultMetrics(edb, cacheDb, {
-        vaultId,
-        nowMs: Date.now(),
-        ...(cmd.since !== undefined ? { since: cmd.since } : {}),
-        ...(cmd.until !== undefined ? { until: cmd.until } : {}),
-        ...(cmd.staleDays !== undefined ? { staleDays: cmd.staleDays } : {}),
-      });
+    process.stdout.write(
+      `forgot note ${rel} (${cmd.erase ? "erase" : "tombstone"}): ${r.chunk_ids.length} chunk(s), ` +
+        `retrievals ${cmd.erase ? `${r.retrieval_rows_deleted} deleted` : `${r.retrieval_rows} kept (audit)`}, ` +
+        `${r.activation_rows_deleted} activation row(s) cleared` +
+        `${r.prewarm_invalidated ? ", prewarm cache invalidated" : ""}\n`,
+    );
+    if (r.outdated_reflections.length > 0)
       process.stdout.write(
-        `metrics ${vaultId}: chunks=${m.totals.chunks} notes=${m.totals.notes} new=${m.totals.new_chunks} retrievals=${m.totals.retrievals} citations=${m.totals.citations}\n` +
-          `access: accessed=${m.access.chunks_accessed} stale=${m.access.stale_chunks} never=${m.access.never_accessed_chunks}\n` +
-          `linear-linked notes: ${m.linked.notes_with_linear} (${m.linked.distinct_issues} issues)\n`,
+        `  outdated reflections (review): ${r.outdated_reflections.join(", ")}\n`,
       );
-      for (const s of m.surfaces) process.stdout.write(`  surface ${s.surface}: ${s.retrievals}\n`);
-      for (const t of m.top_notes.slice(0, 10)) {
-        process.stdout.write(
-          `  ${t.access_count}x ${t.path}${t.citations > 0 ? ` [${t.citations} cited]` : ""}\n`,
-        );
-      }
-      if (cmd.json) {
-        writeFileSync(cmd.json, JSON.stringify(m, null, 2));
-        process.stdout.write(`wrote ${cmd.json}\n`);
-      }
-    } finally {
-      edb.close?.();
-      cacheDb.close?.();
-    }
-    return;
-  }
-
-  // THE-222: sleep-time reflect — the evaluator pass stamps pending agent_episodes eligibility
-  // (deterministic rules + optional judge that can only lower) and the gateway-gated preference
-  // extraction applies typed deltas to the versioned profile.
-  if (cmd.kind === "reflect") {
-    const cfg = resolveOrUsageExit(cmd.input);
-    mkdirSync(cfg.cacheDir, { recursive: true });
-    const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
-      version: VERSION,
-    });
-    let gwc: GatewayClient | null = null;
-    try {
-      gwc = createGatewayClient({});
-    } catch {
-      gwc = null;
-    }
-    try {
-      const nowMs = Date.now();
-      const judge = gwc ? (r: Parameters<GatewayClient["judge"]>[0]) => gwc.judge(r) : null;
-      const stats = await evaluateEpisodes(edb, {
-        nowMs,
-        judge,
-        ...(cmd.maxJudged !== undefined ? { maxJudged: cmd.maxJudged } : {}),
-      });
-      const prefs = await extractPreferences(edb, { judge, nowMs });
+    if (r.syntheses_mentions > 0 || r.contradictions_mentions > 0)
       process.stdout.write(
-        `reflect: scanned=${stats.scanned} promoted=${stats.promoted} held=${stats.held} denied=${stats.denied} judged=${stats.judged}${stats.judgeAborted ? " JUDGE-ABORTED" : ""}\n` +
-          `preferences: ${prefs.skipped ? "skipped (no gateway or no evidence)" : prefs.aborted ? "ABORTED (parse failure)" : `applied=${prefs.applied} version=${prefs.version}`}\n`,
+        `  report-only: ${r.syntheses_mentions} synthesis row(s), ${r.contradictions_mentions} contradiction row(s) mention this path (they regenerate / are lifecycle-owned)\n`,
       );
-    } finally {
-      edb.close?.();
-    }
-    return;
+    if (r.chunk_ids.length > 0)
+      process.stdout.write(
+        `  note: ${r.chunk_ids.length} chunk(s) still in the search index — run the server (boot reconcile deindexes deleted notes) or index_vault to finish\n`,
+      );
+  } finally {
+    edb.close?.();
+    cacheDb.close?.();
   }
+  return;
+}
 
-  // THE-136: anticipatory prefetch — compose vault_context's bootstrap bundle per vault (the
-  // same registry surface serve exposes, dispatched as caller "prefetch-worker") and write the
-  // prewarm cache. The compose here is always live (no prewarmDir on this registry — this
-  // command IS the producer); the serve-path bootstrap reader enforces the TTL + signal hash.
-  if (cmd.kind === "prefetch") {
-    const cfg = resolveOrUsageExit(cmd.input);
-    mkdirSync(cfg.cacheDir, { recursive: true });
-    const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
-    const provider = createEmbeddingProvider(cfg.embeddings);
-    const pfVaultRegistry = new VaultRegistry(cfg.vaults);
-    const memByVault = new Map<string, string>();
-    for (const v of cfg.vaults) if (v.memory) memByVault.set(v.id, v.memory.folder);
-    const pfRegistry = new ToolRegistry({});
-    registerM7Tools(pfRegistry, {
-      vaultRegistry: pfVaultRegistry,
-      embeddingProvider: provider,
+async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
+  const cfg = resolveOrUsageExit(cmd.input);
+  if (!cmd.queries && !cmd.calibrate) {
+    process.stderr.write(`gaps requires --queries <file> or --calibrate <golden.yaml>\n\n${USAGE}`);
+    process.exit(2);
+  }
+  mkdirSync(cfg.cacheDir, { recursive: true });
+  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const provider = createEmbeddingProvider(cfg.embeddings);
+  const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
+  const search = async (query: string): Promise<Array<{ path: string; score: number }>> => {
+    const [vec] = await provider.embed([query], { input: "query" });
+    const results = await graphSearch(cacheDb, {
+      query,
+      queryVec: vec ?? [],
+      vaultId,
+      finalTopK: 10,
+      ...(cfg.retrieval?.rrfK !== undefined ? { rrfK: cfg.retrieval.rrfK } : {}),
       reranker: null,
-      roles: null,
-      retrieval: cfg.retrieval,
-      classRouter: cfg.retrieval.classRouter,
-      memoryFolder: (vaultId) => memByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
     });
-    const ttlHours = cmd.ttlHours ?? 6;
-    const targets = cmd.vault ? cfg.vaults.filter((v) => v.id === cmd.vault) : cfg.vaults;
-    if (cmd.vault && targets.length === 0) {
-      process.stderr.write(`prefetch: unknown vault ${cmd.vault}\n`);
-      process.exit(2);
-    }
-    try {
-      for (const v of targets) {
-        const res = (await pfRegistry.dispatch(
-          "vault_context",
-          { vault: v.id },
-          {
-            caller: "prefetch-worker",
-            authenticated: true,
-            grantedScopes: new Set(["read:notes"]),
-            vaultId: v.id,
-            db: cacheDb,
-          },
-        )) as {
-          ok: boolean;
-          data?: Record<string, unknown> & {
-            signal?: string;
-            signal_hash?: string;
-            stats?: { chunks_packed?: number };
-          };
-          error?: { message?: string };
-        };
-        if (!res.ok || !res.data) {
-          process.stdout.write(
-            `prefetch ${v.id}: skipped (${res.error?.message ?? "no signal note"})\n`,
-          );
-          continue;
-        }
-        const now = Date.now();
-        // THE-136 floor: a prefetch that packs nothing writes an empty marker, never a wrong
-        // bundle (RRF scores are positional, so emptiness is the enforceable relevance floor).
-        const empty = (res.data.stats?.chunks_packed ?? 0) === 0;
-        writePrewarm(prewarmPathFor(cfg.cacheDir, v.id), {
-          generated_at: now,
-          expires_at: now + ttlHours * 3_600_000,
-          signal: String(res.data.signal ?? ""),
-          signal_hash: String(res.data.signal_hash ?? ""),
-          empty,
-          ...(empty ? {} : { bundle: res.data }),
-        });
-        process.stdout.write(
-          `prefetch ${v.id}: ${empty ? "empty (floor)" : `${res.data.stats?.chunks_packed} chunk(s)`} ttl=${ttlHours}h\n`,
-        );
+    return results.map((r) => ({ path: r.path, score: r.rerank_score }));
+  };
+  try {
+    if (cmd.calibrate) {
+      const golden = parseYaml(readFileSync(cmd.calibrate, "utf8")) as {
+        queries?: Array<{ id?: string; query_text?: string }>;
+      };
+      const qs = (golden.queries ?? []).filter((q) => typeof q.query_text === "string");
+      const tops: number[] = [];
+      for (const q of qs) {
+        const hits = await search(q.query_text as string);
+        if (hits[0]) tops.push(hits[0].score);
       }
-    } finally {
-      cacheDb.close?.();
+      const d = scoreDistribution(tops);
+      process.stdout.write(
+        `calibrate (${vaultId}, n=${d.n}): min=${d.min.toFixed(4)} p5=${d.p5.toFixed(4)} p10=${d.p10.toFixed(4)} p25=${d.p25.toFixed(4)} median=${d.median.toFixed(4)}\n` +
+          `suggested threshold (p5): ${d.p5.toFixed(4)} (shipped default ${DEFAULT_GAP_THRESHOLD})\n`,
+      );
+      return;
     }
-    return;
+    const queries = parseQueriesFile(readFileSync(cmd.queries as string, "utf8"));
+    const report = await detectGaps(queries, search, {
+      ...(cmd.threshold !== undefined ? { threshold: cmd.threshold } : {}),
+      ...(cmd.minResults !== undefined ? { minResults: cmd.minResults } : {}),
+    });
+    process.stdout.write(
+      `gaps ${vaultId}: ${report.gaps}/${report.total} below threshold ${report.threshold} (gap rate ${(report.gap_rate * 100).toFixed(1)}%)\n`,
+    );
+    for (const i of report.items.filter((x) => x.gap)) {
+      process.stdout.write(
+        `  GAP ${i.id}: "${i.query.slice(0, 80)}" top=${i.top_score?.toFixed(4) ?? "none"} results=${i.results}\n`,
+      );
+    }
+    if (cmd.json) {
+      writeFileSync(cmd.json, JSON.stringify(report, null, 2));
+      process.stdout.write(`wrote ${cmd.json}\n`);
+    }
+  } finally {
+    cacheDb.close?.();
   }
+  return;
+}
 
+async function run_metrics(cmd: Cmd<"metrics">): Promise<void> {
+  const cfg = resolveOrUsageExit(cmd.input);
+  mkdirSync(cfg.cacheDir, { recursive: true });
+  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+    version: VERSION,
+  });
+  try {
+    const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
+    const m = vaultMetrics(edb, cacheDb, {
+      vaultId,
+      nowMs: Date.now(),
+      ...(cmd.since !== undefined ? { since: cmd.since } : {}),
+      ...(cmd.until !== undefined ? { until: cmd.until } : {}),
+      ...(cmd.staleDays !== undefined ? { staleDays: cmd.staleDays } : {}),
+    });
+    process.stdout.write(
+      `metrics ${vaultId}: chunks=${m.totals.chunks} notes=${m.totals.notes} new=${m.totals.new_chunks} retrievals=${m.totals.retrievals} citations=${m.totals.citations}\n` +
+        `access: accessed=${m.access.chunks_accessed} stale=${m.access.stale_chunks} never=${m.access.never_accessed_chunks}\n` +
+        `linear-linked notes: ${m.linked.notes_with_linear} (${m.linked.distinct_issues} issues)\n`,
+    );
+    for (const s of m.surfaces) process.stdout.write(`  surface ${s.surface}: ${s.retrievals}\n`);
+    for (const t of m.top_notes.slice(0, 10)) {
+      process.stdout.write(
+        `  ${t.access_count}x ${t.path}${t.citations > 0 ? ` [${t.citations} cited]` : ""}\n`,
+      );
+    }
+    if (cmd.json) {
+      writeFileSync(cmd.json, JSON.stringify(m, null, 2));
+      process.stdout.write(`wrote ${cmd.json}\n`);
+    }
+  } finally {
+    edb.close?.();
+    cacheDb.close?.();
+  }
+  return;
+}
+
+async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
+  const cfg = resolveOrUsageExit(cmd.input);
+  mkdirSync(cfg.cacheDir, { recursive: true });
+  const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+    version: VERSION,
+  });
+  let gwc: GatewayClient | null = null;
+  try {
+    gwc = createGatewayClient({});
+  } catch {
+    gwc = null;
+  }
+  try {
+    const nowMs = Date.now();
+    const judge = gwc ? (r: Parameters<GatewayClient["judge"]>[0]) => gwc.judge(r) : null;
+    const stats = await evaluateEpisodes(edb, {
+      nowMs,
+      judge,
+      ...(cmd.maxJudged !== undefined ? { maxJudged: cmd.maxJudged } : {}),
+    });
+    const prefs = await extractPreferences(edb, { judge, nowMs });
+    process.stdout.write(
+      `reflect: scanned=${stats.scanned} promoted=${stats.promoted} held=${stats.held} denied=${stats.denied} judged=${stats.judged}${stats.judgeAborted ? " JUDGE-ABORTED" : ""}\n` +
+        `preferences: ${prefs.skipped ? "skipped (no gateway or no evidence)" : prefs.aborted ? "ABORTED (parse failure)" : `applied=${prefs.applied} version=${prefs.version}`}\n`,
+    );
+  } finally {
+    edb.close?.();
+  }
+  return;
+}
+
+async function run_prefetch(cmd: Cmd<"prefetch">): Promise<void> {
+  const cfg = resolveOrUsageExit(cmd.input);
+  mkdirSync(cfg.cacheDir, { recursive: true });
+  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const provider = createEmbeddingProvider(cfg.embeddings);
+  const pfVaultRegistry = new VaultRegistry(cfg.vaults);
+  const memByVault = new Map<string, string>();
+  for (const v of cfg.vaults) if (v.memory) memByVault.set(v.id, v.memory.folder);
+  const pfRegistry = new ToolRegistry({});
+  registerM7Tools(pfRegistry, {
+    vaultRegistry: pfVaultRegistry,
+    embeddingProvider: provider,
+    reranker: null,
+    roles: null,
+    retrieval: cfg.retrieval,
+    classRouter: cfg.retrieval.classRouter,
+    memoryFolder: (vaultId) => memByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
+  });
+  const ttlHours = cmd.ttlHours ?? 6;
+  const targets = cmd.vault ? cfg.vaults.filter((v) => v.id === cmd.vault) : cfg.vaults;
+  if (cmd.vault && targets.length === 0) {
+    process.stderr.write(`prefetch: unknown vault ${cmd.vault}\n`);
+    process.exit(2);
+  }
+  try {
+    for (const v of targets) {
+      const res = (await pfRegistry.dispatch(
+        "vault_context",
+        { vault: v.id },
+        {
+          caller: "prefetch-worker",
+          authenticated: true,
+          grantedScopes: new Set(["read:notes"]),
+          vaultId: v.id,
+          db: cacheDb,
+        },
+      )) as {
+        ok: boolean;
+        data?: Record<string, unknown> & {
+          signal?: string;
+          signal_hash?: string;
+          stats?: { chunks_packed?: number };
+        };
+        error?: { message?: string };
+      };
+      if (!res.ok || !res.data) {
+        process.stdout.write(
+          `prefetch ${v.id}: skipped (${res.error?.message ?? "no signal note"})\n`,
+        );
+        continue;
+      }
+      const now = Date.now();
+      // THE-136 floor: a prefetch that packs nothing writes an empty marker, never a wrong
+      // bundle (RRF scores are positional, so emptiness is the enforceable relevance floor).
+      const empty = (res.data.stats?.chunks_packed ?? 0) === 0;
+      writePrewarm(prewarmPathFor(cfg.cacheDir, v.id), {
+        generated_at: now,
+        expires_at: now + ttlHours * 3_600_000,
+        signal: String(res.data.signal ?? ""),
+        signal_hash: String(res.data.signal_hash ?? ""),
+        empty,
+        ...(empty ? {} : { bundle: res.data }),
+      });
+      process.stdout.write(
+        `prefetch ${v.id}: ${empty ? "empty (floor)" : `${res.data.stats?.chunks_packed} chunk(s)`} ttl=${ttlHours}h\n`,
+      );
+    }
+  } finally {
+    cacheDb.close?.();
+  }
+  return;
+}
+
+async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   const config = resolveOrUsageExit(cmd.input);
   const configPath = cmd.input ?? process.env.OBSIDIAN_TC_CONFIG;
   const firstVault = config.vaults[0];
@@ -1363,6 +1333,45 @@ async function main(): Promise<void> {
       "obsidian-tc: no transport enabled (transports.stdio=false and transports.http.enabled=false); nothing to serve\n",
     );
     process.exit(1);
+  }
+}
+
+async function main(): Promise<void> {
+  const cmd = parseCliArgs(process.argv.slice(2));
+  switch (cmd.kind) {
+    case "version":
+      return run_version(cmd);
+    case "help":
+      return run_help(cmd);
+    case "error":
+      return run_error(cmd);
+    case "plugin-install":
+      return run_plugin_install(cmd);
+    case "config-show":
+    case "config-validate":
+      return run_config_show(cmd);
+    case "cluster":
+      return run_cluster(cmd);
+    case "activation-recompute":
+      return run_activation_recompute(cmd);
+    case "densify-llm":
+      return run_densify_llm(cmd);
+    case "citation-infer":
+      return run_citation_infer(cmd);
+    case "contribution-report":
+      return run_contribution_report(cmd);
+    case "forget":
+      return run_forget(cmd);
+    case "gaps":
+      return run_gaps(cmd);
+    case "metrics":
+      return run_metrics(cmd);
+    case "reflect":
+      return run_reflect(cmd);
+    case "prefetch":
+      return run_prefetch(cmd);
+    default:
+      return run_serve(cmd);
   }
 }
 
