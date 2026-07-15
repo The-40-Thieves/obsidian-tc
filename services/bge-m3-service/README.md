@@ -96,3 +96,17 @@ adapter speaks this, and `composeModelClient` routes `ModelClient.rerank` to it.
 CPU works for correctness and the eval; a CUDA GPU (fp16) is the throughput path. This is a separate
 project from the Bun workspace - the server runs without it, and `embedFull()` is simply absent when
 the service is not configured.
+
+## Verifying the ML path (CI mocks it)
+
+`ci-model-service` installs the package `--no-deps` and mocks the model layer, so `torch`,
+`FlagEmbedding`, and `sentence-transformers` are never exercised against the deps a fresh install
+actually pulls. The `>=` floors float onto new majors that CI never runs, so a breaking major can
+ship unnoticed. To verify the real path on demand, recreate the deployment on a GPU:
+
+    modal run scripts/modal_smoke.py
+
+It installs the latest deps on a Modal T4 and runs the service's own encoder and reranker against the
+real BAAI models (dense/sparse/colbert plus a rerank). This is the check that caught the
+`sentence-transformers` 5.x `device="auto"` break the mocked CI could not. Re-run it after bumping
+the dependency floors.
