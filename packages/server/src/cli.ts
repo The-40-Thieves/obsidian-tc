@@ -20,7 +20,11 @@ import { openDatabase } from "./db/open";
 import { provisionCacheDb } from "./db/provision";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
-import { makeActivationLookup, recomputeActivation } from "./experiential/activation";
+import {
+  makeActivationLookup,
+  recomputeActivation,
+  startActivationRecompute,
+} from "./experiential/activation";
 import { inferCitations } from "./experiential/citation";
 import { contributionReport } from "./experiential/contribution";
 import { createEpisodeCapture } from "./experiential/episodes";
@@ -1301,7 +1305,23 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         })
       : null;
 
+  // THE-227/228: keep cached_activation_score warm as capture accrues. recomputeActivation is
+  // otherwise CLI-only, so on serve the activation state would freeze at whatever a manual run
+  // left, stale the moment new retrievals land. Runs only while the experiential store is open
+  // (capture on); idempotent, no gateway, best-effort. Reuses the maintenance cadence.
+  const stopActivationRecompute = experientialOpen
+    ? startActivationRecompute({
+        edb: experientialDb,
+        intervalMs: config.maintenance.intervalMinutes * 60_000,
+        onError: (e) =>
+          process.stderr.write(
+            `[activation-recompute] ${e instanceof Error ? e.message : String(e)}\n`,
+          ),
+      })
+    : null;
+
   const shutdown = async (): Promise<void> => {
+    stopActivationRecompute?.();
     stopPlane?.();
     stopMaintenance?.();
     morgiana.emit(firstVault.id, "tc.server.shutdown");

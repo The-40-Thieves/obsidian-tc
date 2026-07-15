@@ -3,13 +3,14 @@
 // chunk that has retrieval events. Exercised with a hand-built chunk_retrievals log.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import {
   actrActivation,
   makeActivationLookup,
   recomputeActivation,
+  startActivationRecompute,
 } from "../src/experiential/activation";
 import { openMemoryDb } from "./helpers";
 
@@ -134,5 +135,58 @@ describe("ACT-R activation recompute (THE-227)", () => {
     const cold = byId.get("cold")?.cached_activation_score ?? 0;
     expect(hot).toBeGreaterThan(cold);
     expect(byId.has("never")).toBe(false); // no events -> no row -> stays inert
+  });
+
+  it("startActivationRecompute ticks on the interval, recomputes, reports, and stops cleanly", () => {
+    vi.useFakeTimers();
+    try {
+      const db = edb0();
+      addRetrieval(db, "hot", NOW - DAY / 2); // 12h ago -> above the B=0 crossover
+      const seen: Array<{ chunks: number }> = [];
+      const stop = startActivationRecompute({
+        edb: db,
+        intervalMs: 1000,
+        now: () => NOW,
+        onRecompute: (s) => seen.push(s),
+      });
+      // interval-only: nothing recomputed before the first tick
+      expect(db.prepare("SELECT COUNT(*) AS n FROM vault_object_state").get()).toMatchObject({
+        n: 0,
+      });
+      vi.advanceTimersByTime(1000);
+      expect(seen).toEqual([{ chunks: 1 }]);
+      expect(makeActivationLookup(db)("hot") ?? 0).toBeGreaterThan(0.5); // state now warm
+      vi.advanceTimersByTime(2000);
+      expect(seen).toHaveLength(3); // idempotent re-runs
+      stop();
+      vi.advanceTimersByTime(3000);
+      expect(seen).toHaveLength(3); // stopped, no further ticks
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("startActivationRecompute routes a recompute failure to onError without escaping", () => {
+    vi.useFakeTimers();
+    try {
+      const bad = {
+        prepare() {
+          throw new Error("boom");
+        },
+        exec() {},
+      } as unknown as Database;
+      const errs: unknown[] = [];
+      const stop = startActivationRecompute({
+        edb: bad,
+        intervalMs: 1000,
+        now: () => NOW,
+        onError: (e) => errs.push(e),
+      });
+      vi.advanceTimersByTime(1100);
+      expect(errs).toHaveLength(1);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

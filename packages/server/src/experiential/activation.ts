@@ -126,3 +126,44 @@ export function recomputeActivation(
   }
   return { chunks: byChunk.size };
 }
+
+/** Deps for the periodic serve-path activation recompute (startActivationRecompute). */
+export interface ActivationRecomputeDeps {
+  edb: Database;
+  intervalMs: number;
+  now?: () => number;
+  decay?: number;
+  onRecompute?: (stats: ActivationRecomputeStats) => void;
+  onError?: (e: unknown) => void;
+}
+
+/**
+ * THE-227/228: start the periodic activation recompute over an OPEN experiential.db handle; returns
+ * a stop function. recomputeActivation is otherwise CLI-only (activation-recompute), so on the serve
+ * path cached_activation_score would freeze at whatever a one-off manual run left, going stale the
+ * moment new retrievals land. This keeps it warm as capture accrues, so the bubble pass (dark behind
+ * activationRerank) and the eval A/B read current scores. Mirrors startMaintenanceSweep: the timer is
+ * unreferenced (timer.unref) so stdio EOF still exits, the recompute is idempotent and cheap (one
+ * scan of chunk_retrievals + upserts into vault_object_state, no gateway), and a failing run routes
+ * to onError without escaping so capture continues regardless.
+ */
+export function startActivationRecompute(deps: ActivationRecomputeDeps): () => void {
+  const timer = setInterval(() => {
+    try {
+      const stats = recomputeActivation(
+        deps.edb,
+        (deps.now ?? Date.now)(),
+        deps.decay !== undefined ? { decay: deps.decay } : {},
+      );
+      deps.onRecompute?.(stats);
+    } catch (e) {
+      try {
+        deps.onError?.(e);
+      } catch {
+        /* error sink must never throw */
+      }
+    }
+  }, deps.intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
