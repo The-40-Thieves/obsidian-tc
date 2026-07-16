@@ -75,3 +75,6 @@ packages/server/eval/multi-hop-golden-set.yaml
 packages/server/eval/*-golden-set*.yaml
 !packages/server/eval/multi-hop-golden-set.example.yaml
 packages/server/eval/baseline.json
+
+# generated at build by packages/server/scripts/copy-assets.mjs (source of truth: root SKILLS.md)
+packages/server/SKILLS.md

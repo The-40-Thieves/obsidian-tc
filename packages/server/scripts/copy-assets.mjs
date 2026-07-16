@@ -12,6 +12,18 @@ mkdirSync(dist, { recursive: true });
 cpSync(join(root, "src", "migrations"), join(dist, "migrations"), { recursive: true });
 console.log("copied migration assets -> dist/");
 
+// Vendor the agent onboarding guide. SKILLS.md lives at the repo root, which belongs to the
+// unpublished `obsidian-tc-monorepo` package, and npm's `files` cannot reference paths outside
+// the package directory — so copy it in at build time and let files:["SKILLS.md"] pick it up.
+// Root stays the single source of truth; this copy is generated and gitignored.
+const skillsSrc = join(root, "..", "..", "SKILLS.md");
+if (existsSync(skillsSrc)) {
+  cpSync(skillsSrc, join(root, "SKILLS.md"));
+  console.log("copied SKILLS.md -> packages/server/");
+} else {
+  console.warn("WARNING: SKILLS.md not found at repo root — package will ship without it");
+}
+
 // Make dist/cli.js a proper executable. `bun build` emits no shebang, so the published `bin`
 // starts with `import{...}` and has none. npm's launcher shim only inserts the interpreter when it
 // reads a shebang off the target, so without one the generated Windows `.ps1`/`.cmd` shims invoke
