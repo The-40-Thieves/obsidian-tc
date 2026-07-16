@@ -1335,6 +1335,28 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
+  // Security posture summary (audit #268 P1): make the active profile obvious at startup, and warn
+  // when the permissive trusted-local defaults are active — governed by default is not least-privilege
+  // by default. stderr only (the stdio MCP protocol owns stdout).
+  {
+    const rootAcl = config.acl;
+    process.stderr.write(
+      `security: auth=${config.auth.mode} readOnly=${rootAcl.readOnly} strictRead=${rootAcl.strictReadDefault} requireCas=${config.writes.requireCas} http=${config.transports.http.enabled ? "on" : "off"}\n`,
+    );
+    if (
+      config.auth.mode === "none" &&
+      !rootAcl.readOnly &&
+      !rootAcl.strictReadDefault &&
+      !config.writes.requireCas
+    ) {
+      process.stderr.write(
+        "security: running with trusted-local defaults (auth=none, no strict-read, no CAS). For a " +
+          "shared or multi-caller deployment use the hardened profile (JWT auth, strictReadDefault, " +
+          "explicit read/write paths, requireCas, snapshots): examples/config.hardened.json.\n",
+      );
+    }
+  }
+
   // THE-288: honor transports.stdio. Default (true) connects the stdio MCP transport; when false
   // the server serves HTTP-only (the listening socket keeps the process alive), and if neither
   // transport is enabled there is nothing to serve, so exit with a clear message.

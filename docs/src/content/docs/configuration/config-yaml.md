@@ -322,6 +322,42 @@ or removing a vault always requires a restart; destructive changes (`path`,
 embeddings provider/model/dimensions, `cacheDir`) additionally need
 `reset_vault_cache` or a fresh `cacheDir`.
 
+## Hardened deployment profile
+
+The defaults target a **trusted, single-user local process** (stdio, `auth.mode: "none"`,
+`acl.readOnly: false`, `strictReadDefault: false`, `writes.requireCas: false`). Governed by
+default is not the same as least-privilege by default: for a shared, multi-caller, or
+long-lived deployment, start from the hardened example and tighten from there. The server
+prints a one-line **security posture** summary at startup, plus a warning when the permissive
+local defaults are active, so the running profile is always visible.
+
+A committed least-privilege starting point is `examples/config.hardened.json`:
+
+```json
+{
+  "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
+  "acl": {
+    "readOnly": false,
+    "strictReadDefault": true,
+    "readPaths": ["02-projects/**", "09-reference/**"],
+    "writePaths": ["02-projects/**"],
+    "deletePaths": []
+  },
+  "writes": { "requireCas": true },
+  "snapshots": { "enabled": true, "retention": 20 },
+  "transports": { "stdio": true, "http": { "enabled": false } }
+}
+```
+
+It fails reads closed on unlisted paths (`strictReadDefault`), whitelists read/write paths and
+forbids deletes (least privilege), requires `prev_hash` on overwrites (`writes.requireCas`, no
+stale-hash clobbering), and captures snapshots for `restore_note`.
+
+**For a shared or HTTP deployment, additionally set** `transports.http.enabled: true` and
+`auth.mode: "jwt"`, supplying the secret via `OBSIDIAN_TC_JWT_SECRET` (never commit it). A
+non-loopback host with `auth.mode: "none"` is refused by the fail-closed interlock. Consider
+`acl.readOnly: true` initially, then open specific write paths.
+
 ## See also
 
 - [Inference gateway setup](/configuration/inference-gateway/) — the generative tier.
