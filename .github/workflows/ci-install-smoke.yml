@@ -10,6 +10,7 @@ on:
       - 'packages/**'
       - 'tsconfig.base.json'
       - 'bun.lock'
+      - 'SKILLS.md'
       - 'scripts/write-smoke-config.mjs'
       - '.github/workflows/ci-install-smoke.yml'
   push:
@@ -119,3 +120,26 @@ jobs:
         run: |
           head -1 packages/server/dist/cli.js | grep -qx '#!/usr/bin/env node' || { echo "::error::dist/cli.js is missing the '#!/usr/bin/env node' shebang; npm generates broken bin shims (Windows silent no-op)"; exit 1; }
           echo "ok: dist/cli.js carries the node shebang"
+      # 7) Tarball guard: assert what npm actually PUBLISHES, not what the source says. The
+      #    source-level check (scripts/check-version-coherence.mjs via ci-version.yml) asserts
+      #    packages/plugin/manifest.json and was fully green while v1.9.1 shipped a 1.7.0 companion
+      #    plugin and no SKILLS.md — the source was correct, the vendored BUILD was stale, and
+      #    nothing looked at the artifact. Pack for real, extract, and check the bytes that ship.
+      - name: published tarball ships SKILLS.md + a version-matched companion plugin
+        run: |
+          want=$(node -p "require('./packages/server/package.json').version")
+          rm -rf "$RUNNER_TEMP/tarball" && mkdir -p "$RUNNER_TEMP/tarball"
+          (cd packages/server && npm pack --silent --pack-destination "$RUNNER_TEMP" >/dev/null)
+          tgz=$(ls "$RUNNER_TEMP"/obsidian-tc-*.tgz | head -1)
+          [ -n "$tgz" ] || { echo "::error::npm pack produced no tarball"; exit 1; }
+          tar -xzf "$tgz" -C "$RUNNER_TEMP/tarball"
+          # Run node from the extract root, not from package/ — that dir is "type": "module",
+          # which would change how `node -p` treats the require() below.
+          cd "$RUNNER_TEMP/tarball"
+          test -f package/SKILLS.md || { echo "::error::tarball is missing SKILLS.md (the agent onboarding guide never reaches npm)"; exit 1; }
+          test -f package/dist/plugin/main.js || { echo "::error::tarball is missing dist/plugin/main.js — the companion plugin was not vendored, so 'plugin install' is broken"; exit 1; }
+          got=$(node -p "require('./package/dist/plugin/manifest.json').version")
+          echo "want=$want tarball_plugin=$got"
+          [ "$got" = "$want" ] || { echo "::error::tarball ships companion plugin $got, expected $want — a stale packages/plugin/dist was vendored"; exit 1; }
+          rm -f "$tgz"
+          echo "ok: tarball ships SKILLS.md + companion plugin $want"
