@@ -2,7 +2,7 @@
 // does from source (via new URL("./migrations/...", import.meta.url)), and vendor the companion
 // plugin into dist/plugin/ so the `plugin install` CLI can write it into a vault.
 import { execSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,18 +56,39 @@ if (!cli.startsWith("#!")) {
 // `build --filter='*'` gives no ordering guarantee, so build the plugin here if it is missing.
 // Best-effort: a plugin-build failure must not break the server build/tests — `plugin install`
 // then reports at runtime that the plugin was not vendored.
+const vendorDir = join(dist, "plugin");
 try {
   const pluginDir = join(root, "..", "plugin");
   const pluginDist = join(pluginDir, "dist");
-  if (!existsSync(join(pluginDist, "main.js")) || !existsSync(join(pluginDist, "manifest.json"))) {
-    console.log("building companion plugin...");
-    execSync("node esbuild.config.mjs production", { cwd: pluginDir, stdio: "inherit" });
+
+  // ALWAYS rebuild. This previously built only when dist/main.js was ABSENT, so a stale build left
+  // over from before a version bump was vendored verbatim: v1.9.1 shipped a 1.7.0 companion with CI
+  // green. check-version-coherence.mjs cannot catch that — it asserts packages/plugin/manifest.json
+  // (the SOURCE, which was correctly 1.9.1); nothing asserted the build output. The build is ~40ms,
+  // so unconditionally rebuilding is cheaper than the class of bug it removes.
+  console.log("building companion plugin...");
+  execSync("node esbuild.config.mjs production", { cwd: pluginDir, stdio: "inherit" });
+
+  mkdirSync(vendorDir, { recursive: true });
+  cpSync(join(pluginDist, "main.js"), join(vendorDir, "main.js"));
+  cpSync(join(pluginDist, "manifest.json"), join(vendorDir, "manifest.json"));
+
+  // Build-output counterpart to check-version-coherence.mjs's source assert: the artifact actually
+  // entering the tarball must carry the repo version. The plugin is in repo-version lockstep
+  // (decision 2026-07-02), so any mismatch here means the build did not take.
+  const vendored = JSON.parse(readFileSync(join(vendorDir, "manifest.json"), "utf8")).version;
+  const serverVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+  if (vendored !== serverVersion) {
+    throw new Error(
+      `vendored plugin is ${vendored} but the server package is ${serverVersion} — refusing to ship a mismatched companion`,
+    );
   }
-  mkdirSync(join(dist, "plugin"), { recursive: true });
-  cpSync(join(pluginDist, "main.js"), join(dist, "plugin", "main.js"));
-  cpSync(join(pluginDist, "manifest.json"), join(dist, "plugin", "manifest.json"));
-  console.log("vendored companion plugin -> dist/plugin/");
+  console.log(`vendored companion plugin ${vendored} -> dist/plugin/`);
 } catch (e) {
+  // Best-effort by design: a plugin-build failure must not break the server build/tests. But it must
+  // never leave a stale or mismatched plugin behind to be published — drop the vendor dir so
+  // `plugin install` honestly reports the plugin as unavailable instead of silently shipping wrong.
+  rmSync(vendorDir, { recursive: true, force: true });
   console.warn(
     `WARNING: could not vendor companion plugin (plugin install unavailable): ${e instanceof Error ? e.message : String(e)}`,
   );
