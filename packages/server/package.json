@@ -11,6 +11,7 @@
   "files": [
     "dist",
     "README.md",
+    "SKILLS.md",
     "LICENSE"
   ],
   "scripts": {
