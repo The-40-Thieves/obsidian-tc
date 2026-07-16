@@ -128,9 +128,10 @@ jobs:
       - name: published tarball ships SKILLS.md + a version-matched companion plugin
         run: |
           want=$(node -p "require('./packages/server/package.json').version")
-          # Keep every path relative to the workspace. $RUNNER_TEMP on Windows is a drive path
-          # (a drive-letter path, POSIX-rendered as /d/a/_temp), and GNU tar under Git Bash reads
-          # "tar (child): Cannot connect to D: resolve failed". Relative paths work on all 3 OSes.
+          # Keep every path relative to the workspace. On Windows $RUNNER_TEMP is a drive-letter
+          # path, and GNU tar under Git Bash treats the colon in it as a remote-host separator,
+          # failing with "tar (child): Cannot connect to D: resolve failed". Linux and macOS are
+          # unaffected, so this only breaks one leg of the matrix. Relative paths work on all 3.
           rm -rf .tarball-check && mkdir -p .tarball-check
           (cd packages/server && npm pack --silent --pack-destination ../../.tarball-check >/dev/null)
           tgz=$(ls .tarball-check/obsidian-tc-*.tgz | head -1)
