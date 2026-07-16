@@ -129,7 +129,7 @@ jobs:
         run: |
           want=$(node -p "require('./packages/server/package.json').version")
           # Keep every path relative to the workspace. $RUNNER_TEMP on Windows is a drive path
-          # (D:\_temp), and GNU tar under Git Bash reads the "D:" as a remote host spec —
+          # (a drive-letter path, POSIX-rendered as /d/a/_temp), and GNU tar under Git Bash reads
           # "tar (child): Cannot connect to D: resolve failed". Relative paths work on all 3 OSes.
           rm -rf .tarball-check && mkdir -p .tarball-check
           (cd packages/server && npm pack --silent --pack-destination ../../.tarball-check >/dev/null)
