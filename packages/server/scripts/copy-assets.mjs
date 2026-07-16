@@ -2,7 +2,15 @@
 // does from source (via new URL("./migrations/...", import.meta.url)), and vendor the companion
 // plugin into dist/plugin/ so the `plugin install` CLI can write it into a vault.
 import { execSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 

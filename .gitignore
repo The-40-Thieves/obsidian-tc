@@ -78,3 +78,6 @@ packages/server/eval/baseline.json
 
 # generated at build by packages/server/scripts/copy-assets.mjs (source of truth: root SKILLS.md)
 packages/server/SKILLS.md
+
+# transient: ci-install-smoke tarball guard extract dir
+.tarball-check/

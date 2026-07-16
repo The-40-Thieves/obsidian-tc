@@ -128,18 +128,18 @@ jobs:
       - name: published tarball ships SKILLS.md + a version-matched companion plugin
         run: |
           want=$(node -p "require('./packages/server/package.json').version")
-          rm -rf "$RUNNER_TEMP/tarball" && mkdir -p "$RUNNER_TEMP/tarball"
-          (cd packages/server && npm pack --silent --pack-destination "$RUNNER_TEMP" >/dev/null)
-          tgz=$(ls "$RUNNER_TEMP"/obsidian-tc-*.tgz | head -1)
+          # Keep every path relative to the workspace. $RUNNER_TEMP on Windows is a drive path
+          # (D:\_temp), and GNU tar under Git Bash reads the "D:" as a remote host spec —
+          # "tar (child): Cannot connect to D: resolve failed". Relative paths work on all 3 OSes.
+          rm -rf .tarball-check && mkdir -p .tarball-check
+          (cd packages/server && npm pack --silent --pack-destination ../../.tarball-check >/dev/null)
+          tgz=$(ls .tarball-check/obsidian-tc-*.tgz | head -1)
           [ -n "$tgz" ] || { echo "::error::npm pack produced no tarball"; exit 1; }
-          tar -xzf "$tgz" -C "$RUNNER_TEMP/tarball"
-          # Run node from the extract root, not from package/ — that dir is "type": "module",
-          # which would change how `node -p` treats the require() below.
-          cd "$RUNNER_TEMP/tarball"
-          test -f package/SKILLS.md || { echo "::error::tarball is missing SKILLS.md (the agent onboarding guide never reaches npm)"; exit 1; }
-          test -f package/dist/plugin/main.js || { echo "::error::tarball is missing dist/plugin/main.js — the companion plugin was not vendored, so 'plugin install' is broken"; exit 1; }
-          got=$(node -p "require('./package/dist/plugin/manifest.json').version")
+          tar -xzf "$tgz" -C .tarball-check
+          test -f .tarball-check/package/SKILLS.md || { echo "::error::tarball is missing SKILLS.md (the agent onboarding guide never reaches npm)"; exit 1; }
+          test -f .tarball-check/package/dist/plugin/main.js || { echo "::error::tarball is missing dist/plugin/main.js — the companion plugin was not vendored, so 'plugin install' is broken"; exit 1; }
+          got=$(node -p "require('./.tarball-check/package/dist/plugin/manifest.json').version")
           echo "want=$want tarball_plugin=$got"
           [ "$got" = "$want" ] || { echo "::error::tarball ships companion plugin $got, expected $want — a stale packages/plugin/dist was vendored"; exit 1; }
-          rm -f "$tgz"
+          rm -rf .tarball-check
           echo "ok: tarball ships SKILLS.md + companion plugin $want"
