@@ -74,6 +74,59 @@ if (!body) {
   process.exit(1);
 }
 
+// Completeness gate. release.mjs only RENAMES [Unreleased] -> [next]; it does not generate notes.
+// A PR that never wrote an entry is silently dropped from the release notes and nothing catches it.
+// v1.10.0 nearly shipped documenting 1 of 5 changes, omitting #270 — the packaging fix that was the
+// REASON for the release. Assert every user-visible PR in the range is cited in [Unreleased].
+// Runs UP FRONT with the other CHANGELOG validation so a miss never leaves the tree half-written
+// (the prose-drift bug failed mid-cut with every version file already rewritten).
+//
+// NOTE: no `^{commit}` peel anywhere below. execSync goes through cmd.exe on Windows, where `^` is
+// the escape character, so `v1.2.3^{commit}` silently becomes `v1.2.3{commit}`, the lookup throws,
+// and the gate SKIPS ITSELF. git peels annotated tags for rev-parse/merge-base on its own.
+const prevTag = `v${current}`;
+let haveTag = true;
+try {
+  execSync(`git rev-parse -q --verify refs/tags/${prevTag}`, { stdio: "ignore" });
+} catch {
+  console.log(`  (no ${prevTag} tag locally - skipping CHANGELOG coverage check)`);
+  haveTag = false;
+}
+if (haveTag) {
+  // A stale local tag makes the range meaningless: `git fetch` NEVER force-updates an existing tag,
+  // and v1.9.1's local tag pointed at an orphaned pre-rebase commit that was never on main,
+  // inflating "commits since release" from 9 to 18. Fail rather than compute against it.
+  try {
+    execSync(`git merge-base --is-ancestor ${prevTag} HEAD`, { stdio: "ignore" });
+  } catch {
+    console.error(
+      `\nFAIL: ${prevTag} is not an ancestor of HEAD, so the commit range is meaningless.\n` +
+        `The local tag is stale (git fetch does not force-update existing tags). Run:\n` +
+        `  git fetch --tags --force origin`,
+    );
+    process.exit(1);
+  }
+  const subjects = execSync(`git log ${prevTag}..HEAD --format=%s`, { encoding: "utf8" })
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  // User-visible by type. docs/chore/test/ci/refactor/style are exempt.
+  const userVisible = subjects.filter((l) => /^(feat|fix|perf|build)[(!:]/.test(l));
+  const prs = [
+    ...new Set(userVisible.flatMap((l) => [...l.matchAll(/\(#(\d+)\)/g)].map((m) => m[1]))),
+  ];
+  const missing = prs.filter((n) => !body.includes(`#${n}`));
+  if (missing.length) {
+    console.error(
+      `\nFAIL: user-visible PRs with no [Unreleased] entry: ${missing.map((n) => `#${n}`).join(", ")}\n` +
+        `release.mjs only renames [Unreleased] -> [${next}], so these would ship undocumented.\n` +
+        `Cite each PR in a note, or reclassify the commit if it is genuinely not user-visible.`,
+    );
+    process.exit(1);
+  }
+  console.log(`  CHANGELOG coverage OK (${prs.length} user-visible PR(s) since ${prevTag})`);
+}
+
 // Core version set; packages/plugin is bumped separately below — it now tracks the repo
 // version in lockstep (decision 2026-07-02; see the block after server.json).
 for (const p of [
