@@ -3,7 +3,7 @@ title: Prometheus Metrics
 description: The metrics catalog and the optional, auth-gated /metrics scrape endpoint.
 ---
 
-obsidian-tc maintains a Prometheus catalog of **8 counters, 2 histograms, and 4
+obsidian-tc maintains a Prometheus catalog of **9 counters, 2 histograms, and 4
 gauges**. The recorder is always live so the `get_metrics` tool and the optional
 `/metrics` scrape endpoint share the same in-memory state.
 

@@ -485,7 +485,11 @@ export class ToolRegistry {
         };
         writeEvent(ctx.db, e);
       } catch {
-        /* audit must never break dispatch */
+        // Audit stays fail-open — it must never break dispatch. But a silent failure
+        // (locked DB, disk full, migration drift) makes the security-audit trail lossy
+        // with no signal at all, so surface it as a metric. meter() is itself guarded,
+        // so this cannot throw back out of the catch.
+        this.meter((m) => m.incAuditWriteFailed(ctx.vaultId, name));
       }
       // THE-209: mirror the audit row into the active session's JSONL trace, if any.
       if (ctx.sessionId && this.sessionTracer) {

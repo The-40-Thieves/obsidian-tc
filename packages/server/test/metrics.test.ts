@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MetricsRecorder } from "../src/metrics/registry";
 
-// The exact G2.4 catalog: 8 counters, 2 histograms, 4 gauges.
+// The exact G2.4 catalog: 9 counters, 2 histograms, 4 gauges.
 const COUNTERS = [
   "obsidian_tc_tool_calls_total",
   "obsidian_tc_acl_denied_total",
@@ -11,6 +11,7 @@ const COUNTERS = [
   "obsidian_tc_rate_limit_hits_total",
   "obsidian_tc_governor_truncations_total",
   "obsidian_tc_morgiana_emit_dropped_total",
+  "obsidian_tc_audit_write_failed_total",
 ];
 const HISTOGRAMS = ["obsidian_tc_tool_duration_seconds", "obsidian_tc_response_bytes"];
 const GAUGES = [
@@ -21,14 +22,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 8 counters, 2 histograms, 4 gauges", async () => {
+  it("registers the full catalog: 9 counters, 2 histograms, 4 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(14);
+    expect(new Set(declared).size).toBe(15);
   });
 
   it("exposes recorded tool-call counters and histograms by label", async () => {

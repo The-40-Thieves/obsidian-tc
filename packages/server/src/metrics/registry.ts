@@ -41,6 +41,7 @@ export class MetricsRecorder {
   private readonly rateLimitHits: Counter<string>;
   private readonly governorTruncations: Counter<string>;
   private readonly morgianaDropped: Counter<string>;
+  private readonly auditWriteFailed: Counter<string>;
   private readonly toolDuration: Histogram<string>;
   private readonly responseBytes: Histogram<string>;
 
@@ -64,6 +65,12 @@ export class MetricsRecorder {
     this.hitlElicited = new Counter({
       name: "obsidian_tc_hitl_elicited_total",
       help: "HITL elicit confirmations required, by vault and tool.",
+      labelNames: ["vault", "tool"],
+      registers,
+    });
+    this.auditWriteFailed = new Counter({
+      name: "obsidian_tc_audit_write_failed_total",
+      help: "Security-audit event writes that failed, by vault and tool. Audit is fail-open by design (a failed write must never break dispatch), so this counter is the only signal that the audit trail has gone lossy.",
       labelNames: ["vault", "tool"],
       registers,
     });
@@ -172,6 +179,9 @@ export class MetricsRecorder {
   }
   incHitlElicited(vault: string, tool: string): void {
     this.hitlElicited.inc({ vault, tool });
+  }
+  incAuditWriteFailed(vault: string, tool: string): void {
+    this.auditWriteFailed.inc({ vault, tool });
   }
   incIdempotencyHit(vault: string, tool: string): void {
     this.idempotencyHits.inc({ vault, tool });
