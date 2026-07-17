@@ -6,6 +6,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `obsidian_tc_audit_write_failed_total` (labels: `vault`, `tool`) — counts
+  security-audit event writes that failed. Audit is fail-open by design (a failed
+  write must never break dispatch), so the failure was previously silent and the
+  audit trail could go lossy with no signal. Prometheus catalog is now 9 counters,
+  2 histograms, 4 gauges. (THE-416)
+
 ## [1.9.1] - 2026-07-15
 
 ### Added
