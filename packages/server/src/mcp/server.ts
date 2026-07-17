@@ -249,22 +249,36 @@ export function createMcpServer(opts: McpServerOptions): Server {
     return dispatchToResult(req.params.name, args, ctx);
   });
 
-  // Resources: vault notes. They bypass registry.dispatch, so the handlers enforce the read
-  // scope + folder ACL + path containment inline (see resources.ts). Registered only when a
+  // Resources: vault notes. resources.ts owns AUTHORIZATION (read:notes scope, vault binding,
+  // folder read-ACL, path containment) and keeps it - that is the security boundary. THE-415
+  // routes both ops through registry.dispatchResource so they also get the GOVERNANCE tools get:
+  // the THE-210 rate limiter and an audit row. Before this they had neither, so a read:notes
+  // caller could pull the vault in a loop with no budget and leave no audit trail. Registered only when a
   // vaultRegistry is supplied, matching the conditionally-advertised resources capability: the
   // MCP SDK refuses a handler for an undeclared capability, and a client sees resources/* as
   // unsupported rather than as a misleading empty/error surface.
   const { vaultRegistry } = opts;
   if (vaultRegistry) {
-    server.setRequestHandler(
-      ListResourcesRequestSchema,
-      (req): ListResourcesResult =>
-        listResources(vaultRegistry, opts.context(), req.params?.cursor),
-    );
-    server.setRequestHandler(
-      ReadResourceRequestSchema,
-      (req): ReadResourceResult => readResource(vaultRegistry, opts.context(), req.params.uri),
-    );
+    server.setRequestHandler(ListResourcesRequestSchema, (req): Promise<ListResourcesResult> => {
+      const ctx = opts.context();
+      return opts.registry.dispatchResource(
+        "resources/list",
+        ctx,
+        ["read:notes"],
+        { cursor: req.params?.cursor ?? null },
+        () => listResources(vaultRegistry, ctx, req.params?.cursor),
+      );
+    });
+    server.setRequestHandler(ReadResourceRequestSchema, (req): Promise<ReadResourceResult> => {
+      const ctx = opts.context();
+      return opts.registry.dispatchResource(
+        "resources/read",
+        ctx,
+        ["read:notes"],
+        { uri: req.params.uri },
+        () => readResource(vaultRegistry, ctx, req.params.uri),
+      );
+    });
   }
 
   // Prompts: built-in, static templates (no vault access).

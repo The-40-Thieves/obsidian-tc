@@ -421,6 +421,162 @@ export class ToolRegistry {
   // One OTEL root span per tool call (G2.4) wraps the pipeline when a tracer is configured;
   // otherwise the tracer-less fast path runs unchanged. Span attributes come from ctx + the
   // ToolResult, so runDispatch's internals stay untouched.
+  /** THE-415: record ONE governed outcome - audit row + session trace + episode bus.
+   *  Shared by tool dispatch and by dispatchResource, so the resources/* surface cannot
+   *  drift from tools/* on audit. Fail-open throughout: observability must never break
+   *  the call. */
+  private recordOutcome(
+    ctx: CallerContext,
+    name: string,
+    hash: string,
+    rawInput: unknown,
+    status: Status,
+    durationMs: number,
+    resultSize: number,
+    code?: string,
+  ): void {
+    try {
+      const e: AuditEvent = {
+        ts: Date.now(),
+        vault_id: ctx.vaultId,
+        tool_name: name,
+        caller: ctx.caller,
+        duration_ms: durationMs,
+        result_size: resultSize,
+        status,
+        error_code: code ?? null,
+        args_hash: hash,
+        event_type: "tool_invocation",
+      };
+      writeEvent(ctx.db, e);
+    } catch {
+      // Audit stays fail-open — it must never break dispatch. But a silent failure
+      // (locked DB, disk full, migration drift) makes the security-audit trail lossy
+      // with no signal at all, so surface it as a metric. meter() is itself guarded,
+      // so this cannot throw back out of the catch.
+      this.meter((m) => m.incAuditWriteFailed(ctx.vaultId, name));
+    }
+    // THE-209: mirror the audit row into the active session's JSONL trace, if any.
+    if (ctx.sessionId && this.sessionTracer) {
+      try {
+        this.sessionTracer(
+          { vaultId: ctx.vaultId, sessionId: ctx.sessionId, caller: ctx.caller },
+          {
+            ts: Date.now(),
+            type: "tool_invocation",
+            tool: name,
+            caller: ctx.caller,
+            duration_ms: durationMs,
+            args_hash: hash,
+            result_size: resultSize,
+            status,
+            ...(code ? { error_code: code } : {}),
+          },
+        );
+      } catch {
+        /* tracing must never break dispatch */
+      }
+    }
+    // THE-228: hand the same outcome to the experiential episode bus — every dispatch,
+    // session or not. The bus owns content policy (redaction / caps / off) + persistence.
+    if (this.onEpisode) {
+      try {
+        this.onEpisode({
+          ts: Date.now(),
+          vaultId: ctx.vaultId,
+          tool: name,
+          caller: ctx.caller,
+          sessionId: ctx.sessionId ?? null,
+          status,
+          errorCode: code ?? null,
+          durationMs,
+          resultSize,
+          argsHash: hash,
+          args: rawInput,
+        });
+      } catch {
+        /* capture must never break dispatch */
+      }
+    }
+  }
+
+  /**
+   * THE-415: run an MCP *resource* operation under the same governance a tool call gets -
+   * rate limit, audit, metrics, MORGIANA.
+   *
+   * resources/list and resources/read already enforce their own AUTHORIZATION inside
+   * resources.ts (read:notes scope, vault binding, folder read-ACL, path containment);
+   * that stays, and remains the security boundary. What they bypassed was GOVERNANCE: the
+   * dispatch-wide limiter never saw them, so a read:notes caller could pull the whole
+   * vault in a loop with no budget, and no audit row was written - leaving the security
+   * audit trail with a hole shaped exactly like "read the vault".
+   *
+   * Deliberately NOT registered as a ToolDefinition: resources are a distinct MCP surface
+   * and must not appear in tools/list or be reachable via tools/call.
+   */
+  async dispatchResource<T>(
+    name: string,
+    ctx: CallerContext,
+    requiredScopes: string[],
+    args: unknown,
+    fn: () => T,
+  ): Promise<T> {
+    const now = ctx.now ?? Date.now;
+    const start = now();
+    const hash = argsHash(name, (args ?? {}) as Record<string, unknown>);
+    const scopeClass = scopeClassOf(requiredScopes as never);
+
+    const emit = (status: Status, durationMs: number, resultSize: number, code?: string) => {
+      this.recordOutcome(ctx, name, hash, args, status, durationMs, resultSize, code);
+      const callStatus: ToolCallStatus =
+        status === "ok" ? "ok" : code === "forbidden" || code === "throttled" ? "denied" : "error";
+      this.meter((m) =>
+        m.observeToolCall(ctx.vaultId, name, callStatus, durationMs / 1000, resultSize),
+      );
+      this.relay(ctx.vaultId, "tc.tool.call.completed", {
+        tool: name,
+        caller_hash: callerHash(ctx.caller),
+        scopes_required: requiredScopes,
+        status: callStatus,
+        duration_ms: durationMs,
+        result_size: resultSize,
+        elicit_token: null,
+        error: code ? { code, message: code } : null,
+      });
+    };
+
+    // The same rate-limit policy gate dispatch applies (THE-210): per (caller_hash,
+    // scope_class, vault); an unknown scope class is unlimited. A throttled check draws
+    // down no budget, so rejecting here costs the caller nothing.
+    if (this.rateLimiter) {
+      const d = this.rateLimiter.check(callerHash(ctx.caller), scopeClass, ctx.vaultId, now());
+      if (!d.ok) {
+        this.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
+        this.relay(ctx.vaultId, "tc.rate_limit.hit", {
+          tool: name,
+          caller_hash: callerHash(ctx.caller),
+        });
+        emit("error", now() - start, 0, "throttled");
+        throw err.throttled("rate limit exceeded", {
+          scope_class: d.scopeClass,
+          retry_after_seconds: d.retryAfterSeconds,
+          current_burst: d.currentBurst,
+        });
+      }
+    }
+
+    try {
+      const out = await fn();
+      const size = takeSerialized(out)?.length ?? JSON.stringify(out ?? null).length;
+      emit("ok", now() - start, size);
+      return out;
+    } catch (e) {
+      const code = e instanceof ObsidianTcError ? e.code : "internal_error";
+      emit("error", now() - start, 0, code);
+      throw e;
+    }
+  }
+
   async dispatch(name: string, rawInput: unknown, ctx: CallerContext): Promise<ToolResult> {
     const tracer = this.tracer;
     if (!tracer) {
@@ -469,71 +625,8 @@ export class ToolRegistry {
     let idemKey: string | undefined;
     let idemClaimed = false;
 
-    const audit = (status: Status, durationMs: number, resultSize: number, code?: string) => {
-      try {
-        const e: AuditEvent = {
-          ts: Date.now(),
-          vault_id: ctx.vaultId,
-          tool_name: name,
-          caller: ctx.caller,
-          duration_ms: durationMs,
-          result_size: resultSize,
-          status,
-          error_code: code ?? null,
-          args_hash: hash,
-          event_type: "tool_invocation",
-        };
-        writeEvent(ctx.db, e);
-      } catch {
-        // Audit stays fail-open — it must never break dispatch. But a silent failure
-        // (locked DB, disk full, migration drift) makes the security-audit trail lossy
-        // with no signal at all, so surface it as a metric. meter() is itself guarded,
-        // so this cannot throw back out of the catch.
-        this.meter((m) => m.incAuditWriteFailed(ctx.vaultId, name));
-      }
-      // THE-209: mirror the audit row into the active session's JSONL trace, if any.
-      if (ctx.sessionId && this.sessionTracer) {
-        try {
-          this.sessionTracer(
-            { vaultId: ctx.vaultId, sessionId: ctx.sessionId, caller: ctx.caller },
-            {
-              ts: Date.now(),
-              type: "tool_invocation",
-              tool: name,
-              caller: ctx.caller,
-              duration_ms: durationMs,
-              args_hash: hash,
-              result_size: resultSize,
-              status,
-              ...(code ? { error_code: code } : {}),
-            },
-          );
-        } catch {
-          /* tracing must never break dispatch */
-        }
-      }
-      // THE-228: hand the same outcome to the experiential episode bus — every dispatch,
-      // session or not. The bus owns content policy (redaction / caps / off) + persistence.
-      if (this.onEpisode) {
-        try {
-          this.onEpisode({
-            ts: Date.now(),
-            vaultId: ctx.vaultId,
-            tool: name,
-            caller: ctx.caller,
-            sessionId: ctx.sessionId ?? null,
-            status,
-            errorCode: code ?? null,
-            durationMs,
-            resultSize,
-            argsHash: hash,
-            args: rawInput,
-          });
-        } catch {
-          /* capture must never break dispatch */
-        }
-      }
-    };
+    const audit = (status: Status, durationMs: number, resultSize: number, code?: string) =>
+      this.recordOutcome(ctx, name, hash, rawInput, status, durationMs, resultSize, code);
 
     try {
       const def = this.tools.get(name);
