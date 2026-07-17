@@ -52,18 +52,18 @@ jobs:
             triple: linux-arm64-musl
     runs-on: ${{ matrix.host }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (pinned, audit #11)
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - run: bun install --frozen-lockfile
       # musl targets cross-compile via napi's `-x` (cargo-zigbuild); zig is the linker. Gated to
       # the two musl rows only — the gnu / darwin / win rows are untouched.
       - name: install zig for musl cross-compile
         if: endsWith(matrix.target, '-musl')
-        uses: goto-bus-stop/setup-zig@v2
+        uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2
         with:
           version: 0.13.0
       # linux-arm64 is cross-compiled on the x64 ubuntu runner, which has no aarch64 linker
@@ -86,7 +86,7 @@ jobs:
         working-directory: packages/native
         run: bun run build -- --target ${{ matrix.target }} ${{ endsWith(matrix.target, '-musl') && '-x' || '' }}
         shell: bash
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-${{ matrix.triple }}
           path: packages/native/*.node
@@ -96,14 +96,14 @@ jobs:
     needs: build-native
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
       - run: bun install --frozen-lockfile
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: packages/native/artifacts
       # napi artifacts only *fills* per-platform dirs; it does not create them.
@@ -205,7 +205,7 @@ jobs:
           ls -la sboms/
         shell: bash
       - name: upload SBOM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sboms
           path: sboms/
@@ -248,8 +248,8 @@ jobs:
             target: bun-windows-x64
     runs-on: ${{ matrix.host }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
       - name: build shared
         working-directory: packages/shared
@@ -257,7 +257,7 @@ jobs:
       - name: compile standalone binary
         run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
         shell: bash
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: binary-${{ matrix.target }}
           path: packages/server/dist/obsidian-tc-*
@@ -265,8 +265,8 @@ jobs:
   build-plugin:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
       - name: build plugin
         working-directory: packages/plugin
@@ -278,7 +278,7 @@ jobs:
         shell: bash
       # Upload the zip AND the loose 3-file set (manifest.json + main.js + styles.css) so the release
       # attaches them as individual assets for BRAT sideloading (THE-206), not only the zip.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: plugin
           path: |
@@ -291,10 +291,10 @@ jobs:
     needs: publish-npm
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -310,7 +310,7 @@ jobs:
           else
             echo "value=false" >> "$GITHUB_OUTPUT"
           fi
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: Dockerfile
@@ -328,8 +328,8 @@ jobs:
     needs: publish-npm
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
       - name: build shared + server
         run: |
@@ -337,7 +337,7 @@ jobs:
           (cd packages/server && bun run build)
       - name: pack the .mcpb bundle
         run: bun run bundle
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mcpb
           path: dist/obsidian-tc.mcpb
@@ -346,8 +346,8 @@ jobs:
     needs: [publish-npm, build-binaries, build-plugin, build-docker, build-mcpb]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
           # only the assets the release attaches; skip native-* and the .dockerbuild record
@@ -357,7 +357,7 @@ jobs:
           cd artifacts
           find . -type f \( -name 'obsidian-tc-*' -o -name '*.mcpb' -o -name '*.zip' \) -exec sha256sum {} \; > SHASUMS256.txt
         shell: bash
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           # publish on tag (was draft: true — releases were left as drafts, so "Latest" went stale)
           draft: false
