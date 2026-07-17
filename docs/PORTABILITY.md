@@ -92,7 +92,7 @@ matrix. On each runner it installs deps, builds the host native addon + shared +
 asserts:
 
 1. **Host prebuild loads** — `require('packages/native')` reports `nativeLoaded === true` and
-   exposes `cosineSimilarity`/`tokenize`/`bm25Score`.
+   exposes `cosineSimilarity`/`cosineBatch`/`tokenize`/`bm25Score`.
 2. **Missing prebuild degrades, not crashes** — with the `.node` moved aside, the loader
    returns the JS fallback (`nativeLoaded === false`) with all exports intact and no throw.
 3. **CLI boots** — `scripts/write-smoke-config.mjs` writes a minimal config for a throwaway
