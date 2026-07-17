@@ -14,19 +14,38 @@ config.
 
 ### Fixed
 
-- **npm shipped a stale companion plugin and no SKILLS.md (affects v1.9.1)**
-  (#270): the published tarball carried a companion plugin labelled **1.7.0**.
-  The plugin SOURCE was always correct — `copy-assets.mjs` rebuilt the plugin
-  only when `dist/main.js` was ABSENT, so a build left over from before the
-  version bump was vendored verbatim. `check-version-coherence.mjs` could not
-  catch it: it asserts `packages/plugin/manifest.json`, the source, which read
-  1.9.1 the whole time. Nothing asserted the artifact that ships. The plugin is
-  now always rebuilt before vendoring, the vendored manifest is asserted against
-  the server version, and a failed vendor drops the directory rather than
-  publishing a mismatch. SKILLS.md now ships too (it lives at the repo root,
-  which npm's `files` cannot reach, so it is vendored in at build time).
-  A ci-install-smoke tarball guard now packs for real and asserts the published
-  bytes on all three OSes.
+- **npm did not ship SKILLS.md (affects v1.9.1 and earlier)** (#270): the agent
+  onboarding guide lives at the repo root, which belongs to the unpublished
+  `obsidian-tc-monorepo` package, and npm's `files` cannot reference paths
+  outside the package directory — so `files: [dist, README.md, LICENSE]` had no
+  way to pick it up and it reached GitHub only. It is now vendored into
+  `packages/server/` at build time (the same mechanism already used for the
+  companion plugin) and listed in `files`. The repo root stays the single source
+  of truth; the copy is generated and gitignored, so the two cannot drift.
+
+### Security
+
+- **Latent stale-plugin vendoring hazard closed** (#270): `copy-assets.mjs`
+  rebuilt the companion plugin only when `dist/main.js` was ABSENT, so any build
+  left over from before a version bump would be vendored verbatim into the
+  tarball. **This never affected a published release** — `publish.yml` builds the
+  plugin in a fresh checkout, where no stale `dist` exists, so CI always rebuilt
+  it (verified: the published 1.9.1 tarball carries a correct 1.9.1 plugin). It
+  bit local and developer builds only. The hazard is real regardless, and
+  `check-version-coherence.mjs` could not have caught it: it asserts
+  `packages/plugin/manifest.json` — the SOURCE, which was always correct — and
+  nothing asserted the artifact that ships. The plugin is now always rebuilt
+  before vendoring, the vendored manifest is asserted against the server version,
+  and a failed vendor drops the directory rather than publishing a mismatch. A
+  ci-install-smoke tarball guard packs for real and asserts the published bytes
+  on all three OSes.
+- **Every GitHub Action pinned to a full commit SHA** (#272): 83 of 89 `uses:`
+  lines ran on mutable tags, so each workflow was one upstream retag away from
+  running different code with our token. Two upstreams had already moved —
+  `dtolnay/rust-toolchain@stable` had DIVERGED from the pinned sha, and
+  `Swatinem/rust-cache@v2` was 1 ahead. Version drift reconciled onto the highest
+  version already proven in-repo. `actions/upload-artifact` v4/v7 deliberately
+  left un-reconciled (publish.yml runs a matched v4 upload/download pair).
 
 ### Added
 
@@ -55,17 +74,6 @@ config.
   extracted into one shared `recordOutcome()` so the two surfaces cannot drift
   again. **A heavy resource client that was previously ungoverned can now be
   throttled.**
-
-### Security
-
-- **Every GitHub Action pinned to a full commit SHA** (#272): 83 of 89 `uses:`
-  lines ran on mutable tags, so each workflow was one upstream retag away from
-  running different code with our token. Two upstreams had already moved —
-  `dtolnay/rust-toolchain@stable` had DIVERGED from the pinned sha, and
-  `Swatinem/rust-cache@v2` was 1 ahead. Version drift reconciled onto the highest
-  version already proven in-repo. `actions/upload-artifact` v4/v7 deliberately
-  left un-reconciled (publish.yml runs a matched v4 upload/download pair).
-
 ## [1.9.1] - 2026-07-15
 
 ### Added
