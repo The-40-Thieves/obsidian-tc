@@ -66,7 +66,7 @@ jobs:
       # 1) The freshly-built host prebuild resolves and the compiled binary is active.
       - name: native addon loads the host .node
         run: |
-          node -e "const n=require('./packages/native'); if(!n.nativeLoaded||typeof n.cosineSimilarity!=='function'||typeof n.tokenize!=='function'||typeof n.bm25Score!=='function'){console.error('native addon did not load: nativeLoaded='+n.nativeLoaded);process.exit(1)} console.log('ok: native addon loaded (nativeLoaded=true)')"
+          node -e "const n=require('./packages/native'); if(!n.nativeLoaded||typeof n.cosineSimilarity!=='function'||typeof n.cosineBatch!=='function'||typeof n.tokenize!=='function'||typeof n.bm25Score!=='function'){console.error('native addon did not load: nativeLoaded='+n.nativeLoaded);process.exit(1)} console.log('ok: native addon loaded (nativeLoaded=true)')"
 
       # 2) A missing prebuild must degrade to the JS fallback, never crash (G2.2 #9).
       - name: missing prebuild falls back to JS (no crash)
