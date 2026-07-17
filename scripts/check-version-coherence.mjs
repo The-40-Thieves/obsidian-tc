@@ -128,7 +128,10 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
   );
 }
 
-// Version-prose coherence: the docs that state the shipped version as prose must match the package
+// Version-prose coherence: the docs that state the shipped version as prose must match the package.
+// NOTE: every file anchored below MUST also appear in release.mjs's PROSE_FILES, or a cut fails
+// here with the version files already rewritten (that is exactly what blocked 1.10.0). The two
+// lists are hand-kept in sync today; folding them into one shared module is the durable fix.
 // version (they drift otherwise — swept by hand at 1.3.3). release.mjs bumps these on every cut.
 {
   const version = distinct[0];

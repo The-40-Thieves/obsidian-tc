@@ -124,6 +124,10 @@ for (const p of [
   "docs/src/content/docs/index.md",
   "docs/src/content/docs/getting-started/install.md",
   "docs/src/content/docs/getting-started/first-run.md",
+  // MUST contain every file check-version-coherence.mjs anchors on in its version-prose block,
+  // or the release gate fails mid-cut with the version files already rewritten. roadmap.md was
+  // anchored there but missing here, which blocked the 1.10.0 cut: two hardcoded lists, drifted.
+  "docs/src/content/docs/roadmap.md",
 ]) {
   const target = inRepo(p);
   const before = readFileSync(target, "utf8");
