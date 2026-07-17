@@ -6,13 +6,65 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-17
+
+Minor rather than patch because nothing here is dark: unlike v1.9.1's additions
+(all off by default), every change below is live for an existing user on default
+config.
+
+### Fixed
+
+- **npm shipped a stale companion plugin and no SKILLS.md (affects v1.9.1)**
+  (#270): the published tarball carried a companion plugin labelled **1.7.0**.
+  The plugin SOURCE was always correct — `copy-assets.mjs` rebuilt the plugin
+  only when `dist/main.js` was ABSENT, so a build left over from before the
+  version bump was vendored verbatim. `check-version-coherence.mjs` could not
+  catch it: it asserts `packages/plugin/manifest.json`, the source, which read
+  1.9.1 the whole time. Nothing asserted the artifact that ships. The plugin is
+  now always rebuilt before vendoring, the vendored manifest is asserted against
+  the server version, and a failed vendor drops the directory rather than
+  publishing a mismatch. SKILLS.md now ships too (it lives at the repo root,
+  which npm's `files` cannot reach, so it is vendored in at build time).
+  A ci-install-smoke tarball guard now packs for real and asserts the published
+  bytes on all three OSes.
+
 ### Added
 
+- **Hardened deployment profile + startup security posture** (#269): a
+  schema-valid least-privilege `examples/config.hardened.json`, and a
+  `security: auth=… readOnly=… strictRead=… requireCas=… http=…` line written to
+  **stderr on every startup**, with a warning when the permissive trusted-local
+  defaults are active. Governed by default is not least-privilege by default.
 - `obsidian_tc_audit_write_failed_total` (labels: `vault`, `tool`) — counts
   security-audit event writes that failed. Audit is fail-open by design (a failed
   write must never break dispatch), so the failure was previously silent and the
   audit trail could go lossy with no signal. Prometheus catalog is now 9 counters,
   2 histograms, 4 gauges. (THE-416)
+- Ambient context capture: design spec plus macOS / Windows / Linux phase plans
+  land as docs. Design only — no product code (THE-175).
+
+### Changed
+
+- **`resources/read` and `resources/list` are now rate-limited and audited**
+  (THE-415, #273): both bypassed `ToolRegistry.dispatch` entirely. They were not
+  unguarded — `resources.ts` enforced the `read:notes` scope, vault binding, the
+  folder read-ACL, and path containment — but they escaped GOVERNANCE: the
+  THE-210 limiter never saw them, so a `read:notes` caller could pull the whole
+  vault in a loop with no budget, and no audit row was written. Both now route
+  through `ToolRegistry.dispatchResource`, and dispatch's audit closure is
+  extracted into one shared `recordOutcome()` so the two surfaces cannot drift
+  again. **A heavy resource client that was previously ungoverned can now be
+  throttled.**
+
+### Security
+
+- **Every GitHub Action pinned to a full commit SHA** (#272): 83 of 89 `uses:`
+  lines ran on mutable tags, so each workflow was one upstream retag away from
+  running different code with our token. Two upstreams had already moved —
+  `dtolnay/rust-toolchain@stable` had DIVERGED from the pinned sha, and
+  `Swatinem/rust-cache@v2` was 1 ahead. Version drift reconciled onto the highest
+  version already proven in-repo. `actions/upload-artifact` v4/v7 deliberately
+  left un-reconciled (publish.yml runs a matched v4 upload/download pair).
 
 ## [1.9.1] - 2026-07-15
 
