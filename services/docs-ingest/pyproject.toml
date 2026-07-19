@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "obsidian-tc-docs-ingest"
+version = "0.1.0"
+description = "Vendor/external-docs ingestion for obsidian-tc: a Docling/Firecrawl parse-router + LangExtract, writing md+frontmatter into a corpus vault (THE-444)"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.13",
+]
+
+[project.optional-dependencies]
+# Live parse/extract backends, imported lazily so the router + writer core and its tests need
+# none of them. Docling parses PDFs/Office; Firecrawl fetches web pages; LangExtract does the
+# grounded structured extraction.
+parse = ["docling>=2", "firecrawl-py>=1"]
+extract = ["langextract>=1.5"]
+test = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["obsidian_tc_docs_ingest"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
