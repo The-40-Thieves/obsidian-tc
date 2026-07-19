@@ -32,7 +32,7 @@ import {
   type QueryMetrics,
   type RankedChunk,
 } from "./metrics";
-import { describePaired } from "./stats";
+import { describeNonInferiority, describePaired, describePower } from "./stats";
 
 const TOP_K = 30;
 
@@ -341,12 +341,18 @@ async function main(): Promise<void> {
   const hardZ = process.env.GATED_HARD_Z ? Number(process.env.GATED_HARD_Z) : undefined;
   const jsonIdx = argv.indexOf("--json");
   const jsonPath = jsonIdx >= 0 ? argv[jsonIdx + 1] : undefined;
+  // THE-440: `--query-vecs <file.json>` injects precomputed query embeddings ({ "query text": [..] })
+  // so a GPU-embedded A/B (both arms + queries under one nomic) bypasses the local ollama call. The
+  // doc side lives in the index; this closes the query side to the SAME embedder.
+  const qvIdx = argv.indexOf("--query-vecs");
+  const queryVecsPath = qvIdx >= 0 ? argv[qvIdx + 1] : undefined;
   const positional = argv.filter(
     (a, i) =>
       !a.startsWith("--") &&
       (jsonIdx < 0 || i !== jsonIdx + 1) &&
       (fusionIdx < 0 || i !== fusionIdx + 1) &&
-      (zRouterIdx < 0 || i !== zRouterIdx + 1),
+      (zRouterIdx < 0 || i !== zRouterIdx + 1) &&
+      (qvIdx < 0 || i !== qvIdx + 1),
   );
   const configPath = positional[0];
   if (!configPath) {
@@ -379,7 +385,7 @@ async function main(): Promise<void> {
   // token_classify vLLM server. This is the "sparse stream alongside the nomic pipeline" gate;
   // chunk_sparse must already be backfilled into the cache (same enriched text).
   const sparseUrl = process.env.SPARSE_URL;
-  const provider = sparseUrl
+  const provider0 = sparseUrl
     ? {
         embed: (texts: string[], o?: { input?: "query" | "document" }) =>
           baseProvider.embed(texts, o),
@@ -416,6 +422,31 @@ async function main(): Promise<void> {
         },
       }
     : baseProvider;
+  // THE-440: overlay precomputed query vectors when --query-vecs is given (GPU-embedded A/B).
+  const provider = queryVecsPath
+    ? (() => {
+        const map = new Map<string, number[]>(
+          Object.entries(
+            JSON.parse(readFileSync(queryVecsPath, "utf8")) as Record<string, number[]>,
+          ),
+        );
+        process.stderr.write(`--query-vecs: ${map.size} precomputed query vectors\n`);
+        return {
+          ...provider0,
+          embed: async (
+            texts: string[],
+            o?: { input?: "query" | "document" },
+          ): Promise<number[][]> =>
+            o?.input === "query"
+              ? texts.map((t) => {
+                  const v = map.get(t);
+                  if (!v) throw new Error(`--query-vecs: no vector for query "${t.slice(0, 40)}…"`);
+                  return v;
+                })
+              : provider0.embed(texts, o),
+        };
+      })()
+    : provider0;
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
   // THE-187: --activation loads the experiential store's cached scores once (read-only) into
   // a map; a missing store/table degrades to an empty map (all-inert) with a stderr note.
@@ -538,6 +569,12 @@ async function main(): Promise<void> {
   process.stdout.write(
     `bridge recall:  ${report.baselineAgg.bridge_recall_rate.toFixed(3)} -> ${report.graphAgg.bridge_recall_rate.toFixed(3)} (${pp(report.bridgeDeltaPp)})\n`,
   );
+  // THE-440: static-vs-trajectory proxy (Bridge Evidence 2607.15253). Static-relevance nDCG (all
+  // expected paths) vs bridge-doc nDCG (the multi-hop, load-bearing-but-weak docs) on the bridge
+  // subset — a retrieval-only stand-in for causal trajectory utility (true CTU needs agent replay).
+  process.stdout.write(
+    `bridge nDCG@10 (${report.graphAgg.bridge_query_count} bridge-labeled q): ${report.baselineAgg.mean_bridge_ndcg_at_10.toFixed(3)} -> ${report.graphAgg.mean_bridge_ndcg_at_10.toFixed(3)}  [static nDCG ${report.graphAgg.mean_ndcg_at_10.toFixed(3)}]\n`,
+  );
   // THE-394 acceptance slice: the gated reranker must win on the HARD subset.
   const hardQ = report.perQuery.filter((r) => r.hard);
   if (hardQ.length > 0) {
@@ -563,6 +600,12 @@ async function main(): Promise<void> {
   const dR = report.perQuery.map((r) => r.graph.recall_at_10 - r.baseline.recall_at_10);
   process.stdout.write(`\n${describePaired(dN, "graph-vs-baseline ΔnDCG@10 ")}\n`);
   process.stdout.write(`${describePaired(dR, "graph-vs-baseline Δrecall@10")}\n`);
+  // THE-440/441: what this eval can actually RESOLVE at the current n (MDE), and the
+  // non-inferiority verdict against the ship rule's Δ>−0.015 floor. The MDE line is the
+  // honest answer to "can the golden set even see the effect this arm chases?".
+  process.stdout.write(`\n${describePower(dN, "power ΔnDCG@10  ")}\n`);
+  process.stdout.write(`${describeNonInferiority(dN, "non-inferiority ΔnDCG@10 ")}\n`);
+  process.stdout.write(`${describeNonInferiority(dR, "non-inferiority Δrecall@10")}\n`);
   if (jsonPath) {
     const flags = [
       adaptive && "adaptive-rrf",
