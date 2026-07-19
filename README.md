@@ -19,15 +19,15 @@ obsidian-tc gives agents **governed** access instead. Every tool call — no exc
 
 New here? Start with the [5-minute quickstart](./docs/QUICKSTART.md) or the [threat model and design rationale](./docs/WHY.md).
 
-## The interface: 3 tools, ~141 governed capabilities
+## The interface: 3 tools, ~142 governed capabilities
 
-By default the server advertises just **three meta-tools** instead of a wall of 141:
+By default the server advertises just **three meta-tools** instead of a wall of 142:
 
 - **`find_capability`** — BM25 search over the caller-visible capability catalog ("how do I move a note?")
 - **`describe_capability`** — one capability's schema, required scopes, and safety hints
 - **`call_capability`** — invoke the named capability; the call routes through the same auth/scope/ACL/HITL/idempotency/throttle pipeline as a direct call, and the target's own schema validates the arguments
 
-This keeps agent context lean while the full surface — 141 tools across 31 domains — stays reachable, and every tool remains directly callable by name. `toolFacade.mode` selects the shape: `triad` (default), `domain` (~a dozen domain meta-tools like `notes`, `search`, `vault`), or `flat` (the full advertised surface, the pre-facade behavior). The facade is boundary-only: no gate is ever bypassed, whichever mode you pick.
+This keeps agent context lean while the full surface — 142 tools across 31 domains — stays reachable, and every tool remains directly callable by name. `toolFacade.mode` selects the shape: `triad` (default), `domain` (~a dozen domain meta-tools like `notes`, `search`, `vault`), or `flat` (the full advertised surface, the pre-facade behavior). The facade is boundary-only: no gate is ever bypassed, whichever mode you pick.
 
 ## What it is
 
@@ -35,7 +35,7 @@ obsidian-tc is a comprehensive Model Context Protocol (MCP) server for [Obsidian
 
 Three pillars:
 
-1. **Broad.** 141 tools covering the meaningful Obsidian operations — including native Bases (`.base`) support with a real expression-DSL evaluator, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
+1. **Broad.** 142 tools covering the meaningful Obsidian operations — including native Bases (`.base`) support with a real expression-DSL evaluator, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
 2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS with `kid` rotation), folder ACLs (per vault), read-only kill switch, human-in-the-loop elicit on destructive operations, compare-and-swap on writes, idempotency keys, bulk throttling.
 3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, structured CloudEvents emission on every tool call — all opt-in export streams that fail soft.
 
@@ -43,7 +43,7 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 
 ## Status
 
-✅ **Shipped — v1.10.0** (2026-07-15). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.10.0`. The surface is **141 tools across 31 domains**, presented by default via the triad facade described above.
+✅ **Shipped — v1.10.0** (2026-07-15). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.10.0`. The surface is **142 tools across 31 domains**, presented by default via the triad facade described above.
 
 The v1.6–v1.7 line turned the server into a **measured memory engine** (full detail in the [CHANGELOG](./CHANGELOG.md)):
 
@@ -197,7 +197,7 @@ servers (tool counts and features as of 2026-07 — these projects move; check t
 
 | | Tools | Search | Auth / ACL / HITL | Observability |
 |---|---|---|---|---|
-| **obsidian-tc** | 141 (3-tool facade) | FTS5 BM25 · vector (vec0) · GraphRAG RRF | JWT (HS256/JWKS) + per-vault folder ACL + HITL elicit | OTel + Prometheus + CloudEvents |
+| **obsidian-tc** | 142 (3-tool facade) | FTS5 BM25 · vector (vec0) · GraphRAG RRF | JWT (HS256/JWKS) + per-vault folder ACL + HITL elicit | OTel + Prometheus + CloudEvents |
 | [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~14 | text / regex | JWT/OAuth + folder-scoped paths + read-only mode + HITL; MCP 2025-11-25 pagination | console logs |
 | [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian) | ~13 | text + JsonLogic / DQL | Local REST API key | console logs |
 | [StevenStavrakis/obsidian-mcp](https://github.com/StevenStavrakis/obsidian-mcp) | ~11 | text | path validation, no auth layer | console logs |

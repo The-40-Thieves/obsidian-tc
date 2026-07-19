@@ -1,9 +1,9 @@
 ---
 title: Tool Reference
-description: The ~141-tool surface obsidian-tc exposes to MCP clients, and the facade that shapes it.
+description: The ~142-tool surface obsidian-tc exposes to MCP clients, and the facade that shapes it.
 ---
 
-obsidian-tc groups **~141 tools across modules M1–M8 plus admin**. Every tool has
+obsidian-tc groups **~142 tools across modules M1–M8 plus admin**. Every tool has
 a Zod-validated input schema, a structured result, a declared scope set, and a
 scope class that selects its rate-limit tier. `tools/list` also derives MCP
 **annotations** (`readOnlyHint` / `destructiveHint` / `openWorldHint`) and a

@@ -714,6 +714,71 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
     }),
 
     defineTool({
+      name: "knowledge_search",
+      description:
+        "Semantic + keyword search over a vendor / external-docs corpus (a reserved read-only docs vault), with wikilink graph expansion and RRF fusion. The docs-scoped analogue of vault_graph_search: bind `vault` to the docs corpus id. Returns source-attributed chunks tagged seed|expansion. Gated on read:docs so it stays isolated from the private vault.",
+      inputSchema: z
+        .object({
+          vault: VaultId,
+          query: z.string().min(1),
+          final_top_k: z.number().int().positive().max(100).default(20),
+        })
+        .strict(),
+      requiredScopes: ["read:docs"],
+      tags: ["docs", "search", "knowledge"],
+      handler: async (input, ctx) => {
+        const v = deps.vaultRegistry.resolve(input.vault);
+        const route = deps.classRouter
+          ? routeQuery(ctx.db, v.id, input.query)
+          : { class: "standard" as const, signals: [] as string[] };
+        if (route.class === "lexical") {
+          const results = lexicalRouteResults(ctx.db, v.id, input.query, input.final_top_k, (rel) =>
+            readableRel(ctx.acl, rel),
+          );
+          deps.retrievalLog?.({
+            queryText: input.query,
+            surfaceType: "knowledge_search",
+            sessionId: ctx.sessionId ?? null,
+            hits: results.map((r, i) => ({
+              chunkId: r.chunk_id,
+              rank: i + 1,
+              score: r.rerank_score,
+            })),
+          });
+          return { vault: v.id, mode_used: "lexical-route", route: route.signals, results };
+        }
+        const queryVec = await embedQuery(input.query);
+        const querySparse = await embedQuerySparse(input.query);
+        const queryColbert = await embedQueryColbert(input.query);
+        const results = await graphSearch(ctx.db, {
+          ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
+          query: input.query,
+          queryVec,
+          vaultId: v.id,
+          finalTopK: input.final_top_k,
+          ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
+          ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
+          ...(querySparse ? { querySparse } : {}),
+          ...(queryColbert ? { queryColbert } : {}),
+          reranker: deps.reranker,
+          isReadable: (rel) => readableRel(ctx.acl, rel),
+          ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
+        });
+        deps.retrievalLog?.({
+          queryText: input.query,
+          surfaceType: "knowledge_search",
+          sessionId: ctx.sessionId ?? null,
+          hits: results.map((r, i) => ({
+            chunkId: r.chunk_id,
+            rank: i + 1,
+            score: r.rerank_score,
+          })),
+        });
+        return { vault: v.id, mode_used: "graph", results };
+      },
+    }),
+
+    defineTool({
       name: "knowledge_challenge",
       description:
         "Red-team a proposal against your documented decision history. Retrieves decision-bearing chunks (02-projects, 04-writing/Published, 09-reference/system-reviews, 09-reference/syntheses) and asks the inference gateway to flag DIRECT_CONTRADICTION / PATTERN_REPEAT / REVERSAL / HIDDEN_DEPENDENCY. Requires the gateway; reports unavailable when it is not configured.",

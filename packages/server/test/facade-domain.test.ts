@@ -104,6 +104,7 @@ describe("domain-verb facade (THE-275)", () => {
       "save_workspace",
       "trigger_quickadd",
       "plur_recall",
+      "knowledge_search",
       "inspect_acl",
     ])
       expect(domainOfTool(n)).toBeDefined();

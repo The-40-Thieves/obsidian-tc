@@ -356,6 +356,12 @@ const DOMAINS: readonly DomainSpec[] = [
     ],
   },
   {
+    domain: "docs",
+    title: "External docs",
+    blurb: "Search the vendor and external-docs corpus.",
+    members: ["knowledge_search"],
+  },
+  {
     domain: "admin",
     title: "Admin",
     blurb: "Server config, ACL inspection, health, and metrics.",

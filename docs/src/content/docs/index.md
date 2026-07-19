@@ -16,7 +16,7 @@ hero:
 
 ## What is obsidian-tc?
 
-obsidian-tc is a Model Context Protocol server that exposes an Obsidian vault to AI agents through ~141 typed tools, presented via a configurable tool-surface facade (a compact triad of meta-tools by default, or the full surface in flat mode). It runs locally or remotely, supports multi-vault setups, signed-JWT auth, and ships a companion plugin that powers tool-call delivery via the Obsidian Local REST API.
+obsidian-tc is a Model Context Protocol server that exposes an Obsidian vault to AI agents through ~142 typed tools, presented via a configurable tool-surface facade (a compact triad of meta-tools by default, or the full surface in flat mode). It runs locally or remotely, supports multi-vault setups, signed-JWT auth, and ships a companion plugin that powers tool-call delivery via the Obsidian Local REST API.
 
 v1.10.0 is the current release, published to npm with a container image on GHCR.
 
