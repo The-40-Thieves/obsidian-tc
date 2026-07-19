@@ -4,8 +4,10 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 // Every path-based tool calls this with the operation kind and the resolved
 // vault-relative path. Membership is "matches at least one glob in the op's
 // whitelist"; an omitted whitelist means that op kind is unrestricted (M0
-// back-compat). This is the handler-level layer; the M0 dispatch read-only
-// kill switch (forbidden) fires first for scope-mutating tools.
+// back-compat). THE-414: this is now enforced BOTH centrally in dispatch (via each
+// tool's declarative pathAcl extractor, runDispatch calls enforcePathAcl before the
+// handler) AND here at the handler level as defense-in-depth. The M0 dispatch
+// read-only kill switch (forbidden) fires first for scope-mutating tools.
 import { type FolderAcl, globMatch, isDefaultDenied } from "../acl";
 import { resolveVaultPathChecked } from "./paths";
 

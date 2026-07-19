@@ -19,6 +19,7 @@ import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/tracing";
 import { callerHash, type RateLimiter } from "../throttle";
+import { type AclOp, enforcePathAcl } from "../vault/acl-path";
 import type { TraceRecord } from "../workspace/sessions";
 import { ALLOW_ALL, isDisabled, isListed, type VisibilityCaller } from "./visibility";
 
@@ -70,6 +71,15 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   precheck?: (input: I, ctx: CallerContext) => Promise<void> | void;
   /** Override the governing throttle/metric scope class (E4). Defaults to scopeClassOf(requiredScopes). */
   scopeClass?: string;
+  /** THE-414: declarative folder-ACL path extraction. Returns the vault-relative paths this tool
+   *  touches, tagged by op, so runDispatch enforces the folder ACL centrally (right before the
+   *  handler) instead of trusting each handler to call enforcePathAcl. Handler-side calls stay as
+   *  defense-in-depth. Every path-touching tool MUST declare this (or sit in the guarantee test's
+   *  documented exemption set); a mutating tool with neither fails the acl-extraction-coverage
+   *  guarantee test. Extractors must mirror the handler's own enforcePathAcl calls exactly (same
+   *  ops, same paths, same conditionals) so central enforcement never denies a call the handler
+   *  would have allowed. */
+  pathAcl?: (input: I) => ReadonlyArray<{ op: AclOp; path: string }>;
   handler: (input: I, ctx: CallerContext) => Promise<O> | O;
 }
 
@@ -211,6 +221,11 @@ export interface RegistryOptions {
    *  ctx.acl to that vault's ACL (root ACL = inherited default) so the readOnly gate and every
    *  handler-side enforcePathAcl run under the right vault's rules. */
   aclResolver?: (vaultId: string) => FolderAcl | undefined;
+  /** THE-414 vault-root resolver. runDispatch uses it to resolve the filesystem root for the
+   *  effective vault so central pathAcl enforcement can run the same symlink-canonical
+   *  enforcePathAcl the handlers do. Wired from the VaultRegistry in cli.ts; when absent (unit
+   *  tests that omit it) central enforcement is skipped and handler-side checks still apply. */
+  rootResolver?: (vaultId: string) => string | undefined;
   /** THE-288 internal-error sink. When a handler throws a non-typed exception (a server bug),
    *  the client response is redacted to `{code:"internal"}`; this sink receives the real error +
    *  stack for operator diagnosis. Never wired to stdout (the MCP channel); best-effort. */
@@ -241,6 +256,7 @@ export class ToolRegistry {
   private readonly sessionTracer?: RegistryOptions["sessionTracer"];
   private readonly onInternalError?: RegistryOptions["onInternalError"];
   private readonly aclResolver?: RegistryOptions["aclResolver"];
+  private readonly rootResolver?: RegistryOptions["rootResolver"];
   private readonly onEpisode?: RegistryOptions["onEpisode"];
 
   constructor(opts: RegistryOptions = {}) {
@@ -257,6 +273,7 @@ export class ToolRegistry {
     this.sessionTracer = opts.sessionTracer;
     this.onInternalError = opts.onInternalError;
     this.aclResolver = opts.aclResolver;
+    this.rootResolver = opts.rootResolver;
     this.onEpisode = opts.onEpisode;
   }
 
@@ -853,6 +870,26 @@ export class ToolRegistry {
           // THE-288 hardening: fingerprint, not the raw token (see morgianaData).
           elicit_token: ctx.elicitToken ? callerHash(ctx.elicitToken) : null,
         });
+      }
+
+      // THE-414: central folder-ACL enforcement. Extract the vault-relative paths this call
+      // touches (declared per tool via def.pathAcl) and enforce the per-op ACL HERE, right before
+      // the handler — so containment no longer depends on every handler remembering to call
+      // enforcePathAcl (the handler-side calls remain as defense-in-depth). Placed after the HITL
+      // gate to mirror exactly where handler-side enforcement ran, so ordering/behavior is
+      // unchanged. Uses the same symlink-canonical enforcePathAcl + the (already per-vault-swapped)
+      // ctx.acl; the root is the effective vault's. Skipped when no root resolver is wired.
+      if (def.pathAcl) {
+        const effVault =
+          typeof (parsed.data as { vault?: unknown } | null)?.vault === "string"
+            ? (parsed.data as { vault: string }).vault
+            : ctx.vaultId;
+        const root = this.rootResolver?.(effVault);
+        if (root) {
+          for (const { op, path } of def.pathAcl(parsed.data)) {
+            enforcePathAcl(ctx.acl, op, path, root);
+          }
+        }
       }
 
       const handlerStart = now();

@@ -90,6 +90,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "read_canvas",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Parse a .canvas file into its nodes and edges (JSONCanvas spec).",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       requiredScopes: ["read:canvas"],
@@ -118,6 +119,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "create_canvas",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Create a new .canvas with optional initial nodes/edges. Overwriting an existing canvas requires confirmation.",
       inputSchema: CreateInput,
@@ -152,6 +154,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "update_canvas",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Patch a .canvas: add/remove/update nodes and edges by id. Unknown fields are preserved. Removing more than 10 nodes requires confirmation.",
       inputSchema: UpdateInput,
@@ -259,6 +262,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "query_canvas",
+      pathAcl: (input) => (input.root ? [{ op: "read", path: input.root }] : []),
       description:
         "Find nodes matching criteria across one or more .canvas files (defaults to all canvases under the vault root).",
       inputSchema: QueryInput,

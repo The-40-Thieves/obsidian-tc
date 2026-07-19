@@ -14,6 +14,7 @@ export function buildMetadataMenuTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "read_metadata_fields",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Read a note's typed metadata fields via the Metadata Menu plugin: returns each configured field's name, value, type, validity, and source (frontmatter vs inline). Read-only field introspection.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),

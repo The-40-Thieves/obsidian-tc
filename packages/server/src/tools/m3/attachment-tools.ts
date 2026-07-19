@@ -82,6 +82,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "list_attachments",
+      pathAcl: (input) => (input.folder ? [{ op: "read", path: input.folder }] : []),
       description:
         "List attachment files in the vault (filtered by extension, read-ACL aware), with cursor pagination. Optionally count referencing notes per file.",
       inputSchema: ListInput,
@@ -124,6 +125,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "get_attachment",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Read an attachment's bytes (base64) plus MIME type and size. Fails with invalid_input when the file exceeds max_bytes.",
       inputSchema: GetInput,
@@ -175,6 +177,12 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "move_attachment",
+      // Reference rewrites in linking notes are the deliberate cross-ACL carve-out (N-3, THE-303),
+      // enforced handler-side; the ACL-gated paths are the attachment source (delete) + dest (write).
+      pathAcl: (input) => [
+        { op: "delete", path: input.from },
+        { op: "write", path: input.to },
+      ],
       description:
         "Move/rename an attachment and repoint note links to it (link style preserved). Crossing a folder boundary or overwriting requires confirmation.",
       inputSchema: MoveInput,
@@ -230,6 +238,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "delete_attachment",
+      pathAcl: (input) => [{ op: "delete", path: input.path }],
       description:
         "Delete an attachment (to the vault's .trash mirror, or permanently). Destructive — requires confirmation. Reports notes that still reference it.",
       inputSchema: DeleteInput,
