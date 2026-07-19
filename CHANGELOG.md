@@ -6,6 +6,26 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Vendor / external-docs read surface (THE-444).** Two read tools over a reserved,
+  read-only docs-corpus vault, isolated from the private vault by a new `read:docs` scope
+  and surfaced under a new `docs` facade domain:
+  - `knowledge_search` — the docs-scoped analogue of `vault_graph_search`, reusing the
+    contextual dense + BM25 + RRF graph retrieval bound to the corpus vault. No reranker,
+    per the THE-441 re-adjudication (reranking lost decisively on the golden set).
+  - `knowledge_get_critical` — a frontmatter `severity == "critical"` pre-filter: the
+    breaking-changes / security / production-gotcha set to read before starting work,
+    optionally narrowed to one source.
+
+  Tool surface 141 → 143 (registry test + coherence gate + doc headlines in lockstep).
+- **`services/docs-ingest`** — the ingestion scaffold for the docs corpus. A smart
+  parse-router (Docling for PDF/Office, Firecrawl for web, passthrough for Markdown,
+  unknown → Docling) feeding a LangExtract extraction interface and a writer that emits
+  Markdown + frontmatter into the corpus vault the server indexes. Live backends are
+  lazy-imported; `dry_run` exercises the route-to-write loop with no heavy deps. Live
+  extraction and the crawl driver are a follow-up.
+
 Security-audit follow-ups (external review of v1.10.0). No behavior change for a
 correctly-configured deployment; these close residual seams and align the docs with
 the code. The larger finding — folder-ACL enforcement being a per-handler convention

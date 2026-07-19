@@ -147,6 +147,8 @@ want to do. Counts are approximate; the surface is 143 tools / 31 domains.
 | **One-call context for a question** | `vault_context` (`get_context(query, token_budget)`) | Budget-packed graph-reranked chunks + synthesis patterns + open contradictions + proactive lessons. The single best entry point for "answer from my vault." |
 | **Grounded synthesis** | `reflect` | Synthesis with source provenance, an adversarial challenge mode, a versioned preference profile. Needs the inference gateway. |
 | **Red-team a claim** | `knowledge_challenge` | Retrieves decision notes to argue against a proposal. |
+| **Search vendor / external docs** | `knowledge_search` (docs corpus) | The docs-scoped analogue of `vault_graph_search`, bound to a reserved read-only docs vault. Gated on `read:docs`; no reranker (THE-441). |
+| **Critical docs to read first** | `knowledge_get_critical` | Frontmatter `severity == critical` pre-filter: breaking changes / security / production gotchas, optionally per source. |
 | **Structured formats** | Bases (`.base` DSL evaluator), Canvas, Kanban, Periodic notes, Tasks, Excalidraw, Bookmarks, Workspaces | Several need live mode (render/DSL). |
 | **Attachments / OCR** | attachment tools, OCR route | OCR needs live mode + the plugin. |
 | **Memory graph** | memory entities + `[[link]]` graph, workspace sessions + JSONL traces | Projections live in the `memory/` folder. |
