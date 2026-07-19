@@ -48,6 +48,17 @@ because it is an architectural refactor, not a contained fix.
   `obsidian-tc /path/to/vault` boots with auth off and no folder ACL (governance is
   opt-in), safe because the config fail-closes any non-loopback unauthenticated bind.
 
+### Performance
+
+- **Cache the indexer reconcile-path statements** (`search/indexer.ts`, `search/vec.ts`;
+  THE-316): `applyNoteWrites`, `upsertVec`, and `deindexNote` compiled their static-arity SQL
+  with raw `db.prepare(...)` on every note and every re-embedded chunk. Under `bun:sqlite`
+  (the production runtime) `db.prepare` is uncached, so a 100-note flush recompiled ~500+
+  statements. These paths now use `cachedPrepare(db, sql)` (memoized by SQL text, already the
+  sanctioned mechanism for the audit/idempotency hot paths), collapsing the recompiles to a
+  handful for the process lifetime. Biggest win on warm `index_vault`. No behavior or schema
+  change; dynamic-arity queries stay on plain `prepare`.
+
 ## [1.10.0] - 2026-07-17
 
 Minor rather than patch because nothing here is dark: unlike v1.9.1's additions

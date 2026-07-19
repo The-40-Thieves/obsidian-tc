@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import type { Database } from "../db/types";
+import { cachedPrepare, type Database } from "../db/types";
 
 const requireFromHere = createRequire(import.meta.url);
 
@@ -175,8 +175,11 @@ export function upsertVec(
   vector: number[],
   meta: { vaultId: string; path: string; model: string },
 ): void {
-  db.prepare("DELETE FROM vec_chunks WHERE chunk_id = ?").run(chunkId);
-  db.prepare(
+  // THE-316: static-arity SQL on the per-chunk reconcile write path — cache the compiled statement
+  // by SQL text so a warm reindex does not recompile the vec0 DELETE/INSERT once per embedded chunk.
+  cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?").run(chunkId);
+  cachedPrepare(
+    db,
     "INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding) VALUES (?, ?, ?, ?, ?)",
   ).run(chunkId, meta.vaultId, meta.path, meta.model, floatBlob(vector));
 }

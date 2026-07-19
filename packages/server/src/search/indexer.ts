@@ -6,7 +6,7 @@
 // foreign_keys off). vec_chunks is kept in lock-step only when the extension loaded.
 import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { tableExists } from "../db/introspect";
-import type { Database } from "../db/types";
+import { cachedPrepare, type Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { parseNote } from "../vault/frontmatter";
 import { type ExtractedLink, extractLinks } from "../vault/links";
@@ -363,15 +363,19 @@ function applyNoteWrites(
   hasChunkSparse: boolean,
   hasChunkColbert: boolean,
 ): { upserted: number; deleted: number } {
-  // Prepare the prune DELETEs once (not three per pruned chunk). The vec0 DELETE is prepared only
-  // when the extension loaded — the table may not exist otherwise.
-  const delEmb = db.prepare("DELETE FROM chunk_embeddings WHERE chunk_id = ?");
-  const delChunk = db.prepare("DELETE FROM chunks WHERE id = ?");
-  const delVec = hasVec ? db.prepare("DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
-  const upChunk = db.prepare(
+  // THE-316: static-arity SQL on the per-note reconcile write path — cache the compiled statements
+  // by SQL text (cachedPrepare) so a 100-note flush recompiles these five once for the process, not
+  // once per note. The vec0 DELETE is prepared only when the extension loaded — the table may not
+  // exist otherwise.
+  const delEmb = cachedPrepare(db, "DELETE FROM chunk_embeddings WHERE chunk_id = ?");
+  const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
+  const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
+  const upChunk = cachedPrepare(
+    db,
     "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET chunk_index = excluded.chunk_index, headings = excluded.headings, content = excluded.content, content_hash = excluded.content_hash, token_count = excluded.token_count, updated_at = excluded.updated_at",
   );
-  const upEmb = db.prepare(
+  const upEmb = cachedPrepare(
+    db,
     "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
   );
   let deleted = 0;
@@ -523,12 +527,15 @@ export function deindexNote(
   const hasChunkColbert = tableExists(db, "chunk_colbert");
   db.exec("BEGIN");
   try {
-    const rows = db
-      .prepare("SELECT id FROM chunks WHERE vault_id = ? AND path = ?")
-      .all(vaultId, path) as Array<{ id: string }>;
-    const delEmb = db.prepare("DELETE FROM chunk_embeddings WHERE chunk_id = ?");
-    const delChunk = db.prepare("DELETE FROM chunks WHERE id = ?");
-    const delVec = hasVec ? db.prepare("DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
+    // THE-316: static-arity SQL on the deindex write path (also driven once per note in the
+    // stale-path sweep) — cache by SQL text so the sweep does not recompile these on every call.
+    const rows = cachedPrepare(db, "SELECT id FROM chunks WHERE vault_id = ? AND path = ?").all(
+      vaultId,
+      path,
+    ) as Array<{ id: string }>;
+    const delEmb = cachedPrepare(db, "DELETE FROM chunk_embeddings WHERE chunk_id = ?");
+    const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
+    const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
     for (const r of rows) {
       delEmb.run(r.id);
       delChunk.run(r.id);
