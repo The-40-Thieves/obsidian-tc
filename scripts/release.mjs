@@ -45,6 +45,14 @@ if (!SEMVER.test(next)) {
 }
 console.log(`release: ${current} -> ${next}`);
 
+// tsc gate (THE-426): run the type-checker BEFORE mutating anything, so a narrowing/type error
+// that vitest+esbuild accept can never reach a published tag. CI runs tsc --noEmit; this makes the
+// same check a hard local pre-release gate. Fails fast (execSync throws on non-zero) so a broken
+// build never starts a release.
+console.log("tsc gate (THE-426): shared build + server typecheck ...");
+execSync("bun run build", { stdio: "inherit", cwd: inRepo("packages/shared") });
+execSync("bun run typecheck", { stdio: "inherit", cwd: inRepo("packages/server") });
+
 const setVersion = (path, mutate) => {
   const target = inRepo(path);
   const obj = JSON.parse(readFileSync(target, "utf8"));
