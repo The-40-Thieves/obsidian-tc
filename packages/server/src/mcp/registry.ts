@@ -19,6 +19,7 @@ import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/tracing";
 import { callerHash, type RateLimiter } from "../throttle";
+import { CROSS_NOTE_REWRITE_TOOLS, runAudited } from "../vault/acl-audit";
 import { type AclOp, enforcePathAcl } from "../vault/acl-path";
 import type { TraceRecord } from "../workspace/sessions";
 import { ALLOW_ALL, isDisabled, isListed, type VisibilityCaller } from "./visibility";
@@ -879,22 +880,33 @@ export class ToolRegistry {
       // gate to mirror exactly where handler-side enforcement ran, so ordering/behavior is
       // unchanged. Uses the same symlink-canonical enforcePathAcl + the (already per-vault-swapped)
       // ctx.acl; the root is the effective vault's. Skipped when no root resolver is wired.
-      if (def.pathAcl) {
-        const effVault =
-          typeof (parsed.data as { vault?: unknown } | null)?.vault === "string"
-            ? (parsed.data as { vault: string }).vault
-            : ctx.vaultId;
-        const root = this.rootResolver?.(effVault);
-        if (root) {
-          for (const { op, path } of def.pathAcl(parsed.data)) {
-            enforcePathAcl(ctx.acl, op, path, root);
+      // Central folder-ACL stage + handler, wrapped in the (default-off) ACL-audit frame so a
+      // dev/test run can verify each pathAcl extractor mirrors the handler's real fs usage (#280).
+      let handlerMs = 0;
+      const out = await runAudited(
+        {
+          tool: def.name,
+          auditUses: def.pathAcl != null && !CROSS_NOTE_REWRITE_TOOLS.has(def.name),
+        },
+        async () => {
+          if (def.pathAcl) {
+            const effVault =
+              typeof (parsed.data as { vault?: unknown } | null)?.vault === "string"
+                ? (parsed.data as { vault: string }).vault
+                : ctx.vaultId;
+            const root = this.rootResolver?.(effVault);
+            if (root) {
+              for (const { op, path } of def.pathAcl(parsed.data)) {
+                enforcePathAcl(ctx.acl, op, path, root);
+              }
+            }
           }
-        }
-      }
-
-      const handlerStart = now();
-      const out = await def.handler(parsed.data, ctx);
-      const handlerMs = Math.max(0, now() - handlerStart);
+          const handlerStart = now();
+          const r = await def.handler(parsed.data, ctx);
+          handlerMs = Math.max(0, now() - handlerStart);
+          return r;
+        },
+      );
       // THE-278 hardening (warn-mode): the handler's success payload must match the advertised
       // outputSchema. Validate and surface drift to the operator, but never throw — a schema
       // mismatch must not turn a working call into a client-visible failure.

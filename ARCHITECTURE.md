@@ -189,11 +189,11 @@ The HTTP edge **authenticates only** — it verifies the bearer and derives call
 3. **Input validation.** The tool's declared Zod schema parses the args **at dispatch** (not in the handler); failure → `validation_error` carrying the Zod issues.
 4. **Auth + scope grant** (see Layer 2): `unauthorized` / `forbidden`.
 5. **Vault binding (THE-267).** A bearer token may carry a `vault` claim; the HTTP edge binds the caller to that vault (or the server's default vault when the claim is absent), and dispatch rejects a call naming a different vault with `forbidden`. The trusted stdio transport is unbound.
-6. **Per-vault ACL resolve (THE-295).** The root `acl` block is the default; when the input names a vault carrying its own `acl` override, the rest of the dispatch — the read-only kill switch and every handler-side `enforcePathAcl` — runs under **that vault's** ACL. "Agent may write vault A but only read vault B" works in one process.
+6. **Per-vault ACL resolve (THE-295).** The root `acl` block is the default; when the input names a vault carrying its own `acl` override, the rest of the dispatch — the read-only kill switch, the central path-ACL stage, and every handler-side `enforcePathAcl` — runs under **that vault's** ACL. "Agent may write vault A but only read vault B" works in one process.
 7. **Read-only kill switch.** A mutating tool (`destructive: true` or a mutating scope family) under effective `acl.readOnly: true` → `forbidden` ("vault is read-only").
 8. **Tool precheck.** An optional per-tool precondition hook runs here — after ACL, before HITL — so a rejected precheck never consumes the single-use elicit token.
 
-Per-**path** folder ACL is enforced in the handlers (Layer 6) via `enforcePathAcl`: `args.path` is checked against the effective `acl.readPaths` / `writePaths` / `deletePaths` glob whitelists (an omitted field is unrestricted for that op kind unless `strictReadDefault` fails reads closed). Paths are realpath-canonicalized through symlinks (THE-269/286) and NFC-normalized (THE-272) before matching; `.obsidian/**`, `.git/**`, `.trash/**` are hard-denied (THE-268). Outside the whitelist → `acl_denied` with `details.{path, op}`; the kill switch on a path op → `read_only_mode`. The `inspect_acl` admin tool shares the same evaluator and reports what `denied_by` a given (vault, path, op, scopes) tuple.
+Per-**path** folder ACL is enforced **as a dispatch stage** (THE-414), not a handler convention: each tool declares the vault paths it touches via `def.pathAcl(input) -> {op, path}[]`, and dispatch calls `enforcePathAcl` for every declared path **after the HITL gate and before the handler** — so containment no longer depends on a handler remembering to gate. Handler-side `enforcePathAcl` calls are retained as defense-in-depth, and the `acl-extraction-coverage` test fails CI if a mutating path-touching tool declares neither a `pathAcl` extractor nor a documented exemption (computed/dynamic paths that cannot be extracted statically stay handler-enforced). Each declared path is checked against the effective `acl.readPaths` / `writePaths` / `deletePaths` glob whitelists (an omitted field is unrestricted for that op kind unless `strictReadDefault` fails reads closed). Paths are realpath-canonicalized through symlinks (THE-269/286) and NFC-normalized (THE-272) before matching; `.obsidian/**`, `.git/**`, `.trash/**` are hard-denied (THE-268). Outside the whitelist → `acl_denied` with `details.{path, op}`; the kill switch on a path op → `read_only_mode`. The `inspect_acl` admin tool shares the same evaluator and reports what `denied_by` a given (vault, path, op, scopes) tuple.
 
 **Layer 4 (shown as 5 in the diagram): Policy.** Three sub-checks in order. Each can short-circuit.
 
@@ -205,7 +205,7 @@ Per-**path** folder ACL is enforced in the handlers (Layer 6) via `enforcePathAc
 
 **Layer 6: Handler.** The tool function. Owns:
 - Business logic (may call native module, plugin bridge, embedding provider, SQLite)
-- Per-path folder ACL via `enforcePathAcl` (see Layer 3)
+- Per-path folder ACL: the authoritative gate is the central dispatch stage (THE-414, Layer 3); handlers keep `enforcePathAcl` calls as defense-in-depth, and own enforcement for the computed/dynamic paths that cannot be declared statically
 - Output construction
 - Business errors: `note_not_found`, `bases_syntax_error`, etc.
 
