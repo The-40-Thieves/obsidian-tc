@@ -1,0 +1,11 @@
+# The service is installed into a local venv; never commit the environment or caches.
+.venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+uv.lock
