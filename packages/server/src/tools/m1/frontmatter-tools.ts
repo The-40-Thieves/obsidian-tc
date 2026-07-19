@@ -127,6 +127,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "read_frontmatter",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Read a note's parsed YAML frontmatter (null when the note has none).",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       requiredScopes: ["read:notes"],
@@ -152,6 +153,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "read_property",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Read a single frontmatter property. Set nested=true to address a dotted path (e.g. meta.author.name) through nested objects.",
       inputSchema: z
@@ -188,6 +190,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "update_frontmatter",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Mutate a note's frontmatter (set/remove/merge/replace). `replace` discards all existing metadata and requires confirmation. Optional prev_hash gives compare-and-swap. Set nested=true to address a dotted key path for set/remove (intermediate objects are created as needed).",
       inputSchema: UpdateInput,

@@ -163,3 +163,14 @@ so operators can reason about them rather than discover them.
   `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` — retains the narrow residual (Node exposes no `openat`); the
   hard-link and final-component-symlink guards still apply there. Windows uses the JS path (symlink
   creation is admin/developer-mode gated, and `number_of_links` is unstable on stable Rust).
+- **The pre-ingest poison scanner is layer 1 of a layered defense, not a complete filter (THE-238).**
+  `experiential/poison.ts` is a deterministic pattern scanner over auto-captured agent episodes. It
+  now canonicalizes text before matching (NFKC + zero-width/bidi strip, so homoglyph and
+  interleaved-invisible evasion folds into its patterns), but single-entry pattern scanning still
+  misses subtle, novel-phrasing, or cross-episode poison **by design** — the literature puts the
+  miss rate around two-thirds. It is **not** a standalone guarantee: content that evades it is born
+  `pending` (never auto-`eligible`), the cross-episode consistency check rides the sleep-time
+  evaluator (layer 2, THE-222), and retrieval is gated by the reader trust floor + eligible-only
+  contract (layer 6, THE-229/237). Operators relying on the experiential tier should treat captured
+  episodes as **partially-trusted input** and keep `include_pending` off for untrusted callers;
+  do not treat a clean layer-1 scan as proof an episode is safe.

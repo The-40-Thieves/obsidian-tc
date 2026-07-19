@@ -106,6 +106,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "read_kanban_board",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Parse a Kanban board note into its columns and cards (text + checked state).",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       requiredScopes: ["read:notes"],
@@ -138,6 +139,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "add_kanban_card",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Add a card to a Kanban column (by name). Appends `- [ ] text` (or `- [x]` when checked) under the column heading, preserving the rest of the board.",
       inputSchema: z
@@ -194,6 +196,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "move_kanban_card",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Move a card (matched by text) from one Kanban column to another, preserving its original line (checkbox state, inline metadata).",
       inputSchema: z

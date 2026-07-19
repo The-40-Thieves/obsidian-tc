@@ -41,6 +41,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "git_diff",
+      pathAcl: (input) => (input.path ? [{ op: "read", path: input.path }] : []),
       description:
         "Unified diff for one vault file (working tree, or the staged copy with staged: true), via the Obsidian Git companion bridge.",
       inputSchema: z
@@ -91,6 +92,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "git_stage",
+      pathAcl: (input) => input.paths.map((p) => ({ op: "write" as const, path: p })),
       description:
         "Stage vault files for the next commit, via the Obsidian Git companion bridge. Write-family: the readOnly kill switch applies.",
       inputSchema: z.object({ vault: VaultId, paths: z.array(VaultPath).min(1).max(200) }).strict(),

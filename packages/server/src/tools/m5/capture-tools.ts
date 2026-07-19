@@ -131,6 +131,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "commit_capture",
+      pathAcl: (input) => [{ op: "write", path: input.target_path }],
       description:
         "Write a queued capture to a vault path and mark it committed (or remove it from the queue). Refuses to overwrite an existing note.",
       inputSchema: z

@@ -44,6 +44,13 @@ export interface QueryMetrics {
    *  registers. The roadmap's ship gate metric (THE-171). */
   ndcg_at_10: number;
   bridge_recall: 0 | 1;
+  /** THE-440: static-vs-trajectory proxy (Bridge Evidence, arXiv 2607.15253). nDCG@10 computed
+   *  over ONLY the bridge_paths — the multi-hop docs that are causally load-bearing but often look
+   *  statically weak. Reported apart from ndcg_at_10 (all expected paths, the static-relevance
+   *  axis). null when the query declares no bridge_paths. This is the computable retrieval-only
+   *  proxy; true Counterfactual Trajectory Utility needs an agent leave-one-doc-out replay harness
+   *  (follow-up), which this static eval cannot produce. */
+  bridge_ndcg_at_10: number | null;
   expected_found_in_top10: number;
   expected_total: number;
   bridge_satisfied: boolean;
@@ -56,6 +63,10 @@ export interface AggregateMetrics {
   mean_mrr_at_10: number;
   mean_ndcg_at_10: number;
   bridge_recall_rate: number;
+  /** THE-440: mean bridge-doc nDCG@10 over the queries that DECLARE bridge_paths (the
+   *  static-vs-trajectory proxy). Separate denominator from mean_ndcg_at_10. */
+  mean_bridge_ndcg_at_10: number;
+  bridge_query_count: number;
 }
 
 function uniquePathsInOrder(chunks: RankedChunk[]): string[] {
@@ -101,6 +112,21 @@ export function computeQueryMetrics(query: GoldenQuery, results: RankedChunk[]):
   for (let i = 0; i < Math.min(expectedTotal, 10); i++) idcg += 1 / Math.log2(i + 2);
   const ndcg_at_10 = idcg > 0 ? dcg / idcg : 0;
 
+  // THE-440: bridge-doc nDCG@10 — same binary-relevance nDCG but restricted to bridge_paths, the
+  // static proxy for trajectory-load-bearing docs. null when the query declares no bridge_paths.
+  let bridge_ndcg_at_10: number | null = null;
+  if (query.bridge_paths.length > 0) {
+    const bridgeSet = new Set(query.bridge_paths);
+    let bdcg = 0;
+    for (let i = 0; i < top10.length; i++) {
+      const p = top10[i];
+      if (p !== undefined && bridgeSet.has(p)) bdcg += 1 / Math.log2(i + 2);
+    }
+    let bidcg = 0;
+    for (let i = 0; i < Math.min(bridgeSet.size, 10); i++) bidcg += 1 / Math.log2(i + 2);
+    bridge_ndcg_at_10 = bidcg > 0 ? bdcg / bidcg : 0;
+  }
+
   let bridge_satisfied: boolean;
   if (query.bridge_paths.length > 0) {
     bridge_satisfied = query.bridge_paths.some((p) => allSet.has(p));
@@ -115,6 +141,7 @@ export function computeQueryMetrics(query: GoldenQuery, results: RankedChunk[]):
     recall_at_10,
     mrr_at_10,
     ndcg_at_10,
+    bridge_ndcg_at_10,
     bridge_recall: bridge_satisfied ? 1 : 0,
     expected_found_in_top10: expectedFoundInTop10,
     expected_total: expectedTotal,
@@ -131,6 +158,8 @@ export function aggregateMetrics(perQuery: QueryMetrics[]): AggregateMetrics {
       mean_mrr_at_10: 0,
       mean_ndcg_at_10: 0,
       bridge_recall_rate: 0,
+      mean_bridge_ndcg_at_10: 0,
+      bridge_query_count: 0,
     };
   }
   const sums = perQuery.reduce(
@@ -139,8 +168,11 @@ export function aggregateMetrics(perQuery: QueryMetrics[]): AggregateMetrics {
       mrr: acc.mrr + m.mrr_at_10,
       ndcg: acc.ndcg + m.ndcg_at_10,
       bridge: acc.bridge + m.bridge_recall,
+      // bridge nDCG only sums over queries that declare bridge_paths (null otherwise).
+      bridgeNdcg: acc.bridgeNdcg + (m.bridge_ndcg_at_10 ?? 0),
+      bridgeN: acc.bridgeN + (m.bridge_ndcg_at_10 === null ? 0 : 1),
     }),
-    { recall: 0, mrr: 0, ndcg: 0, bridge: 0 },
+    { recall: 0, mrr: 0, ndcg: 0, bridge: 0, bridgeNdcg: 0, bridgeN: 0 },
   );
   const n = perQuery.length;
   return {
@@ -149,5 +181,7 @@ export function aggregateMetrics(perQuery: QueryMetrics[]): AggregateMetrics {
     mean_mrr_at_10: sums.mrr / n,
     mean_ndcg_at_10: sums.ndcg / n,
     bridge_recall_rate: sums.bridge / n,
+    mean_bridge_ndcg_at_10: sums.bridgeN > 0 ? sums.bridgeNdcg / sums.bridgeN : 0,
+    bridge_query_count: sums.bridgeN,
   };
 }

@@ -4,6 +4,7 @@
 // runs, so by the time the handler executes the input matches z.infer<S>.
 import type { z } from "zod";
 import type { CallerContext, ToolDefinition, ToolIcon } from "../../mcp/registry";
+import type { AclOp } from "../../vault/acl-path";
 
 export interface ToolSpec<S extends z.ZodTypeAny, O> {
   name: string;
@@ -20,6 +21,12 @@ export interface ToolSpec<S extends z.ZodTypeAny, O> {
   destructive?: boolean;
   precheck?: (input: z.infer<S>, ctx: CallerContext) => void | Promise<void>;
   scopeClass?: string;
+  /** THE-414: declarative folder-ACL path extraction — the vault-relative paths this tool touches,
+   *  tagged by op, so runDispatch enforces the folder ACL centrally (handler-side enforcePathAcl
+   *  stays as defense-in-depth). See ToolDefinition.pathAcl. Extractors must mirror the handler's
+   *  own enforcePathAcl calls; paths a handler computes at runtime (not derivable from input, e.g.
+   *  backlink-rewrite targets) stay handler-enforced only. */
+  pathAcl?: (input: z.infer<S>) => ReadonlyArray<{ op: AclOp; path: string }>;
   handler: (input: z.infer<S>, ctx: CallerContext) => O | Promise<O>;
 }
 

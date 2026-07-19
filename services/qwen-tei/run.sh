@@ -17,6 +17,10 @@ DEVICE="${1:-cpu}"
 MODEL="${2:-Qwen/Qwen3-Embedding-0.6B}"
 NAME="qwen-tei"
 PORT="8085"
+# Bind to loopback by default: TEI has no auth, so publishing on 0.0.0.0 would expose the embedding
+# backend (and its host) to every machine that can reach this box. ModelClient.embed talks to it over
+# localhost. Override BIND_HOST=0.0.0.0 only behind a trusted network + firewall.
+BIND_HOST="${BIND_HOST:-127.0.0.1}"
 VER="1.9"
 # Cap the warmup batch: TEI warms up a full --max-batch-tokens batch, and O(n^2) attention at the
 # 16384 default OOM-kills the process during warmup (silently on Docker Desktop / WSL2). Our chunks
@@ -33,10 +37,10 @@ case "$DEVICE" in
   *)   echo "usage: $0 [cpu|gpu] [model-id]" >&2; exit 1 ;;
 esac
 docker rm -f "$NAME" >/dev/null 2>&1 || true
-echo "starting '$NAME' device=$DEVICE image=$IMAGE model=$MODEL port=$PORT batch_tokens=$BATCH_TOKENS"
+echo "starting '$NAME' device=$DEVICE image=$IMAGE model=$MODEL bind=${BIND_HOST}:${PORT} batch_tokens=$BATCH_TOKENS"
 # shellcheck disable=SC2086
 docker run -d --name "$NAME" $GPU_FLAG \
-  -p "${PORT}:80" \
+  -p "${BIND_HOST}:${PORT}:80" \
   -v tei-qwen-data:/data \
   --pull always \
   "$IMAGE" \

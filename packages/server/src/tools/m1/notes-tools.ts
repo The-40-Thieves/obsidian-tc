@@ -292,6 +292,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "read_note",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Read a note's raw content, parsed frontmatter, body, content hash, and stat.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       requiredScopes: ["read:notes"],
@@ -320,6 +321,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "read_notes",
+      pathAcl: (input) => input.paths.map((p) => ({ op: "read" as const, path: p })),
       description:
         "Batch-read notes. Returns successful notes and a per-path error list (partial).",
       inputSchema: z.object({ vault: VaultId, paths: z.array(VaultPath).min(1).max(100) }).strict(),
@@ -384,6 +386,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "note_exists",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Check whether a path exists in the vault and whether it is a file or folder.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       requiredScopes: ["read:notes"],
@@ -399,6 +402,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "write_note",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation.",
       inputSchema: WriteInput,
@@ -466,6 +470,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "append_note",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description: "Append content to a note (optionally creating it), preserving existing bytes.",
       inputSchema: AppendInput,
       requiredScopes: ["write:notes"],
@@ -524,6 +529,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "patch_note",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved.',
       inputSchema: PatchInput,
@@ -591,6 +597,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "delete_note",
+      pathAcl: (input) => [{ op: "delete", path: input.path }],
       description:
         "Delete a note (to the vault's .trash mirror, or permanently). Destructive — requires confirmation.",
       inputSchema: DeleteInput,
@@ -629,6 +636,12 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "move_note",
+      // Backlink rewrites in other notes are a deliberate integrity carve-out (like move_attachment,
+      // N-3) and stay handler-enforced; the ACL-gated paths are the source (delete) + dest (write).
+      pathAcl: (input) => [
+        { op: "delete", path: input.from },
+        { op: "write", path: input.to },
+      ],
       description:
         "Move/rename a note and update backlinks. Crossing a folder boundary OR overwriting an existing destination requires confirmation; an overwritten destination is soft-deleted to .trash (recoverable).",
       inputSchema: MoveInput,
@@ -709,6 +722,10 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "copy_note",
+      pathAcl: (input) => [
+        { op: "read", path: input.from },
+        { op: "write", path: input.to },
+      ],
       description: "Copy a note to a new path (backlinks are not rewritten for copies).",
       inputSchema: CopyInput,
       requiredScopes: ["write:notes"],

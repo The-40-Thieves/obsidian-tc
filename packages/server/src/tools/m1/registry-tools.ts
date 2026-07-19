@@ -14,7 +14,15 @@ import type { M1Deps } from "./index";
 const nowMs = (ctx: CallerContext): number => (ctx.now ?? Date.now)();
 const iso = (ms: number): string => new Date(ms).toISOString();
 
+// SQLite has no bind parameter for a table identifier, so `table` is interpolated. Every caller
+// passes a hard-coded literal (only "chunks" today), but interpolating an identifier is a latent
+// injection seam if a future caller ever forwards one — so gate it on a fixed allowlist of the
+// vault-partitioned cache tables this helper is allowed to count (defense-in-depth, THE-268 class).
+const COUNTABLE_TABLES = new Set(["chunks"]);
+
 function countRows(db: Database, table: string, vaultId: string): number {
+  if (!COUNTABLE_TABLES.has(table))
+    throw err.invalidInput(`countRows: table not in allowlist: ${table}`, { table });
   try {
     const r = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE vault_id = ?`).get(vaultId) as
       | { n: number }

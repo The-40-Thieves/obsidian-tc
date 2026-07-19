@@ -44,6 +44,10 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "execute_template",
+      pathAcl: (input) => [
+        { op: "read", path: input.template },
+        { op: "write", path: input.target },
+      ],
       description:
         "Run a Templater template and write the expanded output to a target path. Always requires human confirmation (write:templater is a HITL floor) because templates can execute arbitrary user JavaScript.",
       inputSchema: z

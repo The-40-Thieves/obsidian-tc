@@ -6,6 +6,85 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+Security-audit follow-ups (external review of v1.10.0). No behavior change for a
+correctly-configured deployment; these close residual seams and align the docs with
+the code. The larger finding — folder-ACL enforcement being a per-handler convention
+rather than a dispatch-pipeline stage — is tracked separately as its own change (#280)
+because it is an architectural refactor, not a contained fix.
+
+### Security
+
+- **Experiential poison scanner canonicalizes before matching** (`experiential/poison.ts`):
+  NFKC-normalize + strip zero-width/bidi controls before the content families run, so
+  homoglyph (fullwidth "ｉｇｎｏｒｅ") and interleaved-invisible ("i​gnore … instructions")
+  evasion folds into the existing patterns instead of slipping the scan. ASCII payloads are
+  unchanged by normalization, so the red-team corpus stays at 100% with a 0 false-positive
+  floor; new regression cases cover the evasion classes. Layer 1 remains a
+  precision-leaning pattern scanner, not a complete filter (now documented as such in
+  SECURITY.md) — the eligibility contract + reader trust floor are the real guarantee.
+- **Prompts run through governance** (`mcp/server.ts`): `prompts/list` and `prompts/get`
+  were the last MCP surface bypassing `ToolRegistry` entirely (no rate limit, no audit row).
+  They now route through `dispatchResource` like resources did after THE-415 — throttle +
+  audit + metrics — with `[]` scopes, so the open static-template semantics are preserved
+  while "every invocation is audited" holds for the prompt surface too.
+- **Constant-time bearer comparison in the bge-m3 embedding service**
+  (`services/bge-m3-service`): the auth check used `!=` on the bearer string, leaking
+  match length by timing; it now uses `hmac.compare_digest`.
+- **qwen-tei helper binds loopback by default** (`services/qwen-tei/run.sh`): TEI has no
+  auth, so the publish now defaults to `127.0.0.1` (override `BIND_HOST=0.0.0.0` behind a
+  trusted network) instead of exposing the embedding backend on all interfaces.
+- **Table-identifier allowlist on `countRows`** (`tools/m1/registry-tools.ts`): the one
+  interpolated SQL identifier (always the literal `"chunks"`) is now gated on a fixed
+  allowlist — defense-in-depth against a future caller ever forwarding one.
+- **Folder-ACL enforcement is now a dispatch-pipeline stage, not a per-handler convention**
+  (THE-414): tools declare the vault paths they touch via a `pathAcl` extractor on
+  `ToolDefinition`, and `registry.runDispatch` enforces the folder ACL (the same
+  symlink-canonical `enforcePathAcl`) for every declared path right before the handler — so
+  containment no longer depends on each of ~120 handler call sites remembering to gate. This
+  closes the "a handler forgot to gate" class that produced the v1.9.1 `strictReadDefault`
+  regression (silently ignored in 8 tool files). Handler-side `enforcePathAcl` stays as
+  defense-in-depth; paths a handler computes at runtime (backlink-rewrite targets, periodic
+  resolvers, entity/session paths) remain handler-enforced and are documented exemptions. A
+  guarantee test (`acl-extraction-coverage`) fails CI if any mutating tool declares neither an
+  extractor nor an exemption, plus a test proves the central gate denies even when the handler
+  never calls `enforcePathAcl`. The "central pipeline, folder ACL is a stage" claim in the
+  README/ARCHITECTURE is now literally true.
+- **Pinned the gitleaks scanner image to an immutable digest** (`ci-security.yml`; THE-426):
+  the secret-scan job ran `ghcr.io/gitleaks/gitleaks:latest`; it now pins the `@sha256:` digest
+  (refresh instructions in-line). Completes the supply-chain SHA-pinning pass (GitHub Actions
+  were pinned in #272).
+
+### Changed
+
+- **Recurrence guards for the release process** (THE-426): a `tsc` gate now runs at the top of
+  `scripts/release.mjs` (shared build + server typecheck) so a type error that vitest/esbuild
+  accept can never reach a published tag; and a scheduled `release-lag` workflow
+  (`scripts/check-release-lag.mjs`) goes red when `main` drifts past a threshold ahead of the
+  latest tag while carrying unreleased Fixed/Security CHANGELOG entries — the THE-285 pattern
+  where critical fixes sat unshipped. Advisory (a scheduled nag), not a per-PR gate.
+
+### Documentation
+
+- **Reconciled the retrieval-quality numbers** (`README.md`): the headline
+  nDCG/recall/bridge figures were stated as fact in one place and "pending (THE-296)" in
+  another. They are now labeled **provisional** — reproducible only against the private
+  (not-checked-in) golden set and pending a live-backend re-run — while the statistical
+  ship-rule *machinery* (unit-tested in CI) is what the repo actually ships.
+- **Foregrounded the zero-config security posture** (`README.md`): made explicit that
+  `obsidian-tc /path/to/vault` boots with auth off and no folder ACL (governance is
+  opt-in), safe because the config fail-closes any non-loopback unauthenticated bind.
+
+### Performance
+
+- **Cache the indexer reconcile-path statements** (`search/indexer.ts`, `search/vec.ts`;
+  THE-316): `applyNoteWrites`, `upsertVec`, and `deindexNote` compiled their static-arity SQL
+  with raw `db.prepare(...)` on every note and every re-embedded chunk. Under `bun:sqlite`
+  (the production runtime) `db.prepare` is uncached, so a 100-note flush recompiled ~500+
+  statements. These paths now use `cachedPrepare(db, sql)` (memoized by SQL text, already the
+  sanctioned mechanism for the audit/idempotency hot paths), collapsing the recompiles to a
+  handful for the process lifetime. Biggest win on warm `index_vault`. No behavior or schema
+  change; dynamic-arity queries stay on plain `prepare`.
+
 ## [1.10.0] - 2026-07-17
 
 Minor rather than patch because nothing here is dark: unlike v1.9.1's additions

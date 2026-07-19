@@ -203,6 +203,10 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "get_link_strength",
+      pathAcl: (input) => [
+        { op: "read", path: input.from },
+        { op: "read", path: input.to },
+      ],
       description:
         "Score the connection strength (0-1) between two notes from the link graph: direct edge, co-citation (shared inbound sources), shared outbound neighbors, and undirected graph distance.",
       inputSchema: z.object({ vault: VaultId, from: VaultPath, to: VaultPath }).strict(),
@@ -241,6 +245,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "suggest_links",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Suggest notes to link a given note to, from the link graph (co-citation with the note's inbound sources + 2-hop outbound neighbors), excluding notes it already links to. Graph-based (no embeddings).",
       inputSchema: z

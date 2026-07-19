@@ -1,0 +1,20 @@
+# THE-426 recurrence guard: a scheduled nag (not a PR gate) that goes red when main has drifted far
+# ahead of the latest published tag while carrying unreleased Fixed/Security CHANGELOG entries.
+name: release-lag
+on:
+  schedule:
+    - cron: "0 14 * * 1" # Mondays 14:00 UTC
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0 # need full history + tags to measure drift
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - run: node scripts/check-release-lag.mjs

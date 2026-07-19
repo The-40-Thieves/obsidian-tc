@@ -36,6 +36,7 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "eval_dataview_field",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Evaluate a Dataview field expression against a single note (useful for property derivation).",
       inputSchema: z

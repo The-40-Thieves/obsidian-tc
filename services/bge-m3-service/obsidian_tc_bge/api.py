@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -57,7 +58,11 @@ app = FastAPI(title="obsidian-tc bge-m3-service", version="0.1.0", lifespan=life
 def require_auth(authorization: str | None = Header(default=None)) -> None:
     if not settings.auth_token:
         raise HTTPException(status_code=503, detail="service auth token not configured")
-    if authorization != f"Bearer {settings.auth_token}":
+    # Constant-time comparison: a plain `!=` on the bearer string leaks, via response timing, how
+    # many leading bytes matched, letting an attacker recover the token byte-by-byte. compare_digest
+    # is short-circuit-free. Guard the None header first (compare_digest requires a str).
+    expected = f"Bearer {settings.auth_token}"
+    if authorization is None or not hmac.compare_digest(authorization, expected):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
