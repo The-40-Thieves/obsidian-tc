@@ -2,7 +2,7 @@
 
 A working guide for AI agents, and the people configuring them, to use the
 **obsidian-tc** MCP server well. obsidian-tc gives an agent *governed* access to
-one or more Obsidian vaults: **141 capabilities across 31 domains**, every call
+one or more Obsidian vaults: **143 capabilities across 31 domains**, every call
 funneled through one dispatch pipeline (auth, scopes, folder ACL, read-only kill
 switch, idempotency, throttle, human-in-the-loop, response governor, audit).
 
@@ -112,7 +112,7 @@ matches, you are wired up.
 
 ## 3. The core skill: discover, don't guess
 
-By default the server advertises **three meta-tools**, not a wall of 141. This
+By default the server advertises **three meta-tools**, not a wall of 143. This
 keeps agent context lean. Learn this loop before anything else:
 
 1. **`find_capability`**, BM25 search over the capabilities *this caller can see*.
@@ -137,7 +137,7 @@ The facade is boundary-only: no gate is bypassed in any mode.
 ## 4. Capability map (by intent)
 
 Use `find_capability` for exact names; this is the terrain, grouped by what you
-want to do. Counts are approximate; the surface is 141 tools / 31 domains.
+want to do. Counts are approximate; the surface is 143 tools / 31 domains.
 
 | You want to… | Reach for | Notes |
 | --- | --- | --- |
