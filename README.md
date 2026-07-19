@@ -52,7 +52,7 @@ The v1.6–v1.7 line turned the server into a **measured memory engine** (full d
 - **Dependency-aware deletion** — `forget` propagates a deletion through derived state, with tombstone-vs-erase modes and a hash-chained audit log where tampering with any entry breaks verification.
 - **New companion bridges** — Obsidian Git (status/diff/log/stage, with commits behind a hardcoded human-confirmation floor) and Remotely Save (independent backup verification).
 - **A knowledge-flywheel CLI family** — `metrics`, `gaps` (calibrated coverage floor), `prefetch`, `reflect`, `forget`, `citation-infer`, `contribution-report`, `activation-recompute`, `cluster`.
-- **Retrieval measured, not asserted** — an n=136 golden set with a statistical ship rule gates every ranking change (graph nDCG@10 0.786 / recall@10 0.871 / bridge recall 0.831); contextual chunk enrichment measured **+0.223 nDCG** and now defaults on; mechanisms that lost their A/B ship dark behind flags with the numbers recorded. The vec0 index carries a per-vault partition key and metadata aux columns, rebuilt in place from stored embeddings (no re-embed).
+- **Retrieval measured, not asserted** — a statistical ship rule (paired permutation test + bootstrap CI, both unit-tested in CI) gates every ranking change against an n=136 golden set. That golden set lives in a private vault and is **not checked in**, so the headline figures from our last full run — graph nDCG@10 0.786 / recall@10 0.871 / bridge recall 0.831, plus **+0.223 nDCG** from contextual chunk enrichment (now default-on) — are **provisional**: reproducible only against that private set and pending an out-of-band re-run on a live embedding backend (THE-296, see the note below). What ships in this repo is the *machinery*, not those numbers — treat them as an internal benchmark, not a repo-verifiable property. Mechanisms that lost their A/B ship dark behind flags with the numbers recorded. The vec0 index carries a per-vault partition key and metadata aux columns, rebuilt in place from stored embeddings (no re-embed).
 
 Earlier v1.3.x hardening (per-vault ACLs, symlink-canonical enforcement, trigram FTS5 substrate, vec0 KNN pushdown, Bases expression-DSL evaluator, compute-abuse budgets, asymmetric JWT via local JWKS, the sleep-time consolidation scheduler, AGPL-3.0 relicense) is recorded in the CHANGELOG.
 
@@ -148,6 +148,17 @@ The optional inference gateway (`OBSIDIAN_TC_GATEWAY_URL`) powers rerank and the
 `knowledge_challenge` red-team; leave it unset and those degrade gracefully while
 everything else keeps working. Cloud embedding providers (OpenAI, Voyage, Cohere) are
 opt-in via a config file.
+
+> **Security posture in zero-config mode.** `obsidian-tc /path/to/vault` boots with **auth off
+> and no folder ACL** — any client that can reach the server has full read/write/delete over the
+> vault (the same authority raw filesystem access would give). That is acceptable *because the
+> surface is local-only*: the config **fail-closes** if you enable an HTTP transport on a
+> non-loopback host while auth is off, and a DNS-rebinding/Origin guard protects the loopback
+> bind. The governance layer this README leads with — JWT scopes, per-vault folder ACLs, the
+> read-only kill switch, HITL — is **opt-in and off by default**; turn it on with a config file
+> (`auth.mode: "jwt"` + `jwtSecret`, and `acl.readPaths` / `writePaths` / `deletePaths`) **before**
+> exposing the server to partially-trusted, remote, or multi-agent callers. See
+> [docs/WHY.md](./docs/WHY.md) and [SECURITY.md](./SECURITY.md).
 
 ### Plugin bridges (optional, live mode)
 
