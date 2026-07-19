@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { recordPathUse } from "./acl-audit";
 
 /** Full SHA-256 hex of UTF-8 content. Used for content_hash / CAS (prev_hash). */
 export function contentHash(content: string): string {
@@ -101,7 +102,11 @@ export function resolveVaultPathChecked(vaultRoot: string, relPath: string): Res
 }
 
 export function resolveVaultPath(vaultRoot: string, relPath: string): string {
-  return resolveVaultPathChecked(vaultRoot, relPath).abs;
+  const resolved = resolveVaultPathChecked(vaultRoot, relPath);
+  // THE-414 / #280: report the fs-op path to the (default-off) ACL audit so a dev/test run can
+  // catch a pathAcl extractor that does not mirror the handler's real path usage.
+  recordPathUse(resolved.aclRel);
+  return resolved.abs;
 }
 
 function statSafe(abs: string): { size: number; mtimeMs: number; ctimeMs: number } | null {

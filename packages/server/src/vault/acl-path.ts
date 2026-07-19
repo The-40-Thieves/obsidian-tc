@@ -9,6 +9,7 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 // handler) AND here at the handler level as defense-in-depth. The M0 dispatch
 // read-only kill switch (forbidden) fires first for scope-mutating tools.
 import { type FolderAcl, globMatch, isDefaultDenied } from "../acl";
+import { recordAclCheck } from "./acl-audit";
 import { resolveVaultPathChecked } from "./paths";
 
 export type AclOp = "read" | "write" | "delete";
@@ -78,6 +79,9 @@ export function enforcePathAcl(
       throw err.readOnlyMode(`vault is read-only; ${op} denied`, { path, op });
     throw err.aclDenied(`path is outside the ${op} whitelist`, { path, op });
   }
+  // THE-414 / #280: this path passed its folder-ACL check; record it for the (default-off) ACL
+  // audit so a handler that later resolves an UNdeclared path for an fs op is caught in dev/test.
+  recordAclCheck(path);
   // Inode-aliasing guard (C-1b): when an ACL is present (so .obsidian/.git/.trash and any path
   // whitelist are enforced), reject a hard-linked regular file. realpath cannot dereference a
   // hard link, so an aliased target outside the allowed set would otherwise pass the glob check.
