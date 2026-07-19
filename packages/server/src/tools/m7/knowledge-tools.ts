@@ -779,6 +779,57 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
     }),
 
     defineTool({
+      name: "knowledge_get_critical",
+      description:
+        "List the critical-severity docs in a vendor / external-docs corpus: the breaking changes, security issues, and production gotchas to read before starting work. A tight metadata pre-filter over frontmatter severity == 'critical', not a search. Optionally narrow by `source` (the vendor or tool the doc is about). Gated on read:docs so it stays isolated from the private vault.",
+      inputSchema: z
+        .object({
+          vault: VaultId,
+          source: z.string().min(1).optional(),
+          limit: z.number().int().positive().max(200).default(100),
+        })
+        .strict(),
+      requiredScopes: ["read:docs"],
+      tags: ["docs", "knowledge"],
+      handler: (input, ctx) => {
+        const v = deps.vaultRegistry.resolve(input.vault);
+        const rows = ctx.db
+          .prepare(
+            "SELECT path, title, frontmatter FROM notes WHERE vault_id = ? AND json_extract(frontmatter, '$.severity') = 'critical' ORDER BY path",
+          )
+          .all(v.id) as Array<{ path: string; title: string; frontmatter: string | null }>;
+        const items = rows
+          .filter((r) => readableRel(ctx.acl, r.path))
+          .map((r) => {
+            let fm: Record<string, unknown> = {};
+            if (r.frontmatter) {
+              try {
+                fm = JSON.parse(r.frontmatter) as Record<string, unknown>;
+              } catch {
+                fm = {};
+              }
+            }
+            return {
+              path: r.path,
+              title: r.title,
+              category: typeof fm.category === "string" ? fm.category : null,
+              source: typeof fm.source === "string" ? fm.source : null,
+              severity: "critical" as const,
+            };
+          })
+          .filter((it) => input.source === undefined || it.source === input.source)
+          .sort(
+            (a, b) =>
+              (a.source ?? "").localeCompare(b.source ?? "") ||
+              (a.category ?? "").localeCompare(b.category ?? "") ||
+              a.path.localeCompare(b.path),
+          )
+          .slice(0, input.limit);
+        return { vault: v.id, count: items.length, items };
+      },
+    }),
+
+    defineTool({
       name: "knowledge_challenge",
       description:
         "Red-team a proposal against your documented decision history. Retrieves decision-bearing chunks (02-projects, 04-writing/Published, 09-reference/system-reviews, 09-reference/syntheses) and asks the inference gateway to flag DIRECT_CONTRADICTION / PATTERN_REPEAT / REVERSAL / HIDDEN_DEPENDENCY. Requires the gateway; reports unavailable when it is not configured.",
