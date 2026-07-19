@@ -9,8 +9,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 Security-audit follow-ups (external review of v1.10.0). No behavior change for a
 correctly-configured deployment; these close residual seams and align the docs with
 the code. The larger finding — folder-ACL enforcement being a per-handler convention
-rather than a dispatch-pipeline stage — is tracked separately as its own change (see
-the linked follow-up issue) because it is an architectural refactor, not a contained fix.
+rather than a dispatch-pipeline stage — is tracked separately as its own change (#280)
+because it is an architectural refactor, not a contained fix.
 
 ### Security
 
