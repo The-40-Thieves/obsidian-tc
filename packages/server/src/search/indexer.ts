@@ -426,6 +426,13 @@ function hasBodyShaColumn(db: Database): boolean {
   }
 }
 
+// #280-followup: a chunk's contradiction flags are judged on its exact content; when the chunk is
+// pruned or re-embedded (content changed) they are stale and must be dropped, or "open" rows accrue
+// unbounded and pollute the synthesis / knowledge_challenge / reflect grounding (all read
+// status='open'). Tied to chunk lifetime here, alongside the fts/vec/sparse/colbert cleanup.
+const DELETE_CONTRADICTIONS_SQL =
+  "DELETE FROM contradictions WHERE source_chunk_id = ? OR conflict_chunk_id = ?";
+
 // Apply a note's write plan (prune + upserts). Contains NO transaction control — the CALLER owns
 // BEGIN/COMMIT/ROLLBACK, so one transaction can batch many notes' applies.
 function applyNoteWrites(
@@ -450,6 +457,10 @@ function applyNoteWrites(
   // body_sha rides the same upsert when the column exists (migration 20260719_001); cachedPrepare
   // keys on the SQL text, so the with/without-column variants compile independently and a pre-migration
   // cache.db never sees the extra column.
+  // `contradictions` is an optional plane table — gate on a cheap in-memory sqlite_master check.
+  const delContra = tableExists(db, "contradictions")
+    ? cachedPrepare(db, DELETE_CONTRADICTIONS_SQL)
+    : null;
   const upChunk = cachedPrepare(
     db,
     hasBodySha
@@ -469,9 +480,13 @@ function applyNoteWrites(
     if (hasChunkFts) deleteChunkFtsRow(db, e.id);
     if (hasChunkSparse) deleteChunkSparse(db, e.id);
     if (hasChunkColbert) deleteChunkColbert(db, e.id);
+    if (delContra) delContra.run(e.id, e.id);
     deleted += 1;
   }
   plan.toEmbed.forEach((d, i) => {
+    // A re-embedded chunk changed content; its prior contradiction flags are stale. Drop them —
+    // the onIndexed contradiction job re-detects against the new content.
+    if (delContra) delContra.run(d.id, d.id);
     const vec = plan.vectors[i] ?? [];
     // Every chunk is STORED — the chunk row lands regardless of the dedup decision. body_sha is
     // passed only when the column exists.
@@ -650,6 +665,10 @@ export function deindexNote(
     const delEmb = cachedPrepare(db, "DELETE FROM chunk_embeddings WHERE chunk_id = ?");
     const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
     const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
+    // #280-followup: drop the deleted note's chunks' contradiction flags (plane table optional).
+    const delContra = tableExists(db, "contradictions")
+      ? cachedPrepare(db, DELETE_CONTRADICTIONS_SQL)
+      : null;
     for (const r of rows) {
       delEmb.run(r.id);
       delChunk.run(r.id);
@@ -657,6 +676,7 @@ export function deindexNote(
       if (hasChunkFts) deleteChunkFtsRow(db, r.id);
       if (hasChunkSparse) deleteChunkSparse(db, r.id);
       if (hasChunkColbert) deleteChunkColbert(db, r.id);
+      if (delContra) delContra.run(r.id, r.id);
     }
     if (hasNotes) deleteNoteRow(db, vaultId, path, hasFts);
     db.exec("COMMIT");
