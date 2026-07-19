@@ -281,12 +281,23 @@ export function createMcpServer(opts: McpServerOptions): Server {
     });
   }
 
-  // Prompts: built-in, static templates (no vault access).
-  server.setRequestHandler(ListPromptsRequestSchema, (): ListPromptsResult => listPrompts());
-  server.setRequestHandler(
-    GetPromptRequestSchema,
-    (req): GetPromptResult => getPrompt(req.params.name, req.params.arguments),
-  );
+  // Prompts: built-in, static templates (no vault access, so no authorization gate — like the
+  // unauthenticated liveness surface). THE-415 left prompts as the last MCP surface that skipped
+  // ToolRegistry governance entirely; route both ops through dispatchResource so they get the same
+  // GOVERNANCE resources get — the THE-210 rate limiter and an audit row — making "every invocation
+  // is audited" hold for the prompt surface too. dispatchResource applies throttle + audit + metrics
+  // but enforces no scope (authorization stays the handler's job), so passing [] preserves the
+  // open-template semantics while closing the observability gap.
+  server.setRequestHandler(ListPromptsRequestSchema, (): Promise<ListPromptsResult> => {
+    const ctx = opts.context();
+    return opts.registry.dispatchResource("prompts/list", ctx, [], {}, () => listPrompts());
+  });
+  server.setRequestHandler(GetPromptRequestSchema, (req): Promise<GetPromptResult> => {
+    const ctx = opts.context();
+    return opts.registry.dispatchResource("prompts/get", ctx, [], { name: req.params.name }, () =>
+      getPrompt(req.params.name, req.params.arguments),
+    );
+  });
 
   return server;
 }

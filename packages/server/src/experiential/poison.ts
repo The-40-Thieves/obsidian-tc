@@ -89,6 +89,22 @@ const EXFIL = [
   /https?:\/\/[^\s/]*:[^\s@]*@/i, // credentials embedded in a URL
 ];
 
+// Invisible/spacing controls used to smuggle directives past a literal scan: zero-width
+// (ZWSP..RLM, word-joiner, BOM/ZWNBSP) + bidi embeddings/overrides/isolates. Mirrors the
+// ZERO_WIDTH + BIDI_OVERRIDE detection ranges, in explicit code points for the strip step.
+const INVISIBLE_CONTROLS = /[​-‏⁠﻿‪-‮⁦-⁩]/gu;
+
+/**
+ * Canonicalize before content matching so trivial evasions collapse to their visible form:
+ * NFKC folds compatibility homoglyphs (fullwidth "ｉｇｎｏｒｅ", ligatures) to ASCII, and stripping
+ * the invisible controls defeats interleaved-zero-width smuggling ("i​gnore previous
+ * instructions"). ASCII payloads are unchanged by NFKC + strip, so everything the raw patterns
+ * already caught stays caught — this only ADDS detections (THE-238 layer-1 hardening).
+ */
+export function normalizeForScan(text: string): string {
+  return text.normalize("NFKC").replace(INVISIBLE_CONTROLS, "");
+}
+
 /**
  * Assess one episode's textual payload. Precision-leaning by design: 'high' means an
  * instruction-override or exfil shape fired (born-ineligible); 'suspect' means persistence
@@ -97,15 +113,19 @@ const EXFIL = [
  */
 export function assessPoison(text: string): PoisonAssessment {
   const signals: string[] = [];
-  if (OVERRIDE.some((p) => p.test(text))) signals.push("override");
-  if (PERSISTENCE.some((p) => p.test(text))) signals.push("persistence");
+  // Content families run against the canonicalized text (homoglyph/zero-width evasion folded away);
+  // the hidden-text family runs against the ORIGINAL, since the presence of the invisibles is itself
+  // the signal that normalization would erase.
+  const scan = normalizeForScan(text);
+  if (OVERRIDE.some((p) => p.test(scan))) signals.push("override");
+  if (PERSISTENCE.some((p) => p.test(scan))) signals.push("persistence");
   const hidden =
     ZERO_WIDTH.test(text) ||
     BIDI_OVERRIDE.test(text) ||
-    HTML_COMMENT_DIRECTIVE.test(text) ||
-    OPAQUE_BLOB.test(text);
+    HTML_COMMENT_DIRECTIVE.test(scan) ||
+    OPAQUE_BLOB.test(scan);
   if (hidden) signals.push("hidden");
-  if (EXFIL.some((p) => p.test(text))) signals.push("exfil");
+  if (EXFIL.some((p) => p.test(scan))) signals.push("exfil");
 
   let risk: PoisonRisk = "none";
   if (signals.includes("override") || signals.includes("exfil")) risk = "high";
