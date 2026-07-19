@@ -43,3 +43,26 @@ describe("THE-391 nDCG@10", () => {
     expect(m.ndcg_at_10).toBe(0);
   });
 });
+
+describe("THE-440 bridge-doc nDCG@10 (static-vs-trajectory proxy)", () => {
+  const qb: GoldenQuery = { ...q, bridge_paths: ["BR.md"] };
+
+  it("is null when the query declares no bridge_paths", () => {
+    const m = computeQueryMetrics(q, [hit("A.md", 0), hit("B.md", 1)]);
+    expect(m.bridge_ndcg_at_10).toBeNull();
+  });
+
+  it("scores the bridge doc independently of static relevance", () => {
+    // static hits A,B lead; the bridge doc sits at rank 3. Static nDCG stays high;
+    // bridge nDCG reflects the bridge doc's discounted position only.
+    const m = computeQueryMetrics(qb, [hit("A.md", 0), hit("B.md", 1), hit("BR.md", 2)]);
+    expect(m.ndcg_at_10).toBeGreaterThan(0.8); // static axis: A,B up front
+    expect(m.bridge_ndcg_at_10).toBeCloseTo(1 / Math.log2(4)); // bridge at rank 3, ideal rank 1
+  });
+
+  it("is 0 when the bridge doc is absent while the static docs still rank well", () => {
+    const m = computeQueryMetrics(qb, [hit("A.md", 0), hit("B.md", 1)]);
+    expect(m.ndcg_at_10).toBeGreaterThan(0.7); // static axis still strong (A,B up front)
+    expect(m.bridge_ndcg_at_10).toBe(0); // trajectory axis fails while static axis passes
+  });
+});
