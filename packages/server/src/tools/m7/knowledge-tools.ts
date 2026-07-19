@@ -760,7 +760,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
           ...(querySparse ? { querySparse } : {}),
           ...(queryColbert ? { queryColbert } : {}),
-          reranker: deps.reranker,
+          // THE-441: reranking lost decisively to the champion on this stack; the docs corpus
+          // never reranks, independent of any server-side reranker config.
+          reranker: null,
           isReadable: (rel) => readableRel(ctx.acl, rel),
           ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
         });
