@@ -52,9 +52,12 @@ export function pruneHubLinks(raw: string, index: VaultIndex, policy: PrunePolic
         let display: string | null;
         let kind: "wikilink" | "embed" | "markdown";
         if (isWiki) {
-          const pipe = wInner.indexOf("|");
-          display = pipe >= 0 ? wInner.slice(pipe + 1).trim() : null;
-          const beforePipe = pipe >= 0 ? wInner.slice(0, pipe) : wInner;
+          // "\|" is the alias separator inside a table; split on it, not on the
+          // raw pipe, so the backslash is not left on the target (GH #279).
+          const pipeM = wInner.match(/\\?\|/);
+          display =
+            pipeM?.index !== undefined ? wInner.slice(pipeM.index + pipeM[0].length).trim() : null;
+          const beforePipe = pipeM?.index !== undefined ? wInner.slice(0, pipeM.index) : wInner;
           const hash = beforePipe.indexOf("#");
           target = (hash >= 0 ? beforePipe.slice(0, hash) : beforePipe).trim();
           kind = wBang === "!" ? "embed" : "wikilink";

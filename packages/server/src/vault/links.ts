@@ -30,10 +30,13 @@ function splitWikilink(inner: string): {
 } {
   let rest = inner;
   let display: string | null = null;
-  const pipe = rest.indexOf("|");
-  if (pipe >= 0) {
-    display = rest.slice(pipe + 1).trim();
-    rest = rest.slice(0, pipe);
+  // In a markdown table Obsidian requires the alias pipe to be escaped ("\|");
+  // treat the first "\|" or "|" as the separator so the backslash is not left on
+  // the target (GH #279).
+  const pipeM = rest.match(/\\?\|/);
+  if (pipeM?.index !== undefined) {
+    display = rest.slice(pipeM.index + pipeM[0].length).trim();
+    rest = rest.slice(0, pipeM.index);
   }
   let heading: string | null = null;
   const hash = rest.indexOf("#");
