@@ -338,6 +338,7 @@ const DOMAINS: readonly DomainSpec[] = [
     members: [
       "knowledge_challenge",
       "vault_graph_search",
+      "vault_context",
       "query_entity_graph",
       "create_entity",
       "get_entity",
