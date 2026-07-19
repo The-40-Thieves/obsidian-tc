@@ -746,6 +746,16 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     toolVisibility: config.toolVisibility,
     // THE-295: per-vault ACL enforcement at dispatch.
     aclResolver: (vaultId) => aclByVault.get(vaultId) ?? acl,
+    // THE-414: vault-root resolver so dispatch can run central pathAcl enforcement with the same
+    // symlink-canonical enforcePathAcl the handlers use. Unknown vaults resolve to undefined
+    // (central enforcement then skips; the vault-binding guard already rejects cross-vault access).
+    rootResolver: (vaultId) => {
+      try {
+        return vaultRegistry.resolve(vaultId).root;
+      } catch {
+        return undefined;
+      }
+    },
     // THE-209: append a per-invocation trace record to the active session's JSONL trace.
     sessionTracer: (session, record) => {
       try {

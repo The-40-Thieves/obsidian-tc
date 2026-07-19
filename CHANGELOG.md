@@ -36,6 +36,19 @@ because it is an architectural refactor, not a contained fix.
 - **Table-identifier allowlist on `countRows`** (`tools/m1/registry-tools.ts`): the one
   interpolated SQL identifier (always the literal `"chunks"`) is now gated on a fixed
   allowlist — defense-in-depth against a future caller ever forwarding one.
+- **Folder-ACL enforcement is now a dispatch-pipeline stage, not a per-handler convention**
+  (THE-414): tools declare the vault paths they touch via a `pathAcl` extractor on
+  `ToolDefinition`, and `registry.runDispatch` enforces the folder ACL (the same
+  symlink-canonical `enforcePathAcl`) for every declared path right before the handler — so
+  containment no longer depends on each of ~120 handler call sites remembering to gate. This
+  closes the "a handler forgot to gate" class that produced the v1.9.1 `strictReadDefault`
+  regression (silently ignored in 8 tool files). Handler-side `enforcePathAcl` stays as
+  defense-in-depth; paths a handler computes at runtime (backlink-rewrite targets, periodic
+  resolvers, entity/session paths) remain handler-enforced and are documented exemptions. A
+  guarantee test (`acl-extraction-coverage`) fails CI if any mutating tool declares neither an
+  extractor nor an exemption, plus a test proves the central gate denies even when the handler
+  never calls `enforcePathAcl`. The "central pipeline, folder ACL is a stage" claim in the
+  README/ARCHITECTURE is now literally true.
 
 ### Documentation
 

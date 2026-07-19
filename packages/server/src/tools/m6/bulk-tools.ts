@@ -159,6 +159,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "bulk_create_notes",
+      pathAcl: (input) => input.items.map((item) => ({ op: "write" as const, path: item.path })),
       description:
         "Batch-create notes with per-item results. Each item creates/overwrites/upserts a note (content + optional frontmatter). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in).",
       inputSchema: BulkCreateInput,
@@ -199,6 +200,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
 
     defineTool({
       name: "bulk_set_property",
+      pathAcl: (input) => input.paths.map((p) => ({ op: "write" as const, path: p })),
       description:
         "Set one frontmatter property across many notes, with per-item results (prev_value). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in).",
       inputSchema: BulkSetPropertyInput,
@@ -238,6 +240,11 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
 
     defineTool({
       name: "bulk_move_notes",
+      pathAcl: (input) =>
+        input.moves.flatMap((m) => [
+          { op: "delete" as const, path: m.from },
+          { op: "write" as const, path: m.to },
+        ]),
       description:
         "Batch-move notes and rewrite backlinks across the whole link graph (rewrite phase is all-or-nothing). dry_run (default true) previews predicted backlink updates without touching disk. Set overwrite to clobber existing destinations (each is soft-deleted to .trash, recoverable). HITL-floored (bulk) and throttled.",
       inputSchema: BulkMoveInput,

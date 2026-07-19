@@ -132,6 +132,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "update_task",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Modify a task in place by line number (status, dates, priority, tags). Reopening a task completed more than 7 days ago requires confirmation.",
       inputSchema: z

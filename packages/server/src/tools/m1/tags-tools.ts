@@ -139,6 +139,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "get_note_tags",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Get a note's tags, split into frontmatter, inline, and the combined set.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       requiredScopes: ["read:notes"],
@@ -157,6 +158,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "add_tag",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Add a tag to a note's frontmatter `tags` list or inline in the body (idempotent).",
       inputSchema: AddInput,
@@ -217,6 +219,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "remove_tag",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Remove a tag from a note's frontmatter, its body, or both (exact, not hierarchical).",
       inputSchema: RemoveInput,

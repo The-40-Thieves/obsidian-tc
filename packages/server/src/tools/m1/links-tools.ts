@@ -80,6 +80,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "get_outgoing_links",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "List a note's outgoing links (code-block links excluded), each resolved to a target path.",
       inputSchema: z
@@ -129,6 +130,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "get_backlinks",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Find every note that links to the given note, with source line/column.",
       inputSchema: z
         .object({
@@ -313,6 +315,9 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "prune_hub_links",
+      // Reads the hub note (input.path); the write targets are the computed set of notes linking to
+      // it, enforced handler-side (each edit calls enforcePathAcl write) — not input-derivable.
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Prune unresolved and/or duplicate links from a hub note. Defaults to dry_run; a real run requires confirmation.",
       inputSchema: PruneInput,

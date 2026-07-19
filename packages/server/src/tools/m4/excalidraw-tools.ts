@@ -138,6 +138,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "read_excalidraw",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Read an Excalidraw drawing's raw elements and/or extracted text. source=plugin (default) proxies the live companion plugin; source=filesystem parses the .excalidraw / .excalidraw.md file on disk (works headlessly, no plugin); source=auto tries the plugin and falls back to the filesystem when it is unavailable (THE-202).",
       inputSchema: z
@@ -175,6 +176,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "create_excalidraw",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Create a new Excalidraw note via the companion plugin. Overwriting an existing drawing requires confirmation.",
       inputSchema: z
@@ -214,6 +216,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "update_excalidraw",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Add, remove, or update elements in an existing Excalidraw note via the companion plugin.",
       inputSchema: z

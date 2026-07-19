@@ -113,6 +113,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "read_base",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Read a .base file's structure (source, views, formulas).",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       requiredScopes: ["read:bases"],
@@ -133,6 +134,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "create_base",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Create a new .base file from a base definition. Overwriting an existing base requires confirmation.",
       inputSchema: CreateInput,
@@ -183,6 +185,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "update_base",
+      pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Patch a .base file's source/filters/properties/views/formulas. Unknown keys are preserved. Changing `source` (deprecated alias) or the note-set-defining top-level `filters` requires confirmation.",
       inputSchema: UpdateInput,
@@ -272,6 +275,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "query_base",
+      pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Execute a base view and return resolved rows. Filters/formulas may use obsidian-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset, THE-281); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter.",
       inputSchema: QueryInput,
