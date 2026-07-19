@@ -49,6 +49,19 @@ because it is an architectural refactor, not a contained fix.
   extractor nor an exemption, plus a test proves the central gate denies even when the handler
   never calls `enforcePathAcl`. The "central pipeline, folder ACL is a stage" claim in the
   README/ARCHITECTURE is now literally true.
+- **Pinned the gitleaks scanner image to an immutable digest** (`ci-security.yml`; THE-426):
+  the secret-scan job ran `ghcr.io/gitleaks/gitleaks:latest`; it now pins the `@sha256:` digest
+  (refresh instructions in-line). Completes the supply-chain SHA-pinning pass (GitHub Actions
+  were pinned in #272).
+
+### Changed
+
+- **Recurrence guards for the release process** (THE-426): a `tsc` gate now runs at the top of
+  `scripts/release.mjs` (shared build + server typecheck) so a type error that vitest/esbuild
+  accept can never reach a published tag; and a scheduled `release-lag` workflow
+  (`scripts/check-release-lag.mjs`) goes red when `main` drifts past a threshold ahead of the
+  latest tag while carrying unreleased Fixed/Security CHANGELOG entries — the THE-285 pattern
+  where critical fixes sat unshipped. Advisory (a scheduled nag), not a per-PR gate.
 
 ### Documentation
 

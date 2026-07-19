@@ -54,8 +54,11 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: gitleaks (secret scan of the working tree; honors .gitleaks.toml)
+        # THE-426: pin the scanner image to an immutable digest (was :latest). Refresh with
+        # `docker manifest inspect ghcr.io/gitleaks/gitleaks:latest | grep -m1 digest`.
         run: |
-          docker run --rm -v "${{ github.workspace }}:/repo" ghcr.io/gitleaks/gitleaks:latest \
+          docker run --rm -v "${{ github.workspace }}:/repo" \
+            ghcr.io/gitleaks/gitleaks@sha256:b109bc5f8f76a38196a3e413704fc5b9e3c32360bce4e4b603bd6f45b3721dbb \
             detect --no-git --source /repo --config /repo/.gitleaks.toml --no-banner --redact --exit-code 1
 
   cargo-audit:
