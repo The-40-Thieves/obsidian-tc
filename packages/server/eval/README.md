@@ -66,6 +66,27 @@ improvements are smaller than that. Until the golden set reaches **n ≈ 126** (
    adds the lexical/exact-term query class the multi-hop set lacks, which is required before any
    verdict on the BM25-stream default.
 
+## Publishing the golden-set size to the docs
+
+The wiki homepage's "At a glance" block cites the golden-set size and the headline enrichment gain.
+Those live in `docs/project-facts.json` (the docgen single source) because the public repo can't
+derive them — the golden set is private. Keep them current with the bridge instead of hand-editing:
+
+```bash
+# After a golden-set expansion — recount and refresh the DERIVED size (human-gated: writes the
+# file, never commits). The golden set is private; pass its path (or set $OBSIDIAN_TC_GOLDEN):
+bun run docgen:sync-facts --golden ~/obsidian-tc-eval/multi-hop-golden-set.yaml
+
+# When a default-on mechanism wins its ship gate — set the CURATED headline claim explicitly
+# (never auto-scraped from a run):
+bun run docgen:sync-facts --enrichment "+0.223 nDCG"
+
+# CI-style freshness check: exits 1 if project-facts.json is stale vs the golden set.
+bun run docgen:sync-facts --golden ~/obsidian-tc-eval/multi-hop-golden-set.yaml --check
+```
+
+Then `bun run docgen:render`, review `git diff docs/`, and commit — merging republishes the wiki.
+
 ## History
 
 Decision-grade baselines and every measured verdict live in the vault decision notes
