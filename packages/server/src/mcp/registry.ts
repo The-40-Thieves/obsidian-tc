@@ -235,6 +235,11 @@ export interface RegistryOptions {
    *  not) with the audit-row fields + raw parsed input; the experiential capture bus persists
    *  it. Best-effort by contract: sink failures are swallowed and never break dispatch. */
   onEpisode?: (e: DispatchEpisode) => void;
+  /** THE-457: when true, a handler payload that violates its advertised `outputSchema` is a hard,
+   *  typed `internal_error` instead of a logged warning that still returns the malformed payload.
+   *  Off by default (production stays warn-only for backward compatibility); enable it in dev/CI so
+   *  output-schema drift fails a test rather than reaching a client that may reject it. */
+  strictOutputSchema?: boolean;
 }
 
 export class ToolRegistry {
@@ -259,6 +264,7 @@ export class ToolRegistry {
   private readonly aclResolver?: RegistryOptions["aclResolver"];
   private readonly rootResolver?: RegistryOptions["rootResolver"];
   private readonly onEpisode?: RegistryOptions["onEpisode"];
+  private readonly strictOutputSchema: boolean;
 
   constructor(opts: RegistryOptions = {}) {
     this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
@@ -276,6 +282,7 @@ export class ToolRegistry {
     this.aclResolver = opts.aclResolver;
     this.rootResolver = opts.rootResolver;
     this.onEpisode = opts.onEpisode;
+    this.strictOutputSchema = opts.strictOutputSchema ?? false;
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
@@ -921,6 +928,15 @@ export class ToolRegistry {
             );
           } catch {
             /* diagnostics sink must never break dispatch */
+          }
+          // THE-457: in strict mode (dev/CI) a schema-contract violation is a hard, typed error —
+          // caught by the dispatch handler below and returned as internal_error — rather than
+          // silently shipping a payload a conformant client may reject. Production stays warn-only.
+          if (this.strictOutputSchema) {
+            throw new ObsidianTcError(
+              "internal_error",
+              `output does not match advertised outputSchema for ${name}`,
+            );
           }
         }
       }
