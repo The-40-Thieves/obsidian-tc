@@ -39,6 +39,11 @@ export interface TokenVerifierOptions {
   /** Asymmetric allowlist (default RS256/ES256/EdDSA). HS256 never verifies against the JWKS. */
   algorithms?: string[];
   maxAgeSeconds?: number;
+  /** THE-456: when set, jose enforces the token's `aud`; a token minted for another resource is
+   *  rejected. The HTTP edge defaults this to the PRM `resource` URI. Undefined -> not checked. */
+  audience?: string | string[];
+  /** THE-456: when set, jose enforces the token's `iss`. Undefined -> not checked. */
+  issuer?: string;
 }
 
 /**
@@ -53,12 +58,18 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
       const header = decodeProtectedHeader(token);
       if (header.alg === "HS256") {
         if (!o.secret) throw new Error("HS256 token but no jwtSecret configured");
-        return verifyJwt(token, o.secret, { maxAgeSeconds: o.maxAgeSeconds });
+        return verifyJwt(token, o.secret, {
+          maxAgeSeconds: o.maxAgeSeconds,
+          audience: o.audience,
+          issuer: o.issuer,
+        });
       }
       if (!o.jwks) throw new Error(`${String(header.alg)} token but no JWKS configured`);
       return verifyJwtJwks(token, o.jwks, {
         maxAgeSeconds: o.maxAgeSeconds,
         algorithms: o.algorithms,
+        audience: o.audience,
+        issuer: o.issuer,
       });
     },
   };

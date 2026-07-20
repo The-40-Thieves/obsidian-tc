@@ -59,3 +59,41 @@ describe("verifyJwt (H2)", () => {
     await expect(verifyJwt(token, "")).rejects.toThrow(/empty secret/i);
   });
 });
+
+describe("verifyJwt audience/issuer binding (THE-456)", () => {
+  const AUD = "https://mcp.example.com/mcp";
+  const ISS = "https://auth.example.com";
+
+  it("accepts a token whose aud/iss match the configured values", async () => {
+    const token = await mint({ sub: "alice" }, (s) =>
+      s.setAudience(AUD).setIssuer(ISS).setExpirationTime("5m"),
+    );
+    const id = await verifyJwt(token, secret, { audience: AUD, issuer: ISS });
+    expect(id.caller).toBe("alice");
+  });
+
+  it("rejects a token minted for a different audience (confused-deputy / passthrough)", async () => {
+    const token = await mint({ sub: "alice" }, (s) =>
+      s.setAudience("https://other-service.example.com").setExpirationTime("5m"),
+    );
+    await expect(verifyJwt(token, secret, { audience: AUD })).rejects.toThrow();
+  });
+
+  it("rejects a token with no aud claim when an audience is required", async () => {
+    const token = await mint({ sub: "alice" }, (s) => s.setExpirationTime("5m"));
+    await expect(verifyJwt(token, secret, { audience: AUD })).rejects.toThrow();
+  });
+
+  it("rejects a token from the wrong issuer", async () => {
+    const token = await mint({ sub: "alice" }, (s) =>
+      s.setIssuer("https://evil.example.com").setExpirationTime("5m"),
+    );
+    await expect(verifyJwt(token, secret, { issuer: ISS })).rejects.toThrow();
+  });
+
+  it("does not check aud/iss when unset — local self-issued tokens keep working", async () => {
+    const token = await mint({ sub: "alice" }, (s) => s.setExpirationTime("5m"));
+    const id = await verifyJwt(token, secret); // no audience/issuer configured
+    expect(id.caller).toBe("alice");
+  });
+});
