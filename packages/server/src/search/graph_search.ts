@@ -152,6 +152,15 @@ export interface GraphSearchOptions {
   isReadable?: (path: string) => boolean;
   /** cached_activation_score lookup from vault_object_state (W-SCHEMA); inert when absent. */
   activationFor?: (chunkId: string) => number | null | undefined;
+  /** THE-233: bubble-safe activation composition. STRICTLY OFF BY DEFAULT and non-behavioral
+   *  when disabled — even with activationFor present, the fused order is returned untouched. When
+   *  `enabled` AND activationFor is provided, the activation signal folds into the fused order as a
+   *  bounded multiplier (1 + (activation-0.5)*k) and a SINGLE bubble pass reorders it, so every
+   *  item shifts by at most ONE position (provable one-adjacent-swap-per-item worst case). `k`
+   *  tunes the multiplier range (default ACTIVATION_MULTIPLIER_RANGE). Mirrors opts.decay's
+   *  off-by-default shape. NOTE: the same bubbleSafeRerank primitive also composes a metadata-prior
+   *  signal (separate PR); here it is wired only to the existing activation signal. */
+  bubbleSafe?: { enabled?: boolean; k?: number };
 }
 
 interface Candidate {
@@ -868,7 +877,6 @@ function toResult(c: Candidate, score: number): GraphSearchResult {
   };
 }
 
-// Apply the optional activation bubble pass (inert without activationFor), then project.
 // THE-388: optional ColBERT late-interaction rerank of the fused top-K. Runs only when the query's
 // ColBERT matrix is supplied AND chunk_colbert holds data; a no-op otherwise. Reranks the top
 // colbertPool results by maxSim (bounded compute), leaving the tail order intact.
@@ -889,16 +897,26 @@ function colbertRerankResults(
   return [...colbertRerank(pool, q, docById), ...results.slice(poolN)];
 }
 
+// Apply the optional bubble-safe activation composition (THE-233), then project. Strictly
+// off by default: without opts.bubbleSafe.enabled (or without activationFor) the fused order is
+// returned untouched — the composition is an opt-in safety primitive. When enabled AND activation
+// is available, the activation signal folds in as a bounded multiplier and a single bubble pass
+// reorders the fused list so every item shifts by at most one position.
 function finalize(
   ranked: Array<{ item: Candidate; score: number }>,
   opts: GraphSearchOptions,
 ): GraphSearchResult[] {
-  if (!opts.activationFor) return ranked.map(({ item, score }) => toResult(item, score));
+  const activationFor = opts.activationFor;
+  if (!opts.bubbleSafe?.enabled || !activationFor) {
+    return ranked.map(({ item, score }) => toResult(item, score));
+  }
   const withActivation = ranked.map(({ item, score }) => ({
     item,
     score,
     rerankScore: score,
-    activationScore: opts.activationFor?.(item.chunk_id) ?? null,
+    activationScore: activationFor(item.chunk_id) ?? null,
   }));
-  return bubbleSafeRerank(withActivation).map((r) => toResult(r.item, r.score));
+  return bubbleSafeRerank(withActivation, { k: opts.bubbleSafe.k }).map((r) =>
+    toResult(r.item, r.score),
+  );
 }

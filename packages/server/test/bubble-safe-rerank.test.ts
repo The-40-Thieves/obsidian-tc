@@ -47,4 +47,60 @@ describe("bubble_safe_rerank (port)", () => {
       expect(Math.abs((finalIdx.get(item.id) ?? i) - i)).toBeLessThanOrEqual(1);
     }
   });
+
+  it("one-position bound holds under an adversarial fully-inverted signal", () => {
+    // Trusted order is strictly descending with TINY gaps (0.001), so the activation signal
+    // dominates each adjacent comparison. Activation is inverted vs the trusted order — every
+    // later item screams "promote me" — the maximally hostile input for the bound. A single
+    // bubble pass with the moved-flag must STILL never move any item more than one index.
+    const n = 12;
+    const items = Array.from({ length: n }, (_, i) => ({
+      id: `x${i}`,
+      rerankScore: 1 - i * 0.001, // trusted: descending
+      activationScore: i / (n - 1), // adversarial: ascending (last item strongest)
+    }));
+    const out = bubbleSafeRerank(items);
+    expect(out).toHaveLength(n);
+    const finalIdx = new Map(out.map((x, i) => [x.id, i]));
+    let maxDelta = 0;
+    for (let i = 0; i < n; i++) {
+      const item = items[i];
+      if (!item) continue;
+      maxDelta = Math.max(maxDelta, Math.abs((finalIdx.get(item.id) ?? i) - i));
+    }
+    expect(maxDelta).toBeLessThanOrEqual(1);
+    // Output is a permutation of the input (nothing dropped or duplicated).
+    expect(new Set(out.map((x) => x.id)).size).toBe(n);
+  });
+
+  it("k scales the multiplier: a swap that the default k makes is suppressed at small k", () => {
+    // a(1.0,s=0) vs b(0.9,s=1): swap iff 0.9(1+0.5k) > 1.0(1-0.5k)  <=>  k > ~0.105.
+    const pair = () => [
+      { id: "a", rerankScore: 1.0, activationScore: 0.0 },
+      { id: "b", rerankScore: 0.9, activationScore: 1.0 },
+    ];
+    expect(bubbleSafeRerank(pair(), { k: 0.1 }).map((x) => x.id)).toEqual(["a", "b"]); // inert
+    expect(bubbleSafeRerank(pair(), { k: 0.4 }).map((x) => x.id)).toEqual(["b", "a"]); // swaps
+    expect(bubbleSafeRerank(pair()).map((x) => x.id)).toEqual(["b", "a"]); // default k = 0.4
+    // activationMultiplier itself scales linearly with k and stays inert at 0.5 for any k.
+    expect(activationMultiplier(1.0, 0.1)).toBeCloseTo(1.05);
+    expect(activationMultiplier(1.0, 1.0)).toBeCloseTo(1.5);
+    expect(activationMultiplier(0.5, 1.0)).toBeCloseTo(1.0);
+  });
+
+  it("empty and single-item arrays are no-ops and the input is never mutated", () => {
+    expect(bubbleSafeRerank([])).toEqual([]);
+    const single = [{ id: "only", rerankScore: 0.7, activationScore: 1.0 }];
+    expect(bubbleSafeRerank(single).map((x) => x.id)).toEqual(["only"]);
+
+    const input = [
+      { id: "a", rerankScore: 0.8, activationScore: 0.0 },
+      { id: "b", rerankScore: 0.7, activationScore: 1.0 },
+    ];
+    const snapshot = input.map((x) => x.id);
+    const out = bubbleSafeRerank(input);
+    expect(out).not.toBe(input); // new array
+    expect(input.map((x) => x.id)).toEqual(snapshot); // input order untouched
+    expect(out.map((x) => x.id)).toEqual(["b", "a"]); // returned copy is reordered
+  });
 });
