@@ -9,7 +9,7 @@ const KNOWN = new Set(["counter", "gauge", "histogram", "summary"]);
 export async function extractMetrics(): Promise<MetricDoc[]> {
   const rec = new MetricsRecorder();
   const registry = rec.registry;
-  const json = (await registry.getMetricsAsJSON()) as Array<{
+  const json = (await registry.getMetricsAsJSON()) as unknown as Array<{
     name: string;
     help: string;
     type: string;
