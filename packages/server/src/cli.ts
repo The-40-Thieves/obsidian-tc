@@ -48,7 +48,7 @@ import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
 import { auditJob } from "./plane/jobs/audit";
-import { checkContradictions, groupContradictionQueue } from "./plane/jobs/contradiction";
+import { makeContradictionDrainer } from "./plane/jobs/contradiction-drain";
 import { synthesisJob } from "./plane/jobs/synthesis";
 import { SleepTimePlane, startPlaneScheduler } from "./plane/plane";
 import { createPlurBackend } from "./plur/client";
@@ -916,26 +916,22 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           }
         }
       : undefined;
-  // THE-457: continuous, single-flight, bounded contradiction drain. The boot sweep drained the
-  // queue ONCE; post-boot, runtime index-on-write kept enqueuing with no drain, so the queue grew
-  // unbounded and runtime writes received no contradiction analysis. Drain one bounded batch at a
-  // time, deduped by (vault, chunk) via groupContradictionQueue.
-  let contradictionDraining = false;
-  const drainContradictions = async (): Promise<void> => {
-    if (!roles || contradictionDraining || contradictionQueue.length === 0) return;
-    contradictionDraining = true;
-    try {
-      const batch = contradictionQueue.splice(0, CONTRADICTION_DRAIN_BATCH);
-      for (const [vaultId, chunks] of groupContradictionQueue(batch)) {
-        await checkContradictions({ db, roles, now: Date.now }, vaultId, chunks).catch((e) => {
-          indexHealth.writeFailures++;
-          indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
-        });
-      }
-    } finally {
-      contradictionDraining = false;
-    }
-  };
+  // THE-457/THE-458 (audit #6): continuous, single-flight, bounded contradiction drain. The boot sweep
+  // drained the queue ONCE; post-boot, runtime index-on-write kept enqueuing with no drain, so the
+  // queue grew unbounded and runtime writes received no contradiction analysis. makeContradictionDrainer
+  // drains one bounded batch at a time (deduped by (vault, chunk)); its in-flight batch is a PROMISE
+  // (drainer.inFlight), so shutdown can await a live batch instead of racing db.close() against it.
+  const contradictionDrainer = makeContradictionDrainer({
+    db,
+    roles,
+    queue: contradictionQueue,
+    batchSize: CONTRADICTION_DRAIN_BATCH,
+    now: Date.now,
+    onError: (e) => {
+      indexHealth.writeFailures++;
+      indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+    },
+  });
 
   // THE-291 (part 2): shared index-on-write hooks for the non-M1 writers (m3 periodic, m4
   // tasks, m5 capture, m6 bulk). M1 keeps its identical inline closures from THE-255.
@@ -1285,7 +1281,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         (e) => ({ vault: v.id, error: e instanceof Error ? e.message : String(e) }),
       ),
     ),
-  ).then((results) => {
+  ).then(async (results) => {
     // THE-288: record boot-reconcile health so server_health can surface index degradation
     // instead of the swallowed best-effort failure (per-vault errors are authenticated-only).
     const reconcileErrors = results
@@ -1304,13 +1300,13 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           `for a slow or small-context local runner).\n`,
       );
     }
-    // Best-effort contradiction sweep over chunks enqueued during the boot reconcile. No-op
-    // without the gateway (roles null -> queue stays empty). A continuous draining schedule
-    // (plane timer / session-close trigger) is a follow-up.
+    // THE-458 (audit #6): sweep chunks enqueued during the boot reconcile through the SAME bounded,
+    // single-flight worker as runtime writes (was a fire-and-forget, unbounded splice(0) that ran the
+    // whole queue at once and bypassed the batch limit + single-flight guard). No-op without the
+    // gateway (roles null -> queue stays empty). Fire-and-forget by design (boot does not block on it),
+    // but now deduped with the interval worker so the two cannot double-process the same chunk.
     if (!roles) return;
-    for (const [vaultId, chunks] of groupContradictionQueue(contradictionQueue.splice(0))) {
-      void checkContradictions({ db, roles, now: Date.now }, vaultId, chunks).catch(() => {});
-    }
+    await contradictionDrainer.drainToEmpty();
   });
 
   morgiana.emit(firstVault.id, "tc.server.start");
@@ -1385,7 +1381,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // guard). Unref'd so it never keeps the process alive; only runs when the gateway is configured.
   const stopContradictionDrain = roles
     ? (() => {
-        const t = setInterval(() => void drainContradictions(), CONTRADICTION_DRAIN_MS);
+        const t = setInterval(() => void contradictionDrainer.drainOnce(), CONTRADICTION_DRAIN_MS);
         t.unref();
         return () => clearInterval(t);
       })()
@@ -1402,7 +1398,11 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     await Promise.race([
       (async () => {
         await indexCoordinator.idle().catch(() => {});
-        await drainContradictions().catch(() => {});
+        // THE-458 (audit #6): AWAIT any in-flight contradiction batch before touching the DB (the old
+        // boolean guard made this call return immediately, so db.close() below could race a live
+        // checkContradictions write), then run one final bounded batch for residual work.
+        await contradictionDrainer.inFlight?.catch(() => {});
+        await contradictionDrainer.drainOnce().catch(() => {});
       })(),
       new Promise<void>((resolve) => {
         setTimeout(resolve, SHUTDOWN_DRAIN_MS).unref();
