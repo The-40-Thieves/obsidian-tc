@@ -560,5 +560,38 @@ export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
       message: `refusing to expose an unauthenticated server: transports.http.enabled is true with host "${http.host}" (non-loopback) while auth.mode is "none". Set auth.mode to "jwt" (with jwtSecret) or bind transports.http.host to a loopback address (127.0.0.1, ::1, localhost).`,
     });
   }
+  // THE-456 (audit #3): a remote or JWKS-verified deployment MUST bind the token audience — warn-only
+  // was insufficient. Without an audience, a token an issuer minted for a DIFFERENT service is accepted
+  // here (confused deputy). The verifier treats the PRM `resource` as the audience when set, so an
+  // explicit `audience` OR a `resource` satisfies the binding. HS256 on a loopback bind stays
+  // audience-optional (self-issued, local); a JWKS (external issuer) is never audience-optional.
+  if (cfg.auth.mode === "jwt") {
+    const hasJwks = Boolean(cfg.auth.jwks || cfg.auth.jwksFile);
+    const boundAudience = cfg.auth.audience ?? cfg.auth.resource;
+    const remote = http.enabled && !isLoopbackHost(http.host);
+    if (hasJwks && boundAudience === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["auth", "audience"],
+        message:
+          "auth.mode 'jwt' with a JWKS (jwks/jwksFile) requires auth.audience (or auth.resource): a JWKS trusts an external issuer, so without an audience a token that issuer minted for another service is accepted here (confused deputy). (THE-456)",
+      });
+    }
+    if (remote && boundAudience === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["auth", "audience"],
+        message: `refusing a non-loopback jwt server without an audience: transports.http.host "${http.host}" is remote, so set auth.audience (or auth.resource) to bind tokens to this resource. Audience-optional HS256 is only allowed on a loopback bind. (THE-456)`,
+      });
+    }
+    if (cfg.auth.issuer !== undefined && boundAudience === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["auth", "audience"],
+        message:
+          "auth.issuer is set (tokens from an external authorization server) but no audience is bound: require BOTH auth.issuer and auth.audience (or auth.resource) so this resource validates the token's issuer AND audience, not just its issuer. (THE-456)",
+      });
+    }
+  }
 });
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
