@@ -1,71 +1,61 @@
-<!-- TEMPLATE / BLUEPRINT — Contribution Guide. -->
-
 # Contributing
 
-Thanks for helping improve obsidian-tc. This page is the fast path from clone to merged PR.
+This is a condensed guide. The authoritative version is [`CONTRIBUTING.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/CONTRIBUTING.md); start there and in [`ARCHITECTURE.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/ARCHITECTURE.md).
 
-> [!IMPORTANT]
-> All commits must be **DCO signed-off** (`git commit -s`). CI's `dco-check` fails unsigned commits, and they cannot be merged.
+## Toolchains
 
-## Development setup
+- **Bun** `>= 1.1.0` (CI pins 1.3.x)
+- **Node** `>= 24 LTS` (the server test runner uses `node:sqlite`)
+- **Rust** (rustup, stable) + **napi-rs CLI** `>= 3` — only for native-module work; otherwise the pure-JS fallback covers it
+
+## Bootstrap
 
 ```bash
-git clone https://github.com/The-40-Thieves/obsidian-tc.git
+git clone https://github.com/the-40-thieves/obsidian-tc.git
 cd obsidian-tc
-< install: bun install / workspace bootstrap >
+bun install      # native falls back to pure-JS if Rust is absent
+bun run build    # shared + native + server + plugin
+bun run test
 ```
 
-The repo is a Bun workspace monorepo:
+No Rust? `bun run --filter='!@the-40-thieves/obsidian-tc-native' build`.
 
-| Package | Role |
-|---|---|
-| `packages/server` | the MCP / HTTP server |
-| `packages/shared` | error types, Zod schemas, utilities |
-| `packages/native` | optional Rust native acceleration |
-| `docs/` | the documentation site + this wiki's seed |
-
-## The gate (run before every push)
+## Dev loops
 
 ```bash
-cd packages/server
-bunx biome check <changed files>   # lint + format
-bunx tsc --noEmit                  # types
-bunx vitest run <changed tests>    # tests
+cd packages/server && bun run dev    # server, stdio auto-reload
+cd packages/plugin && bun run dev    # plugin, esbuild watch
+cd packages/native && cargo test     # Rust unit tests
 ```
 
-> [!TIP]
-> A change to a widely-imported file (e.g. `cli.ts`, `indexer.ts`) warrants the **full** suite: `bunx vitest run`. Green local gate ≈ green CI.
+Point your config at a **scratch vault**, never your real one. Force the fallback path with `OBSIDIAN_TC_FORCE_JS_FALLBACK=1 bun run test`; CI runs both native and fallback.
 
-## Pull-request checklist
+## Conventions
 
-- [ ] Branched off the latest `main`
-- [ ] Behavioral changes are **off by default** behind a config flag
-- [ ] Commits are `-s` signed-off (DCO)
-- [ ] `biome` + `tsc` + `vitest` all green locally
-- [ ] Tests cover the change (including a regression test for a bug fix)
-- [ ] PR description explains the *why*, not just the *what*
+- **TypeScript:** strict, no implicit `any`. Linted/formatted by [Biome](https://biomejs.dev) (`bun run lint`, `bun run format`).
+- **Rust:** `rustfmt` + `clippy` clean; `#![deny(unsafe_code)]` outside the napi-rs FFI boundary.
+- **Commits:** [Conventional Commits](https://www.conventionalcommits.org). Scopes match the package (`feat(server): ...`, `fix(native): ...`).
+- **Branches:** trunk-based, short-lived `feat/...` off `main`, rebase before PR.
 
-> [!WARNING]
-> Never batch a force-push with a merge. Push, confirm the branch landed and checks are green as **separate** steps, then merge.
+## Adding a tool
 
-## Documentation
+A typical tool touches four files:
 
-Most reference docs are **generated from code** (the tool reference, config reference, schema, metrics, errors). Do **not** hand-edit content inside `<!-- BEGIN GENERATED … -->` markers — change the source and regenerate:
+1. `packages/shared/src/schemas/<domain>.ts` — Zod input/output schema
+2. `packages/server/src/tools/<domain>/<tool_name>.ts` — implementation
+3. `packages/server/src/tools/<domain>/<tool_name>.test.ts` — tests
+4. `docs/src/content/docs/tools/<domain>/<tool_name>.md` — user reference
 
-```bash
-< bun run docgen >   # regenerates the model, pages, README/wiki sections
-```
+Annotate the tool with **ACL / HITL / idempotency / rate-limit** metadata per the [G2.1 conventions](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md). Any new Rust function must ship a numerically identical TypeScript fallback that passes the same tests.
 
-CI's docs-drift gate fails a PR that changes a tool/config/metric without regenerating. Hand-authored prose (guides, positioning) lives **outside** the markers and is yours to write.
+## Pull requests
 
-## Reporting bugs & requesting features
+Open against `main`. To merge: CI green (`ci-server`, `ci-plugin`, `ci-native` × 8 platforms, `ci-version`, `ci-docs`, `ci-install-smoke`, plus the CodeQL security and Code Quality analyses), one maintainer review, Conventional-Commit PR title (feeds the changelog), tests for new behavior, and docs updated when the change is user-visible.
 
-Open an [issue](https://github.com/The-40-Thieves/obsidian-tc/issues) with:
+## Releases
 
-- what you expected vs. what happened,
-- a minimal repro (config + steps),
-- server version + runtime.
+Maintainers run `bun run release <patch|minor|major>` (sets versions across every `package.json` + `server.json` + `manifest.json`, rolls the CHANGELOG, runs the version-coherence gate), open a release PR, then tag `v<x.y.z>`. `publish.yml` builds the 8-platform native matrix (linux x64/arm64 gnu+musl, darwin x64/arm64, win x64/arm64), publishes to npm, pushes the GHCR image, and drafts the GitHub Release. The plugin versions on its own cadence and is submitted separately to `obsidianmd/obsidian-releases`.
 
-## Code of conduct & license
+## Getting help
 
-By contributing you agree your work is licensed under **AGPL-3.0**. Be respectful; see `CODE_OF_CONDUCT.md` if present.
+GitHub Discussions for design questions, Issues for bugs/features. Security issues go through [`SECURITY.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/SECURITY.md), never public Issues. The project follows the [Contributor Covenant](https://github.com/The-40-Thieves/obsidian-tc/blob/main/CODE_OF_CONDUCT.md).

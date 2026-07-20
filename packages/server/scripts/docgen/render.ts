@@ -22,7 +22,7 @@ const configMd = renderConfig(extractConfig());
 const targets: Array<{ file: string; marker: string; content: string }> = [
   // GitHub wiki (THE-475 publishes these).
   { file: repo("docs/wiki/Tool-Reference.md"), marker: "tools", content: toolsMd },
-  { file: repo("docs/wiki/Configuration-Reference.md"), marker: "config", content: configMd },
+  { file: repo("docs/wiki/Configuration.md"), marker: "config", content: configMd },
   // Astro docs site (THE-474) — Starlight autogenerate slots these into the Tools / Configuration nav.
   { file: repo("docs/src/content/docs/tools/tool-catalog.md"), marker: "tools", content: toolsMd },
   {
