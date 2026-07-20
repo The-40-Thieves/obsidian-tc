@@ -56,6 +56,7 @@ import { assignClusters } from "./search/cluster";
 import { runLlmDensify } from "./search/densify-runner";
 import { ensureNotesFts } from "./search/fts";
 import { graphSearch } from "./search/graph_search";
+import { IndexCoordinator } from "./search/index-coordinator";
 import {
   deindexNote,
   type IndexedChunk,
@@ -884,30 +885,33 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 
   // THE-291 (part 2): shared index-on-write hooks for the non-M1 writers (m3 periodic, m4
   // tasks, m5 capture, m6 bulk). M1 keeps its identical inline closures from THE-255.
-  const reindexHook = (vaultId: string, path: string, content: string): void => {
-    void indexNote(
-      db,
-      embeddingProvider,
-      vaultId,
-      path,
-      content,
-      hasVec,
-      Date.now,
-      makeOnIndexed(vaultId),
-      config.embeddings.chunkContext,
-    ).catch((e) => {
+  // THE-455: route every index-on-write mutation through a per-(vault,path) coordinator so same-path
+  // writes/deletes serialize (newest wins — no stale/out-of-order commit, no delete resurrection)
+  // while different paths stay concurrent. Handlers are the same indexNote/deindexNote as before.
+  const indexCoordinator = new IndexCoordinator({
+    write: (vaultId, path, content) =>
+      indexNote(
+        db,
+        embeddingProvider,
+        vaultId,
+        path,
+        content,
+        hasVec,
+        Date.now,
+        makeOnIndexed(vaultId),
+        config.embeddings.chunkContext,
+      ),
+    delete: (vaultId, path) =>
+      deindexNote(db, vaultId, path, hasVec, config.embeddings.chunkContext),
+    onError: (e) => {
       indexHealth.writeFailures++;
       indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
-    });
-  };
-  const deindexHook = (vaultId: string, path: string): void => {
-    try {
-      deindexNote(db, vaultId, path, hasVec, config.embeddings.chunkContext);
-    } catch (e) {
-      indexHealth.writeFailures++;
-      indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
-    }
-  };
+    },
+  });
+  const reindexHook = (vaultId: string, path: string, content: string): void =>
+    indexCoordinator.submitWrite(vaultId, path, content);
+  const deindexHook = (vaultId: string, path: string): void =>
+    indexCoordinator.submitDelete(vaultId, path);
   // indexReadableFor: per-vault ACL read-visibility filter shared by the boot reconcile and runtime
   // add_vault (THE-453). makeIndexReadable resolves each vault's effective ACL (override ?? root),
   // mirroring the dispatch aclResolver, so indexing never reads/embeds a vault-denied path.
@@ -923,30 +927,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // THE-291 (3B): metadata tools read the notes table once the boot notes pass commits.
     metadataIndex: { hasFts, ready: () => indexHealth.notesReady },
     requireCas: config.writes.requireCas,
-    reindex: (vaultId, path, content) => {
-      void indexNote(
-        db,
-        embeddingProvider,
-        vaultId,
-        path,
-        content,
-        hasVec,
-        Date.now,
-        makeOnIndexed(vaultId),
-        config.embeddings.chunkContext,
-      ).catch((e) => {
-        indexHealth.writeFailures++;
-        indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
-      });
-    },
-    deindex: (vaultId, path) => {
-      try {
-        deindexNote(db, vaultId, path, hasVec, config.embeddings.chunkContext);
-      } catch (e) {
-        indexHealth.writeFailures++;
-        indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
-      }
-    },
+    // THE-455: M1 shares the coordinator-backed hooks (was an identical inline indexNote/deindexNote).
+    reindex: reindexHook,
+    deindex: deindexHook,
     // THE-376: runtime add_vault triggers a full index of the newly registered vault
     // (mirrors the boot reconcile below). indexReadableFor is defined just above.
     indexVault: async (vaultId) => {
