@@ -12,12 +12,12 @@ name: ci-wiki
 #      The default GITHUB_TOKEN cannot push to a wiki on many repos.
 # Until (1)+(2) are done this job SKIPS cleanly (no red X) — it never fails a push for a repo whose
 # wiki isn't enabled yet.
+# Manual-only (workflow_dispatch): the repo already has a HAND-AUTHORED wiki maintained in the web
+# UI, so this must never publish automatically. It is kept as an opt-in tool + is non-destructive
+# (cp -n never overwrites an existing wiki page). A proper integration = marker-injection of the
+# generated tables into the operator's own wiki pages (see THE-475 follow-up); until then this only
+# ADDS pages that are absent, and only when a human dispatches it.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'docs/wiki/**'
-      - '.github/workflows/ci-wiki.yml'
   workflow_dispatch:
 
 permissions:
@@ -52,7 +52,7 @@ jobs:
             exit 0
           fi
           # Additive sync: copy the seed pages over; never delete pages authored directly in the wiki.
-          cp docs/wiki/*.md wiki/
+          cp -n docs/wiki/*.md wiki/  # -n: never overwrite a page authored in the wiki
 
           cd wiki
           git config user.name  "github-actions[bot]"
