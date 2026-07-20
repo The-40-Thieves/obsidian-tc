@@ -132,6 +132,9 @@ export interface RunEvalOptions {
    *  bubble pass — the eval exercises the SAME mechanism the serve path gates behind
    *  experiential.activationRerank, killing the eval/serve skew. */
   activation?: (chunkId: string) => number | null;
+  /** THE-447: bubble-safe activation composition passthrough — the A/B lever for measuring the
+   *  activation prior on the golden set (needs `activation` supplied). Off unless set. */
+  bubbleSafe?: { enabled?: boolean; k?: number };
   /** THE-258: the deterministic class router — same rules as the serve path
    *  (retrieval.classRouter): lexical short-circuit + temporal auto-stream. */
   classRouter?: boolean;
@@ -267,6 +270,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ...(opts.fusionConvex ? { fusionMode: "convex" as const, convex: opts.fusionConvex } : {}),
         ...(opts.temporal || temporalOverride ? { temporal: { enabled: true } } : {}),
         ...(opts.activation ? { activationFor: opts.activation } : {}),
+        ...(opts.bubbleSafe ? { bubbleSafe: opts.bubbleSafe } : {}),
         ...(opts.metadataPrior ? { metadataPrior: opts.metadataPrior } : {}),
         ...(process.env.DENSIFY === "1" ? { densify: { includeInWalk: true } } : {}),
       });
@@ -366,6 +370,10 @@ async function main(): Promise<void> {
   // THE-187: `--activation` — thread the experiential store's cached activation scores into
   // the graph bubble pass (the serve mechanism, measured).
   const activation = argv.includes("--activation");
+  // THE-447: `--bubble-safe` — compose the activation prior via the bounded one-swap bubble pass
+  // (needs --activation). BUBBLE_SAFE_K overrides the default k. The A/B lever for measuring it.
+  const bubbleSafe = argv.includes("--bubble-safe");
+  const bubbleSafeK = process.env.BUBBLE_SAFE_K ? Number(process.env.BUBBLE_SAFE_K) : undefined;
   // THE-258: `--class-router` — the deterministic class router (lexical short-circuit +
   // temporal auto-stream), same rules as retrieval.classRouter on serve.
   const classRouter = argv.includes("--class-router");
@@ -547,6 +555,9 @@ async function main(): Promise<void> {
     golden,
     vaultId: firstVault.id,
     ...(diagnose ? { retainRaw: true } : {}),
+    ...(bubbleSafe
+      ? { bubbleSafe: { enabled: true, ...(bubbleSafeK !== undefined ? { k: bubbleSafeK } : {}) } }
+      : {}),
     ...(adaptive ? { adaptiveRrf: { enabled: true } } : {}),
     ...(graphStream ? { graphStream: { enabled: true } } : {}),
     ...(smoothExpansion ? { smoothExpansion: { enabled: true } } : {}),
