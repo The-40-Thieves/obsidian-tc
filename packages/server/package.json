@@ -22,7 +22,8 @@
     "test:coverage": "vitest run --coverage",
     "dev": "bun run --watch ./src/index.ts",
     "docgen:model": "bun scripts/docgen/build-model.ts",
-    "docgen:render": "bun scripts/docgen/render.ts"
+    "docgen:render": "bun scripts/docgen/render.ts",
+    "docgen:suggest": "bun scripts/docgen/suggest-prose.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.5",
