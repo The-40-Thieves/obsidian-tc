@@ -22,6 +22,25 @@ export interface IndexedChunk {
   embedding: number[];
 }
 
+/** THE-457: group a drained contradiction queue by vault, deduplicating chunks by (vault, id) so a
+ *  chunk re-enqueued by several rapid re-indexes in one drain window is judged once. Pure helper —
+ *  the caller owns the bounded, single-flight drain loop and calls checkContradictions per group. */
+export function groupContradictionQueue(
+  items: ReadonlyArray<{ vaultId: string; chunk: IndexedChunk }>,
+): Map<string, IndexedChunk[]> {
+  const byVault = new Map<string, IndexedChunk[]>();
+  const seen = new Set<string>();
+  for (const { vaultId, chunk } of items) {
+    const key = `${vaultId}\u0000${chunk.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const arr = byVault.get(vaultId) ?? [];
+    arr.push(chunk);
+    byVault.set(vaultId, arr);
+  }
+  return byVault;
+}
+
 const verdictSchema = z.object({
   kind: z.enum(["contradiction", "tension", "no_conflict"]),
   rationale: z.string().min(1),
