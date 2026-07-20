@@ -47,7 +47,10 @@ jobs:
             exit 0
           fi
 
-          git clone --depth 1 "$WIKI_URL" wiki
+          if ! git clone --depth 1 "$WIKI_URL" wiki 2>/dev/null; then
+            echo "::warning title=Wiki clone failed::check the WIKI_TOKEN secret has wiki-write access. Skipping (best-effort)."
+            exit 0
+          fi
           # Additive sync: copy the seed pages over; never delete pages authored directly in the wiki.
           cp docs/wiki/*.md wiki/
 
@@ -60,5 +63,9 @@ jobs:
           fi
           git add -A
           git commit -m "docs(wiki): sync from docs/wiki @ ${SHA}"
-          git push
+          # Best-effort: a push-permission failure warns rather than redding the push to main.
+          if ! git push 2>/dev/null; then
+            echo "::warning title=Wiki push failed::add a fine-grained WIKI_TOKEN secret with wiki write (the default GITHUB_TOKEN may lack it)."
+            exit 0
+          fi
           echo "::notice title=Wiki published::synced $(find ../docs/wiki -maxdepth 1 -name '*.md' | wc -l) pages"
