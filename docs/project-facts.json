@@ -1,5 +1,5 @@
 {
-  "_note": "Single source of truth for curated project facts that are NOT derivable from code — they come from the private eval harness, which never enters this public repo. docgen (bun run docgen:render) injects these into the wiki Home 'At a glance' block, and the CI drift gate enforces regeneration. To update: edit a value here, run `bun run docgen:render`, commit both.",
+  "_note": "Single source of truth for curated project facts that are NOT derivable from the public repo — they come from the private eval harness. docgen (bun run docgen:render) injects these into the wiki Home 'At a glance' block; the CI drift gate enforces regeneration. Prefer the bridge over hand-editing: `bun run docgen:sync-facts --golden <golden.yaml>` refreshes goldenSetSize by counting the private golden set, and `--enrichment \"+0.X nDCG\"` sets the curated headline claim. Then run docgen:render, review the diff, commit. `--check` fails if goldenSetSize is stale vs the golden set.",
   "goldenSetSize": 250,
   "enrichmentNdcgGain": "+0.223 nDCG"
 }
