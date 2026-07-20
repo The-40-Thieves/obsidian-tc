@@ -307,6 +307,20 @@ export const EmbeddingsConfigSchema = z.object({
     .optional(),
 });
 
+// THE-458 (audit #5): index-on-write coordinator concurrency + backpressure. Fully defaulted so a
+// config predating it validates unchanged. `writeConcurrency` bounds concurrent index/embed calls
+// across ALL vaults; `writeConcurrencyPerVault` bounds them per vault (audit recommends 2–4);
+// `queueMax` is a soft distinct-pending-path cap that surfaces backpressure in server_health (writes
+// are never dropped).
+export const IndexingConfigSchema = z
+  .object({
+    writeConcurrency: z.number().int().positive().default(8),
+    writeConcurrencyPerVault: z.number().int().positive().default(4),
+    queueMax: z.number().int().positive().default(1000),
+  })
+  .prefault({});
+export type IndexingConfig = z.infer<typeof IndexingConfigSchema>;
+
 export const HttpConfigSchema = z.object({
   enabled: z.boolean().default(false),
   host: z.string().default("127.0.0.1"),
@@ -526,6 +540,7 @@ export const ServerConfigObject = z.object({
   auth: AuthConfigSchema.prefault({ mode: "none" }),
   acl: AclConfigSchema.prefault({}),
   embeddings: EmbeddingsConfigSchema.prefault({}),
+  indexing: IndexingConfigSchema,
   retrieval: RetrievalConfigSchema.prefault({}),
   ranking: RankingConfigSchema.prefault({}),
   experiential: ExperientialConfigSchema.prefault({}),

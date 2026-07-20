@@ -821,6 +821,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     contradictionsDropped: number;
     /** THE-457: fail-open audit writes that threw (locked DB / disk full) — the audit trail is lossy. */
     auditWriteFailures: number;
+    /** THE-458 (audit #5): times the index-on-write queue depth crossed queueMax (backpressure edges). */
+    indexQueueBackpressures: number;
   } = {
     reconcile: "pending",
     reconcileAt: null,
@@ -829,6 +831,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     notesReady: false,
     contradictionsDropped: 0,
     auditWriteFailures: 0,
+    indexQueueBackpressures: 0,
   };
   // server_health surfaces the build's active fast-paths (native module + sqlite-vec). Both are
   // non-identifying, so the tool keeps them in its unauthenticated payload; registered here (not
@@ -852,6 +855,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
                 reconcile_errors: indexHealth.reconcileErrors,
                 contradictions_dropped: indexHealth.contradictionsDropped,
                 audit_write_failures: indexHealth.auditWriteFailures,
+                // THE-458 (audit #5): index-on-write coordinator depth + backpressure.
+                index_queue_depth: indexCoordinator.stats().queued,
+                index_queue_active: indexCoordinator.stats().active,
+                index_queue_backpressures: indexHealth.indexQueueBackpressures,
                 ...(indexHealth.lastWriteError !== undefined
                   ? { last_write_error: indexHealth.lastWriteError }
                   : {}),
@@ -953,6 +960,19 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     onError: (e) => {
       indexHealth.writeFailures++;
       indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+    },
+  }, {
+    // THE-458 (audit #5): bound concurrent index/embed fan-out so a bulk mutation cannot spawn an
+    // unbounded number of simultaneous embedding calls; surface sustained queue depth in health.
+    globalConcurrency: config.indexing.writeConcurrency,
+    perVaultConcurrency: config.indexing.writeConcurrencyPerVault,
+    queueMax: config.indexing.queueMax,
+    onBackpressure: (depth) => {
+      indexHealth.indexQueueBackpressures++;
+      process.stderr.write(
+        `[index] write-queue backpressure: ${depth} distinct paths pending (> queueMax ` +
+          `${config.indexing.queueMax}); index/embed fan-out is capped, writes are queued not dropped\n`,
+      );
     },
   });
   // indexReadableFor: per-vault ACL read-visibility filter shared by the boot reconcile, runtime
