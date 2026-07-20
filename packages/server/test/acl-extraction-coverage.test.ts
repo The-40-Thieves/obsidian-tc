@@ -86,14 +86,12 @@ describe("THE-414 folder-ACL path-extraction coverage", () => {
     const rateLimiter = new RateLimiter(NO_THROTTLE as never);
     const registry = new ToolRegistry({ rateLimiter });
     const noop = () => {};
-    // biome-ignore lint/suspicious/noExplicitAny: stub backends never dereferenced at registration.
     const embeddingProvider: any = {
       provider: "ollama",
       model: "nomic-embed-text",
       embed: async () => [],
     };
     const metadataIndex = { hasFts: false, ready: () => true };
-    // biome-ignore lint/suspicious/noExplicitAny: stub bridge factory.
     const bridge: any = () => ({ client: undefined, timeoutMs: 1000 });
     registry.register(
       createHealthTool({
@@ -216,7 +214,6 @@ describe("THE-414 central pathAcl enforcement (handler does not gate)", () => {
       requiredScopes: ["write:notes"],
       pathAcl: (input: { path: string }) => [{ op: "write" as const, path: input.path }],
       handler: () => ({ ok: true }),
-      // biome-ignore lint/suspicious/noExplicitAny: minimal synthetic ToolDefinition for this test.
     } as any);
     const ctx = (): CallerContext => ({
       caller: "t",

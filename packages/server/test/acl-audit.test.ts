@@ -52,7 +52,6 @@ describe("ACL audit: pathAcl mirrors handler fs usage (issue #280)", () => {
         for (const p of resolves) resolveVaultPath(root, p === "$path" ? input.path : p);
         return { ok: true };
       },
-      // biome-ignore lint/suspicious/noExplicitAny: minimal synthetic ToolDefinition for this test.
     } as any);
     const ctx = (): CallerContext => ({
       caller: "t",

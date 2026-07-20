@@ -231,6 +231,10 @@ export interface RegistryOptions {
    *  the client response is redacted to `{code:"internal"}`; this sink receives the real error +
    *  stack for operator diagnosis. Never wired to stdout (the MCP channel); best-effort. */
   onInternalError?: (tool: string, vaultId: string, err: unknown) => void;
+  /** THE-457: called when the fail-open audit write throws (locked DB, disk full, migration drift).
+   *  Already counted as a metric; this sink lets the composition root also surface it in server_health
+   *  so an operator watching health (not metrics) sees the audit trail going lossy. Best-effort. */
+  onAuditFailure?: (tool: string, vaultId: string) => void;
   /** THE-228 episode capture. Called once per dispatch outcome (every dispatch, session or
    *  not) with the audit-row fields + raw parsed input; the experiential capture bus persists
    *  it. Best-effort by contract: sink failures are swallowed and never break dispatch. */
@@ -261,6 +265,7 @@ export class ToolRegistry {
   private readonly onProfile?: (p: DispatchProfile) => void;
   private readonly sessionTracer?: RegistryOptions["sessionTracer"];
   private readonly onInternalError?: RegistryOptions["onInternalError"];
+  private readonly onAuditFailure?: RegistryOptions["onAuditFailure"];
   private readonly aclResolver?: RegistryOptions["aclResolver"];
   private readonly rootResolver?: RegistryOptions["rootResolver"];
   private readonly onEpisode?: RegistryOptions["onEpisode"];
@@ -279,6 +284,7 @@ export class ToolRegistry {
     this.onProfile = opts.onProfile;
     this.sessionTracer = opts.sessionTracer;
     this.onInternalError = opts.onInternalError;
+    this.onAuditFailure = opts.onAuditFailure;
     this.aclResolver = opts.aclResolver;
     this.rootResolver = opts.rootResolver;
     this.onEpisode = opts.onEpisode;
@@ -478,8 +484,14 @@ export class ToolRegistry {
       // Audit stays fail-open — it must never break dispatch. But a silent failure
       // (locked DB, disk full, migration drift) makes the security-audit trail lossy
       // with no signal at all, so surface it as a metric. meter() is itself guarded,
-      // so this cannot throw back out of the catch.
+      // so this cannot throw back out of the catch. THE-457: also notify the health sink so an
+      // operator watching server_health (not metrics) sees the audit trail going lossy.
       this.meter((m) => m.incAuditWriteFailed(ctx.vaultId, name));
+      try {
+        this.onAuditFailure?.(name, ctx.vaultId);
+      } catch {
+        /* health sink must never break dispatch */
+      }
     }
     // THE-209: mirror the audit row into the active session's JSONL trace, if any.
     if (ctx.sessionId && this.sessionTracer) {

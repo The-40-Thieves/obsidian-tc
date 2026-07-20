@@ -139,3 +139,22 @@ describe("dispatch pipeline", () => {
     }
   });
 });
+
+describe("THE-457 audit-write failure surfacing", () => {
+  it("fires onAuditFailure when the fail-open audit write throws, without failing dispatch", async () => {
+    const db = freshDb();
+    db.exec("DROP TABLE event_log"); // force the fail-open audit INSERT to throw
+    let audits = 0;
+    const r = new ToolRegistry({ onAuditFailure: () => audits++ });
+    r.register({
+      name: "ping",
+      description: "d",
+      inputSchema: z.object({}).strict(),
+      requiredScopes: [],
+      handler: () => ({ ok: true }),
+    });
+    const res = await r.dispatch("ping", {}, ctx(db));
+    expect(res.ok).toBe(true); // audit is fail-open — dispatch still succeeds
+    expect(audits).toBe(1); // ...but the lossy-trail signal reached the health sink
+  });
+});
