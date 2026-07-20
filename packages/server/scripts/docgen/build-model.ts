@@ -4,7 +4,8 @@
 //
 //   bun scripts/docgen/build-model.ts > docs-model.json
 import { extractConfig } from "./extract-config";
+import { extractTools } from "./extract-tools";
 import { emptyModel } from "./model";
 
-const model = { ...emptyModel(), config: extractConfig() };
+const model = { ...emptyModel(), config: extractConfig(), tools: extractTools() };
 process.stdout.write(`${JSON.stringify(model, null, 2)}\n`);
