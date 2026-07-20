@@ -1,55 +1,73 @@
-<!--
-  GitHub Wiki home page. Seed source for the automated wiki publisher (THE-475).
-  Prose here is hand-authored; the reference sections marked GENERATED are produced by docgen (THE-472).
--->
-
 # obsidian-tc
 
-**A headless, agent-first semantic-knowledge server for your Obsidian vault.** It indexes your notes into a hybrid retrieval stack — dense vectors, sparse/ColBERT, BM25, and the wikilink graph — and exposes them to AI agents over the Model Context Protocol (MCP). No Obsidian plugin, no running app: it works with the vault **closed**.
+**Obsidian Turbocharged** — governed, agent-ready vault access over [MCP](https://modelcontextprotocol.io) for [Obsidian](https://obsidian.md). Built for both humans and autonomous agents. Multi-vault native. Pluggable embeddings. Runs locally by default (Ollama embeddings, SQLite, no cloud account).
 
-<!-- Quick-start badges (replace the placeholders with your shields.io URLs) -->
-[![Build](https://img.shields.io/badge/build-passing-brightgreen)](#) &nbsp;
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](#) &nbsp;
-[![MCP](https://img.shields.io/badge/MCP-2025--11--25-8A2BE2)](#) &nbsp;
-[![Docs](https://img.shields.io/badge/docs-wiki-informational)](#)
+> **Status:** Shipped — **v1.7.0** (2026-07-12). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.7.0`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **141 tools across 31 domains**, advertised by default through a three-tool facade. Licensed **AGPL-3.0-only**.
 
-> [!NOTE]
-> New here? Jump to the **[Installation Guide](Installation-Guide)** to get a server running against your vault in a few minutes, then browse the **[Tool Reference](Tool-Reference)** to see what agents can do.
+## Three pillars
 
----
+1. **Broad.** 141 tools covering the meaningful Obsidian operations — native Bases (`.base`) with a real expression-DSL evaluator, Canvas, Excalidraw, deep plugin bridges, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
+2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS), per-vault folder ACLs, a read-only kill switch, human-in-the-loop (HITL) confirmation on destructive operations, compare-and-swap on writes, idempotency keys, and per-class rate limiting.
+3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, a CloudEvents spool, and structured event emission on every tool call.
 
-## Why obsidian-tc
+## The interface: 3 tools, 141 governed capabilities
 
-Most Obsidian MCP servers are thin bridges to the Local REST API or the filesystem. obsidian-tc is a different category: it **owns its own search index, embedding store, and graph layer**, so it is independent of Obsidian's runtime and gives agents production-grade semantic retrieval over your knowledge base.
+By default `tools/list` advertises just **three meta-tools**: `find_capability` (BM25 search over the capability catalog), `describe_capability` (one capability's schema, scopes, and safety hints), and `call_capability` (invoke by name — routed through the same auth/ACL/HITL/idempotency/throttle pipeline as a direct call). This keeps agent context lean while the full surface stays reachable; `toolFacade.mode` selects `triad` (default), `domain`, or `flat`. The facade is boundary-only — no gate is ever bypassed.
 
-## Features
+Beyond Tools, the server exposes the vault as MCP **Resources** (`obsidian-tc://<vault>/<path>` URIs, read-scope and folder-ACL enforced) and built-in **Prompts**.
 
-- [x] **Dense vector search** (sqlite-vec) with per-vault partitioning
-- [x] **Sparse + ColBERT** multi-vector retrieval (bge-m3)
-- [x] **BM25 / full-text search** (SQLite FTS5)
-- [x] **Wikilink graph** + kNN / tag-cooccurrence densification
-- [x] **Contextual chunk enrichment** (title + heading breadcrumb) before embedding
-- [x] **Rich write surface** — `write_note`, `patch_note` (heading- & block-anchored edits), `append_note`, `update_frontmatter`, and more
-- [x] **Multi-vault**, `vaultId`-scoped, with per-vault ACLs
-- [x] **Runtime secret-gating** — credential-shaped chunks never reach the embedding provider
-- [x] **Auth** — JWT (HS256 + JWKS), OAuth Protected-Resource Metadata
-- [x] **Observability** — OpenTelemetry traces + Prometheus metrics
-- [x] **Headless / Docker** deploy; stdio **and** Streamable HTTP transports
+## The memory engine (v1.6–v1.7)
 
-## Getting Started — roadmap
+The v1.6–v1.7 line turned the server into a **measured memory engine**:
 
-Follow these in order:
+- an **experiential work-memory tier** — a quarantined second store (never mixed with authored notes) with retrieval logging, auto-captured agent episodes behind a poison scanner, and reader tools under a strict eligibility contract;
+- **composite context surfaces** — `vault_context` (one-call budgeted context: graph-reranked chunks, synthesis patterns, contradictions, lesson surfacing, session bootstrap) and `reflect` (grounded synthesis, adversarial challenge, a versioned preference profile);
+- **dependency-aware deletion** — `forget` with tombstone-vs-erase modes and a hash-chained audit log;
+- **retrieval measured, not asserted** — an n=136 golden set with a statistical ship rule gates every ranking change; contextual chunk enrichment measured **+0.223 nDCG** and defaults on; mechanisms that lost their A/B ship dark behind flags with the numbers recorded.
 
-1. **[Installation Guide](Installation-Guide)** — install, configure an embedding provider, run your first index.
-2. **[Configuration Reference](Configuration-Reference)** — every config key, type, and default.
-3. **[Tool Reference](Tool-Reference)** — the MCP tools agents call (search, read, write, patch).
-4. **[Architecture](Architecture)** — how indexing, retrieval, and the graph fit together.
-5. **[Deployment & Operations](Deployment-and-Operations)** — Docker, health, metrics, backups.
-6. **[Contributing](Contributing)** — dev setup, gates, and how to open a PR.
+## Quick start
 
-> [!TIP]
-> Running agents against a large or private vault? Read **[Security & ACLs](Security-and-ACLs)** before you expose the HTTP transport beyond loopback.
+```bash
+npm install -g obsidian-tc      # Node >= 24 or Bun >= 1.1 (runtime auto-detected)
+obsidian-tc /path/to/your/vault # zero-config: boots a single vault "main" with defaults
+```
 
----
+Pull the default local embeddings model once (`ollama pull nomic-embed-text`) and everything runs on your machine. For multi-vault, auth, ACLs, or custom embeddings, pass a JSON config file instead — see **[[Installation]]** and **[[Configuration]]**.
 
-<sub>obsidian-tc is licensed under AGPL-3.0. See the [Contributing](Contributing) guide to get involved.</sub>
+## Wiki map
+
+| Page | What's in it |
+|---|---|
+| **[[Installation]]** | Install methods, runtimes, the companion plugin, native module |
+| **[[Configuration]]** | Config schema, vaults, auth, ACL, embeddings, retrieval + experiential knobs |
+| **[[Architecture]]** | Components, dispatch pipeline, IPC contracts, multi-vault registry, memory engine |
+| **[[Tool Reference]]** | The domain index for all 141 tools with one-line descriptions |
+| **[[Deployment Modes]]** | STDIO, HTTP local, HTTP remote, Docker, MCPB, standalone binary |
+| **[[Security and ACL]]** | Scopes, HITL thresholds, kill switch, CAS, idempotency, elicit tokens |
+| **[[Plugin Bridges]]** | Companion plugin, discovery probe, supported third-party plugins |
+| **[[Observability]]** | OTLP traces, Prometheus metrics, CloudEvents, JSONL traces |
+| **[[Contributing]]** | Dev setup, conventions, adding a tool, release process |
+| **[[FAQ]]** | Common questions and gotchas |
+
+## Architecture at a glance
+
+Polyglot monorepo:
+
+| Package | Language | Purpose |
+|---|---|---|
+| `packages/server` | TypeScript (Bun/Node) | MCP protocol layer, auth, routing, tool impls, plugin bridges |
+| `packages/plugin` | TypeScript | Companion Obsidian plugin extending Local REST API |
+| `packages/native` | Rust (napi-rs) | Optional acceleration: cosine similarity, tokenizer, BM25 — with a numerically identical pure-JS fallback |
+| `packages/shared` | TypeScript | Shared Zod schemas and types |
+
+## Links
+
+- **Repository:** https://github.com/The-40-Thieves/obsidian-tc
+- **npm:** `obsidian-tc`
+- **Container:** `ghcr.io/the-40-thieves/obsidian-tc`
+- **Docs site source:** `docs/` (Astro Starlight) — deep reference lives there and in `ARCHITECTURE.md`
+- **MCP spec target:** [2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25)
+
+## Trademark
+
+obsidian-tc is not affiliated with or endorsed by Obsidian.md. "Obsidian" is a trademark of Dynalist Inc. This is an independent open-source MCP server that integrates with Obsidian.

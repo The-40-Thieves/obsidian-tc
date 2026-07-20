@@ -93,7 +93,7 @@ async function main(): Promise<void> {
     range,
     "--",
     "docs/wiki/Tool-Reference.md",
-    "docs/wiki/Configuration-Reference.md",
+    "docs/wiki/Configuration.md",
     "docs/src/content/docs/tools/tool-catalog.md",
     "docs/src/content/docs/configuration/config-reference.md",
   ]);

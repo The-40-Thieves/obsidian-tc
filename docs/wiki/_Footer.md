@@ -1,6 +1,1 @@
-<!-- Wiki footer, shown on every page. -->
----
-<sub>
-**obsidian-tc** · [Home](Home) · [Tool Reference](Tool-Reference) · [Contributing](Contributing) · [Issues](https://github.com/The-40-Thieves/obsidian-tc/issues) ·
-Licensed under AGPL-3.0 · Docs generated in part from source — see [Contributing](Contributing#documentation).
-</sub>
+**obsidian-tc** — Obsidian Turbocharged · 141 tools across 31 domains · AGPL-3.0-only · [Repo](https://github.com/The-40-Thieves/obsidian-tc) · [Releases](https://github.com/The-40-Thieves/obsidian-tc/releases) · [Issues](https://github.com/The-40-Thieves/obsidian-tc/issues). Not affiliated with Obsidian.md.
