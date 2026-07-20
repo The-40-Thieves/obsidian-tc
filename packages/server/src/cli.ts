@@ -782,6 +782,12 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
       process.stderr.write(`[internal] ${tool} (vault ${vaultId}): ${detail}\n`);
     },
+    // THE-457: a fail-open audit write that threw is already metered; also bump the health counter
+    // so server_health shows the audit trail going lossy. Runs only at dispatch (after indexHealth
+    // is initialized).
+    onAuditFailure: () => {
+      indexHealth.auditWriteFailures++;
+    },
     // THE-228: every dispatch outcome feeds the experiential episode bus (when enabled).
     ...(episodeCapture ? { onEpisode: episodeCapture } : {}),
   });
@@ -813,6 +819,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     notesReady: boolean;
     /** THE-457: chunks dropped from the bounded contradiction queue under backpressure. */
     contradictionsDropped: number;
+    /** THE-457: fail-open audit writes that threw (locked DB / disk full) — the audit trail is lossy. */
+    auditWriteFailures: number;
   } = {
     reconcile: "pending",
     reconcileAt: null,
@@ -820,6 +828,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     writeFailures: 0,
     notesReady: false,
     contradictionsDropped: 0,
+    auditWriteFailures: 0,
   };
   // server_health surfaces the build's active fast-paths (native module + sqlite-vec). Both are
   // non-identifying, so the tool keeps them in its unauthenticated payload; registered here (not
@@ -842,6 +851,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
               detail: {
                 reconcile_errors: indexHealth.reconcileErrors,
                 contradictions_dropped: indexHealth.contradictionsDropped,
+                audit_write_failures: indexHealth.auditWriteFailures,
                 ...(indexHealth.lastWriteError !== undefined
                   ? { last_write_error: indexHealth.lastWriteError }
                   : {}),
