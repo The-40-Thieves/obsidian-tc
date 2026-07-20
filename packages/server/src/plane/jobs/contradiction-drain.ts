@@ -7,8 +7,8 @@
 // while a batch was still writing — the race this closes.
 
 import type { Database } from "../../db/types";
-import { checkContradictions, groupContradictionQueue, type IndexedChunk } from "./contradiction";
 import type { GatewayRoles } from "../gateway";
+import { checkContradictions, groupContradictionQueue, type IndexedChunk } from "./contradiction";
 
 export interface ContradictionDrainDeps {
   db: Database;

@@ -938,39 +938,42 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // THE-455: route every index-on-write mutation through a per-(vault,path) coordinator so same-path
   // writes/deletes serialize (newest wins — no stale/out-of-order commit, no delete resurrection)
   // while different paths stay concurrent. Handlers are the same indexNote/deindexNote as before.
-  const indexCoordinator = new IndexCoordinator({
-    write: (vaultId, path, content) =>
-      indexNote(
-        db,
-        embeddingProvider,
-        vaultId,
-        path,
-        content,
-        hasVec,
-        Date.now,
-        makeOnIndexed(vaultId),
-        config.embeddings.chunkContext,
-      ),
-    delete: (vaultId, path) =>
-      deindexNote(db, vaultId, path, hasVec, config.embeddings.chunkContext),
-    onError: (e) => {
-      indexHealth.writeFailures++;
-      indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+  const indexCoordinator = new IndexCoordinator(
+    {
+      write: (vaultId, path, content) =>
+        indexNote(
+          db,
+          embeddingProvider,
+          vaultId,
+          path,
+          content,
+          hasVec,
+          Date.now,
+          makeOnIndexed(vaultId),
+          config.embeddings.chunkContext,
+        ),
+      delete: (vaultId, path) =>
+        deindexNote(db, vaultId, path, hasVec, config.embeddings.chunkContext),
+      onError: (e) => {
+        indexHealth.writeFailures++;
+        indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+      },
     },
-  }, {
-    // THE-458 (audit #5): bound concurrent index/embed fan-out so a bulk mutation cannot spawn an
-    // unbounded number of simultaneous embedding calls; surface sustained queue depth in health.
-    globalConcurrency: config.indexing.writeConcurrency,
-    perVaultConcurrency: config.indexing.writeConcurrencyPerVault,
-    queueMax: config.indexing.queueMax,
-    onBackpressure: (depth) => {
-      indexHealth.indexQueueBackpressures++;
-      process.stderr.write(
-        `[index] write-queue backpressure: ${depth} distinct paths pending (> queueMax ` +
-          `${config.indexing.queueMax}); index/embed fan-out is capped, writes are queued not dropped\n`,
-      );
+    {
+      // THE-458 (audit #5): bound concurrent index/embed fan-out so a bulk mutation cannot spawn an
+      // unbounded number of simultaneous embedding calls; surface sustained queue depth in health.
+      globalConcurrency: config.indexing.writeConcurrency,
+      perVaultConcurrency: config.indexing.writeConcurrencyPerVault,
+      queueMax: config.indexing.queueMax,
+      onBackpressure: (depth) => {
+        indexHealth.indexQueueBackpressures++;
+        process.stderr.write(
+          `[index] write-queue backpressure: ${depth} distinct paths pending (> queueMax ` +
+            `${config.indexing.queueMax}); index/embed fan-out is capped, writes are queued not dropped\n`,
+        );
+      },
     },
-  });
+  );
   // indexReadableFor: per-vault ACL read-visibility filter shared by the boot reconcile, runtime
   // add_vault, AND the index-on-write hook below (THE-453). makeIndexReadable resolves each vault's
   // effective ACL (override ?? root), mirroring the dispatch aclResolver, so indexing never

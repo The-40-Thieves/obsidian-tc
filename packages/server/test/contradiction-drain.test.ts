@@ -1,11 +1,12 @@
 // THE-458 (audit #6): the contradiction drain's single-flight promise semantics. The in-flight batch
 // is a promise, so a concurrent caller (shutdown) joins it instead of racing db.close() against a live
 // write. The old boolean guard let a concurrent drain call return immediately mid-batch.
-import type { Database } from "../src/db/types";
+
 import { describe, expect, it } from "vitest";
+import type { Database } from "../src/db/types";
+import type { GatewayRoles } from "../src/plane/gateway";
 import type { IndexedChunk } from "../src/plane/jobs/contradiction";
 import { makeContradictionDrainer } from "../src/plane/jobs/contradiction-drain";
-import type { GatewayRoles } from "../src/plane/gateway";
 
 const stubDb = {} as unknown as Database;
 const stubRoles = {} as unknown as GatewayRoles;
@@ -32,7 +33,6 @@ describe("makeContradictionDrainer (audit #6)", () => {
       roles: stubRoles,
       queue,
       batchSize: 100,
-      // biome-ignore lint/suspicious/noExplicitAny: the check seam returns ContradictionStats; the test ignores the value.
       check: (async () => {
         calls += 1;
         await gate.promise; // hold the batch in-flight
@@ -58,7 +58,6 @@ describe("makeContradictionDrainer (audit #6)", () => {
       roles: stubRoles,
       queue: [chunk("a")],
       batchSize: 100,
-      // biome-ignore lint/suspicious/noExplicitAny: test check seam.
       check: (async () => {
         await gate.promise;
         finished = true;
@@ -89,7 +88,6 @@ describe("makeContradictionDrainer (audit #6)", () => {
       roles: stubRoles,
       queue,
       batchSize: 100,
-      // biome-ignore lint/suspicious/noExplicitAny: test check seam.
       check: (async (_ctx: unknown, _v: string, chunks: IndexedChunk[]) => {
         batches.push(chunks.length);
         return { checked: 0, flagged: 0, skipped: 0 };
@@ -109,7 +107,6 @@ describe("makeContradictionDrainer (audit #6)", () => {
       roles: null,
       queue: [chunk("a")],
       batchSize: 100,
-      // biome-ignore lint/suspicious/noExplicitAny: test check seam.
       check: (async () => {
         calls += 1;
         return { checked: 0, flagged: 0, skipped: 0 };
@@ -129,7 +126,6 @@ describe("makeContradictionDrainer (audit #6)", () => {
       queue: [chunk("a")],
       batchSize: 100,
       onError: (e) => errors.push(e instanceof Error ? e.message : String(e)),
-      // biome-ignore lint/suspicious/noExplicitAny: test check seam.
       check: (async () => {
         throw new Error("judge down");
       }) as any,

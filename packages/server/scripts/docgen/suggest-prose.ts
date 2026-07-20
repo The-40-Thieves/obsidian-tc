@@ -139,10 +139,15 @@ async function main(): Promise<void> {
     // Symlink guard: a link inside the repo could still point OUT of it — verify the real path stays
     // contained before reading and shipping the content to the LLM endpoint.
     if (!realpathSync(abs).startsWith(REPO_ROOT)) {
-      process.stderr.write(`[docgen] refusing --docs "${entry.trim()}": symlink escapes the repo\n`);
+      process.stderr.write(
+        `[docgen] refusing --docs "${entry.trim()}": symlink escapes the repo\n`,
+      );
       continue;
     }
-    docs.push({ name: relative(REPO_ROOT, abs), content: readFileSync(abs, "utf8").slice(0, 8000) });
+    docs.push({
+      name: relative(REPO_ROOT, abs),
+      content: readFileSync(abs, "utf8").slice(0, 8000),
+    });
   }
   const suggestion = await callLlm(buildProsePrompt(referenceDiff, docs));
   process.stdout.write(

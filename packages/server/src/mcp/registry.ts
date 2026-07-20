@@ -252,9 +252,7 @@ export interface RegistryOptions {
  *  validation; OBSIDIAN_TC_STRICT_OUTPUT_SCHEMA=1 opts in elsewhere (a CI job, a local run). Production
  *  sets neither and stays warn-only for backward compatibility; an explicit strictOutputSchema wins. */
 function strictOutputSchemaDefault(): boolean {
-  return (
-    process.env.NODE_ENV === "test" || process.env.OBSIDIAN_TC_STRICT_OUTPUT_SCHEMA === "1"
-  );
+  return process.env.NODE_ENV === "test" || process.env.OBSIDIAN_TC_STRICT_OUTPUT_SCHEMA === "1";
 }
 
 export class ToolRegistry {

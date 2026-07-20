@@ -26,11 +26,13 @@ describe("buildProsePrompt (THE-477)", () => {
 });
 
 describe("resolveDocPath (THE-477 hardening / audit #9)", () => {
-  const root = resolve("/repo") + "/";
+  const root = `${resolve("/repo")}/`;
 
   it("accepts a repo-relative markdown file", () => {
     expect(resolveDocPath(root, "README.md")).toBe(resolve("/repo/README.md"));
-    expect(resolveDocPath(root, "docs/ARCHITECTURE.md")).toBe(resolve("/repo/docs/ARCHITECTURE.md"));
+    expect(resolveDocPath(root, "docs/ARCHITECTURE.md")).toBe(
+      resolve("/repo/docs/ARCHITECTURE.md"),
+    );
     expect(resolveDocPath(root, " README.md ")).toBe(resolve("/repo/README.md")); // trims
   });
 

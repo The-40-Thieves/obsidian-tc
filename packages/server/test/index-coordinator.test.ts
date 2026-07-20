@@ -211,7 +211,12 @@ describe("IndexCoordinator (THE-455)", () => {
         write: () => gate.promise, // hold every drain in-flight so the queue fills
         delete: () => {},
       },
-      { globalConcurrency: 1, perVaultConcurrency: 1, queueMax: 2, onBackpressure: (d) => depths.push(d) },
+      {
+        globalConcurrency: 1,
+        perVaultConcurrency: 1,
+        queueMax: 2,
+        onBackpressure: (d) => depths.push(d),
+      },
     );
     c.submitWrite("v", "a.md", "x");
     c.submitWrite("v", "b.md", "x"); // depth 2, not over
