@@ -12,6 +12,8 @@
 | **Version** | `1.10.0` |
 | **Tools** | 143 governed capabilities (advertised via the 3-tool facade) |
 | **Config keys** | 147 |
+| **Golden set** | 250 queries, statistical ship rule on every ranking change |
+| **Retrieval** | contextual chunk enrichment +0.223 nDCG, defaults on |
 | **MCP spec** | [2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) |
 | **License** | AGPL-3.0-only |
 <!-- END GENERATED: stats -->
@@ -30,14 +32,14 @@ By default `tools/list` advertises just **three meta-tools**: `find_capability` 
 
 Beyond Tools, the server exposes the vault as MCP **Resources** (`obsidian-tc://<vault>/<path>` URIs, read-scope and folder-ACL enforced) and built-in **Prompts**.
 
-## The memory engine (v1.6–v1.7)
+## The memory engine
 
-The v1.6–v1.7 line turned the server into a **measured memory engine**:
+obsidian-tc is a **measured memory engine**:
 
 - an **experiential work-memory tier** — a quarantined second store (never mixed with authored notes) with retrieval logging, auto-captured agent episodes behind a poison scanner, and reader tools under a strict eligibility contract;
 - **composite context surfaces** — `vault_context` (one-call budgeted context: graph-reranked chunks, synthesis patterns, contradictions, lesson surfacing, session bootstrap) and `reflect` (grounded synthesis, adversarial challenge, a versioned preference profile);
 - **dependency-aware deletion** — `forget` with tombstone-vs-erase modes and a hash-chained audit log;
-- **retrieval measured, not asserted** — an n=136 golden set with a statistical ship rule gates every ranking change; contextual chunk enrichment measured **+0.223 nDCG** and defaults on; mechanisms that lost their A/B ship dark behind flags with the numbers recorded.
+- **retrieval measured, not asserted** — a statistically-gated golden set governs every ranking change and contextual chunk enrichment defaults on (current sizes and gains are in **At a glance** above); mechanisms that lost their A/B ship dark behind flags with the numbers recorded.
 
 ## Quick start
 

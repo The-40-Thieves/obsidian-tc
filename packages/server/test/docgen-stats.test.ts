@@ -12,10 +12,24 @@ describe("extractStats + renderStats (homepage)", () => {
     expect(s.configKeys).toBeGreaterThan(100);
   });
 
+  it("carries the curated facts from docs/project-facts.json", () => {
+    const s = extractStats();
+    expect(s.goldenSetSize).toBeGreaterThan(0);
+    expect(s.enrichmentGain).toMatch(/nDCG/);
+  });
+
   it("renders the facts into a table", () => {
-    const md = renderStats({ version: "1.10.0", tools: 143, configKeys: 147 });
+    const md = renderStats({
+      version: "1.10.0",
+      tools: 143,
+      configKeys: 147,
+      goldenSetSize: 250,
+      enrichmentGain: "+0.223 nDCG",
+    });
     expect(md).toContain("| **Version** | `1.10.0` |");
     expect(md).toContain("143 governed capabilities");
     expect(md).toContain("| **Config keys** | 147 |");
+    expect(md).toContain("250 queries");
+    expect(md).toContain("+0.223 nDCG, defaults on");
   });
 });
