@@ -118,11 +118,22 @@ describe("THE-457 strict output-schema enforcement", () => {
   });
   const schema = z.object({ ok: z.boolean() }).strict();
 
-  it("warn mode (default): a payload violating outputSchema still returns ok", async () => {
-    const r = new ToolRegistry();
+  it("warn mode (strictOutputSchema:false): a payload violating outputSchema still returns ok", async () => {
+    // Production default: warn-only, so a schema drift never turns a working call into a client error.
+    const r = new ToolRegistry({ strictOutputSchema: false });
     r.register(tool("bad", { outputSchema: schema }, () => ({ ok: "not-a-boolean" })));
     const res = await r.dispatch("bad", { x: "hi" }, ctx());
     expect(res.ok).toBe(true); // warn-only: the malformed payload is still returned
+  });
+
+  it("audit #4: strict is the DEFAULT under NODE_ENV=test (vitest), so drift fails the suite", async () => {
+    // With no explicit flag, the test/CI env default (strictOutputSchemaDefault) turns violations into
+    // hard errors — this is what runs every real handler under strict validation across the suite.
+    expect(process.env.NODE_ENV).toBe("test");
+    const r = new ToolRegistry();
+    r.register(tool("bad", { outputSchema: schema }, () => ({ ok: "not-a-boolean" })));
+    const res = await r.dispatch("bad", { x: "hi" }, ctx());
+    expect(res.ok).toBe(false);
   });
 
   it("strict mode: the same violation is a hard typed error, not a returned payload", async () => {
