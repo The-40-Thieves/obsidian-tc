@@ -173,6 +173,38 @@ export const RetrievalConfigSchema = z.object({
     .prefault({}),
 });
 
+/** Metadata-prior (authority-boost) rule: add `boost` to the fused score of a result whose note
+ *  frontmatter[field] === value. Ported from the retired KMS/vault-sync hardcoded prior
+ *  (knowledge-mcp-server/migrations/009_vault_search_priority.sql, itself from
+ *  vault-sync/sql/004_vault_search_priority.sql): additive boosts on top of the RRF hybrid score.
+ *  `boost` may be negative (an archive-style penalty). */
+export const MetadataPriorRuleSchema = z.object({
+  field: z.string().min(1),
+  value: z.string(),
+  boost: z.number(),
+});
+
+/** Config-driven ranking overlays applied POST-FUSION in graph_search (tie-breaks, never overrides).
+ *  All OFF by default and measured on the golden set before any flip. */
+export const RankingConfigSchema = z.object({
+  /** Frontmatter metadata prior (authority boost). When enabled, each result's fused score gains
+   *  Σ(boost) over the rules whose note frontmatter[field]===value, then the list is re-sorted —
+   *  composing ADDITIVELY with the expansion-stream decay. The total |Σboost| any single result can
+   *  receive is clamped to `clampFraction` of the per-query fused-score spread, so the prior stays
+   *  SUB-DOMINANT to the RRF signal (a tie-break, never an override — a low-RRF note cannot leapfrog
+   *  a confident hit). OFF by default. */
+  metadataPrior: z
+    .object({
+      enabled: z.boolean().default(false),
+      rules: z.array(MetadataPriorRuleSchema).default([]),
+      /** Cap |Σboost| per result at this fraction of the observed fused-score spread (max−min over
+       *  the per-query candidate pool). <1 guarantees sub-dominance: even a fully-boosted bottom
+       *  result cannot overtake the top base-scored result. */
+      clampFraction: z.number().min(0).max(1).default(0.5),
+    })
+    .prefault({}),
+});
+
 /** THE-230: experiential-tier (membrane store, experiential.db) knobs. */
 export const ExperientialConfigSchema = z.object({
   /** Append serve-path retrieval events (chunk id + rank + score + query text + surface) to
@@ -487,6 +519,7 @@ const ServerConfigObject = z.object({
   acl: AclConfigSchema.prefault({}),
   embeddings: EmbeddingsConfigSchema.prefault({}),
   retrieval: RetrievalConfigSchema.prefault({}),
+  ranking: RankingConfigSchema.prefault({}),
   experiential: ExperientialConfigSchema.prefault({}),
   transports: TransportsConfigSchema.prefault({}),
   governor: GovernorConfigSchema.prefault({}),

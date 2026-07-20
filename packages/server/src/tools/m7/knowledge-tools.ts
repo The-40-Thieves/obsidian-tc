@@ -52,6 +52,15 @@ export interface M7Deps {
     colbert?: boolean;
     densify?: { includeInWalk?: boolean; derivedWeight?: number };
   };
+  /** Config-driven POST-FUSION ranking overlays (config.ranking); absent -> graphSearch defaults
+   *  (metadata prior OFF). */
+  ranking?: {
+    metadataPrior?: {
+      enabled?: boolean;
+      rules?: Array<{ field: string; value: string; boost: number }>;
+      clampFraction?: number;
+    };
+  };
   /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging. */
   retrievalLog?: RetrievalLogger;
   /** THE-187/193: cached_activation_score lookup for the graph bubble pass; absent -> inert
@@ -253,6 +262,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             finalTopK: input.k,
             ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
             ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
+            ...(deps.ranking?.metadataPrior?.enabled
+              ? { metadataPrior: deps.ranking.metadataPrior }
+              : {}),
             ...(querySparse ? { querySparse } : {}),
             ...(queryColbert ? { queryColbert } : {}),
             reranker: deps.reranker,
@@ -521,6 +533,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             finalTopK: input.k,
             ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
             ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
+            ...(deps.ranking?.metadataPrior?.enabled
+              ? { metadataPrior: deps.ranking.metadataPrior }
+              : {}),
             ...(querySparse ? { querySparse } : {}),
             ...(queryColbert ? { queryColbert } : {}),
             reranker: deps.reranker,
