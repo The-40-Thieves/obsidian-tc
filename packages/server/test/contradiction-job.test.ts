@@ -4,7 +4,12 @@ import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import type { GatewayRoles } from "../src/plane/gateway";
-import { checkContradictions, parseVerdict } from "../src/plane/jobs/contradiction";
+import {
+  checkContradictions,
+  groupContradictionQueue,
+  type IndexedChunk,
+  parseVerdict,
+} from "../src/plane/jobs/contradiction";
 import { floatBlob } from "../src/search/vec";
 import { openMemoryDb } from "./helpers";
 
@@ -71,5 +76,42 @@ describe("contradiction detector (judge seam + sqlite-vec neighbors)", () => {
     ]);
     expect(stats.flagged).toBe(0);
     expect(parseVerdict("not json").kind).toBe("no_conflict");
+  });
+});
+
+describe("groupContradictionQueue (THE-457 continuous drain)", () => {
+  const chunk = (id: string): IndexedChunk => ({
+    id,
+    path: `${id}.md`,
+    content: id,
+    embedding: [],
+  });
+
+  it("groups drained items by vault", () => {
+    const g = groupContradictionQueue([
+      { vaultId: "a", chunk: chunk("1") },
+      { vaultId: "b", chunk: chunk("2") },
+      { vaultId: "a", chunk: chunk("3") },
+    ]);
+    expect(g.get("a")?.map((c) => c.id)).toEqual(["1", "3"]);
+    expect(g.get("b")?.map((c) => c.id)).toEqual(["2"]);
+  });
+
+  it("dedups a chunk re-enqueued by rapid re-indexes (judged once per drain)", () => {
+    const g = groupContradictionQueue([
+      { vaultId: "a", chunk: chunk("1") },
+      { vaultId: "a", chunk: chunk("1") },
+      { vaultId: "a", chunk: chunk("1") },
+    ]);
+    expect(g.get("a")).toHaveLength(1);
+  });
+
+  it("keeps the same chunk id independent across vaults", () => {
+    const g = groupContradictionQueue([
+      { vaultId: "a", chunk: chunk("1") },
+      { vaultId: "b", chunk: chunk("1") },
+    ]);
+    expect(g.get("a")).toHaveLength(1);
+    expect(g.get("b")).toHaveLength(1);
   });
 });

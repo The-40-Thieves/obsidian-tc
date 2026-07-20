@@ -48,7 +48,7 @@ import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
 import { auditJob } from "./plane/jobs/audit";
-import { checkContradictions } from "./plane/jobs/contradiction";
+import { checkContradictions, groupContradictionQueue } from "./plane/jobs/contradiction";
 import { synthesisJob } from "./plane/jobs/synthesis";
 import { SleepTimePlane, startPlaneScheduler } from "./plane/plane";
 import { createPlurBackend } from "./plur/client";
@@ -811,12 +811,15 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     lastWriteError?: string;
     /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
     notesReady: boolean;
+    /** THE-457: chunks dropped from the bounded contradiction queue under backpressure. */
+    contradictionsDropped: number;
   } = {
     reconcile: "pending",
     reconcileAt: null,
     reconcileErrors: [],
     writeFailures: 0,
     notesReady: false,
+    contradictionsDropped: 0,
   };
   // server_health surfaces the build's active fast-paths (native module + sqlite-vec). Both are
   // non-identifying, so the tool keeps them in its unauthenticated payload; registered here (not
@@ -838,6 +841,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           ? {
               detail: {
                 reconcile_errors: indexHealth.reconcileErrors,
+                contradictions_dropped: indexHealth.contradictionsDropped,
                 ...(indexHealth.lastWriteError !== undefined
                   ? { last_write_error: indexHealth.lastWriteError }
                   : {}),
@@ -876,12 +880,45 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // W-INGEST onIndexed hook -> contradiction-check enqueue. The detector needs the gateway, so we
   // only enqueue when roles are present; the queue is drained best-effort after the boot reconcile.
   const contradictionQueue: Array<{ vaultId: string; chunk: IndexedChunk }> = [];
+  // THE-457: bound the queue (an unbounded runtime write stream must not grow it without limit) and
+  // count drops for the health signal.
+  const CONTRADICTION_QUEUE_MAX = 5000;
+  const CONTRADICTION_DRAIN_BATCH = 100;
+  const CONTRADICTION_DRAIN_MS = 15_000;
+  // THE-457: cap on how long graceful shutdown waits for in-flight index + contradiction work.
+  const SHUTDOWN_DRAIN_MS = 5000;
   const makeOnIndexed = (vaultId: string): IndexHook | undefined =>
     roles
       ? (chunks) => {
-          for (const c of chunks) contradictionQueue.push({ vaultId, chunk: c });
+          for (const c of chunks) {
+            if (contradictionQueue.length >= CONTRADICTION_QUEUE_MAX) {
+              indexHealth.contradictionsDropped++;
+              continue;
+            }
+            contradictionQueue.push({ vaultId, chunk: c });
+          }
         }
       : undefined;
+  // THE-457: continuous, single-flight, bounded contradiction drain. The boot sweep drained the
+  // queue ONCE; post-boot, runtime index-on-write kept enqueuing with no drain, so the queue grew
+  // unbounded and runtime writes received no contradiction analysis. Drain one bounded batch at a
+  // time, deduped by (vault, chunk) via groupContradictionQueue.
+  let contradictionDraining = false;
+  const drainContradictions = async (): Promise<void> => {
+    if (!roles || contradictionDraining || contradictionQueue.length === 0) return;
+    contradictionDraining = true;
+    try {
+      const batch = contradictionQueue.splice(0, CONTRADICTION_DRAIN_BATCH);
+      for (const [vaultId, chunks] of groupContradictionQueue(batch)) {
+        await checkContradictions({ db, roles, now: Date.now }, vaultId, chunks).catch((e) => {
+          indexHealth.writeFailures++;
+          indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+        });
+      }
+    } finally {
+      contradictionDraining = false;
+    }
+  };
 
   // THE-291 (part 2): shared index-on-write hooks for the non-M1 writers (m3 periodic, m4
   // tasks, m5 capture, m6 bulk). M1 keeps its identical inline closures from THE-255.
@@ -1234,13 +1271,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // without the gateway (roles null -> queue stays empty). A continuous draining schedule
     // (plane timer / session-close trigger) is a follow-up.
     if (!roles) return;
-    const byVault = new Map<string, IndexedChunk[]>();
-    for (const { vaultId, chunk } of contradictionQueue.splice(0)) {
-      const arr = byVault.get(vaultId) ?? [];
-      arr.push(chunk);
-      byVault.set(vaultId, arr);
-    }
-    for (const [vaultId, chunks] of byVault) {
+    for (const [vaultId, chunks] of groupContradictionQueue(contradictionQueue.splice(0))) {
       void checkContradictions({ db, roles, now: Date.now }, vaultId, chunks).catch(() => {});
     }
   });
@@ -1313,15 +1344,42 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       })
     : null;
 
+  // THE-457: continuous contradiction drain worker (single-flight via drainContradictions' own
+  // guard). Unref'd so it never keeps the process alive; only runs when the gateway is configured.
+  const stopContradictionDrain = roles
+    ? (() => {
+        const t = setInterval(() => void drainContradictions(), CONTRADICTION_DRAIN_MS);
+        t.unref();
+        return () => clearInterval(t);
+      })()
+    : undefined;
+
   const shutdown = async (): Promise<void> => {
     stopActivationRecompute?.();
     stopPlane?.();
     stopMaintenance?.();
+    stopContradictionDrain?.();
     morgiana.emit(firstVault.id, "tc.server.shutdown");
+    // THE-457: drain in-flight work under a bounded deadline before exit, so a write mid-index isn't
+    // lost and SQLite closes cleanly. Never hang — race the drain against a timeout.
+    await Promise.race([
+      (async () => {
+        await indexCoordinator.idle().catch(() => {});
+        await drainContradictions().catch(() => {});
+      })(),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, SHUTDOWN_DRAIN_MS).unref();
+      }),
+    ]);
     try {
       await otel.shutdown();
     } catch {
       /* shutdown is best-effort */
+    }
+    try {
+      db.close?.();
+    } catch {
+      /* best-effort: closing the cache DB on the way out */
     }
     process.exit(0);
   };
