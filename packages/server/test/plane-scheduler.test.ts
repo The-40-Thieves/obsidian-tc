@@ -67,6 +67,50 @@ describe("plane scheduler (THE-296)", () => {
     }
   });
 
+  it("skips overlapping ticks while a slow run is still in flight (single-flight, THE-457)", async () => {
+    vi.useFakeTimers();
+    try {
+      let active = 0;
+      let maxConcurrent = 0;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      let firstRun = true;
+      const plane = new SleepTimePlane().register({
+        name: "slow",
+        run: async () => {
+          active++;
+          maxConcurrent = Math.max(maxConcurrent, active);
+          if (firstRun) {
+            firstRun = false;
+            await gate; // hold the first run open across several ticks
+          }
+          active--;
+          return { ok: true };
+        },
+      });
+      const skips: number[] = [];
+      const stop = startPlaneScheduler(plane, {
+        db: stubDb,
+        roles: null,
+        intervalMs: 1000,
+        now: () => 5_000_000,
+        onSkip: (n) => skips.push(n),
+      });
+      // Tick 1 starts the slow run; ticks 2 and 3 fire while it is still in flight.
+      await vi.advanceTimersByTimeAsync(3500);
+      expect(skips.length).toBeGreaterThanOrEqual(2); // overlapping ticks were skipped, not run
+      expect(skips.at(-1)).toBe(skips.length); // monotonic skip counter
+      release(); // let the first run complete
+      await vi.advanceTimersByTimeAsync(1);
+      expect(maxConcurrent).toBe(1); // runAll never overlapped itself
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("plane config defaults are fully-defaulted (pre-THE-296 configs validate unchanged)", () => {
     const c = ServerConfigSchema.parse({ vaults: [{ id: "v", path: "/v" }] });
     expect(c.plane).toEqual({ enabled: true, intervalMinutes: 240 });
