@@ -3,8 +3,10 @@
 // registered tool appears, so the write surface can never silently drop out of the docs.
 import type { ToolDoc } from "./model";
 
+// Escape backslashes THEN pipes (order matters — a bare `\|` must not become an unescaped pipe that
+// breaks the markdown table).
 function cell(v: string): string {
-  return v.replace(/\r?\n/g, " ").replace(/\|/g, "\\|").trim();
+  return v.replace(/\r?\n/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").trim();
 }
 
 /** Coarse access label from scopes + the destructive flag, for an at-a-glance column. */

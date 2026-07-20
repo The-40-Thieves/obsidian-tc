@@ -9,9 +9,10 @@ function sectionOf(path: string): string {
   return m ? m[0] : path;
 }
 
-/** Markdown-table-safe cell: collapse newlines, escape pipes. */
+/** Markdown-table-safe cell: collapse newlines, escape backslashes THEN pipes (order matters — a bare
+ *  `\|` in the input must not become an unescaped pipe that breaks the table). */
 function cell(v: string): string {
-  return v.replace(/\r?\n/g, " ").replace(/\|/g, "\\|").trim();
+  return v.replace(/\r?\n/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").trim();
 }
 
 function fmtDefault(d: ConfigDoc): string {

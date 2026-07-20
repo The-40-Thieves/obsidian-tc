@@ -83,4 +83,19 @@ describe("renderTools (THE-472)", () => {
     expect(out).toContain("a \\| b c");
     expect(out).toContain("| `x` | read | — |");
   });
+
+  it("escapes backslashes before pipes so a bare \\| cannot break the table (CodeQL)", () => {
+    const out = renderTools([
+      {
+        name: "y",
+        description: "a\\|b",
+        requiredScopes: [],
+        tags: [],
+        destructive: false,
+        inputSchema: {},
+      },
+    ]);
+    // backslash -> \\  then pipe -> \|  ==> a\\\|b  (renders as literal  a\|b )
+    expect(out).toContain("a\\\\\\|b");
+  });
 });
