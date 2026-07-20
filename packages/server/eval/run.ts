@@ -22,6 +22,7 @@ import type { Reranker } from "../src/search/rerank";
 import { lexicalRouteResults, routeQuery } from "../src/search/router";
 import { semanticSearch } from "../src/search/semantic";
 import type { SparseVec } from "../src/search/sparse";
+import { analyzeQuery, type QueryFailureAnalysis, recommendV11 } from "./failure_analysis";
 import {
   type AggregateMetrics,
   aggregateMetrics,
@@ -32,9 +33,12 @@ import {
   type QueryMetrics,
   type RankedChunk,
 } from "./metrics";
+import { loadUndirectedGraph, reachableTargetSet } from "./reachability";
 import { describeNonInferiority, describePaired, describePower } from "./stats";
 
 const TOP_K = 30;
+// THE-446: hop bound for the --diagnose reachability probe (multi-hop bridges sit ~2-3 hops out).
+const DIAGNOSE_MAX_HOPS = 4;
 
 // Golden-set paths are Windows-style (KMS-era); normalize both sides to forward slashes so the
 // comparison is separator-agnostic against whatever the local index stored.
@@ -61,6 +65,11 @@ export interface EvalQueryResult {
   /** THE-400: top-1 z-margin over the dense top-30 pool — the model-agnostic confidence signal;
    *  logged per query so thresholds are picked from a calibration table, never guessed. */
   z1: number;
+  /** THE-446: the raw retrieved chunks (WITH graph `source`/hop metadata) for the failure
+   *  classifier, retained only when RunEvalOptions.retainRaw is set (kept out of the default result
+   *  + --json to avoid bloat). baselineRaw = dense; treatmentRaw = graph pipeline. */
+  baselineRaw?: RankedChunk[];
+  treatmentRaw?: RankedChunk[];
 }
 
 export interface EvalReport {
@@ -87,6 +96,9 @@ export interface RunEvalOptions {
   vaultId: string;
   reranker?: Reranker | null;
   isReadable?: (rel: string) => boolean;
+  /** THE-446: retain per-query raw retrieved chunks (baselineRaw/treatmentRaw) for --diagnose.
+   *  Off by default so runEval's result + --json stay lean; no effect on metrics/ranking. */
+  retainRaw?: boolean;
   /** Seed count (graphSearch default 30); eval sweeps may lower it. */
   seedCount?: number;
   /** Seed-strength router config passthrough (eval sweeps tune/disable it). */
@@ -258,7 +270,11 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ...(opts.metadataPrior ? { metadataPrior: opts.metadataPrior } : {}),
         ...(process.env.DENSIFY === "1" ? { densify: { includeInWalk: true } } : {}),
       });
-      return normHits(res.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
+      // THE-446: preserve `source`/hop (additive, ignored by metrics) so the failure classifier can
+      // tell expansion chunks from seeds when --diagnose retains these.
+      return normHits(
+        res.map((r) => ({ chunk_id: r.chunk_id, path: r.path, source: r.source, hop: r.hop })),
+      );
     };
     // THE-258: the class router, same rules as serve. Lexical short-circuits to enriched
     // BM25 (no embed on serve; the eval already has the vec but ranks identically);
@@ -301,6 +317,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       graph: computeQueryMetrics(q, graphHits),
       hard,
       z1,
+      ...(opts.retainRaw ? { baselineRaw: baseHits, treatmentRaw: graphHits } : {}),
     });
   }
 
@@ -358,6 +375,9 @@ async function main(): Promise<void> {
   // `--metadata-prior` — POST-FUSION frontmatter authority boost with the representative rule set
   // (METADATA_PRIOR_RULES). META_PRIOR_CLAMP overrides the 0.5 sub-dominance clamp fraction.
   const metadataPrior = argv.includes("--metadata-prior");
+  // THE-446: diagnose failing golden queries into failure classes + remediation levers. Retains the
+  // raw retrieved chunks and runs the eval/failure_analysis classifier; no effect on scores/ranking.
+  const diagnose = argv.includes("--diagnose");
   const metaPriorClamp = process.env.META_PRIOR_CLAMP
     ? Number(process.env.META_PRIOR_CLAMP)
     : undefined;
@@ -526,6 +546,7 @@ async function main(): Promise<void> {
     provider,
     golden,
     vaultId: firstVault.id,
+    ...(diagnose ? { retainRaw: true } : {}),
     ...(adaptive ? { adaptiveRrf: { enabled: true } } : {}),
     ...(graphStream ? { graphStream: { enabled: true } } : {}),
     ...(smoothExpansion ? { smoothExpansion: { enabled: true } } : {}),
@@ -645,6 +666,35 @@ async function main(): Promise<void> {
   process.stdout.write(`\n${describePower(dN, "power ΔnDCG@10  ")}\n`);
   process.stdout.write(`${describeNonInferiority(dN, "non-inferiority ΔnDCG@10 ")}\n`);
   process.stdout.write(`${describeNonInferiority(dR, "non-inferiority Δrecall@10")}\n`);
+
+  // THE-446: failure diagnosis. Classify each query (needs the retained raw hits + a pure BFS
+  // reachability probe over vault_edges) and aggregate the "what to build next" remediation lever.
+  if (diagnose) {
+    const graph = loadUndirectedGraph(db, firstVault.id);
+    const byId = new Map(golden.queries.map((q) => [q.id, normQuery(q)]));
+    const analyses: QueryFailureAnalysis[] = [];
+    for (const r of report.perQuery) {
+      const q = byId.get(r.id);
+      if (!q || !r.baselineRaw || !r.treatmentRaw) continue;
+      const reachable = reachableTargetSet(graph, q.seed_paths, q.target_paths, DIAGNOSE_MAX_HOPS);
+      analyses.push(analyzeQuery(q, r.baseline, r.graph, r.baselineRaw, r.treatmentRaw, reachable));
+    }
+    const rec = recommendV11(analyses);
+    const failing = analyses.filter((a) => a.failure_class !== "success").length;
+    process.stdout.write(
+      `\n--- failure diagnosis (--diagnose): ${failing}/${analyses.length} failing ---\n`,
+    );
+    for (const [cls, n] of Object.entries(rec.failures_by_class)) {
+      if (n > 0 && cls !== "success") process.stdout.write(`  class ${cls.padEnd(24)} ${n}\n`);
+    }
+    for (const [lev, n] of Object.entries(rec.failures_by_lever)) {
+      if (n > 0 && lev !== "none") process.stdout.write(`  lever ${lev.padEnd(20)} ${n}\n`);
+    }
+    process.stdout.write(
+      `\nwhat to build next: ${rec.primary_lever}${rec.secondary_lever ? ` (then ${rec.secondary_lever})` : ""}\n${rec.reasoning}\n`,
+    );
+  }
+
   if (jsonPath) {
     const flags = [
       adaptive && "adaptive-rrf",
@@ -662,7 +712,9 @@ async function main(): Promise<void> {
       activation && "activation",
       classRouter && "class-router",
     ].filter((x): x is string => typeof x === "string");
-    writeFileSync(jsonPath, JSON.stringify({ flags, perQuery: report.perQuery }, null, 2));
+    // Strip the retained raw hits (THE-446, --diagnose only) so --json stays lean.
+    const lean = report.perQuery.map(({ baselineRaw: _b, treatmentRaw: _t, ...rest }) => rest);
+    writeFileSync(jsonPath, JSON.stringify({ flags, perQuery: lean }, null, 2));
     process.stdout.write(`wrote ${jsonPath}\n`);
   }
   process.exit(report.noRegression ? 0 : 1);
