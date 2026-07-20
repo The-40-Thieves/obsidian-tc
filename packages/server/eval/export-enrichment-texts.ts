@@ -28,10 +28,6 @@ if (!configPath || !goldenPath || !outDir) {
 }
 
 const titleOf = (p: string): string => (p.split(/[/\\]/).pop() ?? p).replace(/\.md$/i, "");
-const domainOf = (p: string): string => {
-  const seg = p.split(/[/\\]/);
-  return seg.length > 1 ? (seg[0] ?? "") : "";
-};
 
 async function main(): Promise<void> {
   const config = loadConfig(configPath as string);
@@ -65,6 +61,22 @@ async function main(): Promise<void> {
     )
     .all(vault.id) as Array<{ id: string; path: string; headings: string; content: string }>;
 
+  // variant-b: per-note distinct level-1 section headings (headings[1]; headings[0] is the note
+  // title). Gives a neighbor's STRUCTURE, not just its title. Capped per neighbor when rendered.
+  const sectionsForNote = new Map<string, string[]>();
+  for (const c of chunks) {
+    try {
+      const h = JSON.parse(c.headings) as string[];
+      const sec = h[1];
+      if (sec) {
+        const cur = sectionsForNote.get(c.path) ?? [];
+        if (!cur.includes(sec)) sectionsForNote.set(c.path, [...cur, sec]);
+      }
+    } catch {
+      // no headings for this chunk
+    }
+  }
+
   const controlLines: string[] = [];
   const variantLines: string[] = [];
   for (const c of chunks) {
@@ -77,21 +89,20 @@ async function main(): Promise<void> {
     const base = enrichChunkText(c.path, headings, c.content);
     controlLines.push(JSON.stringify({ chunk_id: c.id, text: base }));
 
-    const names = [...(neigh.get(c.path) ?? [])]
-      .map(titleOf)
-      .filter((n, i, arr) => arr.indexOf(n) === i)
-      .sort()
-      .slice(0, CAP);
+    const nbrPaths = [...(neigh.get(c.path) ?? [])].sort().slice(0, CAP);
     let variantText = base;
-    if (names.length > 0) {
-      const line =
+    if (nbrPaths.length > 0) {
+      // variant-a "titles": just the neighbor note titles. variant-b "titles-headings": each
+      // neighbor as "Title [section1; section2]" (up to 2 of its level-1 headings) — the richer
+      // structural context that may add over titles-only.
+      const rendered =
         VARIANT === "titles-headings"
-          ? `linked notes: ${names.join(", ")} (domains: ${[
-              ...new Set([...(neigh.get(c.path) ?? [])].map(domainOf).filter(Boolean)),
-            ]
-              .sort()
-              .join(", ")})`
-          : `linked notes: ${names.join(", ")}`;
+          ? nbrPaths.map((p) => {
+              const secs = (sectionsForNote.get(p) ?? []).slice(0, 2);
+              return secs.length > 0 ? `${titleOf(p)} [${secs.join("; ")}]` : titleOf(p);
+            })
+          : nbrPaths.map(titleOf).filter((n, i, arr) => arr.indexOf(n) === i);
+      const line = `linked notes: ${rendered.join(", ")}`;
       const nl = base.indexOf("\n\n");
       variantText =
         nl >= 0 ? `${base.slice(0, nl)}\n${line}${base.slice(nl)}` : `${line}\n\n${base}`;
