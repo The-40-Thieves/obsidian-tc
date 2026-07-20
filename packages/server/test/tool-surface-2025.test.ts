@@ -104,6 +104,42 @@ describe("THE-278 outputSchema + structuredContent", () => {
   });
 });
 
+describe("THE-457 strict output-schema enforcement", () => {
+  const stubDb = {
+    prepare: () => ({ get: () => undefined, run: () => ({ changes: 0 }), all: () => [] }),
+    exec: () => {},
+  } as unknown as CallerContext["db"];
+  const ctx = (): CallerContext => ({
+    caller: "t",
+    authenticated: true,
+    grantedScopes: new Set(["*"]),
+    vaultId: "v1",
+    db: stubDb,
+  });
+  const schema = z.object({ ok: z.boolean() }).strict();
+
+  it("warn mode (default): a payload violating outputSchema still returns ok", async () => {
+    const r = new ToolRegistry();
+    r.register(tool("bad", { outputSchema: schema }, () => ({ ok: "not-a-boolean" })));
+    const res = await r.dispatch("bad", { x: "hi" }, ctx());
+    expect(res.ok).toBe(true); // warn-only: the malformed payload is still returned
+  });
+
+  it("strict mode: the same violation is a hard typed error, not a returned payload", async () => {
+    const r = new ToolRegistry({ strictOutputSchema: true });
+    r.register(tool("bad", { outputSchema: schema }, () => ({ ok: "not-a-boolean" })));
+    const res = await r.dispatch("bad", { x: "hi" }, ctx());
+    expect(res.ok).toBe(false); // contract violation fails instead of shipping bad structuredContent
+  });
+
+  it("strict mode: a conformant payload passes unaffected", async () => {
+    const r = new ToolRegistry({ strictOutputSchema: true });
+    r.register(tool("good", { outputSchema: schema }, () => ({ ok: true })));
+    const res = await r.dispatch("good", { x: "hi" }, ctx());
+    expect(res.ok).toBe(true);
+  });
+});
+
 describe("THE-278 protocol version", () => {
   it("negotiates MCP 2025-11-25 (the SDK dependency's advertised latest)", async () => {
     // The package.json floor (>=1.29.0) guarantees the SDK advertises 2025-11-25 as its latest;
