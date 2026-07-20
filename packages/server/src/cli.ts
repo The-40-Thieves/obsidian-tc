@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { parse as parseYaml } from "yaml";
 import { version as VERSION } from "../package.json";
-import { FolderAcl, makeIndexReadable } from "./acl";
+import { FolderAcl, makeIndexReadable, makeReindexGate } from "./acl";
 import { writeEvent } from "./audit";
 import {
   type BridgeClient,
@@ -955,14 +955,21 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
     },
   });
-  const reindexHook = (vaultId: string, path: string, content: string): void =>
-    indexCoordinator.submitWrite(vaultId, path, content);
+  // indexReadableFor: per-vault ACL read-visibility filter shared by the boot reconcile, runtime
+  // add_vault, AND the index-on-write hook below (THE-453). makeIndexReadable resolves each vault's
+  // effective ACL (override ?? root), mirroring the dispatch aclResolver, so indexing never
+  // reads/embeds a vault-denied path.
+  const indexReadableFor = makeIndexReadable(acl, aclByVault);
+  // THE-453 (runtime): gate index-on-write through the effective read ACL. A write handler passes the
+  // WRITE ACL then calls reindex; a write-allowed but read-denied path (writePaths ⊃ readPaths) must
+  // not be embedded — makeReindexGate routes it to submitDelete (evicting any stale index state)
+  // instead of submitWrite. Deletes are always safe, so deindex stays a direct submitDelete.
+  const reindexHook = makeReindexGate(indexReadableFor, {
+    write: (vaultId, path, content) => indexCoordinator.submitWrite(vaultId, path, content),
+    delete: (vaultId, path) => indexCoordinator.submitDelete(vaultId, path),
+  });
   const deindexHook = (vaultId: string, path: string): void =>
     indexCoordinator.submitDelete(vaultId, path);
-  // indexReadableFor: per-vault ACL read-visibility filter shared by the boot reconcile and runtime
-  // add_vault (THE-453). makeIndexReadable resolves each vault's effective ACL (override ?? root),
-  // mirroring the dispatch aclResolver, so indexing never reads/embeds a vault-denied path.
-  const indexReadableFor = makeIndexReadable(acl, aclByVault);
   registerM1Tools(registry, {
     vaultRegistry,
     version: VERSION,

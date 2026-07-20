@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FolderAcl, makeIndexReadable } from "../src/acl";
+import { FolderAcl, makeIndexReadable, makeReindexGate } from "../src/acl";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM1Tools } from "../src/tools/m1";
@@ -183,5 +183,45 @@ describe("makeIndexReadable — per-vault ACL at INDEXING time (THE-453)", () =>
     const readableFor = makeIndexReadable(rootAcl, new Map());
     // .obsidian/** and similar are hard-denied by isDefaultDenied even under an allow-all root.
     expect(readableFor("v")(".obsidian/workspace.json")).toBe(false);
+  });
+});
+
+describe("makeReindexGate — runtime index-on-write honors the read ACL (THE-453 runtime)", () => {
+  // A path can be write-allowed but read-DENIED (writePaths ⊃ readPaths). Boot reconcile already
+  // excludes it via indexReadableFor; the runtime index-on-write hook must do the same, or a write
+  // embeds the note (and ships it to the embedding provider) despite it being read-invisible.
+  const acl = new FolderAcl({
+    readOnly: false,
+    defaultScopes: [],
+    rules: [],
+    readPaths: ["public/**"],
+    writePaths: ["public/**", "dropbox/**"],
+  });
+  const readableFor = makeIndexReadable(acl, new Map());
+
+  it("a read-allowed write is embedded", () => {
+    const writes: Array<[string, string, string]> = [];
+    const deletes: Array<[string, string]> = [];
+    const gate = makeReindexGate(readableFor, {
+      write: (v, p, c) => writes.push([v, p, c]),
+      delete: (v, p) => deletes.push([v, p]),
+    });
+    gate("v", "public/note.md", "body");
+    expect(writes).toEqual([["v", "public/note.md", "body"]]);
+    expect(deletes).toEqual([]);
+  });
+
+  it("a write-allowed but read-denied path is evicted, never embedded", () => {
+    const writes: Array<[string, string, string]> = [];
+    const deletes: Array<[string, string]> = [];
+    const gate = makeReindexGate(readableFor, {
+      write: (v, p, c) => writes.push([v, p, c]),
+      delete: (v, p) => deletes.push([v, p]),
+    });
+    gate("v", "dropbox/confidential.md", "secret");
+    // Never reaches the write sink (which is what embeds + calls the provider)…
+    expect(writes).toEqual([]);
+    // …and any prior index state for it is dropped, so an ACL that newly denies a path evicts it.
+    expect(deletes).toEqual([["v", "dropbox/confidential.md"]]);
   });
 });
