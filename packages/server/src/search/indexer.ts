@@ -774,6 +774,21 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // so a body embedded under the first walked path is reused/skipped everywhere else this pass. Purely
   // in-memory — works even when the body_sha column is absent.
   const bodyRegistry = new Map<string, string>();
+  // THE-445: seed the registry from bodies already embedded in a PRIOR run, so a body indexed under
+  // an UNCHANGED path (never re-walked this pass, hence not registered below) still dedups a new path
+  // carrying the same content. First path wins (deterministic by path). Only when the column exists.
+  // Caveat: if a seeded first path's content CHANGES this same run, a same-body new path defers to a
+  // now-stale first path; it self-heals on the next reindex (the new path then becomes the first).
+  if (hasBodySha) {
+    const seeded = args.db
+      .prepare(
+        "SELECT body_sha AS bodySha, path FROM chunks WHERE vault_id = ? AND body_sha IS NOT NULL ORDER BY path, chunk_index",
+      )
+      .all(args.vaultId) as Array<{ bodySha: string; path: string }>;
+    for (const row of seeded) {
+      if (!bodyRegistry.has(row.bodySha)) bodyRegistry.set(row.bodySha, row.path);
+    }
+  }
   const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
   const walkedSet = new Set(walked.map((e) => e.relPath));
   const statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));

@@ -7,6 +7,8 @@
 // paths, both chunks still stored; (2) two embeddings for distinct bodies; (3) graceful degradation
 // when the body_sha column is absent (older cache.db) — no crash, chunks still stored, and the
 // in-memory per-run registry still dedups.
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { EmbeddingProvider } from "../src/embeddings";
@@ -99,6 +101,28 @@ describe("body_sha cross-path embedding dedup (migration 20260719_001)", () => {
       // The per-run dedup registry is in-memory, so cross-path dedup still holds without the column.
       expect(embedded.length).toBe(1);
       expect(count(v, "SELECT COUNT(*) AS n FROM chunk_embeddings")).toBe(1);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("dedups across separate index RUNS by seeding the registry from the persisted column (THE-445)", async () => {
+    const { provider, embedded } = countingProvider();
+    const v = makeM2Vault({ files: { "one.md": SHARED }, provider });
+    try {
+      // Run A: index one.md alone → one embedding, one chunk carrying the body_sha.
+      expect((await v.call("index_vault", { vault: v.id })).ok).toBe(true);
+      expect(embedded.length).toBe(1);
+
+      // Add a NEW path with the identical body AFTER run A, then run B (a fresh walk whose in-memory
+      // registry starts empty — only the persisted-column seed can dedup two.md against one.md).
+      writeFileSync(join(v.root, "two.md"), SHARED);
+      expect((await v.call("index_vault", { vault: v.id })).ok).toBe(true);
+
+      // Cross-run dedup: two.md reuses one.md's embedding → still ONE embedding total, both stored.
+      expect(embedded.length).toBe(1);
+      expect(count(v, "SELECT COUNT(*) AS n FROM chunk_embeddings")).toBe(1);
+      expect(count(v, "SELECT COUNT(*) AS n FROM chunks")).toBe(2);
     } finally {
       v.cleanup();
     }
