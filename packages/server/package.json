@@ -21,7 +21,8 @@
     "smoke:live": "vitest run test/live-companion.test.ts",
     "test:coverage": "vitest run --coverage",
     "dev": "bun run --watch ./src/index.ts",
-    "docgen:model": "bun scripts/docgen/build-model.ts"
+    "docgen:model": "bun scripts/docgen/build-model.ts",
+    "docgen:render": "bun scripts/docgen/render.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.5",
