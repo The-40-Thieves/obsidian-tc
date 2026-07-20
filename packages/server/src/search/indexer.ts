@@ -79,7 +79,15 @@ interface ExistingRow {
 // A note's chunk after secret-gating, carrying its stable chunk id. embedText (THE-406) is the
 // context-enriched text that is embedded + BM25-indexed INSTEAD of content when
 // embeddings.chunkContext is on; content stays the raw display text everywhere.
-type PlannedChunk = ReturnType<typeof chunkNote>[number] & { id: string; embedText?: string };
+// bodySha is contentHash() over the RAW body (c.content, PRE-enrichment) — the cross-path
+// dedup key; skipEmbed marks a chunk whose identical body was already embedded at another path
+// this run, so it is STORED but its embedding is reused/skipped (migration 20260719_001).
+type PlannedChunk = ReturnType<typeof chunkNote>[number] & {
+  id: string;
+  embedText?: string;
+  bodySha: string;
+  skipEmbed?: boolean;
+};
 
 // THE-408: enrichChunkText moved to ./chunk (import-cycle-free for chunk_fts); re-exported here
 // for existing importers (tests, scripts).
@@ -137,6 +145,11 @@ function computeNotePlan(
   raw: string,
   ts: number,
   enrich: boolean,
+  /** Cross-path embedding dedup (migration 20260719_001): a per-RUN registry of body_sha -> the
+   *  first walked path carrying that raw body. Purely in-memory, so cross-path dedup works even on
+   *  a cache.db that predates the body_sha column. Callers on the batched indexVault path share ONE
+   *  map across the whole walk; single-note paths pass a fresh (effectively empty) map. */
+  bodyRegistry: Map<string, string> = new Map(),
 ): PlanResult {
   const body = parseNote(raw).body;
   // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
@@ -148,14 +161,19 @@ function computeNotePlan(
   // embeddings.chunkContext re-embeds every chunk on the next pass instead of silently serving
   // vectors built from a different representation.
   const desired = chunkNote(body)
-    .map((c) => {
-      if (!enrich) return { ...c, id: chunkId(vaultId, path, c.index) };
+    .map((c): PlannedChunk => {
+      // body_sha keys on the RAW body (c.content), PRE-enrichment — it must NOT depend on the
+      // path-salted embed text, so identical bodies at different paths collide (migration
+      // 20260719_001).
+      const bodySha = contentHash(c.content);
+      if (!enrich) return { ...c, id: chunkId(vaultId, path, c.index), bodySha };
       const embedText = enrichChunkText(path, c.headings, c.content);
       return {
         ...c,
         id: chunkId(vaultId, path, c.index),
         embedText,
         contentHash: contentHash(embedText),
+        bodySha,
       };
     })
     .filter((c) => {
@@ -176,6 +194,26 @@ function computeNotePlan(
   const toEmbed = desired.filter((d) => existingHash.get(d.id) !== d.contentHash);
   const unchanged = desired.length - toEmbed.length;
   const willPrune = existing.some((e) => !desiredIds.has(e.id));
+  // Cross-path embedding dedup (migration 20260719_001). Register EVERY desired chunk's raw-body
+  // hash (changed or not) so a later path dedups against a body already indexed here — first walked
+  // path wins. Then flag any TO-EMBED chunk whose body was first seen at a DIFFERENT path: it is
+  // still STORED at this path (applyNoteWrites writes the chunk row), but its embedding is
+  // reused/skipped — embedPlans never sends it to the provider and applyNoteWrites writes no
+  // embedding row for it. Same-path repeats keep firstPath === path and are never skipped (an index
+  // shift is change detection's job, not dedup's).
+  for (const d of desired) {
+    if (!bodyRegistry.has(d.bodySha)) bodyRegistry.set(d.bodySha, path);
+  }
+  for (const d of toEmbed) {
+    const firstPath = bodyRegistry.get(d.bodySha);
+    if (firstPath !== undefined && firstPath !== path) {
+      d.skipEmbed = true;
+      process.stderr.write(
+        `[ingest] body-sha dedup: ${path}#${d.index} reuses the embedding already computed for ` +
+          `${firstPath} (identical body); stored without re-embedding\n`,
+      );
+    }
+  }
   if (toEmbed.length === 0 && !willPrune) {
     return { plan: null, unchanged, secretsSkipped, flagged };
   }
@@ -269,7 +307,13 @@ export async function embedPlans(
 ): Promise<EmbedReport> {
   const contents: string[] = [];
   // THE-406: embed the enriched text when present; c.content remains the stored display text.
-  for (const p of plans) for (const c of p.toEmbed) contents.push(c.embedText ?? c.content);
+  // Cross-path dedup (migration 20260719_001): a skipEmbed chunk's identical body is already embedded
+  // at another path, so it is NOT sent to the provider — its vector slot is filled below.
+  for (const p of plans)
+    for (const c of p.toEmbed) {
+      if (c.skipEmbed) continue;
+      contents.push(c.embedText ?? c.content);
+    }
   if (contents.length === 0) return { failed: [], rejections: 0 };
   // Pack sub-batches greedily under BOTH caps: at most `batchSize` inputs and at most
   // `maxBatchTokens` estimated tokens per request (GH #172 — a fixed 512-input batch packed ~87k
@@ -307,20 +351,39 @@ export async function embedPlans(
   const flatSparse = hasFull ? results.flatMap((r) => r.sparse ?? []) : null;
   const flatColbert = hasFull ? results.flatMap((r) => r.colbert ?? []) : null;
   const failed: NoteWritePlan[] = [];
+  // Walk each plan's chunks in order, consuming a provider vector only for the ones actually embedded
+  // (skipEmbed chunks get an empty placeholder so vectors[] stays aligned to toEmbed; applyNoteWrites
+  // writes no embedding for them). A skipEmbed placeholder never counts as a quarantine (migration
+  // 20260719_001 + THE-390).
   let off = 0;
   for (const p of plans) {
-    const n = p.toEmbed.length;
-    const dense = flatDense.slice(off, off + n);
-    if (dense.some((v) => v === null)) {
-      // A quarantined chunk fails its whole NOTE: vectors stay empty so an accidental apply
-      // cannot write a bogus embedding, and the caller must exclude the plan (THE-390).
+    const dense: number[][] = [];
+    const sparse: SparseVec[] = [];
+    const colbert: ColbertMatrix[] = [];
+    let quarantined = false;
+    for (const c of p.toEmbed) {
+      if (c.skipEmbed) {
+        dense.push([]);
+        if (flatSparse) sparse.push({} as SparseVec);
+        if (flatColbert) colbert.push([] as unknown as ColbertMatrix);
+        continue;
+      }
+      const v = flatDense[off];
+      // A quarantined chunk (provider rejected it even alone) fails its whole NOTE: its vectors are
+      // not applied and the caller must exclude the plan (THE-390).
+      if (v === null || v === undefined) quarantined = true;
+      dense.push((v ?? []) as number[]);
+      if (flatSparse) sparse.push((flatSparse[off] ?? {}) as SparseVec);
+      if (flatColbert) colbert.push((flatColbert[off] ?? []) as unknown as ColbertMatrix);
+      off += 1;
+    }
+    if (quarantined) {
       failed.push(p);
     } else {
-      p.vectors = dense as number[][];
-      if (flatSparse) p.sparse = flatSparse.slice(off, off + n) as SparseVec[];
-      if (flatColbert) p.colbert = flatColbert.slice(off, off + n) as ColbertMatrix[];
+      p.vectors = dense;
+      if (flatSparse) p.sparse = sparse;
+      if (flatColbert) p.colbert = colbert;
     }
-    off += n;
   }
   return { failed, rejections: counters.rejections };
 }
@@ -351,6 +414,18 @@ async function planNoteWrites(
   return res;
 }
 
+/** Does the chunks table carry the body_sha column (migration 20260719_001)? A cache.db provisioned
+ *  before that migration — or a bare fixture — lacks it; the INSERT then omits body_sha so the write
+ *  path keeps working (the in-memory dedup registry is unaffected). Mirrors hasDerivedEdgeColumns. */
+function hasBodyShaColumn(db: Database): boolean {
+  try {
+    const cols = db.prepare("PRAGMA table_info(chunks)").all() as Array<{ name: string }>;
+    return cols.some((c) => c.name === "body_sha");
+  } catch {
+    return false;
+  }
+}
+
 // Apply a note's write plan (prune + upserts). Contains NO transaction control — the CALLER owns
 // BEGIN/COMMIT/ROLLBACK, so one transaction can batch many notes' applies.
 function applyNoteWrites(
@@ -362,6 +437,8 @@ function applyNoteWrites(
   hasChunkFts: boolean,
   hasChunkSparse: boolean,
   hasChunkColbert: boolean,
+  /** migration 20260719_001: write the raw-body hash column only when it exists. */
+  hasBodySha: boolean,
 ): { upserted: number; deleted: number } {
   // THE-316: static-arity SQL on the per-note reconcile write path — cache the compiled statements
   // by SQL text (cachedPrepare) so a 100-note flush recompiles these five once for the process, not
@@ -370,9 +447,14 @@ function applyNoteWrites(
   const delEmb = cachedPrepare(db, "DELETE FROM chunk_embeddings WHERE chunk_id = ?");
   const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
   const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
+  // body_sha rides the same upsert when the column exists (migration 20260719_001); cachedPrepare
+  // keys on the SQL text, so the with/without-column variants compile independently and a pre-migration
+  // cache.db never sees the extra column.
   const upChunk = cachedPrepare(
     db,
-    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET chunk_index = excluded.chunk_index, headings = excluded.headings, content = excluded.content, content_hash = excluded.content_hash, token_count = excluded.token_count, updated_at = excluded.updated_at",
+    hasBodySha
+      ? "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, body_sha, token_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET chunk_index = excluded.chunk_index, headings = excluded.headings, content = excluded.content, content_hash = excluded.content_hash, body_sha = excluded.body_sha, token_count = excluded.token_count, updated_at = excluded.updated_at"
+      : "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET chunk_index = excluded.chunk_index, headings = excluded.headings, content = excluded.content, content_hash = excluded.content_hash, token_count = excluded.token_count, updated_at = excluded.updated_at",
   );
   const upEmb = cachedPrepare(
     db,
@@ -391,30 +473,54 @@ function applyNoteWrites(
   }
   plan.toEmbed.forEach((d, i) => {
     const vec = plan.vectors[i] ?? [];
-    upChunk.run(
-      d.id,
-      vaultId,
-      plan.path,
-      d.index,
-      JSON.stringify(d.headings),
-      d.content,
-      d.contentHash,
-      d.tokenCount,
-      plan.ts,
-      plan.ts,
-    );
-    upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
-    if (hasVec) upsertVec(db, d.id, vec, { vaultId, path: plan.path, model: provider.id });
+    // Every chunk is STORED — the chunk row lands regardless of the dedup decision. body_sha is
+    // passed only when the column exists.
+    if (hasBodySha) {
+      upChunk.run(
+        d.id,
+        vaultId,
+        plan.path,
+        d.index,
+        JSON.stringify(d.headings),
+        d.content,
+        d.contentHash,
+        d.bodySha,
+        d.tokenCount,
+        plan.ts,
+        plan.ts,
+      );
+    } else {
+      upChunk.run(
+        d.id,
+        vaultId,
+        plan.path,
+        d.index,
+        JSON.stringify(d.headings),
+        d.content,
+        d.contentHash,
+        d.tokenCount,
+        plan.ts,
+        plan.ts,
+      );
+    }
+    // Cross-path dedup (migration 20260719_001): a reused/skipped body was never embedded this run,
+    // so write NO embedding / vec / sparse / colbert for it — the identical body's vector already
+    // lives at the first walked path. The chunk stays lexically searchable via chunk_fts below.
+    if (!d.skipEmbed) {
+      upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
+      if (hasVec) upsertVec(db, d.id, vec, { vaultId, path: plan.path, model: provider.id });
+    }
     // THE-406: BM25 matches on the same text the dense vector embeds (enriched when the flag is
     // on); bm25Chunks JOINs chunks for the raw display content, so search output is unchanged.
     if (hasChunkFts) upsertChunkFtsRow(db, d.id, vaultId, plan.path, d.embedText ?? d.content);
     // THE-395: an empty head (the serving runtime could not produce it) is skipped, not stored —
     // an all-empty chunk_sparse / chunk_colbert would only bloat scans with dead rows.
     const sp = plan.sparse?.[i];
-    if (hasChunkSparse && sp && Object.keys(sp).length > 0)
+    if (!d.skipEmbed && hasChunkSparse && sp && Object.keys(sp).length > 0)
       upsertChunkSparse(db, d.id, vaultId, sp);
     const cb = plan.colbert?.[i];
-    if (hasChunkColbert && cb && cb.length > 0) upsertChunkColbert(db, d.id, vaultId, cb);
+    if (!d.skipEmbed && hasChunkColbert && cb && cb.length > 0)
+      upsertChunkColbert(db, d.id, vaultId, cb);
   });
   return { upserted: plan.toEmbed.length, deleted };
 }
@@ -423,13 +529,19 @@ function applyNoteWrites(
 // transaction has committed, so a consumer never observes an uncommitted (possibly rolled-back)
 // chunk.
 function fireIndexHook(onIndexed: IndexHook | undefined, plan: NoteWritePlan): void {
-  if (onIndexed && plan.toEmbed.length > 0) {
+  if (!onIndexed) return;
+  // Cross-path dedup (migration 20260719_001): a skipEmbed chunk carries no NEW embedding this run,
+  // so it is not reported as a (re)embedded chunk.
+  const embedded = plan.toEmbed
+    .map((d, i) => ({ d, vec: plan.vectors[i] ?? [] }))
+    .filter((x) => !x.d.skipEmbed);
+  if (embedded.length > 0) {
     onIndexed(
-      plan.toEmbed.map((d, i) => ({
+      embedded.map(({ d, vec }) => ({
         id: d.id,
         path: plan.path,
         content: d.content,
-        embedding: plan.vectors[i] ?? [],
+        embedding: vec,
       })),
     );
   }
@@ -466,6 +578,7 @@ export async function indexNote(
   const hasEmbedFull = typeof provider.embedFull === "function";
   const hasChunkSparse = hasEmbedFull && ensureChunkSparse(db);
   const hasChunkColbert = hasEmbedFull && ensureChunkColbert(db);
+  const hasBodySha = hasBodyShaColumn(db);
   const note: NoteRecord | null =
     hasNotes && raw !== "" ? buildNoteRecord(path, raw, flagged, null, now()) : null;
   if (!plan) {
@@ -494,6 +607,7 @@ export async function indexNote(
       hasChunkFts,
       hasChunkSparse,
       hasChunkColbert,
+      hasBodySha,
     );
     if (note) upsertNoteRow(db, vaultId, note, hasFts, now());
     db.exec("COMMIT");
@@ -635,6 +749,11 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const hasEmbedFull = typeof args.provider.embedFull === "function";
   const hasChunkSparse = hasEmbedFull && ensureChunkSparse(args.db);
   const hasChunkColbert = hasEmbedFull && ensureChunkColbert(args.db);
+  const hasBodySha = hasBodyShaColumn(args.db);
+  // Cross-path embedding dedup (migration 20260719_001): ONE registry shared across the whole walk,
+  // so a body embedded under the first walked path is reused/skipped everywhere else this pass. Purely
+  // in-memory — works even when the body_sha column is absent.
+  const bodyRegistry = new Map<string, string>();
   const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
   const walkedSet = new Set(walked.map((e) => e.relPath));
   const statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
@@ -723,6 +842,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           hasChunkFts,
           hasChunkSparse,
           hasChunkColbert,
+          hasBodySha,
         );
         stats.chunks_upserted += r.upserted;
         stats.chunks_deleted += r.deleted;
@@ -766,6 +886,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       raw,
       now(),
       args.chunkContext === true,
+      bodyRegistry,
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
