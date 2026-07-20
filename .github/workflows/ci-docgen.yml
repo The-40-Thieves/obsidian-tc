@@ -10,6 +10,7 @@ on:
       - 'packages/server/**'
       - 'packages/shared/**'
       - 'docs/wiki/**'
+      - 'docs/src/content/**'
       - 'bun.lock'
       - '.github/workflows/ci-docgen.yml'
   push:
