@@ -1,0 +1,5 @@
+{
+  "_note": "Single source of truth for curated project facts that are NOT derivable from code — they come from the private eval harness, which never enters this public repo. docgen (bun run docgen:render) injects these into the wiki Home 'At a glance' block, and the CI drift gate enforces regeneration. To update: edit a value here, run `bun run docgen:render`, commit both.",
+  "goldenSetSize": 250,
+  "enrichmentNdcgGain": "+0.223 nDCG"
+}
