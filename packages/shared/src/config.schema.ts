@@ -519,7 +519,7 @@ export const BootstrapConfigSchema = z
   .prefault({});
 export type BootstrapConfig = z.infer<typeof BootstrapConfigSchema>;
 
-const ServerConfigObject = z.object({
+export const ServerConfigObject = z.object({
   cacheDir: z.string().default(".obsidian-tc"),
   vaults: z.array(VaultConfigSchema).min(1),
   plur: PlurConfigSchema.optional(),
