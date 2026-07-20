@@ -13,15 +13,22 @@ import { renderConfig } from "./render-config";
 import { renderTools } from "./render-tools";
 
 const check = process.argv.includes("--check");
-const wiki = (name: string): string =>
-  fileURLToPath(new URL(`../../../../docs/wiki/${name}`, import.meta.url));
+const repo = (rel: string): string => fileURLToPath(new URL(`../../../../${rel}`, import.meta.url));
+
+// Render each surface once; the same content fills every target that hosts it.
+const toolsMd = renderTools(extractTools());
+const configMd = renderConfig(extractConfig());
 
 const targets: Array<{ file: string; marker: string; content: string }> = [
-  { file: wiki("Tool-Reference.md"), marker: "tools", content: renderTools(extractTools()) },
+  // GitHub wiki (THE-475 publishes these).
+  { file: repo("docs/wiki/Tool-Reference.md"), marker: "tools", content: toolsMd },
+  { file: repo("docs/wiki/Configuration-Reference.md"), marker: "config", content: configMd },
+  // Astro docs site (THE-474) — Starlight autogenerate slots these into the Tools / Configuration nav.
+  { file: repo("docs/src/content/docs/tools/tool-catalog.md"), marker: "tools", content: toolsMd },
   {
-    file: wiki("Configuration-Reference.md"),
+    file: repo("docs/src/content/docs/configuration/config-reference.md"),
     marker: "config",
-    content: renderConfig(extractConfig()),
+    content: configMd,
   },
 ];
 
