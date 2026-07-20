@@ -1,7 +1,7 @@
 {
   "name": "obsidian-tc",
   "version": "1.10.0",
-  "description": "MCP server for Obsidian — comprehensive tool surface for humans and autonomous agents",
+  "description": "MCP server for Obsidian \u2014 comprehensive tool surface for humans and autonomous agents",
   "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,8 @@
     "test": "vitest run",
     "smoke:live": "vitest run test/live-companion.test.ts",
     "test:coverage": "vitest run --coverage",
-    "dev": "bun run --watch ./src/index.ts"
+    "dev": "bun run --watch ./src/index.ts",
+    "docgen:model": "bun scripts/docgen/build-model.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.5",
