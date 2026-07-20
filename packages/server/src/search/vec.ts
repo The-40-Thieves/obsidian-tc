@@ -9,6 +9,15 @@ export function floatBlob(vector: number[]): Uint8Array {
   return new Uint8Array(Float32Array.from(vector).buffer);
 }
 
+/** THE-457: parse the pinned embedding dimension from a vec_chunks CREATE statement — the N in
+ *  `embedding float[N]`. Returns undefined when the DDL carries no `float[...]` (not a vec table).
+ *  ensureVecChunks uses it to detect a model/dimension swap and rebuild the index rather than let
+ *  new-dimension inserts fail and KNN silently degrade to a brute-force scan. */
+export function parseVecDims(ddlSql: string): number | undefined {
+  const m = /embedding\s+float\[(\d+)\]/i.exec(ddlSql);
+  return m ? Number(m[1]) : undefined;
+}
+
 // Decode a float32 BLOB (Uint8Array/Buffer from a SQLite row) into a Float32Array view.
 // Returned directly (zero-copy, THE-266) so the native cosine path takes the typed array
 // without re-copying into a number[]; callers only index it and read .length.
@@ -80,7 +89,20 @@ export function ensureVecChunks(
     } catch {
       legacy = true;
     }
-    if (legacy) {
+    // THE-457: detect a DIMENSION change (a model swap, e.g. nomic-768 -> bge-1024). The table pins
+    // `float[N]` in its DDL; once N no longer matches the requested dims, new-dimension inserts fail
+    // and KNN silently falls back to brute-force scan. Rebuild at the new dimension — the backfill
+    // below only re-inserts vectors already at that dim (length = dims*4), so a mid-swap re-embed
+    // fills the rest on its own reconcile. Same rebuild path as the legacy (pre-partition) case.
+    const existingSql =
+      (
+        db.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks'").get() as
+          | { sql?: string }
+          | undefined
+      )?.sql ?? "";
+    const existingDims = parseVecDims(existingSql);
+    const dimChanged = existingDims !== undefined && existingDims !== dims;
+    if (legacy || dimChanged) {
       db.exec("DROP TABLE vec_chunks");
       db.exec(ddl);
       const canBackfill =

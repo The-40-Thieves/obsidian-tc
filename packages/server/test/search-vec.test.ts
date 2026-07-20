@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
-import { blobToFloats, ensureVecChunks, floatBlob, loadVec } from "../src/search/vec";
+import { blobToFloats, ensureVecChunks, floatBlob, loadVec, parseVecDims } from "../src/search/vec";
 import { openMemoryDb } from "./helpers";
+
+describe("parseVecDims (THE-457: model/dimension swap detection)", () => {
+  const ddl = (n: number) =>
+    `CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id TEXT PRIMARY KEY, vault_id TEXT partition key, +path TEXT, +model TEXT, embedding float[${n}] distance_metric=cosine)`;
+
+  it("parses the pinned dimension from a vec_chunks DDL", () => {
+    expect(parseVecDims(ddl(768))).toBe(768);
+    expect(parseVecDims(ddl(1024))).toBe(1024);
+  });
+  it("flags a dimension change (the model-swap rebuild trigger)", () => {
+    const existing = parseVecDims(ddl(768));
+    expect(existing).toBe(768);
+    expect(existing !== undefined && existing !== 1024).toBe(true); // 768 -> 1024 => rebuild
+    expect(existing !== undefined && existing !== 768).toBe(false); // same dim => no rebuild
+  });
+  it("returns undefined for a DDL with no float[...] (not a vec table)", () => {
+    expect(parseVecDims("CREATE TABLE chunks (id TEXT)")).toBeUndefined();
+    expect(parseVecDims("")).toBeUndefined();
+  });
+});
 
 describe("vector blob codec", () => {
   it("round-trips a float vector through the float32 blob format", () => {
