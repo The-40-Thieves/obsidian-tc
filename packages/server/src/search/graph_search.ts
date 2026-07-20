@@ -22,6 +22,10 @@ export type FusionMode = "graph_rrf" | "rrf_rerank" | "score_merge" | "convex";
 // that a years-stale hub loses expansion priority. Tunable via opts.decay.lambda.
 const DEFAULT_DECAY_LAMBDA = 0.005;
 const MS_PER_DAY = 86_400_000;
+// Metadata-prior sub-dominance guard: cap |Σboost| per candidate at this fraction of the per-query
+// fused-score spread. <1 keeps the prior a tie-break — even a fully-boosted bottom candidate cannot
+// overtake the top base-scored one (see clampMetadataBoost).
+const DEFAULT_META_PRIOR_CLAMP = 0.5;
 
 export interface GraphSearchResult {
   chunk_id: string;
@@ -130,6 +134,18 @@ export interface GraphSearchOptions {
    *  cosine, so decay only reorders/cuts, never drops a chunk below similarityThreshold. lambda
    *  defaults to a ~139-day half-life; nowMs is injectable for deterministic tests. */
   decay?: { enabled?: boolean; lambda?: number; nowMs?: number };
+  /** Config-driven frontmatter metadata prior (authority boost), ported from the retired
+   *  KMS/vault-sync hardcoded prior (009_vault_search_priority.sql). Applied POST-FUSION (after RRF /
+   *  convex, before the final sort): each candidate's fused score gains Σ(boost) over the rules whose
+   *  note frontmatter[field]===value, then the pool re-sorts — composing ADDITIVELY with the
+   *  expansion decay above. The per-candidate |Σboost| is CLAMPED to `clampFraction` (default 0.5)
+   *  of the per-query fused-score spread, so the prior is SUB-DOMINANT to the RRF signal: a
+   *  tie-break, never an override. Off by default (empty rules or disabled = exact no-op). */
+  metadataPrior?: {
+    enabled?: boolean;
+    rules?: Array<{ field: string; value: string; boost: number }>;
+    clampFraction?: number;
+  };
   /** Seed-strength router. Default rule: top-1 cosine ≥ simThreshold AND top1−top4 ≥ margin ⇒
    *  skip expansion. THE-400: when `zThreshold` is set the rule becomes `z-margin ≥ zThreshold`
    *  (top-1 z-score over the whole seed-cosine pool) — model-agnostic where absolute cosine
@@ -580,6 +596,44 @@ async function graphSearchCore(
       (1 - alpha) * ((lexNorm.get(c.chunk_id) ?? 0) + (sparseNorm.get(c.chunk_id) ?? 0)) +
       (tempNorm.get(c.chunk_id) ?? 0);
   }
+  // Frontmatter metadata prior (authority boost), POST-FUSION and off by default. Adds a clamped
+  // Σ(rule boost) to each candidate's fused score, composing ADDITIVELY with the base (rrf/convex)
+  // score — which already carries the expansion decay. The clamp caps |boost| at a fraction of the
+  // observed fused-score SPREAD, so the prior only tie-breaks: it can reorder near-neighbours but
+  // never lifts a low-RRF note past a confident hit. Empty rules or disabled leaves scoreOf untouched
+  // (exact no-op — byte-identical order).
+  const mp = opts.metadataPrior;
+  const priorRules = mp?.rules ?? [];
+  let scoreOfWithPrior = scoreOf;
+  if ((mp?.enabled ?? false) && priorRules.length > 0) {
+    const fmByPath = loadFrontmatter(db, opts.vaultId, [...new Set(candidates.map((c) => c.path))]);
+    const rawBoostById = new Map<string, number>();
+    for (const c of candidates) {
+      const fm = fmByPath.get(c.path);
+      if (!fm) continue;
+      let sum = 0;
+      for (const r of priorRules) if (fm[r.field] === r.value) sum += r.boost;
+      if (sum !== 0) rawBoostById.set(c.chunk_id, sum);
+    }
+    if (rawBoostById.size > 0) {
+      // Spread of the BASE fused scores over this query's candidate pool — the yardstick the boost
+      // must stay under to remain sub-dominant.
+      let min = Number.POSITIVE_INFINITY;
+      let max = Number.NEGATIVE_INFINITY;
+      for (const c of candidates) {
+        const s = scoreOf(c);
+        if (s < min) min = s;
+        if (s > max) max = s;
+      }
+      const spread = max - min;
+      const clampFraction = mp?.clampFraction ?? DEFAULT_META_PRIOR_CLAMP;
+      const boostById = new Map<string, number>();
+      for (const [id, raw] of rawBoostById) {
+        boostById.set(id, clampMetadataBoost(raw, spread, clampFraction));
+      }
+      scoreOfWithPrior = (c) => scoreOf(c) + (boostById.get(c.chunk_id) ?? 0);
+    }
+  }
   const sourceRank: Record<Candidate["source"], number> = {
     seed: 0,
     lexical: 1,
@@ -588,7 +642,7 @@ async function graphSearchCore(
     temporal: 4,
   };
   const fused = [...candidates].sort((a, b) => {
-    const d = scoreOf(b) - scoreOf(a);
+    const d = scoreOfWithPrior(b) - scoreOfWithPrior(a);
     if (d !== 0) return d;
     if (a.source !== b.source) return sourceRank[a.source] - sourceRank[b.source];
     return a.streamRank - b.streamRank;
@@ -610,7 +664,7 @@ async function graphSearchCore(
     }
     const capped =
       (opts.diversify?.mmr?.enabled ?? false)
-        ? mmrSelect(db, pool, finalTopK, opts.diversify?.mmr?.lambda ?? 0.7, scoreOf)
+        ? mmrSelect(db, pool, finalTopK, opts.diversify?.mmr?.lambda ?? 0.7, scoreOfWithPrior)
         : pool.slice(0, finalTopK);
     // THE-394: hard-query gate — rerank the head of the fused list only when the dense seeds
     // were weak (router silent + low top-1 cosine); everything else returns pure RRF order.
@@ -626,11 +680,11 @@ async function graphSearchCore(
         const rest = capped.filter((c) => !rerankedIds.has(c.chunk_id));
         return [
           ...ranked.map(({ item, score }) => toResult(item, score)),
-          ...rest.map((c) => toResult(c, scoreOf(c))),
+          ...rest.map((c) => toResult(c, scoreOfWithPrior(c))),
         ];
       }
     }
-    return capped.map((c) => toResult(c, scoreOf(c)));
+    return capped.map((c) => toResult(c, scoreOfWithPrior(c)));
   }
 
   // rrf_rerank: rerank the top-RRF pool for the final order.
@@ -668,6 +722,59 @@ function minMaxNorm(entries: Array<readonly [string, number]>): Map<string, numb
     if (v > max) max = v;
   }
   for (const [id, v] of entries) out.set(id, max > min ? (v - min) / (max - min) : 1);
+  return out;
+}
+
+/** Sub-dominance clamp for the metadata prior: bound |raw Σboost| to `clampFraction` of the fused
+ *  score `spread`. clampFraction is itself clamped to [0,1] (a >1 fraction would let the prior
+ *  dominate; <0 is meaningless). With clampFraction<1 the returned magnitude is strictly below the
+ *  spread, so no candidate can move more than that in score — a bottom candidate boosted to the cap
+ *  still lands below the un-boosted top candidate. Symmetric so a negative (penalty) rule is bounded
+ *  the same way. Exported for the sub-dominance unit test. */
+export function clampMetadataBoost(raw: number, spread: number, clampFraction: number): number {
+  const frac = Math.min(1, Math.max(0, clampFraction));
+  const cap = Math.max(0, spread) * frac;
+  return Math.max(-cap, Math.min(raw, cap));
+}
+
+// Metadata prior input: parsed notes.frontmatter (JSON object) per note path, string-valued fields
+// only (rules compare string === string). Missing notes table / column, or unparseable JSON, yields
+// no entry for that path — the prior then contributes nothing for it (a silent no-op, never a throw).
+function loadFrontmatter(
+  db: Database,
+  vaultId: string,
+  paths: string[],
+): Map<string, Record<string, string>> {
+  const out = new Map<string, Record<string, string>>();
+  if (paths.length === 0) return out;
+  const CHUNK = 500;
+  try {
+    for (let i = 0; i < paths.length; i += CHUNK) {
+      const slice = paths.slice(i, i + CHUNK);
+      const placeholders = slice.map(() => "?").join(",");
+      const rows = db
+        .prepare(
+          `SELECT path, frontmatter FROM notes WHERE vault_id = ? AND path IN (${placeholders})`,
+        )
+        .all(vaultId, ...slice) as Array<{ path: string; frontmatter: string | null }>;
+      for (const r of rows) {
+        if (!r.frontmatter) continue;
+        try {
+          const parsed = JSON.parse(r.frontmatter) as Record<string, unknown>;
+          const fields: Record<string, string> = {};
+          for (const [k, v] of Object.entries(parsed)) {
+            if (typeof v === "string") fields[k] = v;
+          }
+          out.set(r.path, fields);
+        } catch {
+          // Unparseable frontmatter — skip this note (contributes no boost).
+        }
+      }
+    }
+  } catch {
+    // notes table / frontmatter column not present on this connection — prior no-ops.
+    return new Map();
+  }
   return out;
 }
 

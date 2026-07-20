@@ -128,7 +128,26 @@ export interface RunEvalOptions {
    *  graph search per sub-query (original included), and RRF-merge the ranked lists. Easy queries
    *  are untouched — the research consensus is that BLANKET augmentation harms private corpora. */
   decompose?: { zThreshold?: number; model?: string; baseUrl?: string };
+  /** Config-driven frontmatter metadata prior (authority boost) — POST-FUSION additive boosts on
+   *  notes whose frontmatter[field]===value, clamped sub-dominant to the fused-score spread. The
+   *  A/B lever for the ranking.metadataPrior golden-set gate. Off unless supplied. */
+  metadataPrior?: {
+    enabled?: boolean;
+    rules?: Array<{ field: string; value: string; boost: number }>;
+    clampFraction?: number;
+  };
 }
+
+/** Representative metadata-prior rule set for the A/B, ported from the retired KMS/vault-sync prior
+ *  (009_vault_search_priority.sql): canon/authority first, decided beats open, active work beats
+ *  reference. Values are the KMS absolute boosts; the graph_search clamp rescales them to stay
+ *  sub-dominant to obsidian-tc's k=10 RRF spread. */
+export const METADATA_PRIOR_RULES: Array<{ field: string; value: string; boost: number }> = [
+  { field: "status", value: "locked", boost: 0.02 },
+  { field: "type", value: "decision", boost: 0.015 },
+  { field: "type", value: "project", boost: 0.01 },
+  { field: "status", value: "active", boost: 0.005 },
+];
 
 /** THE-404: 2–3 atomic sub-queries from a small local instruct model (temperature 0). Returns []
  *  on any failure — the caller then falls back to the plain single-query path, so a missing or
@@ -236,6 +255,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ...(opts.fusionConvex ? { fusionMode: "convex" as const, convex: opts.fusionConvex } : {}),
         ...(opts.temporal || temporalOverride ? { temporal: { enabled: true } } : {}),
         ...(opts.activation ? { activationFor: opts.activation } : {}),
+        ...(opts.metadataPrior ? { metadataPrior: opts.metadataPrior } : {}),
         ...(process.env.DENSIFY === "1" ? { densify: { includeInWalk: true } } : {}),
       });
       return normHits(res.map((r) => ({ chunk_id: r.chunk_id, path: r.path })));
@@ -335,6 +355,12 @@ async function main(): Promise<void> {
   // THE-404: `--decompose` — LLM sub-query decomposition for z-hard queries only
   // (DECOMPOSE_MODEL / DECOMPOSE_Z / DECOMPOSE_URL envs).
   const decompose = argv.includes("--decompose");
+  // `--metadata-prior` — POST-FUSION frontmatter authority boost with the representative rule set
+  // (METADATA_PRIOR_RULES). META_PRIOR_CLAMP overrides the 0.5 sub-dominance clamp fraction.
+  const metadataPrior = argv.includes("--metadata-prior");
+  const metaPriorClamp = process.env.META_PRIOR_CLAMP
+    ? Number(process.env.META_PRIOR_CLAMP)
+    : undefined;
   // THE-400: `--z-router <t>` routes on the z-margin; GATED_HARD_Z switches the rerank gate to z.
   const zRouterIdx = argv.indexOf("--z-router");
   const zRouterArg = zRouterIdx >= 0 ? Number(argv[zRouterIdx + 1]) : undefined;
@@ -364,6 +390,7 @@ async function main(): Promise<void> {
         "--smooth-expansion enables THE-401 continuous expansion scoring (cos·λ^(hop−1)·hub-penalty; replaces hop-sort + hard cap).\n" +
         "--fusion convex enables THE-398 score-normalized convex-combination fusion (CONVEX_ALPHA env, default 0.7).\n" +
         "--z-router <t> enables THE-400 z-margin routing (skip expansion when top-1 z >= t; replaces sim/margin rule).\n" +
+        "--metadata-prior enables the POST-FUSION frontmatter authority boost (representative rules; META_PRIOR_CLAMP env, default 0.5).\n" +
         "--decompose enables THE-404 sub-query decomposition for z-hard queries (Ollama; DECOMPOSE_MODEL/DECOMPOSE_Z envs).\n" +
         "--temporal enables the THE-221 conditional temporal stream (fires only on explicit temporal intent).\n" +
         "SPARSE_URL=<bge-m3 token_classify server> + --sparse fuses the learned-sparse stream into a NON-bge dense pipeline (THE-403).\n" +
@@ -511,6 +538,17 @@ async function main(): Promise<void> {
         { gatedRerank: { enabled: true, hardZ: hardZ ?? 1.0 } }
       : {}),
     ...(zRouterArg !== undefined && !Number.isNaN(zRouterArg) ? { zRouter: zRouterArg } : {}),
+    ...(metadataPrior
+      ? {
+          metadataPrior: {
+            enabled: true,
+            rules: METADATA_PRIOR_RULES,
+            ...(metaPriorClamp !== undefined && !Number.isNaN(metaPriorClamp)
+              ? { clampFraction: metaPriorClamp }
+              : {}),
+          },
+        }
+      : {}),
     ...(temporal ? { temporal: true } : {}),
     ...(activationLookup ? { activation: activationLookup } : {}),
     ...(classRouter ? { classRouter: true } : {}),
@@ -540,6 +578,7 @@ async function main(): Promise<void> {
     gatedRerank ? `gated rerank${hardZ !== undefined ? ` z<${hardZ}` : ""}` : null,
     fusionArg === "convex" ? `convex fusion a=${convexAlpha ?? 0.7}` : null,
     zRouterArg !== undefined ? `z-router@${zRouterArg}` : null,
+    metadataPrior ? `metadata-prior(clamp ${metaPriorClamp ?? 0.5})` : null,
     decompose ? `decompose(z<${process.env.DECOMPOSE_Z ?? 2.54})` : null,
     temporal ? "temporal stream" : null,
     activation ? "activation bubble" : null,
@@ -617,6 +656,7 @@ async function main(): Promise<void> {
       gatedRerank && "gated-rerank",
       fusionArg === "convex" && `convex@${convexAlpha ?? 0.7}`,
       zRouterArg !== undefined && `z-router@${zRouterArg}`,
+      metadataPrior && `metadata-prior@${metaPriorClamp ?? 0.5}`,
       decompose && `decompose@${process.env.DECOMPOSE_Z ?? 2.54}`,
       temporal && "temporal",
       activation && "activation",

@@ -580,6 +580,7 @@ async function run_prefetch(cmd: Cmd<"prefetch">): Promise<void> {
     reranker: null,
     roles: null,
     retrieval: cfg.retrieval,
+    ranking: cfg.ranking,
     classRouter: cfg.retrieval.classRouter,
     memoryFolder: (vaultId) => memByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER,
   });
@@ -1112,6 +1113,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     reranker,
     roles,
     retrieval: config.retrieval,
+    ranking: config.ranking,
     // THE-230: serve-path retrieval logging (experiential.logRetrievals).
     ...(retrievalLog ? { retrievalLog } : {}),
     // THE-187/193: activation bubble lookup (dark unless experiential.activationRerank).
