@@ -2,11 +2,15 @@
 //
 // content_hash is path-salted (chunk id is (vault, path, index)-keyed; the enriched embed text
 // carries the note title), so identical content pasted at two paths embeds + stores TWICE today.
-// body_sha keys on the RAW chunk body alone, so the indexer can embed the first walked copy and
-// STORE-but-skip-embedding the rest. These tests pin: (1) one embedding for a body shared across two
-// paths, both chunks still stored; (2) two embeddings for distinct bodies; (3) graceful degradation
-// when the body_sha column is absent (older cache.db) — no crash, chunks still stored, and the
-// in-memory per-run registry still dedups.
+// body_sha keys on the RAW chunk body alone, so the indexer embeds the first walked copy ONCE and,
+// for the rest, COPIES that stored vector rather than re-calling the provider (THE-454). The dedup
+// saving is the avoided provider call; every path still gets its own stored vector so it stays
+// retrievable by dense/sparse/ColBERT (not just FTS) and deleting the owner cannot strand it.
+// These tests pin: (1) one provider CALL but a vector per path for a shared body; (2) two providers
+// calls for distinct bodies; (3) on a pre-migration cache.db without the body_sha column the copy
+// can't match, so dedup is disabled and every chunk embeds (correctness over the optimization);
+// (4) cross-run dedup still avoids the provider call while copying the vector; (5) both duplicate
+// paths keep an independent vector, so the survivor is not stranded when the owner is deleted.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -43,9 +47,11 @@ describe("body_sha cross-path embedding dedup (migration 20260719_001)", () => {
       const res: ToolResult = await v.call("index_vault", { vault: v.id });
       expect(res.ok).toBe(true);
 
-      // Exactly ONE embedding computed for the shared body...
+      // The provider is called exactly ONCE for the shared body (the dedup saving)...
       expect(embedded.length).toBe(1);
-      expect(count(v, "SELECT COUNT(*) AS n FROM chunk_embeddings")).toBe(1);
+      // ...but BOTH paths get a stored vector (THE-454: the second is COPIED, not recomputed), so
+      // each path is retrievable by dense search, not just FTS.
+      expect(count(v, "SELECT COUNT(*) AS n FROM chunk_embeddings")).toBe(2);
 
       // ...yet BOTH paths are stored as chunk rows.
       expect(count(v, "SELECT COUNT(*) AS n FROM chunks WHERE path = 'one.md'")).toBe(1);
@@ -98,9 +104,11 @@ describe("body_sha cross-path embedding dedup (migration 20260719_001)", () => {
       expect(res.ok).toBe(true);
       expect(count(v, "SELECT COUNT(*) AS n FROM chunks")).toBe(2);
 
-      // The per-run dedup registry is in-memory, so cross-path dedup still holds without the column.
-      expect(embedded.length).toBe(1);
-      expect(count(v, "SELECT COUNT(*) AS n FROM chunk_embeddings")).toBe(1);
+      // THE-454: without the body_sha column the vector-copy cannot match a sibling, so dedup is
+      // DISABLED here — every chunk is embedded, keeping both paths retrievable (correctness over the
+      // optimization on a legacy pre-migration cache.db).
+      expect(embedded.length).toBe(2);
+      expect(count(v, "SELECT COUNT(*) AS n FROM chunk_embeddings")).toBe(2);
     } finally {
       v.cleanup();
     }
@@ -119,10 +127,48 @@ describe("body_sha cross-path embedding dedup (migration 20260719_001)", () => {
       writeFileSync(join(v.root, "two.md"), SHARED);
       expect((await v.call("index_vault", { vault: v.id })).ok).toBe(true);
 
-      // Cross-run dedup: two.md reuses one.md's embedding → still ONE embedding total, both stored.
+      // Cross-run dedup: two.md reuses one.md's embedding via the seeded registry → the provider is
+      // still called only ONCE, but two.md gets a COPIED vector (THE-454), so both paths are stored
+      // and dense-retrievable.
       expect(embedded.length).toBe(1);
-      expect(count(v, "SELECT COUNT(*) AS n FROM chunk_embeddings")).toBe(1);
+      expect(count(v, "SELECT COUNT(*) AS n FROM chunk_embeddings")).toBe(2);
       expect(count(v, "SELECT COUNT(*) AS n FROM chunks")).toBe(2);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("keeps an independent vector per path, so deleting the owner never strands the survivor (THE-454)", async () => {
+    const { provider, embedded } = countingProvider();
+    const v = makeM2Vault({ files: { "one.md": SHARED, "two.md": SHARED }, provider });
+    const embCount = (id: string): number =>
+      (
+        v.db.prepare("SELECT COUNT(*) AS n FROM chunk_embeddings WHERE chunk_id = ?").get(id) as {
+          n: number;
+        }
+      ).n;
+    try {
+      expect((await v.call("index_vault", { vault: v.id })).ok).toBe(true);
+      expect(embedded.length).toBe(1); // provider still called once
+
+      // Every chunk row — including the deduped duplicate — now carries its own embedding.
+      const allIds = (v.db.prepare("SELECT id FROM chunks").all() as Array<{ id: string }>).map(
+        (r) => r.id,
+      );
+      expect(allIds.length).toBeGreaterThan(1);
+      for (const id of allIds) expect(embCount(id)).toBe(1);
+
+      // Delete the vector-OWNING path (one.md) and its embedding, as deindex would.
+      const survivors = (
+        v.db.prepare("SELECT id FROM chunks WHERE path = 'two.md'").all() as Array<{ id: string }>
+      ).map((r) => r.id);
+      v.db.exec(
+        "DELETE FROM chunk_embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE path = 'one.md')",
+      );
+      v.db.exec("DELETE FROM chunks WHERE path = 'one.md'");
+
+      // The survivor keeps its own vector — before THE-454 it had none and vanished from dense search.
+      for (const id of survivors) expect(embCount(id)).toBe(1);
     } finally {
       v.cleanup();
     }

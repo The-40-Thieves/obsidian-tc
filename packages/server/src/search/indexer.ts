@@ -29,7 +29,7 @@ import {
 } from "./fts";
 import { scanSecrets } from "./secrets";
 import { deleteChunkSparse, ensureChunkSparse, type SparseVec, upsertChunkSparse } from "./sparse";
-import { ensureVecChunks, floatBlob, upsertVec } from "./vec";
+import { blobToFloats, ensureVecChunks, floatBlob, upsertVec } from "./vec";
 
 export interface IndexStats {
   notes_seen: number;
@@ -150,6 +150,10 @@ function computeNotePlan(
    *  a cache.db that predates the body_sha column. Callers on the batched indexVault path share ONE
    *  map across the whole walk; single-note paths pass a fresh (effectively empty) map. */
   bodyRegistry: Map<string, string> = new Map(),
+  /** THE-454: enable cross-path embedding dedup only when applyNoteWrites can later COPY the
+   *  sibling's stored vector to a skipEmbed chunk — i.e. when the body_sha column exists. Without
+   *  it, embed every chunk, or a duplicate path would be left with no vector (dense-invisible). */
+  dedupEnabled = false,
 ): PlanResult {
   const body = parseNote(raw).body;
   // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
@@ -201,17 +205,19 @@ function computeNotePlan(
   // reused/skipped — embedPlans never sends it to the provider and applyNoteWrites writes no
   // embedding row for it. Same-path repeats keep firstPath === path and are never skipped (an index
   // shift is change detection's job, not dedup's).
-  for (const d of desired) {
-    if (!bodyRegistry.has(d.bodySha)) bodyRegistry.set(d.bodySha, path);
-  }
-  for (const d of toEmbed) {
-    const firstPath = bodyRegistry.get(d.bodySha);
-    if (firstPath !== undefined && firstPath !== path) {
-      d.skipEmbed = true;
-      process.stderr.write(
-        `[ingest] body-sha dedup: ${path}#${d.index} reuses the embedding already computed for ` +
-          `${firstPath} (identical body); stored without re-embedding\n`,
-      );
+  if (dedupEnabled) {
+    for (const d of desired) {
+      if (!bodyRegistry.has(d.bodySha)) bodyRegistry.set(d.bodySha, path);
+    }
+    for (const d of toEmbed) {
+      const firstPath = bodyRegistry.get(d.bodySha);
+      if (firstPath !== undefined && firstPath !== path) {
+        d.skipEmbed = true;
+        process.stderr.write(
+          `[ingest] body-sha dedup: ${path}#${d.index} reuses the embedding already computed for ` +
+            `${firstPath} (identical body); the vector is copied, not recomputed\n`,
+        );
+      }
     }
   }
   if (toEmbed.length === 0 && !willPrune) {
@@ -433,6 +439,57 @@ function hasBodyShaColumn(db: Database): boolean {
 const DELETE_CONTRADICTIONS_SQL =
   "DELETE FROM contradictions WHERE source_chunk_id = ? OR conflict_chunk_id = ?";
 
+// THE-454: copy an identical body's already-stored vectors onto a cross-path-dedup (skipEmbed) chunk
+// so it stays retrievable by dense/sparse/ColBERT, not just FTS. The source is another chunk (c.id !=
+// target) with the same body_sha + model; it is visible because the owner's plan was applied earlier
+// in this same transaction (walk order) or committed in a prior run (THE-445 seed). If the owner has
+// no stored embedding (e.g. it was quarantined), nothing is copied — the chunk degrades to FTS-only,
+// no worse than before. Requires the body_sha column (guaranteed: skipEmbed is only set when it
+// exists, see computeNotePlan dedupEnabled).
+function copyDedupVectors(
+  db: Database,
+  args: {
+    targetId: string;
+    bodySha: string;
+    vaultId: string;
+    path: string;
+    model: string;
+    ts: number;
+    hasVec: boolean;
+    hasChunkSparse: boolean;
+    hasChunkColbert: boolean;
+  },
+): void {
+  const src = cachedPrepare(
+    db,
+    "SELECT e.embedding AS embedding, e.dimensions AS dimensions FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND e.model = ? AND e.is_active = 1 AND c.id != ? LIMIT 1",
+  ).get(args.vaultId, args.bodySha, args.model, args.targetId) as
+    | { embedding: Uint8Array; dimensions: number }
+    | undefined;
+  if (!src) return;
+  cachedPrepare(
+    db,
+    "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
+  ).run(args.targetId, args.model, src.dimensions, src.embedding, args.ts);
+  if (args.hasVec)
+    upsertVec(db, args.targetId, Array.from(blobToFloats(src.embedding)), {
+      vaultId: args.vaultId,
+      path: args.path,
+      model: args.model,
+    });
+  // sparse + ColBERT are plain TEXT columns — copy the sibling's row directly by body_sha.
+  if (args.hasChunkSparse)
+    cachedPrepare(
+      db,
+      "INSERT INTO chunk_sparse (chunk_id, vault_id, weights) SELECT ?, ?, s.weights FROM chunk_sparse s JOIN chunks c ON c.id = s.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.id != ? LIMIT 1 ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, weights = excluded.weights",
+    ).run(args.targetId, args.vaultId, args.vaultId, args.bodySha, args.targetId);
+  if (args.hasChunkColbert)
+    cachedPrepare(
+      db,
+      "INSERT INTO chunk_colbert (chunk_id, vault_id, vectors) SELECT ?, ?, cb.vectors FROM chunk_colbert cb JOIN chunks c ON c.id = cb.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.id != ? LIMIT 1 ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, vectors = excluded.vectors",
+    ).run(args.targetId, args.vaultId, args.vaultId, args.bodySha, args.targetId);
+}
+
 // Apply a note's write plan (prune + upserts). Contains NO transaction control — the CALLER owns
 // BEGIN/COMMIT/ROLLBACK, so one transaction can batch many notes' applies.
 function applyNoteWrites(
@@ -518,12 +575,26 @@ function applyNoteWrites(
         plan.ts,
       );
     }
-    // Cross-path dedup (migration 20260719_001): a reused/skipped body was never embedded this run,
-    // so write NO embedding / vec / sparse / colbert for it — the identical body's vector already
-    // lives at the first walked path. The chunk stays lexically searchable via chunk_fts below.
+    // Cross-path dedup (migration 20260719_001): a reused/skipped body was never sent to the
+    // provider this run. THE-454: instead of writing NO vector (which left the chunk invisible to
+    // dense/sparse/ColBERT retrieval and stranded it when the owner was deleted), COPY the identical
+    // body's already-stored vectors from the first walked path — same provider call cost, but every
+    // path stays semantically retrievable.
     if (!d.skipEmbed) {
       upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
       if (hasVec) upsertVec(db, d.id, vec, { vaultId, path: plan.path, model: provider.id });
+    } else {
+      copyDedupVectors(db, {
+        targetId: d.id,
+        bodySha: d.bodySha,
+        vaultId,
+        path: plan.path,
+        model: provider.id,
+        ts: plan.ts,
+        hasVec,
+        hasChunkSparse,
+        hasChunkColbert,
+      });
     }
     // THE-406: BM25 matches on the same text the dense vector embeds (enriched when the flag is
     // on); bm25Chunks JOINs chunks for the raw display content, so search output is unchanged.
@@ -922,6 +993,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       now(),
       args.chunkContext === true,
       bodyRegistry,
+      hasBodySha, // THE-454: dedup (and thus vector-copy) only when the body_sha column exists
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
