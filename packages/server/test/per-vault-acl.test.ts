@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FolderAcl } from "../src/acl";
+import { FolderAcl, makeIndexReadable } from "../src/acl";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM1Tools } from "../src/tools/m1";
@@ -131,5 +131,57 @@ describe("per-vault ACL (THE-295)", () => {
     } finally {
       h.cleanup();
     }
+  });
+});
+
+describe("makeIndexReadable — per-vault ACL at INDEXING time (THE-453)", () => {
+  it("honors a restrictive vault override that a permissive root would allow (no leak to embeddings)", () => {
+    // Root allows everything; vault "secret" restricts reads to public/**.
+    const rootAcl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
+    const aclByVault = new Map<string, FolderAcl>([
+      [
+        "secret",
+        new FolderAcl({
+          readOnly: false,
+          defaultScopes: [],
+          rules: [],
+          readPaths: ["public/**"],
+        }),
+      ],
+    ]);
+    const readableFor = makeIndexReadable(rootAcl, aclByVault);
+
+    // The bug: indexing closed over the ROOT acl, so a vault-denied note was still indexed/embedded.
+    const secret = readableFor("secret");
+    expect(secret("private/diary.md")).toBe(false); // vault override denies -> never embedded
+    expect(secret("public/notes.md")).toBe(true); // vault override allows
+
+    // A vault with no override falls back to the permissive root, unchanged.
+    const other = readableFor("other");
+    expect(other("private/diary.md")).toBe(true);
+  });
+
+  it("honors a permissive vault override that a restrictive root would block", () => {
+    // Root is strict-deny by default; vault "open" opens everything.
+    const rootAcl = new FolderAcl({
+      readOnly: false,
+      defaultScopes: [],
+      rules: [],
+      strictReadDefault: true,
+    });
+    const aclByVault = new Map<string, FolderAcl>([
+      ["open", new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] })],
+    ]);
+    const readableFor = makeIndexReadable(rootAcl, aclByVault);
+
+    expect(readableFor("open")("anything.md")).toBe(true); // vault override permits
+    expect(readableFor("locked")("anything.md")).toBe(false); // falls back to strict root
+  });
+
+  it("default-denied paths stay denied regardless of ACL", () => {
+    const rootAcl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
+    const readableFor = makeIndexReadable(rootAcl, new Map());
+    // .obsidian/** and similar are hard-denied by isDefaultDenied even under an allow-all root.
+    expect(readableFor("v")(".obsidian/workspace.json")).toBe(false);
   });
 });
