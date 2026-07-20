@@ -19,17 +19,20 @@ export interface JwtIdentity {
 export async function verifyJwt(
   token: string,
   secret: string,
-  opts: { maxAgeSeconds?: number } = {},
+  opts: { maxAgeSeconds?: number; audience?: string | string[]; issuer?: string } = {},
 ): Promise<JwtIdentity> {
   if (!secret) throw new Error("empty secret not allowed");
 
   // requiredClaims:["exp"] closes the "token without exp never expires" gap — jose only
   // enforces expiry when exp is present, so demand it. maxAgeSeconds (from auth.tokenTtlSeconds)
   // additionally caps token age, but only when the token carries iat, so existing exp-only
-  // tokens keep working.
+  // tokens keep working. THE-456: audience/issuer are enforced by jose only when configured
+  // (undefined = not checked), so local self-issued tokens are unaffected.
   const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
     algorithms: ["HS256"],
     requiredClaims: ["exp"],
+    ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
+    ...(opts.issuer !== undefined ? { issuer: opts.issuer } : {}),
   });
   return identityFrom(payload, opts.maxAgeSeconds);
 }
@@ -47,12 +50,22 @@ export const DEFAULT_ASYMMETRIC_ALGS = ["RS256", "ES256", "EdDSA"];
 export async function verifyJwtJwks(
   token: string,
   jwks: Record<string, unknown>,
-  opts: { maxAgeSeconds?: number; algorithms?: string[] } = {},
+  opts: {
+    maxAgeSeconds?: number;
+    algorithms?: string[];
+    audience?: string | string[];
+    issuer?: string;
+  } = {},
 ): Promise<JwtIdentity> {
   const keySet = createLocalJWKSet(jwks as unknown as Parameters<typeof createLocalJWKSet>[0]);
+  // THE-456: on the asymmetric/JWKS path a shared external issuer can mint tokens for many
+  // resources, so audience binding is what stops a token issued for another service being replayed
+  // here (confused-deputy). Enforced by jose only when configured.
   const { payload } = await jwtVerify(token, keySet, {
     algorithms: opts.algorithms ?? DEFAULT_ASYMMETRIC_ALGS,
     requiredClaims: ["exp"],
+    ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
+    ...(opts.issuer !== undefined ? { issuer: opts.issuer } : {}),
   });
   return identityFrom(payload, opts.maxAgeSeconds);
 }

@@ -96,6 +96,19 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
     (opts.auth.jwksFile
       ? (JSON.parse(readFileSync(opts.auth.jwksFile, "utf8")) as Record<string, unknown>)
       : undefined);
+  // THE-456: bind the token audience. An explicit auth.audience wins; otherwise, when PRM is
+  // configured, default it to the canonical `resource` URI (RFC 9728 / MCP 2025-11-25 require a
+  // protected resource to accept only tokens whose aud is itself). Undefined keeps the legacy
+  // behavior for local self-issued HS256. A JWKS (shared external issuer) with no effective
+  // audience is the confused-deputy hole, so warn.
+  const audience =
+    opts.auth.audience ?? (isPrmConfigured(opts.auth) ? opts.auth.resource : undefined);
+  if (jwks && audience === undefined) {
+    process.stderr.write(
+      "auth: JWKS configured without an audience — set auth.audience (or auth.resource) so tokens " +
+        "minted by the same issuer for a different service are rejected (THE-456)\n",
+    );
+  }
   const verifier: TokenVerifier | null =
     opts.verifier ??
     (opts.auth.mode === "jwt" && (opts.auth.jwtSecret || jwks)
@@ -104,6 +117,8 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
           jwks,
           algorithms: opts.auth.algorithms,
           maxAgeSeconds: opts.auth.tokenTtlSeconds,
+          audience,
+          issuer: opts.auth.issuer,
         })
       : null);
 

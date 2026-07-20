@@ -86,6 +86,14 @@ export const AuthConfigSchema = z
     jwks: z.record(z.string(), z.unknown()).optional(),
     jwksFile: z.string().optional(),
     algorithms: z.array(z.string()).optional(),
+    // THE-456 — audience/issuer binding. When set, the JWT verifier enforces them (jose rejects a
+    // token whose `aud`/`iss` does not match), closing the confused-deputy / token-passthrough gap
+    // the MCP 2025-11-25 authorization spec requires of a protected resource. `audience` defaults to
+    // the configured `resource` URI (below) when PRM is set, so a token an external AS minted for a
+    // DIFFERENT service is rejected here. Both unset (and no PRM `resource`) keeps the current
+    // behavior for local self-issued HS256 tokens.
+    audience: z.union([z.string(), z.array(z.string())]).optional(),
+    issuer: z.string().optional(),
     // MCP 2025-11-25 / RFC 9728 Protected Resource Metadata (THE-278). All optional; the HS256 token
     // format is unchanged. When `resource` + at least one `authorizationServers` entry are set, the
     // HTTP transport advertises a spec-compliant PRM document + WWW-Authenticate challenge for the
