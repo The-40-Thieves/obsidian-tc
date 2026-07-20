@@ -145,11 +145,15 @@ function computeNotePlan(
   raw: string,
   ts: number,
   enrich: boolean,
-  /** Cross-path embedding dedup (migration 20260719_001): a per-RUN registry of body_sha -> the
-   *  first walked path carrying that raw body. Purely in-memory, so cross-path dedup works even on
+  /** Cross-path embedding dedup (migration 20260719_001): a per-RUN registry of content_hash -> the
+   *  first walked path producing that EMBED text. Keying on content_hash (not the raw body_sha) is
+   *  what makes dedup safe under contextual enrichment (THE-406): content_hash covers the title +
+   *  breadcrumb + body actually embedded, so two identical bodies under DIFFERENT titles no longer
+   *  collide and no longer share a (wrongly-titled) vector; with enrichment off it equals the raw-body
+   *  hash, so cross-path dedup of identical bodies is unchanged. Purely in-memory, so it works even on
    *  a cache.db that predates the body_sha column. Callers on the batched indexVault path share ONE
    *  map across the whole walk; single-note paths pass a fresh (effectively empty) map. */
-  bodyRegistry: Map<string, string> = new Map(),
+  dedupRegistry: Map<string, string> = new Map(),
   /** THE-454: enable cross-path embedding dedup only when applyNoteWrites can later COPY the
    *  sibling's stored vector to a skipEmbed chunk — i.e. when the body_sha column exists. Without
    *  it, embed every chunk, or a duplicate path would be left with no vector (dense-invisible). */
@@ -207,15 +211,15 @@ function computeNotePlan(
   // shift is change detection's job, not dedup's).
   if (dedupEnabled) {
     for (const d of desired) {
-      if (!bodyRegistry.has(d.bodySha)) bodyRegistry.set(d.bodySha, path);
+      if (!dedupRegistry.has(d.contentHash)) dedupRegistry.set(d.contentHash, path);
     }
     for (const d of toEmbed) {
-      const firstPath = bodyRegistry.get(d.bodySha);
+      const firstPath = dedupRegistry.get(d.contentHash);
       if (firstPath !== undefined && firstPath !== path) {
         d.skipEmbed = true;
         process.stderr.write(
-          `[ingest] body-sha dedup: ${path}#${d.index} reuses the embedding already computed for ` +
-            `${firstPath} (identical body); the vector is copied, not recomputed\n`,
+          `[ingest] embed-text dedup: ${path}#${d.index} reuses the embedding already computed for ` +
+            `${firstPath} (identical embed text); the vector is copied, not recomputed\n`,
         );
       }
     }
@@ -439,18 +443,23 @@ function hasBodyShaColumn(db: Database): boolean {
 const DELETE_CONTRADICTIONS_SQL =
   "DELETE FROM contradictions WHERE source_chunk_id = ? OR conflict_chunk_id = ?";
 
-// THE-454: copy an identical body's already-stored vectors onto a cross-path-dedup (skipEmbed) chunk
-// so it stays retrievable by dense/sparse/ColBERT, not just FTS. The source is another chunk (c.id !=
-// target) with the same body_sha + model; it is visible because the owner's plan was applied earlier
-// in this same transaction (walk order) or committed in a prior run (THE-445 seed). If the owner has
-// no stored embedding (e.g. it was quarantined), nothing is copied — the chunk degrades to FTS-only,
-// no worse than before. Requires the body_sha column (guaranteed: skipEmbed is only set when it
-// exists, see computeNotePlan dedupEnabled).
+// THE-454: copy an identical EMBED TEXT's already-stored vectors onto a cross-path-dedup (skipEmbed)
+// chunk so it stays retrievable by dense/sparse/ColBERT, not just FTS. The source is another chunk
+// (c.id != target) with the same embed representation + model. It MUST match on content_hash (the
+// enriched embed-text hash under THE-406), not body_sha alone: two identical raw bodies under
+// DIFFERENT titles share a body_sha but embed different text, so copying by body_sha handed the second
+// note the first note's (wrongly-titled) vector. body_sha stays in the predicate purely as the indexed
+// access path (index chunks_body_sha); content_hash enforces correctness. The owner is visible because
+// its plan was applied earlier in this same transaction (walk order) or committed in a prior run
+// (THE-445 seed). If the owner has no stored embedding (e.g. it was quarantined), nothing is copied —
+// the chunk degrades to FTS-only, no worse than before. Requires the body_sha column (guaranteed:
+// skipEmbed is only set when it exists, see computeNotePlan dedupEnabled).
 function copyDedupVectors(
   db: Database,
   args: {
     targetId: string;
     bodySha: string;
+    contentHash: string;
     vaultId: string;
     path: string;
     model: string;
@@ -462,8 +471,8 @@ function copyDedupVectors(
 ): void {
   const src = cachedPrepare(
     db,
-    "SELECT e.embedding AS embedding, e.dimensions AS dimensions FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND e.model = ? AND e.is_active = 1 AND c.id != ? LIMIT 1",
-  ).get(args.vaultId, args.bodySha, args.model, args.targetId) as
+    "SELECT e.embedding AS embedding, e.dimensions AS dimensions FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND e.model = ? AND e.is_active = 1 AND c.id != ? LIMIT 1",
+  ).get(args.vaultId, args.bodySha, args.contentHash, args.model, args.targetId) as
     | { embedding: Uint8Array; dimensions: number }
     | undefined;
   if (!src) return;
@@ -477,17 +486,18 @@ function copyDedupVectors(
       path: args.path,
       model: args.model,
     });
-  // sparse + ColBERT are plain TEXT columns — copy the sibling's row directly by body_sha.
+  // sparse + ColBERT are plain TEXT columns — copy the sibling's row directly (same body_sha index
+  // access path, content_hash for correctness).
   if (args.hasChunkSparse)
     cachedPrepare(
       db,
-      "INSERT INTO chunk_sparse (chunk_id, vault_id, weights) SELECT ?, ?, s.weights FROM chunk_sparse s JOIN chunks c ON c.id = s.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.id != ? LIMIT 1 ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, weights = excluded.weights",
-    ).run(args.targetId, args.vaultId, args.vaultId, args.bodySha, args.targetId);
+      "INSERT INTO chunk_sparse (chunk_id, vault_id, weights) SELECT ?, ?, s.weights FROM chunk_sparse s JOIN chunks c ON c.id = s.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND c.id != ? LIMIT 1 ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, weights = excluded.weights",
+    ).run(args.targetId, args.vaultId, args.vaultId, args.bodySha, args.contentHash, args.targetId);
   if (args.hasChunkColbert)
     cachedPrepare(
       db,
-      "INSERT INTO chunk_colbert (chunk_id, vault_id, vectors) SELECT ?, ?, cb.vectors FROM chunk_colbert cb JOIN chunks c ON c.id = cb.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.id != ? LIMIT 1 ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, vectors = excluded.vectors",
-    ).run(args.targetId, args.vaultId, args.vaultId, args.bodySha, args.targetId);
+      "INSERT INTO chunk_colbert (chunk_id, vault_id, vectors) SELECT ?, ?, cb.vectors FROM chunk_colbert cb JOIN chunks c ON c.id = cb.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND c.id != ? LIMIT 1 ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, vectors = excluded.vectors",
+    ).run(args.targetId, args.vaultId, args.vaultId, args.bodySha, args.contentHash, args.targetId);
 }
 
 // Apply a note's write plan (prune + upserts). Contains NO transaction control — the CALLER owns
@@ -587,6 +597,7 @@ function applyNoteWrites(
       copyDedupVectors(db, {
         targetId: d.id,
         bodySha: d.bodySha,
+        contentHash: d.contentHash,
         vaultId,
         path: plan.path,
         model: provider.id,
@@ -842,22 +853,24 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const hasChunkColbert = hasEmbedFull && ensureChunkColbert(args.db);
   const hasBodySha = hasBodyShaColumn(args.db);
   // Cross-path embedding dedup (migration 20260719_001): ONE registry shared across the whole walk,
-  // so a body embedded under the first walked path is reused/skipped everywhere else this pass. Purely
-  // in-memory — works even when the body_sha column is absent.
-  const bodyRegistry = new Map<string, string>();
-  // THE-445: seed the registry from bodies already embedded in a PRIOR run, so a body indexed under
-  // an UNCHANGED path (never re-walked this pass, hence not registered below) still dedups a new path
-  // carrying the same content. First path wins (deterministic by path). Only when the column exists.
-  // Caveat: if a seeded first path's content CHANGES this same run, a same-body new path defers to a
-  // now-stale first path; it self-heals on the next reindex (the new path then becomes the first).
+  // so an EMBED text produced under the first walked path is reused/skipped everywhere else this pass.
+  // Keyed on content_hash (the enriched embed text under THE-406), not the raw body_sha, so distinctly
+  // titled notes never share a vector. Purely in-memory — works even when the body_sha column is absent.
+  const dedupRegistry = new Map<string, string>();
+  // THE-445: seed the registry from embed texts already embedded in a PRIOR run, so content indexed
+  // under an UNCHANGED path (never re-walked this pass, hence not registered below) still dedups a new
+  // path carrying the same embed text. First path wins (deterministic by path). Gated on hasBodySha,
+  // which mirrors when the copy path is active (dedupEnabled). Caveat: if a seeded first path's content
+  // CHANGES this same run, a same-embed-text new path defers to a now-stale first path; it self-heals
+  // on the next reindex (the new path then becomes the first).
   if (hasBodySha) {
     const seeded = args.db
       .prepare(
-        "SELECT body_sha AS bodySha, path FROM chunks WHERE vault_id = ? AND body_sha IS NOT NULL ORDER BY path, chunk_index",
+        "SELECT content_hash AS contentHash, path FROM chunks WHERE vault_id = ? ORDER BY path, chunk_index",
       )
-      .all(args.vaultId) as Array<{ bodySha: string; path: string }>;
+      .all(args.vaultId) as Array<{ contentHash: string; path: string }>;
     for (const row of seeded) {
-      if (!bodyRegistry.has(row.bodySha)) bodyRegistry.set(row.bodySha, row.path);
+      if (!dedupRegistry.has(row.contentHash)) dedupRegistry.set(row.contentHash, row.path);
     }
   }
   const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
@@ -992,7 +1005,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       raw,
       now(),
       args.chunkContext === true,
-      bodyRegistry,
+      dedupRegistry,
       hasBodySha, // THE-454: dedup (and thus vector-copy) only when the body_sha column exists
     );
     stats.chunks_unchanged += unchanged;
