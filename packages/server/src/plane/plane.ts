@@ -68,6 +68,10 @@ export interface PlaneSchedulerDeps {
   now?: () => number;
   onRun?: (results: Record<string, JobResult>) => void;
   onError?: (e: unknown) => void;
+  /** THE-457: called when a tick is skipped because the previous runAll is still in flight; the
+   *  argument is the running count of skipped ticks (an operator signal that runs exceed the
+   *  interval). */
+  onSkip?: (skipped: number) => void;
 }
 
 /**
@@ -77,7 +81,23 @@ export interface PlaneSchedulerDeps {
  * generative jobs degrade without them, but scheduling then is pure DB churn.
  */
 export function startPlaneScheduler(plane: SleepTimePlane, deps: PlaneSchedulerDeps): () => void {
+  // THE-457: single-flight guard. setInterval fires on a fixed cadence regardless of how long the
+  // previous runAll takes, so a consolidation that exceeds the interval would otherwise start a
+  // second, overlapping run (concurrent DB churn, duplicated work). Skip a tick while a run is still
+  // in flight and surface the skip count instead.
+  let running = false;
+  let skipped = 0;
   const timer = setInterval(() => {
+    if (running) {
+      skipped += 1;
+      try {
+        deps.onSkip?.(skipped);
+      } catch {
+        /* skip sink must never throw */
+      }
+      return;
+    }
+    running = true;
     void plane
       .runAll({ db: deps.db, roles: deps.roles, now: deps.now ?? Date.now })
       .then((results) => deps.onRun?.(results))
@@ -87,6 +107,9 @@ export function startPlaneScheduler(plane: SleepTimePlane, deps: PlaneSchedulerD
         } catch {
           /* error sink must never throw */
         }
+      })
+      .finally(() => {
+        running = false;
       });
   }, deps.intervalMs);
   timer.unref();
