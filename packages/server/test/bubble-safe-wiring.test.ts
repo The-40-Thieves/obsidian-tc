@@ -111,4 +111,38 @@ describe("bubble-safe activation composition wiring (THE-233)", () => {
     });
     expect(on.map((x) => x.chunk_id)).toEqual(["cA", "cB", "cC"]);
   });
+
+  // THE-447: the DEFAULT graph_rrf/convex path projects directly (bypassing finalize). These pin
+  // that the composition is now pre-plumbed there too — strictly off by default, and bounded when on.
+  describe("default graph_rrf path (THE-447 pre-plumb)", () => {
+    const rrf = { ...common, fusionMode: "graph_rrf" as const };
+    const ids = (r: GraphSearchResult[]) => r.map((x) => x.chunk_id);
+
+    it("is byte-identical when disabled (activationFor present, opt off) on the default path", async () => {
+      const baseline = await graphSearch(seed(), rrf); // no activationFor
+      const withActInert = await graphSearch(seed(), { ...rrf, activationFor }); // opt absent
+      const explicitOff = await graphSearch(seed(), {
+        ...rrf,
+        activationFor,
+        bubbleSafe: { enabled: false, k: 0.4 },
+      });
+      expect(ids(withActInert)).toEqual(ids(baseline));
+      expect(ids(explicitOff)).toEqual(ids(baseline));
+    });
+
+    it("when enabled, folds activation into the default projection within the one-swap bound", async () => {
+      const off = await graphSearch(seed(), { ...rrf, activationFor });
+      const on = await graphSearch(seed(), {
+        ...rrf,
+        activationFor,
+        bubbleSafe: { enabled: true },
+      });
+      // one-swap bound holds versus the disabled order, and the boosted item never moves DOWN.
+      for (const id of ["cA", "cB", "cC"]) {
+        expect(Math.abs(pos(on, id) - pos(off, id))).toBeLessThanOrEqual(1);
+      }
+      expect(pos(on, "cC")).toBeLessThanOrEqual(pos(off, "cC"));
+      expect(on.length).toBe(off.length);
+    });
+  });
 });
