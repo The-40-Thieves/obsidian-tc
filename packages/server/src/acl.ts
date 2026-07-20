@@ -102,3 +102,24 @@ export class FolderAcl {
     return this.cfg.deletePaths;
   }
 }
+
+/**
+ * THE-453: build the indexing read-visibility predicate factory. Resolves the EFFECTIVE ACL per
+ * vault (per-vault override, falling back to the root default) — the same resolution the dispatch
+ * aclResolver does — so a vault's readPaths/strictReadDefault override is honored at INDEXING time,
+ * not just at retrieval. Closing over the root ACL for every vault let a path a vault-override
+ * DENIES still be read, embedded and sent to the embedding provider (an ingestion-time
+ * confidentiality breach retrieval-time filtering cannot undo), and let a restrictive root wrongly
+ * block a path a vault-override permits.
+ */
+export function makeIndexReadable(
+  rootAcl: FolderAcl,
+  aclByVault: Map<string, FolderAcl>,
+): (vaultId: string) => (rel: string) => boolean {
+  return (vaultId) => (rel) => {
+    const a = aclByVault.get(vaultId) ?? rootAcl;
+    if (isDefaultDenied(rel)) return false;
+    if (a.readPaths === undefined) return a.strictReadDefault !== true;
+    return a.readPaths.some((g) => globMatch(g, rel));
+  };
+}

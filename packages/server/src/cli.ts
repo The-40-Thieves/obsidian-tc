@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { parse as parseYaml } from "yaml";
 import { version as VERSION } from "../package.json";
-import { FolderAcl, globMatch, isDefaultDenied } from "./acl";
+import { FolderAcl, makeIndexReadable } from "./acl";
 import { writeEvent } from "./audit";
 import {
   type BridgeClient,
@@ -908,12 +908,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
     }
   };
-  // indexReadable: ACL read-visibility filter shared by the boot reconcile and runtime add_vault.
-  const indexReadable = (rel: string): boolean => {
-    if (isDefaultDenied(rel)) return false;
-    if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
-    return acl.readPaths.some((g) => globMatch(g, rel));
-  };
+  // indexReadableFor: per-vault ACL read-visibility filter shared by the boot reconcile and runtime
+  // add_vault (THE-453). makeIndexReadable resolves each vault's effective ACL (override ?? root),
+  // mirroring the dispatch aclResolver, so indexing never reads/embeds a vault-denied path.
+  const indexReadableFor = makeIndexReadable(acl, aclByVault);
   registerM1Tools(registry, {
     vaultRegistry,
     version: VERSION,
@@ -950,7 +948,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       }
     },
     // THE-376: runtime add_vault triggers a full index of the newly registered vault
-    // (mirrors the boot reconcile below). indexReadable is defined just above.
+    // (mirrors the boot reconcile below). indexReadableFor is defined just above.
     indexVault: async (vaultId) => {
       const s = await indexVault({
         db,
@@ -960,7 +958,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         densify: config.retrieval.densify,
         vaultId,
         root: vaultRegistry.resolve(vaultId).root,
-        isReadable: indexReadable,
+        isReadable: indexReadableFor(vaultId),
         now: Date.now,
         onIndexed: makeOnIndexed(vaultId),
         onNotesPass: () => {
@@ -1209,7 +1207,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         densify: config.retrieval.densify,
         vaultId: v.id,
         root: vaultRegistry.resolve(v.id).root,
-        isReadable: indexReadable,
+        isReadable: indexReadableFor(v.id),
         now: Date.now,
         onIndexed: makeOnIndexed(v.id),
         // THE-291: metadata/FTS readiness is independent of embed success.
