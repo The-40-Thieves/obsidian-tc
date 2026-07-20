@@ -693,7 +693,7 @@ async function graphSearchCore(
         ];
       }
     }
-    return capped.map((c) => toResult(c, scoreOfWithPrior(c)));
+    return projectWithBubbleSafe(capped, scoreOfWithPrior, opts);
   }
 
   // rrf_rerank: rerank the top-RRF pool for the final order.
@@ -1022,6 +1022,32 @@ function finalize(
     score,
     rerankScore: score,
     activationScore: activationFor(item.chunk_id) ?? null,
+  }));
+  return bubbleSafeRerank(withActivation, { k: opts.bubbleSafe.k }).map((r) =>
+    toResult(r.item, r.score),
+  );
+}
+
+// THE-447: the default graph_rrf/convex path projects directly (it does NOT route through
+// finalize), so the bubble-safe composition is pre-plumbed here too — strictly off by default.
+// Without opts.bubbleSafe.enabled (or without activationFor) this is BYTE-IDENTICAL to the prior
+// `capped.map((c) => toResult(c, scoreOf(c)))` projection, so the default path is unchanged until a
+// live signal (e.g. activation once THE-228 populates chunk_retrievals) turns it on and it is
+// measured on the golden set.
+function projectWithBubbleSafe(
+  items: Candidate[],
+  scoreOf: (c: Candidate) => number,
+  opts: GraphSearchOptions,
+): GraphSearchResult[] {
+  const activationFor = opts.activationFor;
+  if (!opts.bubbleSafe?.enabled || !activationFor) {
+    return items.map((c) => toResult(c, scoreOf(c)));
+  }
+  const withActivation = items.map((c) => ({
+    item: c,
+    score: scoreOf(c),
+    rerankScore: scoreOf(c),
+    activationScore: activationFor(c.chunk_id) ?? null,
   }));
   return bubbleSafeRerank(withActivation, { k: opts.bubbleSafe.k }).map((r) =>
     toResult(r.item, r.score),
