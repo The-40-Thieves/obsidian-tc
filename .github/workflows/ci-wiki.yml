@@ -1,0 +1,64 @@
+name: ci-wiki
+
+# GitHub wiki publisher (THE-475). On push to main, mirror the seed pages in docs/wiki/ (some
+# hand-authored, some docgen-generated) into the repo's wiki — a SEPARATE git repo at
+# <repo>.wiki.git. The drift gate (ci-docgen) guarantees the committed docs/wiki/ pages are fresh, so
+# this just syncs them.
+#
+# PREREQUISITES (one-time, manual):
+#   1. Enable Wikis: repo Settings -> Features -> Wikis.
+#   2. Create a Home page once in the web UI so the .wiki.git remote exists.
+#   3. (Recommended) Add a repo secret WIKI_TOKEN — a fine-grained PAT / App token with wiki write.
+#      The default GITHUB_TOKEN cannot push to a wiki on many repos.
+# Until (1)+(2) are done this job SKIPS cleanly (no red X) — it never fails a push for a repo whose
+# wiki isn't enabled yet.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/wiki/**'
+      - '.github/workflows/ci-wiki.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-wiki
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: publish docs/wiki -> GitHub wiki
+        env:
+          # Prefer a dedicated wiki-write token; fall back to GITHUB_TOKEN (works on repos that allow it).
+          WIKI_TOKEN: ${{ secrets.WIKI_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          WIKI_URL="https://x-access-token:${WIKI_TOKEN}@github.com/${REPO}.wiki.git"
+
+          if ! git ls-remote "$WIKI_URL" >/dev/null 2>&1; then
+            echo "::notice title=Wiki not enabled::No ${REPO}.wiki.git yet. Enable Wikis + create a Home page once to activate publishing (see this workflow's header). Skipping."
+            exit 0
+          fi
+
+          git clone --depth 1 "$WIKI_URL" wiki
+          # Additive sync: copy the seed pages over; never delete pages authored directly in the wiki.
+          cp docs/wiki/*.md wiki/
+
+          cd wiki
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "::notice::wiki already up to date"
+            exit 0
+          fi
+          git add -A
+          git commit -m "docs(wiki): sync from docs/wiki @ ${SHA}"
+          git push
+          echo "::notice title=Wiki published::synced $(find ../docs/wiki -maxdepth 1 -name '*.md' | wc -l) pages"
