@@ -129,6 +129,14 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 |---|---|---|---|---|
 | `idempotencyTtlSeconds` | `number` | `86400` |  |  |
 
+### `indexing`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `indexing.queueMax` | `number` | `1000` |  |  |
+| `indexing.writeConcurrency` | `number` | `8` |  |  |
+| `indexing.writeConcurrencyPerVault` | `number` | `4` |  |  |
+
 ### `maintenance`
 
 | Key | Type | Default | Required | Description |
