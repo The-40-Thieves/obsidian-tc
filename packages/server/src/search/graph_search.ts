@@ -44,6 +44,9 @@ export interface GraphSearchOptions {
   vaultId: string;
   seedCount?: number;
   finalTopK?: number;
+  /** THE-459 (additive, observability-only): fired once per retrieval stage with its candidate
+   *  count. Default undefined -> no behavior change. THE-465 will formalize typed stages. */
+  onStage?: (stage: string, count: number) => void;
   maxExpansionChunks?: number;
   hopLimit?: number;
   similarityThreshold?: number;
@@ -407,11 +410,13 @@ async function graphSearchCore(
       streamRank: seedRank++,
     });
   }
+  opts.onStage?.("seed", candidates.length);
   for (const c of expansionChunks) {
     if (seen.has(c.chunk_id)) continue;
     seen.add(c.chunk_id);
     candidates.push(c);
   }
+  opts.onStage?.("expand", candidates.length);
   // 4b. Lexical stream (THE-73): rank each visible BM25 hit; add lexical-only chunks as new
   //     candidates, and record ranks so a chunk that ALSO seeds/expands gets an additive RRF bonus
   //     below. ACL-filtered by path; a filtered hit does not consume a rank.
@@ -438,6 +443,7 @@ async function graphSearchCore(
     }
     lexRank += 1;
   }
+  opts.onStage?.("lexical", candidates.length);
   // 4c. Learned-sparse stream (THE-388): same shape as the lexical stream, over bge-m3 sparse
   //     weights. Sparse-only chunks enter as candidates; a chunk also in another stream gets an
   //     additive RRF bonus below.
@@ -650,6 +656,7 @@ async function graphSearchCore(
     expansion: 3,
     temporal: 4,
   };
+  opts.onStage?.("fused", candidates.length);
   const fused = [...candidates].sort((a, b) => {
     const d = scoreOfWithPrior(b) - scoreOfWithPrior(a);
     if (d !== 0) return d;

@@ -6,6 +6,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexNote, indexVault } from "../src/search/indexer";
+import { CHUNKER_VERSION, VEC_DISTANCE_METRIC, VEC_SCHEMA_GEN } from "../src/search/representation";
 import { ensureVecChunks } from "../src/search/vec";
 import { FilesystemBackend } from "../src/vault/backend";
 import { assertLive, resolveMode } from "../src/vault/mode";
@@ -130,7 +131,19 @@ describe("index-on-write + boot reconcile (mechanism)", () => {
 
   it("indexNote upserts a note's chunks; re-running on new content re-embeds; empty content prunes", async () => {
     const db = freshDb();
-    const hasVec = ensureVecChunks(db, provider.dimensions, { now: () => 0 });
+    const hasVec = ensureVecChunks(
+      db,
+      {
+        provider: "fake",
+        model: "fake-model",
+        dimensions: provider.dimensions,
+        distanceMetric: VEC_DISTANCE_METRIC,
+        enrichmentVersion: 0,
+        chunkerVersion: CHUNKER_VERSION,
+        schemaGen: VEC_SCHEMA_GEN,
+      },
+      { now: () => 0 },
+    );
     const r1 = await indexNote(db, provider, "v1", "a.md", "# A\n\nfirst body", hasVec, () => 1);
     expect(r1.upserted).toBeGreaterThan(0);
     expect(chunkCount(db, "a.md")).toBeGreaterThan(0);

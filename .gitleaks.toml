@@ -17,6 +17,11 @@ regexes = [
 ]
 paths = [
   '''packages/server/test/.*''',
+  # Perf-harness eval code + its committed baseline: metric-key literals like
+  # `key: "retrieval.ndcg_at10"` trip the generic-api-key rule (THE-459). No credentials here.
+  '''packages/server/eval/.*''',
+  # Superpowers design/plan docs: illustrative code snippets, same class as G2.5 below.
+  '''docs/superpowers/.*''',
   '''packages/server/src/search/secrets\.ts''',
   '''packages/server/src/experiential/episodes\.ts''',
   '''docs/G2\.5-release-engineering\.md''',

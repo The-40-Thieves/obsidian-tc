@@ -15,7 +15,7 @@ import {
 import { parseCliArgs, redactConfig, resolveServeConfig, USAGE } from "./cli/args";
 import { installPlugin } from "./cli/plugin-install";
 import { provisionExperientialDb } from "./db/experiential";
-import { startMaintenanceSweep } from "./db/maintenance";
+import { registerMaintenanceSweep } from "./db/maintenance";
 import { openDatabase } from "./db/open";
 import { provisionCacheDb } from "./db/provision";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
@@ -23,7 +23,7 @@ import { createEmbeddingProvider } from "./embeddings";
 import {
   makeActivationLookup,
   recomputeActivation,
-  startActivationRecompute,
+  registerActivationRecompute,
 } from "./experiential/activation";
 import { inferCitations } from "./experiential/citation";
 import { contributionReport } from "./experiential/contribution";
@@ -50,8 +50,9 @@ import type { GatewayRoles } from "./plane/gateway";
 import { auditJob } from "./plane/jobs/audit";
 import { makeContradictionDrainer } from "./plane/jobs/contradiction-drain";
 import { synthesisJob } from "./plane/jobs/synthesis";
-import { SleepTimePlane, startPlaneScheduler } from "./plane/plane";
+import { registerPlaneScheduler, SleepTimePlane } from "./plane/plane";
 import { createPlurBackend } from "./plur/client";
+import { Scheduler } from "./scheduler/scheduler";
 import { assignClusters } from "./search/cluster";
 import { runLlmDensify } from "./search/densify-runner";
 import { ensureNotesFts } from "./search/fts";
@@ -66,6 +67,12 @@ import {
 } from "./search/indexer";
 import { nativeLoaded } from "./search/native";
 import { prewarmPathFor, writePrewarm } from "./search/prefetch";
+import {
+  CHUNKER_VERSION,
+  ENRICHMENT_VERSION,
+  VEC_DISTANCE_METRIC,
+  VEC_SCHEMA_GEN,
+} from "./search/representation";
 import type { Reranker } from "./search/rerank";
 import { ensureVecChunks } from "./search/vec";
 import { RateLimiter } from "./throttle";
@@ -802,7 +809,22 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     concurrency: config.embeddings.concurrency,
     maxBatchTokens: config.embeddings.maxBatchTokens,
   };
-  const hasVec = ensureVecChunks(db, embeddingProvider.dimensions, { now: Date.now });
+  // THE-460: same fingerprint scheme as indexVault — provider/model/dims + the fixed
+  // representation constants + whether chunkContext enrichment is on, so a same-dimension model
+  // swap or an enrichment/chunker change rebuilds vec_chunks instead of serving it stale.
+  const hasVec = ensureVecChunks(
+    db,
+    {
+      provider: embeddingProvider.provider,
+      model: embeddingProvider.model,
+      dimensions: embeddingProvider.dimensions,
+      distanceMetric: VEC_DISTANCE_METRIC,
+      enrichmentVersion: config.embeddings.chunkContext ? ENRICHMENT_VERSION : 0,
+      chunkerVersion: CHUNKER_VERSION,
+      schemaGen: VEC_SCHEMA_GEN,
+    },
+    { now: Date.now },
+  );
   // THE-291: FTS5 probe (trigram notes_fts) — false on adapters without FTS5 or when
   // OBSIDIAN_TC_DISABLE_FTS=1; the query layer then keeps the disk-scan floor.
   const hasFts = ensureNotesFts(db, { now: Date.now });
@@ -1314,87 +1336,101 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 
   morgiana.emit(firstVault.id, "tc.server.start");
 
-  // THE-292: periodic cache.db maintenance — purge expired idempotency/elicit rows, trim
-  // event_log to its configured retention, PRAGMA optimize. Best-effort and unref'd; expired
-  // rows remain lazily rejected on read regardless, so a failed sweep degrades disk
-  // reclamation, never correctness.
-  const stopMaintenance = config.maintenance.enabled
-    ? startMaintenanceSweep({
-        db,
-        intervalMs: config.maintenance.intervalMinutes * 60_000,
-        eventLogDays: config.observability.retention.eventLogDays,
-        onSweep: (counts) => {
-          const total = counts.idempotency_keys + counts.elicit_tokens + counts.event_log;
-          morgiana.emit(firstVault.id, "tc.maintenance.sweep", {
-            count: total,
-            rows_dropped: { ...counts },
-          });
-          try {
-            writeEvent(db, {
-              ts: Date.now(),
-              status: "ok",
-              event_type: "sweep_run",
-              result_size: total,
-            });
-          } catch {
-            /* event_log is best-effort */
-          }
-        },
-        onError: (e) => {
-          process.stderr.write(
-            `[maintenance] sweep failed: ${e instanceof Error ? e.message : String(e)}\n`,
-          );
-        },
-      })
-    : null;
+  // THE-462: ONE unref'd background scheduler folds the four formerly-independent setInterval
+  // timers (maintenance sweep, plane consolidation, activation recompute, contradiction drain) into
+  // a single tick loop. Each job keeps its exact run body and error/skip routing; the scheduler adds
+  // shared single-flight and durable last-success/next-run (job_schedule in cache.db). Its clock is
+  // Date.now for durable timestamps only. Budget deferral (event-loop-delay awareness) is available
+  // but left disabled here (eventLoopDeferMs unset) to preserve today's cadence — enabling it is a
+  // config-tuning follow-up.
+  const scheduler = new Scheduler({ now: Date.now, db });
 
-  // THE-296: ambient sleep-time consolidation (weekly synthesis + decision audit) — the
-  // scheduling trigger the plane reserved. Starts only when BOTH the flag and the gateway
-  // roles are present: the generative jobs degrade without roles, but scheduling them then
-  // is pure DB churn. Best-effort; a failed run logs to stderr and never escapes.
-  const stopPlane =
-    config.plane.enabled && roles
-      ? startPlaneScheduler(new SleepTimePlane().register(synthesisJob).register(auditJob), {
-          db,
-          roles,
-          intervalMs: config.plane.intervalMinutes * 60_000,
-          onError: (e) =>
-            process.stderr.write(
-              `[plane] run failed: ${e instanceof Error ? e.message : String(e)}\n`,
-            ),
-        })
-      : null;
+  // THE-292: periodic cache.db maintenance — purge expired idempotency/elicit rows, trim
+  // event_log to its configured retention, PRAGMA optimize. Best-effort; expired rows remain
+  // lazily rejected on read regardless, so a failed sweep degrades disk reclamation, never
+  // correctness.
+  if (config.maintenance.enabled) {
+    registerMaintenanceSweep(scheduler, {
+      db,
+      intervalMs: config.maintenance.intervalMinutes * 60_000,
+      eventLogDays: config.observability.retention.eventLogDays,
+      onSweep: (counts) => {
+        const total = counts.idempotency_keys + counts.elicit_tokens + counts.event_log;
+        morgiana.emit(firstVault.id, "tc.maintenance.sweep", {
+          count: total,
+          rows_dropped: { ...counts },
+        });
+        try {
+          writeEvent(db, {
+            ts: Date.now(),
+            status: "ok",
+            event_type: "sweep_run",
+            result_size: total,
+          });
+        } catch {
+          /* event_log is best-effort */
+        }
+      },
+      onError: (e) => {
+        process.stderr.write(
+          `[maintenance] sweep failed: ${e instanceof Error ? e.message : String(e)}\n`,
+        );
+      },
+    });
+  }
+
+  // THE-296: ambient sleep-time consolidation (weekly synthesis + decision audit). Registered only
+  // when BOTH the flag and the gateway roles are present: the generative jobs degrade without roles,
+  // but scheduling them then is pure DB churn. Best-effort; a failed run logs to stderr.
+  if (config.plane.enabled && roles) {
+    registerPlaneScheduler(
+      scheduler,
+      new SleepTimePlane().register(synthesisJob).register(auditJob),
+      {
+        db,
+        roles,
+        intervalMs: config.plane.intervalMinutes * 60_000,
+        onError: (e) =>
+          process.stderr.write(
+            `[plane] run failed: ${e instanceof Error ? e.message : String(e)}\n`,
+          ),
+      },
+    );
+  }
 
   // THE-227/228: keep cached_activation_score warm as capture accrues. recomputeActivation is
   // otherwise CLI-only, so on serve the activation state would freeze at whatever a manual run
-  // left, stale the moment new retrievals land. Runs only while the experiential store is open
+  // left, stale the moment new retrievals land. Registered only while the experiential store is open
   // (capture on); idempotent, no gateway, best-effort. Reuses the maintenance cadence.
-  const stopActivationRecompute = experientialOpen
-    ? startActivationRecompute({
-        edb: experientialDb,
-        intervalMs: config.maintenance.intervalMinutes * 60_000,
-        onError: (e) =>
-          process.stderr.write(
-            `[activation-recompute] ${e instanceof Error ? e.message : String(e)}\n`,
-          ),
-      })
-    : null;
+  if (experientialOpen) {
+    registerActivationRecompute(scheduler, {
+      edb: experientialDb,
+      intervalMs: config.maintenance.intervalMinutes * 60_000,
+      onError: (e) =>
+        process.stderr.write(
+          `[activation-recompute] ${e instanceof Error ? e.message : String(e)}\n`,
+        ),
+    });
+  }
 
-  // THE-457: continuous contradiction drain worker (single-flight via drainContradictions' own
-  // guard). Unref'd so it never keeps the process alive; only runs when the gateway is configured.
-  const stopContradictionDrain = roles
-    ? (() => {
-        const t = setInterval(() => void contradictionDrainer.drainOnce(), CONTRADICTION_DRAIN_MS);
-        t.unref();
-        return () => clearInterval(t);
-      })()
-    : undefined;
+  // THE-457/THE-462: continuous contradiction drain worker, folded into the unified scheduler.
+  // contradictionDrainer keeps its own single-flight guard; the scheduler's single-flight wraps it
+  // harmlessly (idempotent). Registered only when the gateway is configured (the drainer is a no-op
+  // without roles).
+  if (roles) {
+    scheduler.register({
+      name: "contradiction-drain",
+      intervalMs: CONTRADICTION_DRAIN_MS,
+      run: () => contradictionDrainer.drainOnce(),
+    });
+  }
+
+  scheduler.start();
 
   const shutdown = async (): Promise<void> => {
-    stopActivationRecompute?.();
-    stopPlane?.();
-    stopMaintenance?.();
-    stopContradictionDrain?.();
+    // THE-462: one bounded stop replaces the four stop functions — clears the timer, aborts the
+    // in-flight run's AbortSignal, and awaits settle under the scheduler's deadline.
+    await scheduler.stop();
     morgiana.emit(firstVault.id, "tc.server.shutdown");
     // THE-457: drain in-flight work under a bounded deadline before exit, so a write mid-index isn't
     // lost and SQLite closes cleanly. Never hang — race the drain against a timeout.

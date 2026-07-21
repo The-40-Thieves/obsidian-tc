@@ -1,5 +1,9 @@
 import { createRequire } from "node:module";
 import { cachedPrepare, type Database } from "../db/types";
+import { type VecFingerprint, vecFingerprint } from "./representation";
+
+export type { VecFingerprint } from "./representation";
+export { vecFingerprint } from "./representation";
 
 const requireFromHere = createRequire(import.meta.url);
 
@@ -7,15 +11,6 @@ const requireFromHere = createRequire(import.meta.url);
 // shared by sqlite-vec's vec0 columns and the brute-force scan in search/semantic.
 export function floatBlob(vector: number[]): Uint8Array {
   return new Uint8Array(Float32Array.from(vector).buffer);
-}
-
-/** THE-457: parse the pinned embedding dimension from a vec_chunks CREATE statement — the N in
- *  `embedding float[N]`. Returns undefined when the DDL carries no `float[...]` (not a vec table).
- *  ensureVecChunks uses it to detect a model/dimension swap and rebuild the index rather than let
- *  new-dimension inserts fail and KNN silently degrade to a brute-force scan. */
-export function parseVecDims(ddlSql: string): number | undefined {
-  const m = /embedding\s+float\[(\d+)\]/i.exec(ddlSql);
-  return m ? Number(m[1]) : undefined;
 }
 
 // Decode a float32 BLOB (Uint8Array/Buffer from a SQLite row) into a Float32Array view.
@@ -61,13 +56,20 @@ export function loadVec(db: Database): boolean {
 // schema.sql header. The table + row persist in the DB file; the extension still
 // must be reloaded per connection via loadVec. Returns false when the extension
 // can't load (caller uses the brute-force scan instead).
+//
+// THE-460: `fp` is the full representation fingerprint (provider/model/dimensions + distance
+// metric + chunker/enrichment versions + schema gen), not just dims. It's persisted in the
+// dedicated vec_index_fingerprint table and compared on every call; ANY field changing (a
+// same-dimension model swap, a chunker/enrichment version bump, a schema-gen bump, or a plain
+// dimension change) triggers the same rebuild+backfill path as the legacy pre-partition shape.
 export function ensureVecChunks(
   db: Database,
-  dims: number,
+  fp: VecFingerprint,
   opts: { now?: () => number } = {},
 ): boolean {
   if (!loadVec(db)) return false;
   const now = opts.now ?? Date.now;
+  const dims = fp.dimensions;
   const version = `20260519_002_vec_chunks_${dims}`;
   // THE-277 item 3 (sqlite-vec >= 0.1.9): vault_id as a PARTITION KEY pre-shards the KNN per
   // vault (the cross-vault crowding THE-287 worked around becomes structurally impossible when
@@ -75,6 +77,20 @@ export function ensureVecChunks(
   // fields the hot path needs. +content is deliberately NOT aux — it would duplicate the whole
   // corpus text inside the vec file; content stays a batched JOIN only when requested.
   const ddl = `CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(chunk_id TEXT PRIMARY KEY, vault_id TEXT partition key, +path TEXT, +model TEXT, embedding float[${dims}] distance_metric=cosine)`;
+
+  // THE-460: a dedicated one-row table tracks the computed fingerprint string. Created up front
+  // (idempotent) so both the "table missing" and "table present" branches below can read/compare
+  // against whatever was last recorded.
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS vec_index_fingerprint (id INTEGER PRIMARY KEY CHECK (id = 1), fingerprint TEXT NOT NULL)",
+  );
+  const computedFp = vecFingerprint(fp);
+  const storedFp = (
+    db.prepare("SELECT fingerprint FROM vec_index_fingerprint WHERE id = 1").get() as
+      | { fingerprint: string }
+      | undefined
+  )?.fingerprint;
+
   const hasTable =
     db.prepare("SELECT 1 AS x FROM sqlite_master WHERE name = 'vec_chunks'").get() !== undefined;
   if (!hasTable) {
@@ -89,20 +105,14 @@ export function ensureVecChunks(
     } catch {
       legacy = true;
     }
-    // THE-457: detect a DIMENSION change (a model swap, e.g. nomic-768 -> bge-1024). The table pins
-    // `float[N]` in its DDL; once N no longer matches the requested dims, new-dimension inserts fail
-    // and KNN silently falls back to brute-force scan. Rebuild at the new dimension — the backfill
-    // below only re-inserts vectors already at that dim (length = dims*4), so a mid-swap re-embed
-    // fills the rest on its own reconcile. Same rebuild path as the legacy (pre-partition) case.
-    const existingSql =
-      (
-        db.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks'").get() as
-          | { sql?: string }
-          | undefined
-      )?.sql ?? "";
-    const existingDims = parseVecDims(existingSql);
-    const dimChanged = existingDims !== undefined && existingDims !== dims;
-    if (legacy || dimChanged) {
+    // THE-460: a fingerprint mismatch is the general rebuild trigger — it SUBSUMES the old
+    // THE-457 dims-only check (dimensions are one of the fields folded into the fingerprint) and
+    // additionally catches a same-dimension model swap, a chunker/enrichment version bump, or a
+    // schema-gen bump. The backfill below only re-inserts vectors already at the current dims
+    // (length = dims*4), so a mid-swap re-embed fills the rest on its own reconcile — same as
+    // before.
+    const fpChanged = storedFp !== computedFp;
+    if (legacy || fpChanged) {
       db.exec("DROP TABLE vec_chunks");
       db.exec(ddl);
       const canBackfill =
@@ -156,6 +166,13 @@ export function ensureVecChunks(
     db.prepare(
       "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
     ).run(version, now(), "m2-runtime", 0, `vec0:cosine:${dims}`);
+  }
+  // THE-460: only write when the fingerprint actually changed — a no-change call (fingerprint
+  // matches, table already current) stays a true no-op with no writes here.
+  if (storedFp !== computedFp) {
+    db.prepare(
+      "INSERT INTO vec_index_fingerprint (id, fingerprint) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET fingerprint = excluded.fingerprint",
+    ).run(computedFp);
   }
   return true;
 }
