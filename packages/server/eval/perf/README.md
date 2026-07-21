@@ -125,7 +125,7 @@ See `packages/server/eval/perf/labelled.ts` for the definition (5 queries, 20 re
 
 ## Metric Families
 
-The harness collects 14 metric families across 6 collector modules. **Family 12 (HTTP handshake) is deferred to a follow-up ticket** ([THE-494](https://linear.app/the-40-thieves/issue/THE-494)), but its deterministic invariant is still emitted.
+The harness collects 13 of the 14 metric families across 6 collector modules. **Family 12 (HTTP handshake) is deferred to [THE-495](https://linear.app/the-13th-letter/issue/THE-495)** and is not emitted yet. (Node-runtime parity is a separate follow-up, [THE-494](https://linear.app/the-13th-letter/issue/THE-494).)
 
 | Family | Type | Metrics | Module | Class | Notes |
 |---|---|---|---|---|---|
@@ -139,7 +139,7 @@ The harness collects 14 metric families across 6 collector modules. **Family 12 
 | 9 | Recall/nDCG | `retrieval.{recall_at10, ndcg_at10, ndcg_per_ms}` | retrieval.ts | {hard, hard, warn} | Relevance metrics over synthetic labelled set |
 | 10 | Storage | `storage.{bytes, txn_count, txn_ms, cpu_ms}` | storage.ts | {hard, hard, warn, warn} | DB page size, transaction perf |
 | 11 | Vec migration | `migration.{rebuilt, ms}` | lifecycle.ts | {hard, warn} | Vec-index rebuild latency; rebuilt = bun-only true |
-| 12 | HTTP handshake | (deferred) | — | — | Deferred to THE-494; deterministic invariant logged |
+| 12 | HTTP handshake | (deferred) | — | — | Deferred to THE-495; not emitted yet |
 | 13 | Shutdown drain | `shutdown.{drained, ms}` | lifecycle.ts | {hard, warn} | Graceful DB close under deadline; runs last |
 
 **Collector execution order** (in `run.ts`):
