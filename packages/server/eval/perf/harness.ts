@@ -71,6 +71,7 @@ export function countingProvider(base: EmbeddingProvider): CountingProvider {
 export interface VaultCtx {
   db: Database;
   root: string;
+  vaultId: string;
   provider: CountingProvider;
   stats: IndexStats;
   chunkCount: number;
@@ -124,6 +125,7 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
   return {
     db,
     root,
+    vaultId: sc.name,
     provider,
     stats,
     chunkCount,
