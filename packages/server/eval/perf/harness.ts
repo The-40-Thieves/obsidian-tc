@@ -130,7 +130,15 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
     stats,
     chunkCount,
     cleanup: () => {
-      db.close?.();
+      // Idempotent close: collectors (e.g. collectLifecycle, family 13) close `db` themselves to
+      // time shutdown drain, and orchestration may call this cleanup afterward. A second
+      // better-sqlite3 close() throws, so swallow it here — closing an already-closed handle is
+      // a no-op by intent, not an error.
+      try {
+        db.close?.();
+      } catch {
+        // already closed — safe to ignore
+      }
       rmSync(root, { recursive: true, force: true });
     },
   };
