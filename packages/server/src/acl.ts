@@ -123,3 +123,28 @@ export function makeIndexReadable(
     return a.readPaths.some((g) => globMatch(g, rel));
   };
 }
+
+/** THE-453 runtime counterpart: the write sink an index-on-write gate feeds. */
+export interface ReindexSink {
+  write(vaultId: string, path: string, content: string): void;
+  delete(vaultId: string, path: string): void;
+}
+
+/**
+ * THE-453 (runtime): build the index-on-write hook that honors the EFFECTIVE read ACL, mirroring the
+ * boot reconcile's indexReadableFor. A path can be write-allowed but read-DENIED (writePaths ⊃
+ * readPaths); a write handler passes the write ACL and then calls this hook. Without the read gate
+ * the content is chunked, embedded and shipped to the embedding provider despite being read-invisible
+ * — an ingestion-time confidentiality breach that retrieval-time filtering cannot undo. A denied path
+ * routes to `delete` instead of `write`, so an ACL that newly denies a previously-indexed path also
+ * EVICTS its stale chunks/vectors rather than stranding them.
+ */
+export function makeReindexGate(
+  indexReadableFor: (vaultId: string) => (rel: string) => boolean,
+  sink: ReindexSink,
+): (vaultId: string, path: string, content: string) => void {
+  return (vaultId, path, content) => {
+    if (indexReadableFor(vaultId)(path)) sink.write(vaultId, path, content);
+    else sink.delete(vaultId, path);
+  };
+}

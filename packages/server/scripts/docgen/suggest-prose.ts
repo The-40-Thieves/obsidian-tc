@@ -13,10 +13,33 @@
 //
 //   bun scripts/docgen/suggest-prose.ts [--range <git-range>] [--docs README.md,ARCHITECTURE.md]
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+
+/** Markdown-only: the tool assembles hand-authored PROSE, which lives in .md/.mdx. */
+const ALLOWED_DOC_EXT = new Set([".md", ".mdx"]);
+
+/**
+ * THE-477 hardening (audit #9): resolve a `--docs` entry to an absolute path that is CONTAINED in
+ * REPO_ROOT, is a markdown file, and has no hidden path segment — else null (the caller skips + warns).
+ * Without this, `--docs ../../secret` concatenated straight onto REPO_ROOT read an out-of-repo file
+ * and shipped its content to the configured LLM endpoint. Pure (path math only); the caller
+ * additionally realpath-verifies containment to defeat a symlink that points outside the repo.
+ */
+export function resolveDocPath(repoRoot: string, entry: string): string | null {
+  const p = entry.trim();
+  if (p === "" || isAbsolute(p)) return null;
+  if (!ALLOWED_DOC_EXT.has(extname(p).toLowerCase())) return null;
+  const abs = resolve(repoRoot, p);
+  const rel = relative(repoRoot, abs);
+  // rel escapes the root when it is empty, starts with "..", or is itself absolute (different drive).
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+  if (rel.split(sep).some((seg) => seg.startsWith("."))) return null; // no hidden segment (.git, .env, …)
+  return abs;
+}
 
 const SYSTEM =
   "You are a senior technical writer maintaining an open-source project's docs. You are given a diff " +
@@ -103,10 +126,29 @@ async function main(): Promise<void> {
     );
     return;
   }
-  const docs = docPaths
-    .map((p) => p.trim())
-    .filter((p) => existsSync(`${REPO_ROOT}${p}`))
-    .map((p) => ({ name: p, content: readFileSync(`${REPO_ROOT}${p}`, "utf8").slice(0, 8000) }));
+  const docs: Array<{ name: string; content: string }> = [];
+  for (const entry of docPaths) {
+    const abs = resolveDocPath(REPO_ROOT, entry);
+    if (abs === null) {
+      process.stderr.write(
+        `[docgen] refusing --docs "${entry.trim()}": not a repo-relative markdown file (audit #9)\n`,
+      );
+      continue;
+    }
+    if (!existsSync(abs)) continue;
+    // Symlink guard: a link inside the repo could still point OUT of it — verify the real path stays
+    // contained before reading and shipping the content to the LLM endpoint.
+    if (!realpathSync(abs).startsWith(REPO_ROOT)) {
+      process.stderr.write(
+        `[docgen] refusing --docs "${entry.trim()}": symlink escapes the repo\n`,
+      );
+      continue;
+    }
+    docs.push({
+      name: relative(REPO_ROOT, abs),
+      content: readFileSync(abs, "utf8").slice(0, 8000),
+    });
+  }
   const suggestion = await callLlm(buildProsePrompt(referenceDiff, docs));
   process.stdout.write(
     `# Advisory prose suggestion (review before applying — nothing was written)\n\n${suggestion}\n`,

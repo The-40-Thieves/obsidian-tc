@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { parse as parseYaml } from "yaml";
 import { version as VERSION } from "../package.json";
-import { FolderAcl, makeIndexReadable } from "./acl";
+import { FolderAcl, makeIndexReadable, makeReindexGate } from "./acl";
 import { writeEvent } from "./audit";
 import {
   type BridgeClient,
@@ -48,7 +48,7 @@ import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
 import { auditJob } from "./plane/jobs/audit";
-import { checkContradictions, groupContradictionQueue } from "./plane/jobs/contradiction";
+import { makeContradictionDrainer } from "./plane/jobs/contradiction-drain";
 import { synthesisJob } from "./plane/jobs/synthesis";
 import { registerPlaneScheduler, SleepTimePlane } from "./plane/plane";
 import { createPlurBackend } from "./plur/client";
@@ -843,6 +843,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     contradictionsDropped: number;
     /** THE-457: fail-open audit writes that threw (locked DB / disk full) — the audit trail is lossy. */
     auditWriteFailures: number;
+    /** THE-458 (audit #5): times the index-on-write queue depth crossed queueMax (backpressure edges). */
+    indexQueueBackpressures: number;
   } = {
     reconcile: "pending",
     reconcileAt: null,
@@ -851,6 +853,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     notesReady: false,
     contradictionsDropped: 0,
     auditWriteFailures: 0,
+    indexQueueBackpressures: 0,
   };
   // server_health surfaces the build's active fast-paths (native module + sqlite-vec). Both are
   // non-identifying, so the tool keeps them in its unauthenticated payload; registered here (not
@@ -874,6 +877,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
                 reconcile_errors: indexHealth.reconcileErrors,
                 contradictions_dropped: indexHealth.contradictionsDropped,
                 audit_write_failures: indexHealth.auditWriteFailures,
+                // THE-458 (audit #5): index-on-write coordinator depth + backpressure.
+                index_queue_depth: indexCoordinator.stats().queued,
+                index_queue_active: indexCoordinator.stats().active,
+                index_queue_backpressures: indexHealth.indexQueueBackpressures,
                 ...(indexHealth.lastWriteError !== undefined
                   ? { last_write_error: indexHealth.lastWriteError }
                   : {}),
@@ -931,60 +938,79 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           }
         }
       : undefined;
-  // THE-457: continuous, single-flight, bounded contradiction drain. The boot sweep drained the
-  // queue ONCE; post-boot, runtime index-on-write kept enqueuing with no drain, so the queue grew
-  // unbounded and runtime writes received no contradiction analysis. Drain one bounded batch at a
-  // time, deduped by (vault, chunk) via groupContradictionQueue.
-  let contradictionDraining = false;
-  const drainContradictions = async (): Promise<void> => {
-    if (!roles || contradictionDraining || contradictionQueue.length === 0) return;
-    contradictionDraining = true;
-    try {
-      const batch = contradictionQueue.splice(0, CONTRADICTION_DRAIN_BATCH);
-      for (const [vaultId, chunks] of groupContradictionQueue(batch)) {
-        await checkContradictions({ db, roles, now: Date.now }, vaultId, chunks).catch((e) => {
-          indexHealth.writeFailures++;
-          indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
-        });
-      }
-    } finally {
-      contradictionDraining = false;
-    }
-  };
+  // THE-457/THE-458 (audit #6): continuous, single-flight, bounded contradiction drain. The boot sweep
+  // drained the queue ONCE; post-boot, runtime index-on-write kept enqueuing with no drain, so the
+  // queue grew unbounded and runtime writes received no contradiction analysis. makeContradictionDrainer
+  // drains one bounded batch at a time (deduped by (vault, chunk)); its in-flight batch is a PROMISE
+  // (drainer.inFlight), so shutdown can await a live batch instead of racing db.close() against it.
+  const contradictionDrainer = makeContradictionDrainer({
+    db,
+    roles,
+    queue: contradictionQueue,
+    batchSize: CONTRADICTION_DRAIN_BATCH,
+    now: Date.now,
+    onError: (e) => {
+      indexHealth.writeFailures++;
+      indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+    },
+  });
 
   // THE-291 (part 2): shared index-on-write hooks for the non-M1 writers (m3 periodic, m4
   // tasks, m5 capture, m6 bulk). M1 keeps its identical inline closures from THE-255.
   // THE-455: route every index-on-write mutation through a per-(vault,path) coordinator so same-path
   // writes/deletes serialize (newest wins — no stale/out-of-order commit, no delete resurrection)
   // while different paths stay concurrent. Handlers are the same indexNote/deindexNote as before.
-  const indexCoordinator = new IndexCoordinator({
-    write: (vaultId, path, content) =>
-      indexNote(
-        db,
-        embeddingProvider,
-        vaultId,
-        path,
-        content,
-        hasVec,
-        Date.now,
-        makeOnIndexed(vaultId),
-        config.embeddings.chunkContext,
-      ),
-    delete: (vaultId, path) =>
-      deindexNote(db, vaultId, path, hasVec, config.embeddings.chunkContext),
-    onError: (e) => {
-      indexHealth.writeFailures++;
-      indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+  const indexCoordinator = new IndexCoordinator(
+    {
+      write: (vaultId, path, content) =>
+        indexNote(
+          db,
+          embeddingProvider,
+          vaultId,
+          path,
+          content,
+          hasVec,
+          Date.now,
+          makeOnIndexed(vaultId),
+          config.embeddings.chunkContext,
+        ),
+      delete: (vaultId, path) =>
+        deindexNote(db, vaultId, path, hasVec, config.embeddings.chunkContext),
+      onError: (e) => {
+        indexHealth.writeFailures++;
+        indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+      },
     },
+    {
+      // THE-458 (audit #5): bound concurrent index/embed fan-out so a bulk mutation cannot spawn an
+      // unbounded number of simultaneous embedding calls; surface sustained queue depth in health.
+      globalConcurrency: config.indexing.writeConcurrency,
+      perVaultConcurrency: config.indexing.writeConcurrencyPerVault,
+      queueMax: config.indexing.queueMax,
+      onBackpressure: (depth) => {
+        indexHealth.indexQueueBackpressures++;
+        process.stderr.write(
+          `[index] write-queue backpressure: ${depth} distinct paths pending (> queueMax ` +
+            `${config.indexing.queueMax}); index/embed fan-out is capped, writes are queued not dropped\n`,
+        );
+      },
+    },
+  );
+  // indexReadableFor: per-vault ACL read-visibility filter shared by the boot reconcile, runtime
+  // add_vault, AND the index-on-write hook below (THE-453). makeIndexReadable resolves each vault's
+  // effective ACL (override ?? root), mirroring the dispatch aclResolver, so indexing never
+  // reads/embeds a vault-denied path.
+  const indexReadableFor = makeIndexReadable(acl, aclByVault);
+  // THE-453 (runtime): gate index-on-write through the effective read ACL. A write handler passes the
+  // WRITE ACL then calls reindex; a write-allowed but read-denied path (writePaths ⊃ readPaths) must
+  // not be embedded — makeReindexGate routes it to submitDelete (evicting any stale index state)
+  // instead of submitWrite. Deletes are always safe, so deindex stays a direct submitDelete.
+  const reindexHook = makeReindexGate(indexReadableFor, {
+    write: (vaultId, path, content) => indexCoordinator.submitWrite(vaultId, path, content),
+    delete: (vaultId, path) => indexCoordinator.submitDelete(vaultId, path),
   });
-  const reindexHook = (vaultId: string, path: string, content: string): void =>
-    indexCoordinator.submitWrite(vaultId, path, content);
   const deindexHook = (vaultId: string, path: string): void =>
     indexCoordinator.submitDelete(vaultId, path);
-  // indexReadableFor: per-vault ACL read-visibility filter shared by the boot reconcile and runtime
-  // add_vault (THE-453). makeIndexReadable resolves each vault's effective ACL (override ?? root),
-  // mirroring the dispatch aclResolver, so indexing never reads/embeds a vault-denied path.
-  const indexReadableFor = makeIndexReadable(acl, aclByVault);
   registerM1Tools(registry, {
     vaultRegistry,
     version: VERSION,
@@ -1280,7 +1306,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         (e) => ({ vault: v.id, error: e instanceof Error ? e.message : String(e) }),
       ),
     ),
-  ).then((results) => {
+  ).then(async (results) => {
     // THE-288: record boot-reconcile health so server_health can surface index degradation
     // instead of the swallowed best-effort failure (per-vault errors are authenticated-only).
     const reconcileErrors = results
@@ -1299,13 +1325,13 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           `for a slow or small-context local runner).\n`,
       );
     }
-    // Best-effort contradiction sweep over chunks enqueued during the boot reconcile. No-op
-    // without the gateway (roles null -> queue stays empty). A continuous draining schedule
-    // (plane timer / session-close trigger) is a follow-up.
+    // THE-458 (audit #6): sweep chunks enqueued during the boot reconcile through the SAME bounded,
+    // single-flight worker as runtime writes (was a fire-and-forget, unbounded splice(0) that ran the
+    // whole queue at once and bypassed the batch limit + single-flight guard). No-op without the
+    // gateway (roles null -> queue stays empty). Fire-and-forget by design (boot does not block on it),
+    // but now deduped with the interval worker so the two cannot double-process the same chunk.
     if (!roles) return;
-    for (const [vaultId, chunks] of groupContradictionQueue(contradictionQueue.splice(0))) {
-      void checkContradictions({ db, roles, now: Date.now }, vaultId, chunks).catch(() => {});
-    }
+    await contradictionDrainer.drainToEmpty();
   });
 
   morgiana.emit(firstVault.id, "tc.server.start");
@@ -1387,14 +1413,15 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     });
   }
 
-  // THE-457: continuous contradiction drain worker. drainContradictions keeps its own single-flight
-  // guard; the scheduler's single-flight wraps it harmlessly (idempotent). Registered only when the
-  // gateway is configured (drainContradictions is a no-op without roles).
+  // THE-457/THE-462: continuous contradiction drain worker, folded into the unified scheduler.
+  // contradictionDrainer keeps its own single-flight guard; the scheduler's single-flight wraps it
+  // harmlessly (idempotent). Registered only when the gateway is configured (the drainer is a no-op
+  // without roles).
   if (roles) {
     scheduler.register({
       name: "contradiction-drain",
       intervalMs: CONTRADICTION_DRAIN_MS,
-      run: () => drainContradictions(),
+      run: () => contradictionDrainer.drainOnce(),
     });
   }
 
@@ -1410,7 +1437,11 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     await Promise.race([
       (async () => {
         await indexCoordinator.idle().catch(() => {});
-        await drainContradictions().catch(() => {});
+        // THE-458 (audit #6): AWAIT any in-flight contradiction batch before touching the DB (the old
+        // boolean guard made this call return immediately, so db.close() below could race a live
+        // checkContradictions write), then run one final bounded batch for residual work.
+        await contradictionDrainer.inFlight?.catch(() => {});
+        await contradictionDrainer.drainOnce().catch(() => {});
       })(),
       new Promise<void>((resolve) => {
         setTimeout(resolve, SHUTDOWN_DRAIN_MS).unref();

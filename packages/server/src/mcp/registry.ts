@@ -246,6 +246,15 @@ export interface RegistryOptions {
   strictOutputSchema?: boolean;
 }
 
+/** THE-457 (audit #4): default strict output-schema validation ON in test/CI, so a handler whose
+ *  payload drifts from its advertised outputSchema fails a test instead of shipping warn-only to a
+ *  client. Vitest sets NODE_ENV=test, so the existing suite exercises every real handler under strict
+ *  validation; OBSIDIAN_TC_STRICT_OUTPUT_SCHEMA=1 opts in elsewhere (a CI job, a local run). Production
+ *  sets neither and stays warn-only for backward compatibility; an explicit strictOutputSchema wins. */
+function strictOutputSchemaDefault(): boolean {
+  return process.env.NODE_ENV === "test" || process.env.OBSIDIAN_TC_STRICT_OUTPUT_SCHEMA === "1";
+}
+
 export class ToolRegistry {
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool registry; the handler input type is contravariant, so ToolDefinition<unknown, unknown> is not assignable from a specific ToolDefinition.
   private readonly tools = new Map<string, ToolDefinition<any, any>>();
@@ -288,7 +297,7 @@ export class ToolRegistry {
     this.aclResolver = opts.aclResolver;
     this.rootResolver = opts.rootResolver;
     this.onEpisode = opts.onEpisode;
-    this.strictOutputSchema = opts.strictOutputSchema ?? false;
+    this.strictOutputSchema = opts.strictOutputSchema ?? strictOutputSchemaDefault();
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */

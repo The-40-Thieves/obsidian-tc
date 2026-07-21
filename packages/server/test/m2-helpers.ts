@@ -20,6 +20,8 @@ export interface M2VaultOptions {
   acl?: Partial<AclConfigT>;
   provider?: EmbeddingProvider;
   vaultId?: string;
+  /** THE-406: index_vault enriches embed/BM25 text with note title + heading breadcrumb. */
+  chunkContext?: boolean;
 }
 
 export interface M2Vault {
@@ -56,7 +58,11 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
   const vaultRegistry = new VaultRegistry([{ id, path: root }]);
   const provider = opts.provider ?? fakeEmbeddingProvider({ dimensions: 32 });
   const registry = new ToolRegistry();
-  registerM2Tools(registry, { vaultRegistry, embeddingProvider: provider });
+  registerM2Tools(registry, {
+    vaultRegistry,
+    embeddingProvider: provider,
+    chunkContext: opts.chunkContext,
+  });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
     caller: "test",

@@ -138,6 +138,84 @@ describe("body_sha cross-path embedding dedup (migration 20260719_001)", () => {
     }
   });
 
+  // THE-454 × THE-406 regression: enrichChunkText salts the embed text with the note TITLE
+  // (filename), so two notes with an IDENTICAL raw body but DIFFERENT titles embed DIFFERENT text and
+  // must NOT share a vector. Keying cross-path dedup on the raw body (body_sha) copied the first
+  // note's title-enriched vector onto the second — the second's embedding then encoded the WRONG
+  // title. Dedup must key on the embedded-text identity (content_hash), which is title-salted when
+  // enrichment is on and equal to the raw-body hash when it is off.
+  describe("under contextual enrichment (THE-406)", () => {
+    // A provider whose vector DEPENDS on the text, so a wrongly-copied vector is observable.
+    function textDerivedProvider(): { provider: EmbeddingProvider; embedded: string[] } {
+      const embedded: string[] = [];
+      const vec = (t: string): number[] => {
+        let h = 0;
+        for (const ch of t) h = (h * 31 + ch.charCodeAt(0)) % 1000;
+        return Array.from({ length: 8 }, (_, i) => ((h + i) % 1000) / 1000);
+      };
+      const provider: EmbeddingProvider = {
+        id: "td",
+        provider: "td",
+        model: "m",
+        dimensions: 8,
+        async embed(texts: string[]): Promise<number[][]> {
+          for (const t of texts) embedded.push(t);
+          return texts.map(vec);
+        },
+      };
+      return { provider, embedded };
+    }
+    const BODY = "This identical body sits under two DIFFERENTLY-TITLED notes.";
+
+    it("embeds each title separately — the second is NOT given the first's vector", async () => {
+      const { provider, embedded } = textDerivedProvider();
+      const v = makeM2Vault({
+        files: { "alpha.md": BODY, "beta.md": BODY },
+        provider,
+        chunkContext: true,
+      });
+      try {
+        expect((await v.call("index_vault", { vault: v.id })).ok).toBe(true);
+
+        // Under enrichment the two enriched texts differ, so BOTH are embedded (no cross-path skip)…
+        expect(embedded.length).toBe(2);
+        expect(embedded.some((t) => t.startsWith("alpha"))).toBe(true);
+        expect(embedded.some((t) => t.startsWith("beta"))).toBe(true);
+
+        // …and the two stored vectors DIFFER. Before the fix beta.md was handed alpha.md's vector.
+        const rows = v.db
+          .prepare(
+            "SELECT c.path AS path, e.embedding AS embedding FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id ORDER BY c.path",
+          )
+          .all() as Array<{ path: string; embedding: Uint8Array }>;
+        expect(rows.length).toBe(2);
+        const [a, b] = rows;
+        if (!a || !b) throw new Error("expected two embedding rows");
+        expect(Buffer.from(a.embedding).equals(Buffer.from(b.embedding))).toBe(false);
+      } finally {
+        v.cleanup();
+      }
+    });
+
+    it("still dedups genuinely identical enriched text (same title + body at two paths)", async () => {
+      // Same body under the SAME title (dup.md and sub/dup.md both enrich to title "dup").
+      const { provider, embedded } = textDerivedProvider();
+      const v = makeM2Vault({
+        files: { "dup.md": BODY, "sub/dup.md": BODY },
+        provider,
+        chunkContext: true,
+      });
+      try {
+        expect((await v.call("index_vault", { vault: v.id })).ok).toBe(true);
+        // Identical enriched text → embed once, copy the sibling's (correct) vector for the rest.
+        expect(embedded.length).toBe(1);
+        expect(count(v, "SELECT COUNT(*) AS n FROM chunk_embeddings")).toBe(2);
+      } finally {
+        v.cleanup();
+      }
+    });
+  });
+
   it("keeps an independent vector per path, so deleting the owner never strands the survivor (THE-454)", async () => {
     const { provider, embedded } = countingProvider();
     const v = makeM2Vault({ files: { "one.md": SHARED, "two.md": SHARED }, provider });

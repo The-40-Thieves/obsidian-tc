@@ -1,4 +1,9 @@
 import { performance } from "node:perf_hooks";
+import {
+  CHUNKER_VERSION,
+  VEC_DISTANCE_METRIC,
+  VEC_SCHEMA_GEN,
+} from "../../../src/search/representation";
 import { ensureVecChunks } from "../../../src/search/vec";
 import type { VaultCtx } from "../harness";
 import type { MetricSample } from "../report";
@@ -15,12 +20,22 @@ const SHUTDOWN_DEADLINE_MS = 5000;
  * any orchestration order (Task 10) — nothing that touches `vault.db` can run after it.
  */
 export async function collectLifecycle(vault: VaultCtx): Promise<MetricSample[]> {
-  // Family 11: force a vec-index rebuild by requesting a different dimension (64) than the
-  // corpus was embedded at (32, see eval/perf/harness.ts). Under Node vitest sqlite-vec is not
-  // loaded, so `ensureVecChunks` returns false -> `migration.rebuilt` is 0; that's expected here
-  // and NOT asserted true by the test.
+  // Family 11: force a vec-index rebuild by requesting a fingerprint whose dimension (64) differs
+  // from the corpus embedding dimension (32, see eval/perf/harness.ts). THE-460 replaced the old
+  // dims-only argument with a full VecFingerprint; dimension is one folded field, so a differing
+  // dimension still trips the fingerprint-mismatch rebuild path. Under Node vitest sqlite-vec is
+  // not loaded, so `ensureVecChunks` returns false -> `migration.rebuilt` is 0; that's expected
+  // here and NOT asserted true by the test.
   const t0 = performance.now();
-  const rebuilt = ensureVecChunks(vault.db, 64);
+  const rebuilt = ensureVecChunks(vault.db, {
+    provider: "perf",
+    model: "perf-model",
+    dimensions: 64,
+    distanceMetric: VEC_DISTANCE_METRIC,
+    enrichmentVersion: 0,
+    chunkerVersion: CHUNKER_VERSION,
+    schemaGen: VEC_SCHEMA_GEN,
+  });
   const migMs = performance.now() - t0;
 
   // Family 13: time closing the DB under a deadline.
