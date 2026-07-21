@@ -81,3 +81,4 @@ packages/server/SKILLS.md
 
 # transient: ci-install-smoke tarball guard extract dir
 .tarball-check/
+.firecrawl/
