@@ -2,11 +2,10 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
-  // Served from GitHub Pages at the project subpath. To move to the custom domain
-  // obsidian-tc.the40thieves.io: add a Cloudflare CNAME (obsidian-tc -> the-40-thieves.github.io),
-  // set it as the Pages custom domain, then set `site` to that domain and drop `base`.
-  site: 'https://the-40-thieves.github.io',
-  base: '/obsidian-tc/',
+  // Served from the custom domain at the root. DNS: Cloudflare CNAME
+  // obsidian-tc -> the-40-thieves.github.io (DNS-only / grey cloud). The public/CNAME
+  // file below is what keeps the custom domain bound across Actions deploys.
+  site: 'https://obsidian-tc.the40thieves.io',
   integrations: [
     starlight({
       title: 'obsidian-tc',
