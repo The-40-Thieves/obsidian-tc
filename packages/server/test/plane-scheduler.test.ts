@@ -2,7 +2,8 @@
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it, vi } from "vitest";
 import type { Database } from "../src/db/types";
-import { type JobResult, SleepTimePlane, startPlaneScheduler } from "../src/plane/plane";
+import { type JobResult, registerPlaneScheduler, SleepTimePlane } from "../src/plane/plane";
+import { Scheduler } from "../src/scheduler/scheduler";
 
 const stubDb = {
   prepare() {
@@ -24,16 +25,18 @@ describe("plane scheduler (THE-296)", () => {
         },
       });
       const seen: Array<Record<string, JobResult>> = [];
-      const stop = startPlaneScheduler(plane, {
+      const sched = new Scheduler();
+      registerPlaneScheduler(sched, plane, {
         db: stubDb,
         roles: null,
         intervalMs: 1000,
         now: () => 5_000_000,
         onRun: (r) => seen.push(r),
       });
+      sched.start();
       await vi.advanceTimersByTimeAsync(3500);
       expect(runs).toBe(3);
-      stop();
+      await sched.stop();
       await vi.advanceTimersByTimeAsync(2000);
       expect(runs).toBe(3);
       expect(seen[0]?.counting?.ok).toBe(true);
@@ -52,16 +55,18 @@ describe("plane scheduler (THE-296)", () => {
         },
       });
       const seen: Array<Record<string, JobResult>> = [];
-      const stop = startPlaneScheduler(plane, {
+      const sched = new Scheduler();
+      registerPlaneScheduler(sched, plane, {
         db: stubDb,
         roles: null,
         intervalMs: 1000,
         now: () => 5_000_000,
         onRun: (r) => seen.push(r),
       });
+      sched.start();
       await vi.advanceTimersByTimeAsync(1100);
       expect(seen[0]?.boom?.ok).toBe(false);
-      stop();
+      await sched.stop();
     } finally {
       vi.useRealTimers();
     }
@@ -91,13 +96,15 @@ describe("plane scheduler (THE-296)", () => {
         },
       });
       const skips: number[] = [];
-      const stop = startPlaneScheduler(plane, {
+      const sched = new Scheduler();
+      registerPlaneScheduler(sched, plane, {
         db: stubDb,
         roles: null,
         intervalMs: 1000,
         now: () => 5_000_000,
         onSkip: (n) => skips.push(n),
       });
+      sched.start();
       // Tick 1 starts the slow run; ticks 2 and 3 fire while it is still in flight.
       await vi.advanceTimersByTimeAsync(3500);
       expect(skips.length).toBeGreaterThanOrEqual(2); // overlapping ticks were skipped, not run
@@ -105,7 +112,7 @@ describe("plane scheduler (THE-296)", () => {
       release(); // let the first run complete
       await vi.advanceTimersByTimeAsync(1);
       expect(maxConcurrent).toBe(1); // runAll never overlapped itself
-      stop();
+      await sched.stop();
     } finally {
       vi.useRealTimers();
     }

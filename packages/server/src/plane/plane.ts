@@ -6,6 +6,7 @@
 
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
+import type { Scheduler } from "../scheduler/scheduler";
 import type { GatewayRoles } from "./gateway";
 
 export interface JobContext {
@@ -75,45 +76,31 @@ export interface PlaneSchedulerDeps {
 }
 
 /**
- * THE-296: the ambient scheduling trigger the integration slice reserved. Runs every registered
- * job on an unref'd interval (the timer never keeps the process alive; stdio EOF still exits);
- * failures route to onError and never escape. Callers gate on roles being configured — the
- * generative jobs degrade without them, but scheduling then is pure DB churn.
+ * THE-462: register plane consolidation as a job on a SHARED scheduler (the production path — one
+ * timer for all background work). The run body (plane.runAll) is unchanged; the scheduler's
+ * single-flight guard replaces the former inline running/skipped guard (THE-457) and drives the same
+ * onSkip(skipped) signal — the plane's own idempotent job_runs recording is untouched. The scheduler
+ * owns the unref'd timer; failures route to onError and never escape.
  */
-export function startPlaneScheduler(plane: SleepTimePlane, deps: PlaneSchedulerDeps): () => void {
-  // THE-457: single-flight guard. setInterval fires on a fixed cadence regardless of how long the
-  // previous runAll takes, so a consolidation that exceeds the interval would otherwise start a
-  // second, overlapping run (concurrent DB churn, duplicated work). Skip a tick while a run is still
-  // in flight and surface the skip count instead.
-  let running = false;
-  let skipped = 0;
-  const timer = setInterval(() => {
-    if (running) {
-      skipped += 1;
-      try {
-        deps.onSkip?.(skipped);
-      } catch {
-        /* skip sink must never throw */
-      }
-      return;
-    }
-    running = true;
-    void plane
-      .runAll({ db: deps.db, roles: deps.roles, now: deps.now ?? Date.now })
-      .then((results) => deps.onRun?.(results))
-      .catch((e) => {
-        try {
-          deps.onError?.(e);
-        } catch {
-          /* error sink must never throw */
-        }
-      })
-      .finally(() => {
-        running = false;
+export function registerPlaneScheduler(
+  scheduler: Scheduler,
+  plane: SleepTimePlane,
+  deps: PlaneSchedulerDeps,
+): void {
+  scheduler.register({
+    name: "plane-consolidation",
+    intervalMs: deps.intervalMs,
+    run: async () => {
+      const results = await plane.runAll({
+        db: deps.db,
+        roles: deps.roles,
+        now: deps.now ?? Date.now,
       });
-  }, deps.intervalMs);
-  timer.unref();
-  return () => clearInterval(timer);
+      deps.onRun?.(results);
+    },
+    onSkip: (n) => deps.onSkip?.(n),
+    onError: (e) => deps.onError?.(e),
+  });
 }
 
 function recordRun(ctx: JobContext, job: string, startedAt: number, result: JobResult): void {
