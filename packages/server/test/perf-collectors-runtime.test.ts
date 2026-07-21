@@ -16,6 +16,7 @@ describe("runtime collectors", () => {
       expect(eventloopSample.value).toBeGreaterThanOrEqual(0);
       expect(rssSample.value).toBeGreaterThan(0);
       expect(eventloopSample.class).toBe("warn");
+      expect(rssSample.class).toBe("warn");
     }
     v.cleanup();
   });
