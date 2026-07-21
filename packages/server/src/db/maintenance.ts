@@ -5,7 +5,7 @@
 // EXPIRED-ONLY for idempotency rows: reaping a crashed in-flight row here could cross-attach a
 // stale completion onto a fresh claim — the dispatch-path reclaim (idempotencyReclaimSeconds,
 // THE-293) owns that concern. No automatic VACUUM (disruptive under WAL).
-import { Scheduler } from "../scheduler/scheduler";
+import type { Scheduler } from "../scheduler/scheduler";
 import type { Database } from "./types";
 
 export interface SweepCounts {
@@ -40,23 +40,10 @@ export interface MaintenanceDeps {
   onError?: (e: unknown) => void;
 }
 
-/** Start the unref'd periodic sweep; returns a stop function. The timer never keeps the
- *  process alive (stdio EOF still exits), and a failing sweep routes to onError without
- *  escaping — expired rows remain lazily rejected on read, so correctness never depends
- *  on the sweep. */
-export function startMaintenanceSweep(deps: MaintenanceDeps): () => void {
-  const scheduler = new Scheduler();
-  registerMaintenanceSweep(scheduler, deps);
-  scheduler.start();
-  return () => {
-    void scheduler.stop();
-  };
-}
-
 /** THE-462: register the sweep as a job on a SHARED scheduler (the production path — one timer for
- *  all background work). The run body and error routing are unchanged from startMaintenanceSweep;
- *  the scheduler owns the (unref'd) timer, single-flight, and — when constructed with a db — durable
- *  scheduling. */
+ *  all background work). The run body and error routing are unchanged from the pre-THE-462 standalone
+ *  timer; the scheduler owns the (unref'd) timer, single-flight, and — when constructed with a db —
+ *  durable scheduling. */
 export function registerMaintenanceSweep(scheduler: Scheduler, deps: MaintenanceDeps): void {
   scheduler.register({
     name: "maintenance-sweep",

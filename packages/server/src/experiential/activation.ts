@@ -5,7 +5,7 @@
 // the experiential store; the retrieval-LOGGING half (writing chunk_retrievals on each retrieval) is
 // a separate slice, so until that lands this recompute is a no-op over an empty log.
 import type { Database } from "../db/types";
-import { Scheduler } from "../scheduler/scheduler";
+import type { Scheduler } from "../scheduler/scheduler";
 
 const MS_PER_DAY = 86_400_000;
 const MIN_DELTA_DAYS = 1 / 24; // floor a just-now access at 1 hour so t^-d stays finite
@@ -128,7 +128,7 @@ export function recomputeActivation(
   return { chunks: byChunk.size };
 }
 
-/** Deps for the periodic serve-path activation recompute (startActivationRecompute). */
+/** Deps for the periodic serve-path activation recompute (registerActivationRecompute). */
 export interface ActivationRecomputeDeps {
   edb: Database;
   intervalMs: number;
@@ -139,27 +139,16 @@ export interface ActivationRecomputeDeps {
 }
 
 /**
- * THE-227/228: start the periodic activation recompute over an OPEN experiential.db handle; returns
- * a stop function. recomputeActivation is otherwise CLI-only (activation-recompute), so on the serve
+ * THE-227/228: recomputeActivation is otherwise CLI-only (activation-recompute), so on the serve
  * path cached_activation_score would freeze at whatever a one-off manual run left, going stale the
- * moment new retrievals land. This keeps it warm as capture accrues, so the bubble pass (dark behind
- * activationRerank) and the eval A/B read current scores. Mirrors startMaintenanceSweep: the timer is
- * unreferenced (timer.unref) so stdio EOF still exits, the recompute is idempotent and cheap (one
- * scan of chunk_retrievals + upserts into vault_object_state, no gateway), and a failing run routes
- * to onError without escaping so capture continues regardless.
+ * moment new retrievals land. Registering this job keeps it warm as capture accrues, so the bubble
+ * pass (dark behind activationRerank) and the eval A/B read current scores.
+ *
+ * THE-462: registered as a job on a SHARED scheduler (the production path — one unref'd timer for
+ * all background work, so stdio EOF still exits). The run body is unchanged: idempotent and cheap
+ * (one scan of chunk_retrievals + upserts into vault_object_state, no gateway), and a failing run
+ * routes to onError without escaping so capture continues regardless.
  */
-export function startActivationRecompute(deps: ActivationRecomputeDeps): () => void {
-  const scheduler = new Scheduler();
-  registerActivationRecompute(scheduler, deps);
-  scheduler.start();
-  return () => {
-    void scheduler.stop();
-  };
-}
-
-/** THE-462: register the recompute as a job on a SHARED scheduler (the production path). The run
- *  body and error routing are unchanged from startActivationRecompute; the scheduler owns the
- *  (unref'd) timer and single-flight. */
 export function registerActivationRecompute(
   scheduler: Scheduler,
   deps: ActivationRecomputeDeps,

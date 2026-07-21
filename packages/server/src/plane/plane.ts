@@ -6,7 +6,7 @@
 
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
-import { Scheduler } from "../scheduler/scheduler";
+import type { Scheduler } from "../scheduler/scheduler";
 import type { GatewayRoles } from "./gateway";
 
 export interface JobContext {
@@ -73,21 +73,6 @@ export interface PlaneSchedulerDeps {
    *  argument is the running count of skipped ticks (an operator signal that runs exceed the
    *  interval). */
   onSkip?: (skipped: number) => void;
-}
-
-/**
- * THE-296: the ambient scheduling trigger the integration slice reserved. Runs every registered
- * job on an unref'd interval (the timer never keeps the process alive; stdio EOF still exits);
- * failures route to onError and never escape. Callers gate on roles being configured — the
- * generative jobs degrade without them, but scheduling then is pure DB churn.
- */
-export function startPlaneScheduler(plane: SleepTimePlane, deps: PlaneSchedulerDeps): () => void {
-  const scheduler = new Scheduler();
-  registerPlaneScheduler(scheduler, plane, deps);
-  scheduler.start();
-  return () => {
-    void scheduler.stop();
-  };
 }
 
 /**

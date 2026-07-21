@@ -308,10 +308,33 @@ export class Scheduler {
     this.safeError(state, e);
   }
 
+  /** Run-start persist: writes ONLY last_run_at/next_run_at. This is a separate statement (not a
+   *  call into persist()) because it must NEVER touch consecutive_failures — not even to "leave it
+   *  alone" via a bound NULL. SQLite's DEFAULT does not apply to an explicit NULL, and a bound NULL
+   *  into `consecutive_failures INTEGER NOT NULL` fails the NOT NULL check before the ON CONFLICT
+   *  COALESCE ever runs (on both a fresh row and an existing one). Omitting the column entirely lets
+   *  a fresh row seed from DEFAULT 0, and the DO UPDATE simply never mentions the column, so an
+   *  existing row's backoff counter survives every run-start untouched. */
   private persistRunStart(state: JobState): void {
     if (!this.db) return;
     const t = this.now();
-    this.persist(state, { last_run_at: t, next_run_at: t + this.effInterval(state) });
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO job_schedule (name, last_run_at, next_run_at)
+           VALUES (@name, @last_run_at, @next_run_at)
+           ON CONFLICT(name) DO UPDATE SET
+             last_run_at = excluded.last_run_at,
+             next_run_at = excluded.next_run_at`,
+        )
+        .run({
+          name: state.spec.name,
+          last_run_at: t,
+          next_run_at: t + this.effInterval(state),
+        });
+    } catch {
+      /* durable scheduling is best-effort: a write failure must never break the timer loop */
+    }
   }
 
   private persist(

@@ -149,6 +149,58 @@ describe("Scheduler (THE-462)", () => {
     }
   });
 
+  // Review fix (THE-462) — persistRunStart must actually persist last_run_at, and must never
+  // clobber consecutive_failures back to 0/NULL on a mere run-start (that would defeat backoff).
+  it("durable: last_run_at persists on run-start and run-start never resets consecutive_failures", async () => {
+    vi.useFakeTimers();
+    try {
+      const db = openMemoryDb() as Database;
+      let t = 4_000_000;
+      let fail = true;
+      const sched = new Scheduler({ db, now: () => t });
+      sched.register({
+        name: "flaky",
+        intervalMs: 1000,
+        run: () => {
+          if (fail) throw new Error("boom");
+        },
+      });
+      sched.start();
+
+      // First run-start + failure: last_run_at must be set, consecutive_failures bumps to 1.
+      await vi.advanceTimersByTimeAsync(1000);
+      let row = db
+        .prepare("SELECT last_run_at, consecutive_failures FROM job_schedule WHERE name = ?")
+        .get("flaky") as { last_run_at: number | null; consecutive_failures: number };
+      expect(row.last_run_at).toBe(t); // was always NULL before the fix
+      expect(row.consecutive_failures).toBe(1);
+
+      // Second run-start (still failing, backoff = 2000ms): the run-start persist that fires
+      // BEFORE the run body executes must not reset the backoff counter to 0.
+      t = 4_003_000;
+      await vi.advanceTimersByTimeAsync(2000);
+      row = db
+        .prepare("SELECT last_run_at, consecutive_failures FROM job_schedule WHERE name = ?")
+        .get("flaky") as { last_run_at: number | null; consecutive_failures: number };
+      expect(row.last_run_at).toBe(t);
+      expect(row.consecutive_failures).toBe(2); // preserved + incremented, never reset by run-start
+
+      // A subsequent success resets consecutive_failures to 0, as onSuccess intends.
+      fail = false;
+      t = 4_010_000;
+      await vi.advanceTimersByTimeAsync(4000); // next backoff = 1000*2^2 = 4000ms
+      row = db
+        .prepare("SELECT last_run_at, consecutive_failures FROM job_schedule WHERE name = ?")
+        .get("flaky") as { last_run_at: number | null; consecutive_failures: number };
+      expect(row.last_run_at).toBe(t);
+      expect(row.consecutive_failures).toBe(0);
+
+      await sched.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("seeds next_run from the stored value on start", async () => {
     vi.useFakeTimers();
     try {

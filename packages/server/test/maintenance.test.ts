@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { runMaintenanceSweep, startMaintenanceSweep } from "../src/db/maintenance";
+import { registerMaintenanceSweep, runMaintenanceSweep } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
+import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
 
 function freshDb(): Database {
@@ -39,29 +40,31 @@ describe("cache.db maintenance sweep (THE-292)", () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM event_log").get()).toMatchObject({ n: 1 });
   });
 
-  it("startMaintenanceSweep ticks on the interval, reports counts, and stops cleanly", () => {
+  it("registerMaintenanceSweep ticks on the interval, reports counts, and stops cleanly", async () => {
     vi.useFakeTimers();
     try {
       const db = freshDb();
       const seen: unknown[] = [];
-      const stop = startMaintenanceSweep({
+      const sched = new Scheduler();
+      registerMaintenanceSweep(sched, {
         db,
         intervalMs: 1000,
         eventLogDays: 30,
         now: () => 10_000_000_000,
         onSweep: (c) => seen.push(c),
       });
-      vi.advanceTimersByTime(3500);
+      sched.start();
+      await vi.advanceTimersByTimeAsync(3500);
       expect(seen).toHaveLength(3);
-      stop();
-      vi.advanceTimersByTime(3000);
+      await sched.stop();
+      await vi.advanceTimersByTimeAsync(3000);
       expect(seen).toHaveLength(3);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("routes a sweep failure to onError without escaping", () => {
+  it("routes a sweep failure to onError without escaping", async () => {
     vi.useFakeTimers();
     try {
       const bad = {
@@ -71,15 +74,17 @@ describe("cache.db maintenance sweep (THE-292)", () => {
         exec() {},
       } as unknown as Database;
       const errs: unknown[] = [];
-      const stop = startMaintenanceSweep({
+      const sched = new Scheduler();
+      registerMaintenanceSweep(sched, {
         db: bad,
         intervalMs: 1000,
         eventLogDays: 30,
         onError: (e) => errs.push(e),
       });
-      vi.advanceTimersByTime(1100);
+      sched.start();
+      await vi.advanceTimersByTimeAsync(1100);
       expect(errs).toHaveLength(1);
-      stop();
+      await sched.stop();
     } finally {
       vi.useRealTimers();
     }
