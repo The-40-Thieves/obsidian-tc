@@ -27,6 +27,12 @@ import {
   noteRowHash,
   upsertNoteRow,
 } from "./fts";
+import {
+  CHUNKER_VERSION,
+  ENRICHMENT_VERSION,
+  VEC_DISTANCE_METRIC,
+  VEC_SCHEMA_GEN,
+} from "./representation";
 import { scanSecrets } from "./secrets";
 import { deleteChunkSparse, ensureChunkSparse, type SparseVec, upsertChunkSparse } from "./sparse";
 import { blobToFloats, ensureVecChunks, floatBlob, upsertVec } from "./vec";
@@ -830,7 +836,22 @@ export interface IndexVaultArgs {
 
 export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const now = args.now ?? Date.now;
-  const hasVec = ensureVecChunks(args.db, args.provider.dimensions, { now });
+  // THE-460: fold the embedding provider/model/dims + the fixed representation constants +
+  // whether chunkContext enrichment is on (it changes the embedded text) into one fingerprint,
+  // so ANY representation change — not only a dimension change — rebuilds vec_chunks.
+  const hasVec = ensureVecChunks(
+    args.db,
+    {
+      provider: args.provider.provider,
+      model: args.provider.model,
+      dimensions: args.provider.dimensions,
+      distanceMetric: VEC_DISTANCE_METRIC,
+      enrichmentVersion: args.chunkContext === true ? ENRICHMENT_VERSION : 0,
+      chunkerVersion: CHUNKER_VERSION,
+      schemaGen: VEC_SCHEMA_GEN,
+    },
+    { now },
+  );
   // THE-291: notes metadata + FTS ride the reconcile. The UNFILTERED walk backs the stale-path
   // sweep (ACL-invisible-but-present files must never be deindexed); the readable subset drives
   // indexing exactly as before.
