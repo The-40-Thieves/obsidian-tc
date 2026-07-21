@@ -5,6 +5,7 @@
 // the experiential store; the retrieval-LOGGING half (writing chunk_retrievals on each retrieval) is
 // a separate slice, so until that lands this recompute is a no-op over an empty log.
 import type { Database } from "../db/types";
+import { Scheduler } from "../scheduler/scheduler";
 
 const MS_PER_DAY = 86_400_000;
 const MIN_DELTA_DAYS = 1 / 24; // floor a just-now access at 1 hour so t^-d stays finite
@@ -148,22 +149,32 @@ export interface ActivationRecomputeDeps {
  * to onError without escaping so capture continues regardless.
  */
 export function startActivationRecompute(deps: ActivationRecomputeDeps): () => void {
-  const timer = setInterval(() => {
-    try {
+  const scheduler = new Scheduler();
+  registerActivationRecompute(scheduler, deps);
+  scheduler.start();
+  return () => {
+    void scheduler.stop();
+  };
+}
+
+/** THE-462: register the recompute as a job on a SHARED scheduler (the production path). The run
+ *  body and error routing are unchanged from startActivationRecompute; the scheduler owns the
+ *  (unref'd) timer and single-flight. */
+export function registerActivationRecompute(
+  scheduler: Scheduler,
+  deps: ActivationRecomputeDeps,
+): void {
+  scheduler.register({
+    name: "activation-recompute",
+    intervalMs: deps.intervalMs,
+    run: () => {
       const stats = recomputeActivation(
         deps.edb,
         (deps.now ?? Date.now)(),
         deps.decay !== undefined ? { decay: deps.decay } : {},
       );
       deps.onRecompute?.(stats);
-    } catch (e) {
-      try {
-        deps.onError?.(e);
-      } catch {
-        /* error sink must never throw */
-      }
-    }
-  }, deps.intervalMs);
-  timer.unref();
-  return () => clearInterval(timer);
+    },
+    onError: (e) => deps.onError?.(e),
+  });
 }
