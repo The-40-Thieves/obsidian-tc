@@ -13,7 +13,8 @@
       "!**/*.node",
       "!**/docs",
       "!**/packages/native/target",
-      "!**/bun.lock"
+      "!**/bun.lock",
+      "!**/eval/perf/baseline.*.json"
     ]
   },
   "formatter": {
