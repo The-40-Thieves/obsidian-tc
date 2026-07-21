@@ -66,6 +66,12 @@ import {
 } from "./search/indexer";
 import { nativeLoaded } from "./search/native";
 import { prewarmPathFor, writePrewarm } from "./search/prefetch";
+import {
+  CHUNKER_VERSION,
+  ENRICHMENT_VERSION,
+  VEC_DISTANCE_METRIC,
+  VEC_SCHEMA_GEN,
+} from "./search/representation";
 import type { Reranker } from "./search/rerank";
 import { ensureVecChunks } from "./search/vec";
 import { RateLimiter } from "./throttle";
@@ -802,7 +808,22 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     concurrency: config.embeddings.concurrency,
     maxBatchTokens: config.embeddings.maxBatchTokens,
   };
-  const hasVec = ensureVecChunks(db, embeddingProvider.dimensions, { now: Date.now });
+  // THE-460: same fingerprint scheme as indexVault — provider/model/dims + the fixed
+  // representation constants + whether chunkContext enrichment is on, so a same-dimension model
+  // swap or an enrichment/chunker change rebuilds vec_chunks instead of serving it stale.
+  const hasVec = ensureVecChunks(
+    db,
+    {
+      provider: embeddingProvider.provider,
+      model: embeddingProvider.model,
+      dimensions: embeddingProvider.dimensions,
+      distanceMetric: VEC_DISTANCE_METRIC,
+      enrichmentVersion: config.embeddings.chunkContext ? ENRICHMENT_VERSION : 0,
+      chunkerVersion: CHUNKER_VERSION,
+      schemaGen: VEC_SCHEMA_GEN,
+    },
+    { now: Date.now },
+  );
   // THE-291: FTS5 probe (trigram notes_fts) — false on adapters without FTS5 or when
   // OBSIDIAN_TC_DISABLE_FTS=1; the query layer then keeps the disk-scan floor.
   const hasFts = ensureNotesFts(db, { now: Date.now });
