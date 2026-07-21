@@ -19,7 +19,9 @@ export function collectIndexing(vault: VaultCtx, buildMs: number): MetricSample[
       key: "index.chunks_per_s",
       value: seconds > 0 ? chunks / seconds : 0,
       unit: "per_s",
-      class: "hard",
+      // Throughput is runner-variable; warn-only per spec §3 (the hard invariant is
+      // the deterministic index.chunk_count above). THE-459.
+      class: "warn",
       direction: "lower-worse",
     },
     {
