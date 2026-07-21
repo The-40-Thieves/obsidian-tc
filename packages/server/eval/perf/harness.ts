@@ -85,11 +85,24 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
 
   // A fixed pool of distinct bodies; notes cycle through it so `dupGroups` distinct
   // bodies back `notes` files -> duplicate-body set is exact and seed-stable.
+  //
+  // THE-459 fix: the shared WORDS vocabulary means paragraph text alone does not
+  // distinguish body group i from group j (all groups draw from the same 16 words),
+  // so a query for "Body i" never ranks group i's notes above the rest -> dead
+  // family-9 recall/nDCG gate (see labelled.ts). Each group gets a DISTINCTIVE,
+  // DETERMINISTIC sentinel token `zqmarker${i}` that is a function of the group
+  // index i ONLY (never the note index n, never rnd) -> every note sharing group i
+  // still gets a byte-identical body section, preserving the dedup that families
+  // 4/5 depend on. The sentinel is its own line in the body's PARAGRAPH content
+  // (not the `# Body ${i}` heading line) because chunkNote (src/search/chunk.ts)
+  // strips ATX heading lines into `headings` metadata and excludes them from the
+  // chunked/embedded `content` when chunkContext is off (as it is here) -- a
+  // sentinel placed only in the heading never reaches BM25/embedding at all.
   const bodies: string[] = [];
   for (let i = 0; i < sc.dupGroups; i++) {
     const paras: string[] = [];
     for (let p = 0; p < sc.paragraphs; p++) paras.push(paragraph(rnd));
-    bodies.push(`# Body ${i}\n\n${paras.join("\n\n")}`);
+    bodies.push(`# Body ${i}\n\nzqmarker${i}\n\n${paras.join("\n\n")}`);
   }
   for (let n = 0; n < sc.notes; n++) {
     const body = bodies[n % sc.dupGroups] as string;
