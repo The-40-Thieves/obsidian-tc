@@ -79,7 +79,7 @@ Two mechanisms ensure results are byte-identical across runs:
    - Embedding calls always return the same vectors for the same text.
    - No network, no model inference, no variance.
 
-**Result:** Exact counts (families 3, 4, 5, 8, 11, 12, 13) are **always identical**. Latency figures (families 1, 2, 6, 10) vary naturally but are gated as warn-only.
+**Result:** Deterministic invariants (families 3, 4, 5, 7, 8, 9, 11, 13, 14 — counts, ratios, recall/nDCG, storage bytes, booleans) are **always identical** run-to-run. Latency figures (families 1, 2, 6, 10 and the `*_ms` sub-metrics) vary naturally and are gated warn-only. Family 12 (HTTP handshake) is deferred (THE-495) and not emitted.
 
 ## Baseline and Regeneration
 
@@ -135,18 +135,20 @@ The harness collects 13 of the 14 metric families across 6 collector modules. **
 | 4 | Embed throughput | `embed.{call_count, texts_per_s}` | indexing.ts | {hard, warn} | Embedding API usage; call count deterministic |
 | 5 | Embed dedup ratio | `embed.dup_ratio` | indexing.ts | hard | Fraction of chunks sharing a body (exact deterministic) |
 | 6 | Event-loop delay | `runtime.eventloop_p99_ms` | runtime.ts | warn | P99 event-loop delay under load |
+| 7 | SQLite txn/lock | `storage.{txn_count, txn_ms}` | storage.ts | {hard, warn} | Fixed 200-txn batch; txn_count exact |
 | 8 | Graph candidates | `graph.candidates_{seed, expand, fused}` | retrieval.ts | hard | ANN graph traversal stage cardinality (exact deterministic) |
 | 9 | Recall/nDCG | `retrieval.{recall_at10, ndcg_at10, ndcg_per_ms}` | retrieval.ts | {hard, hard, warn} | Relevance metrics over synthetic labelled set |
-| 10 | Storage | `storage.{bytes, txn_count, txn_ms, cpu_ms}` | storage.ts | {hard, hard, warn, warn} | DB page size, transaction perf |
+| 10 | Peak memory | `runtime.peak_rss_per_10k_mb` | runtime.ts | warn | Peak RSS scaled per 10k chunks |
 | 11 | Vec migration | `migration.{rebuilt, ms}` | lifecycle.ts | {hard, warn} | Vec-index rebuild latency; rebuilt = bun-only true |
 | 12 | HTTP handshake | (deferred) | — | — | Deferred to THE-495; not emitted yet |
 | 13 | Shutdown drain | `shutdown.{drained, ms}` | lifecycle.ts | {hard, warn} | Graceful DB close under deadline; runs last |
+| 14 | Per-vault storage | `storage.{bytes, cpu_ms}` | storage.ts | {hard, warn} | DB page bytes (exact); CPU over the txn batch |
 
 **Collector execution order** (in `run.ts`):
 1. indexing (families 3, 4, 5)
 2. retrieval (families 8, 9)
 3. dispatch (families 1, 2)
-4. storage (family 10)
+4. storage (families 7, 14)
 5. runtime (families 6, 10)
 6. lifecycle (families 11, 13) — **closes vault.db, must run last**
 
