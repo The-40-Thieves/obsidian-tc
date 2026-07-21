@@ -1,9 +1,10 @@
 // Family 1 (dispatch overhead) + family 2 (write-to-search freshness).
 //
 // Dispatch overhead isolates the ToolRegistry pipeline's own cost (validate -> auth ->
-// scope/ACL -> HITL -> execute -> governor -> audit) from the handler's own work: wall-clock
-// around registry.dispatch(...) minus the mean handler time the MetricsRecorder observed on
-// its Prometheus histogram for the same tool.
+// scope/ACL -> HITL -> execute -> governor -> audit) from the handler's own work. The registry's
+// onProfile sink fires once per successful dispatch with genuine per-call timing: total_ms (the
+// whole dispatch) and handler_ms (the handler body only). Genuine dispatch overhead per call is
+// total_ms - handler_ms.
 //
 // Freshness measures how long a note takes to become visible to search after being written:
 // write straight to disk (M2 has no write_note tool), reindex via index_vault, then confirm
@@ -14,49 +15,25 @@ import { performance } from "node:perf_hooks";
 import { FolderAcl } from "../../../src/acl";
 import { fakeEmbeddingProvider } from "../../../src/embeddings/fake";
 import { type CallerContext, ToolRegistry } from "../../../src/mcp/registry";
-import { MetricsRecorder } from "../../../src/metrics/registry";
 import { registerM2Tools } from "../../../src/tools/m2";
 import { VaultRegistry } from "../../../src/vault/registry";
 import type { VaultCtx } from "../harness";
 import { quantiles } from "../harness";
 import type { MetricSample } from "../report";
 
-interface PromMetricValue {
-  metricName?: string;
-  value: number;
-  labels?: Record<string, string | number>;
-}
-interface PromMetric {
-  name: string;
-  values: PromMetricValue[];
-}
-
-/** Mean handler seconds for `tool` on `vaultId`, read from the prom histogram's `_sum`/`_count`
- *  series (obsidian_tc_tool_duration_seconds, see src/metrics/registry.ts). 0 with no samples. */
-async function meanHandlerSeconds(
-  recorder: MetricsRecorder,
-  vaultId: string,
-  tool: string,
-): Promise<number> {
-  const json = (await recorder.registry.getMetricsAsJSON()) as unknown as PromMetric[];
-  const histo = json.find((m) => m.name === "obsidian_tc_tool_duration_seconds");
-  if (!histo) return 0;
-  const isFor = (v: PromMetricValue, suffix: string): boolean =>
-    v.metricName === `obsidian_tc_tool_duration_seconds${suffix}` &&
-    v.labels?.vault === vaultId &&
-    v.labels?.tool === tool;
-  const sum = histo.values.find((v) => isFor(v, "_sum"))?.value ?? 0;
-  const count = histo.values.find((v) => isFor(v, "_count"))?.value ?? 0;
-  return count > 0 ? sum / count : 0;
-}
-
 const SEARCH_TOOL = "search_text";
 const N = 30;
 const WARMUP = 5;
 
 export async function collectDispatch(vault: VaultCtx): Promise<MetricSample[]> {
-  const recorder = new MetricsRecorder();
-  const registry = new ToolRegistry({ metrics: recorder });
+  let collecting = false;
+  const overhead: number[] = [];
+  const registry = new ToolRegistry({
+    onProfile: (p) => {
+      if (!collecting || p.tool !== SEARCH_TOOL) return;
+      overhead.push(Math.max(0, p.total_ms - p.handler_ms));
+    },
+  });
   const vaultRegistry = new VaultRegistry([{ id: vault.vaultId, path: vault.root }]);
   registerM2Tools(registry, {
     vaultRegistry,
@@ -72,19 +49,14 @@ export async function collectDispatch(vault: VaultCtx): Promise<MetricSample[]> 
     acl,
   };
 
-  // Family 1: dispatch overhead. Wall-clock around dispatch() of a cheap read tool, minus the
-  // mean handler time the recorder observed for that same tool -- the residual is the pipeline's
-  // own overhead (validation, scope/ACL, audit, metrics, governor), floored at 0.
+  // Family 1: dispatch overhead. Per-call (total_ms - handler_ms) reported by the registry's
+  // onProfile sink -- the pipeline's own cost (validation, scope/ACL, audit, metrics, governor)
+  // isolated from the handler's own work, floored at 0. Warmup iterations are discarded.
   const searchArgs = { vault: vault.vaultId, query: "vault", limit: 5 };
   for (let i = 0; i < WARMUP; i++) await registry.dispatch(SEARCH_TOOL, searchArgs, ctx);
-  const wall: number[] = [];
-  for (let i = 0; i < N; i++) {
-    const t0 = performance.now();
-    await registry.dispatch(SEARCH_TOOL, searchArgs, ctx);
-    wall.push(performance.now() - t0);
-  }
-  const handlerMs = (await meanHandlerSeconds(recorder, vault.vaultId, SEARCH_TOOL)) * 1000;
-  const overhead = wall.map((w) => Math.max(0, w - handlerMs));
+  collecting = true;
+  for (let i = 0; i < N; i++) await registry.dispatch(SEARCH_TOOL, searchArgs, ctx);
+  collecting = false;
   const q = quantiles(overhead);
 
   // Family 2: write-to-search freshness. M2 has no write_note tool, so the marker note is
