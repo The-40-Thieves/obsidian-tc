@@ -211,9 +211,26 @@ test("THE-460: a same-dimension MODEL swap rebuilds vec_chunks (fingerprint mism
   expect(storedAfterSecond?.fingerprint).toBe(vecFingerprint(fpB));
   expect(storedAfterSecond?.fingerprint).not.toBe(storedAfterFirst?.fingerprint);
 
+  // Sentinel: a vec_chunks row NOT backed by an active chunk_embeddings row. A genuine no-op
+  // leaves it untouched; a spurious drop+backfill rebuild wipes it (backfill only re-inserts
+  // rows from active chunk_embeddings) and would silently pass the count-only assertion below,
+  // since the backfill would restore exactly 2 rows from c1/c2 and mask the regression. This is
+  // the fault-injection target for THE-460's "perf disaster" — ensureVecChunks rebuilding on
+  // every call even when the fingerprint hasn't changed.
+  db.prepare(
+    "INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding) VALUES (?, ?, ?, ?, ?)",
+  ).run("sentinel-not-backed", "v1", "sentinel.md", "model-b", floatBlob(new Array(32).fill(0.3)));
+
   // A third, no-change call (same fingerprint, table already current) is a true no-op: the
   // fingerprint row is untouched and vec_chunks isn't repopulated again (count unchanged).
   expect(ensureVecChunks(db, fpB)).toBe(true);
   const afterThird = db.prepare("SELECT count(*) AS c FROM vec_chunks").get() as { c: number };
-  expect(afterThird.c).toBe(2);
+  expect(afterThird.c).toBe(3);
+
+  // The sentinel must survive a true no-op. A spurious rebuild would drop vec_chunks and
+  // backfill only from chunk_embeddings, wiping this row.
+  const sentinel = db
+    .prepare("SELECT 1 AS x FROM vec_chunks WHERE chunk_id = 'sentinel-not-backed'")
+    .get() as { x: number } | undefined;
+  expect(sentinel?.x).toBe(1);
 });

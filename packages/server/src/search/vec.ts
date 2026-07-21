@@ -13,15 +13,6 @@ export function floatBlob(vector: number[]): Uint8Array {
   return new Uint8Array(Float32Array.from(vector).buffer);
 }
 
-/** THE-457: parse the pinned embedding dimension from a vec_chunks CREATE statement — the N in
- *  `embedding float[N]`. Returns undefined when the DDL carries no `float[...]` (not a vec table).
- *  ensureVecChunks uses it to detect a model/dimension swap and rebuild the index rather than let
- *  new-dimension inserts fail and KNN silently degrade to a brute-force scan. */
-export function parseVecDims(ddlSql: string): number | undefined {
-  const m = /embedding\s+float\[(\d+)\]/i.exec(ddlSql);
-  return m ? Number(m[1]) : undefined;
-}
-
 // Decode a float32 BLOB (Uint8Array/Buffer from a SQLite row) into a Float32Array view.
 // Returned directly (zero-copy, THE-266) so the native cosine path takes the typed array
 // without re-copying into a number[]; callers only index it and read .length.
