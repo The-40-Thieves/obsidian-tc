@@ -95,8 +95,14 @@ describe("body_sha cross-path embedding dedup (migration 20260719_001)", () => {
     const { provider, embedded } = countingProvider();
     const v = makeM2Vault({ files: { "one.md": SHARED, "two.md": SHARED }, provider });
     try {
-      // Simulate a cache.db provisioned before migration 20260719_001.
+      // Simulate a cache.db provisioned before migration 20260719_001. Every index over body_sha
+      // must go first — SQLite refuses to drop a column an index still references. THE-502 added a
+      // second one (idx_chunks_dedup), so this list grows with the schema.
+      //
+      // Production never reaches this state: migrations only add. The DROP COLUMN here exists purely
+      // to manufacture an old database that the graceful-degrade path can be tested against.
       v.db.exec("DROP INDEX IF EXISTS chunks_body_sha");
+      v.db.exec("DROP INDEX IF EXISTS idx_chunks_dedup");
       v.db.exec("ALTER TABLE chunks DROP COLUMN body_sha");
 
       const res: ToolResult = await v.call("index_vault", { vault: v.id });
