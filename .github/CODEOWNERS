@@ -1,0 +1,47 @@
+# CODEOWNERS — THE-529
+#
+# This file ROUTES review, it does not GATE merges. There is currently one maintainer, so a
+# required-reviewer branch rule would auto-request review from whoever opened the PR and block
+# every merge. Deliberately not doing that; revisit if a second maintainer joins.
+#
+# What it is for, today:
+#   1. A machine-readable statement of which paths carry security or data-loss risk, for
+#      contributors AND for coding agents working in this repo (several PRs here are agent-authored).
+#   2. Correct review routing the moment there is more than one maintainer, with no archaeology
+#      needed to work out what should have been watched.
+#   3. A visible marker on PRs touching auth/ACL/release — the same reason the gitleaks and
+#      vault-leak jobs exist: make the risky diff obvious rather than hoping a reader notices.
+
+* @suavecito585
+
+# --- Authentication -----------------------------------------------------------------------------
+# Token verification. A rejection here that reports the wrong reason hid a 5-day outage (THE-520);
+# a rejection that wrongly PASSES is an authentication bypass.
+/packages/server/src/auth/                      @suavecito585
+
+# --- Authorization / ACL ------------------------------------------------------------------------
+# The folder ACL decides what a caller can read, write and delete. PR #332 shipped a defect here
+# where a returned array aliased live config — mutating it escalated privileges process-wide with
+# no trace in the config file. Small diffs in these files are not low-risk diffs.
+/packages/server/src/acl.ts                     @suavecito585
+/packages/server/src/vault/acl-path.ts          @suavecito585
+/packages/server/src/vault/acl-read-filter.ts   @suavecito585
+
+# --- Dispatch -----------------------------------------------------------------------------------
+# Every tool call passes through here: scope checks, HITL floors, idempotency, throttling, audit.
+/packages/server/src/mcp/registry.ts            @suavecito585
+
+# --- Memory / experiential ingestion ------------------------------------------------------------
+# Writes derived from vault content; the secret-gate lives on this path.
+/packages/server/src/tools/m8/                  @suavecito585
+
+# --- Config schema ------------------------------------------------------------------------------
+# Where a DEFAULT silently sets the security posture — auth.mode, strictReadDefault and
+# tokenTtlSeconds all default here, and the last one caused THE-520.
+/packages/shared/src/config.schema.ts           @suavecito585
+
+# --- Release provenance -------------------------------------------------------------------------
+# A v* tag triggers the ghcr build and npm publish; these files decide what ships (THE-528).
+/.github/workflows/publish.yml                  @suavecito585
+/.github/workflows/ci-security.yml              @suavecito585
+/scripts/release.mjs                            @suavecito585
