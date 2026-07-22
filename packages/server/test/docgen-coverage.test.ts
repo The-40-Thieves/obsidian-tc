@@ -6,10 +6,11 @@
 // (16/16 and 34/34), so these are regression guards rather than a cleanup: they fail the moment
 // someone adds an undocumented one, which is when the cost of fixing it is lowest.
 //
-// Config-key coverage remains the outstanding piece — the Zod schema does not .describe() every
-// key yet, so asserting it today would fail ~everywhere. That is a schema change, not a lint
-// change, and is tracked separately on THE-476.
+// Config keys are covered too. The schema was already densely commented — the knowledge existed in
+// block comments and JSDoc, where the extractor could not see it. .describe() moves it somewhere
+// both the generated docs and this lint can read.
 import { describe, expect, it } from "vitest";
+import { extractConfig } from "../scripts/docgen/extract-config";
 import { extractErrors } from "../scripts/docgen/extract-errors";
 import { extractMetrics } from "../scripts/docgen/extract-metrics";
 import { extractTools } from "../scripts/docgen/extract-tools";
@@ -57,5 +58,17 @@ describe("docgen coverage lint (THE-476)", () => {
 
     expect(errors.length).toBeGreaterThan(0);
     expect(thin, `error codes missing a description: ${thin.join(", ")}`).toEqual([]);
+  });
+
+  it("every config key carries a description", () => {
+    // The generated config page is what an operator reads before setting a key. A blank
+    // description there is not a cosmetic gap: it is a key someone will guess at.
+    const keys = extractConfig();
+    const thin = keys.filter((k) => !k.description?.trim()).map((k) => k.path);
+
+    expect(keys.length).toBeGreaterThan(0);
+    expect(thin, `config keys missing a description (${thin.length}): ${thin.join(", ")}`).toEqual(
+      [],
+    );
   });
 });
