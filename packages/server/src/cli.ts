@@ -12,12 +12,14 @@ import {
   CapabilityCache,
   createBridgeClient,
 } from "./bridge";
+import { resolveCapabilityProfile } from "./capability";
 import { parseCliArgs, redactConfig, resolveServeConfig, USAGE } from "./cli/args";
 import { installPlugin } from "./cli/plugin-install";
 import { provisionExperientialDb } from "./db/experiential";
 import { registerMaintenanceSweep } from "./db/maintenance";
 import { openDatabase } from "./db/open";
 import { provisionCacheDb } from "./db/provision";
+import { assembleDoctorReport, renderText } from "./doctor";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
 import {
@@ -189,6 +191,35 @@ async function run_config_show(cmd: Cmd<"config-show" | "config-validate">): Pro
       : "config valid\n",
   );
   return;
+}
+
+// THE-521 — runtime health probe. Loads config, detects the environment (THE-522), runs the default
+// check set, and emits either the versioned JSON envelope or human text rendered from it. Exits
+// non-zero when any check fails, so scripts and CI can gate on health — a warning does not fail.
+async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
+  const config = resolveOrUsageExit(cmd.configPath);
+  // Include the configured vault paths so they appear even when the desktop registry is absent
+  // (headless/server boxes), which is exactly where doctor is most useful.
+  const profile = await resolveCapabilityProfile({
+    extraVaultPaths: config.vaults.map((v) => v.path),
+  });
+
+  const report = await assembleDoctorReport({
+    config: {
+      auth: {
+        mode: config.auth.mode,
+        tokenTtlSeconds: config.auth.tokenTtlSeconds,
+        readOnly: config.acl.readOnly,
+      },
+    },
+    profile,
+    ...(cmd.token !== undefined ? { token: cmd.token } : {}),
+  });
+
+  process.stdout.write(
+    cmd.json ? `${JSON.stringify(report, null, 2)}\n` : `${renderText(report)}\n`,
+  );
+  if (report.overallStatus === "fail") process.exit(1);
 }
 
 async function run_cluster(cmd: Cmd<"cluster">): Promise<void> {
@@ -1521,6 +1552,8 @@ async function main(): Promise<void> {
     case "config-show":
     case "config-validate":
       return run_config_show(cmd);
+    case "doctor":
+      return run_doctor(cmd);
     case "cluster":
       return run_cluster(cmd);
     case "activation-recompute":

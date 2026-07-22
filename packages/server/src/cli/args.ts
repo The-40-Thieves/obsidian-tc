@@ -7,6 +7,7 @@ export type CliCommand =
   | { kind: "serve"; input?: string }
   | { kind: "config-show"; configPath?: string }
   | { kind: "config-validate"; configPath?: string }
+  | { kind: "doctor"; configPath?: string; json?: boolean; token?: string }
   | { kind: "version" }
   | { kind: "help" }
   | { kind: "plugin-install"; vaultPath: string }
@@ -61,6 +62,11 @@ Usage:
   obsidian-tc serve [path]                Same as above; path may be a vault folder or a config file
   obsidian-tc config show [path]          Print the effective config with secrets redacted
   obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
+  obsidian-tc doctor [path] [--json] [--token <jwt>]
+                                          Probe runtime health: runtime, native module, auth policy,
+                                          token max-age vs expiry, detected Obsidian vaults/plugins.
+                                          --json emits the versioned report; --token checks a deployed
+                                          credential's age. Exits non-zero when a check fails.
   obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
   obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval (THE-73)
   obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history (THE-227)
@@ -122,6 +128,25 @@ export function parseCliArgs(argv: string[]): CliCommand {
       if (sub === "show") return { kind: "config-show", configPath };
       if (sub === "validate") return { kind: "config-validate", configPath };
       return { kind: "error", message: `unknown config subcommand: ${sub ?? "(none)"}` };
+    }
+    if (first === "doctor") {
+      // --json and --token are dropped before resolving the positional config path so neither is
+      // mistaken for it. --token takes a raw JWT whose iat/exp are read (not verified) by auth.maxAge.
+      const json = rest.includes("--json");
+      const token = flagValue(rest, "--token");
+      const scan = rest.filter((a, i) => {
+        if (a === "--json") return false;
+        if (a === "--token") return false;
+        if (i > 0 && rest[i - 1] === "--token") return false;
+        return true;
+      });
+      const configPath = flagValue(scan, "--config") ?? positional(scan);
+      return {
+        kind: "doctor",
+        ...(configPath !== undefined ? { configPath } : {}),
+        json,
+        ...(token !== undefined ? { token } : {}),
+      };
     }
     if (first === "plugin") {
       const sub = rest[0];
