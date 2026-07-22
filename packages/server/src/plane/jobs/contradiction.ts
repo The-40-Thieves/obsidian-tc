@@ -69,7 +69,7 @@ export interface ContradictionStats {
 }
 
 export async function checkContradictions(
-  ctx: { db: Database; roles: GatewayRoles | null; now: () => number },
+  ctx: { db: Database; roles: GatewayRoles | null; now: () => number; model?: string },
   vaultId: string,
   chunks: IndexedChunk[],
 ): Promise<ContradictionStats> {
@@ -94,6 +94,7 @@ export async function checkContradictions(
     const neighbors = semanticSearch(ctx.db, vaultId, chunk.embedding, {
       k: TOP_K + 1,
       returnContent: true,
+      ...(ctx.model !== undefined ? { model: ctx.model } : {}),
     }).filter(
       (n) => n.chunk_id !== chunk.id && n.score >= COSINE_THRESHOLD && n.score < NEAR_DUPE_CEILING,
     );

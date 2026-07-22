@@ -25,6 +25,11 @@ export interface SemanticOptions {
   minScore?: number;
   returnContent?: boolean;
   isReadable?: (path: string) => boolean;
+  /** THE-530: the active embedding model. When set, the brute-force scan filters chunk_embeddings to
+   *  this model IN SQL, so a same-dimension vector from a SUPERSEDED model is never scored against a
+   *  new-model query (is_active=1 + byteLength===dim*4 are both satisfied by the old vector). This
+   *  makes the fallback agree with the vec0 path (THE-460). Omitted -> no filter (back-compat). */
+  model?: string;
 }
 
 export interface MetaRow {
@@ -94,11 +99,22 @@ export function semanticSearch(
   }
   if (vecHits !== null) return vecHits;
 
-  const rows = db
-    .prepare(
-      "SELECT c.id AS id, c.path AS path, c.content AS content, e.model AS model, e.embedding AS embedding FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ?",
-    )
-    .all(vaultId) as BruteRow[];
+  // THE-530: filter to the active model IN SQL so a superseded-model vector at the same dimension is
+  // never fetched or scored (excluded outright, matching the vec0 path — not surfaced at score 0). The
+  // join already touches chunk_embeddings, so the predicate is free and avoids decoding dead blobs.
+  const rows = (
+    opts.model !== undefined
+      ? db
+          .prepare(
+            "SELECT c.id AS id, c.path AS path, c.content AS content, e.model AS model, e.embedding AS embedding FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND e.model = ?",
+          )
+          .all(vaultId, opts.model)
+      : db
+          .prepare(
+            "SELECT c.id AS id, c.path AS path, c.content AS content, e.model AS model, e.embedding AS embedding FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ?",
+          )
+          .all(vaultId)
+  ) as BruteRow[];
   // THE-420: score the whole candidate set in ONE native crossing instead of one per row.
   // Per-pair cosine across the boundary is dominated by re-marshaling the f64 query on every
   // call (measured 13-22x slower than JS); cosineBatch marshals the query once and scans the

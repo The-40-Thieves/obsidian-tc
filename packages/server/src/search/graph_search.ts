@@ -42,6 +42,9 @@ export interface GraphSearchOptions {
   query: string;
   queryVec: number[];
   vaultId: string;
+  /** THE-530: the active embedding model, threaded to the vector-seed scan so the brute-force
+   *  fallback never scores a superseded-model vector against this query. Omitted -> no filter. */
+  model?: string;
   seedCount?: number;
   finalTopK?: number;
   /** THE-459 (additive, observability-only): fired once per retrieval stage with its candidate
@@ -246,6 +249,7 @@ async function graphSearchCore(
     k: seedCount,
     returnContent: true,
     ...(isReadable ? { isReadable } : {}),
+    ...(opts.model !== undefined ? { model: opts.model } : {}),
   });
   // 1b. Lexical seeds (THE-73): chunk-level BM25 stream — empty when chunk_fts is absent or the
   //     query has no usable term. Fetched up front so a pure-lexical query (exact term, no vector
