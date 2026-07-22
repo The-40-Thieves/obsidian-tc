@@ -22,6 +22,7 @@ import type { Reranker } from "../src/search/rerank";
 import { lexicalRouteResults, routeQuery } from "../src/search/router";
 import { semanticSearch } from "../src/search/semantic";
 import type { SparseVec } from "../src/search/sparse";
+import { sliceByCategory } from "./categories";
 import { analyzeQuery, type QueryFailureAnalysis, recommendV11 } from "./failure_analysis";
 import {
   type AggregateMetrics,
@@ -76,6 +77,9 @@ export interface EvalReport {
   perQuery: EvalQueryResult[];
   baselineAgg: AggregateMetrics;
   graphAgg: AggregateMetrics;
+  /** THE-449: per-category aggregates. Keys are derived + explicit categories; see eval/categories.ts. */
+  baselineByCategory: Record<string, AggregateMetrics>;
+  graphByCategory: Record<string, AggregateMetrics>;
   recallDeltaPp: number;
   bridgeDeltaPp: number;
   noRegression: boolean;
@@ -329,10 +333,23 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
   const graphAgg = aggregateMetrics(perQuery.map((p) => p.graph));
   const recallDeltaPp = (graphAgg.mean_recall_at_10 - baselineAgg.mean_recall_at_10) * 100;
   const bridgeDeltaPp = (graphAgg.bridge_recall_rate - baselineAgg.bridge_recall_rate) * 100;
+  // THE-449: the aggregate says whether the arm moved; the slices say on WHAT. A small mean delta
+  // can hide a large gain on one category cancelling a large loss on another, and those call for
+  // opposite next actions. Additive — nothing else reads these, and the ship rule is unchanged.
+  const baselineByCategory = sliceByCategory(
+    opts.golden.queries,
+    perQuery.map((p) => p.baseline),
+  );
+  const graphByCategory = sliceByCategory(
+    opts.golden.queries,
+    perQuery.map((p) => p.graph),
+  );
   return {
     perQuery,
     baselineAgg,
     graphAgg,
+    baselineByCategory,
+    graphByCategory,
     recallDeltaPp,
     bridgeDeltaPp,
     noRegression: recallDeltaPp >= 0,
@@ -677,6 +694,31 @@ async function main(): Promise<void> {
   process.stdout.write(`\n${describePower(dN, "power ΔnDCG@10  ")}\n`);
   process.stdout.write(`${describeNonInferiority(dN, "non-inferiority ΔnDCG@10 ")}\n`);
   process.stdout.write(`${describeNonInferiority(dR, "non-inferiority Δrecall@10")}\n`);
+
+  // THE-449: per-category slices. Printed WITH --diagnose because that is where a reader is asking
+  // "why did this move?" — the aggregate above already answers "did it move?". Sorted by delta so
+  // the worst-regressing category is the first line read.
+  if (diagnose) {
+    const cats = Object.keys(report.graphByCategory).sort();
+    if (cats.length > 0) {
+      process.stdout.write("\n--- category slices (--diagnose) ---\n");
+      const rows = cats.map((c) => {
+        const b = report.baselineByCategory[c];
+        const g = report.graphByCategory[c];
+        const delta = (g?.mean_ndcg_at_10 ?? 0) - (b?.mean_ndcg_at_10 ?? 0);
+        return { c, n: g?.query_count ?? 0, delta };
+      });
+      for (const r of rows.sort((a, b) => a.delta - b.delta)) {
+        const sign = r.delta >= 0 ? "+" : "";
+        process.stdout.write(
+          `  ${r.c.padEnd(18)} n=${String(r.n).padStart(4)}  ΔnDCG@10 ${sign}${r.delta.toFixed(4)}\n`,
+        );
+      }
+      process.stdout.write(
+        "  (a small aggregate delta can hide a large gain in one category cancelling a loss in another)\n",
+      );
+    }
+  }
 
   // THE-446: failure diagnosis. Classify each query (needs the retained raw hits + a pure BFS
   // reachability probe over vault_edges) and aggregate the "what to build next" remediation lever.
