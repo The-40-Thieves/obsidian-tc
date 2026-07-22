@@ -40,8 +40,11 @@ export function bridgeItemPath(
 export function readableRel(acl: FolderAcl | undefined, rel: string): boolean {
   if (!acl) return true;
   if (isDefaultDenied(rel)) return false;
-  if (acl.readPaths === undefined) return acl.strictReadDefault !== true;
-  return acl.readPaths.some((g) => globMatch(g, rel));
+  // Read the whitelist ONCE: the accessor returns a defensive copy, and this runs per bridge item
+  // and per note during index-time read filtering (THE-453).
+  const readPaths = acl.readPaths;
+  if (readPaths === undefined) return acl.strictReadDefault !== true;
+  return readPaths.some((g) => globMatch(g, rel));
 }
 
 /**
