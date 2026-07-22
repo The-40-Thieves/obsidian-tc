@@ -9,6 +9,7 @@ import {
 import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
+import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import {
   buildProtectedResourceMetadata,
   isPrmConfigured,
@@ -19,9 +20,44 @@ import type { Database } from "../db/types";
 import type { FacadeMode } from "../mcp/facade";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
+import type { MetricsRecorder } from "../metrics/registry";
 import type { VaultRegistry } from "../vault/registry";
 
 type AuthConfig = ServerConfig["auth"];
+
+/** THE-520: operator-facing detail about a refused token. Never serialized to a client. */
+export interface AuthRejectionDetail {
+  reason: AuthRejectionReason;
+  /** UNVERIFIED `sub` — the signature may be what failed. For log correlation only. */
+  caller: string | null;
+  expStillFuture: boolean;
+}
+
+/**
+ * THE-520: emit a refused token to the operator — one stderr line plus an optional structured sink
+ * and metric. Deliberately separate from the response path so widening what an operator sees can
+ * never widen what a caller sees.
+ */
+function reportAuthRejection(d: AuthRejectionDetail, opts: HttpAppOptions): void {
+  try {
+    opts.metrics?.incAuthRejection(d.reason);
+  } catch {
+    /* metrics must never break the request path */
+  }
+  try {
+    opts.onAuthRejected?.(d);
+  } catch {
+    /* diagnostics sink must never break the request path */
+  }
+  // `caller` is unverified; label it so a log reader never mistakes it for authenticated identity.
+  const who = d.caller === null ? "" : ` caller(unverified)=${JSON.stringify(d.caller)}`;
+  // The one line that would have made a 5-day outage a 5-minute one.
+  const hint = d.expStillFuture
+    ? " — token has NOT expired; it exceeded auth.tokenTtlSeconds. A long-lived token under a" +
+      " short ttl is almost certainly a misconfiguration."
+    : "";
+  process.stderr.write(`auth: rejected reason=${d.reason}${who}${hint}\n`);
+}
 
 export interface HttpAppOptions {
   name: string;
@@ -30,6 +66,10 @@ export interface HttpAppOptions {
   auth: AuthConfig;
   db: Database;
   acl: FolderAcl;
+  /** THE-520: optional structured sink for refused tokens (operator diagnostics). */
+  onAuthRejected?: (detail: AuthRejectionDetail) => void;
+  /** THE-520: optional Prometheus recorder for auth_rejections_total. */
+  metrics?: MetricsRecorder;
   vaultId: string;
   vaultRegistry?: VaultRegistry;
   /** Optional bearer-token verifier (W-AUTH seam). Defaults to an HS256 JWT verifier from `auth`. */
@@ -46,7 +86,14 @@ export interface HttpAppOptions {
 
 type AuthOutcome =
   | { ok: true; caller: string | null; scopes: Set<string>; vault?: string }
-  | { ok: false; status: 401 | 500; reason: string };
+  | {
+      ok: false;
+      status: 401 | 500;
+      /** Client-facing message. Deliberately coarse — see `diagnosis` for the operator detail. */
+      reason: string;
+      /** THE-520: operator-only. Never rendered into the response. */
+      diagnosis?: AuthRejectionDetail;
+    };
 
 function bearer(header: string | undefined): string | null {
   const m = header ? /^Bearer\s+(.+)$/i.exec(header) : null;
@@ -72,8 +119,14 @@ async function resolveAuth(
   try {
     const id = await verifier.verify(token);
     return { ok: true, caller: id.caller, scopes: id.scopes, vault: id.vault };
-  } catch {
-    return { ok: false, status: 401, reason: "invalid or expired token" };
+  } catch (e) {
+    // The message stays identical for every failure mode: an unauthenticated caller must not be
+    // able to probe which check failed. The typed detail rides alongside for logs/metrics only.
+    const diagnosis =
+      e instanceof AuthRejection
+        ? { reason: e.reason, caller: e.caller, expStillFuture: e.expStillFuture }
+        : { reason: "malformed" as const, caller: null, expStillFuture: false };
+    return { ok: false, status: 401, reason: "invalid or expired token", diagnosis };
   }
 }
 
@@ -165,6 +218,7 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
     }
     const authz = await resolveAuth(c.req.header("authorization"), opts.auth, verifier);
     if (!authz.ok) {
+      if (authz.diagnosis) reportAuthRejection(authz.diagnosis, opts);
       // RFC 9728 §5.1 challenge: on a 401, point a spec-compliant client at the PRM document so it
       // can discover the authorization server (THE-278). Only when PRM is configured.
       if (authz.status === 401 && isPrmConfigured(opts.auth))

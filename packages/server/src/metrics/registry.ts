@@ -41,6 +41,7 @@ export class MetricsRecorder {
   private readonly rateLimitHits: Counter<string>;
   private readonly governorTruncations: Counter<string>;
   private readonly morgianaDropped: Counter<string>;
+  private readonly authRejections: Counter<string>;
   private readonly auditWriteFailed: Counter<string>;
   private readonly toolDuration: Histogram<string>;
   private readonly responseBytes: Histogram<string>;
@@ -96,6 +97,14 @@ export class MetricsRecorder {
       name: "obsidian_tc_governor_truncations_total",
       help: "Response-byte governor truncations/refusals, by vault and tool.",
       labelNames: ["vault", "tool"],
+      registers,
+    });
+    this.authRejections = new Counter({
+      name: "obsidian_tc_auth_rejections_total",
+      // THE-520: labelled by REASON so an operator can alert on the difference between "tokens are
+      // expiring" (rotation working) and "tokens exceed tokenTtlSeconds" (misconfiguration).
+      help: "Refused tokens at the HTTP edge, by rejection reason.",
+      labelNames: ["reason"],
       registers,
     });
     this.morgianaDropped = new Counter({
@@ -194,6 +203,9 @@ export class MetricsRecorder {
   }
   incGovernorTruncation(vault: string, tool: string): void {
     this.governorTruncations.inc({ vault, tool });
+  }
+  incAuthRejection(reason: string): void {
+    this.authRejections.inc({ reason });
   }
   incMorgianaDropped(vault: string, reason: string): void {
     this.morgianaDropped.inc({ vault, reason });
