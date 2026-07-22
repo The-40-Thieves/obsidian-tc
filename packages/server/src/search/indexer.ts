@@ -433,13 +433,27 @@ async function planNoteWrites(
 /** Does the chunks table carry the body_sha column (migration 20260719_001)? A cache.db provisioned
  *  before that migration — or a bare fixture — lacks it; the INSERT then omits body_sha so the write
  *  path keeps working (the in-memory dedup registry is unaffected). Mirrors hasDerivedEdgeColumns. */
-function hasBodyShaColumn(db: Database): boolean {
+// THE-491: column presence only changes at migration time, and migrations run at open before any
+// probe — so this is a per-connection constant. It was re-issuing PRAGMA table_info per NOTE
+// (called at :684 in the write path and again per reconcile), so a 1000-note vault paid 1000+
+// round trips to answer a fixed question. WeakMap keyed on the connection, matching the pattern
+// hasNotesTable already uses in fts.ts, so a closed db's entry is collectable.
+const bodyShaCache = new WeakMap<Database, boolean>();
+const derivedEdgeCache = new WeakMap<Database, boolean>();
+
+/** @internal exported for the memoization test; production callers use it directly. */
+export function hasBodyShaColumn(db: Database): boolean {
+  const cached = bodyShaCache.get(db);
+  if (cached !== undefined) return cached;
+  let ok = false;
   try {
     const cols = db.prepare("PRAGMA table_info(chunks)").all() as Array<{ name: string }>;
-    return cols.some((c) => c.name === "body_sha");
+    ok = cols.some((c) => c.name === "body_sha");
   } catch {
-    return false;
+    ok = false;
   }
+  bodyShaCache.set(db, ok);
+  return ok;
 }
 
 // #280-followup: a chunk's contradiction flags are judged on its exact content; when the chunk is
@@ -778,14 +792,20 @@ export function deindexNote(
  *  source_fingerprint)? A vault_edges provisioned BEFORE that migration — or a bare fixture — has neither,
  *  and the derived-edge upsert would throw and take the whole index pass down with it. No columns means no
  *  derived edge can exist, so there is nothing to reconcile and nothing to prune: skipping is safe. */
-function hasDerivedEdgeColumns(db: Database): boolean {
+/** @internal exported for the memoization test; production callers use it directly. */
+export function hasDerivedEdgeColumns(db: Database): boolean {
+  const cached = derivedEdgeCache.get(db);
+  if (cached !== undefined) return cached;
+  let ok = false;
   try {
     const cols = db.prepare("PRAGMA table_info(vault_edges)").all() as Array<{ name: string }>;
     const names = new Set(cols.map((c) => c.name));
-    return names.has("confidence") && names.has("source_fingerprint");
+    ok = names.has("confidence") && names.has("source_fingerprint");
   } catch {
-    return false;
+    ok = false;
   }
+  derivedEdgeCache.set(db, ok);
+  return ok;
 }
 
 /** Per-note frontmatter tag sets (notes.tags is a JSON array). A note with unparseable tags contributes

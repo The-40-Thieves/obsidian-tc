@@ -101,6 +101,11 @@ describe("body_sha cross-path embedding dedup (migration 20260719_001)", () => {
       //
       // Production never reaches this state: migrations only add. The DROP COLUMN here exists purely
       // to manufacture an old database that the graceful-degrade path can be tested against.
+      //
+      // ORDERING MATTERS since THE-491: hasBodyShaColumn is memoized per connection, so this must
+      // happen BEFORE the first index_vault call. If indexing ran first the probe would be cached
+      // as true and this test would exercise the wrong path — passing or failing for reasons
+      // unrelated to graceful degradation.
       v.db.exec("DROP INDEX IF EXISTS chunks_body_sha");
       v.db.exec("DROP INDEX IF EXISTS idx_chunks_dedup");
       v.db.exec("ALTER TABLE chunks DROP COLUMN body_sha");
