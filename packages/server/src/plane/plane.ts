@@ -10,6 +10,8 @@ import type { Scheduler } from "../scheduler/scheduler";
 import type { GatewayRoles } from "./gateway";
 
 export interface JobContext {
+  /** THE-462(b): set by the scheduler; when aborted, runAll stops before the next job. */
+  signal?: AbortSignal;
   db: Database;
   /** Generative seam; null disables generative jobs (they degrade rather than throw). */
   roles: GatewayRoles | null;
@@ -56,6 +58,9 @@ export class SleepTimePlane {
   async runAll(ctx: JobContext): Promise<Record<string, JobResult>> {
     const out: Record<string, JobResult> = {};
     for (const name of this.jobs.keys()) {
+      // THE-462(b): shutdown cancels the REMAINING jobs. Checked between jobs rather than mid-job
+      // so a job is never torn down half-written — each one either runs fully or not at all.
+      if (ctx.signal?.aborted) break;
       out[name] = await this.runJob(name, ctx);
     }
     return out;
@@ -90,11 +95,12 @@ export function registerPlaneScheduler(
   scheduler.register({
     name: "plane-consolidation",
     intervalMs: deps.intervalMs,
-    run: async () => {
+    run: async (signal) => {
       const results = await plane.runAll({
         db: deps.db,
         roles: deps.roles,
         now: deps.now ?? Date.now,
+        signal,
       });
       deps.onRun?.(results);
     },

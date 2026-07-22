@@ -1424,7 +1424,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     scheduler.register({
       name: "contradiction-drain",
       intervalMs: CONTRADICTION_DRAIN_MS,
-      run: () => contradictionDrainer.drainOnce(),
+      run: (signal) => contradictionDrainer.drainOnce(signal),
     });
   }
 

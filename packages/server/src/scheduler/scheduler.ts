@@ -211,7 +211,14 @@ export class Scheduler {
     return Math.max(1, Math.round(jittered));
   }
 
+  /** Idempotent: clears any pending timer before arming. Callable from anywhere — including the
+   *  async settle path, where a revised nextRunAt must supersede a timer the tick already armed.
+   *  Without the clear, a second arm() would leave TWO live timers and double-tick every job. */
   private arm(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
     if (this.stopped || this.jobs.size === 0) return;
     let soonest = Number.POSITIVE_INFINITY;
     for (const state of this.jobs.values()) soonest = Math.min(soonest, state.nextRunAt);
@@ -243,8 +250,13 @@ export class Scheduler {
         state.nextRunAt = this.virtualNow + this.effInterval(state);
         continue;
       }
-      this.runJob(state);
+      // Provisional schedule, set BEFORE dispatch so a still-running async job cannot be
+      // re-dispatched. onSuccess/onFailure revise it authoritatively once the outcome is known —
+      // which is the whole point: computed here, the interval cannot reflect a failure that has
+      // not happened yet. Assigning before the run also keeps the SYNCHRONOUS path correct, where
+      // onSuccess/onFailure already ran inside runJob and would otherwise be clobbered.
       state.nextRunAt = this.virtualNow + this.effInterval(state);
+      this.runJob(state);
     }
     this.arm();
   }
@@ -287,6 +299,10 @@ export class Scheduler {
 
   private onSuccess(state: JobState): void {
     state.consecutiveFailures = 0;
+    // Recovery must shorten the in-memory schedule too, not just the durable row — otherwise a
+    // job that recovers stays on its backed-off interval until the process restarts.
+    state.nextRunAt = this.virtualNow + this.effInterval(state);
+    this.arm(); // the tick armed against the provisional value; supersede it
     if (!this.db) return;
     const t = this.now();
     this.persist(state, {
@@ -298,6 +314,11 @@ export class Scheduler {
 
   private onFailure(state: JobState, e: unknown): void {
     state.consecutiveFailures += 1;
+    // Re-derive AFTER the increment. The provisional value set at dispatch was computed from the
+    // pre-failure count, so without this the first retry after each failure arrives one backoff
+    // step early.
+    state.nextRunAt = this.virtualNow + this.effInterval(state);
+    this.arm(); // the tick armed against the provisional value; supersede it
     if (this.db) {
       const t = this.now();
       this.persist(state, {
