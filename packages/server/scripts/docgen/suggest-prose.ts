@@ -16,6 +16,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GENERATED_DOC_FILES, NARRATIVE_DOC_FILES } from "./targets";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
@@ -109,17 +110,12 @@ async function callLlm(prompt: string): Promise<string> {
 
 async function main(): Promise<void> {
   const range = arg("--range", "HEAD~1..HEAD");
-  const docPaths = arg("--docs", "README.md,ARCHITECTURE.md").split(",");
+  const docPaths = arg("--docs", NARRATIVE_DOC_FILES.join(",")).split(",");
   // The compact, factual signal: how the generated reference tables moved in this range.
-  const referenceDiff = git([
-    "diff",
-    range,
-    "--",
-    "docs/wiki/Tool-Reference.md",
-    "docs/wiki/Configuration.md",
-    "docs/src/content/docs/tools/tool-catalog.md",
-    "docs/src/content/docs/configuration/config-reference.md",
-  ]);
+  // THE-477: watch EVERY generated surface, from the shared list. This was a hardcoded four, which
+  // silently excluded README.md and ARCHITECTURE.md once THE-473 made them render targets — the
+  // watcher reported "no generated-reference changes" for a commit that had just rewritten both.
+  const referenceDiff = git(["diff", range, "--", ...GENERATED_DOC_FILES]);
   if (!referenceDiff.trim()) {
     process.stdout.write(
       `No generated-reference changes in ${range} — no prose suggestion needed.\n`,
