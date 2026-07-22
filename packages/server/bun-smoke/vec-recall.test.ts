@@ -133,7 +133,10 @@ test("THE-277: legacy vec_chunks rebuilds to the partition/aux shape from stored
   expect(pre.map((r) => r.chunk_id)).toEqual(["a1", "a2", "b1"]);
 
   // The rebuild: same vectors, new shape.
-  expect(ensureVecChunks(db, fp({ dimensions: 4 }))).toBe(true);
+  // model "m" matches the embeddings seeded above. THE-460: the backfill now filters on model as
+  // well as dimension, so a fingerprint naming a different model would (correctly) backfill
+  // nothing. This test is about the legacy SHAPE migration, so the model is held constant.
+  expect(ensureVecChunks(db, fp({ dimensions: 4, model: "m" }))).toBe(true);
   const shaped = db.prepare("SELECT vault_id, path FROM vec_chunks LIMIT 1").get() as {
     vault_id: string;
   };
@@ -193,16 +196,23 @@ test("THE-460: a same-dimension MODEL swap rebuilds vec_chunks (fingerprint mism
   expect(fpA.dimensions).toBe(fpB.dimensions); // same-dimension swap, by construction
   expect(ensureVecChunks(db, fpB)).toBe(true);
 
-  // The rebuild happened: both chunks are now present (proof the table was dropped/repopulated
-  // from chunk_embeddings, not left alone).
+  // The rebuild happened AND it respected the model. c2 was never upserted directly, so its
+  // presence is the proof the table was dropped and repopulated from chunk_embeddings. c1 is
+  // absent because it belongs to the SUPERSEDED model (model-a): re-indexing it would leave
+  // model-a vectors in an index whose fingerprint claims model-b, so retrieval would score
+  // model-b queries against model-a embeddings — wrong answers rather than an error.
+  //
+  // This assertion previously expected BOTH chunks and therefore encoded the defect. c1's
+  // vectors are not lost: they stay in chunk_embeddings and the re-embed regenerates them under
+  // model-b, which is the same posture already taken for a dimension change.
   const afterSecond = db.prepare("SELECT count(*) AS c FROM vec_chunks").get() as { c: number };
-  expect(afterSecond.c).toBe(2);
+  expect(afterSecond.c).toBe(1);
   const ids = (
     db.prepare("SELECT chunk_id FROM vec_chunks ORDER BY chunk_id").all() as Array<{
       chunk_id: string;
     }>
   ).map((r) => r.chunk_id);
-  expect(ids).toEqual(["c1", "c2"]);
+  expect(ids).toEqual(["c2"]);
 
   // The stored fingerprint now reflects model-b, not model-a.
   const storedAfterSecond = db
@@ -214,7 +224,7 @@ test("THE-460: a same-dimension MODEL swap rebuilds vec_chunks (fingerprint mism
   // Sentinel: a vec_chunks row NOT backed by an active chunk_embeddings row. A genuine no-op
   // leaves it untouched; a spurious drop+backfill rebuild wipes it (backfill only re-inserts
   // rows from active chunk_embeddings) and would silently pass the count-only assertion below,
-  // since the backfill would restore exactly 2 rows from c1/c2 and mask the regression. This is
+  // since the backfill would restore the model-b row and mask the regression. This is
   // the fault-injection target for THE-460's "perf disaster" — ensureVecChunks rebuilding on
   // every call even when the fingerprint hasn't changed.
   db.prepare(
@@ -225,7 +235,9 @@ test("THE-460: a same-dimension MODEL swap rebuilds vec_chunks (fingerprint mism
   // fingerprint row is untouched and vec_chunks isn't repopulated again (count unchanged).
   expect(ensureVecChunks(db, fpB)).toBe(true);
   const afterThird = db.prepare("SELECT count(*) AS c FROM vec_chunks").get() as { c: number };
-  expect(afterThird.c).toBe(3);
+  // 1 backfilled chunk (c2, model-b) + the sentinel. Was 3 when the backfill also re-indexed the
+  // superseded model-a row.
+  expect(afterThird.c).toBe(2);
 
   // The sentinel must survive a true no-op. A spurious rebuild would drop vec_chunks and
   // backfill only from chunk_embeddings, wiping this row.
