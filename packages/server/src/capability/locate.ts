@@ -42,7 +42,15 @@ export function registryCandidates(
       return [
         posix.join(xdg, "obsidian", REGISTRY_FILE),
         // Flatpak/Snap relocate the config out of ~/.config; a single path would miss these installs.
-        posix.join(home, ".var", "app", "md.obsidian.Obsidian", "config", "obsidian", REGISTRY_FILE),
+        posix.join(
+          home,
+          ".var",
+          "app",
+          "md.obsidian.Obsidian",
+          "config",
+          "obsidian",
+          REGISTRY_FILE,
+        ),
         posix.join(home, "snap", "obsidian", "current", ".config", "obsidian", REGISTRY_FILE),
       ];
     }
