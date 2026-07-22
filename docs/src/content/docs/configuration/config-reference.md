@@ -204,6 +204,12 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `retrieval.rrfK` | `number` | `10` |  | Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits. |
 | `retrieval.sparse` | `boolean` | `false` |  | Fuse a bge-m3 learned-sparse stream into RRF at serve time. A no-op unless the embeddings provider emits the multi-vector heads (bge-m3 or model-tier). |
 
+### `securityProfile`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `securityProfile` | `enum(hardened\|trusted-local)` | — |  | Named security posture applied before validation. 'hardened' sets the least-privilege defaults (strictReadDefault, requireCas, snapshots on, HTTP off); explicit fields override it. 'trusted-local' (the default) keeps the permissive single-user posture. |
+
 ### `snapshots`
 
 | Key | Type | Default | Required | Description |
