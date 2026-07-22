@@ -75,7 +75,7 @@ A tool that needs an unavailable capability (a missing plugin, an unconfigured e
 _Auto-generated from the tool registry — the exhaustive, always-current list. Run `bun run docgen:render`; do not hand-edit between the markers._
 
 <!-- BEGIN GENERATED: tools -->
-_143 tools. Access is a coarse hint; the required scopes are authoritative._
+_144 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -184,6 +184,7 @@ _143 tools. Access is a coarse hint; the required scopes are authoritative._
 | `read_snapshot` | read | `read:notes` | Read the full stored content of a single snapshot by id. |
 | `record_retrieval_feedback` | write | `write:workspace` | Stamp relevance feedback and/or the THE-230 outcome axis (-1\|0\|+1) onto the most recent retrieval event(s) for a chunk in the experiential log. feedback = 'was this the right chunk'; outcome = 'did acting on it lead somewhere good'. Feeds the ACT-R activation recompute. |
 | `reflect` | read | `read:notes` | The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes). Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `obsidian-tc reflect` CLI command. |
+| `refresh_plugin_capabilities` | write | `admin:vault` | Re-probe the companion plugin for a vault and atomically replace the cached capability snapshot, so installing/enabling a plugin or upgrading the companion takes effect WITHOUT a server restart. Returns what changed (companion state, plugin/version deltas), not a bare ok. Admin-scoped, no HITL. |
 | `reload_vault` | write | `admin:vault` | Re-read a vault's configuration from disk (does not touch the cache). |
 | `remotely_save_status` | read | `read:remotely-save` | Last sync state of the Remotely Save plugin (sync status + last successful sync time) — an independent backup-verification signal, via the companion bridge. |
 | `remotely_save_trigger` | write | `write:remotely-save` | Kick off a Remotely Save sync run (fire-and-poll: check remotely_save_status afterwards), via the companion bridge. |

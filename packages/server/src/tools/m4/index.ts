@@ -7,6 +7,7 @@
 // list/update) need no plugin and always work.
 import type { ToolRegistry } from "../../mcp/registry";
 import { buildBundleTools } from "./bundle-tools";
+import { buildCapabilityTools } from "./capability-tools";
 import { buildCommandTools } from "./command-tools";
 import { buildDailyNotesTools } from "./daily-notes-tools";
 import { buildDatacoreTools } from "./datacore-tools";
@@ -43,4 +44,6 @@ export function registerM4Tools(registry: ToolRegistry, deps: M4Deps): void {
   // THE-378/381: git + remotely-save bridges (domains 30/31).
   for (const tool of buildGitTools(deps)) registry.register(tool);
   for (const tool of buildRemotelySaveTools(deps)) registry.register(tool);
+  // THE-527: refresh the probed capability snapshot without a server restart.
+  for (const tool of buildCapabilityTools(deps)) registry.register(tool);
 }
