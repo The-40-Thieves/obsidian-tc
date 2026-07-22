@@ -12,7 +12,7 @@
 // convenience — the explicit-path and filesystem-scan strategies work with no registry at all.
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { posix, win32 } from "node:path";
 
 const REGISTRY_FILE = "obsidian.json";
 
@@ -26,20 +26,24 @@ export function registryCandidates(
   env: Record<string, string | undefined>,
   home: string,
 ): string[] {
+  // Join with the TARGET platform's separator, not the host's: this function computes the path for
+  // `platform`, which may differ from process.platform (the whole point of it being testable off
+  // that OS). Using the host-default `join` would emit backslashes when a Windows CI box computes a
+  // macOS path — wrong, and it broke cross-platform CI.
   switch (platform) {
     case "darwin":
-      return [join(home, "Library", "Application Support", "obsidian", REGISTRY_FILE)];
+      return [posix.join(home, "Library", "Application Support", "obsidian", REGISTRY_FILE)];
     case "win32": {
-      const appData = env.APPDATA ?? join(home, "AppData", "Roaming");
-      return [join(appData, "Obsidian", REGISTRY_FILE)];
+      const appData = env.APPDATA ?? win32.join(home, "AppData", "Roaming");
+      return [win32.join(appData, "Obsidian", REGISTRY_FILE)];
     }
     case "linux": {
-      const xdg = env.XDG_CONFIG_HOME ?? join(home, ".config");
+      const xdg = env.XDG_CONFIG_HOME ?? posix.join(home, ".config");
       return [
-        join(xdg, "obsidian", REGISTRY_FILE),
+        posix.join(xdg, "obsidian", REGISTRY_FILE),
         // Flatpak/Snap relocate the config out of ~/.config; a single path would miss these installs.
-        join(home, ".var", "app", "md.obsidian.Obsidian", "config", "obsidian", REGISTRY_FILE),
-        join(home, "snap", "obsidian", "current", ".config", "obsidian", REGISTRY_FILE),
+        posix.join(home, ".var", "app", "md.obsidian.Obsidian", "config", "obsidian", REGISTRY_FILE),
+        posix.join(home, "snap", "obsidian", "current", ".config", "obsidian", REGISTRY_FILE),
       ];
     }
     default:
