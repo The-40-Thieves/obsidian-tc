@@ -165,3 +165,39 @@ describe("THE-521 obsidian detection check", () => {
     expect(r.notes?.join(" ").toLowerCase()).toContain("no obsidian");
   });
 });
+
+describe("THE-523 bridge.state doctor check", () => {
+  it("is ok when every vault is live or headless", async () => {
+    const { bridgeCheck } = await import("../src/doctor/checks");
+    const r = await bridgeCheck([
+      { vaultId: "a", report: { state: "live", reason: "companion-reachable" } },
+      { vaultId: "b", report: { state: "headless", reason: "companion-missing" } },
+    ]).run({ serverVersion: "1.10.0" });
+    expect(r.status).toBe("ok");
+    expect(r.details?.a).toContain("live");
+    expect(r.details?.b).toContain("headless");
+  });
+
+  it("warns and surfaces remediation when a vault is degraded (version skew or unreachable)", async () => {
+    const { bridgeCheck } = await import("../src/doctor/checks");
+    const r = await bridgeCheck([
+      {
+        vaultId: "a",
+        report: {
+          state: "degraded",
+          reason: "enabled-but-unreachable",
+          remediation: "reload the plugin inside Obsidian",
+        },
+      },
+    ]).run({ serverVersion: "1.10.0" });
+    expect(r.status).toBe("warning");
+    expect(r.summary.toLowerCase()).toContain("degraded");
+    expect(r.remediation).toMatch(/reload/i);
+  });
+
+  it("is ok with no vaults configured", async () => {
+    const { bridgeCheck } = await import("../src/doctor/checks");
+    const r = await bridgeCheck([]).run({ serverVersion: "1.10.0" });
+    expect(r.status).toBe("ok");
+  });
+});

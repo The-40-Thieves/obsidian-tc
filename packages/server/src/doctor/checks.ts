@@ -1,5 +1,7 @@
 // THE-521 — the individual checks. Each is a factory taking injected inputs and returning a Check,
 // so it is unit-testable with no live server, DB, or network.
+
+import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import type { Check } from "./types";
 
@@ -143,6 +145,40 @@ export function authMaxAgeCheck(
       }
 
       return { status: "ok", summary: "token is within both its exp and its max age", details };
+    },
+  };
+}
+
+/** bridge.state (THE-523) — per-vault live/headless/degraded with reasons. A degraded vault (version
+ *  skew, or the previously-invisible enabled-but-unreachable) is a warning with actionable
+ *  remediation; live and headless are both healthy states. */
+export function bridgeCheck(reports: { vaultId: string; report: BridgeStateReport }[]): Check {
+  return {
+    id: "bridge.state",
+    category: "bridge",
+    run: () => {
+      const details: Record<string, string> = {};
+      for (const { vaultId, report } of reports) {
+        details[vaultId] = `${report.state} (${report.reason})`;
+      }
+      const degraded = reports.filter((r) => r.report.state === "degraded");
+      if (degraded.length > 0) {
+        const first = degraded[0];
+        return {
+          status: "warning",
+          summary: `${degraded.length} vault(s) degraded: ${degraded.map((d) => `${d.vaultId} [${d.report.reason}]`).join(", ")}`,
+          details,
+          ...(first?.report.remediation ? { remediation: first.report.remediation } : {}),
+        };
+      }
+      return {
+        status: "ok",
+        summary:
+          reports.length === 0
+            ? "no vaults configured"
+            : `${reports.length} vault(s): ${reports.map((r) => `${r.vaultId}=${r.report.state}`).join(", ")}`,
+        details,
+      };
     },
   };
 }

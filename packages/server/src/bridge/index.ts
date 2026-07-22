@@ -26,6 +26,14 @@ export {
   type VaultCapabilityOptions,
 } from "./probe";
 export {
+  type BridgeMode,
+  type BridgeReason,
+  type BridgeStateHints,
+  type BridgeStateReport,
+  bridgeState,
+  type RestApiOnDisk,
+} from "./state";
+export {
   type BridgeClient,
   type BridgeClientOptions,
   type BridgeFetch,
@@ -35,3 +43,11 @@ export {
   DEFAULT_BRIDGE_TIMEOUT_MS,
   type NativeResponse,
 } from "./transport";
+export {
+  type BridgeCompatIssue,
+  type BridgeCompatResult,
+  checkBridgeCompat,
+  compareVersions,
+  formatCompatWarning,
+  SUPPORTED_BRIDGE,
+} from "./version";
