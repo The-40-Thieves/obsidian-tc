@@ -29,7 +29,7 @@ export interface ContradictionDrainer {
   /** Drain ONE bounded batch. Single-flight: a call made while a batch is in-flight returns that same
    *  in-flight promise instead of starting (or racing) a second batch. Resolves when the batch's
    *  writes are durable. */
-  drainOnce(): Promise<void>;
+  drainOnce(signal?: AbortSignal): Promise<void>;
   /** Drain the queue to empty via the bounded worker (used by the boot sweep). */
   drainToEmpty(): Promise<void>;
   /** The in-flight batch promise, or null when idle. Await this before closing the DB at shutdown. */
@@ -41,7 +41,7 @@ export function makeContradictionDrainer(deps: ContradictionDrainDeps): Contradi
   const check = deps.check ?? checkContradictions;
   let activeDrain: Promise<void> | null = null;
 
-  const drainOnce = (): Promise<void> => {
+  const drainOnce = (signal?: AbortSignal): Promise<void> => {
     const roles = deps.roles;
     if (!roles) return Promise.resolve();
     if (activeDrain) return activeDrain; // single-flight: join the in-flight batch, don't race it
@@ -50,6 +50,9 @@ export function makeContradictionDrainer(deps: ContradictionDrainDeps): Contradi
       try {
         const batch = deps.queue.splice(0, deps.batchSize);
         for (const [vaultId, chunks] of groupContradictionQueue(batch)) {
+          // THE-462(b): stop between vault groups on shutdown. Checked at the group boundary so a
+          // vault's contradiction check is never abandoned half-done.
+          if (signal?.aborted) break;
           await check({ db: deps.db, roles, now }, vaultId, chunks).catch((e) => deps.onError?.(e));
         }
       } finally {
