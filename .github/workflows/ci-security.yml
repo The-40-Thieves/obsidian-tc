@@ -86,3 +86,13 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: bun audit
         run: bun audit
+      # docs/ is a SEPARATE bun workspace with its own lockfile, and `bun audit` only walks the
+      # lockfile it is invoked against — so the root run above never saw the docs toolchain. A high
+      # sharp/libvips advisory sat there unnoticed until Dependabot (which scans every manifest)
+      # flagged it. Audit it explicitly; the root `overrides` do not reach this tree either, so
+      # docs/package.json carries its own.
+      - run: bun install --frozen-lockfile --ignore-scripts
+        working-directory: docs
+      - name: bun audit (docs workspace)
+        run: bun audit
+        working-directory: docs
