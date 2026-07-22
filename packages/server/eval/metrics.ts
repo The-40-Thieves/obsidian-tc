@@ -19,6 +19,10 @@ export const GoldenQuerySchema = z.object({
   target_paths: z.array(z.string()),
   bridge_paths: z.array(z.string()),
   description: z.string(),
+  // THE-449: optional author-supplied labels (temporal, lexical, multi-hop, …) for per-category
+  // slicing. Optional by design — a derived domain category (see eval/categories.ts) means an
+  // existing golden set slices usefully without a re-annotation pass over all 136 queries.
+  categories: z.array(z.string()).optional(),
 });
 export type GoldenQuery = z.infer<typeof GoldenQuerySchema>;
 
