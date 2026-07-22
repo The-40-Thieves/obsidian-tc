@@ -80,6 +80,9 @@ export function chunkId(vaultId: string, path: string, index: string): string {
 interface ExistingRow {
   id: string;
   content_hash: string;
+  /** THE-531: the model of this chunk's ACTIVE embedding, or null when it has none. A mismatch with
+   *  the current provider forces a re-embed even when content_hash is unchanged. */
+  active_model: string | null;
 }
 
 // A note's chunk after secret-gating, carrying its stable chunk id. embedText (THE-406) is the
@@ -164,6 +167,11 @@ function computeNotePlan(
    *  sibling's stored vector to a skipEmbed chunk — i.e. when the body_sha column exists. Without
    *  it, embed every chunk, or a duplicate path would be left with no vector (dense-invisible). */
   dedupEnabled = false,
+  /** THE-531: the active embedding model (provider.id). A chunk whose stored active embedding is from
+   *  a DIFFERENT model is re-embedded even when its content_hash is unchanged, so a same-dimension
+   *  model swap re-embeds the corpus on the next reconcile instead of silently shrinking it. Omitted
+   *  -> content-hash-only gate (back-compat). */
+  model?: string,
 ): PlanResult {
   const body = parseNote(raw).body;
   // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
@@ -201,11 +209,21 @@ function computeNotePlan(
       return false;
     });
   const desiredIds = new Set(desired.map((d) => d.id));
+  // THE-531: LEFT JOIN the active embedding so we know each chunk's stored model, not just its
+  // content_hash. A chunk with no active embedding yields active_model = null (re-embed).
   const existing = db
-    .prepare("SELECT id, content_hash FROM chunks WHERE vault_id = ? AND path = ?")
+    .prepare(
+      "SELECT c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.path = ?",
+    )
     .all(vaultId, path) as ExistingRow[];
-  const existingHash = new Map(existing.map((e) => [e.id, e.content_hash]));
-  const toEmbed = desired.filter((d) => existingHash.get(d.id) !== d.contentHash);
+  const existingById = new Map(existing.map((e) => [e.id, e]));
+  // Re-embed when the content changed OR (THE-531) the stored active model differs from the current
+  // one. When `model` is undefined the model check is skipped (back-compat, content-hash-only gate).
+  const toEmbed = desired.filter((d) => {
+    const ex = existingById.get(d.id);
+    if (!ex || ex.content_hash !== d.contentHash) return true;
+    return model !== undefined && ex.active_model !== model;
+  });
   const unchanged = desired.length - toEmbed.length;
   const willPrune = existing.some((e) => !desiredIds.has(e.id));
   // Cross-path embedding dedup (migration 20260719_001). Register EVERY desired chunk's raw-body
@@ -414,7 +432,9 @@ async function planNoteWrites(
   ts: number,
   enrich: boolean,
 ): Promise<PlanResult> {
-  const res = computeNotePlan(db, vaultId, path, raw, ts, enrich);
+  // THE-531: pass the active model so an unchanged note whose vectors are from a superseded model is
+  // still re-embedded.
+  const res = computeNotePlan(db, vaultId, path, raw, ts, enrich, undefined, false, provider.id);
   if (res.plan) {
     const { failed } = await embedPlans(provider, [res.plan], EMBED_BATCH, EMBED_CONCURRENCY);
     // Index-on-write is a single note: a quarantined chunk means the note cannot be applied,
@@ -500,6 +520,12 @@ function copyDedupVectors(
     db,
     "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
   ).run(args.targetId, args.model, src.dimensions, src.embedding, args.ts);
+  // THE-531: the copied vector is under the current model, so retire any superseded-model row for the
+  // target chunk (same "active = current representation" rule as the direct-embed path).
+  cachedPrepare(
+    db,
+    "UPDATE chunk_embeddings SET is_active = 0 WHERE chunk_id = ? AND model != ? AND is_active = 1",
+  ).run(args.targetId, args.model);
   if (args.hasVec)
     upsertVec(db, args.targetId, Array.from(blobToFloats(src.embedding)), {
       vaultId: args.vaultId,
@@ -539,6 +565,14 @@ function applyNoteWrites(
   // once per note. The vec0 DELETE is prepared only when the extension loaded — the table may not
   // exist otherwise.
   const delEmb = cachedPrepare(db, "DELETE FROM chunk_embeddings WHERE chunk_id = ?");
+  // THE-531: when a chunk is re-embedded under the current model, deactivate any OTHER-model rows for
+  // it — PRIMARY KEY (chunk_id, model) lets both coexist, so "active" must mean "current
+  // representation", not "ever generated". A superseded row stays in the table (audit/rollback) but
+  // is_active = 0 so retrieval and the vec rebuild ignore it.
+  const deactivateOld = cachedPrepare(
+    db,
+    "UPDATE chunk_embeddings SET is_active = 0 WHERE chunk_id = ? AND model != ? AND is_active = 1",
+  );
   const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
   const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
   // body_sha rides the same upsert when the column exists (migration 20260719_001); cachedPrepare
@@ -612,6 +646,7 @@ function applyNoteWrites(
     // path stays semantically retrievable.
     if (!d.skipEmbed) {
       upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
+      deactivateOld.run(d.id, provider.id); // THE-531: retire any superseded-model row for this chunk
       if (hasVec) upsertVec(db, d.id, vec, { vaultId, path: plan.path, model: provider.id });
     } else {
       copyDedupVectors(db, {
@@ -1048,6 +1083,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.chunkContext === true,
       dedupRegistry,
       hasBodySha, // THE-454: dedup (and thus vector-copy) only when the body_sha column exists
+      args.provider.id, // THE-531: re-embed a model-superseded chunk even when content is unchanged
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
