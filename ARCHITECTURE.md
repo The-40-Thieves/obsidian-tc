@@ -119,6 +119,24 @@ Tools failing any link in the chain return `plugin_missing` with the specific pl
 
 This section grounds every per-tool annotation in G2.1 (acl, hitl, idem, ratelimit) to a specific evaluation point.
 
+The capabilities that pipeline governs, by access scope:
+
+<!-- BEGIN GENERATED: tools-summary -->
+**143 governed capabilities**, grouped by access scope.
+
+**read** (84) — `audit_provenance`, `bundle_files`, `bundle_folder`, `eval_dataview_field`, `find_link_cycles`, `find_notes_by_property`, `find_notes_by_tag`, `find_orphans`, `find_unresolved_links`, `generate_uri`, `get_attachment`, `get_backlinks`, `get_entity`, `get_link_strength`, `get_note_tags`, `get_outgoing_links`, `get_periodic_note`, `get_session_traces`, `get_vault`, `git_diff`, `git_log`, `git_status`, `knowledge_challenge`, `knowledge_get_critical`, `knowledge_search`, `list_attachments`, `list_bookmarks`, `list_capture_queue`, `list_commands`, `list_kanban_boards`, `list_notes`, `list_periodic_notes`, `list_properties`, `list_quickadd_actions`, `list_snapshots`, `list_tags`, `list_tasks`, `list_templates`, `list_vaults`, `list_workspaces`, `makemd_list_spaces`, `makemd_query`, `note_exists`, `ocr_attachment`, `ocr_bulk`, `plur_get`, `plur_recall`, `plur_recall_hybrid`, `plur_similarity_search`, `query_base`, `query_canvas`, `query_datacore`, `query_entity_graph`, `read_base`, `read_canvas`, `read_excalidraw`, `read_frontmatter`, `read_kanban_board`, `read_metadata_fields`, `read_note`, `read_notes`, `read_property`, `read_snapshot`, `reflect`, `remotely_save_status`, `resolve_daily_note`, `search_dql`, `search_jsonlogic`, `search_omnisearch`, `search_regex`, `search_semantic`, `search_text`, `search_vault`, `server_health`, `session_bootstrap`, `snapshot_note`, `suggest_links`, `tasks_filter`, `validate_dql`, `vault_context`, `vault_graph_search`, `vault_health_score`, `work_episodes`, `work_search`
+
+**write** (41) — `add_bookmark`, `add_kanban_card`, `add_observation`, `add_tag`, `append_note`, `append_to_periodic_note`, `commit_capture`, `copy_note`, `create_base`, `create_canvas`, `create_entity`, `create_excalidraw`, `create_periodic_note`, `end_session`, `enqueue_capture`, `execute_template`, `find_or_create_periodic_note`, `format_table`, `git_stage`, `insert_table_column`, `insert_table_row`, `link_entities`, `move_kanban_card`, `open_workspace`, `patch_note`, `prune_hub_links`, `record_retrieval_feedback`, `remotely_save_trigger`, `remove_tag`, `restore_note`, `rewrite_link`, `save_workspace`, `sort_table_by_column`, `start_session`, `update_base`, `update_canvas`, `update_excalidraw`, `update_frontmatter`, `update_task`, `work_forget`, `write_note`
+
+**delete** (5) — `delete_attachment`, `delete_note`, `move_attachment`, `move_note`, `remove_bookmark`
+
+**bulk** (3) — `bulk_create_notes`, `bulk_move_notes`, `bulk_set_property`
+
+**execute** (3) — `execute_command`, `git_commit`, `trigger_quickadd`
+
+**admin** (7) — `add_vault`, `get_metrics`, `get_server_config`, `index_vault`, `inspect_acl`, `reload_vault`, `reset_vault_cache`
+<!-- END GENERATED: tools-summary -->
+
 ```mermaid
 flowchart TB
     classDef ts fill:#1e3a8a,stroke:#60a5fa,color:#e5e7eb

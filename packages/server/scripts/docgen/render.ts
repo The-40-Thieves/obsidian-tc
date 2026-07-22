@@ -12,13 +12,18 @@ import { extractTools } from "./extract-tools";
 import { injectGenerated } from "./inject";
 import { renderConfig } from "./render-config";
 import { renderStats } from "./render-stats";
-import { renderTools } from "./render-tools";
+import { renderToolSummary, renderTools } from "./render-tools";
 
 const check = process.argv.includes("--check");
 const repo = (rel: string): string => fileURLToPath(new URL(`../../../../${rel}`, import.meta.url));
 
 // Render each surface once; the same content fills every target that hosts it.
-const toolsMd = renderTools(extractTools());
+const toolDocs = extractTools();
+const toolsMd = renderTools(toolDocs);
+// THE-473: README/ARCHITECTURE get the COMPACT summary, not the ~30KB reference table — injecting
+// the full catalog into a 260-line README would bury the prose it supports. THE-469's root cause
+// was that these two files named none of the write tools, so the summary names them explicitly.
+const toolSummaryMd = renderToolSummary(toolDocs);
 const configMd = renderConfig(extractConfig());
 
 const targets: Array<{ file: string; marker: string; content: string }> = [
@@ -33,6 +38,10 @@ const targets: Array<{ file: string; marker: string; content: string }> = [
     marker: "config",
     content: configMd,
   },
+  // Hand-authored narrative docs (THE-473). Only the marked region is replaced; every byte of
+  // surrounding prose is preserved, so positioning stays human-written.
+  { file: repo("README.md"), marker: "tools-summary", content: toolSummaryMd },
+  { file: repo("ARCHITECTURE.md"), marker: "tools-summary", content: toolSummaryMd },
 ];
 
 let stale = 0;
