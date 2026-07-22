@@ -166,6 +166,9 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       minScore,
       returnContent,
       isReadable: s.readable,
+      // THE-530: constrain the brute-force fallback to the active model so a same-dimension
+      // superseded-model vector is never scored against this query.
+      model: deps.embeddingProvider.id,
     });
     // THE-230: serve-path retrieval telemetry (best-effort; the logger never throws).
     deps.retrievalLog?.({

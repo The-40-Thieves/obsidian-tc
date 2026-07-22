@@ -18,6 +18,9 @@ export interface ContradictionDrainDeps {
   queue: Array<{ vaultId: string; chunk: IndexedChunk }>;
   /** Max chunks processed per bounded batch. */
   batchSize: number;
+  /** THE-530: the active embedding model, passed to neighbor discovery so contradiction detection
+   *  never scores a superseded-model vector. Omitted -> unfiltered. */
+  model?: string;
   now?: () => number;
   /** Reported for a checkContradictions failure; the drain never rejects. */
   onError?(err: unknown): void;
@@ -53,7 +56,11 @@ export function makeContradictionDrainer(deps: ContradictionDrainDeps): Contradi
           // THE-462(b): stop between vault groups on shutdown. Checked at the group boundary so a
           // vault's contradiction check is never abandoned half-done.
           if (signal?.aborted) break;
-          await check({ db: deps.db, roles, now }, vaultId, chunks).catch((e) => deps.onError?.(e));
+          await check(
+            { db: deps.db, roles, now, ...(deps.model !== undefined ? { model: deps.model } : {}) },
+            vaultId,
+            chunks,
+          ).catch((e) => deps.onError?.(e));
         }
       } finally {
         activeDrain = null;

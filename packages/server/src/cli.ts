@@ -532,6 +532,7 @@ async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
       query,
       queryVec: vec ?? [],
       vaultId,
+      model: provider.id, // THE-530: constrain seeds to the active model
       finalTopK: 10,
       ...(cfg.retrieval?.rrfK !== undefined ? { rrfK: cfg.retrieval.rrfK } : {}),
       reranker: null,
@@ -1023,6 +1024,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     roles,
     queue: contradictionQueue,
     batchSize: CONTRADICTION_DRAIN_BATCH,
+    model: embeddingProvider.id, // THE-530: constrain neighbor discovery to the active model
     now: Date.now,
     onError: (e) => {
       indexHealth.writeFailures++;

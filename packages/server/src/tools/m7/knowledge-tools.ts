@@ -258,6 +258,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
             query,
             queryVec,
+            model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
             vaultId: v.id,
             finalTopK: input.k,
             ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
@@ -529,6 +530,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
             query: input.query,
             queryVec,
+            model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
             vaultId: v.id,
             finalTopK: input.k,
             ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
@@ -703,6 +705,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
           query: input.query,
           queryVec,
+          model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
           vaultId: v.id,
           finalTopK: input.final_top_k,
           ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
@@ -769,6 +772,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
           query: input.query,
           queryVec,
+          model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
           vaultId: v.id,
           finalTopK: input.final_top_k,
           ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
@@ -872,6 +876,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           k: CHALLENGE_RECALL,
           returnContent: true,
           isReadable: (rel) => readableRel(ctx.acl, rel),
+          model: deps.embeddingProvider.id, // THE-530: constrain to the active model
         });
         // THE-230: challenge recall is a real retrieval surface — log it like the search tools.
         deps.retrievalLog?.({
