@@ -9,6 +9,30 @@ import {
   resolveServeConfig,
 } from "../src/cli/args";
 
+describe("parseCliArgs doctor (THE-521)", () => {
+  it("bare doctor -> doctor with json:false", () => {
+    expect(parseCliArgs(["doctor"])).toEqual({ kind: "doctor", json: false });
+  });
+  it("doctor --json sets json:true", () => {
+    const c = parseCliArgs(["doctor", "--json"]);
+    expect(c.kind).toBe("doctor");
+    if (c.kind === "doctor") expect(c.json).toBe(true);
+  });
+  it("doctor --token <jwt> captures the token without eating the config path", () => {
+    const c = parseCliArgs(["doctor", "cfg.json", "--token", "aaa.bbb.ccc", "--json"]);
+    expect(c.kind).toBe("doctor");
+    if (c.kind === "doctor") {
+      expect(c.token).toBe("aaa.bbb.ccc");
+      expect(c.configPath).toBe("cfg.json");
+      expect(c.json).toBe(true);
+    }
+  });
+  it("doctor --config <path> is honoured", () => {
+    const c = parseCliArgs(["doctor", "--config", "/etc/o.json"]);
+    if (c.kind === "doctor") expect(c.configPath).toBe("/etc/o.json");
+  });
+});
+
 describe("parseCliArgs", () => {
   it("no args -> serve (env fallback handled at resolve time)", () => {
     expect(parseCliArgs([])).toEqual({ kind: "serve" });
