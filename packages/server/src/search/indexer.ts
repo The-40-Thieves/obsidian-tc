@@ -137,10 +137,20 @@ const EMBED_BATCH = 512;
 const EMBED_CONCURRENCY = 4;
 const EMBED_MAX_BATCH_TOKENS = 2048;
 
-// Rough token estimate for batch budgeting (~4 chars/token). Provider-agnostic and intentionally
-// coarse: it only needs to prevent a runaway single request, not be exact.
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+// THE-487: token estimate for the embed batch budget. chars/4 is the right rule-of-thumb for prose,
+// but link-dense Markdown ([[...]], tables, URLs) fragments into ~2-2.5x more tokens, so a chars/4
+// budget overflowed the provider's n_ctx and forced a bisect+retry. We tighten the divisor toward 3
+// as the special-character density rises: prose stays at chars/4 (no batch-size regression), dense
+// text is estimated conservatively (fewer overflows). Zero-dependency and still intentionally coarse —
+// it only needs to keep a request under n_ctx, not be exact; a real tokenizer is the follow-up if
+// measurement shows residual retries.
+export function estimateEmbedTokens(text: string): number {
+  const len = text.length;
+  if (len === 0) return 0;
+  const special = (text.match(/[^\w\s]/g) ?? []).length;
+  // >12% non-word/non-space (brackets, pipes, slashes, punctuation) marks link/table-dense Markdown.
+  const divisor = special / len > 0.12 ? 3 : 4;
+  return Math.ceil(len / divisor);
 }
 
 // Compute a note's write plan WITHOUT embedding — NO network, NO database writes, NO transaction.
@@ -357,7 +367,7 @@ export async function embedPlans(
   let cur: string[] = [];
   let curTokens = 0;
   for (const text of contents) {
-    const t = estimateTokens(text);
+    const t = estimateEmbedTokens(text);
     if (cur.length > 0 && (cur.length >= batchSize || curTokens + t > maxBatchTokens)) {
       subBatches.push(cur);
       cur = [];
