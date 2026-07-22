@@ -29,7 +29,15 @@ const NUL = String.fromCharCode(0);
 // is significant and matching stays exact. Detected once from the platform; overridable for tests.
 const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
 
+// Upper bound on a single glob. Every path check compiles its globs, so an unbounded pattern is
+// wasted work on the hot path at best; the limit also keeps a malformed or generated config from
+// producing a pathological regex. Real vault globs are far below this — the hardened example's
+// longest is under 20 chars — so the ceiling is deliberately generous and never trips in practice.
+const MAX_GLOB_LENGTH = 512;
+
 export function globToRegExp(glob: string, caseInsensitive: boolean = CASE_INSENSITIVE_FS): RegExp {
+  if (glob.length > MAX_GLOB_LENGTH)
+    throw new Error(`glob too long (${glob.length} > ${MAX_GLOB_LENGTH})`);
   const withDouble = glob.replace(/\*\*/g, NUL);
   let re = "";
   for (const c of withDouble) {
@@ -79,27 +87,30 @@ export function isDefaultDenied(path: string): boolean {
 
 export class FolderAcl {
   constructor(private readonly cfg: AclConfigT) {}
+  // Every accessor below returns a COPY. A FolderAcl is built once per vault and shared across all
+  // dispatches, so handing back the live config array would let any caller that mutates it rewrite
+  // the ACL for every subsequent call — a privilege escalation with no trace in the config file.
   scopesForPath(path: string): string[] {
     let scopes = this.cfg.defaultScopes;
     for (const r of this.cfg.rules) {
       if (globMatch(r.glob, path)) scopes = r.scopes;
     }
-    return scopes;
+    return [...scopes];
   }
   get readOnly(): boolean {
     return this.cfg.readOnly;
   }
   get readPaths(): string[] | undefined {
-    return this.cfg.readPaths;
+    return this.cfg.readPaths ? [...this.cfg.readPaths] : undefined;
   }
   get strictReadDefault(): boolean {
     return this.cfg.strictReadDefault === true;
   }
   get writePaths(): string[] | undefined {
-    return this.cfg.writePaths;
+    return this.cfg.writePaths ? [...this.cfg.writePaths] : undefined;
   }
   get deletePaths(): string[] | undefined {
-    return this.cfg.deletePaths;
+    return this.cfg.deletePaths ? [...this.cfg.deletePaths] : undefined;
   }
 }
 
