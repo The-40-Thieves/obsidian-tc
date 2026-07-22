@@ -30,27 +30,57 @@ const configMd = renderConfig(extractConfig());
 // Assert the render targets and the shared list stay in step: a target added here without a
 // corresponding entry in targets.ts would leave the prose watcher (THE-477) blind to it, which is
 // exactly the drift that motivated the shared list.
-const targets: Array<{ file: string; marker: string; content: string }> = [
+const targets: Array<{ rel: string; file: string; marker: string; content: string }> = [
   // GitHub wiki (THE-475 publishes these).
-  { file: repo("docs/wiki/Tool-Reference.md"), marker: "tools", content: toolsMd },
-  { file: repo("docs/wiki/Configuration.md"), marker: "config", content: configMd },
-  { file: repo("docs/wiki/Home.md"), marker: "stats", content: renderStats(extractStats()) },
-  // Astro docs site (THE-474) — Starlight autogenerate slots these into the Tools / Configuration nav.
-  { file: repo("docs/src/content/docs/tools/tool-catalog.md"), marker: "tools", content: toolsMd },
   {
+    rel: "docs/wiki/Tool-Reference.md",
+    file: repo("docs/wiki/Tool-Reference.md"),
+    marker: "tools",
+    content: toolsMd,
+  },
+  {
+    rel: "docs/wiki/Configuration.md",
+    file: repo("docs/wiki/Configuration.md"),
+    marker: "config",
+    content: configMd,
+  },
+  {
+    rel: "docs/wiki/Home.md",
+    file: repo("docs/wiki/Home.md"),
+    marker: "stats",
+    content: renderStats(extractStats()),
+  },
+  // Astro docs site (THE-474) — Starlight autogenerate slots these into the Tools / Configuration nav.
+  {
+    rel: "docs/src/content/docs/tools/tool-catalog.md",
+    file: repo("docs/src/content/docs/tools/tool-catalog.md"),
+    marker: "tools",
+    content: toolsMd,
+  },
+  {
+    rel: "docs/src/content/docs/configuration/config-reference.md",
     file: repo("docs/src/content/docs/configuration/config-reference.md"),
     marker: "config",
     content: configMd,
   },
   // Hand-authored narrative docs (THE-473). Only the marked region is replaced; every byte of
   // surrounding prose is preserved, so positioning stays human-written.
-  { file: repo("README.md"), marker: "tools-summary", content: toolSummaryMd },
-  { file: repo("ARCHITECTURE.md"), marker: "tools-summary", content: toolSummaryMd },
+  { rel: "README.md", file: repo("README.md"), marker: "tools-summary", content: toolSummaryMd },
+  {
+    rel: "ARCHITECTURE.md",
+    file: repo("ARCHITECTURE.md"),
+    marker: "tools-summary",
+    content: toolSummaryMd,
+  },
 ];
 
 const declared = new Set<string>(GENERATED_DOC_FILES);
 for (const t of targets) {
-  const rel = t.file.slice(t.file.indexOf("obsidian-tc/") + "obsidian-tc/".length);
+  // Use the repo-relative path the target already carries. Deriving it from the absolute path via
+  // indexOf("obsidian-tc/") broke on CI, where the checkout is .../work/obsidian-tc/obsidian-tc/:
+  // the first match left a stray prefix. Locally there is one occurrence, so it passed here and
+  // failed there.
+  const rel = t.rel;
   if (!declared.has(rel)) {
     throw new Error(
       `docgen: render target "${rel}" is missing from GENERATED_DOC_FILES (scripts/docgen/targets.ts). ` +
