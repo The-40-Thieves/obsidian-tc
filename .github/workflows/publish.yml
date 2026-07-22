@@ -21,6 +21,49 @@ permissions:
 # workspace:* to concrete versions (npm publish does not), so the published obsidian-tc carries
 # real dep versions. The npm-publish jobs still require the NPM_TOKEN secret before a tag.
 jobs:
+  # THE-528: the v* tag triggers this entire release — ghcr image, npm publishes, SBOMs and
+  # provenance all hang off it — so it is the one input nothing currently authenticates. Actions
+  # are SHA-pinned, the scanner is digest-pinned and packages carry provenance; an unsigned trigger
+  # is the weakest link in that chain.
+  #
+  # Report-only until a maintainer key is committed to .github/allowed_signers: enforcing before a
+  # key exists would fail the next release with no warning. Set REQUIRE_SIGNED_TAG to "true" to
+  # enforce. Setup runbook: docs/RELEASE-SIGNING.md
+  verify-tag:
+    runs-on: ubuntu-latest
+    env:
+      REQUIRE_SIGNED_TAG: "false"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0 # tag objects + their signatures are not in a shallow clone
+      - name: verify the release tag is signed
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -uo pipefail
+          if [ ! -f .github/allowed_signers ]; then
+            echo "::warning title=Release tag not verified::No .github/allowed_signers committed, so the signature on '$TAG' cannot be checked. See docs/RELEASE-SIGNING.md."
+            if [ "$REQUIRE_SIGNED_TAG" = "true" ]; then
+              echo "REQUIRE_SIGNED_TAG=true but no allowed_signers file exists — refusing to release."
+              exit 1
+            fi
+            exit 0
+          fi
+          # A lightweight tag is a bare commit ref with no object to carry a signature.
+          if [ "$(git cat-file -t "$TAG")" != "tag" ]; then
+            echo "::warning title=Lightweight tag::'$TAG' is not an annotated tag, so it cannot be signed. Use 'git tag -s'."
+            [ "$REQUIRE_SIGNED_TAG" = "true" ] && exit 1
+            exit 0
+          fi
+          if git -c gpg.ssh.allowedSignersFile=.github/allowed_signers verify-tag "$TAG"; then
+            echo "Tag '$TAG' carries a valid signature from an allowed signer."
+          else
+            echo "::warning title=Unsigned or unverifiable tag::'$TAG' did not verify against .github/allowed_signers."
+            [ "$REQUIRE_SIGNED_TAG" = "true" ] && exit 1
+          fi
+          exit 0
+
   build-native:
     strategy:
       fail-fast: true
