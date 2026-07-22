@@ -14,7 +14,8 @@
       "!**/docs",
       "!**/packages/native/target",
       "!**/bun.lock",
-      "!**/eval/perf/baseline.*.json"
+      "!**/eval/perf/baseline.*.json",
+      "!**/.dependency-cruiser-known-violations.json"
     ]
   },
   "formatter": {
@@ -23,7 +24,13 @@
     "indentWidth": 2,
     "lineWidth": 100
   },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
   "linter": {
     "enabled": true,
     "rules": {
@@ -42,7 +49,9 @@
       "includes": ["**/test/**", "**/*.test.ts"],
       "linter": {
         "rules": {
-          "suspicious": { "noExplicitAny": "off" }
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
         }
       }
     }
