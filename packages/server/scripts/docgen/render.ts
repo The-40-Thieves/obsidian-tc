@@ -13,6 +13,7 @@ import { injectGenerated } from "./inject";
 import { renderConfig } from "./render-config";
 import { renderStats } from "./render-stats";
 import { renderToolSummary, renderTools } from "./render-tools";
+import { GENERATED_DOC_FILES } from "./targets";
 
 const check = process.argv.includes("--check");
 const repo = (rel: string): string => fileURLToPath(new URL(`../../../../${rel}`, import.meta.url));
@@ -26,6 +27,9 @@ const toolsMd = renderTools(toolDocs);
 const toolSummaryMd = renderToolSummary(toolDocs);
 const configMd = renderConfig(extractConfig());
 
+// Assert the render targets and the shared list stay in step: a target added here without a
+// corresponding entry in targets.ts would leave the prose watcher (THE-477) blind to it, which is
+// exactly the drift that motivated the shared list.
 const targets: Array<{ file: string; marker: string; content: string }> = [
   // GitHub wiki (THE-475 publishes these).
   { file: repo("docs/wiki/Tool-Reference.md"), marker: "tools", content: toolsMd },
@@ -43,6 +47,17 @@ const targets: Array<{ file: string; marker: string; content: string }> = [
   { file: repo("README.md"), marker: "tools-summary", content: toolSummaryMd },
   { file: repo("ARCHITECTURE.md"), marker: "tools-summary", content: toolSummaryMd },
 ];
+
+const declared = new Set<string>(GENERATED_DOC_FILES);
+for (const t of targets) {
+  const rel = t.file.slice(t.file.indexOf("obsidian-tc/") + "obsidian-tc/".length);
+  if (!declared.has(rel)) {
+    throw new Error(
+      `docgen: render target "${rel}" is missing from GENERATED_DOC_FILES (scripts/docgen/targets.ts). ` +
+        "Add it there so the prose watcher sees it too.",
+    );
+  }
+}
 
 let stale = 0;
 for (const t of targets) {
