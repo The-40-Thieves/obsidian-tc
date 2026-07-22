@@ -132,14 +132,20 @@ export function ensureVecChunks(
             )
             .get() as { n: number }
         ).n;
+        // THE-460: filter on the MODEL as well as the byte length. Length alone cannot distinguish
+        // a same-dimension model swap — old-model vectors are exactly dims*4 too, so they passed
+        // the guard and refilled the index while the stored fingerprint claimed the new model.
+        // Retrieval would then score new-model queries against old-model embeddings: not an error,
+        // just quietly wrong results. Vectors from any other model are left for the re-embed to
+        // regenerate, which is the same posture already taken for a dimension change.
         const inserted = db
           .prepare(
             `INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding)
              SELECT e.chunk_id, c.vault_id, c.path, e.model, e.embedding
              FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id
-             WHERE e.is_active = 1 AND length(e.embedding) = ${dims * 4}`,
+             WHERE e.is_active = 1 AND length(e.embedding) = ${dims * 4} AND e.model = ?`,
           )
-          .run().changes as number;
+          .run(fp.model).changes as number;
         skipped = active - inserted;
       }
       const rebuiltVersion = `20260712_004_vec_chunks_aux_${dims}`;
