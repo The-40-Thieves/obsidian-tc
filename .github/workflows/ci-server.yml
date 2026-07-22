@@ -35,6 +35,12 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: biome check
         run: bun run lint
+      # THE-525: module boundary gate. Runs in the existing lint job rather than a new workflow so
+      # it shares the checkout + install. The wrapper fails on an EMPTY scan as well as on a
+      # violation — dependency-cruiser supports typescript <7 and this repo is on 7.x, where a
+      # directory scan silently yields zero modules.
+      - name: module boundaries (dependency-cruiser)
+        run: bun run check:boundaries
 
   build-test:
     strategy:

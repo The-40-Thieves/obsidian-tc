@@ -1,0 +1,548 @@
+[
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m1/frontmatter-tools.ts",
+    "to": "packages/server/src/tools/m1/index.ts",
+    "unresolvedTo": "./index",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m1/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m1/frontmatter-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m1/graph-health-tools.ts",
+    "to": "packages/server/src/tools/m1/index.ts",
+    "unresolvedTo": "./index",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m1/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m1/graph-health-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m1/index.ts",
+    "to": "packages/server/src/tools/m1/links-tools.ts",
+    "unresolvedTo": "./links-tools",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m1/links-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m1/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m1/index.ts",
+    "to": "packages/server/src/tools/m1/notes-tools.ts",
+    "unresolvedTo": "./notes-tools",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m1/notes-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m1/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m1/index.ts",
+    "to": "packages/server/src/tools/m1/registry-tools.ts",
+    "unresolvedTo": "./registry-tools",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m1/registry-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m1/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m1/index.ts",
+    "to": "packages/server/src/tools/m1/snapshot-tools.ts",
+    "unresolvedTo": "./snapshot-tools",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m1/snapshot-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m1/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m1/index.ts",
+    "to": "packages/server/src/tools/m1/tags-tools.ts",
+    "unresolvedTo": "./tags-tools",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m1/tags-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m1/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m2/index-tools.ts",
+    "to": "packages/server/src/tools/m2/index.ts",
+    "unresolvedTo": "./index",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m2/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m2/index-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m2/index.ts",
+    "to": "packages/server/src/tools/m2/search-tools.ts",
+    "unresolvedTo": "./search-tools",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m2/search-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m2/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m3/attachment-tools.ts",
+    "to": "packages/server/src/tools/m3/index.ts",
+    "unresolvedTo": "./index",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m3/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m3/attachment-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m3/base-tools.ts",
+    "to": "packages/server/src/tools/m3/index.ts",
+    "unresolvedTo": "./index",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m3/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m3/base-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m3/bookmark-tools.ts",
+    "to": "packages/server/src/tools/m3/index.ts",
+    "unresolvedTo": "./index",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m3/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m3/bookmark-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m3/canvas-tools.ts",
+    "to": "packages/server/src/tools/m3/index.ts",
+    "unresolvedTo": "./index",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m3/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m3/canvas-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m3/index.ts",
+    "to": "packages/server/src/tools/m3/kanban-tools.ts",
+    "unresolvedTo": "./kanban-tools",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m3/kanban-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m3/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m3/index.ts",
+    "to": "packages/server/src/tools/m3/periodic-tools.ts",
+    "unresolvedTo": "./periodic-tools",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m3/periodic-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m3/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m3/index.ts",
+    "to": "packages/server/src/tools/m3/table-tools.ts",
+    "unresolvedTo": "./table-tools",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m3/table-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m3/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/server/src/tools/m3/index.ts",
+    "to": "packages/server/src/tools/m3/workspace-tools.ts",
+    "unresolvedTo": "./workspace-tools",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/server/src/tools/m3/workspace-tools.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/server/src/tools/m3/index.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "module",
+    "from": "packages/server/src/experiential/gaps.ts",
+    "to": "packages/server/src/experiential/gaps.ts",
+    "rule": {
+      "severity": "warn",
+      "name": "no-orphans"
+    }
+  },
+  {
+    "type": "module",
+    "from": "packages/server/src/search/index-coordinator.ts",
+    "to": "packages/server/src/search/index-coordinator.ts",
+    "rule": {
+      "severity": "warn",
+      "name": "no-orphans"
+    }
+  },
+  {
+    "type": "module",
+    "from": "packages/server/src/transports/stdio.ts",
+    "to": "packages/server/src/transports/stdio.ts",
+    "rule": {
+      "severity": "warn",
+      "name": "no-orphans"
+    }
+  },
+  {
+    "type": "module",
+    "from": "packages/shared/src/schemas/primitives.ts",
+    "to": "packages/shared/src/schemas/primitives.ts",
+    "rule": {
+      "severity": "warn",
+      "name": "no-orphans"
+    }
+  }
+]
