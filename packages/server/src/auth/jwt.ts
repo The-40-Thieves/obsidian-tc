@@ -1,4 +1,76 @@
-import { createLocalJWKSet, jwtVerify } from "jose";
+import { createLocalJWKSet, decodeJwt, jwtVerify } from "jose";
+
+/**
+ * THE-520: why a token was refused. Every value is OPERATOR-facing — it belongs in logs and the
+ * `auth_rejections_total` counter, never in the response body: telling an unauthenticated caller
+ * which check failed turns the endpoint into an oracle. The client keeps one undifferentiated 401.
+ */
+export type AuthRejectionReason =
+  | "token_max_age" // aged past auth.tokenTtlSeconds (measured from iat), regardless of exp
+  | "token_expired" // exp elapsed
+  | "bad_signature"
+  | "missing_claim" // a requiredClaim (exp) is absent
+  | "audience_mismatch" // THE-456
+  | "issuer_mismatch" // THE-456
+  | "unsupported_alg"
+  | "malformed"
+  | "misconfigured"; // server-side: no secret / no JWKS for the token's alg
+
+export class AuthRejection extends Error {
+  readonly reason: AuthRejectionReason;
+  /** Token `sub` when the token decodes. UNVERIFIED — the signature may be exactly what failed.
+   *  Safe for a log line, never for an authorization decision. */
+  readonly caller: string | null;
+  /** True when the token aged out while its own `exp` is still in the future. That combination
+   *  means a long-lived token was minted under a short tokenTtlSeconds — the misconfiguration
+   *  that hid a 5-day outage, and the one worth calling out explicitly. */
+  readonly expStillFuture: boolean;
+
+  constructor(
+    reason: AuthRejectionReason,
+    opts: { caller?: string | null; expStillFuture?: boolean; cause?: unknown } = {},
+  ) {
+    super(`auth rejected: ${reason}`, { cause: opts.cause });
+    this.name = "AuthRejection";
+    this.reason = reason;
+    this.caller = opts.caller ?? null;
+    this.expStillFuture = opts.expStillFuture ?? false;
+  }
+}
+
+/** Best-effort claim peek for diagnostics. Never throws; never feeds an authz decision. */
+function peek(token: string): { caller: string | null; expStillFuture: boolean } {
+  try {
+    const p = decodeJwt(token);
+    return {
+      caller: typeof p.sub === "string" ? p.sub : null,
+      expStillFuture: typeof p.exp === "number" && p.exp > Math.floor(Date.now() / 1000),
+    };
+  } catch {
+    return { caller: null, expStillFuture: false };
+  }
+}
+
+/** Map a jose verification failure onto a typed reason. Anything unrecognized stays `malformed`
+ *  rather than being guessed at — a wrong reason in a log is worse than a vague one. */
+function classify(err: unknown, token: string): AuthRejection {
+  if (err instanceof AuthRejection) return err;
+  const { caller, expStillFuture } = peek(token);
+  const code = (err as { code?: string })?.code;
+  const claim = (err as { claim?: string })?.claim;
+
+  let reason: AuthRejectionReason = "malformed";
+  if (code === "ERR_JWT_EXPIRED") reason = "token_expired";
+  else if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") reason = "bad_signature";
+  else if (code === "ERR_JOSE_ALG_NOT_ALLOWED") reason = "unsupported_alg";
+  else if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED") {
+    const why = (err as { reason?: string })?.reason;
+    if (why === "missing") reason = "missing_claim";
+    else if (claim === "aud") reason = "audience_mismatch";
+    else if (claim === "iss") reason = "issuer_mismatch";
+  }
+  return new AuthRejection(reason, { caller, expStillFuture, cause: err });
+}
 
 export interface JwtIdentity {
   /** The token subject (`sub`), or null when absent. */
@@ -28,13 +100,17 @@ export async function verifyJwt(
   // additionally caps token age, but only when the token carries iat, so existing exp-only
   // tokens keep working. THE-456: audience/issuer are enforced by jose only when configured
   // (undefined = not checked), so local self-issued tokens are unaffected.
-  const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
-    algorithms: ["HS256"],
-    requiredClaims: ["exp"],
-    ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
-    ...(opts.issuer !== undefined ? { issuer: opts.issuer } : {}),
-  });
-  return identityFrom(payload, opts.maxAgeSeconds);
+  try {
+    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
+      algorithms: ["HS256"],
+      requiredClaims: ["exp"],
+      ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
+      ...(opts.issuer !== undefined ? { issuer: opts.issuer } : {}),
+    });
+    return identityFrom(payload, opts.maxAgeSeconds);
+  } catch (e) {
+    throw classify(e, token);
+  }
 }
 
 /** THE-297: default asymmetric allowlist. HS256 is deliberately NOT here — it verifies only
@@ -61,13 +137,17 @@ export async function verifyJwtJwks(
   // THE-456: on the asymmetric/JWKS path a shared external issuer can mint tokens for many
   // resources, so audience binding is what stops a token issued for another service being replayed
   // here (confused-deputy). Enforced by jose only when configured.
-  const { payload } = await jwtVerify(token, keySet, {
-    algorithms: opts.algorithms ?? DEFAULT_ASYMMETRIC_ALGS,
-    requiredClaims: ["exp"],
-    ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
-    ...(opts.issuer !== undefined ? { issuer: opts.issuer } : {}),
-  });
-  return identityFrom(payload, opts.maxAgeSeconds);
+  try {
+    const { payload } = await jwtVerify(token, keySet, {
+      algorithms: opts.algorithms ?? DEFAULT_ASYMMETRIC_ALGS,
+      requiredClaims: ["exp"],
+      ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
+      ...(opts.issuer !== undefined ? { issuer: opts.issuer } : {}),
+    });
+    return identityFrom(payload, opts.maxAgeSeconds);
+  } catch (e) {
+    throw classify(e, token);
+  }
 }
 
 function identityFrom(
@@ -78,7 +158,14 @@ function identityFrom(
     maxAgeSeconds !== undefined &&
     typeof payload.iat === "number" &&
     Math.floor(Date.now() / 1000) - payload.iat > maxAgeSeconds;
-  if (tooOld) throw new Error("token exceeds the configured maximum age");
+  if (tooOld)
+    throw new AuthRejection("token_max_age", {
+      caller: typeof payload.sub === "string" ? payload.sub : null,
+      // The diagnostic that matters: aged out while exp is still valid == misconfiguration,
+      // not an expired credential.
+      expStillFuture:
+        typeof payload.exp === "number" && payload.exp > Math.floor(Date.now() / 1000),
+    });
   return {
     caller: typeof payload.sub === "string" ? payload.sub : null,
     scopes: extractScopes(payload),

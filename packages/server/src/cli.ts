@@ -1254,6 +1254,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
       allowedHosts: config.transports.http.allowedHosts,
       allowedOrigins: config.transports.http.allowedOrigins,
+      // THE-520: without this the auth_rejections_total counter exists but is never incremented,
+      // so a token refused at the edge stays invisible to /metrics.
+      metrics,
     });
     process.stderr.write(
       `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,
