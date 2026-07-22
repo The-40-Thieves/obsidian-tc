@@ -130,8 +130,11 @@ export function makeIndexReadable(
   return (vaultId) => (rel) => {
     const a = aclByVault.get(vaultId) ?? rootAcl;
     if (isDefaultDenied(rel)) return false;
-    if (a.readPaths === undefined) return a.strictReadDefault !== true;
-    return a.readPaths.some((g) => globMatch(g, rel));
+    // Read the whitelist ONCE: the accessor returns a defensive copy and this predicate runs per
+    // note for a whole vault, so a second read would allocate a second copy for nothing.
+    const readPaths = a.readPaths;
+    if (readPaths === undefined) return a.strictReadDefault !== true;
+    return readPaths.some((g) => globMatch(g, rel));
   };
 }
 
