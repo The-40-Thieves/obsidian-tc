@@ -7,7 +7,9 @@ export type Direction = "lower-worse" | "higher-worse" | "exact";
 export interface MetricSample {
   key: string;
   value: number;
-  unit: "count" | "per_s" | "ms" | "ratio" | "bytes" | "bool";
+  // "mb" was missing, which is very likely how runtime.peak_rss_per_10k_mb ended up tagged
+  // "count" while holding megabytes (THE-459). A unit that cannot be expressed gets mislabelled.
+  unit: "count" | "per_s" | "ms" | "ratio" | "bytes" | "mb" | "bool";
   class: MetricClass;
   direction: Direction;
 }

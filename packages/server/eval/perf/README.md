@@ -138,7 +138,7 @@ The harness collects 13 of the 14 metric families across 6 collector modules. **
 | 7 | SQLite txn/lock | `storage.{txn_count, txn_ms}` | storage.ts | {hard, warn} | Fixed 200-txn batch; txn_count exact |
 | 8 | Graph candidates | `graph.candidates_{seed, expand, fused}` | retrieval.ts | hard | ANN graph traversal stage cardinality (exact deterministic) |
 | 9 | Recall/nDCG | `retrieval.{recall_at10, ndcg_at10, ndcg_per_ms}` | retrieval.ts | {hard, hard, warn} | Relevance metrics over synthetic labelled set |
-| 10 | Peak memory | `runtime.peak_rss_per_10k_mb` | runtime.ts | warn | Peak RSS scaled per 10k chunks |
+| 10 | Peak memory | `runtime.peak_rss_mb` | runtime.ts | warn | Peak process RSS during the run, in MB. NOT normalized per chunk: RSS is whole-process, so a per-chunk figure attributes memory it cannot account for (THE-459). Scenarios are fixed-size, so absolute RSS is comparable run-to-run. |
 | 11 | Vec migration | `migration.{rebuilt, ms}` | lifecycle.ts | {hard, warn} | Vec-index rebuild latency; rebuilt = bun-only true |
 | 12 | HTTP handshake | (deferred) | — | — | Deferred to THE-495; not emitted yet |
 | 13 | Shutdown drain | `shutdown.{drained, ms}` | lifecycle.ts | {hard, warn} | Graceful DB close under deadline; runs last |

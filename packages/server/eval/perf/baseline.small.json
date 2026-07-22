@@ -146,8 +146,8 @@
     "class": "warn",
     "direction": "higher-worse"
   },
-  "runtime.peak_rss_per_10k_mb": {
-    "value": 7737.109375,
+  "runtime.peak_rss_mb": {
+    "value": 157.296875,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
