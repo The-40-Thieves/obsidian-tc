@@ -1181,6 +1181,21 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       ),
     ]),
   );
+  // THE-527: re-probe a vault with the SAME config overrides used at startup, so
+  // refresh_plugin_capabilities produces a snapshot consistent with a fresh boot. Unknown vault ->
+  // an empty (companion-missing) snapshot rather than a throw.
+  const vaultConfigById = new Map(config.vaults.map((v) => [v.id, v]));
+  const reprobeVault = async (vaultId: string) => {
+    const v = vaultConfigById.get(vaultId);
+    if (!v) return { companion: "missing" as const, plugins: {} };
+    return buildVaultCapabilities(bridgeClients.get(vaultId), {
+      probeSkip: v.plugins?.probeSkip,
+      forceEnabled: v.plugins?.forceEnabled,
+      forceDisabled: v.plugins?.forceDisabled,
+      timeoutMs: v.bridges?.probeTimeoutMs,
+    });
+  };
+
   const m4Deps: M4Deps = {
     reindex: reindexHook,
     vaultRegistry,
@@ -1189,6 +1204,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     timeouts: (vaultId) => timeoutsByVault.get(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS,
     commandPolicy: (vaultId) => commandsByVault.get(vaultId) ?? { enabled: false, allowlist: [] },
     mode: (vaultId) => modeByVault.get(vaultId) ?? "headless",
+    reprobe: reprobeVault,
   };
 
   registerM2Tools(registry, {

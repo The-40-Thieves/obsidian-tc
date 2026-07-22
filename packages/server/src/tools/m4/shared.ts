@@ -40,6 +40,10 @@ export interface M4Deps {
   mode?: (vaultId: string) => VaultMode;
   /** THE-291: index-on-write hook for update_task's note rewrite (best-effort, backgrounded). */
   reindex?: (vaultId: string, path: string, content: string) => void;
+  /** THE-527: re-run the companion probe for a vault (with that vault's config overrides), returning
+   *  a fresh snapshot. refresh_plugin_capabilities calls this then swaps the cache. Omitted in tests
+   *  that do not exercise refresh. */
+  reprobe?: (vaultId: string) => Promise<CapabilitySnapshot>;
 }
 
 /**
