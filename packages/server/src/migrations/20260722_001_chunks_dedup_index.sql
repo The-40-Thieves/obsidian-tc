@@ -1,0 +1,14 @@
+-- THE-502: composite index for the cross-path dedup lookup.
+--
+-- copyDedupVectors (search/indexer.ts) resolves a reusable embedding with
+--   WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ?
+-- but the schema only indexed body_sha (chunks_body_sha, migration 20260719_001). SQLite therefore
+-- found candidates by body_sha and filtered vault_id + content_hash row by row — exactly the wrong
+-- shape for a duplicate-heavy vault (templates, canonical notes), which is the case cross-path
+-- dedup exists to serve.
+--
+-- Column order matches the predicate's selectivity: vault_id narrows to one vault, body_sha to one
+-- body, content_hash to one chunking of it.
+--
+-- chunks_body_sha is deliberately KEPT: it still serves lookups that know only the body hash.
+CREATE INDEX IF NOT EXISTS idx_chunks_dedup ON chunks (vault_id, body_sha, content_hash);
