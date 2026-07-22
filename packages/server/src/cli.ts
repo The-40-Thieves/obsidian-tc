@@ -1568,8 +1568,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // by default. stderr only (the stdio MCP protocol owns stdout).
   {
     const rootAcl = config.acl;
+    // THE-526: name the active profile so it is a stated fact, not something inferred from six fields.
+    const profile = config.securityProfile ?? "trusted-local";
     process.stderr.write(
-      `security: auth=${config.auth.mode} readOnly=${rootAcl.readOnly} strictRead=${rootAcl.strictReadDefault} requireCas=${config.writes.requireCas} http=${config.transports.http.enabled ? "on" : "off"}\n`,
+      `security: profile=${profile} auth=${config.auth.mode} readOnly=${rootAcl.readOnly} strictRead=${rootAcl.strictReadDefault} requireCas=${config.writes.requireCas} http=${config.transports.http.enabled ? "on" : "off"}\n`,
     );
     if (
       config.auth.mode === "none" &&
@@ -1579,8 +1581,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     ) {
       process.stderr.write(
         "security: running with trusted-local defaults (auth=none, no strict-read, no CAS). For a " +
-          "shared or multi-caller deployment use the hardened profile (JWT auth, strictReadDefault, " +
-          "explicit read/write paths, requireCas, snapshots): examples/config.hardened.json.\n",
+          'shared or multi-caller deployment set securityProfile: "hardened" (strictReadDefault, ' +
+          "requireCas, snapshots, HTTP off) plus your read/write paths, or copy " +
+          "examples/config.hardened.json.\n",
       );
     }
   }

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { applySecurityProfile } from "./security-profile";
 
 /**
  * Apply environment-secret overlays (kept off disk) to a raw config object and
@@ -26,7 +27,9 @@ export function finalizeConfig(raw: Record<string, unknown>): ServerConfig {
       ...(plurToken ? { apiKey: plurToken } : {}),
     };
   }
-  const config = ServerConfigSchema.parse(raw);
+  // THE-526: expand a named security profile into its field set BEFORE validation, so explicit fields
+  // still override it and the result validates as a normal config.
+  const config = ServerConfigSchema.parse(applySecurityProfile(raw));
   // The cacheDir default (".obsidian-tc") is relative, so cli.ts mkdir's it against the process
   // CWD, which breaks when a GUI launcher spawns the server in a non-writable directory: Claude
   // Desktop starts MCP servers in C:\WINDOWS\system32, so `mkdir .obsidian-tc` is EPERM at boot

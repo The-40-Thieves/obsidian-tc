@@ -1147,6 +1147,17 @@ export const BootstrapConfigSchema = z
 export type BootstrapConfig = z.infer<typeof BootstrapConfigSchema>;
 
 export const ServerConfigObject = z.object({
+  // THE-526: a named security posture. "hardened" fills in the least-privilege field set
+  // (strictReadDefault, requireCas, snapshots, HTTP off) before validation, with any explicitly-set
+  // field winning — so "hardened, but with my paths" is one key plus overrides, not a hand-merge of
+  // six fields across four sections. "trusted-local" is the permissive default, named so an operator
+  // can SEE which posture they are on rather than inferring it. Absent === "trusted-local".
+  securityProfile: z
+    .enum(["hardened", "trusted-local"])
+    .optional()
+    .describe(
+      "Named security posture applied before validation. 'hardened' sets the least-privilege defaults (strictReadDefault, requireCas, snapshots on, HTTP off); explicit fields override it. 'trusted-local' (the default) keeps the permissive single-user posture.",
+    ),
   cacheDir: z
     .string()
     .default(".obsidian-tc")
