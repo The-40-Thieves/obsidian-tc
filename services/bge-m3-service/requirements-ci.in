@@ -1,0 +1,11 @@
+# CI test dependencies for the model service (THE-528).
+#
+# The CI job installs the package with --no-deps and adds only these light deps: the heavy ML
+# stack (torch, FlagEmbedding, sentence-transformers) is deliberately NOT installed in CI, so this
+# lock covers the test surface only, not a runtime deployment.
+fastapi>=0.139
+pydantic>=2.13
+httpx
+pytest
+pytest-asyncio
+ruff
