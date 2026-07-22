@@ -62,3 +62,33 @@ At server start (and on `reload_vault`) the server fires `GET /obsidian-tc/v1/pr
 ## Bridge timeouts
 
 Default 5s per route (`vault.bridges.timeoutMs`); OCR and Templater routes default to 30s. A timeout returns `plugin_unreachable`.
+
+## Version compatibility & bridge state (THE-523)
+
+The server and companion plugin form a versioned contract. On first bridge contact the server compares the companion's reported version and Obsidian API major against the supported range; a skew logs **once** at `warn` with the specific incompatibility rather than diverging silently at whichever route changed.
+
+<!-- BEGIN GENERATED: bridge-compat -->
+| Contract axis | Supported minimum |
+|---|---|
+| Companion plugin version | `1.7.0` |
+| Obsidian app version (`minAppVersion`) | `1.7.0` |
+| Companion API major | `1` |
+<!-- END GENERATED: bridge-compat -->
+
+A companion **older** than the minimum, or on a different API major, is a **breaking** skew — the affected bridge tools degrade rather than behave unpredictably. A companion that did not report a version (predating version reporting) is a soft warning; a **newer** companion is fine.
+
+### Bridge state — `live` / `headless` / `degraded`
+
+`obsidian-tc doctor` reports each vault's bridge state with a reason, so an operator can answer *"which mode am I in, and why?"* — the surface no longer silently shrinks to "headless":
+
+| State | Reason | What it means / action |
+|---|---|---|
+| `live` | `companion-reachable` | Full surface (command dispatch, Templater, …). |
+| `headless` | `plugin-not-installed` | Local REST API plugin absent — install it. |
+| `headless` | `plugin-disabled` | Installed but disabled — enable it in Obsidian. |
+| `headless` | `companion-missing` | No companion detected; running on direct filesystem. |
+| `degraded` | `enabled-but-unreachable` | **Enabled on disk but not answering** — reload the plugin inside Obsidian. (Previously an invisible failure.) |
+| `degraded` | `companion-unreachable` | Endpoint configured but no answer — check URL/key and that Obsidian is running. |
+| `degraded` | `version-skew` | Companion version or API major incompatible — update the companion. |
+
+The `plugin-not-installed` / `plugin-disabled` / `enabled-but-unreachable` distinction is sourced from on-disk detection ([[Environment detection|THE-522]]): three different operator actions that were previously one indistinguishable "headless".

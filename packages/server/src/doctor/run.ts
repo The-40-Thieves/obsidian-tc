@@ -1,9 +1,11 @@
 // THE-521 — assembling and running the default doctor check set.
+import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import type { TokenClaims } from "./checks";
 import {
   authMaxAgeCheck,
   authPolicyCheck,
+  bridgeCheck,
   nativeCheck,
   obsidianCheck,
   runtimeCheck,
@@ -39,6 +41,8 @@ export interface AssembleOptions {
   profile: CapabilityProfile;
   /** Deployed credential to inspect, as a raw JWT string. Optional. */
   token?: string;
+  /** Per-vault bridge state (THE-523). When present, adds the bridge.state check. */
+  bridgeReports?: { vaultId: string; report: BridgeStateReport }[];
   /** Injected clocks for determinism. */
   now?: () => string;
   nowSeconds?: () => number;
@@ -56,6 +60,9 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
     authMaxAgeCheck({ tokenTtlSeconds: config.auth.tokenTtlSeconds }, claims, opts.nowSeconds),
     obsidianCheck(profile),
   ];
+  // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
+  // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".
+  if (opts.bridgeReports) checks.push(bridgeCheck(opts.bridgeReports));
 
   return runDoctor(checks, {
     serverVersion: profile.serverVersion,

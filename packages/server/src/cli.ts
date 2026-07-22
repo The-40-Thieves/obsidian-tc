@@ -8,9 +8,13 @@ import { FolderAcl, makeIndexReadable, makeReindexGate } from "./acl";
 import { writeEvent } from "./audit";
 import {
   type BridgeClient,
+  bridgeState,
   buildVaultCapabilities,
   CapabilityCache,
+  checkBridgeCompat,
   createBridgeClient,
+  formatCompatWarning,
+  type RestApiOnDisk,
 } from "./bridge";
 import { resolveCapabilityProfile } from "./capability";
 import { parseCliArgs, redactConfig, resolveServeConfig, USAGE } from "./cli/args";
@@ -193,6 +197,20 @@ async function run_config_show(cmd: Cmd<"config-show" | "config-validate">): Pro
   return;
 }
 
+// THE-523: derive the Local REST API plugin's on-disk state for a vault from the THE-522 capability
+// profile — absent / disabled / enabled — so bridgeState can distinguish "cannot" from "will not".
+// Returns undefined when the vault was not detected on disk (nothing to say).
+function restApiOnDisk(
+  profile: Awaited<ReturnType<typeof resolveCapabilityProfile>>,
+  vaultPath: string,
+): RestApiOnDisk | undefined {
+  const vault = profile.obsidian.vaults.find((v) => v.path === vaultPath);
+  if (!vault) return undefined;
+  const plugin = vault.plugins.installed.find((p) => p.id === "obsidian-local-rest-api");
+  if (!plugin) return "absent";
+  return plugin.enabled ? "enabled" : "disabled";
+}
+
 // THE-521 — runtime health probe. Loads config, detects the environment (THE-522), runs the default
 // check set, and emits either the versioned JSON envelope or human text rendered from it. Exits
 // non-zero when any check fails, so scripts and CI can gate on health — a warning does not fail.
@@ -204,6 +222,31 @@ async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     extraVaultPaths: config.vaults.map((v) => v.path),
   });
 
+  // THE-523 bridge.state: probe each vault's companion live, then resolve state using the THE-522
+  // on-disk detection so "cannot vs will not" is distinguished (absent / disabled / enabled-but-
+  // unreachable). Probing never throws — a vault with no endpoint resolves to headless.
+  const bridgeReports = await Promise.all(
+    config.vaults.map(async (v) => {
+      const client = v.restApiUrl
+        ? createBridgeClient({
+            baseUrl: v.restApiUrl,
+            apiKey: v.restApiKey,
+            timeoutMs: v.bridges?.timeoutMs,
+          })
+        : undefined;
+      const snap = await buildVaultCapabilities(client, {
+        probeSkip: v.plugins?.probeSkip,
+        forceEnabled: v.plugins?.forceEnabled,
+        forceDisabled: v.plugins?.forceDisabled,
+        timeoutMs: v.bridges?.probeTimeoutMs,
+      });
+      return {
+        vaultId: v.id,
+        report: bridgeState(snap, { restApiOnDisk: restApiOnDisk(profile, v.path) }),
+      };
+    }),
+  );
+
   const report = await assembleDoctorReport({
     config: {
       auth: {
@@ -213,6 +256,7 @@ async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
     },
     profile,
+    bridgeReports,
     ...(cmd.token !== undefined ? { token: cmd.token } : {}),
   });
 
@@ -1111,15 +1155,20 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         })
       : undefined;
     if (client) bridgeClients.set(v.id, client);
-    capabilities.set(
-      v.id,
-      await buildVaultCapabilities(client, {
-        probeSkip: v.plugins?.probeSkip,
-        forceEnabled: v.plugins?.forceEnabled,
-        forceDisabled: v.plugins?.forceDisabled,
-        timeoutMs: v.bridges?.probeTimeoutMs,
-      }),
-    );
+    const snap = await buildVaultCapabilities(client, {
+      probeSkip: v.plugins?.probeSkip,
+      forceEnabled: v.plugins?.forceEnabled,
+      forceDisabled: v.plugins?.forceDisabled,
+      timeoutMs: v.bridges?.probeTimeoutMs,
+    });
+    capabilities.set(v.id, snap);
+    // THE-523 version handshake: warn ONCE per vault on a server↔plugin skew, with the specific
+    // incompatibility, instead of letting a route diverge silently. A reachable-but-incompatible
+    // companion is the only case that logs; missing/unreachable is bridge STATE, reported elsewhere.
+    const compat = checkBridgeCompat(snap);
+    if (compat.issues.length > 0) {
+      process.stderr.write(`${formatCompatWarning(v.id, compat)}\n`);
+    }
   }
   // Per-vault mode resolved once at startup (THE-255): explicit live/headless win; auto uses
   // the companion probe result captured above. Tier-3 bridge tools degrade headless.
