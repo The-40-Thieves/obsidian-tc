@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { collectDispatch } from "./collectors/dispatch";
+import { collectHttp } from "./collectors/http";
 import { collectIndexing } from "./collectors/indexing";
 import { collectLifecycle } from "./collectors/lifecycle";
 import { collectRetrieval } from "./collectors/retrieval";
@@ -24,6 +25,9 @@ export async function runScenario(name: Scenario["name"]): Promise<PerfReport> {
     ...(await collectDispatch(vault)),
     ...collectStorage(vault),
     ...(await collectRuntime(vault)),
+    // THE-495 (family 12). Must precede lifecycle: the handshake needs a live db, and lifecycle
+    // closes it as its shutdown-drain measurement.
+    ...(await collectHttp(vault)),
     ...(await collectLifecycle(vault)), // closes db
   ];
   // lifecycle closed the db; only remove the temp dir.

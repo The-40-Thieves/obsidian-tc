@@ -10,8 +10,9 @@ import type { MetricSample } from "../report";
 
 const SHUTDOWN_DEADLINE_MS = 5000;
 
-// Family 12 (HTTP cold/warm handshake) is deferred to a follow-up ticket — this task ships
-// only families 11 (vec migration) and 13 (shutdown drain); see task-9 report for rationale.
+// Family 12 (HTTP cold/warm handshake) lives in collectors/http.ts (THE-495). It is a separate
+// collector rather than part of this one because it needs a LIVE db, and this collector closes
+// the db as its shutdown-drain measurement — so http must run before lifecycle, not inside it.
 
 /**
  * Family 11 (vec-index migration) + Family 13 (shutdown drain).

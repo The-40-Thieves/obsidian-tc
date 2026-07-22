@@ -140,7 +140,7 @@ The harness collects 13 of the 14 metric families across 6 collector modules. **
 | 9 | Recall/nDCG | `retrieval.{recall_at10, ndcg_at10, ndcg_per_ms}` | retrieval.ts | {hard, hard, warn} | Relevance metrics over synthetic labelled set |
 | 10 | Peak memory | `runtime.peak_rss_mb` | runtime.ts | warn | Peak process RSS during the run, in MB. NOT normalized per chunk: RSS is whole-process, so a per-chunk figure attributes memory it cannot account for (THE-459). Scenarios are fixed-size, so absolute RSS is comparable run-to-run. |
 | 11 | Vec migration | `migration.{rebuilt, ms}` | lifecycle.ts | {hard, warn} | Vec-index rebuild latency; rebuilt = bun-only true |
-| 12 | HTTP handshake | (deferred) | — | — | Deferred to THE-495; not emitted yet |
+| 12 | HTTP handshake | `http.handshake_ok`, `http.cold_ms`, `http.warm_ms` | http.ts | hard / warn | MCP `initialize` round-trip through the real Hono app via `app.fetch()` — **no network listener is bound**. Cold vs warm separates one-time init from steady-state per-request cost (the build THE-463 proposes caching). `handshake_ok` requires a protocol-level `result`, so a degraded handshake fails rather than passing on a 200. |
 | 13 | Shutdown drain | `shutdown.{drained, ms}` | lifecycle.ts | {hard, warn} | Graceful DB close under deadline; runs last |
 | 14 | Per-vault storage | `storage.{bytes, cpu_ms}` | storage.ts | {hard, warn} | DB page bytes (exact); CPU over the txn batch |
 

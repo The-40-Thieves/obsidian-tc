@@ -153,6 +153,27 @@
     "class": "warn",
     "direction": "higher-worse"
   },
+  "http.handshake_ok": {
+    "value": 1,
+    "tol": 0,
+    "mode": "abs",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "http.cold_ms": {
+    "value": 73.2016880000001,
+    "tol": 1.0,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "higher-worse"
+  },
+  "http.warm_ms": {
+    "value": 20.24059800000009,
+    "tol": 0.5,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "higher-worse"
+  },
   "migration.rebuilt": {
     "value": 1,
     "tol": 0,
