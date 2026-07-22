@@ -1,0 +1,91 @@
+name: setup-repo
+description: >-
+  Checkout-adjacent toolchain setup shared by the CI workflows (THE-505): bun, optional node,
+  the bun install cache, and the install itself. Callers still do their own actions/checkout so
+  they keep control of fetch-depth, submodules and refs.
+
+# Why a local composite action rather than a reusable workflow: a composite runs INSIDE the
+# caller's job, so it shares that job's checkout, working directory and matrix context. A reusable
+# workflow would be a separate job with its own runner, losing all of that.
+#
+# Pinned to the same SHAs the workflows already used, so adopting this changes no action version.
+
+inputs:
+  bun-version:
+    description: Bun version to install.
+    required: false
+    default: '1.3.14'
+  node-required:
+    description: >-
+      Install Node as well. Needed by jobs that shell out to npm/npx or build the native package;
+      most bun-only jobs do not.
+    required: false
+    default: 'false'
+  node-version:
+    description: Node version, when node-required is true.
+    required: false
+    default: '24'
+  install-mode:
+    description: >-
+      frozen-no-scripts (default) | frozen | none.
+      "frozen-no-scripts" is --frozen-lockfile --ignore-scripts, correct for lint/test/docs jobs
+      that never need the native postinstall. "frozen" runs lifecycle scripts, for jobs that do.
+      "none" skips installing entirely, for jobs that only need the toolchain.
+    required: false
+    default: 'frozen-no-scripts'
+  cache:
+    description: Cache ~/.bun/install/cache keyed on bun.lock.
+    required: false
+    default: 'true'
+  cache-key-suffix:
+    description: >-
+      Extra key segment, for jobs whose install differs from the default (e.g. a matrix target) and
+      must not share a cache entry with it.
+    required: false
+    default: ''
+  working-directory:
+    description: Directory to install in — 'docs' is a separate bun workspace with its own lockfile.
+    required: false
+    default: '.'
+
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version: ${{ inputs.bun-version }}
+
+    - if: inputs.node-required == 'true'
+      uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v5
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    # Key on the lockfile of the directory being installed: docs/ has its own, so a shared key
+    # would serve one workspace's cache to the other.
+    - if: inputs.cache == 'true'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ~/.bun/install/cache
+        key: bun-${{ runner.os }}-${{ inputs.cache-key-suffix }}-${{ hashFiles(format('{0}/bun.lock', inputs.working-directory)) }}
+        restore-keys: bun-${{ runner.os }}-${{ inputs.cache-key-suffix }}-
+
+    - if: inputs.install-mode == 'frozen-no-scripts'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: bun install --frozen-lockfile --ignore-scripts
+
+    - if: inputs.install-mode == 'frozen'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: bun install --frozen-lockfile
+
+    # Fail loudly on a typo rather than silently skipping the install and failing later with a
+    # confusing "module not found".
+    - if: >-
+        inputs.install-mode != 'frozen-no-scripts' &&
+        inputs.install-mode != 'frozen' &&
+        inputs.install-mode != 'none'
+      shell: bash
+      run: |
+        echo "setup-repo: unknown install-mode '${{ inputs.install-mode }}' (expected frozen-no-scripts | frozen | none)"
+        exit 1
