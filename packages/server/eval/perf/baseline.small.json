@@ -7,7 +7,7 @@
     "direction": "exact"
   },
   "index.chunks_per_s": {
-    "value": 1001.9221124285358,
+    "value": 1264.9587699338529,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -28,7 +28,7 @@
     "direction": "exact"
   },
   "embed.texts_per_s": {
-    "value": 601.1532674571215,
+    "value": 758.9752619603117,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -77,7 +77,7 @@
     "direction": "lower-worse"
   },
   "retrieval.ndcg_per_ms": {
-    "value": 0.03444614281177157,
+    "value": 0.039027263172567876,
     "tol": 0.5,
     "mode": "abs",
     "class": "warn",
@@ -112,7 +112,7 @@
     "direction": "exact"
   },
   "freshness.ms": {
-    "value": 105.92926499999999,
+    "value": 47.5719610000001,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -133,14 +133,14 @@
     "direction": "exact"
   },
   "storage.txn_ms": {
-    "value": 1.3977709999999206,
+    "value": 1.1456479999999374,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "storage.cpu_ms": {
-    "value": 1.922,
+    "value": 1.349,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -154,7 +154,7 @@
     "direction": "higher-worse"
   },
   "runtime.peak_rss_mb": {
-    "value": 166.46484375,
+    "value": 157.296875,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -168,14 +168,14 @@
     "direction": "exact"
   },
   "http.cold_ms": {
-    "value": 30.480837000000065,
-    "tol": 0.5,
+    "value": 73.2016880000001,
+    "tol": 1.0,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "http.warm_ms": {
-    "value": 7.54253800000015,
+    "value": 20.24059800000009,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -217,7 +217,7 @@
     "direction": "exact"
   },
   "migration.ms": {
-    "value": 4.182031999999708,
+    "value": 1.2907299999999395,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -231,7 +231,7 @@
     "direction": "exact"
   },
   "shutdown.ms": {
-    "value": 0.3228830000002745,
+    "value": 0.19756100000017796,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
