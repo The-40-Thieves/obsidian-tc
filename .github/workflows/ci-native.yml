@@ -79,6 +79,25 @@ jobs:
           path: packages/native/*.node
           if-no-files-found: error
 
+  # THE-506: clippy gate. Runs on the pinned toolchain (rust-toolchain.toml) with -D warnings so a
+  # new lint can't land silently; -all-targets/-all-features covers tests/benches too, not just the
+  # lib. Single ubuntu run — clippy is a lint pass, not a platform-specific build, so it doesn't need
+  # the full OS matrix the `build` job runs.
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (pinned, audit #11)
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: packages/native
+      - name: cargo clippy
+        working-directory: packages/native
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        shell: bash
+
   # Build-only validation of the musl cross-compile path (THE-264 follow-up). The two linux-musl
   # prebuilds ship via `napi build -x` (cargo-zigbuild) in publish.yml — a toolchain that runs only
   # on a linux runner and had never been exercised anywhere. This job cross-compiles both musl
