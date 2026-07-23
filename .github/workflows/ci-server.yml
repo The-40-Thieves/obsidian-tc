@@ -114,7 +114,7 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - name: install (native build for sqlite-vec)
         run: bun install --frozen-lockfile
-      - name: perf gate (isolated: 5 fresh-subprocess samples, gated on the median; THE-503)
+      - name: perf gate (isolated - 5 fresh-subprocess samples, gated on the median; THE-503)
         run: bun run perf:gate:isolated
         working-directory: packages/server
       - name: upload perf report
