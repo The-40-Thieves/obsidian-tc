@@ -51,6 +51,9 @@ export interface M7Deps {
     sparse?: boolean;
     colbert?: boolean;
     densify?: { includeInWalk?: boolean; derivedWeight?: number };
+    /** THE-391/THE-536: adaptive per-stream RRF weighting. Absent/false -> static RRF, byte-
+     *  identical to today. */
+    adaptiveRrf?: { enabled?: boolean; gain?: number };
   };
   /** Config-driven POST-FUSION ranking overlays (config.ranking); absent -> graphSearch defaults
    *  (metadata prior OFF). */
@@ -263,6 +266,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             finalTopK: input.k,
             ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
             ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
+            ...(deps.retrieval?.adaptiveRrf?.enabled
+              ? { adaptiveRrf: deps.retrieval.adaptiveRrf }
+              : {}),
             ...(deps.ranking?.metadataPrior?.enabled
               ? { metadataPrior: deps.ranking.metadataPrior }
               : {}),
@@ -535,6 +541,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             finalTopK: input.k,
             ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
             ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
+            ...(deps.retrieval?.adaptiveRrf?.enabled
+              ? { adaptiveRrf: deps.retrieval.adaptiveRrf }
+              : {}),
             ...(deps.ranking?.metadataPrior?.enabled
               ? { metadataPrior: deps.ranking.metadataPrior }
               : {}),
@@ -732,6 +741,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           finalTopK: input.final_top_k,
           ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
           ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
+          ...(deps.retrieval?.adaptiveRrf?.enabled
+            ? { adaptiveRrf: deps.retrieval.adaptiveRrf }
+            : {}),
           ...(querySparse ? { querySparse } : {}),
           ...(queryColbert ? { queryColbert } : {}),
           reranker: deps.reranker,
@@ -806,6 +818,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           finalTopK: input.final_top_k,
           ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
           ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
+          ...(deps.retrieval?.adaptiveRrf?.enabled
+            ? { adaptiveRrf: deps.retrieval.adaptiveRrf }
+            : {}),
           ...(querySparse ? { querySparse } : {}),
           ...(queryColbert ? { queryColbert } : {}),
           // THE-441: reranking lost decisively to the champion on this stack; the docs corpus

@@ -441,6 +441,31 @@ export const RetrievalConfigSchema = z.object({
     .describe(
       "Graph densification: derived edges added beyond the literal wikilink layer to reach multi-hop targets whose bridge notes are not explicitly linked. All off by default.",
     ),
+  /** THE-391/THE-536: tilt the per-stream RRF weights by the query's lexical specificity — rare
+   *  terms trust the BM25/sparse ranks, common-vocabulary queries trust the dense seeds. Neutral
+   *  (static RRF) when disabled, when the specificity signal is unavailable, or at specificity
+   *  0.5. Implemented and unit-tested (fusion.ts) and reachable from the eval harness
+   *  (`--adaptive-rrf`) since THE-391, but had no config surface until now. OFF by default — no
+   *  ranking change ships with this flag; it only makes an already-measured lever reachable. */
+  adaptiveRrf: z
+    .object({
+      enabled: z
+        .boolean()
+        .default(false)
+        .describe("Enable the adaptive per-stream RRF weighting tilt. Off by default."),
+      gain: z
+        .number()
+        .min(0)
+        .max(1)
+        .default(0.5)
+        .describe(
+          "Strength of the tilt, clamped to [0,1] so stream weights stay within [0,2] — an over-unity gain would drive a weight negative and invert its ranking rather than just reweight it.",
+        ),
+    })
+    .prefault({})
+    .describe(
+      "Adaptive per-stream RRF weighting (THE-391): tilts dense vs lexical/sparse stream weight by per-query lexical specificity. Off by default.",
+    ),
 });
 
 /** Metadata-prior (authority-boost) rule: add `boost` to the fused score of a result whose note
