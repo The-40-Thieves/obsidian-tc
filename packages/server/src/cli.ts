@@ -136,6 +136,11 @@ const forgetLogMigrationSql = readFileSync(
   fileURLToPath(new URL("./migrations/20260712_003_forget_log.sql", import.meta.url)),
   "utf8",
 );
+// THE-461: one-row watermark for the incremental ACT-R activation recompute.
+const activationWatermarkMigrationSql = readFileSync(
+  fileURLToPath(new URL("./migrations/20260723_001_activation_watermark.sql", import.meta.url)),
+  "utf8",
+);
 // The experiential.db chain, applied by every entry point that opens the store (serve +
 // activation-recompute) so they can never diverge on schema.
 const experientialMigrations = [
@@ -145,6 +150,7 @@ const experientialMigrations = [
   { version: "20260712_001", sql: preferenceProfileMigrationSql },
   { version: "20260712_002", sql: accessViewsMigrationSql },
   { version: "20260712_003", sql: forgetLogMigrationSql },
+  { version: "20260723_001", sql: activationWatermarkMigrationSql },
 ];
 type Cmd<K extends string> = Extract<ReturnType<typeof parseCliArgs>, { kind: K }>;
 

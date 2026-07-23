@@ -83,27 +83,68 @@ export interface ActivationRecomputeStats {
   chunks: number;
 }
 
+// THE-461: the append-only chunk_retrievals log has a monotonic rowid, so the max rowid already
+// folded into the cached scores is a race-free watermark. Stored one-row in activation_state
+// (migration 20260723_001). Absent table (pre-migration db) -> incremental degrades to a full pass.
+function hasActivationState(edb: Database): boolean {
+  return (
+    edb
+      .prepare(
+        "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'activation_state'",
+      )
+      .get() !== undefined
+  );
+}
+
+function readWatermark(edb: Database): number {
+  const r = edb.prepare("SELECT watermark FROM activation_state WHERE id = 1").get() as
+    | { watermark: number }
+    | undefined;
+  return r?.watermark ?? 0;
+}
+
 /**
- * Recompute cached_activation_score for every chunk that has retrieval events, writing it (plus
- * frequency + last_accessed + last_computed_at) into vault_object_state. Idempotent; a chunk with no
- * events is left untouched (its score stays NULL -> the rerank stays inert for it). Operates on the
- * experiential store (experiential.db), where both tables live.
+ * Recompute cached_activation_score, writing it (plus frequency + last_accessed + last_computed_at)
+ * into vault_object_state. Idempotent; a chunk with no events is left untouched.
+ *
+ * THE-461: `incremental` recomputes ONLY chunks with retrieval events past the persisted watermark —
+ * reading their FULL history (the exact ACT-R sum needs every reference; it is power-law and not
+ * time-separable, so no running aggregate can stand in). A chunk with no new events keeps its cached
+ * score from the pass that last saw it — accepted, since activation is a bounded, dark-by-default
+ * tie-break; run a full pass (the default, e.g. the CLI command) to refresh every chunk to `now`. The
+ * watermark seeds at 0, so the first pass is always full. `incremental` on a pre-migration db (no
+ * activation_state) falls back to full.
  */
 export function recomputeActivation(
   edb: Database,
   now: number,
-  opts: { decay?: number } = {},
+  opts: { decay?: number; incremental?: boolean } = {},
 ): ActivationRecomputeStats {
-  const rows = edb
-    .prepare(
-      "SELECT chunk_id, retrieved_at, feedback, outcome FROM chunk_retrievals ORDER BY chunk_id",
-    )
-    .all() as Array<{
+  const trackWatermark = hasActivationState(edb);
+  const incremental = opts.incremental === true && trackWatermark;
+  const watermark = incremental ? readWatermark(edb) : 0;
+
+  // Full pass reads the whole log; incremental reads only the events of chunks that have ANY event
+  // past the watermark (their full history — every reference is needed for the exact ACT-R sum).
+  const rows = (
+    incremental
+      ? edb
+          .prepare(
+            "SELECT chunk_id, retrieved_at, feedback, outcome FROM chunk_retrievals WHERE chunk_id IN (SELECT DISTINCT chunk_id FROM chunk_retrievals WHERE rowid > ?) ORDER BY chunk_id",
+          )
+          .all(watermark)
+      : edb
+          .prepare(
+            "SELECT chunk_id, retrieved_at, feedback, outcome FROM chunk_retrievals ORDER BY chunk_id",
+          )
+          .all()
+  ) as Array<{
     chunk_id: string;
     retrieved_at: number;
     feedback: number | null;
     outcome: number | null;
   }>;
+
   const byChunk = new Map<string, RetrievalEvent[]>();
   for (const r of rows) {
     const list = byChunk.get(r.chunk_id) ?? [];
@@ -113,12 +154,24 @@ export function recomputeActivation(
   const upsert = edb.prepare(
     "INSERT INTO vault_object_state (object_id, cached_activation_score, last_computed_at, frequency, last_accessed) VALUES (?, ?, ?, ?, ?) ON CONFLICT(object_id) DO UPDATE SET cached_activation_score = excluded.cached_activation_score, last_computed_at = excluded.last_computed_at, frequency = excluded.frequency, last_accessed = excluded.last_accessed",
   );
+  // The new head to record — capture BEFORE the transaction so a concurrent append is not claimed as
+  // processed. On an empty log MAX(rowid) is NULL -> keep the old watermark.
+  const head = trackWatermark
+    ? ((edb.prepare("SELECT MAX(rowid) AS m FROM chunk_retrievals").get() as { m: number | null })
+        .m ?? watermark)
+    : 0;
+
   edb.exec("BEGIN");
   try {
     for (const [chunkId, events] of byChunk) {
       const activation = actrActivation(events, now, opts);
       const lastAccessed = events.reduce((m, e) => Math.max(m, e.retrieved_at), 0);
       upsert.run(chunkId, activation, now, events.length, lastAccessed);
+    }
+    // Advance the watermark in the SAME transaction as the score writes, so a crash never records
+    // events as processed whose scores were rolled back.
+    if (trackWatermark) {
+      edb.prepare("UPDATE activation_state SET watermark = ? WHERE id = 1").run(head);
     }
     edb.exec("COMMIT");
   } catch (err) {
@@ -157,11 +210,13 @@ export function registerActivationRecompute(
     name: "activation-recompute",
     intervalMs: deps.intervalMs,
     run: () => {
-      const stats = recomputeActivation(
-        deps.edb,
-        (deps.now ?? Date.now)(),
-        deps.decay !== undefined ? { decay: deps.decay } : {},
-      );
+      // THE-461: the timer runs INCREMENTALLY (only chunks with events past the watermark) so the
+      // periodic recompute no longer rescans the whole log while competing with interactive dispatch.
+      // The first pass after boot is a full one (watermark seeds at 0); the CLI command stays full.
+      const stats = recomputeActivation(deps.edb, (deps.now ?? Date.now)(), {
+        incremental: true,
+        ...(deps.decay !== undefined ? { decay: deps.decay } : {}),
+      });
       deps.onRecompute?.(stats);
     },
     onError: (e) => deps.onError?.(e),
