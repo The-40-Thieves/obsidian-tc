@@ -19,17 +19,17 @@ describe("dispatch + freshness collectors", () => {
       expect(visible).toBeDefined();
       expect(freshMs).toBeDefined();
 
-      expect(p50!.value).toBeGreaterThanOrEqual(0);
-      expect(p95!.value).toBeGreaterThanOrEqual(0);
-      expect(p99!.value).toBeGreaterThanOrEqual(0);
-      expect(visible!.value).toBe(1);
-      expect(freshMs!.value).toBeGreaterThanOrEqual(0);
+      expect(p50?.value).toBeGreaterThanOrEqual(0);
+      expect(p95?.value).toBeGreaterThanOrEqual(0);
+      expect(p99?.value).toBeGreaterThanOrEqual(0);
+      expect(visible?.value).toBe(1);
+      expect(freshMs?.value).toBeGreaterThanOrEqual(0);
 
-      expect(p95!.class).toBe("warn");
-      expect(p95!.direction).toBe("higher-worse");
-      expect(visible!.class).toBe("hard");
-      expect(visible!.direction).toBe("exact");
-      expect(freshMs!.class).toBe("warn");
+      expect(p95?.class).toBe("warn");
+      expect(p95?.direction).toBe("higher-worse");
+      expect(visible?.class).toBe("hard");
+      expect(visible?.direction).toBe("exact");
+      expect(freshMs?.class).toBe("warn");
     } finally {
       v.cleanup();
     }

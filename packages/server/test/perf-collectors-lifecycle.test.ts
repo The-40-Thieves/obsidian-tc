@@ -9,9 +9,9 @@ describe("lifecycle collectors", () => {
     const byKey = Object.fromEntries((await collectLifecycle(v)).map((s) => [s.key, s]));
     expect(byKey["shutdown.drained"]).toBeDefined();
     expect(byKey["migration.ms"]).toBeDefined();
-    expect(byKey["shutdown.drained"]!.value).toBe(1);
-    expect(byKey["migration.ms"]!.class).toBe("warn");
-    expect(byKey["shutdown.drained"]!.class).toBe("hard");
+    expect(byKey["shutdown.drained"]?.value).toBe(1);
+    expect(byKey["migration.ms"]?.class).toBe("warn");
+    expect(byKey["shutdown.drained"]?.class).toBe("hard");
     // The collector closes vault.db as part of the shutdown-drain metric; harness cleanup
     // must guard its own db.close?.() so a second close (Task 10's orchestration double-close
     // hazard) never throws.

@@ -15,11 +15,11 @@ describe("indexing collectors", () => {
     expect(dupRatio).toBeDefined();
     expect(chunkCount).toBeDefined();
     expect(textsPerS).toBeDefined();
-    expect(dupRatio!.value).toBeGreaterThan(0);
-    expect(dupRatio!.value).toBeLessThan(1);
-    expect(chunkCount!.value).toBe(v.chunkCount);
-    expect(dupRatio!.class).toBe("hard");
-    expect(textsPerS!.class).toBe("warn");
+    expect(dupRatio?.value).toBeGreaterThan(0);
+    expect(dupRatio?.value).toBeLessThan(1);
+    expect(chunkCount?.value).toBe(v.chunkCount);
+    expect(dupRatio?.class).toBe("hard");
+    expect(textsPerS?.class).toBe("warn");
     v.cleanup();
   });
 

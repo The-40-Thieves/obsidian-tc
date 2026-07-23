@@ -26,7 +26,7 @@
     "build": "bun run --filter='*' build",
     "test": "bun run --filter='*' test",
     "bundle": "bun scripts/bundle-mcpb.ts",
-    "lint": "biome check .",
+    "lint": "biome check --error-on-warnings .",
     "format": "biome format --write .",
     "check:version": "node scripts/check-version-coherence.mjs",
     "release": "bun scripts/release.mjs",
