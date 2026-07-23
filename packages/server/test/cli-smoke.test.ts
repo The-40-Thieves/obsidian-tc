@@ -62,8 +62,19 @@ afterAll(() => {
 // The suite is meaningless if `bun` is not on PATH — say so loudly rather than passing vacuously.
 const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
 
+// Every test here spawns a real `bun` subprocess, and `runCli` bounds that with timeout: 60_000.
+// Vitest's DEFAULT per-test timeout is 5_000, so that 60s guard was unreachable — vitest killed the
+// test twelve times sooner than the guard it was paired with. Isolated, a cold CLI spawn takes ~1s
+// and passed; under a full parallel suite on a 4-core box it exceeds 5s and the test times out.
+// That is the intermittent cli-smoke failure recorded as unlocalized in #268: focused reruns
+// reproduce the load conditions least, which is exactly why 80/80 of them passed.
+//
+// The suite timeout is set ABOVE the spawn guard so the inner bound is the one that fires. A hung
+// CLI then reports as a 60s spawn timeout with its captured output, rather than a bare "timed out
+// in 5000ms" that says nothing about which subprocess hung or why.
 describe.skipIf(!bunAvailable)(
   "cli characterization (pins behavior for the cli.ts extraction)",
+  { timeout: 90_000 },
   () => {
     it("bun is on PATH, so these tests are actually running", () => {
       expect(bunAvailable).toBe(true);
