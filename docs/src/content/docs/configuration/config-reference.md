@@ -105,7 +105,7 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `experiential.activationRerank` | `boolean` | `false` |  | Apply the ACT-R activation bubble pass (bounded adjacent swaps) to serve-path vault_graph_search using cached activation scores. Ships dark pending an A/B on the golden set. |
+| `experiential.activationRerank` | `boolean` | `false` |  | Build the ACT-R cached-activation-score lookup and thread it to every M7 graphSearch call. NOT YET WIRED to the serve-path bubble pass (bubble_safe_rerank) — that requires opts.bubbleSafe.enabled, which nothing under src/ sets, so enabling this flag currently changes no ranking. See THE-424 for the (deliberately deferred) wiring decision. |
 | `experiential.captureContent` | `boolean` | `false` |  | Also persist each episode's raw parsed arguments, secret-scanned and size-capped. Off until the poisoning defence lands: this is the write-side of the gate. |
 | `experiential.captureEpisodes` | `boolean` | `true` |  | Record every dispatch outcome as an agent_episodes row — tool, status, duration, sizes, hashes, attribution. No payloads are stored. |
 | `experiential.logRetrievals` | `boolean` | `true` |  | Append serve-path retrieval events (chunk id, rank, score, query text, surface) to experiential.db. Local-only telemetry feeding activation recompute and usage stats; eval runs never log. |
@@ -190,6 +190,8 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
+| `retrieval.adaptiveRrf.enabled` | `boolean` | `false` |  | Enable the adaptive per-stream RRF weighting tilt. Off by default. |
+| `retrieval.adaptiveRrf.gain` | `number` | `0.5` |  | Strength of the tilt, clamped to [0,1] so stream weights stay within [0,2] — an over-unity gain would drive a weight negative and invert its ranking rather than just reweight it. |
 | `retrieval.classRouter` | `boolean` | `false` |  | Enable the deterministic query-class router: a temporal auto-stream and a lexical short-circuit that skips the embedding round-trip. Ships dark pending an A/B on the golden set. |
 | `retrieval.colbert` | `boolean` | `false` |  | Rerank the fused top-K by bge-m3 ColBERT late-interaction maxSim. A no-op unless the provider emits the multi-vector heads. |
 | `retrieval.densify.confidenceFloor` | `number` | `0.55` |  | Minimum discrete-rubric confidence required to keep an LLM-inferred edge. |
