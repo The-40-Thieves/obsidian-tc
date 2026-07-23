@@ -10,7 +10,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { RateLimiter } from "../src/throttle";
-import { createHealthTool } from "../src/tools/admin/health";
+import { createHealthTool, createIndexStatusTool } from "../src/tools/admin/health";
 import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { registerM3Tools } from "../src/tools/m3";
@@ -26,7 +26,7 @@ import { openMemoryDb } from "./helpers";
  *  M1–M8 domains). Bump this WITH the docs headline (README/ARCHITECTURE/docs-site) and the
  *  EXPECTED_TOOL_COUNT in scripts/check-version-coherence.mjs (which asserts the docs match it) when
  *  a tool is added or removed. */
-const REGISTERED_TOOL_COUNT = 144;
+const REGISTERED_TOOL_COUNT = 145;
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },
@@ -66,6 +66,16 @@ describe("THE-306 registered tool count", () => {
         nativeLoaded: false,
         vecEnabled: false,
         ftsEnabled: false,
+      }),
+    );
+    // THE-491: get_index_status is registered directly in cli.ts alongside server_health, not
+    // through a register*Tools domain function — mirror that here so the count stays exact.
+    registry.register(
+      createIndexStatusTool({
+        vecEnabled: false,
+        ftsEnabled: false,
+        getIndexHealth: () => ({ reconcile: "ok", reconcile_at: null, write_failures: 0 }),
+        getLastChunksUpserted: () => null,
       }),
     );
     registerM1Tools(registry, {

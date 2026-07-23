@@ -48,6 +48,50 @@ export interface HealthInfo {
   index?: IndexHealthSnapshot;
 }
 
+/** THE-491: the `server_health` index block, thinned to a named, agent-discoverable reader —
+ *  "can I trust the search index right now, before I pay for an expensive search?" — plus
+ *  chunks_upserted from the most recent index_vault call (absent -> null, never indexed this
+ *  process lifetime). No `detail`: that sub-object is authenticated-only on server_health because
+ *  its messages may name paths; this tool stays scope-free like server_health itself, so it
+ *  carries only the non-identifying fields already exposed unauthenticated there. */
+export interface IndexStatusInfo {
+  reconcile: "pending" | "ok" | "degraded";
+  reconcile_at: number | null;
+  write_failures: number;
+  notes_ready: boolean;
+  vec_enabled: boolean;
+  fts_enabled: boolean;
+  /** chunks_upserted from the last index_vault tool call this process, or null if none yet. */
+  chunks_upserted: number | null;
+}
+
+export function createIndexStatusTool(opts: {
+  vecEnabled: boolean;
+  ftsEnabled: boolean;
+  getIndexHealth: () => Omit<IndexHealthSnapshot, "detail">;
+  getLastChunksUpserted: () => number | null;
+}): ToolDefinition<Record<string, never>, IndexStatusInfo> {
+  return {
+    name: "get_index_status",
+    description:
+      "Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, and chunks_upserted from the last index_vault call. Read-only — self-diagnose before spending on an expensive search.",
+    inputSchema: z.object({}).strict(),
+    requiredScopes: [],
+    handler: () => {
+      const snap = opts.getIndexHealth();
+      return {
+        reconcile: snap.reconcile,
+        reconcile_at: snap.reconcile_at,
+        write_failures: snap.write_failures,
+        notes_ready: snap.notes_ready ?? false,
+        vec_enabled: opts.vecEnabled,
+        fts_enabled: opts.ftsEnabled,
+        chunks_upserted: opts.getLastChunksUpserted(),
+      };
+    },
+  };
+}
+
 export function createHealthTool(opts: {
   version: string;
   vaults: string[];
