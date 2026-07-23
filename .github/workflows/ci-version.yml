@@ -15,3 +15,16 @@ jobs:
           node-version: '24'
       - name: assert all version strings agree
         run: node scripts/check-version-coherence.mjs
+
+  # THE-506: single repo-wide typecheck gate. The path-scoped workflows (ci-server, ci-plugin) each
+  # typecheck their own package already, but no workflow ever typechecks packages/native's TS
+  # surface (fallback.ts/index.d.ts) — this job is unconditional (this workflow has no `paths:`
+  # filter) so it closes that gap and also catches a package typechecking cleanly alone but breaking
+  # another via a shared-type change on a PR that only touched one package's path filter.
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: ./.github/actions/setup-repo
+      - name: typecheck (all packages)
+        run: bun run typecheck
