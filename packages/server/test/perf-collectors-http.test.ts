@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { collectHttp } from "../eval/perf/collectors/http";
+import { collectHttp, collectHttpConcurrency } from "../eval/perf/collectors/http";
 import { buildVault } from "../eval/perf/harness";
 import { SCENARIOS } from "../eval/perf/scenarios";
 
@@ -72,5 +72,43 @@ describe("http handshake collector (THE-495, family 12)", () => {
     expect(src).not.toMatch(/\blisten\s*\(/);
     // ...and it must be exercising the in-process pipeline instead.
     expect(src).toMatch(/app\.fetch\s*\(/);
+  });
+});
+
+// THE-503 Part 2 scenario coverage: 2 and 8 concurrent HTTP callers.
+describe("http concurrency collector (THE-503, Part 2)", () => {
+  it("emits ok-count + p99 for both the 2- and 8-caller concurrency levels", async () => {
+    const v = await buildVault(SCENARIOS.small);
+    try {
+      const samples = await collectHttpConcurrency(v);
+      const byKey = Object.fromEntries(samples.map((s) => [s.key, s]));
+
+      for (const concurrency of [2, 8]) {
+        const okCount = byKey[`http.concurrent${concurrency}_ok_count`];
+        const p99 = byKey[`http.concurrent${concurrency}_p99_ms`];
+
+        expect(okCount).toBeDefined();
+        expect(okCount?.value).toBe(concurrency); // every concurrent handshake must succeed
+        expect(okCount?.class).toBe("hard");
+        expect(okCount?.direction).toBe("exact");
+
+        expect(p99).toBeDefined();
+        expect(p99?.value).toBeGreaterThan(0);
+        expect(p99?.class).toBe("warn");
+        expect(p99?.direction).toBe("higher-worse");
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("never binds a port either", () => {
+    const src = readFileSync(
+      fileURLToPath(new URL("../eval/perf/collectors/http.ts", import.meta.url)),
+      "utf8",
+    );
+    expect(src).not.toMatch(/@hono\/node-server/);
+    expect(src).not.toMatch(/\bserve\s*\(/);
+    expect(src).not.toMatch(/\blisten\s*\(/);
   });
 });

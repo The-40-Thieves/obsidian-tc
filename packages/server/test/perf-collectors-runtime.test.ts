@@ -26,4 +26,17 @@ describe("runtime collectors", () => {
     }
     v.cleanup();
   });
+
+  // THE-503: this used to read 0 nearly every run because the load loop never crossed a
+  // macrotask boundary, so monitorEventLoopDelay recorded literally zero samples (not "delay
+  // below resolution"). Under real concurrent load with an explicit yield between batches, the
+  // event loop genuinely does queue -- so this must come back measurably positive, not a floor
+  // value silently standing in for "couldn't measure".
+  it("produces a genuinely measured (non-zero) event-loop delay under concurrent load", async () => {
+    const v = await buildVault(SCENARIOS.small);
+    const samples = await collectRuntime(v);
+    const eventloopSample = samples.find((s) => s.key === "runtime.eventloop_p99_ms");
+    expect(eventloopSample?.value).toBeGreaterThan(0);
+    v.cleanup();
+  });
 });

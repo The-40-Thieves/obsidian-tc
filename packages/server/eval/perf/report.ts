@@ -26,6 +26,13 @@ export type Baseline = Record<string, BaselineEntry>;
 export interface PerfReport {
   scenario: string;
   samples: MetricSample[];
+  // THE-503: wall time (ms) of a fixed, scenario-independent CPU busy-loop, measured once at
+  // process start by run.ts's CLI entry -- NOT set by runScenario() itself, which stays a pure
+  // single-shot report builder. Used by the isolation layer (contention.ts / sample.ts) to detect
+  // host contention across a batch of fresh-subprocess samples. Absent from reports produced by
+  // calling runScenario() directly (e.g. existing unit tests), present in every CLI-produced
+  // report.
+  calibrationMs?: number;
 }
 
 export function toMarkdown(report: PerfReport): string {
