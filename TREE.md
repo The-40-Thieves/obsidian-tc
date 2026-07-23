@@ -159,3 +159,99 @@ holding all four `graphSearch` call sites, THE-451's HyDE param, and THE-536's
 and `knowledge-search` tests, but nothing is named for the module.
 
 `experiential` (10 files, ~1 test) and `embeddings` (6 files, ~1) are next thinnest.
+
+---
+
+## 7. Dependency graph
+
+`dependency-cruiser` is already a dev dependency, configured by `.dependency-cruiser.cjs`
+and wrapped by `scripts/check-boundaries.mjs` (THE-525).
+
+### Regenerating this
+
+```sh
+git ls-files 'packages/server/src/**/*.ts' 'packages/shared/src/**/*.ts' > /tmp/srcfiles.txt
+xargs -a /tmp/srcfiles.txt ./node_modules/.bin/depcruise \
+  --config .dependency-cruiser.cjs --output-type json > /tmp/depgraph.json
+```
+
+Two traps, both of which cost time the first go:
+
+1. **Never pass a directory.** dependency-cruiser 18.x declares support for
+   `typescript >=2.0.0 <7.0.0` and this repo is on TypeScript 7 — given a directory
+   it enumerates **zero** `.ts` files and reports *"no dependency violations found
+   (0 modules)"*. A false green. `check-boundaries.mjs` documents this and guards
+   against it by refusing to report success on an empty file list.
+2. **In zsh, `depcruise $FILES` passes one argument, not many** — zsh does not
+   word-split unquoted parameters the way bash does. Use `xargs -a` or `${=FILES}`.
+
+Other useful `--output-type` values: `mermaid`, `dot`, `ddot`, `archi`, `d2`.
+No renderer is installed locally (no graphviz/d2/plantuml), but `mermaid` renders
+natively in GitHub markdown, which is why this section uses it.
+
+### Scale
+
+**232 modules · 785 dependencies · 68 distinct subsystem pairs · 407 cross-subsystem imports.**
+
+### Subsystem graph
+
+Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full set is
+68 pairs.
+
+```mermaid
+flowchart LR
+  tools[tools<br/>58 files]
+  search[search<br/>42 files]
+  vault[vault<br/>16 files]
+  db[(db<br/>10 files)]
+  mcp[mcp<br/>6 files]
+  formats[formats]
+  bridge[bridge]
+  embeddings[embeddings]
+  model[model]
+  experiential[experiential]
+  plane[plane]
+  memory[memory]
+
+  tools -->|149| vault
+  tools -->|53| mcp
+  tools -->|14| search
+  tools -->|8| formats
+  tools -->|7| bridge
+  tools -->|6| db
+  search -->|28| db
+  search -->|12| vault
+  experiential -->|9| db
+  model -->|8| embeddings
+  mcp -->|8| vault
+  formats -->|8| vault
+  embeddings -->|5| search
+  memory -->|5| vault
+  plane -->|5| db
+```
+
+### Fan-in / fan-out
+
+| most depended-on | imports | most dependent | imports |
+|---|---:|---|---:|
+| `vault` | 184 | `tools` | 257 |
+| `mcp` | 59 | `search` | 44 |
+| `db` | 58 | `mcp` | 17 |
+| `search` | 25 | `experiential` | 14 |
+| `embeddings` | 12 | `model` | 11 |
+
+The shape is layered and largely acyclic at the subsystem level: the tool surface
+depends downward on vault primitives and storage, with few back-edges. That is a
+healthier structure than §4's file sizes on their own would suggest — the large
+files are large, but they are not tangled.
+
+### Violations
+
+**21 total, all baselined** in `.dependency-cruiser-known-violations.json`
+(exactly 21 entries, so the baseline is neither stale nor hiding anything new):
+
+- **17 × `no-circular` (error)** — all the barrel-file pattern, e.g.
+  `tools/m1/index.ts` ↔ `tools/m1/notes-tools.ts`. A domain index re-exports its
+  members while members import the index for shared types. Conventional, and not
+  a layering break.
+- **4 × `no-orphans` (warn)** — modules nothing imports.
