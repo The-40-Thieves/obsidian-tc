@@ -9,8 +9,8 @@ import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import type { EmbedOptions, MultiVectorEmbedding } from "../src/embeddings/provider";
 import { ToolRegistry } from "../src/mcp/registry";
-import { VaultRegistry } from "../src/vault/registry";
 import { registerM7Tools } from "../src/tools/m7";
+import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
 const VAULT = "main";
@@ -37,11 +37,18 @@ function spyProvider(opts: { sparse?: boolean; colbert?: boolean } = {}) {
       denseCalls.push(...texts);
       return texts.map(() => [1, 0, 0, 0]);
     },
-    ...((opts.sparse || opts.colbert)
+    ...(opts.sparse || opts.colbert
       ? {
-          embedFull: async (texts: string[], _o?: EmbedOptions): Promise<MultiVectorEmbedding[]> => {
+          embedFull: async (
+            texts: string[],
+            _o?: EmbedOptions,
+          ): Promise<MultiVectorEmbedding[]> => {
             fullCalls.push(...texts);
-            return texts.map(() => ({ dense: [1, 0, 0, 0], sparse: { tok: 1 }, colbert: [[1, 0]] }));
+            return texts.map(() => ({
+              dense: [1, 0, 0, 0],
+              sparse: { tok: 1 },
+              colbert: [[1, 0]],
+            }));
           },
         }
       : {}),
