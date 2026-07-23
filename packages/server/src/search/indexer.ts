@@ -550,6 +550,55 @@ const DELETE_CONTRADICTIONS_SQL =
 // (THE-445 seed). If the owner has no stored embedding (e.g. it was quarantined), nothing is copied —
 // the chunk degrades to FTS-only, no worse than before. Requires the body_sha column (guaranteed:
 // skipEmbed is only set when it exists, see computeNotePlan dedupEnabled).
+/** THE-488: the source vectors for a dedup copy, keyed by content_hash. `null` caches a MISS (the
+ *  owner had no stored embedding) so a duplicate-heavy flush never re-queries a known-absent source. */
+type DedupSource = {
+  embedding: Uint8Array;
+  dimensions: number;
+  sparse: string | null;
+  colbert: string | null;
+} | null;
+export type DedupCache = Map<string, DedupSource>;
+
+// THE-488: fetch the owner chunk's stored vectors for a content_hash — one embedding SELECT plus, when
+// the columns exist, one sparse and one colbert SELECT. Memoized by copyDedupVectors so this runs once
+// per DISTINCT content_hash per flush, not once per deduped chunk.
+function fetchDedupSource(
+  db: Database,
+  args: { vaultId: string; bodySha: string; contentHash: string; model: string; targetId: string },
+  hasChunkSparse: boolean,
+  hasChunkColbert: boolean,
+): DedupSource {
+  const emb = cachedPrepare(
+    db,
+    "SELECT e.embedding AS embedding, e.dimensions AS dimensions FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND e.model = ? AND e.is_active = 1 AND c.id != ? LIMIT 1",
+  ).get(args.vaultId, args.bodySha, args.contentHash, args.model, args.targetId) as
+    | { embedding: Uint8Array; dimensions: number }
+    | undefined;
+  if (!emb) return null;
+  const sparse = hasChunkSparse
+    ? ((
+        cachedPrepare(
+          db,
+          "SELECT s.weights AS weights FROM chunk_sparse s JOIN chunks c ON c.id = s.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND c.id != ? LIMIT 1",
+        ).get(args.vaultId, args.bodySha, args.contentHash, args.targetId) as
+          | { weights: string }
+          | undefined
+      )?.weights ?? null)
+    : null;
+  const colbert = hasChunkColbert
+    ? ((
+        cachedPrepare(
+          db,
+          "SELECT cb.vectors AS vectors FROM chunk_colbert cb JOIN chunks c ON c.id = cb.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND c.id != ? LIMIT 1",
+        ).get(args.vaultId, args.bodySha, args.contentHash, args.targetId) as
+          | { vectors: string }
+          | undefined
+      )?.vectors ?? null)
+    : null;
+  return { embedding: emb.embedding, dimensions: emb.dimensions, sparse, colbert };
+}
+
 function copyDedupVectors(
   db: Database,
   args: {
@@ -564,14 +613,18 @@ function copyDedupVectors(
     hasChunkSparse: boolean;
     hasChunkColbert: boolean;
   },
+  cache: DedupCache,
 ): void {
-  const src = cachedPrepare(
-    db,
-    "SELECT e.embedding AS embedding, e.dimensions AS dimensions FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND e.model = ? AND e.is_active = 1 AND c.id != ? LIMIT 1",
-  ).get(args.vaultId, args.bodySha, args.contentHash, args.model, args.targetId) as
-    | { embedding: Uint8Array; dimensions: number }
-    | undefined;
-  if (!src) return;
+  // THE-488: memoize the owner's vectors by content_hash for this flush. The source is the same owner
+  // chunk for every duplicate of a content_hash, so the JOINs run once per distinct content_hash, not
+  // once per deduped chunk (a hot repeated JOIN inside the write txn on template-heavy vaults).
+  let src = cache.get(args.contentHash);
+  if (src === undefined) {
+    src = fetchDedupSource(db, args, args.hasChunkSparse, args.hasChunkColbert);
+    cache.set(args.contentHash, src);
+  }
+  if (!src) return; // no stored embedding to copy — chunk degrades to FTS-only (unchanged behaviour)
+
   cachedPrepare(
     db,
     "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
@@ -588,18 +641,17 @@ function copyDedupVectors(
       path: args.path,
       model: args.model,
     });
-  // sparse + ColBERT are plain TEXT columns — copy the sibling's row directly (same body_sha index
-  // access path, content_hash for correctness).
-  if (args.hasChunkSparse)
+  // sparse + ColBERT are plain TEXT columns — write the memoized owner values onto the target.
+  if (args.hasChunkSparse && src.sparse !== null)
     cachedPrepare(
       db,
-      "INSERT INTO chunk_sparse (chunk_id, vault_id, weights) SELECT ?, ?, s.weights FROM chunk_sparse s JOIN chunks c ON c.id = s.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND c.id != ? LIMIT 1 ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, weights = excluded.weights",
-    ).run(args.targetId, args.vaultId, args.vaultId, args.bodySha, args.contentHash, args.targetId);
-  if (args.hasChunkColbert)
+      "INSERT INTO chunk_sparse (chunk_id, vault_id, weights) VALUES (?, ?, ?) ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, weights = excluded.weights",
+    ).run(args.targetId, args.vaultId, src.sparse);
+  if (args.hasChunkColbert && src.colbert !== null)
     cachedPrepare(
       db,
-      "INSERT INTO chunk_colbert (chunk_id, vault_id, vectors) SELECT ?, ?, cb.vectors FROM chunk_colbert cb JOIN chunks c ON c.id = cb.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND c.id != ? LIMIT 1 ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, vectors = excluded.vectors",
-    ).run(args.targetId, args.vaultId, args.vaultId, args.bodySha, args.contentHash, args.targetId);
+      "INSERT INTO chunk_colbert (chunk_id, vault_id, vectors) VALUES (?, ?, ?) ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, vectors = excluded.vectors",
+    ).run(args.targetId, args.vaultId, src.colbert);
 }
 
 // Apply a note's write plan (prune + upserts). Contains NO transaction control — the CALLER owns
@@ -615,6 +667,9 @@ function applyNoteWrites(
   hasChunkColbert: boolean,
   /** migration 20260719_001: write the raw-body hash column only when it exists. */
   hasBodySha: boolean,
+  /** THE-488: per-flush memo of dedup source vectors by content_hash, shared across the batch's notes
+   *  so a duplicate's JOIN runs once per distinct content_hash. */
+  dedupCache: DedupCache,
 ): { upserted: number; deleted: number } {
   // THE-316: static-arity SQL on the per-note reconcile write path — cache the compiled statements
   // by SQL text (cachedPrepare) so a 100-note flush recompiles these five once for the process, not
@@ -705,18 +760,22 @@ function applyNoteWrites(
       deactivateOld.run(d.id, provider.id); // THE-531: retire any superseded-model row for this chunk
       if (hasVec) upsertVec(db, d.id, vec, { vaultId, path: plan.path, model: provider.id });
     } else {
-      copyDedupVectors(db, {
-        targetId: d.id,
-        bodySha: d.bodySha,
-        contentHash: d.contentHash,
-        vaultId,
-        path: plan.path,
-        model: provider.id,
-        ts: plan.ts,
-        hasVec,
-        hasChunkSparse,
-        hasChunkColbert,
-      });
+      copyDedupVectors(
+        db,
+        {
+          targetId: d.id,
+          bodySha: d.bodySha,
+          contentHash: d.contentHash,
+          vaultId,
+          path: plan.path,
+          model: provider.id,
+          ts: plan.ts,
+          hasVec,
+          hasChunkSparse,
+          hasChunkColbert,
+        },
+        dedupCache,
+      );
     }
     // THE-406: BM25 matches on the same text the dense vector embeds (enriched when the flag is
     // on); bm25Chunks JOINs chunks for the raw display content, so search output is unchanged.
@@ -816,6 +875,7 @@ export async function indexNote(
       hasChunkSparse,
       hasChunkColbert,
       hasBodySha,
+      new Map(), // THE-488: single-note path — a fresh (effectively empty) dedup cache
     );
     if (note) upsertNoteRow(db, vaultId, note, hasFts, now());
     db.exec("COMMIT");
@@ -1098,6 +1158,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       );
     }
     args.db.exec("BEGIN");
+    // THE-488: one dedup-source cache for the WHOLE flush batch — duplicates span notes/paths, so the
+    // memo must outlive a single applyNoteWrites call to collapse the repeated JOINs.
+    const dedupCache: DedupCache = new Map();
     try {
       for (const plan of toApply) {
         const r = applyNoteWrites(
@@ -1110,6 +1173,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           hasChunkSparse,
           hasChunkColbert,
           hasBodySha,
+          dedupCache,
         );
         stats.chunks_upserted += r.upserted;
         stats.chunks_deleted += r.deleted;
