@@ -249,4 +249,33 @@ describe("IndexCoordinator (THE-455)", () => {
     expect(idled).toBe(true);
     expect(c.busy).toBe(false);
   });
+
+  // GH #378: the composite key must join its two components with a delimiter that cannot occur in
+  // either one. Vault ids and note paths both routinely contain spaces, so a printable separator
+  // maps these two DISTINCT pairs onto one key -- and that single key is shared by BOTH the
+  // coalescing map and the serialization chain, which fails twice over.
+  it("never collides two distinct (vaultId, path) pairs that a printable delimiter would merge", async () => {
+    const applied: Array<{ vaultId: string; path: string; content: string }> = [];
+    const c = new IndexCoordinator({
+      write: (vaultId, path, content) => {
+        applied.push({ vaultId, path, content });
+      },
+      delete: () => {},
+    });
+
+    // Under a space delimiter both of these render as the key `A B note.md`.
+    c.submitWrite("A", "B note.md", "first");
+    c.submitWrite("A B", "note.md", "second");
+    await c.idle();
+
+    // 1. Neither op may be swallowed: a shared key coalesces them into one (last desired state wins),
+    //    so the first pair's index write would be silently dropped.
+    expect(applied).toHaveLength(2);
+
+    // 2. Each op must carry ITS OWN content. This is the sharper failure: drain() claims the op via
+    //    latest.get(k) but invokes the handler with the vaultId/path IT was queued with, so a shared
+    //    key commits one pair's content under the other pair's path -- cross-vault corruption.
+    expect(applied).toContainEqual({ vaultId: "A", path: "B note.md", content: "first" });
+    expect(applied).toContainEqual({ vaultId: "A B", path: "note.md", content: "second" });
+  });
 });
