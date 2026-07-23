@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ObsidianTcError, ServerConfigSchema } from "../src/index";
+import { ExperientialConfigSchema, ObsidianTcError, ServerConfigSchema } from "../src/index";
 
 const base = { vaults: [{ id: "main", path: "/v" }] };
 
@@ -135,6 +135,27 @@ describe("ServerConfigSchema", () => {
       transports: { http: { enabled: true, host: "[::1]" } },
     });
     expect(r.success).toBe(true);
+  });
+});
+
+describe("ExperientialConfigSchema.activationRerank (THE-535)", () => {
+  // The prior describe string claimed this flag "applies the ACT-R activation bubble pass" on
+  // serve-path vault_graph_search. It does not: the bubble pass (bubble_safe_rerank) only fires
+  // when BOTH activationFor AND opts.bubbleSafe.enabled are set
+  // (graph_search_stages/projection.ts), and nothing under src/ ever sets bubbleSafe. This test
+  // pins that the description now tells the truth — not-yet-wired, no ranking change — and
+  // references THE-424 as where the wiring decision belongs, so a future edit that silently
+  // reverts to an overclaiming description gets caught here.
+  it("describes the flag as NOT wired into the serve-path bubble pass, referencing THE-424", () => {
+    const desc = ExperientialConfigSchema.shape.activationRerank.description ?? "";
+    expect(desc).toMatch(/not.{0,20}wired/i);
+    expect(desc).toContain("THE-424");
+    expect(desc.toLowerCase()).not.toMatch(/appl(y|ies).{0,40}bubble pass/i);
+  });
+
+  it("still defaults to false (no behavior change from this ticket)", () => {
+    const parsed = ExperientialConfigSchema.parse({});
+    expect(parsed.activationRerank).toBe(false);
   });
 });
 

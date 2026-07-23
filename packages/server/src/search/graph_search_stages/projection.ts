@@ -30,6 +30,13 @@ export function finalize(
   opts: GraphSearchOptions,
 ): GraphSearchResult[] {
   const activationFor = opts.activationFor;
+  // THE-535: opts.bubbleSafe is never set anywhere under src/ — only eval/run.ts and
+  // test/bubble-safe-wiring.test.ts set it. config.experiential.activationRerank builds and
+  // threads activationFor (cli.ts) to every M7 call site, but that alone can't reach this branch:
+  // this `if` is therefore always true in production today, and the bubble pass below is
+  // unreachable on the serve path. Wiring bubbleSafe into the serve path is a deliberate step
+  // left to THE-424 (it closes a chunk_retrievals -> ranking -> chunk_retrievals feedback loop and
+  // needs its own damping argument), not a drive-by fix.
   if (!opts.bubbleSafe?.enabled || !activationFor) {
     return ranked.map(({ item, score }) => toResult(item, score));
   }
@@ -56,6 +63,10 @@ export function projectWithBubbleSafe(
   opts: GraphSearchOptions,
 ): GraphSearchResult[] {
   const activationFor = opts.activationFor;
+  // THE-535: this is the gate the DEFAULT serve path (fusionMode graph_rrf/convex — what every
+  // M7 tool call site uses) actually hits. Same story as `finalize` above: opts.bubbleSafe is
+  // never set under src/, so config.experiential.activationRerank building activationFor cannot
+  // reach the bubble pass below — it is unreachable in production. See THE-424.
   if (!opts.bubbleSafe?.enabled || !activationFor) {
     return items.map((c) => toResult(c, scoreOf(c)));
   }

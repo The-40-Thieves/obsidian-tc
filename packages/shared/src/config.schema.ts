@@ -441,6 +441,31 @@ export const RetrievalConfigSchema = z.object({
     .describe(
       "Graph densification: derived edges added beyond the literal wikilink layer to reach multi-hop targets whose bridge notes are not explicitly linked. All off by default.",
     ),
+  /** THE-391/THE-536: tilt the per-stream RRF weights by the query's lexical specificity — rare
+   *  terms trust the BM25/sparse ranks, common-vocabulary queries trust the dense seeds. Neutral
+   *  (static RRF) when disabled, when the specificity signal is unavailable, or at specificity
+   *  0.5. Implemented and unit-tested (fusion.ts) and reachable from the eval harness
+   *  (`--adaptive-rrf`) since THE-391, but had no config surface until now. OFF by default — no
+   *  ranking change ships with this flag; it only makes an already-measured lever reachable. */
+  adaptiveRrf: z
+    .object({
+      enabled: z
+        .boolean()
+        .default(false)
+        .describe("Enable the adaptive per-stream RRF weighting tilt. Off by default."),
+      gain: z
+        .number()
+        .min(0)
+        .max(1)
+        .default(0.5)
+        .describe(
+          "Strength of the tilt, clamped to [0,1] so stream weights stay within [0,2] — an over-unity gain would drive a weight negative and invert its ranking rather than just reweight it.",
+        ),
+    })
+    .prefault({})
+    .describe(
+      "Adaptive per-stream RRF weighting (THE-391): tilts dense vs lexical/sparse stream weight by per-query lexical specificity. Off by default.",
+    ),
 });
 
 /** Metadata-prior (authority-boost) rule: add `boost` to the fused score of a result whose note
@@ -524,14 +549,21 @@ export const ExperientialConfigSchema = z.object({
     .describe(
       "Also persist each episode's raw parsed arguments, secret-scanned and size-capped. Off until the poisoning defence lands: this is the write-side of the gate.",
     ),
-  /** THE-187/193: apply the ACT-R activation bubble pass (bubble_safe_rerank, adjacent-swap
-   *  bounded) on serve-path vault_graph_search using cached_activation_score. DARK by
-   *  default — flips only after an A/B on the golden set passes the ship rule. */
+  /** THE-187/193: builds and threads the cached_activation_score lookup (activationFor) to every
+   *  M7 graphSearch call site. THE-535: as of THE-465/THE-447 this does NOT wire the ACT-R
+   *  activation bubble pass (bubble_safe_rerank) into the serve path — that pass only fires when
+   *  BOTH activationFor AND opts.bubbleSafe.enabled are set (graph_search_stages/projection.ts),
+   *  and nothing under src/ ever sets bubbleSafe (only eval/run.ts and
+   *  test/bubble-safe-wiring.test.ts do). So enabling this flag currently changes NO ranking —
+   *  it only builds the lookup table the bubble pass would consume once wired. Wiring bubbleSafe
+   *  into the serve path is a deliberate architectural step (it closes the
+   *  chunk_retrievals -> recomputeActivation -> cached_activation_score -> ranking -> chunk_retrievals
+   *  feedback loop and needs its own damping argument) left to THE-424. */
   activationRerank: z
     .boolean()
     .default(false)
     .describe(
-      "Apply the ACT-R activation bubble pass (bounded adjacent swaps) to serve-path vault_graph_search using cached activation scores. Ships dark pending an A/B on the golden set.",
+      "Build the ACT-R cached-activation-score lookup and thread it to every M7 graphSearch call. NOT YET WIRED to the serve-path bubble pass (bubble_safe_rerank) — that requires opts.bubbleSafe.enabled, which nothing under src/ sets, so enabling this flag currently changes no ranking. See THE-424 for the (deliberately deferred) wiring decision.",
     ),
 });
 

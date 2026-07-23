@@ -108,6 +108,29 @@ describe.skipIf(!bunAvailable)(
       expect(r.stdout).toContain("main");
     });
 
+    // THE-536: retrieval.adaptiveRrf round-trips through config show — defaulted when unset,
+    // and echoed back when the caller sets it explicitly.
+    it("config-show round-trips retrieval.adaptiveRrf (default off, explicit on)", () => {
+      const defaultRun = runCli(["config", "show", configPath]);
+      expect(defaultRun.code).toBe(0);
+      const defaultCfg = JSON.parse(defaultRun.stdout);
+      expect(defaultCfg.retrieval.adaptiveRrf).toEqual({ enabled: false, gain: 0.5 });
+
+      const onPath = join(dir, "config-adaptive-rrf-on.json");
+      writeFileSync(
+        onPath,
+        JSON.stringify({
+          vaults: [{ id: "main", path: vaultPath }],
+          cacheDir: join(dir, "cache"),
+          retrieval: { adaptiveRrf: { enabled: true, gain: 0.7 } },
+        }),
+      );
+      const onRun = runCli(["config", "show", onPath]);
+      expect(onRun.code).toBe(0);
+      const onCfg = JSON.parse(onRun.stdout);
+      expect(onCfg.retrieval.adaptiveRrf).toEqual({ enabled: true, gain: 0.7 });
+    });
+
     it("densify-llm refuses unless retrieval.densify.llmEdges is true (the egress off-switch)", () => {
       const r = runCli(["densify-llm", configPath]);
       expect(r.code).toBe(2);

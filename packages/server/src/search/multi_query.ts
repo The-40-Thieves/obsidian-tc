@@ -1,16 +1,16 @@
 // THE-448: multi-query fan-out fusion — RRF over query-VARIANT results.
 //
-// This is a DIFFERENT fusion layer from graph_search.ts's existing in-query RRF (graph_search.ts:
-// 578-593), which fuses multiple STREAMS (seed/lexical/sparse/expansion/temporal) produced by ONE
-// graphSearch call. Here, each element of `queries` is a full alternate phrasing of the same
-// search intent; it gets its OWN complete graphSearch call (all of graphSearch's own internal
-// stream fusion happens per variant, unchanged), and the per-variant RANKED LISTS are fused
-// across variants by Reciprocal Rank Fusion on RANK POSITION, never on `rerank_score`: graph_search's
-// convex fusion min-max-normalizes raw scores over a SINGLE query's own candidate pool
-// (graph_search.ts:601-616), so a 0.8 in variant A's pool and a 0.8 in variant B's pool are not
-// the same evidence strength. Rank is comparable across variants by construction — RRF fuses on
-// rank for exactly this reason — so scoring on rank sidesteps the cross-variant normalization
-// mismatch entirely.
+// This is a DIFFERENT fusion layer from graph_search's existing in-query RRF (the `rrf` scorer in
+// graph_search_stages/fusion.ts's fuseScores), which fuses multiple STREAMS (seed/lexical/sparse/
+// expansion/temporal) produced by ONE graphSearch call. Here, each element of `queries` is a full
+// alternate phrasing of the same search intent; it gets its OWN complete graphSearch call (all of
+// graphSearch's own internal stream fusion happens per variant, unchanged), and the per-variant
+// RANKED LISTS are fused across variants by Reciprocal Rank Fusion on RANK POSITION, never on
+// `rerank_score`: graph_search's convex fusion min-max-normalizes raw scores over a SINGLE query's
+// own candidate pool (fuseScores' `minMaxNorm` calls in graph_search_stages/fusion.ts), so a 0.8 in
+// variant A's pool and a 0.8 in variant B's pool are not the same evidence strength. Rank is
+// comparable across variants by construction — RRF fuses on rank for exactly this reason — so
+// scoring on rank sidesteps the cross-variant normalization mismatch entirely.
 //
 // Deliberately does NOT vary the embedding vector per variant: `queries` are alternate query
 // TEXT, run against the SAME opts.queryVec. graphSearch reads opts.query (not just opts.queryVec)
@@ -36,9 +36,9 @@ export interface MultiQueryFanOutOptions {
   /** Max simultaneous graphSearch calls across variants. Default 3. */
   concurrency?: number;
   /** RRF k for the ACROSS-variant fusion (rank-based). Defaults to 10 — the same default as
-   *  graph_search's own in-query rrfK (graph_search.ts:237), for tuning consistency between the
-   *  two fusion layers; independently overridable since the two pools have different shapes
-   *  (in-query streams vs. per-variant full result lists). */
+   *  graph_search's own in-query rrfK (graphSearchCore's `opts.rrfK ?? 10` in graph_search.ts),
+   *  for tuning consistency between the two fusion layers; independently overridable since the
+   *  two pools have different shapes (in-query streams vs. per-variant full result lists). */
   rrfK?: number;
 }
 
@@ -48,7 +48,7 @@ export interface MultiQueryGraphSearchOptions extends GraphSearchOptions {
 
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_FAN_OUT_RRF_K = 10;
-// Mirrors graph_search.ts's own `opts.finalTopK ?? 30` (graph_search.ts:227). Not imported because
+// Mirrors graph_search.ts's own `opts.finalTopK ?? 30` (graphSearchCore). Not imported because
 // graph_search.ts does not export it and this ticket keeps graph_search.ts untouched.
 const DEFAULT_FINAL_TOP_K = 30;
 
