@@ -31,7 +31,8 @@
     "format": "biome format --write .",
     "check:version": "node scripts/check-version-coherence.mjs",
     "release": "bun scripts/release.mjs",
-    "check:boundaries": "node scripts/check-boundaries.mjs"
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "check:nul": "node scripts/check-nul-bytes.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
