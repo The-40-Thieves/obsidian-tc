@@ -53,3 +53,36 @@ describe("findCapability memoization (THE-294)", () => {
     expect(second).toEqual(first);
   });
 });
+
+describe("THE-463 assembled-catalog memoization", () => {
+  const def = (name: string): ToolDefinition =>
+    ({
+      name,
+      description: `does ${name}`,
+      inputSchema: z.object({ a: z.string() }),
+      requiredScopes: [],
+    }) as unknown as ToolDefinition;
+
+  it("triadTools returns the SAME array instance across calls (built once)", async () => {
+    const { triadTools } = await import("../src/mcp/facade");
+    expect(triadTools()).toBe(triadTools());
+  });
+
+  it("describeCapability memoizes by def identity", async () => {
+    const { describeCapability } = await import("../src/mcp/facade");
+    const d = def("read_note");
+    expect(describeCapability(d)).toBe(describeCapability(d));
+    // distinct defs are independent
+    expect(describeCapability(d)).not.toBe(describeCapability(def("write_note")));
+  });
+
+  it("toMcpTool reuses the same frozen Tool object per def (flat catalog not rebuilt)", async () => {
+    const { toMcpTool } = await import("../src/mcp/server");
+    const d = def("search_vault");
+    const first = toMcpTool(d);
+    const second = toMcpTool(d);
+    expect(second).toBe(first); // same instance -> the flat projection is not rebuilt per request
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(first.name).toBe("search_vault");
+  });
+});

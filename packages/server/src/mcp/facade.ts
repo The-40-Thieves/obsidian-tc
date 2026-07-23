@@ -63,7 +63,17 @@ const CALL_CAPABILITY_SCHEMA = z.object({
   args: z.record(z.string(), z.unknown()).default({}),
 });
 
+// THE-463: the triad catalog is immutable after module load (three meta-tools, module-constant
+// schemas, memoized toJson) and is the DEFAULT facade, so tools/list rebuilt it on every request.
+// Build it once. Frozen so a caller cannot mutate the shared instance.
+let triadCache: Tool[] | null = null;
+
 export function triadTools(): Tool[] {
+  if (triadCache === null) triadCache = Object.freeze(buildTriadTools()) as unknown as Tool[];
+  return triadCache;
+}
+
+function buildTriadTools(): Tool[] {
   return [
     {
       name: "find_capability",
@@ -160,10 +170,16 @@ export function findCapability(
     .slice(0, Math.max(1, limit));
 }
 
+// THE-463: a capability's description is immutable after registration, so memoize it by def identity
+// (WeakMap → collectable when the def is). describe_capability rebuilt this per call.
+const describeMemo = new WeakMap<ToolDefinition, Record<string, unknown>>();
+
 /** Full metadata for a single capability: schema + required scopes + derived safety hints. */
 export function describeCapability(def: ToolDefinition): Record<string, unknown> {
+  const cached = describeMemo.get(def);
+  if (cached !== undefined) return cached;
   const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
-  return {
+  const out: Record<string, unknown> = {
     name: def.name,
     title: titleize(def.name),
     description: def.description,
@@ -173,6 +189,8 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
     annotations: { read_only: !mutating, destructive: def.destructive === true },
     ...(def.icons ? { icons: def.icons } : {}),
   };
+  describeMemo.set(def, out);
+  return out;
 }
 
 // ---- Domain-verb mode (THE-275) --------------------------------------------------------------
