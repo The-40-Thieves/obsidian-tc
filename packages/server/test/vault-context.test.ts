@@ -14,7 +14,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { ToolRegistry } from "../src/mcp/registry";
 import { ensureChunkFts } from "../src/search/chunk_fts";
-import { prewarmPathFor, writePrewarm } from "../src/search/prefetch";
+import { callerAclFingerprint, prewarmPathFor, writePrewarm } from "../src/search/prefetch";
 import { registerM7Tools } from "../src/tools/m7";
 import { packBudget } from "../src/tools/m7/knowledge-tools";
 import { VaultRegistry } from "../src/vault/registry";
@@ -35,6 +35,9 @@ const outcomeSql = readFileSync(
   "utf8",
 );
 const NOW = 1_700_000_000_000;
+// The test harness's ctx never sets ctx.acl, so every prewarm entry it writes/reads here is
+// under the "no-acl" caller identity (THE-543's callerAclFingerprint sentinel).
+const NO_ACL_FP = callerAclFingerprint(undefined, ["read:notes"]);
 
 function cacheDb0(): Database {
   const db = openMemoryDb();
@@ -275,13 +278,15 @@ describe("vault_context (THE-132)", () => {
     // embed stub, so a successful response proves the cache served it.
     writeFileSync(join(root4, "memory", "_next-session.md"), "zylo thread");
     const hash = createHash("sha256").update("zylo thread").digest("hex");
-    writePrewarm(prewarmPathFor(warmDir, "main"), {
+    writePrewarm(prewarmPathFor(warmDir, "main", NO_ACL_FP), {
       generated_at: 111,
       expires_at: Date.now() + 60_000,
       signal: "memory/_next-session.md",
       signal_hash: hash,
       empty: false,
       bundle: { sentinel: true },
+      acl_fingerprint: NO_ACL_FP,
+      vault_generation: 0,
     });
     try {
       const { registry, ctx } = harness(undefined, root4, warmDir);
@@ -304,7 +309,7 @@ describe("vault_context (THE-132)", () => {
     const signalText = "resume the zylophrastic reconciler migration thread";
     writeFileSync(join(root5, "memory", "_next-session.md"), signalText);
     const hash = createHash("sha256").update(signalText).digest("hex");
-    const file = prewarmPathFor(warm5, "main");
+    const file = prewarmPathFor(warm5, "main", NO_ACL_FP);
     // Expired entry: reader must refuse it (the FlowState bug) and compose live.
     writePrewarm(file, {
       generated_at: 5,
@@ -313,6 +318,8 @@ describe("vault_context (THE-132)", () => {
       signal_hash: hash,
       empty: false,
       bundle: { sentinel: true },
+      acl_fingerprint: NO_ACL_FP,
+      vault_generation: 0,
     });
     try {
       const { registry, ctx } = harness(undefined, root5, warm5);
@@ -335,6 +342,8 @@ describe("vault_context (THE-132)", () => {
         signal: "memory/_next-session.md",
         signal_hash: hash,
         empty: true,
+        acl_fingerprint: NO_ACL_FP,
+        vault_generation: 0,
       });
       const again = un<ContextData & { prefetched?: boolean }>(
         await registry.dispatch("vault_context", { vault: "main" }, ctx),
