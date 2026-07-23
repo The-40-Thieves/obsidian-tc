@@ -13,7 +13,13 @@ import { enforcePathAcl } from "../src/vault/acl-path";
 import { parseNote, serializeNote } from "../src/vault/frontmatter";
 import { requireConfirmation } from "../src/vault/hitl";
 import { buildVaultIndex, extractLinks, resolveTarget } from "../src/vault/links";
-import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../src/vault/paths";
+import {
+  contentHash,
+  normalizeVaultPath,
+  resolveVaultPath,
+  walkVault,
+  walkVaultStream,
+} from "../src/vault/paths";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
@@ -107,6 +113,106 @@ describe("paths: safety + content hash", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+});
+
+async function drain<T>(gen: AsyncGenerator<T>): Promise<T[]> {
+  const out: T[] = [];
+  for await (const x of gen) out.push(x);
+  return out;
+}
+
+// THE-490: walkVaultStream is the ADDITIVE, opt-in streaming counterpart to walkVault (used only
+// by indexVault's `walk.streaming` option). It must visit the exact same SET of entries as
+// walkVault (same skip rules, same extension/sub/includeFolders semantics) — callers that need
+// walkVault's whole-tree sorted-array contract (16+ other call sites) keep using walkVault
+// unchanged. It deliberately does NOT reproduce walkVault's whole-tree sort — see the "differs
+// from a global sort" test below, which pins that difference so it can't silently regress into
+// (or silently drift away from) a full accumulate-then-sort.
+describe("paths: walkVaultStream (THE-490 streaming walk)", () => {
+  it("yields the same SET of entries as walkVault, skipping dot-dirs", async () => {
+    const root = tmpVault();
+    try {
+      mkdirSync(join(root, "notes"));
+      mkdirSync(join(root, ".obsidian"));
+      writeFileSync(join(root, "notes", "a.md"), "x");
+      writeFileSync(join(root, "b.md"), "y");
+      writeFileSync(join(root, ".obsidian", "app.json"), "{}");
+      writeFileSync(join(root, "img.png"), "p");
+
+      const array = walkVault(root, { extensions: [".md"] }).map((e) => e.relPath);
+      const streamed = (await drain(walkVaultStream(root, { extensions: [".md"] }))).map(
+        (e) => e.relPath,
+      );
+      expect(new Set(streamed)).toEqual(new Set(array));
+      expect(streamed).toHaveLength(array.length);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("respects sub, extensions and includeFolders exactly like walkVault", async () => {
+    const root = tmpVault();
+    try {
+      mkdirSync(join(root, "a", "b"), { recursive: true });
+      writeFileSync(join(root, "a", "one.md"), "1");
+      writeFileSync(join(root, "a", "b", "two.md"), "2");
+      writeFileSync(join(root, "a", "b", "three.txt"), "3");
+
+      const opts = { sub: "a", extensions: [".md"], includeFolders: true };
+      const array = walkVault(root, opts);
+      const streamed = await drain(walkVaultStream(root, opts));
+      const sortByPath = (xs: typeof array) =>
+        [...xs].sort((x, y) => x.relPath.localeCompare(y.relPath));
+      expect(sortByPath(streamed)).toEqual(sortByPath(array));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not throw and yields nothing for a missing directory", async () => {
+    const root = tmpVault();
+    try {
+      const streamed = await drain(walkVaultStream(join(root, "does-not-exist")));
+      expect(streamed).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it(
+    "sorts each directory's own children, but NOT the whole tree — a per-directory sort " +
+      "can DISAGREE with walkVault's whole-relPath sort when a directory name is a prefix of a " +
+      "sibling file name",
+    async () => {
+      const root = tmpVault();
+      try {
+        // Sibling "b" (a folder) and "b.md" (a file) at the root. Whole-relPath comparison of
+        // "b.md" vs "b/x.md" hits '.' (0x2E) vs '/' (0x2F) at the 2nd char — '.' sorts first, so
+        // walkVault's global sort puts the FILE "b.md" ahead of anything under the FOLDER "b".
+        // A per-directory sort instead compares the two as plain sibling NAMES ("b" vs "b.md"),
+        // where "b" is a strict prefix of "b.md" and therefore sorts first — so walkVaultStream
+        // descends into "b/" (yielding "b/x.md") BEFORE it reaches the file "b.md": the exact
+        // opposite order. This is the concrete case the module docs warn about; indexVault's
+        // streaming option is safe ONLY because index output does not depend on this order (see
+        // index-stream-walk-equivalence.test.ts, which flips this same knob and diffs DB state).
+        mkdirSync(join(root, "b"));
+        writeFileSync(join(root, "b", "x.md"), "1"); // relPath "b/x.md"
+        writeFileSync(join(root, "b.md"), "2"); // relPath "b.md"
+
+        const array = walkVault(root, { extensions: [".md"] }).map((e) => e.relPath);
+        expect(array).toEqual(["b.md", "b/x.md"]);
+
+        const streamed = (await drain(walkVaultStream(root, { extensions: [".md"] }))).map(
+          (e) => e.relPath,
+        );
+        expect(streamed).toEqual(["b/x.md", "b.md"]);
+        // Same SET either way — nothing is lost or duplicated, only the order differs.
+        expect(new Set(streamed)).toEqual(new Set(array));
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("VaultPath schema: byte-level traversal/absolute guard (shared)", () => {
