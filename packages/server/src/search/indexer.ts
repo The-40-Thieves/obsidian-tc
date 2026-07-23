@@ -954,7 +954,15 @@ export interface IndexVaultArgs {
   /** THE-291: fires when the notes/FTS metadata pass has committed (independent of embed
    *  success), so the caller can flip metadata readiness even if the embed pass later fails. */
   onNotesPass?: () => void;
+  /** THE-500: bound each write transaction by BOTH note count and accumulated raw bytes, so a batch
+   *  of large notes cannot make one oversized transaction. Each falls back to its default
+   *  (maxNotes 100, maxBytes 8 MiB). Embedding always runs OUTSIDE the write txn regardless. */
+  batch?: { maxNotes?: number; maxBytes?: number };
 }
+
+// THE-500 defaults: 100 notes was the prior hardcoded flush size; 8 MiB caps a batch of large notes.
+const DEFAULT_BATCH_MAX_NOTES = 100;
+const DEFAULT_BATCH_MAX_BYTES = 8 * 1024 * 1024;
 
 export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const now = args.now ?? Date.now;
@@ -1041,12 +1049,15 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // is idempotent, the content-hash skip re-converges next pass), never correctness. Safe because
   // indexVault is the sole writer on this single connection during the reconcile, so a plan's
   // pre-read `existing` snapshot cannot be raced before its apply.
-  const BATCH = 100;
+  const BATCH = args.batch?.maxNotes ?? DEFAULT_BATCH_MAX_NOTES;
+  const BATCH_MAX_BYTES = args.batch?.maxBytes ?? DEFAULT_BATCH_MAX_BYTES;
   let batch: NoteWritePlan[] = [];
+  let batchBytes = 0; // THE-500: accumulated raw note bytes in the pending batch
   const flush = async (): Promise<void> => {
     if (batch.length === 0) return;
     const applied = batch;
     batch = [];
+    batchBytes = 0;
     // Batch the embed() calls across the whole batch (THE-277) BEFORE opening the write txn, so the
     // reconcile makes ceil(chunks/EMBED_BATCH) requests with a few in flight instead of one serial
     // round-trip per note. The write lock is still never held across a network call.
@@ -1159,7 +1170,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     }
     if (plan) {
       batch.push(plan);
-      if (batch.length >= BATCH) await flush();
+      // THE-500: flush on EITHER the note-count or the byte budget, so a run of large notes commits
+      // as several bounded transactions rather than one oversized one.
+      batchBytes += statByPath.get(rel)?.size ?? raw.length;
+      if (batch.length >= BATCH || batchBytes >= BATCH_MAX_BYTES) await flush();
     }
   }
   flushNotes();
