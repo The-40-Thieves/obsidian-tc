@@ -54,6 +54,9 @@ export interface IndexStats {
   /** THE-390 (additive): notes skipped this pass because the embed provider rejected one of
    *  their chunks even as a single-text request; retried automatically next reconcile. */
   notes_embed_failed: number;
+  /** THE-499: chunks whose embedding was reused from an identical-body sibling this pass (dedup),
+   *  aggregated instead of logged per-chunk. */
+  chunks_dedup_reused: number;
   model: string;
   dimensions: number;
 }
@@ -123,6 +126,8 @@ interface PlanResult {
   secretsSkipped: number;
   /** THE-291: secret-flagged chunk contents, excised from the note's FTS copy. */
   flagged: string[];
+  /** THE-499: number of chunks in this note whose embedding was dedup-reused from a sibling path. */
+  dedupSkipped: number;
 }
 
 // Provider-sized embed sub-batch + how many to run in flight (THE-277) — the defaults used when a
@@ -243,7 +248,12 @@ function computeNotePlan(
   // reused/skipped — embedPlans never sends it to the provider and applyNoteWrites writes no
   // embedding row for it. Same-path repeats keep firstPath === path and are never skipped (an index
   // shift is change detection's job, not dedup's).
+  // THE-499: count dedup reuse and let the caller aggregate it into a single per-pass summary,
+  // instead of one synchronous stderr line per duplicate chunk (which could cost more than the dedup
+  // and floods CI logs). Individual paths stay available behind OBSIDIAN_TC_DEBUG_DEDUP.
+  let dedupSkipped = 0;
   if (dedupEnabled) {
+    const debug = process.env.OBSIDIAN_TC_DEBUG_DEDUP !== undefined;
     for (const d of desired) {
       if (!dedupRegistry.has(d.contentHash)) dedupRegistry.set(d.contentHash, path);
     }
@@ -251,21 +261,25 @@ function computeNotePlan(
       const firstPath = dedupRegistry.get(d.contentHash);
       if (firstPath !== undefined && firstPath !== path) {
         d.skipEmbed = true;
-        process.stderr.write(
-          `[ingest] embed-text dedup: ${path}#${d.index} reuses the embedding already computed for ` +
-            `${firstPath} (identical embed text); the vector is copied, not recomputed\n`,
-        );
+        dedupSkipped += 1;
+        if (debug) {
+          process.stderr.write(
+            `[ingest] embed-text dedup: ${path}#${d.index} reuses the embedding already computed for ` +
+              `${firstPath} (identical embed text); the vector is copied, not recomputed\n`,
+          );
+        }
       }
     }
   }
   if (toEmbed.length === 0 && !willPrune) {
-    return { plan: null, unchanged, secretsSkipped, flagged };
+    return { plan: null, unchanged, secretsSkipped, flagged, dedupSkipped };
   }
   return {
     plan: { path, existing, desiredIds, toEmbed, vectors: [], ts },
     unchanged,
     secretsSkipped,
     flagged,
+    dedupSkipped,
   };
 }
 
@@ -977,6 +991,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     notes_upserted: 0,
     notes_deleted: 0,
     notes_embed_failed: 0,
+    chunks_dedup_reused: 0,
     model: args.provider.id,
     dimensions: args.provider.dimensions,
   };
@@ -1084,7 +1099,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   for (const rel of notes) {
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
     noteLinks.set(rel, extractLinks(parseNote(raw).body));
-    const { plan, unchanged, secretsSkipped, flagged } = computeNotePlan(
+    const { plan, unchanged, secretsSkipped, flagged, dedupSkipped } = computeNotePlan(
       args.db,
       args.vaultId,
       rel,
@@ -1097,6 +1112,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
+    stats.chunks_dedup_reused += dedupSkipped; // THE-499: aggregate, not per-chunk stderr
     if (hasNotes && raw !== "") {
       const rec = buildNoteRecord(rel, raw, flagged, statByPath.get(rel) ?? null, now());
       if (noteRowHash(args.db, args.vaultId, rel) !== rec.contentHash) {
@@ -1168,6 +1184,13 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
         : [];
       reconcileDerivedEdges(args.db, args.vaultId, knnDesired, ["similar_to"], now);
     }
+  }
+  // THE-499: one aggregate dedup line per pass (was ~1 stderr line per duplicate chunk). Individual
+  // paths are available behind OBSIDIAN_TC_DEBUG_DEDUP (emitted inline in computeNotePlan).
+  if (stats.chunks_dedup_reused > 0) {
+    process.stderr.write(
+      `[index] vault "${args.vaultId}": dedup reused ${stats.chunks_dedup_reused} chunk embedding(s) from identical-body siblings (copied, not recomputed)\n`,
+    );
   }
   return stats;
 }
