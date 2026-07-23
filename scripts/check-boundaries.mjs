@@ -115,8 +115,14 @@ const ROOTS = [
 // must name its ticket. Anything unreachable and NOT listed here fails the gate — adding to this
 // list has to be a deliberate act with a reason, which is the whole point.
 const UNREACHABLE_ALLOWLIST = new Map([
-  ["packages/server/src/scheduler/job-queue.ts", "THE-517 — durable queue, not yet wired to a workload"],
-  ["packages/server/src/search/multi_query.ts", "THE-448 — fan-out engine, tool surface is a follow-up"],
+  [
+    "packages/server/src/scheduler/job-queue.ts",
+    "THE-517 — durable queue, not yet wired to a workload",
+  ],
+  [
+    "packages/server/src/search/multi_query.ts",
+    "THE-448 — fan-out engine, tool surface is a follow-up",
+  ],
   ["packages/server/src/util/concurrency.ts", "THE-448 — exists only to serve multi_query.ts"],
   ["packages/server/src/vault/backend.ts", "FilesystemBackend — tested, never constructed in src/"],
 ]);
