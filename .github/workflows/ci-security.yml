@@ -64,6 +64,20 @@ jobs:
           node-version: 22
       - run: node scripts/check-nul-bytes.mjs
 
+  workflow-injection:
+    # THE-541: `${{ }}` is expanded into the script TEXT before the shell runs, so an untrusted
+    # value carrying a quote plus shell metacharacters executes on the runner with the job's token.
+    # The instance found was harmless only because every caller passed a literal — an invariant
+    # nothing enforced, on an action THE-505 is about to spread across every workflow.
+    name: no untrusted context in shell steps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - run: node scripts/check-workflow-injection.mjs
+
   gitleaks:
     runs-on: ubuntu-latest
     steps:
