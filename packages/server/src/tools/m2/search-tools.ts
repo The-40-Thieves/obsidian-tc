@@ -16,6 +16,7 @@ import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import type { Database } from "../../db/types";
 import type { ToolDefinition } from "../../mcp/registry";
+import { mtimesByPath, noteFreshness } from "../../search/freshness";
 import { evaluatesTruthy } from "../../search/jsonlogic";
 import { type SemanticHit, semanticSearch } from "../../search/semantic";
 import { searchRegex, searchText, searchTextIndexed } from "../../search/text";
@@ -170,6 +171,15 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       // superseded-model vector is never scored against this query.
       model: deps.embeddingProvider.id,
     });
+    // THE-450: stamp note-content freshness (age_days + stale) additively — one batched mtime lookup
+    // over the distinct hit paths. Informational only; it never reorders hits.
+    const paths = [...new Set(hits.map((h) => h.path))];
+    const mtimes = mtimesByPath(ctx.db, s.id, paths);
+    const now = Date.now();
+    for (const h of hits) {
+      const mtime = mtimes.get(h.path);
+      if (mtime !== undefined) Object.assign(h, noteFreshness(mtime, now));
+    }
     // THE-230: serve-path retrieval telemetry (best-effort; the logger never throws).
     deps.retrievalLog?.({
       queryText: query,

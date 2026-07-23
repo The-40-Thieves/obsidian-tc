@@ -18,6 +18,10 @@ export interface SemanticHit {
   score: number;
   content?: string;
   embedding_model: string;
+  /** THE-450: note-content age in whole days, stamped additively from the note mtime. */
+  age_days?: number;
+  /** THE-450: true when the note is older than the stale threshold (informational, never ranks). */
+  stale?: boolean;
 }
 
 export interface SemanticOptions {
