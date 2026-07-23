@@ -92,6 +92,33 @@ function toolAnnotations(def: ToolDefinition): NonNullable<Tool["annotations"]> 
     openWorldHint: false,
   };
 }
+
+// THE-463: a tool's advertised MCP projection (name/title/description/schemas/annotations/icons) is
+// immutable after registration, so flat-mode tools/list rebuilt an identical object per request per
+// tool. Memoize by def identity — the same frozen Tool instance is reused across every request and
+// every per-request server (the defs live on the persistent registry, so this survives the
+// per-request server churn in transports/http.ts). toJson is already memoized per schema.
+const mcpToolMemo = new WeakMap<ToolDefinition, Tool>();
+
+/** @internal exported for the THE-463 memoization test. */
+export function toMcpTool(def: ToolDefinition): Tool {
+  const cached = mcpToolMemo.get(def);
+  if (cached !== undefined) return cached;
+  const tool: Tool = {
+    name: def.name,
+    title: titleize(def.name),
+    description: def.description,
+    inputSchema: toJson(def.inputSchema),
+    ...(def.outputSchema
+      ? { outputSchema: toJson(def.outputSchema) as unknown as Tool["outputSchema"] }
+      : {}),
+    annotations: toolAnnotations(def),
+    ...(def.icons ? { icons: def.icons } : {}),
+  };
+  Object.freeze(tool);
+  mcpToolMemo.set(def, tool);
+  return tool;
+}
 /**
  * Assemble a low-level MCP Server bound to a ToolRegistry. ListTools is sourced
  * from the registry; CallTool routes through registry.dispatch so validation,
@@ -138,19 +165,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const pageSize = opts.toolsPageSize ?? TOOLS_PAGE_SIZE;
     const start = req.params?.cursor ? Math.max(0, Number.parseInt(req.params.cursor, 10) || 0) : 0;
     const page = visible.slice(start, start + pageSize);
-    const tools: Tool[] = page.map((def) => ({
-      name: def.name,
-      title: titleize(def.name),
-      description: def.description,
-      inputSchema: toJson(def.inputSchema),
-      // outputSchema + icons are opt-in per tool (THE-278); omitted entirely when unset so a tool
-      // that declares neither serializes byte-identically to before.
-      ...(def.outputSchema
-        ? { outputSchema: toJson(def.outputSchema) as unknown as Tool["outputSchema"] }
-        : {}),
-      annotations: toolAnnotations(def),
-      ...(def.icons ? { icons: def.icons } : {}),
-    }));
+    // THE-463: reuse the memoized per-tool projection (outputSchema + icons stay opt-in inside
+    // toMcpTool, so a tool that declares neither still serializes byte-identically to before).
+    const tools: Tool[] = page.map(toMcpTool);
     const nextStart = start + page.length;
     return nextStart < visible.length ? { tools, nextCursor: String(nextStart) } : { tools };
   });
