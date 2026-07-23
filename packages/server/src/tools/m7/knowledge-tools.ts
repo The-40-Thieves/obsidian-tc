@@ -669,6 +669,16 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           query: z.string().min(1),
+          // THE-451: agent-supplied HyDE (Gao 2023). MCP-native — the CLIENT writes the
+          // hypothetical answer; there is no server-side LLM generating it here. When present,
+          // it replaces the query as the DENSE-arm seed only (see below); sparse/ColBERT keep
+          // the raw query untouched. No min() bound: an empty/whitespace-only value must be a
+          // silent no-op (not a validation error), so length-gating happens in the handler.
+          // Measurement-fragile per the ticket: HyDE helps under-specified/zero-shot queries and
+          // can HURT a strong encoder on well-specified queries (our nomic-768 + golden set is
+          // squarely the latter). This is an opt-in lever for the CALLER to reach for on vague
+          // queries — never make it the default path.
+          hypothetical_answer: z.string().max(4000).optional().nullable(),
           final_top_k: z.number().int().positive().max(100).default(30),
         })
         .strict(),
@@ -676,6 +686,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
       tags: ["knowledge", "search"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        // THE-451: trim-and-check so null/absent/blank are all byte-identical to no HyDE.
+        const hyde = input.hypothetical_answer?.trim();
+        const hydeActive = !!hyde;
         // THE-258: class router (dark unless retrieval.classRouter). The lexical class
         // short-circuits BEFORE the embedding round-trip — the router's cost win; temporal
         // auto-enables the THE-221 stream; standard falls through unchanged.
@@ -696,9 +709,18 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
               score: r.rerank_score,
             })),
           });
-          return { vault: v.id, mode_used: "lexical-route", route: route.signals, results };
+          return {
+            vault: v.id,
+            mode_used: "lexical-route",
+            route: route.signals,
+            ...(hydeActive ? { query: input.query, hyde: true } : {}),
+            results,
+          };
         }
-        const queryVec = await embedQuery(input.query);
+        // THE-451: the dense arm embeds the hypothetical answer when supplied; sparse/ColBERT
+        // ALWAYS embed the raw query — HyDE seeds the dense vector only, it must never
+        // contaminate lexical or late-interaction matching.
+        const queryVec = await embedQuery(hydeActive ? (hyde as string) : input.query);
         const querySparse = await embedQuerySparse(input.query);
         const queryColbert = await embedQueryColbert(input.query);
         const results = await graphSearch(ctx.db, {
@@ -727,7 +749,14 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             score: r.rerank_score,
           })),
         });
-        return { vault: v.id, mode_used: "graph", results };
+        return {
+          vault: v.id,
+          mode_used: "graph",
+          // THE-451: echo `query` (audit — what the caller actually asked) and mark hyde:true
+          // only when it fired; absent otherwise so existing callers see no new field.
+          ...(hydeActive ? { query: input.query, hyde: true } : {}),
+          results,
+        };
       },
     }),
 
