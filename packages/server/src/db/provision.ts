@@ -47,6 +47,7 @@ export const CACHE_MIGRATIONS: Migration[] = [
   { version: "20260719_001", sql: sql("20260719_001_chunks_body_sha.sql") },
   { version: "20260722_001", sql: sql("20260722_001_chunks_dedup_index.sql") },
   { version: "20260723_001", sql: sql("20260723_001_vault_generation.sql") },
+  { version: "20260723_002", sql: sql("20260723_002_jobs.sql") },
 ];
 
 /** Bring a cache.db up to the current schema. The only way anything should provision one. */
