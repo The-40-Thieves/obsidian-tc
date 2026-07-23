@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  countDerivedEdges,
   type DerivedEdge,
   knnEdgesFromNeighbors,
+  notesWithTagChanges,
   reconcileDerivedEdges,
+  reconcileDerivedEdgesScoped,
   tagCooccurrenceEdges,
+  tagCooccurrenceEdgesForNotes,
+  tagCooccurrenceScope,
 } from "../src/search/derived-edges";
 import { openMemoryDb } from "./helpers";
 
@@ -200,5 +205,185 @@ describe("reconcileDerivedEdges — upsert semantics", () => {
     };
     expect(row.confidence).toBe(0.9);
     expect(row.source_fingerprint).toBe("new");
+  });
+});
+
+// THE-486: the tag-cooccurrence delta trio — notesWithTagChanges (what changed), tagCooccurrenceScope
+// (who else that affects), tagCooccurrenceEdgesForNotes (the scoped recompute itself).
+describe("THE-486 tag-cooccurrence delta", () => {
+  it("notesWithTagChanges ignores order/case/whitespace but catches a real add or remove", () => {
+    const oldTags = new Map([
+      ["A.md", ["ML", " rag "]],
+      ["B.md", ["ml"]],
+      ["C.md", ["ml"]],
+    ]);
+    const newTags = new Map([
+      ["A.md", ["rag", "ml"]], // reordered + case-folded — NOT a change
+      ["B.md", ["ml", "new-tag"]], // gained a tag — IS a change
+      // C.md absent from newTags (deleted this pass) — IS a change (had "ml", now none)
+    ]);
+    const changed = notesWithTagChanges(oldTags, newTags, ["A.md", "B.md", "C.md"]);
+    expect(changed).toEqual(new Set(["B.md", "C.md"]));
+  });
+
+  it("tagCooccurrenceScope pulls in every note sharing the OLD or NEW tags, not just the changed note", () => {
+    const oldTags = new Map([
+      ["A.md", ["ml"]],
+      ["B.md", ["ml"]], // shares A's OLD tag
+      ["C.md", ["rag"]], // shares A's NEW tag
+      ["D.md", ["unrelated"]], // shares neither — must stay OUT of scope
+    ]);
+    const newTags = new Map([
+      ["A.md", ["rag"]], // A dropped ml, picked up rag
+      ["B.md", ["ml"]],
+      ["C.md", ["rag"]],
+      ["D.md", ["unrelated"]],
+    ]);
+    const scope = tagCooccurrenceScope(oldTags, newTags, new Set(["A.md"]));
+    expect(scope).toEqual(new Set(["A.md", "B.md", "C.md"]));
+  });
+
+  it("empty `changed` short-circuits to just itself (empty) — no scan", () => {
+    expect(tagCooccurrenceScope(new Map(), new Map(), new Set())).toEqual(new Set());
+  });
+
+  it("tagCooccurrenceEdgesForNotes emits only pairs touching scope; untouched pairs are assumed correct", () => {
+    const notesTags = new Map([
+      ["A.md", ["ml"]],
+      ["B.md", ["ml"]],
+      ["C.md", ["ml"]], // A-C, B-C are NOT in scope and must not appear
+    ]);
+    const edges = tagCooccurrenceEdgesForNotes(notesTags, new Set(["A.md"]));
+    expect(edges.map((e) => `${e.source_path}->${e.target_path}`).sort()).toEqual([
+      "A.md->B.md",
+      "A.md->C.md",
+    ]);
+  });
+
+  it("tagCooccurrenceEdgesForNotes returns [] on an empty scope without reading notesTags at all", () => {
+    // A tag map that WOULD produce edges if scoped/unscoped-full were used — proves the empty-scope
+    // guard actually short-circuits rather than silently doing the full computation.
+    const notesTags = new Map([
+      ["A.md", ["ml"]],
+      ["B.md", ["ml"]],
+    ]);
+    expect(tagCooccurrenceEdgesForNotes(notesTags, new Set())).toEqual([]);
+  });
+
+  it("still honors maxTagFanout inside a scoped computation (a hub stays a hub)", () => {
+    const notesTags = new Map<string, string[]>();
+    for (let i = 0; i < 5; i++) notesTags.set(`n${i}.md`, ["hub"]);
+    expect(
+      tagCooccurrenceEdgesForNotes(notesTags, new Set(["n0.md"]), { maxTagFanout: 3 }),
+    ).toEqual([]);
+  });
+});
+
+describe("THE-486 reconcileDerivedEdgesScoped", () => {
+  const mk = (
+    s: string,
+    t: string,
+    type: DerivedEdge["edge_type"] = "shared_tag",
+  ): DerivedEdge => ({
+    source_path: s,
+    target_path: t,
+    edge_type: type,
+    edge_kind: "derived",
+    provenance: "tag_cooccur",
+    confidence: null,
+    source_fingerprint: null,
+  });
+
+  it("only touches rows where an endpoint is in scope — edges entirely outside scope survive untouched", () => {
+    const db = edgesDb();
+    reconcileDerivedEdges(
+      db,
+      "v1",
+      [mk("A.md", "B.md"), mk("C.md", "D.md")],
+      ["shared_tag"],
+      () => 1,
+    );
+    // Scope = {A.md}. Desired for A.md's world is now empty (A lost its only shared tag) — this
+    // must delete A-B but must NEVER read or touch C-D, which is entirely outside scope.
+    const stats = reconcileDerivedEdgesScoped(
+      db,
+      "v1",
+      [],
+      ["shared_tag"],
+      new Set(["A.md"]),
+      () => 2,
+    );
+    expect(stats.deleted).toBe(1);
+    const rows = db.prepare("SELECT source_path, target_path FROM vault_edges").all() as Array<{
+      source_path: string;
+      target_path: string;
+    }>;
+    expect(rows).toEqual([{ source_path: "C.md", target_path: "D.md" }]);
+  });
+
+  it("empty scope is a query-free no-op — the table is left exactly as it was", () => {
+    const db = edgesDb();
+    reconcileDerivedEdges(db, "v1", [mk("A.md", "B.md")], ["shared_tag"], () => 1);
+    const stats = reconcileDerivedEdgesScoped(db, "v1", [], ["shared_tag"], new Set(), () => 2);
+    expect(stats).toEqual({ desired: 0, inserted: 0, updated: 0, deleted: 0 });
+    const rows = db.prepare("SELECT source_path, target_path FROM vault_edges").all();
+    expect(rows).toEqual([{ source_path: "A.md", target_path: "B.md" }]);
+  });
+
+  it("rejects a desired edge_type outside the owned set", () => {
+    const db = edgesDb();
+    const rogue = mk("A.md", "B.md", "similar_to");
+    expect(() =>
+      reconcileDerivedEdgesScoped(db, "v1", [rogue], ["shared_tag"], new Set(["A.md"]), () => 1),
+    ).toThrow(/not in owned set/);
+  });
+
+  it("rejects a desired edge that touches neither endpoint in scope — an orphan-risk guard", () => {
+    const db = edgesDb();
+    expect(() =>
+      reconcileDerivedEdgesScoped(
+        db,
+        "v1",
+        [mk("X.md", "Y.md")],
+        ["shared_tag"],
+        new Set(["A.md"]),
+        () => 1,
+      ),
+    ).toThrow(/neither endpoint in scope/);
+  });
+
+  it("inserts a NEW edge whose one endpoint is in scope", () => {
+    const db = edgesDb();
+    const stats = reconcileDerivedEdgesScoped(
+      db,
+      "v1",
+      [mk("A.md", "B.md")],
+      ["shared_tag"],
+      new Set(["A.md"]),
+      () => 1,
+    );
+    expect(stats.inserted).toBe(1);
+  });
+});
+
+describe("THE-486 countDerivedEdges", () => {
+  it("counts only the requested edge_type, scoped to the vault", () => {
+    const db = edgesDb();
+    const mk = (s: string, t: string, type: DerivedEdge["edge_type"]): DerivedEdge => ({
+      source_path: s,
+      target_path: t,
+      edge_type: type,
+      edge_kind: "derived",
+      provenance: "x",
+      confidence: null,
+      source_fingerprint: null,
+    });
+    reconcileDerivedEdges(db, "v1", [mk("A.md", "B.md", "shared_tag")], ["shared_tag"], () => 1);
+    reconcileDerivedEdges(db, "v1", [mk("A.md", "B.md", "similar_to")], ["similar_to"], () => 1);
+    reconcileDerivedEdges(db, "v2", [mk("A.md", "B.md", "shared_tag")], ["shared_tag"], () => 1);
+    expect(countDerivedEdges(db, "v1", "shared_tag")).toBe(1);
+    expect(countDerivedEdges(db, "v1", "similar_to")).toBe(1);
+    expect(countDerivedEdges(db, "v2", "shared_tag")).toBe(1);
+    expect(countDerivedEdges(db, "v1", "semantically_similar_to")).toBe(0);
   });
 });

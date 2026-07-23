@@ -12,11 +12,23 @@ import { parseNote } from "../vault/frontmatter";
 import { type ExtractedLink, extractLinks } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { contentHash, resolveVaultPath, walkVault } from "../vault/paths";
+import { noteTags } from "../vault/tags";
 import { chunkNote, enrichChunkText } from "./chunk";
 import { deleteChunkColbert, ensureChunkColbert, upsertChunkColbert } from "./chunk_colbert";
 import { deleteChunkFtsRow, ensureChunkFts, upsertChunkFtsRow } from "./chunk_fts";
 import type { ColbertMatrix } from "./colbert";
-import { computeKnnEdges, reconcileDerivedEdges, tagCooccurrenceEdges } from "./derived-edges";
+import {
+  computeKnnEdges,
+  computeKnnEdgesForPaths,
+  countDerivedEdges,
+  knnNeighborScope,
+  notesWithTagChanges,
+  reconcileDerivedEdges,
+  reconcileDerivedEdgesScoped,
+  tagCooccurrenceEdges,
+  tagCooccurrenceEdgesForNotes,
+  tagCooccurrenceScope,
+} from "./derived-edges";
 import { desiredEdges, reconcileVaultEdges } from "./edges";
 import {
   buildNoteRecord,
@@ -968,8 +980,10 @@ export function hasDerivedEdgeColumns(db: Database): boolean {
 }
 
 /** Per-note frontmatter tag sets (notes.tags is a JSON array). A note with unparseable tags contributes
- *  none — one bad row never aborts the index pass. */
-function readNoteTags(db: Database, vaultId: string): Map<string, string[]> {
+ *  none — one bad row never aborts the index pass.
+ *  @internal exported for the THE-486 delta-vs-full-recompute regression test; production callers use
+ *  it directly. */
+export function readNoteTags(db: Database, vaultId: string): Map<string, string[]> {
   const out = new Map<string, string[]>();
   const rows = db.prepare("SELECT path, tags FROM notes WHERE vault_id = ?").all(vaultId) as Array<{
     path: string;
@@ -1060,6 +1074,26 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const hasChunkSparse = hasEmbedFull && ensureChunkSparse(args.db);
   const hasChunkColbert = hasEmbedFull && ensureChunkColbert(args.db);
   const hasBodySha = hasBodyShaColumn(args.db);
+  // THE-486: whether this vault's vault_edges can even carry derived edges at all (pre-migration dbs
+  // cannot) — computed ONCE up front (hasDerivedEdgeColumns memoizes per-db anyway) so the tag-delta
+  // snapshot below is skipped entirely when densification could never run this pass.
+  const derivedColumnsOk = hasDerivedEdgeColumns(args.db);
+  const densifyTagsRequested =
+    derivedColumnsOk && args.densify?.tagEdges === true && tableExists(args.db, "notes");
+  const densifyKnnRequested = derivedColumnsOk && args.densify?.knnEdges === true;
+  // THE-486: the tag-cooccurrence DELTA needs the PRE-pass tag state, so this must be read before any
+  // note-row write in this pass commits (the walk below flushes notes inline). newNotesTagsWalked is
+  // filled by the walk (fresh tags parsed straight from each readable note's raw content, no DB
+  // round-trip needed); deletedPaths + changedChunkPaths are filled by the stale-path sweep and the
+  // chunk-write flush respectively, further down.
+  const oldNotesTagsSnapshot = densifyTagsRequested
+    ? readNoteTags(args.db, args.vaultId)
+    : new Map<string, string[]>();
+  const newNotesTagsWalked = new Map<string, string[]>();
+  // THE-486: notes whose chunk embeddings changed this pass (re-embedded, pruned, or the whole note
+  // deleted) — the kNN delta's change signal. A note with no plan this pass had no embedding change.
+  const changedChunkPaths = new Set<string>();
+  const deletedPaths = new Set<string>();
   // Cross-path embedding dedup (migration 20260719_001): ONE registry shared across the whole walk,
   // so an EMBED text produced under the first walked path is reused/skipped everywhere else this pass.
   // Keyed on content_hash (the enriched embed text under THE-406), not the raw body_sha, so distinctly
@@ -1192,6 +1226,11 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.db.exec("ROLLBACK");
       throw e;
     }
+    // THE-486: a committed plan means this note's chunk embeddings changed this pass (toEmbed
+    // non-empty and/or a prune) — computeNotePlan never returns a plan otherwise (see its
+    // toEmbed.length === 0 && !willPrune early return). This is the kNN delta's change signal,
+    // reusing the SAME plan data fireIndexHook already reports rather than threading a new seam.
+    for (const plan of toApply) changedChunkPaths.add(plan.path);
     for (const plan of toApply) fireIndexHook(args.onIndexed, plan);
   };
   // The two-transaction split (notes vs chunks) is a deliberate atomicity gap; it is safe ONLY because
@@ -1218,6 +1257,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   for (const rel of notes) {
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
     noteLinks.set(rel, extractLinks(parseNote(raw).body));
+    // THE-486: capture this pass's tags straight from the raw content (no DB round-trip) so the
+    // tag-cooccurrence delta can diff against oldNotesTagsSnapshot below — a note's frontmatter tags
+    // can change with NO chunk content change, so this must NOT be gated on `plan` existing.
+    if (densifyTagsRequested) newNotesTagsWalked.set(rel, noteTags(raw).all);
     const { plan, unchanged, secretsSkipped, flagged, dedupSkipped } = computeNotePlan(
       args.db,
       args.vaultId,
@@ -1260,6 +1303,11 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       if (!walkedSet.has(row.path)) {
         deindexNote(args.db, args.vaultId, row.path, hasVec, args.chunkContext === true);
         stats.notes_deleted += 1;
+        // THE-486: a deleted note's chunk embeddings AND its tags are both gone — both delta
+        // computations need to know, so its derived edges in both directions get pruned rather than
+        // orphaned (a scope that omits it would never delete a stale edge pointing at it).
+        deletedPaths.add(row.path);
+        changedChunkPaths.add(row.path);
       }
     }
   }
@@ -1282,30 +1330,72 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // the LLM layer (semantically_similar_to, built out-of-band by the densify-llm runner) are never
     // touched here.
     //
-    // The reconcile runs on EVERY pass, with an EMPTY desired set when a flag is off. That is what makes
-    // "turn the flag off" actually prune. Gating the reconcile behind the flag (the original shape) left
-    // previously-generated rows in vault_edges forever: invisible while includeInWalk was false, but
-    // ready to reappear the moment it flipped. Reconciling to empty is a cheap no-op once the layer is
-    // already empty. kNN needs vec_chunks (populated by the embed pass above; computeKnnEdges returns []
-    // when sqlite-vec is unavailable).
+    // THE-486: a flag OFF still reconciles to an EMPTY desired set via the FULL reconcileDerivedEdges —
+    // that is what makes "turn the flag off" actually prune (the layer must not survive invisibly,
+    // ready to reappear the moment the flag flips back on). A flag ON reconciles DELTA-only once a
+    // baseline exists: only the notes/chunks this pass actually touched (plus, for kNN, their existing
+    // edge-neighbors — see knnNeighborScope) are re-scored; edges entirely outside that scope are
+    // assumed already correct and are never read or rewritten. The very FIRST on-pass (no rows of this
+    // edge_type exist yet — "cold start", which also covers a flag just flipped from off, since off
+    // always prunes to zero) has no delta baseline to build on and falls back to the full recompute,
+    // exactly matching the old always-full behaviour for that one pass.
     // Guarded on the densification columns: reconciling unconditionally against a vault_edges that
     // predates migration 20260713_001 would throw on the upsert and kill the entire index pass.
-    if (hasDerivedEdgeColumns(args.db)) {
-      const tagDesired =
-        args.densify?.tagEdges && tableExists(args.db, "notes")
-          ? tagCooccurrenceEdges(readNoteTags(args.db, args.vaultId), {
-              maxTagFanout: args.densify.maxTagFanout ?? 25,
-            })
-          : [];
-      reconcileDerivedEdges(args.db, args.vaultId, tagDesired, ["shared_tag"], now);
+    if (derivedColumnsOk) {
+      const tagFanout = { maxTagFanout: args.densify?.maxTagFanout ?? 25 };
+      if (!densifyTagsRequested) {
+        reconcileDerivedEdges(args.db, args.vaultId, [], ["shared_tag"], now);
+      } else if (countDerivedEdges(args.db, args.vaultId, "shared_tag") === 0) {
+        // Cold start: build the FULL post-pass tag map the same way a from-scratch reconcile would —
+        // readNoteTags reads notes AFTER this pass's upserts/deletes have all committed.
+        const tagDesired = tagCooccurrenceEdges(readNoteTags(args.db, args.vaultId), tagFanout);
+        reconcileDerivedEdges(args.db, args.vaultId, tagDesired, ["shared_tag"], now);
+      } else {
+        // THE-486 warm delta: the FULL post-pass tag map is the old snapshot overlaid with this pass's
+        // walked notes' fresh tags, minus anything deleted — cheaper than re-reading the whole notes
+        // table, and exactly what it would read anyway (every untouched note keeps its old value).
+        const newNotesTagsFull = new Map(oldNotesTagsSnapshot);
+        for (const [path, tags] of newNotesTagsWalked) newNotesTagsFull.set(path, tags);
+        for (const path of deletedPaths) newNotesTagsFull.delete(path);
+        const tagChangedNotes = notesWithTagChanges(oldNotesTagsSnapshot, newNotesTagsFull, [
+          ...newNotesTagsWalked.keys(),
+          ...deletedPaths,
+        ]);
+        // Mirrors the kNN branch below: NO note's tags changed this pass -> skip the call entirely
+        // (not even the scope build runs), same "no scan on a true no-op" guarantee as acceptance
+        // criterion 1, applied to the tag layer too.
+        if (tagChangedNotes.size > 0) {
+          const scope = tagCooccurrenceScope(
+            oldNotesTagsSnapshot,
+            newNotesTagsFull,
+            tagChangedNotes,
+          );
+          const tagDesired = tagCooccurrenceEdgesForNotes(newNotesTagsFull, scope, tagFanout);
+          reconcileDerivedEdgesScoped(
+            args.db,
+            args.vaultId,
+            tagDesired,
+            ["shared_tag"],
+            scope,
+            now,
+          );
+        }
+      }
 
-      const knnDesired = args.densify?.knnEdges
-        ? computeKnnEdges(args.db, args.vaultId, {
-            k: args.densify.knnK ?? 8,
-            minSim: args.densify.knnMinSim ?? 0,
-          })
-        : [];
-      reconcileDerivedEdges(args.db, args.vaultId, knnDesired, ["similar_to"], now);
+      const knnOpts = { k: args.densify?.knnK ?? 8, minSim: args.densify?.knnMinSim ?? 0 };
+      if (!densifyKnnRequested) {
+        reconcileDerivedEdges(args.db, args.vaultId, [], ["similar_to"], now);
+      } else if (countDerivedEdges(args.db, args.vaultId, "similar_to") === 0) {
+        const knnDesired = computeKnnEdges(args.db, args.vaultId, knnOpts);
+        reconcileDerivedEdges(args.db, args.vaultId, knnDesired, ["similar_to"], now);
+      } else if (changedChunkPaths.size > 0) {
+        const scope = knnNeighborScope(args.db, args.vaultId, changedChunkPaths);
+        const knnDesired = computeKnnEdgesForPaths(args.db, args.vaultId, scope, knnOpts);
+        reconcileDerivedEdgesScoped(args.db, args.vaultId, knnDesired, ["similar_to"], scope, now);
+      }
+      // else: densifyKnnRequested but changedChunkPaths is empty — nothing this pass could have
+      // invalidated any similar_to edge, so THE-486 acceptance criterion 1 applies: skip the call
+      // entirely (not even a scope lookup runs) rather than paying any kNN scan on a warm no-op pass.
     }
   }
   // THE-496: bump the vault generation once per reconcile when anything result-affecting changed —

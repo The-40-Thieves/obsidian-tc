@@ -41,19 +41,15 @@ export interface DerivedReconcileStats {
 
 const key = (s: string, t: string, type: string): string => `${s}\n${t}\n${type}`;
 
-/**
- * Shared-tag co-occurrence edges: notes that share a frontmatter tag get one undirected `shared_tag`
- * edge per pair, stored in canonical path order (the graph walk unions both directions, as it does
- * for links_to). Hub tags — carried by more than `maxTagFanout` notes — emit no edges: a ubiquitous
- * tag (`#project`) is a hub, not a signal, and would emit O(n^2) edges from a single cluster
- * (graphify --exclude-hubs). Singleton tags no-op. Deterministic, free, no egress. `confidence` and
- * `source_fingerprint` are null (structural, and derived from both notes' tag sets, not one body).
- */
-export function tagCooccurrenceEdges(
+// THE-486: shared body for tagCooccurrenceEdges (full) and tagCooccurrenceEdgesForNotes (delta). A
+// null `scope` means "unfiltered" (the original full-recompute behaviour); a non-null scope drops any
+// tag whose note-set does not touch it at all, and any pair where NEITHER endpoint is in it — pairs
+// entirely among untouched notes are assumed already correct (see tagCooccurrenceEdgesForNotes).
+function buildTagCooccurrenceEdges(
   notesTags: Map<string, string[]>,
-  opts: { maxTagFanout?: number } = {},
+  maxTagFanout: number,
+  scope: ReadonlySet<string> | null,
 ): DerivedEdge[] {
-  const maxTagFanout = opts.maxTagFanout ?? 25;
   const tagToNotes = new Map<string, Set<string>>();
   for (const [path, tags] of notesTags) {
     for (const raw of tags) {
@@ -68,11 +64,22 @@ export function tagCooccurrenceEdges(
   for (const notesSet of tagToNotes.values()) {
     // Singletons no-op; hub tags are excluded (fanout guard) before the O(n^2) pairing.
     if (notesSet.size < 2 || notesSet.size > maxTagFanout) continue;
+    if (scope !== null) {
+      let touchesScope = false;
+      for (const p of notesSet) {
+        if (scope.has(p)) {
+          touchesScope = true;
+          break;
+        }
+      }
+      if (!touchesScope) continue;
+    }
     const notes = [...notesSet].sort();
     for (let i = 0; i < notes.length; i++) {
       for (let j = i + 1; j < notes.length; j++) {
         const a = notes[i] as string;
         const b = notes[j] as string;
+        if (scope !== null && !scope.has(a) && !scope.has(b)) continue;
         const k = key(a, b, "shared_tag");
         if (byKey.has(k)) continue;
         byKey.set(k, {
@@ -90,42 +97,130 @@ export function tagCooccurrenceEdges(
   return [...byKey.values()];
 }
 
+/**
+ * Shared-tag co-occurrence edges: notes that share a frontmatter tag get one undirected `shared_tag`
+ * edge per pair, stored in canonical path order (the graph walk unions both directions, as it does
+ * for links_to). Hub tags — carried by more than `maxTagFanout` notes — emit no edges: a ubiquitous
+ * tag (`#project`) is a hub, not a signal, and would emit O(n^2) edges from a single cluster
+ * (graphify --exclude-hubs). Singleton tags no-op. Deterministic, free, no egress. `confidence` and
+ * `source_fingerprint` are null (structural, and derived from both notes' tag sets, not one body).
+ */
+export function tagCooccurrenceEdges(
+  notesTags: Map<string, string[]>,
+  opts: { maxTagFanout?: number } = {},
+): DerivedEdge[] {
+  return buildTagCooccurrenceEdges(notesTags, opts.maxTagFanout ?? 25, null);
+}
+
+/**
+ * THE-486 delta counterpart to tagCooccurrenceEdges: `notesTags` must still be the FULL current tag
+ * map (a tag's fanout count and its pairing both need the true note set), but a pair is only emitted
+ * when at least one endpoint is in `scope`. Pairs entirely among untouched notes are assumed already
+ * correct — their tag memberships did not change this pass, so neither did their edge. `scope` empty
+ * is a clean no-op ([]), not a full recompute. Pair with tagCooccurrenceScope, which builds the scope
+ * a tag-set change actually requires (every note sharing the OLD or NEW tags, not just the changed
+ * note itself).
+ */
+export function tagCooccurrenceEdgesForNotes(
+  notesTags: Map<string, string[]>,
+  scope: ReadonlySet<string>,
+  opts: { maxTagFanout?: number } = {},
+): DerivedEdge[] {
+  if (scope.size === 0) return [];
+  return buildTagCooccurrenceEdges(notesTags, opts.maxTagFanout ?? 25, scope);
+}
+
+/**
+ * THE-486: which of `candidates` actually had their (normalized) tag SET change — ignores order,
+ * case, and whitespace, matching tagCooccurrenceEdges' own normalization, so a case-only rewrite (or
+ * a reordered frontmatter list) never manufactures a false delta. A candidate absent from `newTags`
+ * (a note deleted this pass) is treated as having no tags now — correctly flags it as changed when it
+ * used to carry any.
+ */
+export function notesWithTagChanges(
+  oldTags: Map<string, string[]>,
+  newTags: Map<string, string[]>,
+  candidates: Iterable<string>,
+): Set<string> {
+  const norm = (tags: string[]): Set<string> =>
+    new Set(tags.map((t) => t.trim().toLowerCase()).filter((t) => t !== ""));
+  const out = new Set<string>();
+  for (const path of candidates) {
+    const before = norm(oldTags.get(path) ?? []);
+    const after = norm(newTags.get(path) ?? []);
+    let same = before.size === after.size;
+    if (same) for (const t of before) if (!after.has(t)) same = false;
+    if (!same) out.add(path);
+  }
+  return out;
+}
+
+/**
+ * THE-486: the scope a tag-cooccurrence delta must cover — every note in `changed`, PLUS every note
+ * sharing any tag `changed` carried BEFORE or AFTER this pass. A note whose tags changed affects
+ * co-occurrence for every note sharing the old tags (loses an edge) and every note sharing the new
+ * tags (gains one) — not only its own direct edges, so the scope reads both snapshots. `changed`
+ * empty short-circuits with no scan.
+ */
+export function tagCooccurrenceScope(
+  oldTags: Map<string, string[]>,
+  newTags: Map<string, string[]>,
+  changed: ReadonlySet<string>,
+): Set<string> {
+  const scope = new Set<string>(changed);
+  if (changed.size === 0) return scope;
+  const relevantTags = new Set<string>();
+  for (const path of changed) {
+    for (const t of oldTags.get(path) ?? []) relevantTags.add(t.trim().toLowerCase());
+    for (const t of newTags.get(path) ?? []) relevantTags.add(t.trim().toLowerCase());
+  }
+  relevantTags.delete("");
+  if (relevantTags.size === 0) return scope;
+  for (const map of [oldTags, newTags]) {
+    for (const [path, tags] of map) {
+      for (const raw of tags) {
+        if (relevantTags.has(raw.trim().toLowerCase())) {
+          scope.add(path);
+          break;
+        }
+      }
+    }
+  }
+  return scope;
+}
+
 interface DerivedRow {
   source_path: string;
   target_path: string;
   edge_type: string;
 }
 
-/**
- * Full-state reconcile of the DERIVED layer for `vaultId`, scoped to `edgeTypes`. Mirrors
- * reconcileVaultEdges but only over the given derived edge_types: the literal `links_to`/`unresolved`
- * rows are never selected, deleted, or inserted here. `edgeTypes` MUST be exactly the set this call
- * owns (e.g. ['shared_tag']) so an increment that rebuilds only tag edges cannot delete kNN or LLM
- * edges. Idempotent; a re-run with the same desired set is a no-op.
- */
-export function reconcileDerivedEdges(
+// THE-486: shared body for reconcileDerivedEdges (full) and reconcileDerivedEdgesScoped (delta). A
+// null `scope` reconciles every row of `edgeTypes` for the vault (the original full-state behaviour);
+// a non-null scope only reads/deletes rows where at least one endpoint is in it, and upserts ONLY
+// `desired` (which the scoped caller must already have restricted to scope-touching edges — see the
+// guard in reconcileDerivedEdgesScoped). Edges entirely outside `scope` are never read or written.
+function reconcileDerivedEdgesCore(
   db: Database,
   vaultId: string,
   desired: DerivedEdge[],
   edgeTypes: DerivedEdgeType[],
-  now: () => number = Date.now,
+  scope: ReadonlySet<string> | null,
+  now: () => number,
 ): DerivedReconcileStats {
   const ts = now();
-  const owned = new Set<string>(edgeTypes);
-  // A desired edge outside the owned set would let a stale-delete wipe an edge this call is not
-  // authoritative over — fail loudly instead.
-  for (const e of desired) {
-    if (!owned.has(e.edge_type)) {
-      throw new Error(`reconcileDerivedEdges: desired edge_type '${e.edge_type}' not in owned set`);
-    }
-  }
   const placeholders = edgeTypes.map(() => "?").join(", ");
   const desiredKeys = new Set(desired.map((e) => key(e.source_path, e.target_path, e.edge_type)));
+  const scopeClause =
+    scope !== null
+      ? ` AND (source_path IN (${[...scope].map(() => "?").join(", ")}) OR target_path IN (${[...scope].map(() => "?").join(", ")}))`
+      : "";
+  const scopeParams = scope !== null ? [...scope, ...scope] : [];
   const current = db
     .prepare(
-      `SELECT source_path, target_path, edge_type FROM vault_edges WHERE vault_id = ? AND edge_type IN (${placeholders})`,
+      `SELECT source_path, target_path, edge_type FROM vault_edges WHERE vault_id = ? AND edge_type IN (${placeholders})${scopeClause}`,
     )
-    .all(vaultId, ...edgeTypes) as DerivedRow[];
+    .all(vaultId, ...edgeTypes, ...scopeParams) as DerivedRow[];
   const currentKeys = new Set(current.map((r) => key(r.source_path, r.target_path, r.edge_type)));
 
   const del = db.prepare(
@@ -172,6 +267,82 @@ export function reconcileDerivedEdges(
     else updated += 1;
   }
   return { desired: desired.length, inserted, updated, deleted };
+}
+
+/**
+ * Full-state reconcile of the DERIVED layer for `vaultId`, scoped to `edgeTypes`. Mirrors
+ * reconcileVaultEdges but only over the given derived edge_types: the literal `links_to`/`unresolved`
+ * rows are never selected, deleted, or inserted here. `edgeTypes` MUST be exactly the set this call
+ * owns (e.g. ['shared_tag']) so an increment that rebuilds only tag edges cannot delete kNN or LLM
+ * edges. Idempotent; a re-run with the same desired set is a no-op.
+ */
+export function reconcileDerivedEdges(
+  db: Database,
+  vaultId: string,
+  desired: DerivedEdge[],
+  edgeTypes: DerivedEdgeType[],
+  now: () => number = Date.now,
+): DerivedReconcileStats {
+  const owned = new Set<string>(edgeTypes);
+  // A desired edge outside the owned set would let a stale-delete wipe an edge this call is not
+  // authoritative over — fail loudly instead.
+  for (const e of desired) {
+    if (!owned.has(e.edge_type)) {
+      throw new Error(`reconcileDerivedEdges: desired edge_type '${e.edge_type}' not in owned set`);
+    }
+  }
+  return reconcileDerivedEdgesCore(db, vaultId, desired, edgeTypes, null, now);
+}
+
+/**
+ * THE-486 delta counterpart to reconcileDerivedEdges: reads, deletes, and upserts ONLY rows of
+ * `edgeTypes` where at least one endpoint is in `scope` — an edge entirely outside `scope` is assumed
+ * already correct (nothing that could invalidate it changed this pass) and is never touched. Correct
+ * ONLY when the caller's `scope` covers every note whose derived edges of this type could have
+ * changed (computeKnnEdgesForPaths + knnNeighborScope, or tagCooccurrenceEdgesForNotes +
+ * tagCooccurrenceScope, build exactly that). Every `desired` edge MUST touch `scope` — an edge that
+ * doesn't could never be deleted by a later scoped pass that doesn't happen to cover it either,
+ * silently orphaning it — so this throws instead of accepting one. `scope` empty is a clean, query-
+ * free no-op: the table is left exactly as it was, which is the correct outcome when nothing that
+ * could affect this edge_type changed.
+ */
+export function reconcileDerivedEdgesScoped(
+  db: Database,
+  vaultId: string,
+  desired: DerivedEdge[],
+  edgeTypes: DerivedEdgeType[],
+  scope: ReadonlySet<string>,
+  now: () => number = Date.now,
+): DerivedReconcileStats {
+  if (scope.size === 0) return { desired: 0, inserted: 0, updated: 0, deleted: 0 };
+  const owned = new Set<string>(edgeTypes);
+  for (const e of desired) {
+    if (!owned.has(e.edge_type)) {
+      throw new Error(
+        `reconcileDerivedEdgesScoped: desired edge_type '${e.edge_type}' not in owned set`,
+      );
+    }
+    if (!scope.has(e.source_path) && !scope.has(e.target_path)) {
+      throw new Error(
+        `reconcileDerivedEdgesScoped: desired edge ${e.source_path}->${e.target_path} touches neither endpoint in scope`,
+      );
+    }
+  }
+  return reconcileDerivedEdgesCore(db, vaultId, desired, edgeTypes, scope, now);
+}
+
+/** THE-486: how many rows of `edgeType` currently exist for `vaultId` — used to detect a "cold start"
+ *  (the layer has never been populated, or was just fully pruned by a flag flip) where a delta pass
+ *  has no correct baseline to build on and must fall back to a full recompute instead. */
+export function countDerivedEdges(
+  db: Database,
+  vaultId: string,
+  edgeType: DerivedEdgeType,
+): number {
+  const row = db
+    .prepare("SELECT COUNT(*) AS n FROM vault_edges WHERE vault_id = ? AND edge_type = ?")
+    .get(vaultId, edgeType) as { n: number };
+  return row.n;
 }
 
 export interface KnnNeighbor {
@@ -230,28 +401,26 @@ export function knnEdgesFromNeighbors(
   return [...byPair.values()];
 }
 
-/**
- * Compute note-level kNN `similar_to` edges over vec_chunks for `vaultId`. For each active chunk
- * embedding, vec0 kNN finds its nearest chunks (the +path aux column rides along free), which map to
- * neighbor NOTES; knnEdgesFromNeighbors collapses those to per-note edges. Requires the sqlite-vec
- * extension (loadVec) + a populated vec_chunks; returns [] when the extension is unavailable
- * (node:sqlite) so indexing degrades cleanly instead of throwing. Over-fetches per chunk (many chunks
- * share a note, plus the self-hit) so k neighbor NOTES survive the note-collapse.
- */
-export function computeKnnEdges(
+// THE-486: shared body for computeKnnEdges (full) and computeKnnEdgesForPaths (delta). `scopeSql` is
+// an extra SQL fragment (with its bind params) restricting which chunks are queried as a SOURCE — the
+// CANDIDATE pool vecKnn searches is always the full vec_chunks index either way, so a restricted scope
+// only cuts how many outer per-chunk vecKnn calls run, never correctness of any single call's result.
+function knnEdgesFromChunkRows(
   db: Database,
   vaultId: string,
-  opts: { k?: number; minSim?: number } = {},
+  k: number,
+  scopeSql: string,
+  scopeParams: unknown[],
+  opts: { k?: number; minSim?: number },
 ): DerivedEdge[] {
-  const k = opts.k ?? 8;
   const hasVecChunks =
     db.prepare("SELECT 1 AS x FROM sqlite_master WHERE name = 'vec_chunks'").get() !== undefined;
   if (!loadVec(db) || !hasVecChunks) return [];
   const rows = db
     .prepare(
-      "SELECT c.path AS path, e.embedding AS embedding FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE e.is_active = 1 AND c.vault_id = ?",
+      `SELECT c.path AS path, e.embedding AS embedding FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE e.is_active = 1 AND c.vault_id = ?${scopeSql}`,
     )
-    .all(vaultId) as Array<{ path: string; embedding: Uint8Array }>;
+    .all(vaultId, ...scopeParams) as Array<{ path: string; embedding: Uint8Array }>;
   const neighbors: KnnNeighbor[] = [];
   for (const row of rows) {
     const vec = [...blobToFloats(row.embedding)];
@@ -262,4 +431,80 @@ export function computeKnnEdges(
     }
   }
   return knnEdgesFromNeighbors(neighbors, opts);
+}
+
+/**
+ * Compute note-level kNN `similar_to` edges over vec_chunks for `vaultId`. For each active chunk
+ * embedding, vec0 kNN finds its nearest chunks (the +path aux column rides along free), which map to
+ * neighbor NOTES; knnEdgesFromNeighbors collapses those to per-note edges. Requires the sqlite-vec
+ * extension (loadVec) + a populated vec_chunks; returns [] when the extension is unavailable
+ * (node:sqlite) so indexing degrades cleanly instead of throwing. Over-fetches per chunk (many chunks
+ * share a note, plus the self-hit) so k neighbor NOTES survive the note-collapse.
+ *
+ * Scans EVERY active chunk in the vault as a source — THE-486's computeKnnEdgesForPaths is the
+ * delta-only counterpart used once a baseline exists (see indexVault's cold-start check).
+ */
+export function computeKnnEdges(
+  db: Database,
+  vaultId: string,
+  opts: { k?: number; minSim?: number } = {},
+): DerivedEdge[] {
+  const k = opts.k ?? 8;
+  return knnEdgesFromChunkRows(db, vaultId, k, "", [], opts);
+}
+
+/**
+ * THE-486 delta counterpart to computeKnnEdges: only chunks belonging to a note in `scope` are queried
+ * as a SOURCE (the same per-chunk vecKnn call otherwise, searching the full index). `scope` must
+ * already include a changed note's prior edge-neighbors — knnNeighborScope builds exactly that — or an
+ * edge that only exists because some untouched note B ranked the changed note among B's OWN top-k
+ * would go stale unnoticed (B itself never re-queried). Returns [] when `scope` is empty: a genuine
+ * no-op, no query at all (this is what makes a zero-change reindex perform no kNN scan).
+ */
+export function computeKnnEdgesForPaths(
+  db: Database,
+  vaultId: string,
+  scope: ReadonlySet<string>,
+  opts: { k?: number; minSim?: number } = {},
+): DerivedEdge[] {
+  if (scope.size === 0) return [];
+  const k = opts.k ?? 8;
+  const placeholders = [...scope].map(() => "?").join(", ");
+  return knnEdgesFromChunkRows(
+    db,
+    vaultId,
+    k,
+    ` AND c.path IN (${placeholders})`,
+    [...scope],
+    opts,
+  );
+}
+
+/**
+ * THE-486: 1-hop neighbor expansion for the kNN delta scope. A chunk whose embedding changed can flip
+ * whether it sits inside SOME OTHER, unchanged note's own top-k (the neighbor's ranking of a candidate
+ * it was already comparing against changed, even though the neighbor's OWN embedding did not) — so
+ * every note on the other end of an EXISTING `similar_to` edge touching a changed note must be
+ * re-scored too, not just the changed note itself. Reads the CURRENT edges (both directions, since
+ * they're stored in canonical path order), so this must run BEFORE the pass's reconcile deletes
+ * anything. `changed` empty short-circuits with no query.
+ */
+export function knnNeighborScope(
+  db: Database,
+  vaultId: string,
+  changed: ReadonlySet<string>,
+): Set<string> {
+  const scope = new Set<string>(changed);
+  if (changed.size === 0) return scope;
+  const placeholders = [...changed].map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT source_path, target_path FROM vault_edges WHERE vault_id = ? AND edge_type = 'similar_to' AND (source_path IN (${placeholders}) OR target_path IN (${placeholders}))`,
+    )
+    .all(vaultId, ...changed, ...changed) as Array<{ source_path: string; target_path: string }>;
+  for (const r of rows) {
+    scope.add(r.source_path);
+    scope.add(r.target_path);
+  }
+  return scope;
 }
