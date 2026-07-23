@@ -158,6 +158,29 @@ export function estimateEmbedTokens(text: string): number {
   return Math.ceil(len / divisor);
 }
 
+// THE-501: preload the whole vault's lightweight chunk state (ids + hashes + active model) in ONE
+// query, grouped by path, so a full reconcile plans every note without a per-note chunk query. Never
+// loads content or vectors — memory stays bounded to identifiers and hashes.
+export function preloadChunkState(db: Database, vaultId: string): Map<string, ExistingRow[]> {
+  const rows = db
+    .prepare(
+      "SELECT c.path AS path, c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? ORDER BY c.path",
+    )
+    .all(vaultId) as Array<ExistingRow & { path: string }>;
+  const byPath = new Map<string, ExistingRow[]>();
+  for (const r of rows) {
+    const list = byPath.get(r.path);
+    const row: ExistingRow = {
+      id: r.id,
+      content_hash: r.content_hash,
+      active_model: r.active_model,
+    };
+    if (list) list.push(row);
+    else byPath.set(r.path, [row]);
+  }
+  return byPath;
+}
+
 // Compute a note's write plan WITHOUT embedding — NO network, NO database writes, NO transaction.
 // Vectors are filled later by embedPlans, which batches the embed() calls across many notes so a
 // reconcile does not pay one serial round-trip per note. Returns { plan: null } when the note is
@@ -187,6 +210,10 @@ function computeNotePlan(
    *  model swap re-embeds the corpus on the next reconcile instead of silently shrinking it. Omitted
    *  -> content-hash-only gate (back-compat). */
   model?: string,
+  /** THE-501: preloaded per-path chunk state for the whole vault (built once by preloadChunkState).
+   *  When present, this note's slice is used and no per-note chunk query runs. Omitted -> per-note
+   *  query (the single-note indexing path). */
+  preloadedExisting?: Map<string, ExistingRow[]>,
 ): PlanResult {
   const body = parseNote(raw).body;
   // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
@@ -226,11 +253,16 @@ function computeNotePlan(
   const desiredIds = new Set(desired.map((d) => d.id));
   // THE-531: LEFT JOIN the active embedding so we know each chunk's stored model, not just its
   // content_hash. A chunk with no active embedding yields active_model = null (re-embed).
-  const existing = db
-    .prepare(
-      "SELECT c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.path = ?",
-    )
-    .all(vaultId, path) as ExistingRow[];
+  // THE-501: on a full reconcile the caller preloads the whole vault's chunk state in ONE query and
+  // passes this note's slice, so computeNotePlan issues no per-note chunk query (N queries -> 1). The
+  // single-note path passes no preload and keeps the targeted per-note query.
+  const existing =
+    preloadedExisting?.get(path) ??
+    (db
+      .prepare(
+        "SELECT c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.path = ?",
+      )
+      .all(vaultId, path) as ExistingRow[]);
   const existingById = new Map(existing.map((e) => [e.id, e]));
   // Re-embed when the content changed OR (THE-531) the stored active model differs from the current
   // one. When `model` is undefined the model check is skipped (back-compat, content-hash-only gate).
@@ -977,6 +1009,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const walkedSet = new Set(walked.map((e) => e.relPath));
   const statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
   const notes = walked.map((e) => e.relPath).filter(args.isReadable);
+  // THE-501: one bulk load of the vault's chunk state (ids/hashes/active-model), so computeNotePlan
+  // plans every note from memory instead of a per-note query. Safe because each note owns its path's
+  // chunks exclusively, so a note's slice is unaffected by earlier notes' writes in this pass.
+  const preloadedExisting = preloadChunkState(args.db, args.vaultId);
   const stats: IndexStats = {
     notes_seen: notes.length,
     notes_indexed: 0,
@@ -1109,6 +1145,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       dedupRegistry,
       hasBodySha, // THE-454: dedup (and thus vector-copy) only when the body_sha column exists
       args.provider.id, // THE-531: re-embed a model-superseded chunk even when content is unchanged
+      preloadedExisting, // THE-501: plan from the bulk chunk-state load, no per-note query
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
