@@ -1,8 +1,0 @@
-# THE-506: pin the toolchain used to build/test/lint packages/native. CI's dtolnay/rust-toolchain
-# step resolves "stable" independently of this file (it drives the version via the Action's own
-# @rev, not by reading rust-toolchain.toml) -- this file constrains rustup for every `cargo`
-# invocation with a cwd under packages/native, both locally and in CI, auto-installing 1.97.0 if
-# it isn't already present. Bump alongside the `dtolnay/rust-toolchain` pin across the workflows.
-[toolchain]
-channel = "1.97.0"
-components = ["clippy", "rustfmt"]

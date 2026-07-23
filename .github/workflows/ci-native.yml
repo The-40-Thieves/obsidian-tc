@@ -79,7 +79,7 @@ jobs:
           path: packages/native/*.node
           if-no-files-found: error
 
-  # THE-506: clippy gate. Runs on the pinned toolchain (rust-toolchain.toml) with -D warnings so a
+  # THE-506: clippy gate. Runs with -D warnings so a
   # new lint can't land silently; -all-targets/-all-features covers tests/benches too, not just the
   # lib. Single ubuntu run — clippy is a lint pass, not a platform-specific build, so it doesn't need
   # the full OS matrix the `build` job runs.
