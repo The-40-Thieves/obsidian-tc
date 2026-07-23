@@ -5,6 +5,7 @@ on:
     branches: [main]
   schedule:
     - cron: '0 6 * * 1'  # weekly: catch newly disclosed advisories against a static tree
+  workflow_dispatch:  # allow an on-demand run of the scheduled full-repo scans below
 
 permissions:
   contents: read
@@ -93,3 +94,30 @@ jobs:
       - name: bun audit (docs workspace)
         run: bun audit
         working-directory: docs
+
+  # THE-506: scheduled full-repo SAST via opengrep (the community-maintained OSS continuation of the
+  # Semgrep CLI). This complements, rather than duplicates, the external `semgrep-cloud-platform`
+  # GitHub App already installed on this repo: that app's PR check is diff-aware (scans only the
+  # files a PR changes) and is the right place for per-PR SAST, so this job does NOT run on
+  # `pull_request` -- only on the workflow's existing weekly `schedule` (plus `workflow_dispatch` for
+  # an on-demand run). A full `--config auto` pass over the whole tree took ~1:40 locally; adding
+  # that to every PR would be redundant CI minutes for signal the App already provides on the diff.
+  # continue-on-error, matching cargo-audit/bun-audit above: a scheduled scan reports newly-matched
+  # findings against a static tree (there is no PR here to block), so it should stay visible without
+  # red-Xing the workflow run on an existing, un-triaged finding.
+  opengrep-full-scan:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: install opengrep v1.25.0 (pinned binary + checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/opengrep-bin"
+          curl -sSL --fail -o "$RUNNER_TEMP/opengrep-bin/opengrep" \
+            https://github.com/opengrep/opengrep/releases/download/v1.25.0/opengrep_manylinux_x86
+          echo "9ac4aebb47ba3f7b0d8fc641ac8749cb6c2f253f616131a67d9631e00d4bea33  $RUNNER_TEMP/opengrep-bin/opengrep" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/opengrep-bin/opengrep"
+          echo "$RUNNER_TEMP/opengrep-bin" >> "$GITHUB_PATH"
+      - name: opengrep full scan (community registry ruleset, auto-detected by language)
+        run: opengrep scan --config auto --error .
