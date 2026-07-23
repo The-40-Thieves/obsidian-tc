@@ -38,9 +38,11 @@ describe("vector/lexical primitives — JS fallbacks", () => {
   });
 
   it("cosineBatch: scores rows in order; bad shape -> empty", () => {
-    expect(Array.from(jsCosineBatch([1, 0], new Float32Array([1, 0, 0, 1]), 2))).toEqual([1, 0]);
-    expect(jsCosineBatch([1, 2], new Float32Array([1, 2, 3]), 2).length).toBe(0);
-    expect(jsCosineBatch([1, 2], new Float32Array([]), 2).length).toBe(0);
+    expect(
+      Array.from(jsCosineBatch(new Float32Array([1, 0]), new Float32Array([1, 0, 0, 1]), 2)),
+    ).toEqual([1, 0]);
+    expect(jsCosineBatch(new Float32Array([1, 2]), new Float32Array([1, 2, 3]), 2).length).toBe(0);
+    expect(jsCosineBatch(new Float32Array([1, 2]), new Float32Array([]), 2).length).toBe(0);
   });
 });
 
@@ -62,12 +64,24 @@ describe("active backend (native when built, else JS) matches the JS reference",
     expect(bm25Score(3, 120, 95, 2, 50)).toBeCloseTo(jsBm25Score(3, 120, 95, 2, 50), 6);
   });
 
-  it("cosineBatch agrees with the JS reference and with per-pair cosine (strict ===)", () => {
-    const q = [0.1, 0.2, 0.3];
+  it("cosineBatch agrees with the JS reference and with per-pair cosine (close, not strict ===)", () => {
+    // THE-504: cosineBatch's query is now a Float32Array, so cosineSimilarity (which still takes
+    // a plain f64 number[]) sees the query at full f64 precision while cosineBatch sees it
+    // narrowed to f32 — a deliberate, epsilon-bounded difference (see the Rust-side
+    // cosine_batch_f32_query_narrowing_within_epsilon test), so this compares closely rather than
+    // with strict ===.
+    const q = new Float32Array([0.1, 0.2, 0.3]);
+    const qNumbers = Array.from(q);
     const flat = new Float32Array([0.2, 0.1, 0.4, 0.9, 0.0, 0.1]);
     expect(Array.from(cosineBatch(q, flat, 3))).toEqual(Array.from(jsCosineBatch(q, flat, 3)));
-    expect(cosineBatch(q, flat, 3)[0]).toBe(cosineSimilarity(q, flat.subarray(0, 3)));
-    expect(cosineBatch(q, flat, 3)[1]).toBe(cosineSimilarity(q, flat.subarray(3, 6)));
+    expect(cosineBatch(q, flat, 3)[0]).toBeCloseTo(
+      cosineSimilarity(qNumbers, flat.subarray(0, 3)),
+      6,
+    );
+    expect(cosineBatch(q, flat, 3)[1]).toBeCloseTo(
+      cosineSimilarity(qNumbers, flat.subarray(3, 6)),
+      6,
+    );
   });
 });
 

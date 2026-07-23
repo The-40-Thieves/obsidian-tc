@@ -35,3 +35,12 @@ rustix = { version = "1", features = ["fs"] }
 lto = true
 codegen-units = 1
 opt-level = 3
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+# THE-504: old-vs-new cosine_batch algorithm + f32-vs-f64-accumulation benches. `harness = false`
+# because Criterion provides its own `main` (via `criterion_main!`) instead of libtest's.
+[[bench]]
+name = "cosine_batch"
+harness = false

@@ -25,13 +25,37 @@ export function cosineSimilarity(a: number[], b: Float32Array | number[]): numbe
 }
 
 /** Batched cosine: one query vs N concatenated f32 docs of length `dim`; scores in row order.
- *  Empty for a bad shape. Mirrors the Rust `cosine_batch` (reuses cosineSimilarity per doc). */
-export function cosineBatch(query: number[], docsFlat: Float32Array, dim: number): Float64Array {
+ *  Empty for a bad shape. Mirrors the Rust `cosine_batch`.
+ *
+ *  THE-504: `query` is a `Float32Array` (was `number[]`); its norm is computed once per batch, and
+ *  each doc's dot product and norm are computed together in a single pass (was: reuse
+ *  cosineSimilarity per doc, recomputing the query norm every time). */
+export function cosineBatch(
+  query: Float32Array,
+  docsFlat: Float32Array,
+  dim: number,
+): Float64Array {
   if (dim <= 0 || query.length !== dim || docsFlat.length % dim !== 0) return new Float64Array(0);
+  let normQ = 0;
+  for (let i = 0; i < dim; i++) {
+    const q = query[i] ?? 0;
+    normQ += q * q;
+  }
   const n = docsFlat.length / dim;
   const out = new Float64Array(n);
+  if (normQ === 0) return out;
+  const normQSqrt = Math.sqrt(normQ);
   for (let i = 0; i < n; i++) {
-    out[i] = cosineSimilarity(query, docsFlat.subarray(i * dim, i * dim + dim));
+    const base = i * dim;
+    let dot = 0;
+    let normD = 0;
+    for (let j = 0; j < dim; j++) {
+      const q = query[j] ?? 0;
+      const d = docsFlat[base + j] ?? 0;
+      dot += q * d;
+      normD += d * d;
+    }
+    out[i] = normD === 0 ? 0 : dot / (normQSqrt * Math.sqrt(normD));
   }
   return out;
 }

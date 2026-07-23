@@ -1,53 +1,62 @@
-// First bench harness (THE-420): proves the BATCHED native cosine beats JS on the brute-force
-// recall pattern, whereas the per-pair native call is ~13-22x SLOWER (N-API query re-marshaling
-// per call). Run: `node packages/native/bench/cosine-batch.cjs` (uses the built .node if present).
+// THE-420/THE-504 bench harness: JS fallback vs native cosineBatch (and, for reference, the
+// per-pair native call THE-420 already showed is a net loss). Run:
+//   node packages/native/bench/cosine-batch.cjs
+// (uses the built .node if present; otherwise both "native" and "JS" columns run the same
+// pure-JS fallback, so nativeLoaded=false runs still complete but show no native/JS gap.)
+//
+// THE-504: cosineBatch's query is now a Float32Array (was number[]) — this harness passes one.
 const N = require("../index.js"); // umbrella loader: native when built, else JS fallback
 const F = require("../fallback.js");
 
-const DIM = 768;
-const ROWS = 20000;
+const DIMS = [384, 768, 1024, 1536];
+const DOC_COUNTS = [100, 1_000, 10_000];
+
 const rand = (d) => {
-  const a = new Array(d);
+  const a = new Float32Array(d);
   for (let i = 0; i < d; i++) a[i] = Math.random() * 2 - 1;
   return a;
 };
-const q = rand(DIM);
-const flat = new Float32Array(ROWS * DIM);
-for (let i = 0; i < flat.length; i++) flat[i] = Math.random() * 2 - 1;
-const docs = [];
-for (let i = 0; i < ROWS; i++) docs.push(flat.subarray(i * DIM, i * DIM + DIM));
 
 let SINK = 0;
 const time = (fn) => {
-  for (let w = 0; w < 3; w++) fn(); // warm
-  const t0 = performance.now();
-  SINK += fn();
-  return performance.now() - t0;
+  for (let w = 0; w < 10; w++) fn(); // warm
+  // Median of repeated timed batches (not mean) — this host shows enough scheduling jitter
+  // that a mean over a handful of reps is noise-dominated for the smaller inputs.
+  const samples = [];
+  const reps = 15;
+  for (let r = 0; r < reps; r++) {
+    const t0 = performance.now();
+    SINK += fn();
+    samples.push(performance.now() - t0);
+  }
+  samples.sort((a, b) => a - b);
+  return samples[Math.floor(samples.length / 2)];
 };
 
-const perCallNative = time(() => {
-  let s = 0;
-  for (let i = 0; i < ROWS; i++) s += N.cosineSimilarity(q, docs[i]);
-  return s;
-});
-const perCallJs = time(() => {
-  let s = 0;
-  for (let i = 0; i < ROWS; i++) s += F.cosineSimilarity(q, docs[i]);
-  return s;
-});
-const batchedNative = time(() => {
-  const o = N.cosineBatch(q, flat, DIM);
-  let s = 0;
-  for (let i = 0; i < o.length; i++) s += o[i];
-  return s;
-});
+console.log(`nativeLoaded=${N.nativeLoaded} cosineBatch=${typeof N.cosineBatch}`);
+console.log("dim,docs,js_fallback_ms,native_batch_ms,speedup_x");
 
-console.log(
-  `nativeLoaded=${N.nativeLoaded} cosineBatch=${typeof N.cosineBatch} ROWS=${ROWS} DIM=${DIM}`,
-);
-console.log(`per-call native : ${perCallNative.toFixed(1)} ms`);
-console.log(`per-call JS     : ${perCallJs.toFixed(1)} ms`);
-console.log(`batched native  : ${batchedNative.toFixed(1)} ms`);
-console.log(`=> batched vs per-call-native: ${(perCallNative / batchedNative).toFixed(1)}x faster`);
-console.log(`=> batched vs per-call-JS    : ${(perCallJs / batchedNative).toFixed(2)}x`);
+for (const dim of DIMS) {
+  for (const rows of DOC_COUNTS) {
+    const q = rand(dim);
+    const flat = new Float32Array(rows * dim);
+    for (let i = 0; i < flat.length; i++) flat[i] = Math.random() * 2 - 1;
+
+    const jsMs = time(() => {
+      const o = F.cosineBatch(q, flat, dim);
+      let s = 0;
+      for (let i = 0; i < o.length; i++) s += o[i];
+      return s;
+    });
+    const nativeMs = time(() => {
+      const o = N.cosineBatch(q, flat, dim);
+      let s = 0;
+      for (let i = 0; i < o.length; i++) s += o[i];
+      return s;
+    });
+    console.log(
+      `${dim},${rows},${jsMs.toFixed(3)},${nativeMs.toFixed(3)},${(jsMs / nativeMs).toFixed(2)}`,
+    );
+  }
+}
 console.log(`(sink ${SINK.toFixed(2)})`);

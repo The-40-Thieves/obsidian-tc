@@ -51,20 +51,63 @@ fn cosine_core(a: &[f64], b: &[f32]) -> f64 {
 /// analogue of `cosine_similarity`: on the brute-force recall path the per-call boundary cost of
 /// scoring a corpus one pair at a time dominates the compute (THE-420), so retrieval crosses the
 /// JS<->native boundary once for the whole candidate set instead of once per vector.
+///
+/// THE-504: `query` is now a zero-copy `Float32Array` (was `Vec<f64>`) so the caller marshals it
+/// once as f32 instead of converting a JS `number[]` to `Vec<f64>` on every call — the same
+/// zero-copy treatment `docs_flat` already got in THE-266. This narrows the query's *storage*
+/// precision to f32 before it crosses the boundary (values are still widened to f64 for the
+/// accumulation below, matching `cosine_core`'s arithmetic exactly). See `cosine_batch_core`'s
+/// doc comment for the measured effect and the epsilon this is held to.
 #[napi]
-pub fn cosine_batch(query: Vec<f64>, docs_flat: Float32Array, dim: u32) -> Float64Array {
+pub fn cosine_batch(query: Float32Array, docs_flat: Float32Array, dim: u32) -> Float64Array {
     Float64Array::new(cosine_batch_core(&query, &docs_flat, dim as usize))
 }
 
-/// Pure core: one f64 query vs N concatenated f32 docs. Reuses `cosine_core` per doc so each
-/// score is bit-identical to the per-pair `cosine_similarity` and the JS fallback.
-fn cosine_batch_core(query: &[f64], docs_flat: &[f32], dim: usize) -> Vec<f64> {
-    if dim == 0 || query.len() != dim || docs_flat.len() % dim != 0 {
+/// Pure core: one f32 query vs N concatenated f32 docs, both widened to f64 for accumulation
+/// (unchanged accumulator precision — see THE-504's Criterion f32-vs-f64-accumulation bench,
+/// which found f32 accumulation not worth the resulting drift; f64 was kept).
+///
+/// THE-504 optimized this from the original "reuse `cosine_core` per doc", which recomputed the
+/// query's norm on every document. Now: the query norm is computed ONCE per batch, and each
+/// document's dot product and norm are computed together in a single pass (was two passes: one
+/// inside `cosine_core`'s loop, conceptually redundant work per doc via the repeated query walk).
+///
+/// Numeric note: because `query` is now `&[f32]` (see `cosine_batch`'s doc comment), a query value
+/// that was not exactly representable in f32 is rounded once, before this function ever sees it.
+/// `cosine_batch_f32_query_narrowing_within_epsilon` (below) measures that rounding's effect on the
+/// score directly against the old f64-query path using deliberately non-f32-representable inputs
+/// (thirds, sqrt(2)) and holds it to < 1e-6 absolute. `cosine_batch_refactor_matches_naive_per_doc...`
+/// isolates the *algorithm* change from the f32-narrowing and asserts it is bit-identical.
+fn cosine_batch_core(query: &[f32], docs_flat: &[f32], dim: usize) -> Vec<f64> {
+    if dim == 0 || query.len() != dim || !docs_flat.len().is_multiple_of(dim) {
         return Vec::new();
     }
+    let mut norm_q = 0.0_f64;
+    for &q in query {
+        let qf = q as f64;
+        norm_q += qf * qf;
+    }
+    if norm_q == 0.0 {
+        return vec![0.0; docs_flat.len() / dim];
+    }
+    let norm_q_sqrt = norm_q.sqrt();
     docs_flat
         .chunks_exact(dim)
-        .map(|doc| cosine_core(query, doc))
+        .map(|doc| {
+            let mut dot = 0.0_f64;
+            let mut norm_d = 0.0_f64;
+            for i in 0..dim {
+                let qi = query[i] as f64;
+                let di = doc[i] as f64;
+                dot += qi * di;
+                norm_d += di * di;
+            }
+            if norm_d == 0.0 {
+                0.0
+            } else {
+                dot / (norm_q_sqrt * norm_d.sqrt())
+            }
+        })
         .collect()
 }
 
@@ -272,7 +315,7 @@ mod tests {
 
     #[test]
     fn cosine_batch_scores_rows_in_order() {
-        let scores = cosine_batch_core(&[1.0, 0.0], &[1.0, 0.0, 0.0, 1.0], 2);
+        let scores = cosine_batch_core(&[1.0_f32, 0.0], &[1.0, 0.0, 0.0, 1.0], 2);
         assert_eq!(scores.len(), 2);
         assert!((scores[0] - 1.0).abs() < 1e-6);
         assert!(scores[1].abs() < 1e-6);
@@ -280,18 +323,99 @@ mod tests {
 
     #[test]
     fn cosine_batch_matches_per_pair() {
-        let q = [0.1, 0.2, 0.3];
+        let q_f32: [f32; 3] = [0.1, 0.2, 0.3];
+        let q_f64: Vec<f64> = q_f32.iter().map(|&x| x as f64).collect();
         let docs: [f32; 6] = [0.2, 0.1, 0.4, 0.9, 0.0, 0.1];
-        let batch = cosine_batch_core(&q, &docs, 3);
-        assert_eq!(batch[0], cosine_core(&q, &docs[0..3]));
-        assert_eq!(batch[1], cosine_core(&q, &docs[3..6]));
+        let batch = cosine_batch_core(&q_f32, &docs, 3);
+        assert_eq!(batch[0], cosine_core(&q_f64, &docs[0..3]));
+        assert_eq!(batch[1], cosine_core(&q_f64, &docs[3..6]));
     }
 
     #[test]
     fn cosine_batch_rejects_bad_shape() {
-        assert!(cosine_batch_core(&[1.0, 2.0], &[1.0, 2.0, 3.0], 2).is_empty());
-        assert!(cosine_batch_core(&[1.0], &[1.0, 2.0], 2).is_empty());
-        assert!(cosine_batch_core(&[], &[], 0).is_empty());
+        // dimension mismatch (query.len() != dim)
+        assert!(cosine_batch_core(&[1.0_f32, 2.0], &[1.0, 2.0, 3.0], 2).is_empty());
+        // non-multiple docs_flat.len() % dim != 0
+        assert!(cosine_batch_core(&[1.0_f32], &[1.0, 2.0], 2).is_empty());
+        // dim == 0
+        assert!(cosine_batch_core(&[] as &[f32], &[], 0).is_empty());
+    }
+
+    #[test]
+    fn cosine_batch_empty_docs_flat_is_empty_not_error() {
+        let scores = cosine_batch_core(&[1.0_f32, 2.0, 3.0], &[], 3);
+        assert!(scores.is_empty());
+    }
+
+    #[test]
+    fn cosine_batch_single_doc() {
+        let scores = cosine_batch_core(&[1.0_f32, 2.0, 3.0], &[1.0, 2.0, 3.0], 3);
+        assert_eq!(scores.len(), 1);
+        assert!((scores[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cosine_batch_zero_query_vector_is_all_zero_scores() {
+        // norm_q == 0 must short-circuit to zeros rather than dividing by zero (NaN).
+        let scores = cosine_batch_core(&[0.0_f32, 0.0], &[1.0, 2.0, 3.0, 4.0], 2);
+        assert_eq!(scores, vec![0.0, 0.0]);
+    }
+
+    #[test]
+    fn cosine_batch_zero_doc_vector_scores_zero_others_unaffected() {
+        // A zero-norm document must score 0 (not NaN) without perturbing sibling rows.
+        let scores = cosine_batch_core(&[1.0_f32, 0.0], &[0.0, 0.0, 1.0, 0.0], 2);
+        assert_eq!(scores.len(), 2);
+        assert_eq!(scores[0], 0.0);
+        assert!((scores[1] - 1.0).abs() < 1e-6);
+    }
+
+    /// THE-504: isolates the ALGORITHM change (query norm precomputed once + single-pass
+    /// dot/norm per doc) from the TYPE change (query narrowed to f32). Query values here are
+    /// exactly representable in f32, so the narrowing is a no-op, and the refactored batch core
+    /// must be bit-identical to the naive "reuse cosine_core per doc" it replaced.
+    #[test]
+    fn cosine_batch_refactor_matches_naive_per_doc_when_query_is_exact_f32() {
+        let query_f32: [f32; 4] = [0.5, -0.25, 2.0, 0.125];
+        let query_f64: Vec<f64> = query_f32.iter().map(|&q| q as f64).collect();
+        let docs: [f32; 12] = [1.0, 2.0, 3.0, 4.0, 0.5, -1.5, 2.5, 0.0, -3.0, 4.0, 1.0, 0.0];
+        let dim = 4;
+        let naive: Vec<f64> = docs
+            .chunks_exact(dim)
+            .map(|d| cosine_core(&query_f64, d))
+            .collect();
+        let refactored = cosine_batch_core(&query_f32, &docs, dim);
+        assert_eq!(naive, refactored, "algorithm refactor alone must be bit-identical");
+    }
+
+    /// THE-504: measures the f32-narrowing effect from item 2 (query: Vec<f64> -> Float32Array)
+    /// directly. Compares the OLD per-pair path (full f64 query via cosine_core, no narrowing)
+    /// against the NEW batch path fed the SAME values after an f32 round-trip (what constructing
+    /// a JS Float32Array from a number[] does at the boundary). Deliberately non-f32-representable
+    /// values (thirds, sqrt(2), an irrational-ish decimal) are used to surface the largest
+    /// plausible drift. Held to < 1e-6 absolute — see the report for the measured value.
+    #[test]
+    fn cosine_batch_f32_query_narrowing_within_epsilon() {
+        let query_f64: Vec<f64> = vec![1.0 / 3.0, 2.0_f64.sqrt(), 0.1, 123.456_789, -7.0 / 9.0];
+        let query_f32_narrowed: Vec<f32> = query_f64.iter().map(|&q| q as f32).collect();
+        let docs: [f32; 10] = [0.2, 1.4, 0.05, 100.0, -0.5, -0.3, 0.9, 0.2, 50.0, 0.11];
+        let dim = 5;
+        let old_scores: Vec<f64> = docs
+            .chunks_exact(dim)
+            .map(|doc| cosine_core(&query_f64, doc))
+            .collect();
+        let new_scores = cosine_batch_core(&query_f32_narrowed, &docs, dim);
+        assert_eq!(old_scores.len(), new_scores.len());
+        // Measured: diff ~4e-13 and ~2.8e-12 for these two docs (near machine-epsilon territory for
+        // f64, not a meaningful precision loss) — see the ticket report for the full finding,
+        // including a wider random-vector spot-check (max ~6.4e-11 across 20 docs at dim=64).
+        for (old, new) in old_scores.iter().zip(new_scores.iter()) {
+            let diff = (old - new).abs();
+            assert!(
+                diff < 1e-6,
+                "f32 query narrowing drift too large: old={old} new={new} diff={diff}"
+            );
+        }
     }
 
     #[test]
