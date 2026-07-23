@@ -116,7 +116,7 @@ const CLAIM_SCAN_LIMIT = 50;
 export class JobQueue {
   private readonly db: Database;
   private readonly now: () => number;
-  private readonly leaseMs: number;
+  private readonly leaseMsValue: number;
   private readonly maxAttempts: number;
   private readonly backoffBaseMs: number;
   private readonly maxBackoffMs: number;
@@ -124,10 +124,17 @@ export class JobQueue {
   constructor(db: Database, opts: JobQueueOptions = {}) {
     this.db = db;
     this.now = opts.now ?? Date.now;
-    this.leaseMs = opts.leaseMs ?? DEFAULT_LEASE_MS;
+    this.leaseMsValue = opts.leaseMs ?? DEFAULT_LEASE_MS;
     this.maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     this.backoffBaseMs = opts.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
     this.maxBackoffMs = opts.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
+  }
+
+  /** THE-517: read-only view of this instance's configured default lease duration. Exists so
+   *  runJob can derive its heartbeat default from the SAME queue's actual leaseMs instead of a
+   *  hardcoded constant that could outlive a caller-supplied short lease (see runJob below). */
+  get leaseMs(): number {
+    return this.leaseMsValue;
   }
 
   /** Backoff for the Nth retry (1-indexed attempt count already failed): base * 2^(attempt-1),
@@ -192,7 +199,7 @@ export class JobQueue {
    *  optional per-class concurrency cap. Returns null when nothing is claimable. */
   claim(opts: ClaimOptions): Job | null {
     const t = this.now();
-    const leaseMs = opts.leaseMs ?? this.leaseMs;
+    const leaseMs = opts.leaseMs ?? this.leaseMsValue;
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const typeFilter = opts.types?.length
@@ -250,7 +257,7 @@ export class JobQueue {
       .prepare(
         "UPDATE jobs SET lease_expires_at = ?, updated_at = ? WHERE id = ? AND lease_owner = ? AND state = 'running'",
       )
-      .run(t + (leaseMs ?? this.leaseMs), t, id, leaseOwner);
+      .run(t + (leaseMs ?? this.leaseMsValue), t, id, leaseOwner);
     return updated.changes === 1;
   }
 
@@ -339,6 +346,19 @@ export interface RunJobOptions {
  * request, a loop over SQLite rows, a bridge call) observes the SAME signal firing and can stop
  * mid-operation. Terminal outcome (complete/retrying/failed) is always driven by the persisted
  * row via queue.complete/fail — never by an in-memory flag.
+ *
+ * THE-517 follow-up (found in post-merge review, not part of the original ticket): heartbeat(),
+ * complete(), and fail() all return `false` when this worker no longer owns the lease — i.e.
+ * another worker's claim() already reclaimed the row after this lease expired. The original
+ * version of this function discarded every one of those booleans, so a slow worker whose lease
+ * had already been reclaimed would keep running the handler to completion and unconditionally
+ * report `{ outcome: "complete" }` — duplicate side effects, reported as a clean success.
+ *
+ * This does NOT give the queue exactly-once semantics — that is an explicit non-goal and remains
+ * one. Two workers can still both execute a job's side effects before either notices the lease
+ * moved. What changes here is that lease loss becomes VISIBLE: the "lease-lost" outcome tells the
+ * caller "this worker's write did not land, do not trust it", instead of silently reporting
+ * complete/failed/retrying for work whose persisted outcome disagrees.
  */
 export async function runJob(
   queue: JobQueue,
@@ -346,15 +366,31 @@ export async function runJob(
   leaseOwner: string,
   handler: (job: Job, ctx: RunJobContext) => Promise<void>,
   opts: RunJobOptions = {},
-): Promise<{ outcome: "complete" | "retrying" | "failed"; error?: unknown }> {
+): Promise<{ outcome: "complete" | "retrying" | "failed" | "lease-lost"; error?: unknown }> {
   const controller = new AbortController();
-  const heartbeatMs = opts.heartbeatMs ?? 5_000;
+  // THE-517: derive the default from THIS queue's own leaseMs (via the leaseMs getter) rather
+  // than a hardcoded constant. A caller configuring a short lease (e.g. `leaseMs: 3_000`) must
+  // not get a 5s heartbeat that would fire AFTER the lease already expired — that silently
+  // guarantees the first heartbeat always loses the race. The floor of 1ms guards leaseMs < 3
+  // (only reachable in pathological test setups) from producing a zero/negative interval.
+  const heartbeatMs = opts.heartbeatMs ?? Math.max(1, Math.floor(queue.leaseMs / 3));
+  // Distinguishes "aborted because the lease was reclaimed out from under us" from "aborted
+  // because cancel_requested was set" — both go through the same AbortController, but the catch
+  // block below needs to know which one happened to pick the right outcome.
+  let leaseLost = false;
   const beat = setInterval(() => {
     if (queue.isCancelRequested(job.id)) {
       controller.abort(new DOMException("job cancelled", "AbortError"));
       return; // no further heartbeats needed once aborted
     }
-    queue.heartbeat(job.id, leaseOwner);
+    if (!queue.heartbeat(job.id, leaseOwner)) {
+      // heartbeat() returned false: some other worker's claim() already reclaimed this row (its
+      // lease_expires_at had passed). Continuing to run the handler races a second execution of
+      // the same job with neither worker aware of the other — abort now, with a distinct reason,
+      // so the handler stops at its next signal check exactly as it would on cancellation.
+      leaseLost = true;
+      controller.abort(new DOMException("job lease lost", "AbortError"));
+    }
   }, heartbeatMs);
   (beat as unknown as { unref?: () => void }).unref?.();
   try {
@@ -362,11 +398,25 @@ export async function runJob(
       signal: controller.signal,
       checkpoint: (data) => queue.checkpoint(job.id, leaseOwner, data),
     });
-    queue.complete(job.id, leaseOwner);
-    return { outcome: "complete" };
+    // The handler resolved, but that alone does not mean the completion was PERSISTED —
+    // complete() returns false if the lease moved between the last heartbeat and this write.
+    // Report what the row actually says, not what the handler's return implies.
+    const completed = queue.complete(job.id, leaseOwner);
+    return completed ? { outcome: "complete" } : { outcome: "lease-lost" };
   } catch (e) {
+    if (leaseLost) {
+      // We already know we do not own the lease (the heartbeat above told us so) — skip fail(),
+      // whose own lease_owner/state guard would just no-op (changes === 0). Whatever worker
+      // reclaimed the row owns its fate now; ours is honestly reported as lease-lost.
+      return { outcome: "lease-lost", error: e };
+    }
     const cancelled = controller.signal.aborted;
-    queue.fail(job.id, leaseOwner, e, { terminal: cancelled });
+    const failRecorded = queue.fail(job.id, leaseOwner, e, { terminal: cancelled });
+    if (!failRecorded) {
+      // Lost the lease between the last heartbeat and this write (e.g. the handler threw for an
+      // unrelated reason right as another worker's reclaim landed) — same honesty rule as above.
+      return { outcome: "lease-lost", error: e };
+    }
     return {
       outcome: cancelled ? "failed" : job.attempt >= job.maxAttempts ? "failed" : "retrying",
       error: e,
