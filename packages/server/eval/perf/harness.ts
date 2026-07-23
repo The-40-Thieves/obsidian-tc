@@ -68,6 +68,32 @@ export function countingProvider(base: EmbeddingProvider): CountingProvider {
   return wrapped;
 }
 
+/** Counts write-transaction starts (`exec("BEGIN")`) issued through this connection, for
+ *  THE-503's `index.txn_count` metric: how many transactions indexVault's own batching (THE-500)
+ *  actually used to write this vault, as a "fewer is better" figure rather than an exact-match
+ *  invariant a legitimate batching improvement could never register on. */
+export interface CountingDatabase extends Database {
+  writeTxnCount: number;
+}
+export function countingDatabase(base: Database): CountingDatabase {
+  const wrapped: CountingDatabase = {
+    writeTxnCount: 0,
+    exec(sql: string) {
+      if (sql.trim().toUpperCase() === "BEGIN") wrapped.writeTxnCount += 1;
+      base.exec(sql);
+    },
+    prepare: (sql: string) => base.prepare(sql),
+    prepareCached: base.prepareCached
+      ? (sql: string) => (base.prepareCached as NonNullable<Database["prepareCached"]>)(sql)
+      : undefined,
+    loadExtension: base.loadExtension
+      ? (path: string) => (base.loadExtension as NonNullable<Database["loadExtension"]>)(path)
+      : undefined,
+    close: base.close ? () => (base.close as NonNullable<Database["close"]>)() : undefined,
+  };
+  return wrapped;
+}
+
 export interface VaultCtx {
   db: Database;
   root: string;
@@ -75,6 +101,8 @@ export interface VaultCtx {
   provider: CountingProvider;
   stats: IndexStats;
   chunkCount: number;
+  /** Real write-transaction count indexVault used to build this vault (THE-503, family 7). */
+  writeTxnCount: number;
   cleanup: () => void;
 }
 
@@ -122,8 +150,9 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
     writeFileSync(abs, `${body}\n\n## Links\n\n${links.join(" ")}\n`);
   }
 
-  const db = await openDatabase(":memory:");
-  provisionCacheDb(db);
+  const rawDb = await openDatabase(":memory:");
+  provisionCacheDb(rawDb); // schema setup — not counted; only indexVault's own write txns are.
+  const db = countingDatabase(rawDb);
   const provider = countingProvider(fakeEmbeddingProvider({ dimensions: 32, model: "fake-perf" }));
   const stats = await indexVault({
     db,
@@ -142,6 +171,7 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
     provider,
     stats,
     chunkCount,
+    writeTxnCount: db.writeTxnCount,
     cleanup: () => {
       // Idempotent close: collectors (e.g. collectLifecycle, family 13) close `db` themselves to
       // time shutdown drain, and orchestration may call this cleanup afterward. A second

@@ -13,6 +13,13 @@
     "class": "warn",
     "direction": "lower-worse"
   },
+  "index.txn_count": {
+    "value": 3,
+    "tol": 0.15,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "higher-worse"
+  },
   "embed.call_count": {
     "value": 2,
     "tol": 0,
@@ -112,7 +119,7 @@
     "direction": "higher-worse"
   },
   "storage.bytes": {
-    "value": 1134592,
+    "value": 1282048,
     "tol": 0.15,
     "mode": "ratio",
     "class": "hard",
@@ -140,7 +147,7 @@
     "direction": "higher-worse"
   },
   "runtime.eventloop_p99_ms": {
-    "value": 0,
+    "value": 145.358847,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -169,6 +176,34 @@
   },
   "http.warm_ms": {
     "value": 20.24059800000009,
+    "tol": 0.5,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "higher-worse"
+  },
+  "http.concurrent2_ok_count": {
+    "value": 2,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "http.concurrent2_p99_ms": {
+    "value": 5.1952400000000125,
+    "tol": 0.5,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "higher-worse"
+  },
+  "http.concurrent8_ok_count": {
+    "value": 8,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "http.concurrent8_p99_ms": {
+    "value": 14.384951999999885,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",

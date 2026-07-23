@@ -91,3 +91,93 @@ export async function collectHttp(vault: VaultCtx): Promise<MetricSample[]> {
     { key: "http.warm_ms", value: warm.ms, unit: "ms", class: "warn", direction: "higher-worse" },
   ];
 }
+
+/**
+ * THE-503 Part 2 scenario coverage — concurrent HTTP callers (2 and 8). The single-caller
+ * cold/warm handshake above says nothing about what happens when several MCP clients hit the
+ * same server at once; `transports/http.ts` builds a fresh server+transport PER REQUEST (the
+ * profile THE-463 targets), so concurrent requests are also a concurrency-safety question, not
+ * just a throughput one. Reuses the same in-process `app.fetch()` approach — no network
+ * listener, no port contention.
+ */
+async function fireConcurrentHandshakes(
+  app: ReturnType<typeof createHttpApp>,
+  initialize: () => Request,
+  concurrency: number,
+): Promise<{ ms: number; okCount: number }[]> {
+  const calls = Array.from({ length: concurrency }, async () => {
+    const t = performance.now();
+    let ok = false;
+    try {
+      const res = await app.fetch(initialize());
+      const body = await res.text();
+      ok = res.ok && body.includes('"result"') && body.includes("protocolVersion");
+    } catch {
+      ok = false;
+    }
+    return { ms: performance.now() - t, ok };
+  });
+  const results = await Promise.all(calls);
+  return results.map((r) => ({ ms: r.ms, okCount: r.ok ? 1 : 0 }));
+}
+
+export async function collectHttpConcurrency(vault: VaultCtx): Promise<MetricSample[]> {
+  const app = createHttpApp({
+    name: "obsidian-tc-perf",
+    version: "0.0.0-perf",
+    registry: new ToolRegistry(),
+    auth: { mode: "none" } as Parameters<typeof createHttpApp>[0]["auth"],
+    db: vault.db,
+    vaultId: vault.vaultId,
+    acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+  } as Parameters<typeof createHttpApp>[0]);
+
+  const initialize = (): Request =>
+    new Request("http://127.0.0.1/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        host: "127.0.0.1",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "perf-harness-concurrent", version: "1" },
+        },
+      }),
+    });
+
+  // One warmup round per level, not measured, so cold-start cost doesn't leak into the reported
+  // latency (that is what http.cold_ms/warm_ms already isolate above).
+  await fireConcurrentHandshakes(app, initialize, 2);
+
+  const samples: MetricSample[] = [];
+  for (const concurrency of [2, 8] as const) {
+    const results = await fireConcurrentHandshakes(app, initialize, concurrency);
+    const okCount = results.reduce((a, r) => a + r.okCount, 0);
+    const ms = results.map((r) => r.ms).sort((a, b) => a - b);
+    const p99 = ms[Math.min(ms.length - 1, Math.floor(0.99 * ms.length))] as number;
+    samples.push(
+      {
+        key: `http.concurrent${concurrency}_ok_count`,
+        value: okCount,
+        unit: "count",
+        class: "hard",
+        direction: "exact",
+      },
+      {
+        key: `http.concurrent${concurrency}_p99_ms`,
+        value: p99,
+        unit: "ms",
+        class: "warn",
+        direction: "higher-worse",
+      },
+    );
+  }
+  return samples;
+}
