@@ -508,41 +508,5 @@
         ]
       }
     ]
-  },
-  {
-    "type": "module",
-    "from": "packages/server/src/experiential/gaps.ts",
-    "to": "packages/server/src/experiential/gaps.ts",
-    "rule": {
-      "severity": "warn",
-      "name": "no-orphans"
-    }
-  },
-  {
-    "type": "module",
-    "from": "packages/server/src/search/index-coordinator.ts",
-    "to": "packages/server/src/search/index-coordinator.ts",
-    "rule": {
-      "severity": "warn",
-      "name": "no-orphans"
-    }
-  },
-  {
-    "type": "module",
-    "from": "packages/server/src/transports/stdio.ts",
-    "to": "packages/server/src/transports/stdio.ts",
-    "rule": {
-      "severity": "warn",
-      "name": "no-orphans"
-    }
-  },
-  {
-    "type": "module",
-    "from": "packages/shared/src/schemas/primitives.ts",
-    "to": "packages/shared/src/schemas/primitives.ts",
-    "rule": {
-      "severity": "warn",
-      "name": "no-orphans"
-    }
   }
 ]

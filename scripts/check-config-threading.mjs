@@ -16,9 +16,20 @@ import { readFileSync } from "node:fs";
 const SCHEMA = "packages/shared/src/config.schema.ts";
 
 const schema = readFileSync(SCHEMA, "utf8");
-// Keys are `  name: z.<type>(...)` inside the schema objects.
+// Keys are `  name: z.<type>(...)` — but Biome wraps long chains, so the far more common form is
+//
+//     rrfK: z
+//       .number()
+//
+// THE-544: the original pattern required `z.` on ONE line and therefore matched 14 of 130 keys —
+// and the 14 it matched (path, glob, field, value, model, enabled, name, code, ...) are exactly the
+// generic names the header above says "will always match something and are never flagged". The
+// check parsed only the keys it was guaranteed to pass on, so it could not fail on any input.
+// Accepting `z` followed by a dot OR whitespace covers both formattings.
 const declared = [
-  ...new Set([...schema.matchAll(/^[ \t]+([a-zA-Z][A-Za-z0-9_]*):[ \t]*z\./gm)].map((m) => m[1])),
+  ...new Set(
+    [...schema.matchAll(/^[ \t]+([a-zA-Z][A-Za-z0-9_]*):[ \t]*z[.\s]/gm)].map((m) => m[1]),
+  ),
 ];
 if (declared.length === 0) {
   console.error(
@@ -50,6 +61,25 @@ const orphans = declared.filter((k) => !new RegExp(`\\b${k}\\b`).test(body));
 // detector is broken and must not be trusted — an earlier inline version of this reported `rrfK`,
 // `tagEdges` and `chunkContext` as orphans, all of which are provably read.
 const CANARIES = ["rrfK", "tagEdges", "chunkContext", "derivedWeight"];
+
+// THE-544: the canary must first assert it is ARMED. The `declared.includes(c) && ...` guard below
+// silently disarms itself when the parser stops seeing a canary at all — which is precisely what
+// happened: none of these four were in `declared`, so the && short-circuited and the
+// "DETECTOR IS BROKEN" alarm could never fire. A canary absent from the parse is not a pass, it is
+// the loudest possible signal that the parser regressed.
+const missingCanaries = CANARIES.filter((c) => !declared.includes(c));
+if (missingCanaries.length > 0) {
+  console.error(
+    "config-threading: DETECTOR IS BROKEN — known-declared canary keys were not parsed from the",
+  );
+  console.error(`schema at all: ${missingCanaries.join(", ")}`);
+  console.error(
+    "The key pattern has stopped matching the schema's formatting. Fix the parser; a 'clean'",
+  );
+  console.error("result from a parser that cannot see its own canaries means nothing.");
+  process.exit(1);
+}
+
 const falsePositives = CANARIES.filter((c) => declared.includes(c) && orphans.includes(c));
 if (falsePositives.length > 0) {
   console.error(
