@@ -26,7 +26,7 @@ import { openMemoryDb } from "./helpers";
  *  M1–M8 domains). Bump this WITH the docs headline (README/ARCHITECTURE/docs-site) and the
  *  EXPECTED_TOOL_COUNT in scripts/check-version-coherence.mjs (which asserts the docs match it) when
  *  a tool is added or removed. */
-const REGISTERED_TOOL_COUNT = 145;
+const REGISTERED_TOOL_COUNT = 146;
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },

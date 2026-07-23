@@ -5,7 +5,7 @@ description: What has shipped through v1.8, and what remains deferred or out of 
 
 ## Shipped (current: v1.10.0)
 
-The complete G2.1 tool surface — 145 tools across 31 domains — plus everything the
+The complete G2.1 tool surface — 146 tools across 31 domains — plus everything the
 v1.x line added on top of the v1.0 hardening gate (OpenTelemetry, Prometheus,
 CloudEvents, rate limiter, 8-triple native prebuilds, this docs site):
 

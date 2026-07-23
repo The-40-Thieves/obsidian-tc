@@ -10,7 +10,7 @@
 | | |
 |---|---|
 | **Version** | `1.10.0` |
-| **Tools** | 145 governed capabilities (advertised via the 3-tool facade) |
+| **Tools** | 146 governed capabilities (advertised via the 3-tool facade) |
 | **Config keys** | 153 |
 | **Golden set** | 250 queries, statistical ship rule on every ranking change |
 | **Retrieval** | contextual chunk enrichment +0.223 nDCG, defaults on |

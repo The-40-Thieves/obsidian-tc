@@ -15,7 +15,7 @@ between the markers — change the tool and regenerate.
 :::
 
 <!-- BEGIN GENERATED: tools -->
-_145 tools. Access is a coarse hint; the required scopes are authoritative._
+_146 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -83,6 +83,7 @@ _145 tools. Access is a coarse hint; the required scopes are authoritative._
 | `list_bookmarks` | read | `read:bookmarks` | List the vault's bookmarks tree (.obsidian/bookmarks.json), preserving groups and unknown fields. |
 | `list_capture_queue` | read | `read:capture` | List captures in the queue (pending by default; committed:true lists committed), newest first. |
 | `list_commands` | read | `read:command` | Enumerate available Obsidian commands (optional substring filter). Uses the companion plugin, falling back to Local REST API's native /commands/ route when the companion is unreachable. |
+| `list_contradictions` | read | `read:notes` | List open contradictions (judge_verdict: 'contradiction' \| 'tension') touching any of the given notes — the same detector output vault_context/reflect/knowledge_challenge surface indirectly, exposed directly for standalone inspection. Read-only. |
 | `list_kanban_boards` | read | `read:notes` | List Kanban board notes in the vault (frontmatter kanban-plugin: board), with column and card counts. |
 | `list_notes` | read | `read:notes` | List notes under a folder (read-ACL filtered), with cursor pagination. |
 | `list_periodic_notes` | read | `read:periodic` | Enumerate existing periodic notes in a date range (probes the configured format/folder). Defaults to a recent window when from/to are omitted. |
