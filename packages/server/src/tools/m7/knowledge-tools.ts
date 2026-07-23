@@ -22,7 +22,11 @@ import {
 import { type GatewayRoles, prompt } from "../../plane/gateway";
 import { bm25Chunks } from "../../search/chunk_fts";
 import { readGeneration } from "../../search/generation";
-import { type GraphSearchResult, graphSearch } from "../../search/graph_search";
+import {
+  type GraphSearchOptions,
+  type GraphSearchResult,
+  graphSearch,
+} from "../../search/graph_search";
 import {
   callerAclFingerprint,
   DEFAULT_PREFETCH_TTL_MS,
@@ -133,6 +137,55 @@ function prewarmBundlePaths(bundle: Record<string, unknown>): string[] {
     }
   }
   return paths;
+}
+
+/** THE-545: every CONFIG-DERIVED graphSearch option, assembled in exactly one place.
+ *
+ *  The four graphSearch call sites in this module each hand-assembled this object, and the copies
+ *  drifted. `ranking.metadataPrior` reached vault_context and reflect but neither
+ *  vault_graph_search — the primary search verb — nor knowledge_search. Partial reachability is
+ *  worse than no reachability: the knob measurably changed two surfaces and silently did nothing on
+ *  the other two, so any measurement taken on one surface did not describe the others.
+ *
+ *  The generator of that defect was the hand-assembly itself — a new knob had to be remembered four
+ *  separate times, and remembering is not a mechanism. Routing every site through one builder makes
+ *  threading structural: a knob added here reaches every surface by construction.
+ *
+ *  Genuinely per-site values stay explicit parameters rather than being defaulted here, so a
+ *  deliberate deviation stays visible at its call site. `reranker` is the one that matters:
+ *  knowledge_search pins it to null on purpose (THE-441, reranking lost on the docs corpus), and
+ *  that decision must not look like an omission. */
+export function buildGraphSearchOptions(
+  deps: M7Deps,
+  site: {
+    route: { class: string };
+    query: string;
+    queryVec: number[];
+    querySparse?: GraphSearchOptions["querySparse"];
+    queryColbert?: GraphSearchOptions["queryColbert"];
+    vaultId: string;
+    finalTopK: number;
+    reranker: GraphSearchOptions["reranker"];
+    isReadable: GraphSearchOptions["isReadable"];
+  },
+): GraphSearchOptions {
+  return {
+    ...(site.route.class === "temporal" ? { temporal: { enabled: true } } : {}),
+    query: site.query,
+    queryVec: site.queryVec,
+    model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
+    vaultId: site.vaultId,
+    finalTopK: site.finalTopK,
+    ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
+    ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
+    ...(deps.retrieval?.adaptiveRrf?.enabled ? { adaptiveRrf: deps.retrieval.adaptiveRrf } : {}),
+    ...(deps.ranking?.metadataPrior?.enabled ? { metadataPrior: deps.ranking.metadataPrior } : {}),
+    ...(site.querySparse ? { querySparse: site.querySparse } : {}),
+    ...(site.queryColbert ? { queryColbert: site.queryColbert } : {}),
+    reranker: site.reranker,
+    isReadable: site.isReadable,
+    ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
+  };
 }
 
 /** Note-level frontmatter tags for the given paths (THE-309), so isDecisionChunk's tag rule can
@@ -290,27 +343,20 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           const queryVec = await embedQuery(query);
           const querySparse = await embedQuerySparse(query);
           const queryColbert = await embedQueryColbert(query);
-          results = await graphSearch(ctx.db, {
-            ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
-            query,
-            queryVec,
-            model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
-            vaultId: v.id,
-            finalTopK: input.k,
-            ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
-            ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
-            ...(deps.retrieval?.adaptiveRrf?.enabled
-              ? { adaptiveRrf: deps.retrieval.adaptiveRrf }
-              : {}),
-            ...(deps.ranking?.metadataPrior?.enabled
-              ? { metadataPrior: deps.ranking.metadataPrior }
-              : {}),
-            ...(querySparse ? { querySparse } : {}),
-            ...(queryColbert ? { queryColbert } : {}),
-            reranker: deps.reranker,
-            isReadable: (rel) => readableRel(ctx.acl, rel),
-            ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
-          });
+          results = await graphSearch(
+            ctx.db,
+            buildGraphSearchOptions(deps, {
+              route,
+              query,
+              queryVec,
+              querySparse,
+              queryColbert,
+              vaultId: v.id,
+              finalTopK: input.k,
+              reranker: deps.reranker,
+              isReadable: (rel) => readableRel(ctx.acl, rel),
+            }),
+          );
         }
         deps.retrievalLog?.({
           queryText: query,
@@ -578,27 +624,20 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           const queryVec = await embedQuery(input.query);
           const querySparse = await embedQuerySparse(input.query);
           const queryColbert = await embedQueryColbert(input.query);
-          results = await graphSearch(ctx.db, {
-            ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
-            query: input.query,
-            queryVec,
-            model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
-            vaultId: v.id,
-            finalTopK: input.k,
-            ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
-            ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
-            ...(deps.retrieval?.adaptiveRrf?.enabled
-              ? { adaptiveRrf: deps.retrieval.adaptiveRrf }
-              : {}),
-            ...(deps.ranking?.metadataPrior?.enabled
-              ? { metadataPrior: deps.ranking.metadataPrior }
-              : {}),
-            ...(querySparse ? { querySparse } : {}),
-            ...(queryColbert ? { queryColbert } : {}),
-            reranker: deps.reranker,
-            isReadable: (rel) => readableRel(ctx.acl, rel),
-            ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
-          });
+          results = await graphSearch(
+            ctx.db,
+            buildGraphSearchOptions(deps, {
+              route,
+              query: input.query,
+              queryVec,
+              querySparse,
+              queryColbert,
+              vaultId: v.id,
+              finalTopK: input.k,
+              reranker: deps.reranker,
+              isReadable: (rel) => readableRel(ctx.acl, rel),
+            }),
+          );
         }
         if (input.scope !== undefined) {
           const scope = input.scope;
@@ -778,24 +817,22 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         const queryVec = await embedQuery(hydeActive ? (hyde as string) : input.query);
         const querySparse = await embedQuerySparse(input.query);
         const queryColbert = await embedQueryColbert(input.query);
-        const results = await graphSearch(ctx.db, {
-          ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
-          query: input.query,
-          queryVec,
-          model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
-          vaultId: v.id,
-          finalTopK: input.final_top_k,
-          ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
-          ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
-          ...(deps.retrieval?.adaptiveRrf?.enabled
-            ? { adaptiveRrf: deps.retrieval.adaptiveRrf }
-            : {}),
-          ...(querySparse ? { querySparse } : {}),
-          ...(queryColbert ? { queryColbert } : {}),
-          reranker: deps.reranker,
-          isReadable: (rel) => readableRel(ctx.acl, rel),
-          ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
-        });
+        const results = await graphSearch(
+          ctx.db,
+          buildGraphSearchOptions(deps, {
+            route,
+            query: input.query,
+            // THE-451: `queryVec` may be the HyDE-seeded vector; the raw query still rides
+            // `query` for the lexical arms. The builder threads whatever it is given.
+            queryVec,
+            querySparse,
+            queryColbert,
+            vaultId: v.id,
+            finalTopK: input.final_top_k,
+            reranker: deps.reranker,
+            isReadable: (rel) => readableRel(ctx.acl, rel),
+          }),
+        );
         // THE-230: serve-path retrieval telemetry (best-effort; the logger never throws).
         deps.retrievalLog?.({
           queryText: input.query,
@@ -855,26 +892,23 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         const queryVec = await embedQuery(input.query);
         const querySparse = await embedQuerySparse(input.query);
         const queryColbert = await embedQueryColbert(input.query);
-        const results = await graphSearch(ctx.db, {
-          ...(route.class === "temporal" ? { temporal: { enabled: true } } : {}),
-          query: input.query,
-          queryVec,
-          model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
-          vaultId: v.id,
-          finalTopK: input.final_top_k,
-          ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
-          ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
-          ...(deps.retrieval?.adaptiveRrf?.enabled
-            ? { adaptiveRrf: deps.retrieval.adaptiveRrf }
-            : {}),
-          ...(querySparse ? { querySparse } : {}),
-          ...(queryColbert ? { queryColbert } : {}),
-          // THE-441: reranking lost decisively to the champion on this stack; the docs corpus
-          // never reranks, independent of any server-side reranker config.
-          reranker: null,
-          isReadable: (rel) => readableRel(ctx.acl, rel),
-          ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
-        });
+        const results = await graphSearch(
+          ctx.db,
+          buildGraphSearchOptions(deps, {
+            route,
+            query: input.query,
+            queryVec,
+            querySparse,
+            queryColbert,
+            vaultId: v.id,
+            finalTopK: input.final_top_k,
+            // THE-441: reranking lost decisively to the champion on this stack; the docs corpus
+            // never reranks, independent of any server-side reranker config. Passed explicitly so
+            // this stays a visible decision rather than looking like a dropped option.
+            reranker: null,
+            isReadable: (rel) => readableRel(ctx.acl, rel),
+          }),
+        );
         deps.retrievalLog?.({
           queryText: input.query,
           surfaceType: "knowledge_search",
