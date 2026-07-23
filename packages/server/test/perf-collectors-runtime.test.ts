@@ -3,6 +3,10 @@ import { collectRuntime } from "../eval/perf/collectors/runtime";
 import { buildVault } from "../eval/perf/harness";
 import { SCENARIOS } from "../eval/perf/scenarios";
 
+// THE-503: collectRuntime now drives real concurrent load (4-way batches, 20 rounds, with an
+// explicit macrotask yield between them -- see the fix comment in collectors/runtime.ts) instead
+// of one sequential call at a time, so it legitimately takes longer than vitest's default 5s
+// timeout under parallel-suite load. Both tests below widen it accordingly.
 describe("runtime collectors", () => {
   it("emits non-negative event-loop delay and peak rss, both warn-class", async () => {
     const v = await buildVault(SCENARIOS.small);
@@ -25,7 +29,7 @@ describe("runtime collectors", () => {
       expect(eventloopSample.unit).toBe("ms");
     }
     v.cleanup();
-  });
+  }, 15_000);
 
   // THE-503: this used to read 0 nearly every run because the load loop never crossed a
   // macrotask boundary, so monitorEventLoopDelay recorded literally zero samples (not "delay
@@ -38,5 +42,5 @@ describe("runtime collectors", () => {
     const eventloopSample = samples.find((s) => s.key === "runtime.eventloop_p99_ms");
     expect(eventloopSample?.value).toBeGreaterThan(0);
     v.cleanup();
-  });
+  }, 15_000);
 });
