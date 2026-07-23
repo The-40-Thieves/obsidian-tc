@@ -8,7 +8,7 @@
 
 import { ToolRegistry } from "../../src/mcp/registry";
 import { RateLimiter } from "../../src/throttle";
-import { createHealthTool } from "../../src/tools/admin/health";
+import { createHealthTool, createIndexStatusTool } from "../../src/tools/admin/health";
 import { registerM1Tools } from "../../src/tools/m1";
 import { registerM2Tools } from "../../src/tools/m2";
 import { registerM3Tools } from "../../src/tools/m3";
@@ -50,6 +50,16 @@ export function buildFullRegistry(): ToolRegistry {
       nativeLoaded: false,
       vecEnabled: false,
       ftsEnabled: false,
+    }),
+  );
+  // THE-491: get_index_status is registered directly in cli.ts alongside server_health, not
+  // through a register*Tools domain function.
+  registry.register(
+    createIndexStatusTool({
+      vecEnabled: false,
+      ftsEnabled: false,
+      getIndexHealth: () => ({ reconcile: "ok", reconcile_at: null, write_failures: 0 }),
+      getLastChunksUpserted: () => null,
     }),
   );
   registerM1Tools(registry, {

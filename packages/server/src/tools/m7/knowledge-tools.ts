@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
@@ -33,7 +33,7 @@ import { lexicalRouteResults, routeQuery } from "../../search/router";
 import { semanticSearch } from "../../search/semantic";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
-import { resolveVaultPath } from "../../vault/paths";
+import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import type { VaultRegistry } from "../../vault/registry";
 import { defineTool } from "../m1/define";
 import { resolveQueryColbert, resolveQuerySparse } from "./query-sparse";
@@ -966,6 +966,42 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           contradiction_count: contradictions.length,
           output,
           model,
+        };
+      },
+    }),
+
+    // THE-491: contradiction detection is fully wired and writes the `contradictions` table, but
+    // results only ever surfaced indirectly — folded inside vault_context / reflect /
+    // knowledge_challenge via openContradictionsForPaths above. This is the direct reader: same
+    // plumbing, no composition, so an agent (or a human) can inspect flagged conflicts on a note
+    // set standalone rather than paying for a full context/challenge call to see them.
+    defineTool({
+      name: "list_contradictions",
+      description:
+        "List open contradictions (judge_verdict: 'contradiction' | 'tension') touching any of the given notes — the same detector output vault_context/reflect/knowledge_challenge surface indirectly, exposed directly for standalone inspection. Read-only.",
+      inputSchema: z.object({ vault: VaultId, paths: z.array(VaultPath).min(1).max(200) }).strict(),
+      requiredScopes: ["read:notes"],
+      tags: ["knowledge"],
+      pathAcl: (input) => input.paths.map((p) => ({ op: "read" as const, path: p })),
+      handler: (input, ctx) => {
+        const v = deps.vaultRegistry.resolve(input.vault);
+        const paths = input.paths.map((p) => normalizeVaultPath(p));
+        for (const p of paths) enforcePathAcl(ctx.acl, "read", p, v.root);
+        if (!tableExists(ctx.db, "contradictions")) {
+          return {
+            vault: v.id,
+            available: false,
+            message: "contradictions table not present (pre-migration cache.db)",
+            total: 0,
+            contradictions: [],
+          };
+        }
+        const contradictions = openContradictionsForPaths(ctx.db, paths);
+        return {
+          vault: v.id,
+          available: true,
+          total: contradictions.length,
+          contradictions,
         };
       },
     }),

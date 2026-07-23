@@ -42,6 +42,9 @@ export interface M2Deps {
   /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging
    *  (tests, or experiential.logRetrievals=false). */
   retrievalLog?: RetrievalLogger;
+  /** THE-491: fired with the completed stats after each index_vault call, so get_index_status
+   *  can report chunks_upserted from the most recent run; absent -> not tracked. */
+  onIndexVaultComplete?: (vaultId: string, stats: { chunks_upserted: number }) => void;
 }
 
 export function registerM2Tools(registry: ToolRegistry, deps: M2Deps): void {

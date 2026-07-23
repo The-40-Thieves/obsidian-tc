@@ -75,7 +75,7 @@ A tool that needs an unavailable capability (a missing plugin, an unconfigured e
 _Auto-generated from the tool registry — the exhaustive, always-current list. Run `bun run docgen:render`; do not hand-edit between the markers._
 
 <!-- BEGIN GENERATED: tools -->
-_144 tools. Access is a coarse hint; the required scopes are authoritative._
+_146 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -117,6 +117,7 @@ _144 tools. Access is a coarse hint; the required scopes are authoritative._
 | `get_attachment` | read | `read:attachments` | Read an attachment's bytes (base64) plus MIME type and size. Fails with invalid_input when the file exceeds max_bytes. |
 | `get_backlinks` | read | `read:notes` | Find every note that links to the given note, with source line/column. |
 | `get_entity` | read | `read:memory` | Read a memory entity by id, by type+name, or by unique name, with its observations and relations. |
+| `get_index_status` | read | — | Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, and chunks_upserted from the last index_vault call. Read-only — self-diagnose before spending on an expensive search. |
 | `get_link_strength` | read | `read:notes` | Score the connection strength (0-1) between two notes from the link graph: direct edge, co-citation (shared inbound sources), shared outbound neighbors, and undirected graph distance. |
 | `get_metrics` | write | `admin:metrics` | Snapshot Prometheus-style metrics as structured JSON: per-(vault,tool,status) invocation counters and rate-limit-hit counters aggregated from the local event_log + live limiter, plus uptime/registered-vault/registered-tool gauges. Optionally filter to one vault. |
 | `get_note_tags` | read | `read:notes` | Get a note's tags, split into frontmatter, inline, and the combined set. |
@@ -142,6 +143,7 @@ _144 tools. Access is a coarse hint; the required scopes are authoritative._
 | `list_bookmarks` | read | `read:bookmarks` | List the vault's bookmarks tree (.obsidian/bookmarks.json), preserving groups and unknown fields. |
 | `list_capture_queue` | read | `read:capture` | List captures in the queue (pending by default; committed:true lists committed), newest first. |
 | `list_commands` | read | `read:command` | Enumerate available Obsidian commands (optional substring filter). Uses the companion plugin, falling back to Local REST API's native /commands/ route when the companion is unreachable. |
+| `list_contradictions` | read | `read:notes` | List open contradictions (judge_verdict: 'contradiction' \| 'tension') touching any of the given notes — the same detector output vault_context/reflect/knowledge_challenge surface indirectly, exposed directly for standalone inspection. Read-only. |
 | `list_kanban_boards` | read | `read:notes` | List Kanban board notes in the vault (frontmatter kanban-plugin: board), with column and card counts. |
 | `list_notes` | read | `read:notes` | List notes under a folder (read-ACL filtered), with cursor pagination. |
 | `list_periodic_notes` | read | `read:periodic` | Enumerate existing periodic notes in a date range (probes the configured format/folder). Defaults to a recent window when from/to are omitted. |

@@ -82,7 +82,7 @@ import {
 import type { Reranker } from "./search/rerank";
 import { ensureVecChunks } from "./search/vec";
 import { RateLimiter } from "./throttle";
-import { createHealthTool } from "./tools/admin/health";
+import { createHealthTool, createIndexStatusTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
 import { registerM2Tools } from "./tools/m2";
 import { registerM3Tools } from "./tools/m3";
@@ -927,6 +927,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     auditWriteFailures: number;
     /** THE-458 (audit #5): times the index-on-write queue depth crossed queueMax (backpressure edges). */
     indexQueueBackpressures: number;
+    /** THE-491: chunks_upserted from the most recent index_vault tool call; null until the first
+     *  one this process (get_index_status surfaces it verbatim). */
+    lastChunksUpserted: number | null;
   } = {
     reconcile: "pending",
     reconcileAt: null,
@@ -936,6 +939,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     contradictionsDropped: 0,
     auditWriteFailures: 0,
     indexQueueBackpressures: 0,
+    lastChunksUpserted: null,
   };
   // server_health surfaces the build's active fast-paths (native module + sqlite-vec). Both are
   // non-identifying, so the tool keeps them in its unauthenticated payload; registered here (not
@@ -970,6 +974,22 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
             }
           : {}),
       }),
+    }),
+  );
+  // THE-491: get_index_status — a thin, named, agent-discoverable reader over the same
+  // index-health state, so a caller can self-diagnose before spending on an expensive search
+  // without pulling in server_health's full (and authenticated-gated) payload.
+  registry.register(
+    createIndexStatusTool({
+      vecEnabled: hasVec,
+      ftsEnabled: hasFts,
+      getIndexHealth: () => ({
+        reconcile: indexHealth.reconcile,
+        reconcile_at: indexHealth.reconcileAt,
+        write_failures: indexHealth.writeFailures,
+        notes_ready: indexHealth.notesReady,
+      }),
+      getLastChunksUpserted: () => indexHealth.lastChunksUpserted,
     }),
   );
 
@@ -1234,6 +1254,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     regexTimeoutMs: config.governor.regexTimeoutMs,
     // THE-291 (3B): FTS-accelerated search_text once the boot reconcile's notes pass commits.
     metadataIndex: { hasFts, ready: () => indexHealth.notesReady },
+    // THE-491: get_index_status reports chunks_upserted from the last index_vault call.
+    onIndexVaultComplete: (_vaultId, stats) => {
+      indexHealth.lastChunksUpserted = stats.chunks_upserted;
+    },
   });
   registerM3Tools(registry, {
     vaultRegistry,
