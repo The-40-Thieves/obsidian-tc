@@ -6,7 +6,7 @@
 //   3. idempotency keys
 //   4. dead-letter after max attempts
 //   5. no divergence between an in-memory count and the persisted one
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { JobQueue, runJob } from "../src/scheduler/job-queue";
@@ -277,5 +277,124 @@ describe("JobQueue (THE-517)", () => {
     // Capacity freed -> the third job is now claimable.
     const d = q.claim({ leaseOwner: "w4", classLimits: { index: 2 } });
     expect(d).not.toBeNull();
+  });
+
+  // --- THE-517 follow-up: lease fencing in runJob --------------------------------------------
+  // The tests above all drive claim()/complete()/fail() directly against ONE JobQueue instance,
+  // so a genuine lease reclaim by a SECOND worker while runJob's handler is mid-flight was never
+  // exercised. These reproduce that scenario: two independent lease owners racing over the same
+  // db, wired through runJob rather than called by hand.
+  describe("lease fencing (runJob observes lost leases instead of ignoring them)", () => {
+    it("heartbeat observes lease loss and aborts the handler with outcome 'lease-lost'", async () => {
+      vi.useFakeTimers();
+      try {
+        let t = 0;
+        const shared = db();
+        const q = new JobQueue(shared, { now: () => t, leaseMs: 100 });
+        const job = q.enqueue("contested-job");
+        const claimedA = q.claim({ leaseOwner: "ownerA" }) as NonNullable<
+          ReturnType<typeof q.claim>
+        >;
+
+        let abortSeen = false;
+        const runPromise = runJob(
+          q,
+          claimedA,
+          "ownerA",
+          (_job, ctx) =>
+            new Promise<void>((_resolve, reject) => {
+              ctx.signal.addEventListener(
+                "abort",
+                () => {
+                  abortSeen = true;
+                  reject(ctx.signal.reason);
+                },
+                { once: true },
+              );
+            }),
+          { heartbeatMs: 10 },
+        );
+
+        // The lease expires and a SECOND worker reclaims the exact row ownerA is still "running"
+        // — the case the shared-single-instance tests above structurally cannot exercise.
+        t = 150; // past lease_expires_at (claimed at t=0, leaseMs=100)
+        const claimedB = q.claim({ leaseOwner: "ownerB" });
+        expect(claimedB?.id).toBe(job.id); // confirms ownerB genuinely reclaimed it
+
+        // Next heartbeat tick: ownerA's heartbeat() call now fails (lease_owner is ownerB), so
+        // runJob must abort the handler's signal rather than let it keep running unopposed.
+        await vi.advanceTimersByTimeAsync(20);
+
+        const result = await runPromise;
+        expect(abortSeen).toBe(true);
+        expect(result.outcome).toBe("lease-lost");
+        expect((result as { error?: unknown }).error).toBeInstanceOf(DOMException);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("complete() failing after a successful handler yields 'lease-lost', not 'complete'", async () => {
+      let t = 0;
+      const shared = db();
+      const q = new JobQueue(shared, { now: () => t, leaseMs: 50 });
+      const job = q.enqueue("finishes-late");
+      const claimed = q.claim({ leaseOwner: "ownerA" }) as NonNullable<ReturnType<typeof q.claim>>;
+
+      const result = await runJob(
+        q,
+        claimed,
+        "ownerA",
+        async () => {
+          // ownerA's handler finishes its work successfully, but slowly enough that its lease
+          // expired and a second worker already reclaimed the job before ownerA's own
+          // queue.complete() call below gets to run. This is the headline THE-517 case: work
+          // finished, but the completion was never persisted under ownerA's name.
+          t = 100; // past lease_expires_at (claimed at t=0, leaseMs=50)
+          const reclaimed = q.claim({ leaseOwner: "ownerB" });
+          expect(reclaimed?.id).toBe(job.id);
+        },
+        { heartbeatMs: 1_000_000 }, // never fires in this test; complete() is what fails here
+      );
+
+      expect(result.outcome).toBe("lease-lost");
+      // The row reflects ownerB's reclaim, not a spurious "complete" written by ownerA.
+      expect(q.get(job.id)?.leaseOwner).toBe("ownerB");
+      expect(q.get(job.id)?.state).toBe("running");
+    });
+
+    it("heartbeatMs default derives from leaseMs (leaseMs/3), not a fixed constant", async () => {
+      vi.useFakeTimers();
+      try {
+        const t = 0;
+        const shared = db();
+        // leaseMs/3 = 10ms. The old hardcoded default was 5_000ms, which would land zero
+        // heartbeats inside a 15ms fake-timer advance.
+        const q = new JobQueue(shared, { now: () => t, leaseMs: 30 });
+        const job = q.enqueue("short-lease-job");
+        const claimed = q.claim({ leaseOwner: "w1" }) as NonNullable<ReturnType<typeof q.claim>>;
+        void job;
+
+        const heartbeatSpy = vi.spyOn(q, "heartbeat");
+        let resolveHandler: () => void = () => {};
+        const handlerDone = new Promise<void>((resolve) => {
+          resolveHandler = resolve;
+        });
+        const runPromise = runJob(q, claimed, "w1", async () => {
+          await handlerDone;
+        });
+
+        // Advance past ONE default-derived heartbeat interval, nowhere near the old fixed 5s.
+        await vi.advanceTimersByTimeAsync(15);
+        expect(heartbeatSpy).toHaveBeenCalled();
+
+        resolveHandler();
+        await vi.advanceTimersByTimeAsync(0);
+        const result = await runPromise;
+        expect(result.outcome).toBe("complete");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
