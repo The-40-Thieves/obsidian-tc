@@ -11,7 +11,7 @@ import type { EmbeddingProvider } from "../embeddings";
 import { parseNote } from "../vault/frontmatter";
 import { type ExtractedLink, extractLinks } from "../vault/links";
 import { readNote } from "../vault/notes-io";
-import { contentHash, resolveVaultPath, walkVault } from "../vault/paths";
+import { contentHash, resolveVaultPath, walkVault, walkVaultStream } from "../vault/paths";
 import { noteTags } from "../vault/tags";
 import { chunkNote, enrichChunkText } from "./chunk";
 import { deleteChunkColbert, ensureChunkColbert, upsertChunkColbert } from "./chunk_colbert";
@@ -1040,6 +1040,19 @@ export interface IndexVaultArgs {
    *  of large notes cannot make one oversized transaction. Each falls back to its default
    *  (maxNotes 100, maxBytes 8 MiB). Embedding always runs OUTSIDE the write txn regardless. */
   batch?: { maxNotes?: number; maxBytes?: number };
+  /** THE-490: opt-in streaming walk. OFF by default — the default path is byte-for-byte the
+   *  pre-THE-490 behavior (walkVault's full sorted array, materialized before any note is
+   *  processed). When true, indexVault instead consumes walkVaultStream's async generator:
+   *  entries are only sorted WITHIN one directory (not across the whole tree), so peak walk
+   *  memory is bounded by the largest single directory rather than the total file count, and
+   *  note processing (parse/plan/batch) for the first entries begins before the rest of the tree
+   *  has been read. Verified order-independent for index OUTPUT (not for internal ordering/stats)
+   *  in test/index-stream-walk-equivalence.test.ts: every downstream consumer of walk order
+   *  (the content-hash dedup registry, the wikilink/tag/kNN edge reconcilers) already normalizes
+   *  via a Set, a full internal sort, or a full-state DB reconcile before anything is written or
+   *  compared, so a non-globally-sorted traversal produces an IDENTICAL final DB state. Left
+   *  default-off anyway, per THE-490's instruction to keep the existing path the default. */
+  walk?: { streaming?: boolean };
 }
 
 // THE-500 defaults: 100 notes was the prior hardcoded flush size; 8 MiB caps a batch of large notes.
@@ -1115,10 +1128,20 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       if (!dedupRegistry.has(row.contentHash)) dedupRegistry.set(row.contentHash, row.path);
     }
   }
-  const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
-  const walkedSet = new Set(walked.map((e) => e.relPath));
-  const statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
-  const notes = walked.map((e) => e.relPath).filter(args.isReadable);
+  // THE-490: the default (non-streaming) path below is UNCHANGED from before this ticket — walked,
+  // walkedSet, statByPath and notes are all computed eagerly, exactly as before. The opt-in
+  // streaming path (args.walk?.streaming) is deferred to the loop further down, where it walks
+  // lazily via walkVaultStream instead, interleaved with per-note processing.
+  const streamWalk = args.walk?.streaming === true;
+  const walkedSet = new Set<string>();
+  let statByPath = new Map<string, { mtime: number; size: number }>();
+  let notes: string[] = [];
+  if (!streamWalk) {
+    const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
+    for (const e of walked) walkedSet.add(e.relPath);
+    statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
+    notes = walked.map((e) => e.relPath).filter(args.isReadable);
+  }
   // THE-501: one bulk load of the vault's chunk state (ids/hashes/active-model), so computeNotePlan
   // plans every note from memory instead of a per-note query. Safe because each note owns its path's
   // chunks exclusively, so a note's slice is unaffected by earlier notes' writes in this pass.
@@ -1254,7 +1277,15 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     }
     stats.notes_upserted += rows.length;
   };
-  for (const rel of notes) {
+  // THE-490: the per-note processing body, shared by both the eager (default) and streaming
+  // (opt-in) walk paths — extracted so it exists ONCE rather than drifting between two copies.
+  // `stat` is the note's own {mtime,size} from whichever WalkEntry produced `rel` (looked up from
+  // statByPath in the default path; carried directly off the streamed entry in the streaming path
+  // — either way the SAME values buildNoteRecord/batchBytes used before this ticket).
+  const processNote = async (
+    rel: string,
+    stat: { mtime: number; size: number } | null,
+  ): Promise<void> => {
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
     noteLinks.set(rel, extractLinks(parseNote(raw).body));
     // THE-486: capture this pass's tags straight from the raw content (no DB round-trip) so the
@@ -1277,7 +1308,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.secrets_skipped += secretsSkipped;
     stats.chunks_dedup_reused += dedupSkipped; // THE-499: aggregate, not per-chunk stderr
     if (hasNotes && raw !== "") {
-      const rec = buildNoteRecord(rel, raw, flagged, statByPath.get(rel) ?? null, now());
+      const rec = buildNoteRecord(rel, raw, flagged, stat, now());
       if (noteRowHash(args.db, args.vaultId, rel) !== rec.contentHash) {
         notesBatch.push(rec);
         if (notesBatch.length >= BATCH) flushNotes();
@@ -1287,10 +1318,25 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       batch.push(plan);
       // THE-500: flush on EITHER the note-count or the byte budget, so a run of large notes commits
       // as several bounded transactions rather than one oversized one.
-      batchBytes += statByPath.get(rel)?.size ?? raw.length;
+      batchBytes += stat?.size ?? raw.length;
       if (batch.length >= BATCH || batchBytes >= BATCH_MAX_BYTES) await flush();
     }
+  };
+  if (streamWalk) {
+    // THE-490: walk lazily, processing (and thus starting to embed) each readable note as soon as
+    // its directory has been read, instead of waiting for the entire tree to be walked first.
+    for await (const e of walkVaultStream(args.root, { sub: args.sub, extensions: [".md"] })) {
+      walkedSet.add(e.relPath);
+      if (!args.isReadable(e.relPath)) continue;
+      notes.push(e.relPath);
+      await processNote(e.relPath, { mtime: e.mtime, size: e.size });
+    }
+  } else {
+    for (const rel of notes) {
+      await processNote(rel, statByPath.get(rel) ?? null);
+    }
   }
+  stats.notes_seen = notes.length; // THE-490: notes is only fully known once the walk above completes
   flushNotes();
   // THE-291: stale-path sweep — ONLY on unscoped runs (a folder-scoped index_vault call must
   // never deindex the rest of the vault), and diffed against the UNFILTERED walk so files an

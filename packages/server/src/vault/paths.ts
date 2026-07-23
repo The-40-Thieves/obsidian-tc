@@ -170,4 +170,67 @@ export function walkVault(
   return out;
 }
 
+/**
+ * THE-490: streaming counterpart to walkVault. Yields one WalkEntry at a time via an async
+ * generator instead of accumulating the whole subtree into an array-then-sort, so a caller that
+ * processes and discards each entry keeps peak memory bounded by the SINGLE largest directory in
+ * the tree rather than by the total file count, and can start processing the first entry before
+ * the rest of the tree has even been read.
+ *
+ * Entries are sorted WITHIN one directory (by name) for run-to-run determinism, but there is no
+ * whole-tree sort — this is NOT a drop-in replacement for walkVault's sorted-array contract, and
+ * is deliberately additive: walkVault's return type, sort order, and every one of its other
+ * callers are untouched. A per-directory sort can disagree with walkVault's whole-relPath sort
+ * whenever a directory name is a prefix of a sibling file name (e.g. folder "b" vs file "b.md" —
+ * see test/vault-primitives.test.ts); only use this where that reordering is known not to matter
+ * (indexVault's opt-in `walk.streaming`, verified order-independent for index OUTPUT — see
+ * test/index-stream-walk-equivalence.test.ts).
+ */
+export async function* walkVaultStream(
+  root: string,
+  opts: { sub?: string; extensions?: string[]; recursive?: boolean; includeFolders?: boolean } = {},
+): AsyncGenerator<WalkEntry> {
+  const recursive = opts.recursive ?? true;
+  const exts = opts.extensions?.map((e) => e.toLowerCase());
+  const absRoot = resolve(root);
+  const start = opts.sub ? resolveVaultPath(absRoot, opts.sub) : absRoot;
+
+  async function* walk(dir: string, prefix: string): AsyncGenerator<WalkEntry> {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    // Bounded-window sort: deterministic order WITHIN this one directory's children only — no
+    // whole-tree accumulation or sort. The caller sees each entry as soon as THIS directory (not
+    // the whole subtree) has been read.
+    const sorted = [...entries].sort((a, b) => a.name.localeCompare(b.name));
+    for (const e of sorted) {
+      const name = e.name;
+      if (name.startsWith(".")) continue;
+      const rel = prefix ? `${prefix}/${name}` : name;
+      const abs = join(dir, name);
+      if (e.isDirectory()) {
+        if (opts.includeFolders)
+          yield { relPath: rel, type: "folder", size: 0, mtime: statSafe(abs)?.mtimeMs ?? 0 };
+        if (recursive) {
+          yield* walk(abs, rel);
+          // Cooperative yield point: gives a caller's own pending async work (e.g. an embed-batch
+          // flush interleaved with the walk in indexVault's streaming path) a chance to run
+          // instead of this generator monopolizing the microtask queue across a huge subtree.
+          await Promise.resolve();
+        }
+      } else if (e.isFile()) {
+        if (exts && !exts.some((x) => name.toLowerCase().endsWith(x))) continue;
+        const st = statSafe(abs);
+        yield { relPath: rel, type: "file", size: st?.size ?? 0, mtime: st?.mtimeMs ?? 0 };
+      }
+    }
+  }
+
+  const startPrefix = opts.sub ? normalizeVaultPath(opts.sub) : "";
+  yield* walk(start, startPrefix);
+}
+
 export { statSafe };
