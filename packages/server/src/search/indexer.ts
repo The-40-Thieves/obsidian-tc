@@ -27,6 +27,7 @@ import {
   noteRowHash,
   upsertNoteRow,
 } from "./fts";
+import { bumpGeneration } from "./generation";
 import {
   CHUNKER_VERSION,
   ENRICHMENT_VERSION,
@@ -878,6 +879,10 @@ export async function indexNote(
       new Map(), // THE-488: single-note path — a fresh (effectively empty) dedup cache
     );
     if (note) upsertNoteRow(db, vaultId, note, hasFts, now());
+    // THE-496: this note's chunks/embeddings changed (the plan-null early return above skips a
+    // no-op), so bump the vault generation inside the SAME transaction — the query cache must not
+    // serve pre-mutation results.
+    if (result.upserted > 0 || result.deleted > 0) bumpGeneration(db, vaultId);
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
@@ -932,6 +937,9 @@ export function deindexNote(
       if (delContra) delContra.run(r.id, r.id);
     }
     if (hasNotes) deleteNoteRow(db, vaultId, path, hasFts);
+    // THE-496: a removed path drops chunks/edges from the searchable set, so bump the generation in
+    // the same transaction when anything was actually deleted.
+    if (rows.length > 0) bumpGeneration(db, vaultId);
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
@@ -1298,6 +1306,25 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           })
         : [];
       reconcileDerivedEdges(args.db, args.vaultId, knnDesired, ["similar_to"], now);
+    }
+  }
+  // THE-496: bump the vault generation once per reconcile when anything result-affecting changed —
+  // chunk upserts/deletes OR edge/densification changes. The bump is its own tiny transaction after
+  // the flushes have committed; the idempotent reconcile re-bumps if a crash lands between the last
+  // flush and here, and over-bumping is only a cache miss.
+  const changed =
+    stats.chunks_upserted > 0 ||
+    stats.chunks_deleted > 0 ||
+    stats.edges_inserted > 0 ||
+    stats.edges_deleted > 0;
+  if (changed) {
+    args.db.exec("BEGIN");
+    try {
+      bumpGeneration(args.db, args.vaultId);
+      args.db.exec("COMMIT");
+    } catch (e) {
+      args.db.exec("ROLLBACK");
+      throw e;
     }
   }
   // THE-499: one aggregate dedup line per pass (was ~1 stderr line per duplicate chunk). Individual

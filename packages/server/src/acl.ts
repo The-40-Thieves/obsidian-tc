@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 // Glob folder ACL, last-match-wins (G2.4 A.2).
 export interface AclRuleT {
   glob: string;
@@ -112,6 +114,35 @@ export class FolderAcl {
   get deletePaths(): string[] | undefined {
     return this.cfg.deletePaths ? [...this.cfg.deletePaths] : undefined;
   }
+  /** THE-496: the fingerprint of THIS vault's effective ACL for a caller holding `grantedScopes`. */
+  fingerprint(grantedScopes: Iterable<string>): string {
+    return aclFingerprint(this.cfg, grantedScopes);
+  }
+}
+
+// THE-496 — a stable, deterministic fingerprint of the EFFECTIVE ACL for a caller/vault. This is the
+// SECURITY-CRITICAL half of the query-cache key: it is the only thing that keeps caller A's cached
+// results from reaching caller B. The read predicate (readableRel / scopesForPath) is a pure function
+// of the ACL CONFIG + the caller's granted SCOPES, so identical (config, scopes) provably yield the
+// identical read set -> a shared cache entry is safe; any difference yields a different fingerprint
+// -> no sharing (safe, at worst over-conservative). No vault walk, so it is cheap on the hot path.
+//
+// Canonicalisation is exact: sets are sorted (defaultScopes, each rule's scopes, the path whitelists,
+// the caller's scopes), but the RULES ARRAY ORDER IS PRESERVED — scopesForPath is last-match-wins, so
+// reordering rules changes the effective ACL and MUST change the fingerprint.
+export function aclFingerprint(cfg: AclConfigT, grantedScopes: Iterable<string>): string {
+  const canon = {
+    readOnly: cfg.readOnly === true,
+    strictReadDefault: cfg.strictReadDefault === true,
+    defaultScopes: [...cfg.defaultScopes].sort(),
+    // order-preserving: [ruleA, ruleB] != [ruleB, ruleA] under last-match-wins
+    rules: cfg.rules.map((r) => ({ glob: r.glob, scopes: [...r.scopes].sort() })),
+    readPaths: cfg.readPaths ? [...cfg.readPaths].sort() : null,
+    writePaths: cfg.writePaths ? [...cfg.writePaths].sort() : null,
+    deletePaths: cfg.deletePaths ? [...cfg.deletePaths].sort() : null,
+    scopes: [...new Set(grantedScopes)].sort(),
+  };
+  return createHash("sha256").update(JSON.stringify(canon), "utf8").digest("hex");
 }
 
 /**
