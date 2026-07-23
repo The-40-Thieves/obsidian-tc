@@ -21,8 +21,10 @@ import {
 } from "../../plane/challenge";
 import { type GatewayRoles, prompt } from "../../plane/gateway";
 import { bm25Chunks } from "../../search/chunk_fts";
+import { readGeneration } from "../../search/generation";
 import { type GraphSearchResult, graphSearch } from "../../search/graph_search";
 import {
+  callerAclFingerprint,
   DEFAULT_PREFETCH_TTL_MS,
   prewarmPathFor,
   readPrewarm,
@@ -116,6 +118,22 @@ export function packBudget<T>(
 }
 
 const CHALLENGE_RECALL = 30;
+
+/** THE-543 layer 3 (defence in depth): every vault-relative path a cached prewarm bundle
+ *  references, so the hit path can re-run each one through readableRel before trusting the
+ *  bundle — even a bundle whose cache key checks out gets one final authorization pass. */
+function prewarmBundlePaths(bundle: Record<string, unknown>): string[] {
+  const paths: string[] = [];
+  for (const key of ["notes", "lessons"] as const) {
+    const arr = bundle[key];
+    if (!Array.isArray(arr)) continue;
+    for (const item of arr) {
+      const p = (item as { path?: unknown } | null)?.path;
+      if (typeof p === "string") paths.push(p);
+    }
+  }
+  return paths;
+}
 
 /** Note-level frontmatter tags for the given paths (THE-309), so isDecisionChunk's tag rule can
  *  fire on the retrieved evidence — the semantic hit itself carries no tags. Scoped to the vault. */
@@ -230,11 +248,26 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           // are not retrieval-logged: no live retrieval happened, the prefetch run logged its.
           signalHash = createHash("sha256").update(text).digest("hex");
           if (deps.prewarmDir) {
-            const cached = readPrewarm(prewarmPathFor(deps.prewarmDir, v.id), {
+            // THE-543: the cache key binds the CALLER (acl_fingerprint) and the CONTENT
+            // (vault_generation) that produced the bundle — an entry written under a broader
+            // ACL, or one whose vault has since mutated, is a miss here, not a match.
+            const aclFingerprint = callerAclFingerprint(ctx.acl, ctx.grantedScopes);
+            const cached = readPrewarm(prewarmPathFor(deps.prewarmDir, v.id, aclFingerprint), {
               nowMs: (ctx.now ?? Date.now)(),
               signalHash,
+              aclFingerprint,
+              vaultGeneration: readGeneration(ctx.db, v.id),
             });
-            if (cached && !cached.empty && cached.bundle) {
+            // THE-543 layer 3: re-check every path the bundle references against THIS
+            // dispatch's ACL regardless of the key match above. A bundle is a composed whole —
+            // if any path in it is now unreadable, the whole entry is a miss, never a partial
+            // return, so it falls through to the live compose below.
+            if (
+              cached &&
+              !cached.empty &&
+              cached.bundle &&
+              prewarmBundlePaths(cached.bundle).every((rel) => readableRel(ctx.acl, rel))
+            ) {
               return {
                 ...cached.bundle,
                 prefetched: true,
@@ -483,14 +516,27 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         if (querySource === "next_session" && deps.prewarmDir && signalHash !== undefined) {
           try {
             const now = (ctx.now ?? Date.now)();
-            writePrewarm(prewarmPathFor(deps.prewarmDir, v.id), {
-              generated_at: now,
-              expires_at: now + DEFAULT_PREFETCH_TTL_MS,
-              signal: signalPath ?? "",
-              signal_hash: signalHash,
-              empty: packed.length === 0,
-              ...(packed.length === 0 ? {} : { bundle: response }),
-            });
+            // THE-543: record the fingerprint of the ACL that actually produced `response`
+            // (results were already filtered through readableRel(ctx.acl, ...) above) and the
+            // vault generation at this instant, so a later reader under a different or wider
+            // ACL, or after content moved, misses instead of inheriting this caller's view.
+            writePrewarm(
+              prewarmPathFor(
+                deps.prewarmDir,
+                v.id,
+                callerAclFingerprint(ctx.acl, ctx.grantedScopes),
+              ),
+              {
+                generated_at: now,
+                expires_at: now + DEFAULT_PREFETCH_TTL_MS,
+                signal: signalPath ?? "",
+                signal_hash: signalHash,
+                empty: packed.length === 0,
+                acl_fingerprint: callerAclFingerprint(ctx.acl, ctx.grantedScopes),
+                vault_generation: readGeneration(ctx.db, v.id),
+                ...(packed.length === 0 ? {} : { bundle: response }),
+              },
+            );
           } catch {
             /* the cache is an optimization; the response is already composed */
           }

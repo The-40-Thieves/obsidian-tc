@@ -62,6 +62,7 @@ import { Scheduler } from "./scheduler/scheduler";
 import { assignClusters } from "./search/cluster";
 import { runLlmDensify } from "./search/densify-runner";
 import { ensureNotesFts } from "./search/fts";
+import { readGeneration } from "./search/generation";
 import { graphSearch } from "./search/graph_search";
 import { IndexCoordinator } from "./search/index-coordinator";
 import {
@@ -72,7 +73,7 @@ import {
   indexVault,
 } from "./search/indexer";
 import { nativeLoaded } from "./search/native";
-import { prewarmPathFor, writePrewarm } from "./search/prefetch";
+import { callerAclFingerprint, prewarmPathFor, writePrewarm } from "./search/prefetch";
 import {
   CHUNKER_VERSION,
   ENRICHMENT_VERSION,
@@ -711,12 +712,18 @@ async function run_prefetch(cmd: Cmd<"prefetch">): Promise<void> {
       // THE-136 floor: a prefetch that packs nothing writes an empty marker, never a wrong
       // bundle (RRF scores are positional, so emptiness is the enforceable relevance floor).
       const empty = (res.data.stats?.chunks_packed ?? 0) === 0;
-      writePrewarm(prewarmPathFor(cfg.cacheDir, v.id), {
+      // THE-543: this dispatch ran with no ctx.acl (the trusted CLI context sees every vault
+      // path) — callerAclFingerprint's "no-acl" sentinel records that identity so a live
+      // caller bound to a narrower ACL can never inherit this unrestricted bundle.
+      const aclFingerprint = callerAclFingerprint(undefined, new Set(["read:notes"]));
+      writePrewarm(prewarmPathFor(cfg.cacheDir, v.id, aclFingerprint), {
         generated_at: now,
         expires_at: now + ttlHours * 3_600_000,
         signal: String(res.data.signal ?? ""),
         signal_hash: String(res.data.signal_hash ?? ""),
         empty,
+        acl_fingerprint: aclFingerprint,
+        vault_generation: readGeneration(cacheDb, v.id),
         ...(empty ? {} : { bundle: res.data }),
       });
       process.stdout.write(
