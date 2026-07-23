@@ -164,6 +164,19 @@ describe("THE-251 terse search projection", () => {
     v.cleanup();
   });
 
+  it("search_semantic stamps note freshness (age_days + stale) on each hit (THE-450)", async () => {
+    const v = await seeded();
+    const d = payload(await v.call("search_semantic", { vault: "test", query: "lazy dog", k: 2 }));
+    expect(d.items.length).toBeGreaterThan(0);
+    // freshly-written fixtures: age is a non-negative number and they are not stale.
+    for (const hit of d.items as { age_days?: number; stale?: boolean }[]) {
+      expect(typeof hit.age_days).toBe("number");
+      expect(hit.age_days).toBeGreaterThanOrEqual(0);
+      expect(hit.stale).toBe(false);
+    }
+    v.cleanup();
+  });
+
   it("search_semantic terse drops chunk_id/content, keeps path/score", async () => {
     const v = await seeded();
     const terse = payload(
