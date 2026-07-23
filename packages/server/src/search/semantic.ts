@@ -132,7 +132,10 @@ export function semanticSearch(
   same.forEach((r, i) => {
     flat.set(blobToFloats(r.embedding), i * dim);
   });
-  const scores = same.length > 0 ? cosineBatch(queryVec, flat, dim) : new Float64Array(0);
+  // THE-504: cosineBatch takes the query as a Float32Array (was number[]) so the native side
+  // doesn't rebuild a Vec<f64> from a JS array on every call; convert once here per search.
+  const queryF32 = Float32Array.from(queryVec);
+  const scores = same.length > 0 ? cosineBatch(queryF32, flat, dim) : new Float64Array(0);
   const scored: SemanticHit[] = [];
   same.forEach((r, i) => {
     const score = scores[i] ?? 0;

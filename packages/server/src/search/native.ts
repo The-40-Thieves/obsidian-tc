@@ -10,7 +10,7 @@ import { createRequire } from "node:module";
 
 export interface NativeOps {
   cosineSimilarity(a: number[], b: Float32Array | number[]): number;
-  cosineBatch(query: number[], docsFlat: Float32Array, dim: number): Float64Array;
+  cosineBatch(query: Float32Array, docsFlat: Float32Array, dim: number): Float64Array;
   tokenize(text: string): string[];
   bm25Score(
     tf: number,
@@ -39,13 +39,39 @@ export function jsCosineSimilarity(a: number[], b: Float32Array | number[]): num
 }
 
 /** Batched cosine: one query vs N concatenated f32 docs of length `dim`; scores in row order
- *  (empty for a bad shape). Mirrors the Rust `cosine_batch`; reuses jsCosineSimilarity per doc. */
-export function jsCosineBatch(query: number[], docsFlat: Float32Array, dim: number): Float64Array {
+ *  (empty for a bad shape). Mirrors the Rust `cosine_batch`.
+ *
+ *  THE-504: `query` is now a `Float32Array` (was `number[]`), and the query's norm is computed
+ *  ONCE per batch instead of being recomputed per doc via a `jsCosineSimilarity` call (was: reuse
+ *  jsCosineSimilarity per doc — the same inefficiency the Rust `cosine_batch_core` had). Each
+ *  doc's dot product and norm are now computed together in a single pass. */
+export function jsCosineBatch(
+  query: Float32Array,
+  docsFlat: Float32Array,
+  dim: number,
+): Float64Array {
   if (dim <= 0 || query.length !== dim || docsFlat.length % dim !== 0) return new Float64Array(0);
+  let normQ = 0;
+  for (let i = 0; i < dim; i++) {
+    const q = query[i] ?? 0;
+    normQ += q * q;
+  }
   const n = docsFlat.length / dim;
   const out = new Float64Array(n);
-  for (let i = 0; i < n; i++)
-    out[i] = jsCosineSimilarity(query, docsFlat.subarray(i * dim, i * dim + dim));
+  if (normQ === 0) return out; // all-zero query -> all-zero scores, matching jsCosineSimilarity
+  const normQSqrt = Math.sqrt(normQ);
+  for (let i = 0; i < n; i++) {
+    const base = i * dim;
+    let dot = 0;
+    let normD = 0;
+    for (let j = 0; j < dim; j++) {
+      const q = query[j] ?? 0;
+      const d = docsFlat[base + j] ?? 0;
+      dot += q * d;
+      normD += d * d;
+    }
+    out[i] = normD === 0 ? 0 : dot / (normQSqrt * Math.sqrt(normD));
+  }
   return out;
 }
 

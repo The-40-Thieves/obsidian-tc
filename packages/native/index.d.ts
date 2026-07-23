@@ -5,9 +5,10 @@
 export declare function cosineSimilarity(a: number[], b: Float32Array | number[]): number;
 
 /** Batched cosine: one query vs N concatenated f32 docs of length `dim`; scores in row order
- *  (empty for a bad shape). One N-API crossing for a whole candidate set. */
+ *  (empty for a bad shape). One N-API crossing for a whole candidate set. THE-504: `query` is a
+ *  `Float32Array` (was `number[]`), avoiding a `number[]` -> `Vec<f64>` conversion per call. */
 export declare function cosineBatch(
-  query: number[],
+  query: Float32Array,
   docsFlat: Float32Array,
   dim: number,
 ): Float64Array;
