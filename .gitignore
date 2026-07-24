@@ -76,6 +76,13 @@ packages/server/eval/*-golden-set*.yaml
 !packages/server/eval/multi-hop-golden-set.example.yaml
 packages/server/eval/baseline.json
 
+# eval/history.ts run store + its static export. Generated, and derived from the private golden
+# set above — the run store keeps each recorded artifact verbatim, so it inherits that data's
+# privacy even though the artifacts themselves hold only query ids and numbers.
+packages/server/eval/runs.db
+packages/server/eval/runs.db-*
+packages/server/eval/history.html
+
 # generated at build by packages/server/scripts/copy-assets.mjs (source of truth: root SKILLS.md)
 packages/server/SKILLS.md
 
