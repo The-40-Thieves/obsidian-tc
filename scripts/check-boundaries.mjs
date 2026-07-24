@@ -37,6 +37,11 @@ function run(cmd, args) {
   return execFileSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
 
+// npx ships as a `.cmd` shim on Windows; Node's execFileSync (shell:false) won't resolve a bare
+// "npx" there, so the boundary check throws ENOENT. The CI boundary job runs on Ubuntu, so this
+// only bit Windows contributors (audit #17). Resolve the platform-appropriate shim name.
+const NPX = process.platform === "win32" ? "npx.cmd" : "npx";
+
 const files = run("git", ["ls-files", ...SOURCE_GLOBS])
   .split("\n")
   .filter(Boolean);
@@ -48,7 +53,7 @@ if (files.length === 0) {
 let report;
 try {
   report = JSON.parse(
-    run("npx", [
+    run(NPX, [
       "depcruise",
       ...files,
       "--config",

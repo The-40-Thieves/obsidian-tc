@@ -36,13 +36,21 @@ export function buildPlurTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "plur_recall_hybrid",
-      description: "Hybrid BM25 + embedding recall (RRF) over the global plur engram store.",
+      description:
+        "Hybrid BM25 + embedding recall (RRF) over the global plur engram store. `bm25_weight` is forwarded to the plur backend and only shifts ranking when that backend implements weighted hybrid RRF; the bundled local CLI backend applies default RRF and ignores it (audit #15).",
       inputSchema: z
         .object({
           query: z.string().min(1),
           k: K,
           scope: z.string().optional(),
-          bm25_weight: z.number().min(0).max(1).default(0.5),
+          bm25_weight: z
+            .number()
+            .min(0)
+            .max(1)
+            .default(0.5)
+            .describe(
+              "Relative BM25-vs-embedding weight in RRF. Forwarded to the plur backend; honored only by a backend implementing weighted hybrid RRF — the bundled local CLI backend ignores it and applies default RRF.",
+            ),
         })
         .strict(),
       requiredScopes: ["read:plur"],
