@@ -76,7 +76,7 @@ export async function checkContradictions(
   const stats: ContradictionStats = { checked: 0, flagged: 0, skipped: 0 };
   if (!ctx.roles) return stats; // generative disabled -> nothing to judge
   const insert = ctx.db.prepare(
-    "INSERT OR IGNORE INTO contradictions (id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, cosine_similarity, judge_verdict, judge_rationale, judge_model, status, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+    "INSERT OR IGNORE INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, cosine_similarity, judge_verdict, judge_rationale, judge_model, status, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
   );
   const roles = ctx.roles;
   // Phase 1 — gather judge tasks with NO network I/O. semanticSearch is a local (sqlite-vec or
@@ -135,9 +135,10 @@ export async function checkContradictions(
     const a = { id: t.chunk.id, path: t.chunk.path, sha: contentHash(t.chunk.content) };
     const b = { id: t.neighborId, path: t.neighborPath, sha: contentHash(t.neighborContent) };
     const [src, con] = a.sha < b.sha ? [a, b] : [b, a]; // canonical order for dedup
-    const id = `ctr_${contentHash(`${src.sha}:${con.sha}`).slice(0, 24)}`;
+    const id = `ctr_${contentHash(`${vaultId}:${src.sha}:${con.sha}`).slice(0, 24)}`;
     const info = insert.run(
       id,
+      vaultId,
       src.id,
       src.path,
       con.id,

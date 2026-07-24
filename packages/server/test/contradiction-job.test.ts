@@ -36,15 +36,8 @@ function baseDb(): Database {
   const db = openMemoryDb();
   runMigrations(db, [{ version: "20260519_001", sql: INIT }]);
   db.exec(
-    `CREATE TABLE contradictions (
-       id TEXT PRIMARY KEY, source_chunk_id TEXT NOT NULL, source_path TEXT NOT NULL,
-       conflict_chunk_id TEXT NOT NULL, conflict_path TEXT NOT NULL,
-       source_content_sha TEXT NOT NULL, conflict_content_sha TEXT NOT NULL,
-       cosine_similarity REAL, judge_verdict TEXT NOT NULL, judge_rationale TEXT,
-       judge_model TEXT, status TEXT NOT NULL DEFAULT 'open', detected_at INTEGER NOT NULL,
-       resolved_at INTEGER
-     );
-     CREATE UNIQUE INDEX idx_contradictions_pair ON contradictions(source_content_sha, conflict_content_sha);`,
+    "CREATE TABLE contradictions (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL DEFAULT '', source_chunk_id TEXT NOT NULL, source_path TEXT NOT NULL, conflict_chunk_id TEXT NOT NULL, conflict_path TEXT NOT NULL, source_content_sha TEXT NOT NULL, conflict_content_sha TEXT NOT NULL, cosine_similarity REAL, judge_verdict TEXT NOT NULL, judge_rationale TEXT, judge_model TEXT, status TEXT NOT NULL DEFAULT 'open', detected_at INTEGER NOT NULL, resolved_at INTEGER);" +
+      "CREATE UNIQUE INDEX idx_contradictions_pair ON contradictions(vault_id, source_content_sha, conflict_content_sha);",
   );
   return db;
 }
@@ -66,6 +59,21 @@ describe("contradiction detector (judge seam + sqlite-vec neighbors)", () => {
     };
     expect(row.judge_verdict).toBe("contradiction");
     expect(row.status).toBe("open");
+  });
+
+  it("persists vault_id on the flagged row", async () => {
+    const db = baseDb();
+    addChunk(db, "a", "A.md", [1, 0, 0]);
+    addChunk(db, "b", "B.md", [0.95, 0.312, 0]); // cosine ~0.95 with A -> in [0.85, 0.99)
+    addChunk(db, "dupe", "D.md", [1, 0, 0]); // cosine 1.0 -> near-dupe, excluded
+    const roles = rolesReturning('{"kind":"contradiction","rationale":"A negates B"}');
+    await checkContradictions({ db, roles, now: () => 1 }, "v1", [
+      { id: "a", path: "A.md", content: "alpha", embedding: [1, 0, 0] },
+    ]);
+    const row = db.prepare("SELECT vault_id FROM contradictions LIMIT 1").get() as {
+      vault_id: string;
+    };
+    expect(row.vault_id).toBe("v1");
   });
 
   it("does nothing when roles are disabled, and parseVerdict falls back safely", async () => {
