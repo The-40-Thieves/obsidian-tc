@@ -41,6 +41,25 @@ because it is an architectural refactor, not a contained fix.
 
 ### Security
 
+- **Two HIGH dev-dependency advisories closed, and the override that caused one of them bounded**
+  (root + `docs/` `package.json`): `bun audit` reported `postcss <=8.5.17`
+  (GHSA-r28c-9q8g-f849, path traversal in source-map auto-loading) in both workspaces, and
+  `js-yaml >=5.0.0 <=5.2.1` (GHSA-pm4m-ph32-ghv5, exponential parse time in flow collections)
+  at the root. Both are build/test-time only — `postcss` arrives via `vitest`/`astro`, `js-yaml`
+  via `@napi-rs/cli` — so no shipped artifact was affected.
+
+  The `js-yaml` finding was self-inflicted: the root override read `">=4.3.0"` with **no upper
+  bound**, and an unbounded override does not merely permit a newer major, it *forces* every
+  dependent onto it — dragging `@napi-rs/cli` (which declares `^4.2.0`) across a major boundary
+  into the vulnerable 5.x line. The advisory's range starts at 5.0.0, so the fix is to stop
+  hoisting rather than to chase the patch: the root override is now `">=4.3.0 <5"`, matching what
+  the `docs/` workspace already had, and resolution returns to 4.3.0. `postcss` is pinned
+  `">=8.5.18 <9"` in **both** workspaces — `docs/` carries its own lockfile and is not covered by
+  a root audit, so an override added only at the root would have left it exposed.
+
+  Both workspaces now report `No vulnerabilities found`. Verified beyond the audit: docs site
+  builds, the native `napi` build (the actual `js-yaml` consumer) compiles, typecheck + lint clean,
+  1901 server tests pass.
 - **Per-caller ownership of retrieval feedback** (`migrations/20260724_001_chunk_retrievals_caller.sql`,
   `experiential/log.ts`, `tools/m8/experiential-tools.ts`; THE-568, closing the P1.7 follow-up):
   `chunk_retrievals` carried only `session_id`, so `record_retrieval_feedback` could only scope
