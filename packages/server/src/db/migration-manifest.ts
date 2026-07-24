@@ -18,6 +18,7 @@ export const CACHE_MIGRATION_FILES = [
   "20260723_001_vault_generation.sql",
   "20260723_002_jobs.sql",
   "20260724_001_plane_vault_id.sql",
+  "20260724_002_idempotency_state.sql",
 ] as const;
 
 /**

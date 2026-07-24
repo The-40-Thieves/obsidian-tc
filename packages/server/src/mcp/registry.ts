@@ -401,11 +401,12 @@ export class ToolRegistry {
         result: unknown;
         result_size: number | null;
         expires_at: number;
+        state: string;
       }
     | undefined {
     return cachedPrepare(
       db,
-      "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at FROM idempotency_keys WHERE vault_id = ? AND key = ?",
+      "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state FROM idempotency_keys WHERE vault_id = ? AND key = ?",
     ).get(vaultId, key) as
       | {
           tool_name: string;
@@ -415,6 +416,7 @@ export class ToolRegistry {
           result: unknown;
           result_size: number | null;
           expires_at: number;
+          state: string;
         }
       | undefined;
   }
