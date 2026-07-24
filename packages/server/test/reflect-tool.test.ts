@@ -162,4 +162,15 @@ describe("reflect tool (THE-222)", () => {
     expect(text).toContain("the grounded answer");
     expect(text).toContain("source_chunks:");
   });
+
+  it("persist accepts a wildcard scope caller (grantsAll, not raw has)", async () => {
+    // A caller holding `*` satisfies write:notes everywhere else (dispatch uses grantsAll), but the
+    // old persist check was a raw Set `.has("write:notes")` that rejected them (audit THE-562 / P1.6).
+    const { registry, ctx } = harness(mockRoles, ["*"]);
+    const res = un<ReflectData>(
+      await registry.dispatch("reflect", { vault: "main", query: "quorble", persist: true }, ctx),
+    );
+    expect(res.persisted?.path).toMatch(/^memory\/reflections\/\d{4}-\d{2}-\d{2}-quorble\.md$/);
+    expect(existsSync(join(root, res.persisted?.path ?? ""))).toBe(true);
+  });
 });

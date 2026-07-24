@@ -187,7 +187,7 @@ export function forgetNote(
     relPath: string;
     nowMs: number;
     erase?: boolean;
-    /** cache dir holding prewarm-<vault>.json; absent -> prewarm step skipped */
+    /** cache dir holding prewarm-<vault>-<fingerprint>.json bundles; absent -> prewarm step skipped */
     prewarmDir?: string;
     /** absolute vault root; absent -> reflections scan skipped */
     vaultRoot?: string;
@@ -213,12 +213,27 @@ export function forgetNote(
     ).n;
   }
 
-  // Prewarm cache: if the cached bundle mentions the path or any chunk id, drop the file —
-  // the next bootstrap composes live.
+  // Prewarm cache: if a cached bundle mentions the path or any chunk id, drop it — the next
+  // bootstrap composes live. Since THE-543 the filename carries the caller's ACL fingerprint
+  // (prewarm-<vault>-<fingerprint>.json), so ONE vault can have many prewarm files (one per
+  // distinct principal). Scan them all; the old code only unlinked the pre-THE-543 name
+  // prewarm-<vault>.json, which no writer produces anymore, so explicit invalidation had
+  // silently stopped working and fingerprinted files leaked (audit THE-562 / P2.12).
   let prewarmInvalidated = false;
-  if (opts.prewarmDir) {
-    const file = join(opts.prewarmDir, `prewarm-${opts.vaultId}.json`);
-    if (existsSync(file)) {
+  if (opts.prewarmDir && existsSync(opts.prewarmDir)) {
+    // Anchor the fingerprint (64-hex sha256 or the literal "no-acl", see prefetch.ts) so a vault
+    // id that is a prefix of another (e.g. "main" vs "main-2") cannot match the wrong files.
+    const esc = opts.vaultId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`^prewarm-${esc}-([0-9a-f]{64}|no-acl)\\.json$`);
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(opts.prewarmDir);
+    } catch {
+      /* unreadable dir -> skip; TTL + generation checks bound the exposure */
+    }
+    for (const name of entries) {
+      if (!pattern.test(name)) continue;
+      const file = join(opts.prewarmDir, name);
       try {
         const raw = readFileSync(file, "utf8");
         if (raw.includes(opts.relPath) || chunkIds.some((id) => raw.includes(id))) {

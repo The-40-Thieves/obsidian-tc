@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, grantsAll, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
@@ -711,7 +711,10 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         // provenance frontmatter carries the model + the exact source chunk ids and paths.
         let persisted: { path: string } | undefined;
         if (input.persist) {
-          if (!ctx.grantedScopes?.has("write:notes"))
+          // Wildcard-aware, matching the dispatch path (registry.ts grantsAll): a caller holding
+          // `*` or `write:*` satisfies write:notes. A raw Set `.has("write:notes")` rejected them
+          // even though every other write tool accepts them (audit THE-562 / P1.6).
+          if (!grantsAll(ctx.grantedScopes ?? [], ["write:notes"]))
             throw err.forbidden("reflect persist requires write:notes");
           const folder = deps.memoryFolder?.(v.id) ?? "memory";
           const slug =

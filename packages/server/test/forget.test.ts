@@ -3,7 +3,7 @@
 // attribution chain); note forget clears derived state (activation always, retrieval history
 // only under erase — the audit default KEEPS it), invalidates a prewarm bundle that mentions
 // the target, and reports (never mutates) syntheses/contradictions/reflections.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -187,10 +187,21 @@ describe("forgetNote", () => {
     const { edb, cache } = rig();
     const prewarmDir = join(dir, "warm");
     mkdirSync(prewarmDir, { recursive: true });
+    // Since THE-543 the filename carries the caller's ACL fingerprint (64-hex sha256), and one
+    // vault can hold many — one per principal. This uses the REAL naming: the previous test wrote
+    // the pre-THE-543 name prewarm-main.json, which no writer produces, so it validated dead code
+    // (audit THE-562 / P2.12). Two principals mention the target, a third does not.
+    const fp = (n: string) => "a".repeat(63) + n; // 64-hex sha256-shaped fingerprints
     writeFileSync(
-      join(prewarmDir, "prewarm-main.json"),
+      join(prewarmDir, `prewarm-main-${fp("1")}.json`),
       JSON.stringify({ bundle: { notes: [{ path: "notes/target.md" }] } }),
     );
+    writeFileSync(
+      join(prewarmDir, `prewarm-main-${fp("2")}.json`),
+      JSON.stringify({ bundle: { notes: [{ path: "notes/target.md" }] } }),
+    );
+    const untouched = join(prewarmDir, `prewarm-main-${fp("3")}.json`);
+    writeFileSync(untouched, JSON.stringify({ bundle: { notes: [{ path: "notes/other.md" }] } }));
     const vaultRoot = join(dir, "vault");
     mkdirSync(join(vaultRoot, "memory", "reflections"), { recursive: true });
     writeFileSync(
@@ -209,6 +220,10 @@ describe("forgetNote", () => {
       vaultRoot,
     });
     expect(res.prewarm_invalidated).toBe(true);
+    // both matching principals' bundles are gone; the unrelated principal's bundle survives
+    expect(existsSync(join(prewarmDir, `prewarm-main-${fp("1")}.json`))).toBe(false);
+    expect(existsSync(join(prewarmDir, `prewarm-main-${fp("2")}.json`))).toBe(false);
+    expect(existsSync(untouched)).toBe(true);
     expect(res.outdated_reflections).toEqual(["2026-07-12-thing.md"]);
   });
 });
