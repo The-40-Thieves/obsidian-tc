@@ -833,6 +833,16 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         return undefined;
       }
     },
+    // THE-569: reverse vault-kind gate — a mutating dispatch refuses to reach a docs/system-kind
+    // vault, closing the write/integrity direction of P1.5. Unknown vaults resolve to undefined
+    // (the gate then no-ops; the vault-binding guard and pathAcl stage already reject them).
+    vaultKindResolver: (vaultId) => {
+      try {
+        return vaultRegistry.resolve(vaultId).kind;
+      } catch {
+        return undefined;
+      }
+    },
     // THE-209: append a per-invocation trace record to the active session's JSONL trace.
     sessionTracer: (session, record) => {
       try {
