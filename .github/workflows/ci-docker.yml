@@ -50,3 +50,20 @@ jobs:
           echo "container reports: $got (want $want)"
           [ "$got" = "$want" ] || { echo "::error::container reports '$got', expected '$want'"; exit 1; }
           echo "ok: containerized server built and reports $want"
+      # The image is already built and loaded above; scanning it here costs one extra step and
+      # closes a real gap — cargo-audit/bun-audit/osv-scanner all read LOCKFILES, so none of them
+      # sees the OS packages the base image ships. A vulnerable libssl in the runtime layer was
+      # invisible to every existing gate.
+      #
+      # continue-on-error, matching the other advisory scanners in ci-security: a newly disclosed
+      # base-image CVE should surface, not wall off an unrelated feature PR. It is also outside
+      # this repo's control — the fix is a base-image bump, not a code change.
+      - name: trivy — scan the built image for OS + library CVEs
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: obsidian-tc:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
