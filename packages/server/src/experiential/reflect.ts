@@ -184,6 +184,12 @@ function tableReady(edb: Database): boolean {
 
 /** Apply typed deltas as ONE versioned batch. Never regenerates: rows not named by a delta are
  *  untouched, retraction zeroes the weight but keeps the row (readers filter weight > 0). */
+// NAMESPACE (P1.8, audit THE-562): the preference profile is a SINGLE GLOBAL store keyed by `key`
+// alone — no vault_id/caller partition, BY DESIGN (the trusted single-user model). Deltas from any
+// caller update the one shared profile. This is deliberate, not an oversight; the multi-principal
+// residual (per-caller preference isolation) is documented in SECURITY.md ("Learned-state
+// namespaces" + "Known limitations"). Contrast: agent_episodes is per-principal (vault+caller+
+// session, P1.7-authorized); vault_object_state ACT-R activation is corpus-global by design.
 export function applyPreferenceDeltas(
   edb: Database,
   deltas: PreferenceDelta[],

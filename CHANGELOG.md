@@ -163,6 +163,15 @@ because it is an architectural refactor, not a contained fix.
 - **Foregrounded the zero-config security posture** (`README.md`): made explicit that
   `obsidian-tc /path/to/vault` boots with auth off and no folder ACL (governance is
   opt-in), safe because the config fail-closes any non-loopback unauthenticated bind.
+- **Documented the learned-state namespace model** (`SECURITY.md`,
+  `experiential/reflect.ts`; audit P1.8): obsidian-tc's adaptive state is deliberately mixed —
+  `agent_episodes` is per-principal (vault+caller+session, P1.7-authorized), `chunk_retrievals` and
+  `vault_object_state` ACT-R activation are content/corpus-level by design (a relevance signal about a
+  chunk, not a principal — per-caller would fragment it), and `preference_profile` is a single global
+  runtime store. A new *Learned-state namespaces* table in SECURITY.md makes the intended scope of
+  every store explicit, and the `preference_profile` global scope is recorded as an accepted
+  single-user residual (per-caller preference isolation is a multi-principal follow-up). No behavior
+  change.
 
 ### Performance
 
