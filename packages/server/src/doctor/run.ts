@@ -1,13 +1,14 @@
 // THE-521 — assembling and running the default doctor check set.
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
-import type { TokenClaims } from "./checks";
+import type { RetrievalHeadsView, TokenClaims } from "./checks";
 import {
   authMaxAgeCheck,
   authPolicyCheck,
   bridgeCheck,
   nativeCheck,
   obsidianCheck,
+  retrievalHeadsCheck,
   runtimeCheck,
 } from "./checks";
 import { runDoctor } from "./report";
@@ -34,6 +35,9 @@ export function decodeTokenClaims(token: string): TokenClaims | undefined {
 
 export interface DoctorConfigView {
   auth: { mode: "none" | "jwt"; tokenTtlSeconds: number; readOnly: boolean };
+  /** #16: retrieval-head readiness inputs (config.embeddings + config.retrieval). Optional so a
+   *  pure profile-only doctor call omits the check rather than reporting a hollow one. */
+  retrieval?: RetrievalHeadsView;
 }
 
 export interface AssembleOptions {
@@ -60,6 +64,8 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
     authMaxAgeCheck({ tokenTtlSeconds: config.auth.tokenTtlSeconds }, claims, opts.nowSeconds),
     obsidianCheck(profile),
   ];
+  // #16: retrieval-head readiness, added only when the caller supplied the config-derived view.
+  if (config.retrieval) checks.push(retrievalHeadsCheck(config.retrieval));
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".
   if (opts.bridgeReports) checks.push(bridgeCheck(opts.bridgeReports));

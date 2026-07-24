@@ -226,6 +226,19 @@ async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         tokenTtlSeconds: config.auth.tokenTtlSeconds,
         readOnly: config.acl.readOnly,
       },
+      // #16: retrieval-head readiness. The sparse/ColBERT streams only emit when the provider
+      // produces the multi-vector heads (bge-m3, or model-tier with modelTier.full configured).
+      retrieval: {
+        denseProvider: config.embeddings.provider,
+        denseModel: config.embeddings.model,
+        denseDimensions: config.embeddings.dimensions,
+        multiVector:
+          config.embeddings.provider === "bge-m3" ||
+          (config.embeddings.provider === "model-tier" &&
+            config.embeddings.modelTier?.full !== undefined),
+        sparseEnabled: config.retrieval.sparse,
+        colbertEnabled: config.retrieval.colbert,
+      },
     },
     profile,
     bridgeReports,

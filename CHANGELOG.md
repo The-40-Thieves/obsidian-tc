@@ -8,6 +8,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **`doctor` surfaces retrieval-head readiness independently** (`retrieval.heads` check; audit #16):
+  the health surface reported no per-head status, so a `retrieval.sparse`/`retrieval.colbert` stream
+  enabled in config but unbacked by the embeddings provider (only `bge-m3`/`model-tier` emit the
+  multi-vector heads) was a silent no-op. `obsidian-tc doctor` now reports **dense**, **sparse**,
+  **ColBERT**, and **reranker** readiness separately — each `ready` / `off` / `INERT` (enabled but the
+  provider emits no head, a warning with remediation) — so an operator can see which streams are
+  actually live. Derived from `config.embeddings` + `config.retrieval`; no runtime probe.
 - **Vendor / external-docs read surface (THE-444).** Two read tools over a reserved,
   read-only docs-corpus vault, isolated from the private vault by a new `read:docs` scope
   and surfaced under a new `docs` facade domain:

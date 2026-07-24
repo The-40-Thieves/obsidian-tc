@@ -3,7 +3,77 @@
 
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
-import type { Check } from "./types";
+import type { Check, CheckStatus } from "./types";
+
+/** #16 (audit THE-562): the readiness inputs for the four retrieval heads, derived from
+ *  config.embeddings + config.retrieval. The sparse/ColBERT streams only emit when the embeddings
+ *  provider produces the multi-vector heads (bge-m3 or model-tier + modelTier.full). */
+export interface RetrievalHeadsView {
+  denseProvider: string;
+  denseModel: string;
+  denseDimensions: number;
+  /** The embeddings provider emits the multi-vector (sparse/ColBERT) heads. */
+  multiVector: boolean;
+  sparseEnabled: boolean;
+  colbertEnabled: boolean;
+}
+
+/** retrieval.heads — dense / sparse / ColBERT / reranker readiness, reported INDEPENDENTLY so an
+ *  operator can see which streams are actually live vs enabled-but-inert. A stream enabled in
+ *  config.retrieval but unbacked by the provider (no multi-vector head) is a no-op — surfaced as a
+ *  warning rather than a silent nothing. */
+export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
+  return {
+    id: "retrieval.heads",
+    category: "retrieval",
+    run: () => {
+      const details: Record<string, string> = {
+        dense: `ready (${view.denseProvider}, ${view.denseModel}, dim ${view.denseDimensions})`,
+      };
+      const issues: string[] = [];
+      const notes: string[] = [];
+
+      const streamStatus = (enabled: boolean, name: string): string => {
+        if (!enabled) return `off (opt-in via retrieval.${name})`;
+        if (view.multiVector) return `ready (${view.denseProvider} multi-vector head)`;
+        issues.push(
+          `retrieval.${name} is enabled but the '${view.denseProvider}' embeddings provider emits no multi-vector head — the ${name} stream is a no-op`,
+        );
+        return `INERT — enabled, but '${view.denseProvider}' emits no multi-vector head`;
+      };
+      details.sparse = streamStatus(view.sparseEnabled, "sparse");
+      details.colbert = streamStatus(view.colbertEnabled, "colbert");
+
+      if (view.multiVector) {
+        details.reranker = `model-tier / ColBERT rerank capable (${view.denseProvider}); or the inference gateway /rerank passthrough when configured`;
+      } else {
+        details.reranker =
+          "RRF-only unless the inference gateway is configured for /rerank passthrough";
+        notes.push(
+          "no model-tier reranker for this provider — reranking depends on the inference gateway (env-configured)",
+        );
+      }
+
+      const status: CheckStatus = issues.length > 0 ? "warning" : "ok";
+      return {
+        status,
+        summary:
+          status === "ok"
+            ? "retrieval heads: dense ready; sparse/ColBERT/reranker reported per config"
+            : "a retrieval stream is enabled but inert (provider emits no multi-vector head)",
+        details,
+        ...(issues.length ? { issues } : {}),
+        ...(notes.length ? { notes } : {}),
+        ...(issues.length
+          ? {
+              remediation:
+                "Set embeddings.provider to bge-m3 or model-tier (with modelTier.full) to activate the sparse/ColBERT streams, or disable retrieval.sparse / retrieval.colbert.",
+            }
+          : {}),
+      };
+    },
+  };
+}
 
 /** runtime.versions — server, runtime and native module, read from the capability profile. */
 export function runtimeCheck(profile: CapabilityProfile): Check {

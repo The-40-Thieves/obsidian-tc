@@ -12,6 +12,8 @@ import {
   authPolicyCheck,
   nativeCheck,
   obsidianCheck,
+  type RetrievalHeadsView,
+  retrievalHeadsCheck,
   runtimeCheck,
 } from "../src/doctor/checks";
 
@@ -199,5 +201,53 @@ describe("THE-523 bridge.state doctor check", () => {
     const { bridgeCheck } = await import("../src/doctor/checks");
     const r = await bridgeCheck([]).run({ serverVersion: "1.10.0" });
     expect(r.status).toBe("ok");
+  });
+});
+
+describe("#16 retrievalHeadsCheck (dense/sparse/ColBERT/reranker readiness)", () => {
+  const view = (over: Partial<RetrievalHeadsView> = {}): RetrievalHeadsView => ({
+    denseProvider: "ollama",
+    denseModel: "nomic-embed-text",
+    denseDimensions: 768,
+    multiVector: false,
+    sparseEnabled: false,
+    colbertEnabled: false,
+    ...over,
+  });
+
+  it("dense-only provider with streams off: ok, dense ready, sparse/ColBERT off", async () => {
+    const r = await retrievalHeadsCheck(view()).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.dense).toContain("ready");
+    expect(r.details?.sparse).toContain("off");
+    expect(r.details?.colbert).toContain("off");
+    // no model-tier reranker on a dense-only provider
+    expect(r.details?.reranker).toContain("RRF-only");
+  });
+
+  it("warns when a stream is enabled but the provider emits no multi-vector head (inert)", async () => {
+    const r = await retrievalHeadsCheck(view({ sparseEnabled: true, colbertEnabled: true })).run(
+      ctx,
+    );
+    expect(r.status).toBe("warning");
+    expect(r.details?.sparse).toContain("INERT");
+    expect(r.details?.colbert).toContain("INERT");
+    expect(r.issues?.length).toBe(2);
+    expect(r.remediation).toContain("bge-m3");
+  });
+
+  it("multi-vector provider with streams on: all heads ready, ok", async () => {
+    const r = await retrievalHeadsCheck(
+      view({
+        denseProvider: "bge-m3",
+        multiVector: true,
+        sparseEnabled: true,
+        colbertEnabled: true,
+      }),
+    ).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.sparse).toContain("ready");
+    expect(r.details?.colbert).toContain("ready");
+    expect(r.details?.reranker).toContain("rerank capable");
   });
 });
