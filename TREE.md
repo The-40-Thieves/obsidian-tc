@@ -6,8 +6,9 @@ filesystem, not inferred. Counts come from `find` / `wc -l` / `tokei`, excluding
 
 **Scale:** 773 files, 124,033 lines total, 93,787 lines of code.
 
-> This file is hand-generated and **will drift**. THE-470 (automated docs pipeline)
-> covers generating it from code. Until then, treat counts as of the commit above.
+> §7's dependency-graph sections (scale, subsystem diagram, fan-in/out) are **generated** from the
+> real module graph — run `just map`, and `just map-check` gates them in ci-docgen. Everything
+> else here is still hand-written and can drift; THE-470 covers the rest.
 
 ---
 
@@ -191,54 +192,60 @@ natively in GitHub markdown, which is why this section uses it.
 
 ### Scale
 
-**232 modules · 785 dependencies · 68 distinct subsystem pairs · 407 cross-subsystem imports.**
+<!-- BEGIN GENERATED: tree-scale -->
+**246 modules · 978 dependencies · 61 distinct subsystem pairs · 396 cross-subsystem imports.**
+<!-- END GENERATED: tree-scale -->
 
 ### Subsystem graph
 
-Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full set is
-68 pairs.
+<!-- BEGIN GENERATED: tree-subsystem-graph -->
+Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
+set is 61 pairs.
 
 ```mermaid
 flowchart LR
   tools[tools<br/>58 files]
   search[search<br/>42 files]
-  vault[vault<br/>16 files]
-  db[(db<br/>10 files)]
+  vault[vault<br/>17 files]
+  db[(db<br/>12 files)]
+  experiential[experiential<br/>10 files]
+  bridge[bridge<br/>8 files]
+  model[model<br/>7 files]
+  plane[plane<br/>7 files]
+  embeddings[embeddings<br/>6 files]
+  formats[formats<br/>6 files]
   mcp[mcp<br/>6 files]
-  formats[formats]
-  bridge[bridge]
-  embeddings[embeddings]
-  model[model]
-  experiential[experiential]
-  plane[plane]
-  memory[memory]
+  memory[memory<br/>2 files]
 
-  tools -->|149| vault
+  tools -->|151| vault
   tools -->|53| mcp
-  tools -->|14| search
-  tools -->|8| formats
-  tools -->|7| bridge
-  tools -->|6| db
   search -->|28| db
+  tools -->|15| search
   search -->|12| vault
   experiential -->|9| db
-  model -->|8| embeddings
-  mcp -->|8| vault
+  tools -->|9| db
   formats -->|8| vault
+  mcp -->|8| vault
+  model -->|8| embeddings
+  tools -->|8| formats
+  tools -->|7| bridge
   embeddings -->|5| search
   memory -->|5| vault
   plane -->|5| db
 ```
+<!-- END GENERATED: tree-subsystem-graph -->
 
 ### Fan-in / fan-out
 
+<!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 184 | `tools` | 257 |
-| `mcp` | 59 | `search` | 44 |
-| `db` | 58 | `mcp` | 17 |
-| `search` | 25 | `experiential` | 14 |
+| `vault` | 186 | `tools` | 258 |
+| `db` | 60 | `search` | 44 |
+| `mcp` | 58 | `experiential` | 14 |
+| `search` | 26 | `mcp` | 13 |
 | `embeddings` | 12 | `model` | 11 |
+<!-- END GENERATED: tree-fan -->
 
 The shape is layered and largely acyclic at the subsystem level: the tool surface
 depends downward on vault primitives and storage, with few back-edges. That is a

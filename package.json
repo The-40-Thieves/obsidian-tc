@@ -24,16 +24,18 @@
   ],
   "scripts": {
     "build": "bun run --filter='*' build",
-    "test": "bun run --filter='*' test",
-    "typecheck": "bun run --filter='*' typecheck",
     "bundle": "bun scripts/bundle-mcpb.ts",
-    "lint": "biome check --error-on-warnings .",
-    "format": "biome format --write .",
-    "check:version": "node scripts/check-version-coherence.mjs",
-    "release": "bun scripts/release.mjs",
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "check:nul": "node scripts/check-nul-bytes.mjs",
-    "check:workflow-injection": "node scripts/check-workflow-injection.mjs"
+    "check:version": "node scripts/check-version-coherence.mjs",
+    "check:workflow-injection": "node scripts/check-workflow-injection.mjs",
+    "format": "biome format --write .",
+    "lint": "biome check --error-on-warnings .",
+    "map": "node scripts/gen-tree-map.mjs",
+    "map:check": "node scripts/gen-tree-map.mjs --check",
+    "release": "bun scripts/release.mjs",
+    "test": "bun run --filter='*' test",
+    "typecheck": "bun run --filter='*' typecheck"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
