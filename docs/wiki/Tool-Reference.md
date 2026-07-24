@@ -1,6 +1,6 @@
 # Tool Reference
 
-**141 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
+**146 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
 
 Every tool carries four annotations enforced by the dispatch pipeline: **acl** (`read` / `write` / `delete` / `execute` / `admin`), **hitl** (`never` / `required` / conditional), **idem** (`pure` / `natural` / `keyed` / `non-idem`), and **ratelimit** (`read` / `write` / `bulk`). See **[[Security and ACL]]**.
 

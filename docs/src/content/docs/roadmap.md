@@ -11,7 +11,7 @@ CloudEvents, rate limiter, 8-triple native prebuilds, this docs site):
 
 - **The measured retrieval engine** (v1.4–v1.7): enriched BM25 + enriched dense +
   hop-ordered wikilink expansion fused under RRF k=10 — a general hybrid retriever,
-  gated by an n=136 golden set with a statistical ship rule (permutation test, FDR,
+  gated by an n=250 golden set with a statistical ship rule (permutation test, FDR,
   a non-inferiority floor). Contextual chunk enrichment measured **+0.223 nDCG** and
   defaults on. k-means clustering and ACT-R activation recompute run as offline CLI
   passes. Per-vault GraphRAG edge isolation shipped. Mechanisms that lost their A/B

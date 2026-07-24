@@ -20,7 +20,7 @@ capabilities, and never given ungoverned authority.
 
 ## What governance means here, concretely
 
-Every tool call — all ~143 capabilities, whether called by name or through the
+Every tool call — all 146 capabilities, whether called by name or through the
 `call_capability` facade — passes one dispatch pipeline. Nothing is enforced by prompt
 or convention; each gate is server-side code:
 
