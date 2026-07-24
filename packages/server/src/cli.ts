@@ -56,8 +56,7 @@ import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
 import { auditJob } from "./plane/jobs/audit";
 import { checkContradictions } from "./plane/jobs/contradiction";
-import { synthesisJob } from "./plane/jobs/synthesis";
-import { registerPlaneScheduler, SleepTimePlane } from "./plane/plane";
+import { isoWeek, runSynthesis } from "./plane/jobs/synthesis";
 import { createPlurBackend } from "./plur/client";
 import { JobQueue } from "./scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "./scheduler/job-runner";
@@ -1041,7 +1040,21 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         [chunk],
       );
     });
-    // plane handlers are added in Task 4
+    // #14: the plane consolidation (weekly synthesis + daily audit) is now durable jobs too — see
+    // the plane-enqueue scheduler below. runSynthesis/auditJob.run report failure via
+    // JobResult.ok:false rather than throwing (e.g. parseSynthesis rejecting a malformed LLM
+    // response) — the runner's dead-letter/retry machinery only reacts to a THROW, so an ok:false
+    // must be turned into one here or a real failure gets recorded as `complete` and silently
+    // vanishes (worse than the pre-migration behavior this ticket exists to fix). `{ok:true,
+    // detail:{skipped:...}}` (e.g. no chunks yet) is NOT a failure and correctly falls through.
+    jobHandlers.set("synthesis", async () => {
+      const r = await runSynthesis({ db, roles, now: Date.now });
+      if (!r.ok) throw new Error(`synthesis job failed: ${JSON.stringify(r.detail ?? {})}`);
+    });
+    jobHandlers.set("audit", async () => {
+      const r = await auditJob.run({ db, roles, now: Date.now });
+      if (!r.ok) throw new Error(`audit job failed: ${JSON.stringify(r.detail ?? {})}`);
+    });
   }
   const jobRunner = makeJobRunner({
     queue: jobQueue,
@@ -1506,23 +1519,35 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     });
   }
 
-  // THE-296: ambient sleep-time consolidation (weekly synthesis + decision audit). Registered only
+  // THE-296 / #14: ambient sleep-time consolidation (weekly synthesis + daily audit) is now durable
+  // jobs — a transient gateway failure retries/dead-letters instead of vanishing (the old
+  // registerPlaneScheduler ran the plane in-process on a timer with no persistence). Registered only
   // when BOTH the flag and the gateway roles are present: the generative jobs degrade without roles,
-  // but scheduling them then is pure DB churn. Best-effort; a failed run logs to stderr.
+  // but scheduling them then is pure DB churn. Idempotency keys (per iso-week / per-day) keep a slow
+  // run from piling up duplicate jobs; the job-queue-runner (registered above) executes them.
   if (config.plane.enabled && roles) {
-    registerPlaneScheduler(
-      scheduler,
-      new SleepTimePlane().register(synthesisJob).register(auditJob),
-      {
-        db,
-        roles,
-        intervalMs: config.plane.intervalMinutes * 60_000,
-        onError: (e) =>
-          process.stderr.write(
-            `[plane] run failed: ${e instanceof Error ? e.message : String(e)}\n`,
-          ),
+    scheduler.register({
+      name: "plane-enqueue",
+      intervalMs: config.plane.intervalMinutes * 60_000,
+      run: () => {
+        const iso = isoWeek(new Date());
+        jobQueue.enqueue("synthesis", {
+          class: "plane",
+          idempotencyKey: `synthesis:${iso.year}-${iso.week}`,
+          maxAttempts: 1,
+        });
+        const day = new Date().toISOString().slice(0, 10);
+        jobQueue.enqueue("audit", {
+          class: "plane",
+          idempotencyKey: `audit:${day}`,
+          maxAttempts: 1,
+        });
       },
-    );
+      onError: (e) =>
+        process.stderr.write(
+          `[plane-enqueue] enqueue failed: ${e instanceof Error ? e.message : String(e)}\n`,
+        ),
+    });
   }
 
   // THE-227/228: keep cached_activation_score warm as capture accrues. recomputeActivation is

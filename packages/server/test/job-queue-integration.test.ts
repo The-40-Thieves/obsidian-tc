@@ -17,6 +17,7 @@ import { CACHE_MIGRATIONS } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type GatewayRoles, prompt } from "../src/plane/gateway";
 import { checkContradictions, type IndexedChunk } from "../src/plane/jobs/contradiction";
+import { isoWeek, runSynthesis } from "../src/plane/jobs/synthesis";
 import { JobQueue } from "../src/scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "../src/scheduler/job-runner";
 import { floatBlob } from "../src/search/vec";
@@ -183,5 +184,133 @@ describe("job-queue-integration: contradiction workload (THE-562 #14)", () => {
     await controlledRunner.drainOnce(never); // attempt 3 (== maxAttempts) -> dead-letter
     expect(queue.stats().failed).toBe(1);
     expect(queue.stats().retrying).toBe(0);
+  });
+});
+
+// The exact key construction cli.ts's plane-enqueue scheduler tick uses for the weekly synthesis
+// job — kept as one helper so the dedup test exercises production's actual idempotency key, not a
+// stand-in opaque string.
+function synthesisKey(now: () => number): string {
+  const iso = isoWeek(new Date(now()));
+  return `synthesis:${iso.year}-${iso.week}`;
+}
+
+function rolesReturningSynthesis(text: string): GatewayRoles {
+  const r = async () => ({ text, model: "mock" });
+  return { extract: r, synthesize: async () => ({ text, model: "opus" }), judge: r };
+}
+
+function planeSetup(roles: GatewayRoles) {
+  const db = openMemoryDb();
+  runMigrations(db, CACHE_MIGRATIONS);
+  // Two-vault chunk fixture (per synthesis-job.test.ts's "writes one synthesis per vault" case),
+  // so the plane leg's assertion of "a syntheses row per vault" is meaningful, not a single-row
+  // coincidence.
+  db.prepare(
+    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES ('a', 'v1', 'A.md', '0', '[]', 'note one', 'h1', 1, 0, 1)",
+  ).run();
+  db.prepare(
+    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES ('b', 'v2', 'B.md', '0', '[]', 'note two', 'h2', 1, 0, 1)",
+  ).run();
+  const now = () => Date.UTC(2026, 5, 1);
+  const jobQueue = new JobQueue(db, { now });
+  // The exact handler cli.ts's `if (roles)` block registers for the "synthesis" job type: THROW
+  // when runSynthesis reports ok:false (e.g. parseSynthesis rejecting a malformed LLM response),
+  // since the runner's dead-letter/retry machinery only reacts to a throw, never a return value.
+  const handlers = new Map<string, JobHandler>([
+    [
+      "synthesis",
+      async () => {
+        const r = await runSynthesis({ db, roles, now });
+        if (!r.ok) throw new Error(`synthesis job failed: ${JSON.stringify(r.detail ?? {})}`);
+      },
+    ],
+  ]);
+  const runner = makeJobRunner({ queue: jobQueue, leaseOwner: "test", handlers });
+  return { db, jobQueue, runner, now };
+}
+
+describe("job-queue-integration: plane workload (THE-562 #14)", () => {
+  it("enqueues a synthesis job, runs it via the durable queue, and writes a syntheses row per vault", async () => {
+    const synth =
+      '{"patterns":[{"title":"t","summary":"s","evidence_paths":["A.md"],"contradiction_ids":[]}],"clusters":[{"label":"l","summary":"s","chunk_paths":["A.md"]}]}';
+    const { db, jobQueue, runner, now } = planeSetup(rolesReturningSynthesis(synth));
+    jobQueue.enqueue("synthesis", {
+      class: "plane",
+      idempotencyKey: synthesisKey(now),
+      maxAttempts: 1,
+    });
+    await runner.drainOnce(never);
+    expect(jobQueue.stats().complete).toBe(1);
+    const vaults = (
+      db.prepare("SELECT vault_id FROM syntheses ORDER BY vault_id").all() as {
+        vault_id: string;
+      }[]
+    ).map((r) => r.vault_id);
+    expect(vaults).toEqual(["v1", "v2"]);
+  });
+
+  it("dead-letters on a REAL runSynthesis failure (unparseable LLM JSON), not just a synthetic throw", async () => {
+    // The bug this guards: runSynthesis reports failure via `{ok:false, detail}` (parseSynthesis
+    // throws on a malformed synthesize response, caught inside runSynthesis and turned into a
+    // normal return — see plane/jobs/synthesis.ts), NOT by throwing out of runSynthesis itself. A
+    // handler that awaits runSynthesis and discards the result would see the promise resolve
+    // cleanly and the runner would mark the job `complete` — a real failure silently reported as
+    // success, worse than the pre-migration in-process plane (which at least logged to stderr).
+    // The production handler (mirrored in planeSetup above) must inspect `.ok` and throw.
+    const { jobQueue, runner, now } = planeSetup(rolesReturningSynthesis("not valid json at all"));
+    jobQueue.enqueue("synthesis", {
+      class: "plane",
+      idempotencyKey: synthesisKey(now),
+      maxAttempts: 1,
+    });
+    await runner.drainOnce(never);
+    expect(jobQueue.stats().failed).toBe(1);
+    expect(jobQueue.stats().complete).toBe(0);
+    expect(jobQueue.stats().retrying).toBe(0);
+  });
+
+  it("dedups a repeat weekly enqueue with the same synthesis:<isoWeek> key into ONE job", () => {
+    const { jobQueue, now } = planeSetup(rolesReturningSynthesis("{}"));
+    const first = jobQueue.enqueue("synthesis", {
+      class: "plane",
+      idempotencyKey: synthesisKey(now),
+      maxAttempts: 1,
+    });
+    const second = jobQueue.enqueue("synthesis", {
+      class: "plane",
+      idempotencyKey: synthesisKey(now),
+      maxAttempts: 1,
+    });
+    expect(second.id).toBe(first.id);
+    expect(jobQueue.stats().queued).toBe(1);
+  });
+
+  it("dead-letters a plane job on its FIRST failure (maxAttempts: 1) instead of retrying", async () => {
+    // Synthesis/audit regenerate next cycle, so a transient failure should not retry — it should
+    // dead-letter immediately, unlike the contradiction workload's maxAttempts: 3. Mirrors the
+    // contradiction suite's "retries a judge failure" case: a handler that throws directly models
+    // any handler-level failure (gateway outage, DB write error) the runner must dead-letter.
+    const db = openMemoryDb();
+    runMigrations(db, CACHE_MIGRATIONS);
+    const now = () => Date.UTC(2026, 5, 1);
+    const jobQueue = new JobQueue(db, { now });
+    jobQueue.enqueue("synthesis", {
+      class: "plane",
+      idempotencyKey: synthesisKey(now),
+      maxAttempts: 1,
+    });
+    const handlers = new Map<string, JobHandler>([
+      [
+        "synthesis",
+        async () => {
+          throw new Error("gateway unavailable");
+        },
+      ],
+    ]);
+    const runner = makeJobRunner({ queue: jobQueue, leaseOwner: "test", handlers });
+    await runner.drainOnce(never);
+    expect(jobQueue.stats().failed).toBe(1);
+    expect(jobQueue.stats().retrying).toBe(0);
   });
 });
