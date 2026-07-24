@@ -19,13 +19,13 @@ function dbWithContradictions(): any {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const ins = db.prepare(
-    `INSERT INTO contradictions (id, source_chunk_id, source_path, conflict_chunk_id, conflict_path,
+    `INSERT INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path,
        source_content_sha, conflict_content_sha, judge_verdict, judge_rationale, status, detected_at)
-     VALUES (?, 'sc', ?, 'cc', ?, ?, ?, ?, 'because', ?, 0)`,
+     VALUES (?, ?, 'sc', ?, 'cc', ?, ?, ?, ?, 'because', ?, 0)`,
   );
-  ins.run("c1", "notes/a.md", "notes/z.md", "s1", "x1", "contradiction", "open"); // source side
-  ins.run("c2", "notes/y.md", "notes/b.md", "s2", "x2", "tension", "open"); // conflict side
-  ins.run("c3", "notes/a.md", "notes/w.md", "s3", "x3", "contradiction", "resolved"); // excluded
+  ins.run("c1", VAULT, "notes/a.md", "notes/z.md", "s1", "x1", "contradiction", "open"); // source side
+  ins.run("c2", VAULT, "notes/y.md", "notes/b.md", "s2", "x2", "tension", "open"); // conflict side
+  ins.run("c3", VAULT, "notes/a.md", "notes/w.md", "s3", "x3", "contradiction", "resolved"); // excluded
   return db;
 }
 
@@ -137,5 +137,31 @@ describe("list_contradictions (THE-491)", () => {
       ok: boolean;
     };
     expect(r.ok).toBe(false);
+  });
+
+  it("drops a contradiction whose conflict-side note is unreadable (THE-564)", async () => {
+    // ACL grants read on "notes/**" but not "private/**". Row: source in notes/, conflict in private/.
+    const readableNotesOnly = new FolderAcl({
+      readOnly: false,
+      defaultScopes: [],
+      rules: [],
+      readPaths: ["notes/**"],
+    });
+    const { registry, ctx } = harness(["read:notes"], readableNotesOnly);
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    db.prepare(
+      `INSERT INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id,
+         conflict_path, source_content_sha, conflict_content_sha, judge_verdict, status, detected_at)
+       VALUES ('x', ?, 'sc', 'notes/a.md', 'cc', 'private/b.md', 's1', 's2', 'tension', 'open', 0)`,
+    ).run(VAULT);
+    const res = un<ContraData>(
+      await registry.dispatch(
+        "list_contradictions",
+        { vault: VAULT, paths: ["notes/a.md"] },
+        { ...ctx, db },
+      ),
+    );
+    expect(res.contradictions).toEqual([]);
   });
 });

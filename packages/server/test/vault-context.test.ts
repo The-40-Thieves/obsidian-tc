@@ -95,7 +95,7 @@ function cacheDb0(): Database {
   // ('conflict') that the real schema does not define — so these legs were never exercised against the
   // shape production actually has. The rows below satisfy the real constraints.
   db.prepare(
-    "INSERT INTO contradictions (id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, judge_verdict, judge_rationale, status, detected_at) VALUES ('cx1', 'c-src', 'notes/rare.md', 'c-cfl', 'notes/other.md', 'sha-src', 'sha-cfl', 'contradiction', 'they disagree', 'open', ?)",
+    "INSERT INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, judge_verdict, judge_rationale, status, detected_at) VALUES ('cx1', 'main', 'c-src', 'notes/rare.md', 'c-cfl', 'notes/other.md', 'sha-src', 'sha-cfl', 'contradiction', 'they disagree', 'open', ?)",
   ).run(NOW);
   db.prepare(
     "INSERT INTO syntheses (vault_id, iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns) VALUES ('main', 2026, 27, ?, 0, 1, '[]', ?)",

@@ -217,30 +217,39 @@ export function noteTagsByPath(
   return out;
 }
 
-/** Open contradictions whose source or conflict note is in `paths` (THE-309) — gives the judge
- *  cross-note conflict context alongside the evidence. Empty when the plane table is absent. */
-export function openContradictionsForPaths(db: Database, paths: string[]): ContradictionContext[] {
+/** Open contradictions whose source or conflict note is in `paths` (THE-309), scoped to `vaultId`
+ *  (THE-563) and re-authorized against the caller ACL (THE-564): a row is returned only if BOTH
+ *  contributing sources remain readable — the opposite side of a matched pair may be outside the
+ *  caller's set. Empty when the plane table is absent. */
+export function openContradictionsForPaths(
+  db: Database,
+  vaultId: string,
+  paths: string[],
+  isReadable: (rel: string) => boolean,
+): ContradictionContext[] {
   if (paths.length === 0 || !tableExists(db, "contradictions")) return [];
   const placeholders = paths.map(() => "?").join(",");
   const rows = db
     .prepare(
       `SELECT id, source_path, conflict_path, judge_verdict, judge_rationale FROM contradictions
-       WHERE status = 'open' AND (source_path IN (${placeholders}) OR conflict_path IN (${placeholders}))`,
+       WHERE status = 'open' AND vault_id = ? AND (source_path IN (${placeholders}) OR conflict_path IN (${placeholders}))`,
     )
-    .all(...paths, ...paths) as Array<{
+    .all(vaultId, ...paths, ...paths) as Array<{
     id: string;
     source_path: string;
     conflict_path: string;
     judge_verdict: string;
     judge_rationale: string | null;
   }>;
-  return rows.map((r) => ({
-    id: r.id,
-    source_path: r.source_path,
-    conflict_path: r.conflict_path,
-    judge_verdict: r.judge_verdict,
-    judge_rationale: r.judge_rationale ?? "",
-  }));
+  return rows
+    .filter((r) => isReadable(r.source_path) && isReadable(r.conflict_path))
+    .map((r) => ({
+      id: r.id,
+      source_path: r.source_path,
+      conflict_path: r.conflict_path,
+      judge_verdict: r.judge_verdict,
+      judge_rationale: r.judge_rationale ?? "",
+    }));
 }
 
 export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
@@ -415,7 +424,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         // Open contradictions on the packed notes (reuses the challenge plumbing), capped.
         const contradictions = openContradictionsForPaths(
           ctx.db,
+          v.id,
           notes.map((n) => n.path),
+          (rel) => readableRel(ctx.acl, rel),
         ).slice(0, 5);
 
         // Recent synthesis patterns touching the query (weekly rows; LIKE over the JSON text
@@ -680,7 +691,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
               tags: tags.get(r.path) ?? null,
               content: r.content ?? "",
             }));
-          const contradictions = openContradictionsForPaths(ctx.db, paths);
+          const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
+            readableRel(ctx.acl, rel),
+          );
           const { output, model } = await challengeProposal(
             deps.roles,
             input.query,
@@ -1034,7 +1047,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         // Open contradictions touching the evidence give the judge cross-note conflict context.
         const contradictions = openContradictionsForPaths(
           ctx.db,
+          v.id,
           evidence.map((e) => e.path),
+          (rel) => readableRel(ctx.acl, rel),
         );
         const { output, model } = await challengeProposal(
           deps.roles,
@@ -1079,7 +1094,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             contradictions: [],
           };
         }
-        const contradictions = openContradictionsForPaths(ctx.db, paths);
+        const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
+          readableRel(ctx.acl, rel),
+        );
         return {
           vault: v.id,
           available: true,

@@ -12,10 +12,10 @@ function dbWithNotesAndContradictions(): any {
     `CREATE TABLE notes (vault_id TEXT NOT NULL, path TEXT NOT NULL, title TEXT NOT NULL,
        tags TEXT NOT NULL, frontmatter TEXT, content_hash TEXT NOT NULL, mtime INTEGER NOT NULL,
        size INTEGER NOT NULL, indexed_at INTEGER NOT NULL, PRIMARY KEY (vault_id, path));
-     CREATE TABLE contradictions (id TEXT PRIMARY KEY, source_chunk_id TEXT NOT NULL,
-       source_path TEXT NOT NULL, conflict_chunk_id TEXT NOT NULL, conflict_path TEXT NOT NULL,
-       source_content_sha TEXT NOT NULL, conflict_content_sha TEXT NOT NULL, cosine_similarity REAL,
-       judge_verdict TEXT NOT NULL, judge_rationale TEXT, judge_model TEXT,
+     CREATE TABLE contradictions (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL,
+       source_chunk_id TEXT NOT NULL, source_path TEXT NOT NULL, conflict_chunk_id TEXT NOT NULL,
+       conflict_path TEXT NOT NULL, source_content_sha TEXT NOT NULL, conflict_content_sha TEXT NOT NULL,
+       cosine_similarity REAL, judge_verdict TEXT NOT NULL, judge_rationale TEXT, judge_model TEXT,
        status TEXT NOT NULL DEFAULT 'open', detected_at INTEGER NOT NULL, resolved_at INTEGER);`,
   );
   return db;
@@ -40,12 +40,12 @@ describe("knowledge_challenge evidence enrichment (THE-309)", () => {
   it("openContradictionsForPaths returns open rows touching either side; skips resolved", () => {
     const db = dbWithNotesAndContradictions();
     const ins = db.prepare(
-      "INSERT INTO contradictions (id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, judge_verdict, judge_rationale, status, detected_at) VALUES (?, 'sc', ?, 'cc', ?, ?, ?, 'contradiction', 'because', ?, 0)",
+      "INSERT INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, judge_verdict, judge_rationale, status, detected_at) VALUES (?, 'v1', 'sc', ?, 'cc', ?, ?, ?, 'contradiction', 'because', ?, 0)",
     );
     ins.run("c1", "notes/a.md", "notes/z.md", "s1", "x1", "open"); // source side matches
     ins.run("c2", "notes/y.md", "notes/b.md", "s2", "x2", "open"); // conflict side matches
     ins.run("c3", "notes/a.md", "notes/w.md", "s3", "x3", "resolved"); // resolved → excluded
-    const got = openContradictionsForPaths(db, ["notes/a.md", "notes/b.md"]);
+    const got = openContradictionsForPaths(db, "v1", ["notes/a.md", "notes/b.md"], () => true);
     expect(got.map((c) => c.id).sort()).toEqual(["c1", "c2"]);
     expect(got.find((c) => c.id === "c1")).toMatchObject({
       source_path: "notes/a.md",
@@ -58,6 +58,6 @@ describe("knowledge_challenge evidence enrichment (THE-309)", () => {
   it("both helpers degrade to empty when their tables are absent", () => {
     const bare = openMemoryDb();
     expect(noteTagsByPath(bare, "v1", ["a.md"]).size).toBe(0);
-    expect(openContradictionsForPaths(bare, ["a.md"])).toEqual([]);
+    expect(openContradictionsForPaths(bare, "v1", ["a.md"], () => true)).toEqual([]);
   });
 });
