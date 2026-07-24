@@ -87,6 +87,31 @@ bun run docgen:sync-facts --golden ~/obsidian-tc-eval/multi-hop-golden-set.yaml 
 
 Then `bun run docgen:render`, review `git diff docs/`, and commit — merging republishes the wiki.
 
+## Run history
+
+`run.ts --json` writes an artifact wherever you point it, which is how runs ended up as
+`eval-n216.json`, `eval-n252.json`, `review.json` with nothing recording which config produced
+which. `history.ts` is the bookkeeping layer over those artifacts. It records **no new
+statistics** — `diff` shells out to `compare.ts`, which owns the ship gate.
+
+```bash
+bun eval/run.ts <config.json> <golden-set.yaml> --json /tmp/candidate.json
+bun eval/history.ts record /tmp/candidate.json --corpus <golden-set.yaml> --label "adaptive-rrf"
+bun eval/history.ts list                # recent runs, one line each
+bun eval/history.ts show 7              # provenance + both sides' aggregates
+bun eval/history.ts diff 7              # vs the previous run on the SAME corpus
+bun eval/history.ts export history.html # self-contained static page
+```
+
+Store is `eval/runs.db` (gitignored, as is the export — both derive from the private golden set).
+
+**Pass `--corpus`.** It is optional only so old artifacts can be backfilled. With it, the run
+records the golden set's sha256 and its *parsed* length, and `diff` refuses to compare two runs
+whose corpus hashes differ. Without it there is nothing to check and you are back to trusting
+that two files were measured against the same thing — which is how a 136-query corpus and a
+250-query corpus got compared once already. `record` also warns when the artifact's row count
+disagrees with the corpus length, which means a partial run.
+
 ## History
 
 Decision-grade baselines and every measured verdict live in the vault decision notes
