@@ -356,7 +356,7 @@ jobs:
       - name: zip plugin
         run: |
           cd packages/plugin/dist
-          zip -r ../obsidian-tc-plugin-${GITHUB_REF_NAME#v}.zip main.js manifest.json styles.css
+          zip -r "../obsidian-tc-plugin-${GITHUB_REF_NAME#v}.zip" main.js manifest.json styles.css
         shell: bash
       # Upload the zip AND the loose 3-file set (manifest.json + main.js + styles.css) so the release
       # attaches them as individual assets for BRAT sideloading (THE-206), not only the zip.
@@ -404,7 +404,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/the-40-thieves/obsidian-tc:${{ steps.version.outputs.version }}
-            ${{ steps.prerelease.outputs.value == 'false' && format('ghcr.io/the-40-thieves/obsidian-tc:latest') || '' }}
+            ${{ steps.prerelease.outputs.value == 'false' && 'ghcr.io/the-40-thieves/obsidian-tc:latest' || '' }}
           labels: |
             org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
             org.opencontainers.image.version=${{ steps.version.outputs.version }}

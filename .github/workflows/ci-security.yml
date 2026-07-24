@@ -78,6 +78,37 @@ jobs:
           node-version: 22
       - run: node scripts/check-workflow-injection.mjs
 
+  actionlint:
+    # Kept ALONGSIDE check-workflow-injection.mjs above, not instead of it. That script encodes a
+    # deliberate repo policy — an explicit allow-list of contexts this workflow set fixes itself
+    # (matrix.*, runner.*, github.workspace, …) so the signal stays actionable. actionlint's
+    # injection check is broader and differently tuned; the two disagree in both directions, and
+    # dropping the narrow one would trade a curated gate for a generic one.
+    #
+    # What actionlint adds on top: expression-level type and ARITY checking, plus shellcheck over
+    # every embedded `run:` block (ubuntu-latest ships shellcheck). Its first run on this repo found
+    # a `format()` called with one argument on the `:latest` docker-tag line of BOTH release
+    # workflows — inside jobs the `dry_run` guard skips, so the dry runs that proved all 8 native
+    # targets never once evaluated those expressions. That is the class of bug this gates against:
+    # broken only on the real-tag path, invisible to every rehearsal.
+    #
+    # GATES (no continue-on-error), unlike the audit jobs below: this is a static check of files in
+    # the repo with no external advisory feed, so it cannot start failing on its own overnight.
+    name: actionlint (workflow lint + shell + expression checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: install actionlint v1.7.12 (pinned binary + checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/actionlint-bin"
+          curl -sSL --fail -o "$RUNNER_TEMP/actionlint.tar.gz" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/actionlint-bin" actionlint
+          echo "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
+      - name: actionlint
+        run: actionlint -color
+
   gitleaks:
     runs-on: ubuntu-latest
     steps:
@@ -117,11 +148,46 @@ jobs:
       # sharp/libvips advisory sat there unnoticed until Dependabot (which scans every manifest)
       # flagged it. Audit it explicitly; the root `overrides` do not reach this tree either, so
       # docs/package.json carries its own.
-      - run: bun install --frozen-lockfile --ignore-scripts
+      #
+      # `if: always()` is load-bearing. `continue-on-error` is set at the JOB level, which decides
+      # whether this job blocks the workflow — it does NOT make the job run past a failed STEP. So
+      # from the moment the root audit above found anything, these three steps were skipped and the
+      # docs workspace went unscanned: precisely the condition they exist to cover. PR #413 is the
+      # worked example — its bun-audit log shows the root's two advisories and then stops.
+      - if: always()
+        run: bun install --frozen-lockfile --ignore-scripts
         working-directory: docs
       - name: bun audit (docs workspace)
+        if: always()
         run: bun audit
         working-directory: docs
+
+  osv-scanner:
+    # Cross-ecosystem dependency scan, complementing bun-audit/cargo-audit above rather than
+    # replacing them. Those each walk ONE lockfile in ONE ecosystem and depend on step ordering to
+    # cover the second workspace (see the `if: always()` note above). osv-scanner walks the tree and
+    # scans EVERY manifest it finds in a single invocation — root bun.lock, docs/bun.lock,
+    # packages/native/Cargo.lock and the service requirements files — against the OSV database,
+    # which is a different feed from bun's. A local run over this repo covered 1183 packages across
+    # 4 ecosystems in ~600ms and reported postcss once PER WORKSPACE, so a per-workspace regression
+    # cannot hide behind a passing root scan.
+    #
+    # continue-on-error, matching the audit jobs above: a newly disclosed transitive advisory should
+    # surface, not wall off an unrelated feature PR.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: install osv-scanner v2.4.0 (pinned binary + checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/osv-bin"
+          curl -sSL --fail -o "$RUNNER_TEMP/osv-bin/osv-scanner" \
+            https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64
+          echo "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0  $RUNNER_TEMP/osv-bin/osv-scanner" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/osv-bin/osv-scanner"
+          echo "$RUNNER_TEMP/osv-bin" >> "$GITHUB_PATH"
+      - name: osv-scanner (every lockfile in the tree)
+        run: osv-scanner scan source --recursive .
 
   # THE-506: scheduled full-repo SAST via opengrep (the community-maintained OSS continuation of the
   # Semgrep CLI). This complements, rather than duplicates, the external `semgrep-cloud-platform`
