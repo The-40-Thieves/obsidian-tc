@@ -990,10 +990,15 @@ export class ToolRegistry {
           const r = await def.handler(parsed.data, ctx);
           handlerMs = Math.max(0, now() - handlerStart);
           handlerReturned = true;
-          // #13 residual (documented): a crash in the microsecond between the handler's external
-          // write and this marker UPDATE still leaves 'in_flight' (reclaimable) — the two-generals
-          // limit, unclosable without co-transactional effects. Strictly narrower than the prior
-          // window (which spanned the whole handler-return -> finalize interval).
+          // #13 residual (documented): the marker is set only after the WHOLE handler returns, so a
+          // crash OR an in-process throw between the handler's FIRST external effect and this point
+          // still leaves 'in_flight' (reclaimable → a retry can re-run). This bites a multi-step
+          // handler that commits, then does more fallible work before returning — e.g. add_observation
+          // (DB append, THEN note rematerialize): a rematerialize throw deletes the claim and a retry
+          // re-appends. Pre-existing (the pre-#13 catch also deleted-and-re-ran here) and NOT worsened
+          // by #13; irreducible at the dispatch layer — closing it needs atomic/idempotent handlers
+          // (co-transactional effects, out of scope). #13 strictly narrows the window vs the prior
+          // catch (which spanned the whole handler-return -> finalize interval for EVERY fault).
           if (idemClaimed && idemKey) this.markEffectCommitted(ctx.db, ctx.vaultId, idemKey, now());
           return r;
         },
@@ -1036,9 +1041,9 @@ export class ToolRegistry {
         // the oversized payload), so a retry replays the same overflow error via the result_size
         // re-check on the claimed-row path. #13: if the finalize below itself faults (caught), the row
         // stays 'effect_committed' rather than reverting to in-flight — a retry (or a reclaim after a
-        // crash) resolves it to a durable indeterminate_outcome, never re-executing the handler. Only
-        // the two-generals residual (the microsecond between the handler's external write and the
-        // markEffectCommitted UPDATE) remains unclosed.
+        // crash) resolves it to a durable indeterminate_outcome, never re-executing the handler. The
+        // finalize fault itself is fully covered; only the pre-marker window remains (see the residual
+        // note at the markEffectCommitted call site above).
         if (idemClaimed && idemKey) {
           this.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
           try {

@@ -150,9 +150,11 @@ because it is an architectural refactor, not a contained fix.
   double-committed. The claim now advances through an explicit `state`
   (`in_flight → effect_committed → completed | indeterminate`): a post-effect fault records
   `indeterminate` instead of deleting, and a retry returns a typed `indeterminate_outcome` error
-  rather than re-executing. A process crash after the effect is likewise honored on reclaim. The one
-  irreducible residual — a crash in the window between the external write and the marker — is
-  documented at the call site.
+  rather than re-executing. A process crash after the effect is likewise honored on reclaim. The
+  marker is set when the handler returns, so the residual window — a crash **or an in-process throw
+  between a handler's first external effect and that return** (e.g. a multi-step handler that commits
+  then does more fallible work) — is pre-existing, unchanged by this fix, and irreducible at the
+  dispatch layer without atomic/idempotent handlers; it is documented at the call site.
 
 ### Changed
 
