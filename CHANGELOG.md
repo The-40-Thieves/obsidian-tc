@@ -143,6 +143,19 @@ because it is an architectural refactor, not a contained fix.
 
 ### Changed
 
+- **Background workloads run on the durable `JobQueue`** (THE-562 #14, extends THE-517): the
+  contradiction-detection and plane-consolidation (synthesis + audit) workloads were driven by an
+  in-memory queue that silently dropped work under backpressure and a bespoke timer that let a run
+  vanish on a transient gateway failure. Both now enqueue durable jobs drained by one generic runner
+  (`scheduler/job-runner.ts`) on the shared scheduler, so their work is crash-safe, leased,
+  retryable, and dead-letterable. Contradiction jobs retry up to 3× with a content-sensitive
+  idempotency key (`vault:chunk:contentHash`, so re-editing a note re-judges it rather than being
+  deduped against a stale completed job); synthesis/audit run once per cycle and dead-letter
+  immediately on failure (they regenerate next cycle) — a non-throwing `{ ok: false }` from
+  `runSynthesis` now surfaces as a dead-letter instead of being marked complete. `server_health`
+  gains a `job_queue` block (queued / running / retrying / failed + oldest-queued age) so backlog and
+  persistently-failing workloads are visible. Closes the `job-queue.ts` "not yet wired to a workload"
+  reachability-allowlist entry.
 - **Recurrence guards for the release process** (THE-426): a `tsc` gate now runs at the top of
   `scripts/release.mjs` (shared build + server typecheck) so a type error that vitest/esbuild
   accept can never reach a published tag; and a scheduled `release-lag` workflow
