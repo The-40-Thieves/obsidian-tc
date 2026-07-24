@@ -87,9 +87,17 @@ Used by `/wayfinder`. The **map** is a single issue; its **tickets** are child i
 - **Resolve**: `save_comment` with the answer, then `save_issue` with `state: "completed"`, then
   append a one-line gist + link to the map's **Decisions so far**.
 
-### Labels this repo still needs
+### Labels
 
-The `wayfinder:*` labels do **not** exist on the The 13th Letter team yet. Create them before the
-first `/wayfinder` run: `wayfinder:map`, `wayfinder:research`, `wayfinder:prototype`,
-`wayfinder:grilling`, `wayfinder:task`. See also `triage-labels.md` for the triage vocabulary,
-which is likewise not yet created.
+All ten labels exist on the The 13th Letter team as of 2026-07-24. The five wayfinder types —
+`wayfinder:map`, `wayfinder:research`, `wayfinder:prototype`, `wayfinder:grilling`,
+`wayfinder:task` — plus the five triage roles in `triage-labels.md`. Nothing to create before a
+`/wayfinder` run.
+
+### Live maps
+
+- **THE-546** — lock the capability-manifest shape and rule what it subsumes
+- **THE-547** — decide what obsidian-tc is out of the box
+
+Both charted 2026-07-24. `THE-508` and `THE-512` are held off THE-547 pending THE-546's
+subsumption ruling (THE-552); do not ticket them on THE-547 until it lands.
