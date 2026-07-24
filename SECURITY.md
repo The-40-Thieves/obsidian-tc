@@ -67,6 +67,13 @@ assumptions:
 - Path-traversal prevention (byte-level rejection of `..` segments and absolute paths, plus a real-path symlink-containment check so in-vault symlinks cannot escape the vault root)
 - Deny-by-default command execution (disabled unless explicitly enabled, allowlisted, and HITL-gated)
 - Audit logging of every tool invocation
+- Vault-kind isolation, enforced bidirectionally (P1.5 / THE-569): a vault's `kind` (`private` |
+  `docs` | `system`) is a code-enforced property, not just a token-provisioning convention. The
+  `read:docs` tools (`knowledge_search`, `knowledge_get_critical`) refuse any vault whose `kind`
+  isn't `docs` (confidentiality direction), and the central dispatch gate refuses any mutating call
+  (write/delete/execute/bulk, or a tool marked `destructive`) against a `docs`- or `system`-kind
+  vault (write/integrity direction) — a reserved docs/system corpus is now read-only by kind on
+  both axes. Zero blast radius for the default all-`private` config.
 
 ## Learned-state namespaces
 

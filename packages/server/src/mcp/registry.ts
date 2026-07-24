@@ -10,6 +10,7 @@ import {
   scopeRequiresHitl,
   type ToolResult,
   type ToolVisibilityConfig,
+  type VaultKind,
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { z } from "zod";
 import type { FolderAcl } from "../acl";
@@ -232,6 +233,13 @@ export interface RegistryOptions {
    *  enforcePathAcl the handlers do. Wired from the VaultRegistry in cli.ts; when absent (unit
    *  tests that omit it) central enforcement is skipped and handler-side checks still apply. */
   rootResolver?: (vaultId: string) => string | undefined;
+  /** THE-569 vault-kind resolver: the reverse of P1.5's read:docs gate. When wired, dispatch
+   *  refuses any MUTATING call (destructive tools or a required scope in a mutating family) whose
+   *  effective vault resolves to `docs` or `system` kind — a reserved docs/system corpus is
+   *  read-only BY KIND, not just by token-provisioning convention. Read (non-mutating) calls on a
+   *  docs/system vault stay allowed; this closes only the write/integrity direction. Absent (unit
+   *  tests that omit it, or a registry built with no VaultRegistry) means no gating — a no-op. */
+  vaultKindResolver?: (vaultId: string) => VaultKind | undefined;
   /** THE-288 internal-error sink. When a handler throws a non-typed exception (a server bug),
    *  the client response is redacted to `{code:"internal"}`; this sink receives the real error +
    *  stack for operator diagnosis. Never wired to stdout (the MCP channel); best-effort. */
@@ -282,6 +290,7 @@ export class ToolRegistry {
   private readonly onAuditFailure?: RegistryOptions["onAuditFailure"];
   private readonly aclResolver?: RegistryOptions["aclResolver"];
   private readonly rootResolver?: RegistryOptions["rootResolver"];
+  private readonly vaultKindResolver?: RegistryOptions["vaultKindResolver"];
   private readonly onEpisode?: RegistryOptions["onEpisode"];
   private readonly strictOutputSchema: boolean;
 
@@ -301,6 +310,7 @@ export class ToolRegistry {
     this.onAuditFailure = opts.onAuditFailure;
     this.aclResolver = opts.aclResolver;
     this.rootResolver = opts.rootResolver;
+    this.vaultKindResolver = opts.vaultKindResolver;
     this.onEpisode = opts.onEpisode;
     this.strictOutputSchema = opts.strictOutputSchema ?? strictOutputSchemaDefault();
   }
@@ -781,6 +791,24 @@ export class ToolRegistry {
       const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
       if (mutating && ctx.acl?.readOnly)
         throw new ObsidianTcError("forbidden", "vault is read-only (acl.readOnly)");
+
+      // THE-569: reverse vault-kind gate. P1.5 closed the READ direction (the read:docs tools
+      // refuse any vault whose kind isn't `docs`); this closes the WRITE/integrity direction — a
+      // mutating call must not be able to reach a `docs`- or `system`-kind vault just because it
+      // named that vault's id. Runs on the same effective vault (input.vault, falling back to
+      // ctx.vaultId) the pathAcl stage below resolves, so it agrees with what actually gets
+      // touched. A no-op when no vaultKindResolver is wired (a registry built with no
+      // VaultRegistry, or a unit test that omits it).
+      if (this.vaultKindResolver && mutating) {
+        const requestedVault = (parsed.data as { vault?: unknown } | null)?.vault;
+        const effVault = typeof requestedVault === "string" ? requestedVault : ctx.vaultId;
+        const kind = this.vaultKindResolver(effVault);
+        if (kind === "docs" || kind === "system")
+          throw err.forbidden(`${name} cannot mutate a ${kind}-kind vault`, {
+            vault: effVault,
+            kind,
+          });
+      }
 
       // Tool-specific precondition gate (D5). After scope/ACL, before HITL, so a
       // rejected precheck never consumes the single-use elicit token.

@@ -159,11 +159,23 @@ because it is an architectural refactor, not a contained fix.
   vault. Vaults gain a `kind: private | docs | system` config field (default `private`), and the docs
   tools refuse any vault whose kind is not `docs` (forbidden), so the read:docs surface is code-bound
   to the docs corpus. `add_vault` accepts an optional `kind`; `list_vaults` surfaces it. Zero blast
-  radius: all existing vaults default to `private`, and a docs corpus is opt-in. Boundary: enforcement
-  is one-directional — the private `read:notes` tools (`vault_graph_search`, `read_note`,
-  `write_note`, …) are not yet fenced OUT of a `docs`/`system` vault, so a docs corpus is read-only by
-  convention, not by kind; the reverse gate (reject write/notes access to a docs/system vault) is a
-  tracked follow-up.
+  radius: all existing vaults default to `private`, and a docs corpus is opt-in. Boundary at the time:
+  enforcement was one-directional — the private `read:notes` tools (`vault_graph_search`, `read_note`,
+  `write_note`, …) were not fenced OUT of a `docs`/`system` vault, so a docs corpus was read-only by
+  convention, not by kind. The reverse (write/integrity) direction is now closed by THE-569, below.
+- **Reverse vault-kind gate: mutation of a docs/system vault is now refused (THE-569, closing the
+  P1.5 boundary above)** (`mcp/registry.ts`, `cli.ts`): P1.5 closed the read direction only — a
+  misprovisioned `write:notes`/`delete:notes`/etc. caller could still resolve a `docs`- or
+  `system`-kind vault by id and mutate it, since the private note tools apply no `kind` check. A
+  new central dispatch gate (parallel to the existing `rootResolver`/`aclResolver` stages, keyed on
+  the same mutating-scope signal `runDispatch` already computes for the read-only-ACL check) now
+  refuses any mutating call — `destructive: true` or a required scope in the `write`/`delete`/
+  `bulk`/`execute` family — whose effective vault (`input.vault ?? ctx.vaultId`) resolves to `docs`
+  or `system`. Read calls on a docs/system vault are unaffected; this closes only the write/integrity
+  direction. No per-tool annotation needed — reuses the existing mutating-scope classification, so
+  every current and future write/delete/bulk/execute tool is covered automatically. Zero blast radius
+  for the default all-`private` config (the gate no-ops with no `vaultKindResolver` wired, e.g. the
+  `prefetch` CLI's standalone registry).
 
 ### Fixed
 
