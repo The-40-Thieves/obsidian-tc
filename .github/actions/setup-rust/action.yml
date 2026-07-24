@@ -1,0 +1,84 @@
+name: setup-rust
+description: >-
+  Install the pinned Rust toolchain (single source of truth: packages/native/rust-toolchain.toml)
+  along with this job's targets and components, then assert the toolchain cargo actually resolves in
+  packages/native is the one those targets were installed onto (THE-542).
+
+# Why this exists at all (THE-542):
+#
+# dtolnay/rust-toolchain does not read rust-toolchain.toml — there is no such logic in its action.yml
+# and its README never mentions the file. It runs `rustup toolchain install <toolchain> --target ...`
+# then `rustup default <toolchain>`, where <toolchain> defaults to the literal string "stable".
+# rustup, meanwhile, resolves cargo in packages/native via the toolchain file. Pin the file without
+# telling the action and you get two DIFFERENT rustup toolchain directories: cargo uses one, the
+# cross-compilation targets were installed on the other, and every cross build fails with
+#   error[E0463]: can't find crate for `std`
+# There is no precedence rule that saves you — the two mechanisms simply do not know about each
+# other. (actions-rust-lang/setup-rust-toolchain DOES honour the file; dtolnay's does not. That gap
+# is what everyone assumes away.)
+#
+# The fix is to derive the version from the file and hand it to the action, so both name the same
+# toolchain. Doing it in a composite action means the six call sites cannot drift apart again.
+
+inputs:
+  targets:
+    description: Comma-separated target triples this job needs installed.
+    required: false
+    default: ''
+  components:
+    description: Comma-separated extra components this job needs (beyond the toolchain file's).
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # Absolute path via github.workspace, NOT a relative one: ci-security.yml sets a job-level
+    # defaults.run.working-directory, so this step's cwd is not the repo root there.
+    - name: read pinned channel
+      id: pin
+      shell: bash
+      run: |
+        set -euo pipefail
+        f="${{ github.workspace }}/packages/native/rust-toolchain.toml"
+        ch=$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -n1)
+        # Fail loudly rather than falling through to an empty `toolchain:`, which the action would
+        # silently treat as its "stable" default — i.e. exactly the bug this action exists to stop.
+        [ -n "$ch" ] || { echo "::error::no [toolchain] channel found in $f"; exit 1; }
+        echo "channel=$ch" >> "$GITHUB_OUTPUT"
+        echo "pinned channel: $ch"
+
+    # Passing `toolchain:` IS the fix — it makes the action install this job's targets onto the same
+    # toolchain the file resolves to.
+    - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (pinned, audit #11)
+      with:
+        toolchain: ${{ steps.pin.outputs.channel }}
+        targets: ${{ inputs.targets }}
+        components: ${{ inputs.components }}
+
+    # The guard. Runs FROM packages/native so rustup answers for the file-resolved toolchain rather
+    # than the global default, and turns a downstream E0463 at link time into a named failure at
+    # setup time — in every job, including the three that only ever run on a tag push and so have no
+    # PR coverage at all (aarch64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-pc-windows-msvc).
+    #
+    # `shell: bash` is mandatory, not stylistic: the default shell on windows-latest is PowerShell,
+    # where this script fails cryptically.
+    - name: assert toolchain coherence
+      shell: bash
+      working-directory: packages/native
+      env:
+        INPUT_TARGETS: ${{ inputs.targets }}
+      run: |
+        set -euo pipefail
+        echo "active: $(rustup show active-toolchain)"
+        rustc --version
+        installed=$(rustup target list --installed)
+        for t in ${INPUT_TARGETS//,/ }; do
+          if ! grep -qx "$t" <<<"$installed"; then
+            echo "::error::target '$t' is NOT installed on the toolchain cargo resolves in packages/native"
+            echo "active: $(rustup show active-toolchain)"
+            echo "installed targets:"; echo "$installed"
+            exit 1
+          fi
+          echo "ok: $t installed on the resolved toolchain"
+        done
