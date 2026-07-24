@@ -68,6 +68,25 @@ assumptions:
 - Deny-by-default command execution (disabled unless explicitly enabled, allowlisted, and HITL-gated)
 - Audit logging of every tool invocation
 
+## Learned-state namespaces
+
+obsidian-tc accumulates several kinds of adaptive state. Each is scoped deliberately; this table makes
+the intended namespace of every store explicit (audit P1.8) so an operator can reason about what is
+per-principal, what is content-level, and what is shared runtime-wide.
+
+| Store | Namespace | Intended scope | Rationale |
+|---|---|---|---|
+| `agent_episodes` (work memory) | `vault_id` + `caller` + `session_id` | **Per-principal** | An agent's recorded actions are private to it. The partition is authorization-enforced: crossing it (`any_caller`, cross-caller `work_forget`) requires `admin:workspace` (P1.7). |
+| `chunk_retrievals` (retrieval events + feedback/outcome) | `chunk_id` + `session_id` (no `caller`) | **Content / session-level** | A retrieval event is a relevance signal *about a chunk*, not about a principal — per-caller scoping would fragment the signal it exists to aggregate. Feedback writes are session-gated (P1.7); a true per-caller owner needs a `caller` column (a follow-up). |
+| `vault_object_state` (ACT-R activation: strengths / frequency / hits) | `object_id` = chunk id (no `vault_id`/`caller`) | **Corpus-global** | A chunk's activation is a property of the *content*, learned from aggregate access. Per-caller activation would defeat the ACT-R model (a chunk many retrieve is important regardless of who). |
+| `activation_state` (recompute watermark) | singleton (`id = 1`) | **Global** | One incremental-recompute cursor for the store. |
+| `preference_profile` / `preference_deltas` | `key` (no `vault_id`/`caller`) | **Global / shared runtime** | One learned preference profile for the runtime. Correct for the single-user model; see the residual below. |
+
+The per-principal / content-level split is deliberate: **episodes** are private to the agent that
+produced them, while **retrieval and activation state** are corpus-level signals about content, so they
+are intentionally *not* per-caller. The one store whose global scope is a genuine multi-principal
+consideration is `preference_profile` — documented under *Known limitations and accepted residuals*.
+
 ## Write safety (concurrent modification)
 
 Every note write exposes a **`prev_hash`** (compare-and-swap): pass the hash you last read, and the
@@ -182,3 +201,11 @@ so operators can reason about them rather than discover them.
   treat captured episodes as **partially-trusted input** and keep `include_pending` off for
   untrusted callers; do not treat a clean layer-1 scan — or promotion to `eligible` — as proof an
   episode is safe.
+- **The learned `preference_profile` is a single global store (P1.8).** The versioned preference
+  profile (and its `preference_deltas` log) is keyed by `key` alone — one shared profile for the whole
+  runtime, with no `vault_id`/`caller` partition. In a multi-principal deployment every caller reads and
+  writes the same learned preferences, so one agent's preferences shape another's grounded-synthesis
+  pass. This is intentional for the trusted single-user runtime obsidian-tc targets (all callers are the
+  same person); per-caller preference isolation is a tracked follow-up for a genuine multi-tenant service
+  — the same defect class as the derived-plane namespacing already done for `contradictions`/`syntheses`
+  (THE-563). The full per-store namespace model is documented under *Learned-state namespaces* above.
