@@ -9,7 +9,7 @@
 <!-- BEGIN GENERATED: stats -->
 | | |
 |---|---|
-| **Version** | `1.10.0` |
+| **Version** | `1.11.0` |
 | **Tools** | 146 governed capabilities (advertised via the 3-tool facade) |
 | **Config keys** | 154 |
 | **Golden set** | 250 queries, statistical ship rule on every ranking change |

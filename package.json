@@ -1,8 +1,8 @@
 {
   "name": "obsidian-tc-monorepo",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "private": true,
-  "description": "Obsidian Turbocharged \u2014 comprehensive, model-agnostic, agent-ready Obsidian MCP server",
+  "description": "Obsidian Turbocharged — comprehensive, model-agnostic, agent-ready Obsidian MCP server",
   "license": "AGPL-3.0-only",
   "author": "The 40 Thieves",
   "repository": {
