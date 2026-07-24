@@ -44,6 +44,16 @@ export interface HealthInfo {
   /** Search-index health (THE-288). Always present; `detail` (per-vault reconcile errors + last
    *  write error) is authenticated-only since messages may name paths. */
   index?: IndexHealthSnapshot;
+  /** #14: durable job-queue depth + dead-letter count. Always present when wired; counts are
+   *  non-identifying (no paths/ids), so it is not auth-gated. A non-zero `failed` = a workload
+   *  persistently dead-lettering. */
+  job_queue?: {
+    queued: number;
+    running: number;
+    retrying: number;
+    failed: number;
+    oldest_queued_age_ms: number | null;
+  };
 }
 
 /** THE-491: the `server_health` index block, thinned to a named, agent-discoverable reader —
@@ -100,6 +110,15 @@ export function createHealthTool(opts: {
   ftsEnabled?: boolean;
   /** THE-288: returns a live index-health snapshot at call time, shaped by caller auth. */
   getIndexHealth?: (authenticated: boolean) => IndexHealthSnapshot;
+  /** #14: live job-queue stats at call time. Counts are non-identifying, so the block is always
+   *  present when the accessor is wired (unauthenticated-safe, like vec_enabled). */
+  getJobQueueStats?: () => {
+    queued: number;
+    running: number;
+    retrying: number;
+    failed: number;
+    oldestQueuedAgeMs: number | null;
+  };
 }): ToolDefinition<Record<string, never>, HealthInfo> {
   return {
     name: "server_health",
@@ -121,6 +140,21 @@ export function createHealthTool(opts: {
       ...(ctx.authenticated ? { vaults: opts.vaults } : {}),
       uptime_ms: Date.now() - opts.startedAt,
       ...(opts.getIndexHealth ? { index: opts.getIndexHealth(ctx.authenticated) } : {}),
+      ...(opts.getJobQueueStats
+        ? (() => {
+            const s = opts.getJobQueueStats?.();
+            if (!s) return {};
+            return {
+              job_queue: {
+                queued: s.queued,
+                running: s.running,
+                retrying: s.retrying,
+                failed: s.failed, // dead-letter count
+                oldest_queued_age_ms: s.oldestQueuedAgeMs,
+              },
+            };
+          })()
+        : {}),
     }),
   };
 }

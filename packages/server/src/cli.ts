@@ -924,6 +924,11 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     indexQueueBackpressures: 0,
     lastChunksUpserted: null,
   };
+  // #14: durable contradiction jobs (was an in-memory queue that dropped under backpressure).
+  // Constructed here (ahead of its original ~line-1006 site) so server_health's getJobQueueStats
+  // accessor below can close over it; it depends only on `db` + `Date.now`, both already
+  // available at this point in boot.
+  const jobQueue = new JobQueue(db, { now: Date.now });
   // server_health surfaces the build's active fast-paths (native module + sqlite-vec). Both are
   // non-identifying, so the tool keeps them in its unauthenticated payload; registered here (not
   // earlier) so hasVec is known.
@@ -956,6 +961,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
             }
           : {}),
       }),
+      getJobQueueStats: () => jobQueue.stats(),
     }),
   );
   // THE-491: get_index_status — a thin, named, agent-discoverable reader over the same
@@ -1001,9 +1007,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       }
     : null;
   // W-INGEST onIndexed hook -> contradiction-check enqueue. The detector needs the gateway, so we
-  // only enqueue when roles are present.
-  // #14: durable contradiction jobs (was an in-memory queue that dropped under backpressure).
-  const jobQueue = new JobQueue(db, { now: Date.now });
+  // only enqueue when roles are present. `jobQueue` itself is constructed earlier (ahead of the
+  // server_health registration above) so its stats accessor can be wired there.
   const CONTRADICTION_MAX_ATTEMPTS = 3;
   const CONTRADICTION_DRAIN_MS = 15_000;
   // THE-457: cap on how long graceful shutdown waits for in-flight index work.

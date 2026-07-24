@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { runMigrations } from "../src/db/migrate";
+import { CACHE_MIGRATIONS } from "../src/db/provision";
 import type { CallerContext } from "../src/mcp/registry";
+import { JobQueue } from "../src/scheduler/job-queue";
 import { createHealthTool } from "../src/tools/admin/health";
+import { openMemoryDb } from "./helpers";
 
 describe("server_health (F3)", () => {
   const tool = createHealthTool({
@@ -87,5 +91,36 @@ describe("server_health (F3)", () => {
     };
     expect(authed.index?.detail?.reconcile_errors).toHaveLength(1);
     expect(authed.index?.detail?.last_write_error).toBe("eperm");
+  });
+
+  it("surfaces job-queue depth + dead-letter count (#14)", () => {
+    const db = openMemoryDb();
+    runMigrations(db, CACHE_MIGRATIONS);
+    const queue = new JobQueue(db, { now: () => 1000 });
+    queue.enqueue("contradiction", { idempotencyKey: "a" });
+    const job = queue.enqueue("t", { idempotencyKey: "b", maxAttempts: 1 });
+    const claimed = queue.claim({ leaseOwner: "w1", types: ["t"] });
+    if (claimed) queue.fail(claimed.id, "w1", new Error("boom"), { terminal: true });
+    else throw new Error(`expected to claim job ${job.id}`);
+
+    const t = createHealthTool({
+      version: "1.0.0",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      getJobQueueStats: () => queue.stats(),
+    });
+    const out = t.handler({}, { ...base, authenticated: false } as CallerContext) as {
+      job_queue?: {
+        queued: number;
+        running: number;
+        retrying: number;
+        failed: number;
+        oldest_queued_age_ms: number | null;
+      };
+    };
+    expect(out.job_queue?.queued).toBeGreaterThanOrEqual(1);
+    expect(out.job_queue?.failed).toBeGreaterThanOrEqual(1);
   });
 });
