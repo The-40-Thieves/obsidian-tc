@@ -16,6 +16,7 @@ const read = (name: string) =>
 const EXP_CHAIN = [
   { version: "20260626_001", sql: read("20260626_001_experiential_init.sql") },
   { version: "20260711_001", sql: read("20260711_001_experiential_outcome.sql") },
+  { version: "20260724_001", sql: read("20260724_001_chunk_retrievals_caller.sql") },
 ];
 const NOW = 1_700_000_000_000;
 
@@ -29,6 +30,7 @@ interface Row {
   chunk_id: string;
   retrieved_at: number;
   session_id: string | null;
+  caller: string | null;
   surface_type: string;
   query_text: string;
   rank_in_results: number;
@@ -59,6 +61,7 @@ describe("retrieval logging (THE-230)", () => {
       chunk_id: "c1",
       retrieved_at: NOW,
       session_id: null,
+      caller: null,
       surface_type: "vault_graph_search",
       query_text: "vault health reconcile",
       rank_in_results: 1,
@@ -91,6 +94,26 @@ describe("retrieval logging (THE-230)", () => {
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.surface_type).sort()).toEqual(["search_semantic", "search_vault"]);
     expect(rows.find((r) => r.query_text === "q2")?.session_id).toBe("s-abc");
+  });
+
+  it("THE-568: stamps the calling principal into the new caller column", () => {
+    const db = edb0();
+    const log = createRetrievalLogger(db, { now: () => NOW });
+    log({
+      queryText: "q",
+      surfaceType: "vault_graph_search",
+      caller: "agent-a",
+      hits: [{ chunkId: "c1", rank: 1, score: 0.5 }],
+    });
+    log({
+      queryText: "q2",
+      surfaceType: "vault_graph_search",
+      hits: [{ chunkId: "c2", rank: 1, score: 0.5 }],
+    });
+    const rows = db.prepare("SELECT chunk_id, caller FROM chunk_retrievals").all() as Row[];
+    expect(rows.find((r) => r.chunk_id === "c1")?.caller).toBe("agent-a");
+    // no caller supplied -> null, not "undefined" or a crash (nullable by design).
+    expect(rows.find((r) => r.chunk_id === "c2")?.caller).toBeNull();
   });
 
   it("never throws: a broken store reports to onError and the caller survives", () => {

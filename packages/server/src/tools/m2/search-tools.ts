@@ -154,7 +154,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
   };
 
   const semantic = async (
-    ctx: { acl?: FolderAcl; db: Database; sessionId?: string },
+    ctx: { acl?: FolderAcl; db: Database; sessionId?: string; caller?: string | null },
     s: ReturnType<typeof scope>,
     query: string,
     k: number,
@@ -185,6 +185,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       queryText: query,
       surfaceType: surface,
       sessionId: ctx.sessionId ?? null,
+      caller: ctx.caller ?? null,
       hits: hits.map((h, i) => ({ chunkId: h.chunk_id, rank: i + 1, score: h.score })),
     });
     return hits;

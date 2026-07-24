@@ -41,6 +41,19 @@ because it is an architectural refactor, not a contained fix.
 
 ### Security
 
+- **Per-caller ownership of retrieval feedback** (`migrations/20260724_001_chunk_retrievals_caller.sql`,
+  `experiential/log.ts`, `tools/m8/experiential-tools.ts`; THE-568, closing the P1.7 follow-up):
+  `chunk_retrievals` carried only `session_id`, so `record_retrieval_feedback` could only scope
+  a non-elevated caller to a *session* — a caller who knew a foreign `session_id` could stamp
+  that session's feedback/outcome regardless of who actually produced the retrieval. The table
+  now carries a `caller` column, stamped by the retrieval logger at every serve-path call site
+  (`search_text`/`search_vault` semantic mode, `vault_context`, `vault_graph_search`, `reflect`,
+  `knowledge_search`, `knowledge_challenge`); `record_retrieval_feedback` adds an
+  `AND caller IS ?` ownership predicate to its UPDATE (mirroring the `agent_episodes` /
+  `work_forget` pattern) on top of the existing session scoping, so a non-elevated caller may
+  only stamp retrievals it caused itself. `admin:workspace` crosses both. Zero blast radius on
+  single-principal deployments; pre-migration rows with a `NULL` caller are simply unclaimable
+  by a non-elevated caller (fail closed), same as an unknown id.
 - **Experiential poison scanner canonicalizes before matching** (`experiential/poison.ts`):
   NFKC-normalize + strip zero-width/bidi controls before the content families run, so
   homoglyph (fullwidth "ｉｇｎｏｒｅ") and interleaved-invisible ("i​gnore … instructions")

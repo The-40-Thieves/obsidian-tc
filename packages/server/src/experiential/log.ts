@@ -21,6 +21,8 @@ export interface RetrievalLogEvent {
   /** Which serve surface retrieved it (tool name) — chunk_retrievals.surface_type. */
   surfaceType: string;
   sessionId?: string | null;
+  /** THE-568: the calling principal — nullable, some paths (e.g. stdio/no-auth) lack one. */
+  caller?: string | null;
   hits: RetrievalLogHit[];
 }
 
@@ -36,7 +38,7 @@ export function createRetrievalLogger(
   opts: { now?: () => number; onError?: (err: unknown) => void } = {},
 ): RetrievalLogger {
   const insert = edb.prepare(
-    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, surface_type, query_text, rank_in_results, rerank_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller, surface_type, query_text, rank_in_results, rerank_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
   return (event) => {
     if (event.hits.length === 0) return;
@@ -50,6 +52,7 @@ export function createRetrievalLogger(
             h.chunkId,
             at,
             event.sessionId ?? null,
+            event.caller ?? null,
             event.surfaceType,
             event.queryText,
             h.rank,

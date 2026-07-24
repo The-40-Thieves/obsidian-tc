@@ -77,15 +77,18 @@ per-principal, what is content-level, and what is shared runtime-wide.
 | Store | Namespace | Intended scope | Rationale |
 |---|---|---|---|
 | `agent_episodes` (work memory) | `vault_id` + `caller` + `session_id` | **Per-principal** | An agent's recorded actions are private to it. The partition is authorization-enforced: crossing it (`any_caller`, cross-caller `work_forget`) requires `admin:workspace` (P1.7). |
-| `chunk_retrievals` (retrieval events + feedback/outcome) | `chunk_id` + `session_id` (no `caller`) | **Content / session-level** | A retrieval event is a relevance signal *about a chunk*, not about a principal — per-caller scoping would fragment the signal it exists to aggregate. Feedback writes are session-gated (P1.7); a true per-caller owner needs a `caller` column (a follow-up). |
+| `chunk_retrievals` (retrieval events + feedback/outcome) | `chunk_id` + `session_id` + `caller` | **Content-level events, caller-owned feedback** | A retrieval event is a relevance signal *about a chunk*, not about a principal, so the aggregate signal itself is never per-caller scoped. Stamping feedback/outcome onto it is a write to someone's judgment, though, so `record_retrieval_feedback` is caller-owned (THE-568, closing the P1.7 follow-up): a non-elevated caller may only stamp retrievals its own `caller` produced, on top of the pre-existing session scoping; `admin:workspace` crosses both. |
 | `vault_object_state` (ACT-R activation: strengths / frequency / hits) | `object_id` = chunk id (no `vault_id`/`caller`) | **Corpus-global** | A chunk's activation is a property of the *content*, learned from aggregate access. Per-caller activation would defeat the ACT-R model (a chunk many retrieve is important regardless of who). |
 | `activation_state` (recompute watermark) | singleton (`id = 1`) | **Global** | One incremental-recompute cursor for the store. |
 | `preference_profile` / `preference_deltas` | `key` (no `vault_id`/`caller`) | **Global / shared runtime** | One learned preference profile for the runtime. Correct for the single-user model; see the residual below. |
 
 The per-principal / content-level split is deliberate: **episodes** are private to the agent that
 produced them, while **retrieval and activation state** are corpus-level signals about content, so they
-are intentionally *not* per-caller. The one store whose global scope is a genuine multi-principal
-consideration is `preference_profile` — documented under *Known limitations and accepted residuals*.
+are intentionally *not* per-caller scoped for reading or aggregation. The one exception is *writing*
+feedback onto a retrieval event: that is an act attributable to a principal, so it is caller-owned
+(THE-568) even though the retrieval event it targets is not. The one store whose global scope is a
+genuine multi-principal consideration is `preference_profile` — documented under *Known limitations
+and accepted residuals*.
 
 ## Write safety (concurrent modification)
 

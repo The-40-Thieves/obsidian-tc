@@ -28,7 +28,8 @@ export const CACHE_MIGRATION_FILES = [
  * reflect pass. THE-44: 20260712_002 is derive-don't-mutate access instrumentation
  * (chunk_access_stats view). THE-239: 20260712_003 is the hash-chained forget audit log
  * (dependency-aware deletion). THE-461: 20260723_001 is the one-row watermark for the incremental
- * ACT-R activation recompute.
+ * ACT-R activation recompute. THE-568: 20260724_001 adds the `caller` column to chunk_retrievals
+ * so record_retrieval_feedback can gate on per-caller ownership (P1.7 follow-up).
  */
 export const EXPERIENTIAL_MIGRATION_FILES = [
   "20260626_001_experiential_init.sql",
@@ -38,6 +39,7 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   "20260712_002_access_views.sql",
   "20260712_003_forget_log.sql",
   "20260723_001_activation_watermark.sql",
+  "20260724_001_chunk_retrievals_caller.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */
