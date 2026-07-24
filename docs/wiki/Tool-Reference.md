@@ -167,7 +167,7 @@ _146 tools. Access is a coarse hint; the required scopes are authoritative._
 | `patch_note` | write | `write:notes` | Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved. |
 | `plur_get` | read | `read:plur` | Fetch a specific plur engram by id (read-only proxy). |
 | `plur_recall` | read | `read:plur` | BM25 keyword recall over the global plur engram store (read-only proxy). |
-| `plur_recall_hybrid` | read | `read:plur` | Hybrid BM25 + embedding recall (RRF) over the global plur engram store. |
+| `plur_recall_hybrid` | read | `read:plur` | Hybrid BM25 + embedding recall (RRF) over the global plur engram store. `bm25_weight` is forwarded to the plur backend and only shifts ranking when that backend implements weighted hybrid RRF; the bundled local CLI backend applies default RRF and ignores it (audit #15). |
 | `plur_similarity_search` | read | `read:plur` | Cosine similarity search over plur engram embeddings (read-only proxy). |
 | `prune_hub_links` | write | `write:notes` | Prune unresolved and/or duplicate links from a hub note. Defaults to dry_run; a real run requires confirmation. |
 | `query_base` | read | `read:bases` | Execute a base view and return resolved rows. Filters/formulas may use obsidian-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset, THE-281); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter. |
