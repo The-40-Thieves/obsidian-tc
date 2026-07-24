@@ -24,6 +24,11 @@ import { type AclOp, enforcePathAcl } from "../vault/acl-path";
 import type { TraceRecord } from "../workspace/sessions";
 import { ALLOW_ALL, isDisabled, isListed, type VisibilityCaller } from "./visibility";
 
+/** #13: the idempotency claim's lifecycle states, as a union so `row.state === "..."`
+ *  comparisons in dispatch are compiler-checked against typos. The DB column itself is a plain
+ *  string; readIdempotency casts it to this type at the read site. */
+type IdempotencyState = "in_flight" | "effect_committed" | "completed" | "indeterminate";
+
 export interface CallerContext {
   caller: string | null;
   authenticated: boolean;
@@ -401,7 +406,7 @@ export class ToolRegistry {
         result: unknown;
         result_size: number | null;
         expires_at: number;
-        state: string;
+        state: IdempotencyState;
       }
     | undefined {
     return cachedPrepare(
@@ -416,7 +421,7 @@ export class ToolRegistry {
           result: unknown;
           result_size: number | null;
           expires_at: number;
-          state: string;
+          state: IdempotencyState;
         }
       | undefined;
   }
@@ -985,6 +990,10 @@ export class ToolRegistry {
           const r = await def.handler(parsed.data, ctx);
           handlerMs = Math.max(0, now() - handlerStart);
           handlerReturned = true;
+          // #13 residual (documented): a crash in the microsecond between the handler's external
+          // write and this marker UPDATE still leaves 'in_flight' (reclaimable) — the two-generals
+          // limit, unclosable without co-transactional effects. Strictly narrower than the prior
+          // window (which spanned the whole handler-return -> finalize interval).
           if (idemClaimed && idemKey) this.markEffectCommitted(ctx.db, ctx.vaultId, idemKey, now());
           return r;
         },
@@ -1020,22 +1029,25 @@ export class ToolRegistry {
       const duration = Math.max(0, now() - start);
 
       if (resultSize > this.maxResponseBytes) {
-        // Idempotency post-effect: the handler's side effect has ALREADY committed by here. Do not
-        // delete the claim — that would let a retry with the same key re-execute the committed effect.
-        // Instead FINALIZE it with the real over-limit size and a tiny marker (never the oversized
-        // payload), so a retry replays the same overflow error via the result_size re-check on the
-        // claimed-row path. Under normal DB operation the effect runs at most once. CAVEAT: if the
-        // finalize below itself faults (caught), the claim stays in-flight and can be reclaimed after
-        // idempotencyReclaimSeconds, so a retry could re-execute — at-most-once is not guaranteed under
-        // a finalize fault. The full guarantee needs a durable effect/response state machine (THE-413).
+        // Idempotency post-effect: the handler's side effect has ALREADY committed by here, and
+        // markEffectCommitted (above) already durably marked the claim 'effect_committed' before we
+        // got here. Do not delete the claim — that would let a retry with the same key re-execute the
+        // committed effect. Instead FINALIZE it with the real over-limit size and a tiny marker (never
+        // the oversized payload), so a retry replays the same overflow error via the result_size
+        // re-check on the claimed-row path. #13: if the finalize below itself faults (caught), the row
+        // stays 'effect_committed' rather than reverting to in-flight — a retry (or a reclaim after a
+        // crash) resolves it to a durable indeterminate_outcome, never re-executing the handler. Only
+        // the two-generals residual (the microsecond between the handler's external write and the
+        // markEffectCommitted UPDATE) remains unclosed.
         if (idemClaimed && idemKey) {
           this.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
           try {
             this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, "null", resultSize, now());
           } catch (finalizeErr) {
-            // A finalize fault here leaves the claim in-flight (reclaimable) — the THE-413 residual.
-            // Surface it to the operator sink rather than swallowing it; it must not mask the overflow
-            // response the caller is about to receive.
+            // A finalize fault here leaves the row 'effect_committed' (not in-flight) — #13's durable
+            // marker means a retry resolves to indeterminate_outcome rather than re-executing. Surface
+            // it to the operator sink rather than swallowing it; it must not mask the overflow response
+            // the caller is about to receive.
             try {
               this.onInternalError?.(`idempotency_finalize:${name}`, ctx.vaultId, finalizeErr);
             } catch {

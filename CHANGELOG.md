@@ -141,6 +141,19 @@ because it is an architectural refactor, not a contained fix.
   convention, not by kind; the reverse gate (reject write/notes access to a docs/system vault) is a
   tracked follow-up.
 
+### Fixed
+
+- **At-most-once idempotency under post-effect faults** (THE-562 #13, closing the THE-413 residual):
+  the dispatch pipeline deleted an idempotency claim on any failure *after* the handler had already
+  committed its side effect (a strict-output-schema violation, a `JSON.stringify` failure on the
+  payload, or an overflow-finalize fault), so a retry with the same key re-ran the handler and
+  double-committed. The claim now advances through an explicit `state`
+  (`in_flight → effect_committed → completed | indeterminate`): a post-effect fault records
+  `indeterminate` instead of deleting, and a retry returns a typed `indeterminate_outcome` error
+  rather than re-executing. A process crash after the effect is likewise honored on reclaim. The one
+  irreducible residual — a crash in the window between the external write and the marker — is
+  documented at the call site.
+
 ### Changed
 
 - **Background workloads run on the durable `JobQueue`** (THE-562 #14, extends THE-517): the
