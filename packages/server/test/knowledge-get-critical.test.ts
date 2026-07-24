@@ -58,9 +58,9 @@ function un<T>(r: unknown): T {
 const root = mkdtempSync(join(tmpdir(), "obtc-kcrit-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-function harness(scopes: string[]) {
+function harness(scopes: string[], kind: "private" | "docs" | "system" = "docs") {
   const registry = new ToolRegistry({});
-  const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]);
+  const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root, kind }]);
   registerM7Tools(registry, {
     vaultRegistry,
     embeddingProvider: { provider: "ollama", model: "stub", embed: async () => [] } as any,
@@ -91,6 +91,16 @@ describe("knowledge_get_critical (docs corpus severity pre-filter)", () => {
       ok: boolean;
     };
     expect(r.ok).toBe(false);
+  });
+
+  it("P1.5: refuses a non-docs (private) vault even under read:docs", async () => {
+    const { registry, ctx } = harness(["read:docs"], "private");
+    const r = (await registry.dispatch("knowledge_get_critical", { vault: VAULT }, ctx)) as {
+      ok: boolean;
+      error?: { code: string };
+    };
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error?.code).toBe("forbidden");
   });
 
   it("returns only critical-severity docs, sorted by source, under read:docs", async () => {

@@ -889,6 +889,13 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
       tags: ["docs", "search", "knowledge"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        // P1.5: the read:docs surface is code-bound to a docs-kind vault, so a misprovisioned
+        // docs token cannot read the private vault even if it names its id.
+        if (v.kind !== "docs")
+          throw err.forbidden("knowledge_search operates only on a docs-kind vault", {
+            vault: v.id,
+            kind: v.kind,
+          });
         const route = deps.classRouter
           ? routeQuery(ctx.db, v.id, input.query)
           : { class: "standard" as const, signals: [] as string[] };
@@ -957,6 +964,13 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
       tags: ["docs", "knowledge"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        // P1.5: same docs-kind binding as knowledge_search — this reader is never allowed to
+        // resolve a private/system vault.
+        if (v.kind !== "docs")
+          throw err.forbidden("knowledge_get_critical operates only on a docs-kind vault", {
+            vault: v.id,
+            kind: v.kind,
+          });
         const rows = ctx.db
           .prepare(
             "SELECT path, title, frontmatter FROM notes WHERE vault_id = ? AND json_extract(frontmatter, '$.severity') = 'critical' ORDER BY path",

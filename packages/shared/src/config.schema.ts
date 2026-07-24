@@ -116,6 +116,20 @@ export const VaultConfigSchema = z.object({
     .optional()
     .describe("Human-readable display name. Defaults to the id when absent."),
   path: z.string().min(1).describe("Absolute path to the vault directory on disk."),
+  // P1.5 (audit THE-562): a code-enforced isolation property. WHAT IS ENFORCED (one-directional):
+  // the read:docs tools (knowledge_search / knowledge_get_critical) refuse any vault whose kind is
+  // not `docs`, so a misprovisioned read:docs token can never read the private vault even if it
+  // names its id. `private` = the personal vault (the default); `docs` = the external docs corpus the
+  // read:docs surface is bound to; `system` = a reserved internal vault. NOT yet enforced: the
+  // reverse — the private read:notes tools (vault_graph_search, read_note, write_note, …) are NOT
+  // fenced out of a docs/system vault, so a docs corpus is read-only by convention, not by kind. The
+  // reverse gate (reject write/notes access to a docs/system vault) is a tracked follow-up.
+  kind: z
+    .enum(["private", "docs", "system"])
+    .default("private")
+    .describe(
+      "Isolation kind, enforced one-directionally: the read:docs tools (knowledge_search/knowledge_get_critical) refuse any vault whose kind is not `docs`. `private` (default) = personal vault; `docs` = external docs corpus the read:docs surface is bound to; `system` = reserved internal vault. Not yet enforced: the private read:notes tools are NOT fenced out of a docs/system vault (a follow-up).",
+    ),
   // THE-295: per-vault ACL override (same shape as the root `acl` block); absent -> the root
   // ACL is the inherited default. z.lazy defers the reference (AclConfigSchema is declared
   // below this schema).
@@ -164,6 +178,11 @@ export const VaultConfigSchema = z.object({
   ),
 });
 export type VaultConfig = z.infer<typeof VaultConfigSchema>;
+/** The pre-parse shape (defaulted fields optional) — what VaultRegistry accepts, so a raw
+ *  `{ id, path }` (kind/name/acl defaulted at use) is valid without a full schema parse. */
+export type VaultConfigInput = z.input<typeof VaultConfigSchema>;
+/** P1.5: a vault's code-enforced isolation kind. */
+export type VaultKind = VaultConfig["kind"];
 
 export const AuthConfigSchema = z
   .object({
