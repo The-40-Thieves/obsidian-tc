@@ -71,7 +71,14 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Register a new vault at runtime (no restart). Validates the path is an existing directory, adds it to the registry, and indexes it for search. Runtime-only — add it to the config file to persist across restarts.",
       inputSchema: z
-        .object({ vault_id: VaultId, path: z.string().min(1), name: z.string().min(1).optional() })
+        .object({
+          vault_id: VaultId,
+          path: z.string().min(1),
+          name: z.string().min(1).optional(),
+          // P1.5: a runtime-added vault is `private` unless stated; pass `docs` to provision an
+          // external-docs corpus reachable only by the read:docs tools.
+          kind: z.enum(["private", "docs", "system"]).default("private"),
+        })
         .strict(),
       requiredScopes: ["admin:vault"],
       handler: async (input) => {
@@ -87,7 +94,12 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
         }
         if (!statSync(root).isDirectory())
           throw err.invalidInput("path is not a directory", { path: input.path });
-        const v = deps.vaultRegistry.register({ id: input.vault_id, path: root, name: input.name });
+        const v = deps.vaultRegistry.register({
+          id: input.vault_id,
+          path: root,
+          name: input.name,
+          kind: input.kind,
+        });
         const index = deps.indexVault ? await deps.indexVault(v.id) : null;
         return { id: v.id, name: v.name, path: v.root, indexed: index !== null, index };
       },
@@ -101,6 +113,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
         vaults: deps.vaultRegistry.list().map((v) => ({
           id: v.id,
           name: v.name,
+          kind: v.kind,
           path: v.root,
           read_only: ctx.acl?.readOnly ?? false,
           embeddings_provider: deps.embeddings.provider,

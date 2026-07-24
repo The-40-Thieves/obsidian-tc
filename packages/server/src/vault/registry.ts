@@ -1,12 +1,14 @@
 // Multi-vault registry/resolver. Maps a tool's `vault` argument to a configured
 // vault root. Built once from config.vaults and closed over by tool factories.
 import { resolve } from "node:path";
-import { err, type VaultConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
 
 export interface ResolvedVault {
   id: string;
   name: string;
   root: string; // absolute filesystem path
+  /** P1.5: code-enforced isolation kind. The read:docs tools accept only `docs`. */
+  kind: VaultKind;
   restApiUrl?: string;
   restApiKey?: string;
 }
@@ -15,13 +17,14 @@ export class VaultRegistry {
   private readonly byId = new Map<string, ResolvedVault>();
   private readonly defaultId: string;
 
-  constructor(vaults: VaultConfig[], defaultId?: string) {
+  constructor(vaults: VaultConfigInput[], defaultId?: string) {
     if (vaults.length === 0) throw new Error("VaultRegistry requires at least one vault");
     for (const v of vaults) {
       this.byId.set(v.id, {
         id: v.id,
         name: v.name ?? v.id,
         root: resolve(v.path),
+        kind: v.kind ?? "private",
         restApiUrl: v.restApiUrl,
         restApiKey: v.restApiKey,
       });
@@ -45,6 +48,7 @@ export class VaultRegistry {
     id: string;
     path: string;
     name?: string;
+    kind?: VaultKind;
     restApiUrl?: string;
     restApiKey?: string;
   }): ResolvedVault {
@@ -54,6 +58,8 @@ export class VaultRegistry {
       id: v.id,
       name: v.name ?? v.id,
       root: resolve(v.path),
+      // P1.5: a runtime-added vault (add_vault) is `private` unless explicitly stated.
+      kind: v.kind ?? "private",
       restApiUrl: v.restApiUrl,
       restApiKey: v.restApiKey,
     };

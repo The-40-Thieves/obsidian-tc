@@ -42,9 +42,9 @@ function un<T>(r: unknown): T {
 const root = mkdtempSync(join(tmpdir(), "obtc-kdocs-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-function harness(scopes: string[]) {
+function harness(scopes: string[], kind: "private" | "docs" | "system" = "docs") {
   const registry = new ToolRegistry({});
-  const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]);
+  const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root, kind }]);
   registerM7Tools(registry, {
     vaultRegistry,
     embeddingProvider: {
@@ -78,6 +78,17 @@ describe("knowledge_search (docs corpus, read:docs isolation)", () => {
       ctx,
     )) as { ok: boolean };
     expect(r.ok).toBe(false);
+  });
+
+  it("P1.5: refuses a non-docs (private) vault even under read:docs", async () => {
+    const { registry, ctx } = harness(["read:docs"], "private");
+    const r = (await registry.dispatch(
+      "knowledge_search",
+      { vault: VAULT, query: "quorble" },
+      ctx,
+    )) as { ok: boolean; error?: { code: string } };
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error?.code).toBe("forbidden");
   });
 
   it("returns corpus results under read:docs (lexical route, no embed)", async () => {

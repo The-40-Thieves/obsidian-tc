@@ -121,6 +121,18 @@ because it is an architectural refactor, not a contained fix.
   single-principal deployments. Boundary: `chunk_retrievals` carries no caller column, so feedback
   ownership is enforced at session granularity, not per-caller — a true per-caller feedback owner
   needs a schema column (tracked as a THE-230 follow-up).
+- **Vault isolation `kind` is now a code-enforced property** (`config.schema.ts`, `vault/registry.ts`,
+  `tools/m7/knowledge-tools.ts`; audit P1.5): the `read:docs` surface (`knowledge_search`,
+  `knowledge_get_critical`) resolved *any* vault id, so docs/private isolation rested on token
+  provisioning + naming rather than a property — a misprovisioned docs token could read the private
+  vault. Vaults gain a `kind: private | docs | system` config field (default `private`), and the docs
+  tools refuse any vault whose kind is not `docs` (forbidden), so the read:docs surface is code-bound
+  to the docs corpus. `add_vault` accepts an optional `kind`; `list_vaults` surfaces it. Zero blast
+  radius: all existing vaults default to `private`, and a docs corpus is opt-in. Boundary: enforcement
+  is one-directional — the private `read:notes` tools (`vault_graph_search`, `read_note`,
+  `write_note`, …) are not yet fenced OUT of a `docs`/`system` vault, so a docs corpus is read-only by
+  convention, not by kind; the reverse gate (reject write/notes access to a docs/system vault) is a
+  tracked follow-up.
 
 ### Changed
 
