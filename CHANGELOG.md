@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-24
+
 ### Added
 
 - **`doctor` surfaces retrieval-head readiness independently** (`retrieval.heads` check; audit #16):
@@ -323,6 +325,109 @@ because it is an architectural refactor, not a contained fix.
   sanctioned mechanism for the audit/idempotency hot paths), collapsing the recompiles to a
   handful for the process lifetime. Biggest win on warm `index_vault`. No behavior or schema
   change; dynamic-arity queries stay on plain `prepare`.
+
+### Included pull requests
+
+The narrative sections above cover the changes that alter behaviour or contracts. This is the
+complete manifest of the 95 user-visible pull requests in `v1.10.0..HEAD`, so nothing in a
+136-commit release is silently absent from the notes — which is exactly what the release gate in
+`scripts/release.mjs` exists to prevent.
+
+- #277 — feat(release): fail the cut when a user-visible PR has no CHANGELOG entry
+- #281 — fix(security): audit follow-ups — poison canonicalization, prompt governance, service hardening
+- #282 — perf(indexer): cache reconcile-path statements with cachedPrepare (THE-316)
+- #283 — feat(dispatch): make folder-ACL a dispatch-pipeline stage via declarative path extraction (THE-414)
+- #286 — fix(facade): map vault_context to the knowledge domain
+- #287 — feat(docs): vendor/external-docs read surface (knowledge_search + knowledge_get_critical)
+- #288 — feat(ingest): docs-ingest scaffold with a Docling/Firecrawl parse-router
+- #291 — fix(links): treat escaped pipe (\|) as the wikilink alias separator
+- #296 — feat(indexer): two-tier content_hash / body_sha cross-path embedding dedup
+- #298 — feat(eval): failure taxonomy + BFS reachability probe (eval-only)
+- #297 — feat(ranking): config-driven frontmatter metadata prior (authority boost), off by default
+- #295 — feat(search): off-by-default bubble-safe activation composition (THE-233)
+- #293 — fix(indexer): GC contradiction flags when a chunk is pruned or re-embedded (#280-followup)
+- #300 — feat(eval): --diagnose wires the failure classifier into runEval (THE-446)
+- #299 — feat(indexer): cross-run body_sha dedup — seed the registry from the persisted column (THE-445)
+- #301 — feat(search): pre-plumb bubble-safe on the default graph_rrf/convex path, strictly off (THE-447)
+- #304 — fix(acl): resolve per-vault ACL at indexing time (THE-453)
+- #305 — fix(auth): bind JWT audience/issuer for remote/JWKS deployments (THE-456)
+- #306 — fix(indexer): serialize index-on-write per (vault,path) (THE-455)
+- #307 — fix(indexer): copy the vector for cross-path dedup chunks (THE-454)
+- #308 — fix(search): rebuild vec index on an embedding-dimension change (THE-457)
+- #309 — fix(plane): single-flight guard on the scheduler (THE-457)
+- #310 — fix(mcp): optional strict output-schema enforcement (THE-457)
+- #311 — fix(cli): continuous contradiction drain + graceful shutdown (THE-457)
+- #312 — fix: hygiene — audit-write health + remove stale biome suppressions (THE-457)
+- #314 — feat(docgen): config extractor — walk the Zod schema into ConfigDoc[] (THE-471)
+- #315 — feat(docgen): tools extractor — full registered surface → ToolDoc[] (THE-471)
+- #316 — feat(docgen): renderers + render CLI — model → wiki pages (THE-472)
+- #318 — feat(docgen): Astro docs-site integration (THE-474)
+- #319 — feat(docgen): metrics, errors + schema extractors (THE-471)
+- #321 — feat(docgen): advisory LLM prose suggestion tool (THE-477)
+- #329 — feat(index): complete the vec-index fingerprint beyond dimension (THE-460)
+- #327 — fix(security): second-pass audit remediation — read-ACL on write, enrichment-safe dedup, auth/index/plane hardening
+- #331 — build(docs): upgrade Astro 6→7 + Starlight 0.39→0.41 (THE-498)
+- #333 — build(deps): clear the Hono/fast-uri advisories (7 -> 0)
+- #332 — fix(acl): stop FolderAcl handing out live config references + bound glob length
+- #334 — build(docs): clear the docs-workspace advisories + audit that workspace in CI
+- #335 — perf(acl): read the whitelist once in the index-time visibility predicate
+- #336 — feat(auth): typed rejection reasons + auth_rejections_total (THE-520)
+- #340 — fix(scheduler): apply backoff to the in-memory schedule + honour the AbortSignal (THE-462)
+- #341 — fix(vec): filter the rebuild backfill by model, not just dimension (THE-460)
+- #342 — fix(perf): report peak RSS honestly instead of extrapolating per 10k chunks (THE-459)
+- #343 — feat(perf): HTTP cold/warm handshake collector, family 12 (THE-495)
+- #345 — build(release): pin model-service CI deps by hash + report unsigned release tags (THE-528)
+- #347 — perf(db): composite dedup index on (vault_id, body_sha, content_hash) (THE-502)
+- #348 — perf(indexer): memoize the schema-shape probes per connection (THE-491 item 1)
+- #350 — feat(eval): per-category metric slices (THE-449 remaining criterion)
+- #354 — feat(capability): environment detection — Obsidian, vaults, plugins, hardware (THE-522)
+- #355 — feat(doctor): runtime-health command with a machine-readable report (THE-521)
+- #356 — feat(bridge): version handshake + bridge.state + compat matrix (THE-523)
+- #357 — feat(tools): refresh_plugin_capabilities — re-probe without restart (THE-527)
+- #358 — fix(retrieval): brute-force fallback must filter by active model (THE-530)
+- #359 — fix(indexer): re-embed on model swap + deactivate superseded rows (THE-531)
+- #360 — feat(config): securityProfile "hardened" — one key for the least-privilege posture (THE-526)
+- #361 — perf(indexer): density-aware embed token estimate to cut bisection retries (THE-487)
+- #362 — feat(retrieval): stamp note freshness (age_days + stale) on hits (THE-450)
+- #363 — perf(indexer): aggregate dedup logging instead of per-duplicate stderr (THE-499)
+- #364 — perf(indexer): bulk-load chunk state once per reconcile, not per note (THE-501)
+- #365 — perf(indexer): byte-bounded, configurable batch transactions (THE-500)
+- #366 — perf(indexer): memoize dedup-vector lookups within a flush batch (THE-488)
+- #367 — perf(activation): incremental recompute past a watermark, not a full-log rescan (THE-461)
+- #368 — perf(mcp): cache immutable catalog products + extend serialization memo (THE-463)
+- #369 — feat(cache): vault-generation counter + ACL fingerprint (THE-496)
+- #370 — feat(retrieval): multi-query fan-out fusion engine (THE-448)
+- #371 — feat(retrieval): agent-supplied HyDE on vault_graph_search (THE-451)
+- #373 — perf(search): delta-only derived-edge densification (THE-486)
+- #374 — feat(search): opt-in streaming vault walk for indexVault (THE-490)
+- #375 — perf(native): optimize cosine_batch — precomputed query norm, single-pass docs (THE-504)
+- #376 — perf(harness): subprocess isolation, contention detection, statistics (THE-503)
+- #377 — feat(scheduler): durable job queue with leases and crash recovery (THE-517)
+- #379 — fix(retrieval): expose adaptive RRF as config + correct the inert activationRerank description (THE-536, THE-535)
+- #382 — feat: get_index_status + list_contradictions reader tools (THE-491)
+- #383 — fix(security): bind the vault_context prewarm cache to the caller's ACL (THE-543)
+- #385 — fix: replace literal NUL bytes in source with escapes + guard (#378)
+- #387 — fix(retrieval): thread every config knob to all four graphSearch sites (THE-545)
+- #388 — fix(ci): pass install-mode through env, not run: interpolation (THE-541)
+- #389 — fix(scheduler): observe lost leases instead of discarding them (THE-517)
+- #390 — fix(capability): bound the hardware enricher so its degrade path can run
+- #394 — feat(eval): persistent run history with corpus provenance (THE-560)
+- #395 — fix(http): serve natively under Bun to stop keep-alive connection drops (THE-561)
+- #396 — fix: audit bucket-A — reflect.persist wildcard scope, prewarm invalidation, SECURITY version (THE-562)
+- #397 — fix(experiential): hold known-bad-outcome episodes; state the promotion contract (THE-565)
+- #398 — feat(docgen): narrative fact gate + reconcile drift to 146/n=250 + enforce (THE-566)
+- #402 — fix(THE-562 tail): cross-platform npx in boundary check (#17) + disclose bm25_weight caveat (#15)
+- #403 — feat(THE-562 P1.4): enforce per-path rule-scopes at the central dispatch ACL stage
+- #404 — feat(THE-562 P1.7): make the experiential caller-partition an authorization boundary
+- #405 — feat(THE-562 P1.5): code-enforce vault isolation kind (private|docs|system)
+- #407 — feat(THE-562 #16): surface retrieval-head readiness independently in doctor
+- #408 — feat(THE-562 #14): wire the durable JobQueue to its workloads
+- #409 — feat(THE-562 #13): durable idempotency claim state-machine
+- #410 — feat(THE-562): thread rule-scopes into periodic + memory tool paths
+- #411 — feat(THE-562): per-caller ownership of retrieval feedback
+- #412 — feat(THE-562): reverse vault-kind gate — reject mutation of docs/system vaults (THE-569)
+- #415 — fix(deps): close 2 HIGH bun-audit advisories; bound the js-yaml override
+- #413 — fix(THE-562): close the intra-handler idempotency window (THE-572)
 
 ## [1.10.0] - 2026-07-17
 
