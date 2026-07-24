@@ -1,0 +1,32 @@
+# THE-542 — single source of truth for the Rust toolchain used by every cargo invocation in this
+# crate, in CI and locally alike.
+#
+# This file alone is NOT sufficient, and that is the whole lesson of THE-506. rustup reads it to
+# decide which toolchain `cargo` resolves to; dtolnay/rust-toolchain does NOT read it, and installs
+# targets/components onto whatever toolchain IT names (default: the literal string "stable"). Pin
+# only here and the two mechanisms name different rustup directories: cargo resolves to this channel,
+# the targets live on `stable`, and every cross-build dies with
+#   error[E0463]: can't find crate for `std`
+# So `.github/actions/setup-rust` parses `channel` out of this file and passes it to the action as
+# `toolchain:`. Change the version HERE and every job follows; never hardcode it in a workflow again.
+#
+# Deliberately no `targets = [...]`. rustup installs every target listed here EAGERLY, on the first
+# proxied command in this directory — there is no lazy mode (rust-lang/rustup#4027 is open and
+# unimplemented). Listing all 8 release triples would cost every contributor ~8 rust-std downloads to
+# run `cargo test` once. Cross targets are installed per-job via the action's `targets:` input, which
+# is where they are actually needed.
+[toolchain]
+# Exact patch, not "stable": a floating channel reintroduces "an unrelated PR goes red because a new
+# clippy lint shipped", which is the failure THE-506 set out to close. 1.97.1 is what `stable`
+# currently resolves to, so the cutover is a no-op on the compiler and isolates this change to the
+# plumbing. Keep three components — dtolnay special-cases the two-component form "1.97" into a
+# computed version, while a three-component string is passed through verbatim.
+channel = "1.97.1"
+# `clippy` is gated in ci-native's lint job; once cargo resolves to this channel the component has to
+# exist HERE, not on `stable`. rustfmt is not gated yet but belongs with it so local `cargo fmt`
+# matches whenever it is. rustup installs anything listed here on the next proxied command, even for
+# an already-installed toolchain.
+components = ["clippy", "rustfmt"]
+# Matches the `--profile minimal` dtolnay already passes. Omitting this defaults to `default`, which
+# drags rust-docs into every job for nothing.
+profile = "minimal"

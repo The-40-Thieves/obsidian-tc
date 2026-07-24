@@ -2,6 +2,20 @@ name: publish
 on:
   push:
     tags: ['v*']
+  # THE-542: three of the eight native targets (aarch64-unknown-linux-gnu, x86_64-apple-darwin,
+  # aarch64-pc-windows-msvc) are built ONLY here, so nothing on a PR ever proves they compile — the
+  # first time anyone finds out is mid-release. Do NOT "just push a throwaway tag" to test: the push
+  # trigger above matches any v*, the preflight only checks that the version is UNpublished, so a
+  # v0.0.0-test tag would pass and really publish obsidian-tc + all 8 platform sub-packages to npm
+  # (immutable, unrevocable) and push a ghcr image. This dispatch builds the same 8-target matrix and
+  # publishes nothing.
+  #   gh workflow run publish.yml --ref <branch> -f dry_run=true
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build the 8 native targets only; publish nothing.'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -97,10 +111,14 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (pinned, audit #11)
+      - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          # THE-542: every OTHER call site sets this; without it the release job caches the repo root
+          # instead of the crate, so the one build that matters most runs permanently cold.
+          workspaces: packages/native
       - run: bun install --frozen-lockfile
       # musl targets cross-compile via napi's `-x` (cargo-zigbuild); zig is the linker. Gated to
       # the two musl rows only — the gnu / darwin / win rows are untouched.
@@ -109,6 +127,15 @@ jobs:
         uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2
         with:
           version: 0.13.0
+      # THE-542: ci-native's musl-cross-build job pre-installs cargo-zigbuild explicitly, but this job
+      # relied on napi auto-installing it on first use — so the musl path CI validates and the musl
+      # path a release actually takes were not the same path. Compiling cargo-zigbuild from source
+      # inside a release, on a target no PR can reach, is where you least want a surprise.
+      - name: install cargo-zigbuild for musl cross-compile
+        if: endsWith(matrix.target, '-musl')
+        uses: taiki-e/install-action@ed67fa35ac944f3a9b33f12c4dd43b6f31a47e20 # v2
+        with:
+          tool: cargo-zigbuild
       # linux-arm64 is cross-compiled on the x64 ubuntu runner, which has no aarch64 linker
       # by default. Install the GNU cross toolchain and point cargo's linker (and the cc
       # crate, for when the commented-out sqlite-vec/ndarray deps land) at it. The other five
@@ -136,6 +163,10 @@ jobs:
           if-no-files-found: error
 
   publish-npm:
+    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # build-native is skipped so the 8-target matrix can be proven without shipping anything.
+    # A real release is a tag push, where github.event_name == 'push' and this is always true.
+    if: github.event_name == 'push' || !inputs.dry_run
     needs: build-native
     runs-on: ubuntu-latest
     steps:
@@ -274,6 +305,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   build-binaries:
+    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # build-native is skipped so the 8-target matrix can be proven without shipping anything.
+    # A real release is a tag push, where github.event_name == 'push' and this is always true.
+    if: github.event_name == 'push' || !inputs.dry_run
     needs: publish-npm
     strategy:
       fail-fast: true
@@ -306,6 +341,10 @@ jobs:
           path: packages/server/dist/obsidian-tc-*
 
   build-plugin:
+    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # build-native is skipped so the 8-target matrix can be proven without shipping anything.
+    # A real release is a tag push, where github.event_name == 'push' and this is always true.
+    if: github.event_name == 'push' || !inputs.dry_run
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -331,6 +370,10 @@ jobs:
             packages/plugin/dist/styles.css
 
   build-docker:
+    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # build-native is skipped so the 8-target matrix can be proven without shipping anything.
+    # A real release is a tag push, where github.event_name == 'push' and this is always true.
+    if: github.event_name == 'push' || !inputs.dry_run
     needs: publish-npm
     runs-on: ubuntu-latest
     steps:
@@ -368,6 +411,10 @@ jobs:
             org.opencontainers.image.licenses=AGPL-3.0-only
 
   build-mcpb:
+    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # build-native is skipped so the 8-target matrix can be proven without shipping anything.
+    # A real release is a tag push, where github.event_name == 'push' and this is always true.
+    if: github.event_name == 'push' || !inputs.dry_run
     needs: publish-npm
     runs-on: ubuntu-latest
     steps:
@@ -386,6 +433,10 @@ jobs:
           path: dist/obsidian-tc.mcpb
 
   draft-release:
+    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # build-native is skipped so the 8-target matrix can be proven without shipping anything.
+    # A real release is a tag push, where github.event_name == 'push' and this is always true.
+    if: github.event_name == 'push' || !inputs.dry_run
     needs: [publish-npm, build-binaries, build-plugin, build-docker, build-mcpb]
     runs-on: ubuntu-latest
     steps:
