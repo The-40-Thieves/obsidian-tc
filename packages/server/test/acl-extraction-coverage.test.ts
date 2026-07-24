@@ -50,14 +50,18 @@ const EXEMPT_NO_PATH = new Set<string>([
   "add_vault", // registers a NEW vault by absolute host path (validated by realpath), pre-ACL
   "index_vault", // indexes the whole vault, not a caller-named path (folder is a filter, read-side)
   // --- Computed target path (not derivable from input): the write path is resolved at runtime from
-  //     config + input, so it cannot be extracted statically. Enforced handler-side (defense-in-depth).
-  "create_periodic_note", // periodic path = resolver({type,date}) under the periodic-notes config
-  "find_or_create_periodic_note", // same resolver
-  "append_to_periodic_note", // same resolver
+  //     config + input, so it cannot be extracted statically for the central dispatch stage. THE-567:
+  //     these are NOT a folder-only gap — ctx.grantedScopes is threaded into the tool's existing
+  //     handler-side enforcePathAcl call(s), so the P1.4 rule-scope gate is enforced handler-side,
+  //     not skipped. (create_periodic_note's OTHER path, template_override, IS input-derivable and
+  //     has its own pathAcl extractor + is centrally enforced; only its resolver-computed target
+  //     path is exempted here.)
+  "find_or_create_periodic_note", // periodic path = resolver({period,date}); handler-side grantedScopes
+  "append_to_periodic_note", // same resolver; handler-side grantedScopes
   "reflect", // writes <memoryFolder>/reflections/<date>-<slug>.md (server-computed)
-  "create_entity", // materializes <memoryFolder>/<type>/<name>.md (server-computed)
-  "add_observation", // appends to a computed entity note / entity DB
-  "link_entities", // updates computed entity notes / entity DB
+  "create_entity", // materializes <memoryFolder>/<type>/<name>.md; handler-side grantedScopes
+  "add_observation", // appends to a computed entity note / entity DB; handler-side grantedScopes
+  "link_entities", // updates computed entity notes / entity DB; handler-side grantedScopes
   "start_session", // writes a session trace at <traceFolder>/<session>.jsonl (server-computed)
   "end_session", // finalizes the same computed trace path
   // --- Runtime-computed path SET (all notes matching a query): each affected note is enforced

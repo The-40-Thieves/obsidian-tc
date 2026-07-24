@@ -111,11 +111,22 @@ because it is an architectural refactor, not a contained fix.
   Empty rule/default scopes add no requirement, so no shipped or live config changes behavior. The
   config docs/schema were reframed from the misleading "scopes granted to a path" to "required".
   Boundary: enforcement covers every tool that declares its paths via a `pathAcl` extractor (the
-  central dispatch stage) plus the `resources/read` content endpoint. Two surfaces remain folder-ACL
-  only and are tracked follow-ups: search/enumeration *result visibility* (`readableRel`, governed by
-  `readPaths`), and the few tools without a `pathAcl` extractor whose fs access is gated only
-  handler-side (periodic-note template/target reads+writes, memory `materialize`) — a THE-414
-  extractor-coverage item, not a regression (nothing enforced rule-scopes before this change).
+  central dispatch stage) plus the `resources/read` content endpoint. One surface remains folder-ACL
+  only and is a tracked follow-up: search/enumeration *result visibility* (`readableRel`, governed by
+  `readPaths`). The periodic-note and memory-entity tools, whose fs access was gated only
+  handler-side with no rule-scope check, are closed by THE-567 below.
+- **Rule-scopes now reach the periodic-note and memory-entity tools** (`tools/m3/periodic-tools.ts`,
+  `tools/m5/memory-tools.ts`, `memory/materialize.ts`; THE-567, closing the P1.4 boundary above):
+  `create_periodic_note`, `find_or_create_periodic_note`, `append_to_periodic_note`, `create_entity`,
+  `add_observation`, and `link_entities` compute their real vault path from server config (the
+  periodic-notes resolver; the memory folder) rather than caller input, so P1.4's central `pathAcl`
+  dispatch stage — which only ever sees parsed input — could not reach them; they were folder-ACL
+  gated but NOT rule-scope gated. `create_periodic_note`'s `template_override` (which *does* arrive
+  verbatim in input) now has a `pathAcl` extractor and is centrally enforced like any other declared
+  path. Every other config-computed path in these six tools now threads the caller's granted scopes
+  into its existing handler-side `enforcePathAcl` call, so the rule-scope gate applies there instead
+  of being silently skipped. Zero behavior change for a config with no rule-scopes (the shipped
+  default); a caller lacking a rule-scoped folder's scope is now denied instead of allowed.
 - **Experiential caller-partition is now an authorization boundary, not a default filter**
   (`tools/m8/experiential-tools.ts`; audit P1.7): the per-principal partition on the work-memory
   tools could be crossed at will — `work_search`/`work_episodes` `any_caller: true` needed only

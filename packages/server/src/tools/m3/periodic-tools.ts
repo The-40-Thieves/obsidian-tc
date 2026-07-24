@@ -99,9 +99,14 @@ function loadTemplate(
   root: string,
   acl: FolderAcl | undefined,
   templatePath: string,
+  // THE-567: threaded through so a rule-scoped template folder is enforced here too, not just the
+  // folder allowlist. Harmless to pass even when the caller (create_periodic_note) also declares a
+  // pathAcl extractor for this same path — the central stage already checked it with the identical
+  // acl/path/grantedScopes, so this handler-side recheck can only reach the same decision.
+  grantedScopes?: Iterable<string>,
 ): string | null {
   const rel = normalizeVaultPath(templatePath);
-  enforcePathAcl(acl, "read", rel, root);
+  enforcePathAcl(acl, "read", rel, root, grantedScopes);
   const abs = resolveVaultPath(root, rel);
   const ex = noteExists(abs);
   if (!ex.exists || ex.type === "folder") return null;
@@ -196,11 +201,17 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         })
         .strict(),
       requiredScopes: ["write:periodic"],
+      // THE-567: template_override is the one path this tool touches that arrives verbatim in
+      // input, so it can be declared for the central runDispatch pathAcl stage (folder + P1.4
+      // rule-scope). The actual note-creation TARGET path is resolver({period,date}) under the
+      // periodic-notes config — not input-derivable — so it stays handler-side (see below).
+      pathAcl: (input) =>
+        input.template_override ? [{ op: "read" as const, path: input.template_override }] : [],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const date = parseDateInput(input.date);
         const resolved = resolvePeriodicPath(v.root, input.period, date);
-        enforcePathAcl(ctx.acl, "write", resolved.path, v.root);
+        enforcePathAcl(ctx.acl, "write", resolved.path, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, resolved.path);
         if (noteExists(abs).exists)
           throw err.noteExists("periodic note already exists", { path: resolved.path });
@@ -208,7 +219,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         let content = "";
         let templateUsed: string | null = null;
         if (input.template_override) {
-          const t = loadTemplate(v.root, ctx.acl, input.template_override);
+          const t = loadTemplate(v.root, ctx.acl, input.template_override, ctx.grantedScopes);
           if (t === null)
             throw err.invalidInput("template_override not found", {
               path: input.template_override,
@@ -216,7 +227,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           content = t;
           templateUsed = normalizeVaultPath(input.template_override);
         } else if (resolved.template) {
-          const t = loadTemplate(v.root, ctx.acl, resolved.template);
+          const t = loadTemplate(v.root, ctx.acl, resolved.template, ctx.grantedScopes);
           if (t !== null) {
             content = t;
             templateUsed = normalizeVaultPath(resolved.template);
@@ -270,11 +281,11 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const abs = resolveVaultPath(v.root, resolved.path);
         let created = false;
         if (!noteExists(abs).exists) {
-          enforcePathAcl(ctx.acl, "write", resolved.path, v.root);
+          enforcePathAcl(ctx.acl, "write", resolved.path, v.root, ctx.grantedScopes);
           let content = "";
           let templateUsed: string | null = null;
           if (resolved.template) {
-            const t = loadTemplate(v.root, ctx.acl, resolved.template);
+            const t = loadTemplate(v.root, ctx.acl, resolved.template, ctx.grantedScopes);
             if (t !== null) {
               content = t;
               templateUsed = normalizeVaultPath(resolved.template);
@@ -297,7 +308,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           }
           created = true;
         } else {
-          enforcePathAcl(ctx.acl, "read", resolved.path, v.root);
+          enforcePathAcl(ctx.acl, "read", resolved.path, v.root, ctx.grantedScopes);
         }
         const { raw } = readNote(abs);
         const parsed = parseNote(raw);
@@ -331,7 +342,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const date = parseDateInput(input.date);
         const resolved = resolvePeriodicPath(v.root, input.period, date);
-        enforcePathAcl(ctx.acl, "write", resolved.path, v.root);
+        enforcePathAcl(ctx.acl, "write", resolved.path, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, resolved.path);
         const ex = noteExists(abs);
         if (ex.exists && ex.type === "folder")
