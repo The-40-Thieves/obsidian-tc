@@ -134,7 +134,10 @@ jobs:
           # unaffected, so this only breaks one leg of the matrix. Relative paths work on all 3.
           rm -rf .tarball-check && mkdir -p .tarball-check
           (cd packages/server && npm pack --silent --pack-destination ../../.tarball-check >/dev/null)
-          tgz=$(ls .tarball-check/obsidian-tc-*.tgz | head -1)
+          # find, not ls: `ls` output is unparseable for non-alphanumeric names (SC2012), and on this
+          # project's own boxes `ls` is aliased to eza, whose -t takes a VALUE and silently lists the
+          # wrong directory with exit 0. -print -quit stops at the first match.
+          tgz=$(find .tarball-check -maxdepth 1 -name 'obsidian-tc-*.tgz' -print -quit)
           [ -n "$tgz" ] || { echo "::error::npm pack produced no tarball"; exit 1; }
           tar -xzf "$tgz" -C .tarball-check
           test -f .tarball-check/package/SKILLS.md || { echo "::error::tarball is missing SKILLS.md (the agent onboarding guide never reaches npm)"; exit 1; }
