@@ -1,0 +1,57 @@
+# cargo-deny policy for the native package.
+#
+# WHY: `cargo audit` (already in CI) answers one question — "is a dependency subject to a published
+# advisory?". It says nothing about LICENCES, and this crate ships as a compiled artifact inside a
+# PUBLIC npm package across 8 targets. A copyleft dependency arriving transitively would be a real
+# distribution problem discovered at exactly the wrong moment. cargo-deny checks that, plus banned
+# crates and registry provenance.
+#
+# The allow-list below is DERIVED, not guessed: it is the exact set of licences present in the
+# current dependency graph (`cargo metadata | jq -r '.packages[].license'`), all permissive.
+# Note that obsidian-tc-native itself is AGPL-3.0-only — that is this project's own licence, not a
+# dependency, and `private.ignore` below keeps the workspace member out of the third-party check.
+
+[graph]
+# Check every target the release builds for, not just the host. A dependency can be pulled in by a
+# cfg() that only fires on Windows or macOS, which is precisely the case a host-only scan misses.
+all-features = true
+
+[advisories]
+version = 2
+# Duplicated by the existing cargo-audit job; kept on so a single `cargo deny check` is sufficient
+# locally, where cargo-audit is not always run.
+yanked = "warn"
+
+[licenses]
+version = 2
+# Every licence ACTUALLY MATCHED in the current graph — cargo-deny warns on an allowance nothing
+# uses, so the list stays strictly derived rather than speculatively broad. Note that a package
+# offering "BSD-2-Clause OR Apache-2.0 OR MIT" resolves to Apache-2.0/MIT here, so BSD never
+# matches and is deliberately absent. Adding a dependency with anything unlisted FAILS the check,
+# which is the entire point — the failure is the notification.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "ISC",
+  "Unlicense",
+  "Unicode-3.0",
+]
+confidence-threshold = 0.9
+
+[[licenses.exceptions]]
+# The workspace member itself. AGPL applies to this project's own source, and it is not a
+# third-party dependency of anyone.
+name = "obsidian-tc-native"
+allow = ["AGPL-3.0-only"]
+
+[bans]
+multiple-versions = "warn" # informative; a duplicate major is bloat, not a correctness problem
+wildcards = "deny"         # a `*` version requirement is an unpinned supply-chain surface
+# Nothing is banned outright yet. Add entries here rather than discovering a problem crate twice.
+deny = []
+
+[sources]
+unknown-registry = "deny" # crates.io only
+unknown-git = "deny"      # no git dependencies: they are unauditable and can move under us
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
