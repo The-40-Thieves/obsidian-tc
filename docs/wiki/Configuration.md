@@ -20,7 +20,7 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 
 | Field | Type / default | Purpose |
 |---|---|---|
-| `cacheDir` | string, `.obsidian-tc` | Where per-vault SQLite caches, traces, and spools live |
+| `cacheDir` | string, `.obsidian-tc` | Where the shared SQLite cache (one `cache.db` + `experiential.db`, row-scoped by vault), traces, and spools live |
 | `vaults` | array, min 1 | Vault registry (see below) |
 | `auth` | object | `none` or `jwt` (HS256 **or** asymmetric RS256/ES256/EdDSA via JWKS) |
 | `acl` | object | Root access-control block; each vault may override via `vaults[].acl` |
