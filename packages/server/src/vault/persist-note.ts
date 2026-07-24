@@ -31,7 +31,15 @@ export function persistGovernedNote(
   const ex = noteExists(abs);
   if (ex.exists) {
     const prev = readNote(abs);
-    captureSnapshot(db, deps.snapshots, params.vaultId, params.rel, prev.raw, params.op, deps.now ?? Date.now);
+    captureSnapshot(
+      db,
+      deps.snapshots,
+      params.vaultId,
+      params.rel,
+      prev.raw,
+      params.op,
+      deps.now ?? Date.now,
+    );
   }
   writeNoteAtomic(abs, params.content, params.createDirs);
   deps.reindex?.(params.vaultId, params.rel, params.content);

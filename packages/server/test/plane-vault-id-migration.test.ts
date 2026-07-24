@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CACHE_MIGRATIONS } from "../src/db/provision";
 import { runMigrations } from "../src/db/migrate";
+import { CACHE_MIGRATIONS } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
 
 describe("20260724_001 plane vault_id migration", () => {
@@ -12,7 +12,9 @@ describe("20260724_001 plane vault_id migration", () => {
     );
     expect(cols).toContain("vault_id");
     const idx = db
-      .prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_contradictions_pair'")
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_contradictions_pair'",
+      )
       .get() as { sql: string };
     expect(idx.sql).toContain("vault_id");
   });

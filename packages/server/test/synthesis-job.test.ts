@@ -50,7 +50,9 @@ describe("synthesis job (kb-synthesis-worker collapse)", () => {
     });
     expect(res.ok).toBe(true);
     const row = db
-      .prepare("SELECT pattern_count, cluster_count, judge_model FROM syntheses WHERE vault_id = 'v1'")
+      .prepare(
+        "SELECT pattern_count, cluster_count, judge_model FROM syntheses WHERE vault_id = 'v1'",
+      )
       .get() as {
       pattern_count: number;
       cluster_count: number;
@@ -78,9 +80,15 @@ describe("synthesis job (kb-synthesis-worker collapse)", () => {
     ).run();
     const synth =
       '{"patterns":[{"title":"t","summary":"s","evidence_paths":["A.md"],"contradiction_ids":[]}],"clusters":[{"label":"l","summary":"s","chunk_paths":["A.md"]}]}';
-    const res = await runSynthesis({ db, roles: rolesReturning(synth), now: () => Date.UTC(2026, 5, 1) });
+    const res = await runSynthesis({
+      db,
+      roles: rolesReturning(synth),
+      now: () => Date.UTC(2026, 5, 1),
+    });
     expect(res.ok).toBe(true);
-    const vaults = (db.prepare("SELECT vault_id FROM syntheses ORDER BY vault_id").all() as { vault_id: string }[]).map((r) => r.vault_id);
+    const vaults = (
+      db.prepare("SELECT vault_id FROM syntheses ORDER BY vault_id").all() as { vault_id: string }[]
+    ).map((r) => r.vault_id);
     expect(vaults).toEqual(["v1", "v2"]);
   });
 });
