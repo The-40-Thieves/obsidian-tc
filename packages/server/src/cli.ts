@@ -21,6 +21,7 @@ import { parseCliArgs, redactConfig, resolveServeConfig, USAGE } from "./cli/arg
 import { installPlugin } from "./cli/plugin-install";
 import { provisionExperientialDb } from "./db/experiential";
 import { registerMaintenanceSweep } from "./db/maintenance";
+import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "./db/migration-manifest";
 import { openDatabase } from "./db/open";
 import { provisionCacheDb } from "./db/provision";
 import { assembleDoctorReport, renderText } from "./doctor";
@@ -110,49 +111,13 @@ import { ActiveSessionTracker, appendTrace, getSession } from "./workspace/sessi
 // truth, bumped by the release pipeline. Matches MCP versioning guidance (extract from
 // package metadata, do not hardcode); resolveJsonModule is on, so bun inlines it at build.
 
-const experientialInitMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260626_001_experiential_init.sql", import.meta.url)),
-  "utf8",
-);
-const experientialOutcomeMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260711_001_experiential_outcome.sql", import.meta.url)),
-  "utf8",
-);
-const experientialAgentEpisodesMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260711_002_agent_episodes.sql", import.meta.url)),
-  "utf8",
-);
-// THE-222: the versioned preference profile (typed-delta updates only) for the reflect pass.
-const preferenceProfileMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260712_001_preference_profile.sql", import.meta.url)),
-  "utf8",
-);
-// THE-44: derive-don't-mutate access instrumentation (chunk_access_stats view).
-const accessViewsMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260712_002_access_views.sql", import.meta.url)),
-  "utf8",
-);
-// THE-239: the hash-chained forget audit log (dependency-aware deletion).
-const forgetLogMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260712_003_forget_log.sql", import.meta.url)),
-  "utf8",
-);
-// THE-461: one-row watermark for the incremental ACT-R activation recompute.
-const activationWatermarkMigrationSql = readFileSync(
-  fileURLToPath(new URL("./migrations/20260723_001_activation_watermark.sql", import.meta.url)),
-  "utf8",
-);
 // The experiential.db chain, applied by every entry point that opens the store (serve +
-// activation-recompute) so they can never diverge on schema.
-const experientialMigrations = [
-  { version: "20260626_001", sql: experientialInitMigrationSql },
-  { version: "20260711_001", sql: experientialOutcomeMigrationSql },
-  { version: "20260711_002", sql: experientialAgentEpisodesMigrationSql },
-  { version: "20260712_001", sql: preferenceProfileMigrationSql },
-  { version: "20260712_002", sql: accessViewsMigrationSql },
-  { version: "20260712_003", sql: forgetLogMigrationSql },
-  { version: "20260723_001", sql: activationWatermarkMigrationSql },
-];
+// activation-recompute) so they can never diverge on schema. See migration-manifest.ts for the
+// per-file ticket references (THE-222, THE-44, THE-239, THE-461).
+const experientialMigrations = EXPERIENTIAL_MIGRATION_FILES.map((file) => ({
+  version: versionOf(file),
+  sql: readFileSync(fileURLToPath(new URL(`./migrations/${file}`, import.meta.url)), "utf8"),
+}));
 type Cmd<K extends string> = Extract<ReturnType<typeof parseCliArgs>, { kind: K }>;
 
 function resolveOrUsageExit(input?: string): ServerConfig {
