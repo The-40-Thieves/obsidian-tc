@@ -83,6 +83,18 @@ describe("evaluateEpisodes (THE-222)", () => {
     expect(elig(db, "poisoned")).toBe("ineligible"); // the invariant
   });
 
+  it("holds a known-bad outcome (outcome=-1) but still promotes a plain error (THE-565)", async () => {
+    const db = edb0();
+    seed(db, "bad", { status: "ok", outcome: -1 }); // an explicit bad outcome: held
+    seed(db, "err", { status: "error", outcome: null }); // a failed dispatch, no bad stamp: promoted
+    seed(db, "neutral", { status: "ok", outcome: 0 }); // outcome recorded, not bad: promoted
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+    expect(stats).toMatchObject({ scanned: 3, promoted: 2, held: 1, denied: 0 });
+    expect(elig(db, "bad")).toBe("pending"); // the THE-565 hardening
+    expect(elig(db, "err")).toBe("eligible"); // "errors are lessons too" preserved
+    expect(elig(db, "neutral")).toBe("eligible");
+  });
+
   it("holds unstable ok/error clusters (cross-episode consistency, layer 2)", async () => {
     const db = edb0();
     seed(db, "u1", { args_hash: "h1", status: "ok" });

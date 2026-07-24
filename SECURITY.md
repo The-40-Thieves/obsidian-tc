@@ -168,9 +168,17 @@ so operators can reason about them rather than discover them.
   now canonicalizes text before matching (NFKC + zero-width/bidi strip, so homoglyph and
   interleaved-invisible evasion folds into its patterns), but single-entry pattern scanning still
   misses subtle, novel-phrasing, or cross-episode poison **by design** — the literature puts the
-  miss rate around two-thirds. It is **not** a standalone guarantee: content that evades it is born
-  `pending` (never auto-`eligible`), the cross-episode consistency check rides the sleep-time
-  evaluator (layer 2, THE-222), and retrieval is gated by the reader trust floor + eligible-only
-  contract (layer 6, THE-229/237). Operators relying on the experiential tier should treat captured
-  episodes as **partially-trusted input** and keep `include_pending` off for untrusted callers;
-  do not treat a clean layer-1 scan as proof an episode is safe.
+  miss rate around two-thirds. It is **not** a standalone guarantee. Content that evades it is born
+  `pending`, not `eligible` — never eligible at capture; retrieval-use waits for the sleep-time
+  evaluator (layer 2, THE-222). That evaluator promotes `pending → eligible` **deterministically**,
+  not on human review, so `pending` is a short-lived state and not a quarantine. The safety
+  contract is what the evaluator **refuses** to promote: a poison-flagged row is born `ineligible`
+  and never raised; an unstable cluster (the same caller+tool+args_hash showing both `ok` and
+  `error`) is held; a row the outcome axis already marked a bad outcome (`outcome = -1`, THE-565)
+  is held; and an optional model judge can only **lower** a promotion (a parse failure aborts the
+  judge, so the deterministic promotions stand). A plain `error` dispatch with no bad-outcome stamp
+  **is** promoted — a failed action is a lesson. Retrieval is then gated by the reader trust floor +
+  eligible-only contract (layer 6, THE-229/237). Operators relying on the experiential tier should
+  treat captured episodes as **partially-trusted input** and keep `include_pending` off for
+  untrusted callers; do not treat a clean layer-1 scan — or promotion to `eligible` — as proof an
+  episode is safe.
