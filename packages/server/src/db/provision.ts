@@ -15,6 +15,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { type Migration, runMigrations } from "./migrate";
+import { CACHE_MIGRATION_FILES, versionOf } from "./migration-manifest";
 import type { Database } from "./types";
 
 // The migration SQL sits at src/migrations in source and dist/migrations in the bundle. This module
@@ -35,20 +36,10 @@ const sql = (file: string): string =>
  * so low-trust per-retrieval state cannot FK into the authored atoms, and a reset is a file truncate.
  * Its migrations live in their own chain, still assembled in cli.ts.
  */
-export const CACHE_MIGRATIONS: Migration[] = [
-  { version: "20260519_001", sql: sql("20260519_001_initial.sql") },
-  { version: "20260519_002", sql: sql("20260519_002_entity_unique.sql") },
-  { version: "20260626_001", sql: sql("20260626_001_vault_edges.sql") },
-  { version: "20260626_002", sql: sql("20260626_002_plane.sql") },
-  { version: "20260702_001", sql: sql("20260702_001_notes.sql") },
-  { version: "20260703_001", sql: sql("20260703_001_vault_edges_vault_id.sql") },
-  { version: "20260709_001", sql: sql("20260709_001_snapshots.sql") },
-  { version: "20260713_001", sql: sql("20260713_001_vault_edges_derived.sql") },
-  { version: "20260719_001", sql: sql("20260719_001_chunks_body_sha.sql") },
-  { version: "20260722_001", sql: sql("20260722_001_chunks_dedup_index.sql") },
-  { version: "20260723_001", sql: sql("20260723_001_vault_generation.sql") },
-  { version: "20260723_002", sql: sql("20260723_002_jobs.sql") },
-];
+export const CACHE_MIGRATIONS: Migration[] = CACHE_MIGRATION_FILES.map((file) => ({
+  version: versionOf(file),
+  sql: sql(file),
+}));
 
 /** Bring a cache.db up to the current schema. The only way anything should provision one. */
 export function provisionCacheDb(

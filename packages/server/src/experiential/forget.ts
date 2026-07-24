@@ -250,17 +250,19 @@ export function forgetNote(
   const synthMentions = tableExists(cacheDb, "syntheses")
     ? (
         cacheDb
-          .prepare("SELECT COUNT(*) AS n FROM syntheses WHERE patterns LIKE ? OR clusters LIKE ?")
-          .get(`%${opts.relPath}%`, `%${opts.relPath}%`) as { n: number }
+          .prepare(
+            "SELECT COUNT(*) AS n FROM syntheses WHERE vault_id = ? AND (patterns LIKE ? OR clusters LIKE ?)",
+          )
+          .get(opts.vaultId, `%${opts.relPath}%`, `%${opts.relPath}%`) as { n: number }
       ).n
     : 0;
   const contraMentions = tableExists(cacheDb, "contradictions")
     ? (
         cacheDb
           .prepare(
-            "SELECT COUNT(*) AS n FROM contradictions WHERE source_path = ? OR conflict_path = ?",
+            "SELECT COUNT(*) AS n FROM contradictions WHERE vault_id = ? AND (source_path = ? OR conflict_path = ?)",
           )
-          .get(opts.relPath, opts.relPath) as { n: number }
+          .get(opts.vaultId, opts.relPath, opts.relPath) as { n: number }
       ).n
     : 0;
   const outdatedReflections: string[] = [];

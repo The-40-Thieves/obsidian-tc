@@ -94,10 +94,14 @@ describe("merged migration chain (integration)", () => {
   // be referenced by cli.ts.
   it("every migration file on disk is referenced by a chain (cli.ts or db/provision.ts)", () => {
     const migrationsDir = fileURLToPath(new URL("../src/migrations/", import.meta.url));
-    // The cache.db chain moved to db/provision.ts (the single source of truth now shared with the
-    // tests); cli.ts still assembles the SEPARATE experiential chain. The invariant is unchanged: a
-    // migration referenced by neither silently never runs.
-    const chainSources = ["../src/cli.ts", "../src/db/provision.ts"]
+    // Audit #9: both chains are now built from db/migration-manifest.ts (the single source of
+    // truth), so the filename literals live there, not in cli.ts/provision.ts themselves. The
+    // invariant is unchanged: a migration referenced by none of these silently never runs.
+    const chainSources = [
+      "../src/cli.ts",
+      "../src/db/provision.ts",
+      "../src/db/migration-manifest.ts",
+    ]
       .map((rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"))
       .join("\n");
     const missing = readdirSync(migrationsDir)

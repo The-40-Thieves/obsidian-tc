@@ -16,15 +16,8 @@ function baseDb(): Database {
   const db = openMemoryDb();
   runMigrations(db, [{ version: "20260519_001", sql: INIT }]);
   db.exec(
-    `CREATE TABLE contradictions (
-       id TEXT PRIMARY KEY, source_chunk_id TEXT NOT NULL, source_path TEXT NOT NULL,
-       conflict_chunk_id TEXT NOT NULL, conflict_path TEXT NOT NULL,
-       source_content_sha TEXT NOT NULL, conflict_content_sha TEXT NOT NULL,
-       cosine_similarity REAL, judge_verdict TEXT NOT NULL, judge_rationale TEXT,
-       judge_model TEXT, status TEXT NOT NULL DEFAULT 'open', detected_at INTEGER NOT NULL,
-       resolved_at INTEGER
-     );
-     CREATE UNIQUE INDEX idx_contradictions_pair ON contradictions(source_content_sha, conflict_content_sha);`,
+    "CREATE TABLE contradictions (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL DEFAULT '', source_chunk_id TEXT NOT NULL, source_path TEXT NOT NULL, conflict_chunk_id TEXT NOT NULL, conflict_path TEXT NOT NULL, source_content_sha TEXT NOT NULL, conflict_content_sha TEXT NOT NULL, cosine_similarity REAL, judge_verdict TEXT NOT NULL, judge_rationale TEXT, judge_model TEXT, status TEXT NOT NULL DEFAULT 'open', detected_at INTEGER NOT NULL, resolved_at INTEGER);" +
+      "CREATE UNIQUE INDEX idx_contradictions_pair ON contradictions(vault_id, source_content_sha, conflict_content_sha);",
   );
   return db;
 }
