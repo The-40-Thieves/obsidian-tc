@@ -28,6 +28,16 @@ export interface HardwareEnrichment {
   gpus: Gpu[];
 }
 
+/**
+ * Wall-clock bound on the enricher. systeminformation shells out to the OS: `si.graphics()` runs a
+ * WMI query on Windows, which routinely takes seconds on a cold or contended machine and carries no
+ * internal timeout of its own. Without a bound here, a hung probe blocks every caller of
+ * hardwareEnvelope() indefinitely — including capabilityProfile() — and the degrade-to-baseline path
+ * below can never run, because `catch` only fires on rejection and a stalled promise never rejects.
+ * 2s is an order of magnitude above the ~50-200ms a healthy probe takes.
+ */
+const ENRICH_TIMEOUT_MS = 2_000;
+
 /** Best-effort enrichment via systeminformation. Imported lazily so a failure to load the native-ish
  *  module never breaks module import — only the enrichment. */
 async function systeminformationEnrichment(): Promise<HardwareEnrichment> {
@@ -46,11 +56,15 @@ async function systeminformationEnrichment(): Promise<HardwareEnrichment> {
 
 /**
  * Assemble the hardware envelope. `enrich` is injectable for tests; in production it defaults to the
- * systeminformation reader. A throwing enricher degrades to the os-only baseline rather than
- * rejecting — hardware detail is a nice-to-have, never a hard dependency of the profile.
+ * systeminformation reader. An enricher that throws OR that exceeds `timeoutMs` degrades to the
+ * os-only baseline rather than rejecting — hardware detail is a nice-to-have, never a hard dependency
+ * of the profile. Making that contract true requires the timeout: "never a hard dependency" is a
+ * claim about latency as much as about errors, and only the bound stops a wedged OS probe from
+ * holding the caller open forever.
  */
 export async function hardwareEnvelope(
   enrich: () => Promise<HardwareEnrichment> = systeminformationEnrichment,
+  timeoutMs: number = ENRICH_TIMEOUT_MS,
 ): Promise<HardwareEnvelope> {
   const baseline = {
     platform: platform(),
@@ -59,10 +73,24 @@ export async function hardwareEnvelope(
     totalMemMb: Math.round(totalmem() / (1024 * 1024)),
   };
 
+  // Cleared in `finally` whichever side wins: if the enricher settles first, an uncleared timer keeps
+  // the event loop alive for the full timeoutMs. Note the loser of the race stays subscribed, so a
+  // late rejection from `enrich()` is consumed here rather than surfacing as an unhandled rejection.
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const { cpuBrand, gpus } = await enrich();
+    const { cpuBrand, gpus } = await Promise.race([
+      enrich(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`hardware enrichment exceeded ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
     return { ...baseline, ...(cpuBrand ? { cpuBrand } : {}), hasGpu: gpus.length > 0, gpus };
   } catch {
     return { ...baseline, hasGpu: false, gpus: [] };
+  } finally {
+    clearTimeout(timer);
   }
 }
