@@ -348,6 +348,13 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         }
 
         // Real move — phase 1: relocate each valid file; drop any that throw.
+        // THE-572: everything above this line is read-only (validation + the dry_run preview), so
+        // this loop is where the first durable effect lands. Each move is individually try/caught,
+        // but PHASE 2's all-or-nothing backlink rewrite is not — and a rewriteForMoves throw used
+        // to delete the claim. The retry then found every source already gone and reported the whole
+        // batch as failed, hiding the fact that the files HAD moved and only the backlinks were
+        // left unrewritten. Signalling here turns that retry into an accurate indeterminate_outcome.
+        ctx.markEffectCommitted?.();
         for (const r of rows) {
           if (!r.ok || !r.fromRel || !r.toRel) continue;
           try {

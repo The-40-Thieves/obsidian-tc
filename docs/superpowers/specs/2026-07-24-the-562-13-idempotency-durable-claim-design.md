@@ -152,6 +152,16 @@ key, the worst case is a *blocked harmless retry* (an `indeterminate_outcome` wh
 have been safe) — never a double-effect. The implementation will confirm the keyed-tool set and
 note it; no per-tool effect declaration is introduced (YAGNI).
 
+> **Correction (THE-572).** The keyed-tool set named above was never confirmed against the
+> schemas, and three of its members are wrong. `extractIdempotencyKey` (`registry.ts`) reads a
+> top-level `idempotency_key`, the `bulk_idempotency_key` alias, or a nested
+> `options.idempotency_key`. The tools whose input schema actually declares one are:
+> **`add_observation`**, **`enqueue_capture`**, **`start_session`**, **`create_periodic_note`**,
+> **`append_to_periodic_note`**, **`bulk_create_notes`** (via the alias) and **`bulk_move_notes`**.
+> `commit_capture`, `link_entities` and `bulk_set_property` are **not** keyed and never entered
+> this pipeline. The scope stance itself is unaffected — every genuinely keyed tool is mutating —
+> but the worked examples in this document should be read against that list.
+
 ## Testing — fault injection at each post-effect boundary
 
 New `idempotency-post-effect.test.ts` (or extend `idempotency.test.ts`). Each uses a handler that

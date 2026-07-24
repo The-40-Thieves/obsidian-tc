@@ -21,6 +21,9 @@ export interface M3VaultOptions {
   acl?: Partial<AclConfigT>;
   vaultId?: string;
   templaterBridge?: M3Deps["templaterBridge"];
+  /** Index-coordinator hook. Left unwired by default (the tools no-op on it); a test that needs
+   *  to fault the post-write reindex step supplies a throwing one (THE-572). */
+  reindex?: M3Deps["reindex"];
 }
 
 export interface EventRow {
@@ -73,6 +76,7 @@ export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
   registerM3Tools(registry, {
     vaultRegistry,
     ...(opts.templaterBridge ? { templaterBridge: opts.templaterBridge } : {}),
+    ...(opts.reindex ? { reindex: opts.reindex } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

@@ -24,6 +24,7 @@ import {
   isUniqueViolation,
   parseObservations,
   relationsForEntity,
+  serializeObservations,
   setEntityVaultPath,
 } from "../../memory/entities";
 import { entityNotePath, materializeEntity, type RelationLink } from "../../memory/materialize";
@@ -39,6 +40,35 @@ function outgoingLinks(ctx: CallerContext, id: string): RelationLink[] {
     .map((r) => ({ relationType: r.relation_type, targetName: r.other_name }));
 }
 
+/** The FILESYSTEM half of a rematerialize: regenerate an entity's .md projection from an
+ *  EXPLICIT observation list, so a caller can render the state it is *about* to commit rather
+ *  than the state already in SQLite (THE-572). Returns the written path, or null when the entity
+ *  is not materialized. Writes no DB row — the caller persists `vault_path` itself, which is what
+ *  lets that write join the caller's transaction.
+ *
+ *  Idempotent by construction: materializeEntity renders the whole note and writes it with
+ *  writeNoteAtomic, so running it twice with the same inputs produces identical bytes. */
+function materializeProjection(
+  deps: M5Deps,
+  ctx: CallerContext,
+  v: ResolvedVault,
+  e: EntityRow,
+  observations: readonly string[],
+): string | null {
+  if (e.materialize !== 1) return null;
+  return materializeEntity({
+    root: v.root,
+    acl: ctx.acl,
+    folder: memoryFolderFor(deps, v.id),
+    id: e.id,
+    entityType: e.entity_type,
+    name: e.name,
+    observations: [...observations],
+    relations: outgoingLinks(ctx, e.id),
+    grantedScopes: ctx.grantedScopes,
+  }).vaultPath;
+}
+
 /** Regenerate an entity's .md projection from current SQLite state (no-op when the
  *  entity is not materialized). Returns the materialized path or the stored one. */
 function rematerialize(
@@ -49,19 +79,15 @@ function rematerialize(
   now: number,
 ): string | null {
   if (e.materialize !== 1) return e.vault_path;
-  const res = materializeEntity({
-    root: v.root,
-    acl: ctx.acl,
-    folder: memoryFolderFor(deps, v.id),
-    id: e.id,
-    entityType: e.entity_type,
-    name: e.name,
-    observations: parseObservations(e.observations),
-    relations: outgoingLinks(ctx, e.id),
-    grantedScopes: ctx.grantedScopes,
-  });
-  setEntityVaultPath(ctx.db, e.id, res.vaultPath, now);
-  return res.vaultPath;
+  const vaultPath = materializeProjection(
+    deps,
+    ctx,
+    v,
+    e,
+    parseObservations(e.observations),
+  ) as string;
+  setEntityVaultPath(ctx.db, e.id, vaultPath, now);
+  return vaultPath;
 }
 
 export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
@@ -207,16 +233,48 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
             ctx.grantedScopes,
           );
         const now = (ctx.now ?? Date.now)();
-        const r = appendObservation(ctx.db, existing.id, input.observation, now);
-        if (!r) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
-        const refreshed = getEntityById(ctx.db, existing.id) as EntityRow;
-        const vaultPath = rematerialize(deps, ctx, v, refreshed, now);
-        return {
-          entity_id: refreshed.id,
-          observation_count: r.observationCount,
-          updated_at: r.updatedAt,
-          vault_path: vaultPath,
-        };
+
+        // THE-572: this handler commits TWO effects — a SQLite append and a note write — that
+        // cannot share one transaction (SQLite cannot roll back the filesystem). Previously the
+        // append ran first, so a throw in the note write left the observation durably committed
+        // while dispatch deleted the idempotency claim, and a retry appended it a SECOND time.
+        //
+        // Fix: run the IDEMPOTENT effect first. materializeProjection renders the whole note and
+        // overwrites it atomically, so re-running it is a no-op, whereas appendObservation is
+        // strictly additive and re-running it double-applies. The note is therefore rendered from
+        // the observation list we are ABOUT to commit. SQLite stays the source of truth, so the
+        // one failure this ordering can leave — a note containing an observation whose append then
+        // rolled back — is stale-but-regenerable and the next rematerialize corrects it. That is
+        // strictly better than the reverse, which silently duplicated user data.
+        const nextObservations = parseObservations(
+          serializeObservations([...parseObservations(existing.observations), input.observation]),
+        );
+        const vaultPath =
+          existing.materialize === 1
+            ? materializeProjection(deps, ctx, v, existing, nextObservations)
+            : existing.vault_path;
+
+        // Both remaining effects are writes on ctx.db, so the idempotency marker joins them in ONE
+        // transaction: either the observation lands AND the claim is durably marked, or neither
+        // does and the claim stays in-flight for a legitimate re-run. Marking inside the
+        // transaction is what avoids a false `indeterminate_outcome` when the append itself fails.
+        ctx.db.exec("BEGIN");
+        try {
+          ctx.markEffectCommitted?.();
+          const r = appendObservation(ctx.db, existing.id, input.observation, now);
+          if (!r) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
+          if (existing.materialize === 1) setEntityVaultPath(ctx.db, existing.id, vaultPath, now);
+          ctx.db.exec("COMMIT");
+          return {
+            entity_id: existing.id,
+            observation_count: r.observationCount,
+            updated_at: r.updatedAt,
+            vault_path: vaultPath,
+          };
+        } catch (e) {
+          ctx.db.exec("ROLLBACK");
+          throw e;
+        }
       },
     }),
 

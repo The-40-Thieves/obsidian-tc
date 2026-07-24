@@ -57,14 +57,14 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         const tracePath = traceRelPath(traceFolderFor(deps, v.id), id);
         const abs = resolveVaultPath(v.root, tracePath);
         enforcePathAcl(ctx.acl, "write", tracePath, v.root);
-        insertSession(ctx.db, {
-          id,
-          vaultId: v.id,
-          caller: input.caller,
-          startedAt: now,
-          tracePath,
-          metadata: input.session_metadata,
-        });
+        // THE-572: two effects — a SQLite row and a JSONL trace file — that cannot share a
+        // transaction. The row used to be inserted first, so an appendTrace throw left a durable
+        // session row behind while dispatch deleted the idempotency claim, and a retry inserted a
+        // SECOND row (genSessionId mints a fresh id, so nothing collides to stop it).
+        //
+        // Fix: write the trace first. Its path is derived from the session id, which is minted per
+        // attempt, so a failed attempt's file is a self-contained orphan rather than a duplicate of
+        // anything — and the authoritative row is what a retry must not duplicate.
         appendTrace(abs, {
           ts: now,
           type: "session_start",
@@ -72,6 +72,24 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           caller: input.caller,
           ...(input.session_metadata ? { metadata: input.session_metadata } : {}),
         });
+        // The row and the idempotency marker are both writes on ctx.db, so they commit together:
+        // a failed INSERT rolls the marker back too and the claim stays legitimately re-runnable.
+        ctx.db.exec("BEGIN");
+        try {
+          ctx.markEffectCommitted?.();
+          insertSession(ctx.db, {
+            id,
+            vaultId: v.id,
+            caller: input.caller,
+            startedAt: now,
+            tracePath,
+            metadata: input.session_metadata,
+          });
+          ctx.db.exec("COMMIT");
+        } catch (e) {
+          ctx.db.exec("ROLLBACK");
+          throw e;
+        }
         deps.activeSessions?.set(ctx.caller, id, v.id);
         return { session_id: id, vault: v.id, started_at: now, trace_path: tracePath };
       },

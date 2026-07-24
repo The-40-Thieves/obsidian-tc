@@ -179,6 +179,33 @@ because it is an architectural refactor, not a contained fix.
 
 ### Fixed
 
+- **At-most-once now holds *inside* a multi-step handler** (THE-572, closing the residual #13
+  documented but could not reach from the dispatch layer): #13 marks an idempotency claim
+  `effect_committed` only when the whole handler *returns*, so a handler that committed effect #1
+  and then did more fallible work still had a real window — a throw before the return deleted the
+  claim and a retry **double-applied**. Three keyed handlers were genuinely exposed:
+  `add_observation` (SQLite append, then note re-materialize) duplicated the observation,
+  `start_session` (row insert, then JSONL trace write) inserted a second session row, and
+  `append_to_periodic_note` (note write, then a `reindex` that rejects under backpressure)
+  appended the content twice. The fix is two-part:
+  - **`ctx.markEffectCommitted()`** — a mid-execution signal that moves the marker to the
+    handler's own first durable effect. Deliberately write-ahead: it can only over-report (a
+    caller told to verify state when nothing applied), never under-report a silent double-apply.
+    The dispatch catch consults the **durable** claim state rather than the in-memory flag, so a
+    signal rolled back with the handler's transaction still releases the claim for a real retry.
+  - **Per-handler ordering/atomicity** — `add_observation` and `start_session` now run their
+    *idempotent* effect first (a full-note overwrite; a per-attempt trace file) and commit the
+    remaining `ctx.db` writes together with the marker in one transaction, so either the effect
+    and the claim both land or neither does. `create_periodic_note` and `bulk_move_notes` also
+    signal, which turns a post-effect fault into an accurate `indeterminate_outcome` instead of a
+    retry that answers `note_exists` (or reports a whole move batch as failed) about the caller's
+    own prior attempt.
+
+  Also reconciles the #13 prose: the keyed-tool set it named was never verified against the
+  schemas. The tools that actually accept an idempotency key are `add_observation`,
+  `enqueue_capture`, `start_session`, `create_periodic_note`, `append_to_periodic_note`,
+  `bulk_create_notes` (via `bulk_idempotency_key`) and `bulk_move_notes` — **not**
+  `commit_capture`, `link_entities` or `bulk_set_property`.
 - **At-most-once idempotency under post-effect faults** (THE-562 #13, closing the THE-413 residual):
   the dispatch pipeline deleted an idempotency claim on any failure *after* the handler had already
   committed its side effect (a strict-output-schema violation, a `JSON.stringify` failure on the
