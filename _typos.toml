@@ -1,0 +1,63 @@
+# typos-cli configuration.
+#
+# Unconfigured, typos reports 120 findings here and almost none are typos. This repo deliberately
+# contains malformed strings: truncated SQL in test fixtures, homoglyph/evasion payloads for the
+# poison scanner, POSIX flag names, and tool names that look like misspellings. Gating on that raw
+# output would fail CI on correct code.
+#
+# Everything below is DERIVED from reading the actual findings, not guessed. Re-check the residual
+# after any change with: `typos --format brief`
+
+[files]
+extend-exclude = [
+  # Generated / captured data, not prose.
+  "docs/plans/data/**",
+  "**/*.json",
+  "**/*.jsonl",
+  "bun.lock",
+  "Cargo.lock",
+  # Immutable history: correcting a shipped entry rewrites the record of what was said.
+  "CHANGELOG.md",
+  "**/target/**",
+  "**/dist/**",
+  "**/node_modules/**",
+]
+
+[default.extend-words]
+# Accepted English variants this codebase uses consistently. Rewriting them would touch dozens of
+# files and change nothing.
+unparseable = "unparseable"
+browseable = "browseable"
+# Real names typos mistakes for near-misses.
+evalite = "evalite" # the eval tool
+morg = "morg"       # MORGIANA abbreviation
+# Fragments inside test fixtures and generated data.
+ba = "ba"
+nin = "nin"
+mis = "mis"
+ede = "ede"
+pn = "pn"
+nd = "nd"
+caf = "caf"
+nore = "nore"
+als = "als"           # AsyncLocalStorage instance in vault/acl-audit.ts
+meaned = "meaned"     # deliberate: "nDCG is meaned over the queries that declare bridge paths"
+formattings = "formattings"
+Sems = "Sems"         # vaultSems / globalSems — semaphores in the index coordinator
+# Truncated SQL keywords used ON PURPOSE by tests asserting on partial statements. These live here
+# rather than under extend-identifiers because they appear as words inside strings and comments,
+# which the identifier list does not reach.
+SELEC = "SELEC"
+DELET = "DELET"
+INSER = "INSER"
+UNIO = "UNIO"
+
+[default.extend-identifiers]
+UNPARSEABLE = "UNPARSEABLE"
+# POSIX open(2) flag, not a misspelling of "wrongly".
+WRONLY = "WRONLY"
+O_WRONLY = "O_WRONLY"
+# Deliberate evasion payloads in the poison-scanner tests: the scanner's job is to canonicalize
+# these back to their real form, so the malformed spelling IS the test input.
+ignora = "ignora"
+responde = "responde"

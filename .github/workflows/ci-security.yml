@@ -135,6 +135,29 @@ jobs:
       - name: cargo audit
         run: cargo audit
 
+  cargo-deny:
+    # cargo-audit above answers one question: "is a dependency subject to a published advisory?"
+    # It says nothing about LICENCES — and this crate ships as a compiled artifact inside a PUBLIC
+    # npm package across 8 targets, so a copyleft dependency arriving transitively would be a real
+    # distribution problem found at the worst possible moment. cargo-deny adds that, plus banned
+    # crates and registry provenance (no git deps, crates.io only).
+    #
+    # GATES, unlike cargo-audit: the licence/ban/source policy in packages/native/deny.toml is a
+    # static assertion about the dependency graph, so it cannot start failing on its own overnight
+    # the way an advisory feed can. Its advisory section is left at `warn` precisely so the two jobs
+    # do not both hard-fail on the same newly-disclosed CVE.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/native
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: ./.github/actions/setup-rust
+      - name: install cargo-deny
+        run: cargo install cargo-deny --locked
+      - name: cargo deny check
+        run: cargo deny check
+
   bun-audit:
     runs-on: ubuntu-latest
     continue-on-error: true

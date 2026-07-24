@@ -1,0 +1,72 @@
+name: ci-quality
+
+# Documentation and source hygiene that is neither a security gate (ci-security) nor tied to the
+# docs site build (ci-docs). Both jobs GATE, and both earned that only after being configured down
+# to a genuine zero on this repo — an unconfigured run of either fails on correct code:
+#
+#   typos, unconfigured: 120 findings, near-zero of them real. This repo deliberately contains
+#     malformed strings — truncated SQL in test fixtures, homoglyph payloads for the poison scanner,
+#     POSIX flag names, tool names that read as misspellings. _typos.toml encodes exactly those, all
+#     derived from reading the actual findings. Residual is now 0 repo-wide.
+#
+#   lychee, unconfigured: 318 "errors", none of them link rot. They are root-relative links in the
+#     Astro content collection (/tools/, /roadmap/) which resolve against the BUILT site, not the
+#     source tree. Excluding docs/src takes it to 0 while still covering the wiki, plans and guides.
+#
+# Deliberately NOT here: knip. Its one high-value output (dead files) is zero once entry points are
+# declared, and everything it reports after that is invisible-to-static-analysis by design — the
+# native package is required via ["@the-40-thieves","obsidian-tc-native"].join("/") so bundlers
+# cannot resolve it statically, sqlite-vec is loaded as a SQLite extension rather than imported, and
+# dependency-cruiser is invoked as a binary. knip.json is committed so a human running `knip` gets
+# useful output; gating on it would mean permanently allow-listing three false positives.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typos:
+    name: typos (source + docs spelling)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: install typos v1.48.0 (pinned binary + checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/typos-bin"
+          curl -sSL --fail -o "$RUNNER_TEMP/typos.tar.gz" \
+            https://github.com/crate-ci/typos/releases/download/v1.48.0/typos-v1.48.0-x86_64-unknown-linux-musl.tar.gz
+          echo "72a930c9a94fc3914aa56835c5b859c892a797d40c1c42638b98d93f16ff519c  $RUNNER_TEMP/typos.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/typos.tar.gz" -C "$RUNNER_TEMP/typos-bin" ./typos
+          echo "$RUNNER_TEMP/typos-bin" >> "$GITHUB_PATH"
+      - name: typos
+        run: typos
+
+  links:
+    name: lychee (internal link rot)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: install lychee v0.24.2 (pinned binary + checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/lychee-bin"
+          curl -sSL --fail -o "$RUNNER_TEMP/lychee.tar.gz" \
+            https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-musl.tar.gz
+          echo "73657a111819a30c47c08352896796f23d64e4eb2b3ed39b6d32149241566fc5  $RUNNER_TEMP/lychee.tar.gz" | sha256sum -c -
+          # The binary is nested under lychee-x86_64-unknown-linux-musl/, unlike typos' bare ./typos
+          # — --strip-components=1 flattens it so the PATH entry below finds it.
+          tar -xzf "$RUNNER_TEMP/lychee.tar.gz" -C "$RUNNER_TEMP/lychee-bin" \
+            --strip-components=1 lychee-x86_64-unknown-linux-musl/lychee
+          echo "$RUNNER_TEMP/lychee-bin" >> "$GITHUB_PATH"
+      - name: lychee (offline — internal links only)
+        # --offline on purpose: external URLs go stale for reasons that have nothing to do with this
+        # PR, and a network-dependent gate that fails on someone else's outage trains people to
+        # ignore it. This checks that links WITHIN the repo resolve, which is fully deterministic.
+        run: lychee --offline --no-progress --exclude-path docs/src 'docs/**/*.md' '*.md'
