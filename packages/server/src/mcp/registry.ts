@@ -24,6 +24,11 @@ import { type AclOp, enforcePathAcl } from "../vault/acl-path";
 import type { TraceRecord } from "../workspace/sessions";
 import { ALLOW_ALL, isDisabled, isListed, type VisibilityCaller } from "./visibility";
 
+/** #13: the idempotency claim's lifecycle states, as a union so `row.state === "..."`
+ *  comparisons in dispatch are compiler-checked against typos. The DB column itself is a plain
+ *  string; readIdempotency casts it to this type at the read site. */
+type IdempotencyState = "in_flight" | "effect_committed" | "completed" | "indeterminate";
+
 export interface CallerContext {
   caller: string | null;
   authenticated: boolean;
@@ -401,11 +406,12 @@ export class ToolRegistry {
         result: unknown;
         result_size: number | null;
         expires_at: number;
+        state: IdempotencyState;
       }
     | undefined {
     return cachedPrepare(
       db,
-      "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at FROM idempotency_keys WHERE vault_id = ? AND key = ?",
+      "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state FROM idempotency_keys WHERE vault_id = ? AND key = ?",
     ).get(vaultId, key) as
       | {
           tool_name: string;
@@ -415,6 +421,7 @@ export class ToolRegistry {
           result: unknown;
           result_size: number | null;
           expires_at: number;
+          state: IdempotencyState;
         }
       | undefined;
   }
@@ -429,8 +436,27 @@ export class ToolRegistry {
   ): void {
     cachedPrepare(
       db,
-      "UPDATE idempotency_keys SET completed_at = ?, result = ?, result_size = ? WHERE vault_id = ? AND key = ?",
+      "UPDATE idempotency_keys SET completed_at = ?, result = ?, result_size = ?, state = 'completed' WHERE vault_id = ? AND key = ?",
     ).run(nowMs, json, size, vaultId, key);
+  }
+
+  /** #13: durable marker set the instant the handler returns — the effect may now be committed.
+   *  A crash after this leaves a durable 'effect_committed' row that reclaim honors (never re-runs). */
+  private markEffectCommitted(db: Database, vaultId: string, key: string, _nowMs: number): void {
+    cachedPrepare(
+      db,
+      "UPDATE idempotency_keys SET state = 'effect_committed' WHERE vault_id = ? AND key = ? AND completed_at IS NULL",
+    ).run(vaultId, key);
+  }
+
+  /** #13: a post-effect fault finalizes the claim as indeterminate (never deletes it), so a retry
+   *  returns indeterminate_outcome instead of re-executing. result_size stays NULL so the overflow
+   *  re-check never fires; the state='indeterminate' branch answers first. */
+  private finalizeIndeterminate(db: Database, vaultId: string, key: string, nowMs: number): void {
+    cachedPrepare(
+      db,
+      "UPDATE idempotency_keys SET completed_at = ?, result = 'null', result_size = NULL, state = 'indeterminate' WHERE vault_id = ? AND key = ?",
+    ).run(nowMs, vaultId, key);
   }
 
   private deleteIdempotency(db: Database, vaultId: string, key: string): void {
@@ -670,9 +696,34 @@ export class ToolRegistry {
     // we own its in-flight row, so the catch/overflow paths can release it.
     let idemKey: string | undefined;
     let idemClaimed = false;
+    // #13: set true the instant the handler returns — after this, a fault is post-effect
+    // (the effect may be durably committed) and the catch below must never delete the claim.
+    let handlerReturned = false;
 
     const audit = (status: Status, durationMs: number, resultSize: number, code?: string) =>
       this.recordOutcome(ctx, name, hash, rawInput, status, durationMs, resultSize, code);
+
+    // #13: a retry against a row left `indeterminate` (post-effect fault) or orphaned
+    // `effect_committed` (crash after effect) must never re-run the handler — it gets a definite
+    // "may have applied" answer instead, so the caller can verify state before deciding to retry.
+    const indeterminateReplay = (key: string) => {
+      const duration = Math.max(0, now() - start);
+      const e = new ObsidianTcError(
+        "indeterminate_outcome",
+        "a prior attempt with this idempotency key may have applied its effect but did not record a result; verify state before retrying",
+        { key },
+      );
+      audit("error", duration, 0, e.code);
+      this.meter((m) => {
+        m.incIdempotencyHit(ctx.vaultId, name);
+        m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, 0);
+      });
+      return {
+        ok: false as const,
+        error: e.toJSON(),
+        meta: { duration_ms: duration, result_size: 0 },
+      };
+    };
 
     try {
       const def = this.tools.get(name);
@@ -754,7 +805,9 @@ export class ToolRegistry {
           if (
             row &&
             (row.expires_at <= now() ||
-              (row.completed_at == null && row.started_at + this.idempotencyReclaimMs <= now()))
+              (row.state === "in_flight" &&
+                row.completed_at == null &&
+                row.started_at + this.idempotencyReclaimMs <= now()))
           ) {
             this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
             if (
@@ -777,6 +830,8 @@ export class ToolRegistry {
                 "idempotency key reused with a different tool or arguments",
                 { key: idemKey },
               );
+            if (row.state === "indeterminate") return indeterminateReplay(idemKey);
+            if (row.state === "effect_committed") return indeterminateReplay(idemKey);
             if (row.completed_at != null) {
               // Terminal-overflow replay: the original call committed its side effect but its response
               // exceeded the byte budget, so the claim was finalized with the real over-limit size and
@@ -934,6 +989,17 @@ export class ToolRegistry {
           const handlerStart = now();
           const r = await def.handler(parsed.data, ctx);
           handlerMs = Math.max(0, now() - handlerStart);
+          handlerReturned = true;
+          // #13 residual (documented): the marker is set only after the WHOLE handler returns, so a
+          // crash OR an in-process throw between the handler's FIRST external effect and this point
+          // still leaves 'in_flight' (reclaimable → a retry can re-run). This bites a multi-step
+          // handler that commits, then does more fallible work before returning — e.g. add_observation
+          // (DB append, THEN note rematerialize): a rematerialize throw deletes the claim and a retry
+          // re-appends. Pre-existing (the pre-#13 catch also deleted-and-re-ran here) and NOT worsened
+          // by #13; irreducible at the dispatch layer — closing it needs atomic/idempotent handlers
+          // (co-transactional effects, out of scope). #13 strictly narrows the window vs the prior
+          // catch (which spanned the whole handler-return -> finalize interval for EVERY fault).
+          if (idemClaimed && idemKey) this.markEffectCommitted(ctx.db, ctx.vaultId, idemKey, now());
           return r;
         },
       );
@@ -968,22 +1034,25 @@ export class ToolRegistry {
       const duration = Math.max(0, now() - start);
 
       if (resultSize > this.maxResponseBytes) {
-        // Idempotency post-effect: the handler's side effect has ALREADY committed by here. Do not
-        // delete the claim — that would let a retry with the same key re-execute the committed effect.
-        // Instead FINALIZE it with the real over-limit size and a tiny marker (never the oversized
-        // payload), so a retry replays the same overflow error via the result_size re-check on the
-        // claimed-row path. Under normal DB operation the effect runs at most once. CAVEAT: if the
-        // finalize below itself faults (caught), the claim stays in-flight and can be reclaimed after
-        // idempotencyReclaimSeconds, so a retry could re-execute — at-most-once is not guaranteed under
-        // a finalize fault. The full guarantee needs a durable effect/response state machine (THE-413).
+        // Idempotency post-effect: the handler's side effect has ALREADY committed by here, and
+        // markEffectCommitted (above) already durably marked the claim 'effect_committed' before we
+        // got here. Do not delete the claim — that would let a retry with the same key re-execute the
+        // committed effect. Instead FINALIZE it with the real over-limit size and a tiny marker (never
+        // the oversized payload), so a retry replays the same overflow error via the result_size
+        // re-check on the claimed-row path. #13: if the finalize below itself faults (caught), the row
+        // stays 'effect_committed' rather than reverting to in-flight — a retry (or a reclaim after a
+        // crash) resolves it to a durable indeterminate_outcome, never re-executing the handler. The
+        // finalize fault itself is fully covered; only the pre-marker window remains (see the residual
+        // note at the markEffectCommitted call site above).
         if (idemClaimed && idemKey) {
           this.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
           try {
             this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, "null", resultSize, now());
           } catch (finalizeErr) {
-            // A finalize fault here leaves the claim in-flight (reclaimable) — the THE-413 residual.
-            // Surface it to the operator sink rather than swallowing it; it must not mask the overflow
-            // response the caller is about to receive.
+            // A finalize fault here leaves the row 'effect_committed' (not in-flight) — #13's durable
+            // marker means a retry resolves to indeterminate_outcome rather than re-executing. Surface
+            // it to the operator sink rather than swallowing it; it must not mask the overflow response
+            // the caller is about to receive.
             try {
               this.onInternalError?.(`idempotency_finalize:${name}`, ctx.vaultId, finalizeErr);
             } catch {
@@ -1029,10 +1098,25 @@ export class ToolRegistry {
       return { ok: true, data: out, meta: { duration_ms: duration, result_size: resultSize } };
     } catch (e) {
       if (idemClaimed && idemKey) {
-        try {
-          this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
-        } catch {
-          /* cleanup best-effort; must not mask the original error */
+        if (handlerReturned) {
+          // #13: post-effect fault — NEVER delete; record indeterminate so a retry gets a definite
+          // answer instead of re-executing the committed effect.
+          try {
+            this.finalizeIndeterminate(ctx.db, ctx.vaultId, idemKey, now());
+          } catch (finErr) {
+            try {
+              this.onInternalError?.(`idempotency_indeterminate:${name}`, ctx.vaultId, finErr);
+            } catch {
+              /* diagnostics sink must never break dispatch */
+            }
+          }
+        } else {
+          // pre-handler failure: safe to release the slot so a legitimate retry re-runs.
+          try {
+            this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+          } catch {
+            /* cleanup best-effort; must not mask the original error */
+          }
         }
       }
       if (!(e instanceof ObsidianTcError)) {

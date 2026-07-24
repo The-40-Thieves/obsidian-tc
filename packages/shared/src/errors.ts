@@ -45,7 +45,11 @@ export type ErrorCode =
   | "compute_budget_exceeded"
   // THE-282 — the companion answers /probe with a different API major: a PERMANENT mismatch
   // (plugin_unreachable is retryable, which would invite pointless client retries).
-  | "plugin_incompatible";
+  | "plugin_incompatible"
+  // THE-562 #13 — a prior attempt with this idempotency key committed its effect but faulted
+  // before recording a result (or crashed). NOT auto-retryable: the caller must verify state
+  // before deciding whether to retry, since blindly retrying is exactly what this prevents.
+  | "indeterminate_outcome";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
