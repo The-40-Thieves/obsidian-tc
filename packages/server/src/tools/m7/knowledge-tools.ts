@@ -433,9 +433,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           const rows = ctx.db
             .prepare(
               `SELECT iso_year, iso_week, generated_at, patterns FROM syntheses
-               WHERE ${like} ORDER BY generated_at DESC LIMIT 2`,
+               WHERE vault_id = ? AND (${like}) ORDER BY generated_at DESC LIMIT 2`,
             )
-            .all(...params) as Array<{
+            .all(v.id, ...params) as Array<{
             iso_year: number;
             iso_week: number;
             generated_at: number;

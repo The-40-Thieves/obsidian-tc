@@ -98,7 +98,7 @@ function cacheDb0(): Database {
     "INSERT INTO contradictions (id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, judge_verdict, judge_rationale, status, detected_at) VALUES ('cx1', 'c-src', 'notes/rare.md', 'c-cfl', 'notes/other.md', 'sha-src', 'sha-cfl', 'contradiction', 'they disagree', 'open', ?)",
   ).run(NOW);
   db.prepare(
-    "INSERT INTO syntheses (iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns) VALUES (2026, 27, ?, 0, 1, '[]', ?)",
+    "INSERT INTO syntheses (vault_id, iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns) VALUES ('main', 2026, 27, ?, 0, 1, '[]', ?)",
   ).run(NOW, JSON.stringify(["zylophrastic reconciliation is weekly"]));
   return db;
 }
