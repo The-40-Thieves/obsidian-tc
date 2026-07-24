@@ -92,60 +92,72 @@ function buildUserMessage(recent: ChunkRow[], contradictions: ContradictionRow[]
 export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
   const roles: GatewayRoles | null = ctx.roles;
   if (!roles) return { ok: false, detail: { skipped: "no gateway roles" } };
-  const recent = ctx.db
-    .prepare(
-      "SELECT path, chunk_index, headings, content FROM chunks ORDER BY updated_at DESC LIMIT ?",
-    )
-    .all(RECENT_LIMIT) as ChunkRow[];
-  if (recent.length === 0) return { ok: true, detail: { skipped: "no chunks" } };
-  // Open contradictions are optional context; skip gracefully if the plane table is absent
-  // (pre-integration, before the plane migration is wired into the migrate chain).
+
+  // Per-vault: synthesis operates on whatever vaults actually hold content, so the plane Job
+  // interface stays vault-free. DISTINCT over the indexed vault_id column is a small scan.
+  const vaults = (
+    ctx.db.prepare("SELECT DISTINCT vault_id FROM chunks").all() as { vault_id: string }[]
+  ).map((r) => r.vault_id);
+  if (vaults.length === 0) return { ok: true, detail: { skipped: "no chunks" } };
+
   const hasContradictions =
     ctx.db
       .prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'contradictions'")
       .get() !== undefined;
-  const contradictions = hasContradictions
-    ? (ctx.db
-        .prepare(
-          "SELECT id, source_path, conflict_path, judge_verdict, judge_rationale FROM contradictions WHERE status = 'open' ORDER BY detected_at DESC LIMIT ?",
-        )
-        .all(CONTRADICTION_LIMIT) as ContradictionRow[])
-    : [];
-
-  const res = await roles.synthesize(
-    prompt(SYSTEM_PROMPT, buildUserMessage(recent, contradictions)),
-  );
-  let synthesis: SynthesisOutput;
-  try {
-    synthesis = parseSynthesis(res.text);
-  } catch (e) {
-    return { ok: false, detail: { error: (e as Error).message } };
-  }
 
   const iso = isoWeek(new Date(ctx.now()));
-  ctx.db
-    .prepare(
-      "INSERT INTO syntheses (iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns, judge_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(iso_year, iso_week) DO UPDATE SET generated_at = excluded.generated_at, cluster_count = excluded.cluster_count, pattern_count = excluded.pattern_count, clusters = excluded.clusters, patterns = excluded.patterns, judge_model = excluded.judge_model",
-    )
-    .run(
-      iso.year,
-      iso.week,
-      ctx.now(),
-      synthesis.clusters.length,
-      synthesis.patterns.length,
-      JSON.stringify(synthesis.clusters),
-      JSON.stringify(synthesis.patterns),
-      res.model,
+  const perVault: Array<{ vault_id: string; patterns: number; clusters: number }> = [];
+
+  for (const vaultId of vaults) {
+    const recent = ctx.db
+      .prepare(
+        "SELECT path, chunk_index, headings, content FROM chunks WHERE vault_id = ? ORDER BY updated_at DESC LIMIT ?",
+      )
+      .all(vaultId, RECENT_LIMIT) as ChunkRow[];
+    if (recent.length === 0) continue;
+
+    const contradictions = hasContradictions
+      ? (ctx.db
+          .prepare(
+            "SELECT id, source_path, conflict_path, judge_verdict, judge_rationale FROM contradictions WHERE status = 'open' AND vault_id = ? ORDER BY detected_at DESC LIMIT ?",
+          )
+          .all(vaultId, CONTRADICTION_LIMIT) as ContradictionRow[])
+      : [];
+
+    const res = await roles.synthesize(
+      prompt(SYSTEM_PROMPT, buildUserMessage(recent, contradictions)),
     );
-  return {
-    ok: true,
-    detail: {
-      iso_year: iso.year,
-      iso_week: iso.week,
+    let synthesis: SynthesisOutput;
+    try {
+      synthesis = parseSynthesis(res.text);
+    } catch (e) {
+      return { ok: false, detail: { vault_id: vaultId, error: (e as Error).message } };
+    }
+
+    ctx.db
+      .prepare(
+        "INSERT INTO syntheses (vault_id, iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns, judge_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(vault_id, iso_year, iso_week) DO UPDATE SET generated_at = excluded.generated_at, cluster_count = excluded.cluster_count, pattern_count = excluded.pattern_count, clusters = excluded.clusters, patterns = excluded.patterns, judge_model = excluded.judge_model",
+      )
+      .run(
+        vaultId,
+        iso.year,
+        iso.week,
+        ctx.now(),
+        synthesis.clusters.length,
+        synthesis.patterns.length,
+        JSON.stringify(synthesis.clusters),
+        JSON.stringify(synthesis.patterns),
+        res.model,
+      );
+    perVault.push({
+      vault_id: vaultId,
       patterns: synthesis.patterns.length,
       clusters: synthesis.clusters.length,
-    },
-  };
+    });
+  }
+
+  if (perVault.length === 0) return { ok: true, detail: { skipped: "no chunks" } };
+  return { ok: true, detail: { iso_year: iso.year, iso_week: iso.week, vaults: perVault } };
 }
 
 export const synthesisJob: Job = { name: "synthesis", run: runSynthesis };

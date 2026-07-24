@@ -21,7 +21,7 @@ function withChunksDb(): Database {
   const db = openMemoryDb();
   runMigrations(db, [{ version: "20260519_001", sql: INIT }]);
   db.exec(
-    "CREATE TABLE syntheses (iso_year INTEGER NOT NULL, iso_week INTEGER NOT NULL, generated_at INTEGER NOT NULL, cluster_count INTEGER NOT NULL, pattern_count INTEGER NOT NULL, clusters TEXT NOT NULL, patterns TEXT NOT NULL, judge_model TEXT, PRIMARY KEY (iso_year, iso_week));",
+    "CREATE TABLE syntheses (vault_id TEXT NOT NULL, iso_year INTEGER NOT NULL, iso_week INTEGER NOT NULL, generated_at INTEGER NOT NULL, cluster_count INTEGER NOT NULL, pattern_count INTEGER NOT NULL, clusters TEXT NOT NULL, patterns TEXT NOT NULL, judge_model TEXT, PRIMARY KEY (vault_id, iso_year, iso_week));",
   );
   return db;
 }
@@ -50,7 +50,7 @@ describe("synthesis job (kb-synthesis-worker collapse)", () => {
     });
     expect(res.ok).toBe(true);
     const row = db
-      .prepare("SELECT pattern_count, cluster_count, judge_model FROM syntheses")
+      .prepare("SELECT pattern_count, cluster_count, judge_model FROM syntheses WHERE vault_id = 'v1'")
       .get() as {
       pattern_count: number;
       cluster_count: number;
@@ -66,5 +66,21 @@ describe("synthesis job (kb-synthesis-worker collapse)", () => {
     const res = await runSynthesis({ db, roles: rolesReturning("{}"), now: () => 1 });
     expect(res.ok).toBe(true);
     expect(res.detail?.skipped).toBe("no chunks");
+  });
+
+  it("writes one synthesis per vault, each blending only its own vault's chunks", async () => {
+    const db = withChunksDb();
+    db.prepare(
+      "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES ('a', 'v1', 'A.md', '0', '[]', 'note one', 'h1', 1, 0, 1)",
+    ).run();
+    db.prepare(
+      "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES ('b', 'v2', 'B.md', '0', '[]', 'note two', 'h2', 1, 0, 1)",
+    ).run();
+    const synth =
+      '{"patterns":[{"title":"t","summary":"s","evidence_paths":["A.md"],"contradiction_ids":[]}],"clusters":[{"label":"l","summary":"s","chunk_paths":["A.md"]}]}';
+    const res = await runSynthesis({ db, roles: rolesReturning(synth), now: () => Date.UTC(2026, 5, 1) });
+    expect(res.ok).toBe(true);
+    const vaults = (db.prepare("SELECT vault_id FROM syntheses ORDER BY vault_id").all() as { vault_id: string }[]).map((r) => r.vault_id);
+    expect(vaults).toEqual(["v1", "v2"]);
   });
 });
