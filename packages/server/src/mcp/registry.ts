@@ -45,6 +45,21 @@ export interface CallerContext {
   /** THE-209: active workspace session for this caller. When set (by the transport context
    *  factory), each dispatch appends a tool_invocation record to that session's JSONL trace. */
   sessionId?: string;
+  /** THE-572: a multi-step handler's mid-execution "my first durable effect is about to land"
+   *  signal. #13 sets the `effect_committed` marker only when the WHOLE handler returns, so a
+   *  handler that commits effect #1 and then does more fallible work leaves a real window: a
+   *  throw before the return deletes the claim and a retry double-applies. Calling this
+   *  IMMEDIATELY BEFORE the first durable effect moves the marker to the true first-effect
+   *  point, so any later fault resolves to a durable `indeterminate_outcome` instead of a
+   *  re-run. Write-ahead on purpose: marking before the effect can only over-report
+   *  (a caller told to verify state when nothing applied), never under-report (a silent
+   *  double-apply). Where the first effect is itself a write on `ctx.db`, call this INSIDE
+   *  the same transaction as that write so a rolled-back effect leaves the claim legitimately
+   *  re-runnable and the over-report does not happen at all.
+   *
+   *  Idempotent, and absent (undefined) when the call carries no idempotency key — always
+   *  invoke as `ctx.markEffectCommitted?.()`. */
+  markEffectCommitted?: () => void;
   now?: () => number;
 }
 
@@ -709,6 +724,10 @@ export class ToolRegistry {
     // #13: set true the instant the handler returns — after this, a fault is post-effect
     // (the effect may be durably committed) and the catch below must never delete the claim.
     let handlerReturned = false;
+    // THE-572: set true when a multi-step handler signals its first durable effect via
+    // ctx.markEffectCommitted() — i.e. BEFORE it returns. From that point the same rule as
+    // handlerReturned applies: the catch must record indeterminate, never delete-and-re-run.
+    let effectCommitted = false;
 
     const audit = (status: Status, durationMs: number, resultSize: number, code?: string) =>
       this.recordOutcome(ctx, name, hash, rawInput, status, durationMs, resultSize, code);
@@ -993,6 +1012,23 @@ export class ToolRegistry {
       // ctx.acl; the root is the effective vault's. Skipped when no root resolver is wired.
       // Central folder-ACL stage + handler, wrapped in the (default-off) ACL-audit frame so a
       // dev/test run can verify each pathAcl extractor mirrors the handler's real fs usage (#280).
+      // THE-572: hand a multi-step handler the mid-execution effect-committed signal, so it can
+      // move the #13 marker from "handler returned" to its own FIRST durable effect. Installed
+      // here — after every gate that can still reject-and-release the claim (throttle, HITL), so
+      // the callback never outlives the claim it points at — and only when this dispatch owns
+      // that claim; a keyless call leaves it undefined, which is why every handler-side call
+      // site is `ctx.markEffectCommitted?.()`. Property mutation on a per-dispatch ctx, same as
+      // the per-vault ACL swap above. Idempotent: the UPDATE is a plain state set guarded on
+      // `completed_at IS NULL`, so signalling twice — or signalling and then returning normally,
+      // where the #13 call site fires again — is harmless.
+      if (idemClaimed && idemKey) {
+        const claimedKey = idemKey;
+        (ctx as { markEffectCommitted?: () => void }).markEffectCommitted = () => {
+          this.markEffectCommitted(ctx.db, ctx.vaultId, claimedKey, now());
+          effectCommitted = true;
+        };
+      }
+
       let handlerMs = 0;
       const out = await runAudited(
         {
@@ -1018,15 +1054,13 @@ export class ToolRegistry {
           const r = await def.handler(parsed.data, ctx);
           handlerMs = Math.max(0, now() - handlerStart);
           handlerReturned = true;
-          // #13 residual (documented): the marker is set only after the WHOLE handler returns, so a
-          // crash OR an in-process throw between the handler's FIRST external effect and this point
-          // still leaves 'in_flight' (reclaimable → a retry can re-run). This bites a multi-step
-          // handler that commits, then does more fallible work before returning — e.g. add_observation
-          // (DB append, THEN note rematerialize): a rematerialize throw deletes the claim and a retry
-          // re-appends. Pre-existing (the pre-#13 catch also deleted-and-re-ran here) and NOT worsened
-          // by #13; irreducible at the dispatch layer — closing it needs atomic/idempotent handlers
-          // (co-transactional effects, out of scope). #13 strictly narrows the window vs the prior
-          // catch (which spanned the whole handler-return -> finalize interval for EVERY fault).
+          // #13: the default marker point — the WHOLE handler returned, so any later fault is
+          // post-effect. This alone leaves a window for a MULTI-STEP handler that commits effect #1
+          // and then does more fallible work before returning (a throw in between would delete the
+          // claim and let a retry double-apply). THE-572 closes that window from the handler side:
+          // such a handler calls ctx.markEffectCommitted() at its own first durable effect, which
+          // sets the same marker earlier. This call stays as the backstop for every single-effect
+          // handler (and re-fires harmlessly when the handler already signalled).
           if (idemClaimed && idemKey) this.markEffectCommitted(ctx.db, ctx.vaultId, idemKey, now());
           return r;
         },
@@ -1126,7 +1160,24 @@ export class ToolRegistry {
       return { ok: true, data: out, meta: { duration_ms: duration, result_size: resultSize } };
     } catch (e) {
       if (idemClaimed && idemKey) {
-        if (handlerReturned) {
+        // THE-572: a handler that signalled mid-execution may have done so INSIDE its own
+        // transaction (the recommended shape when the first effect is a ctx.db write). If that
+        // transaction then rolled back, the marker rolled back with it and NOTHING was committed —
+        // so the in-memory `effectCommitted` flag alone would strand a false `indeterminate` on a
+        // call that is perfectly safe to retry. Consult the DURABLE state instead: it is the only
+        // record that rolled back in lockstep with the effect. A read fault here resolves toward
+        // "committed", because over-reporting an indeterminate is recoverable and a wrong delete
+        // is not.
+        let durablyCommitted = false;
+        if (effectCommitted) {
+          try {
+            durablyCommitted =
+              this.readIdempotency(ctx.db, ctx.vaultId, idemKey)?.state === "effect_committed";
+          } catch {
+            durablyCommitted = true;
+          }
+        }
+        if (handlerReturned || durablyCommitted) {
           // #13: post-effect fault — NEVER delete; record indeterminate so a retry gets a definite
           // answer instead of re-executing the committed effect.
           try {

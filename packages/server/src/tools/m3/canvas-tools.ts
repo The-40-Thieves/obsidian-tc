@@ -140,6 +140,9 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
         });
         const doc: Record<string, unknown> = { nodes: input.nodes, edges: input.edges };
         const content = serializeCanvas(doc);
+        // THE-572: keyed via WriteOptions' nested idempotency_key; mark at the durable write so a
+        // fault anywhere after it resolves a retry to indeterminate rather than re-executing.
+        ctx.markEffectCommitted?.();
         writeNoteAtomic(abs, content, input.options.create_dirs);
         return {
           vault: v.id,

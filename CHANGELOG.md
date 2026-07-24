@@ -198,6 +198,56 @@ because it is an architectural refactor, not a contained fix.
 
 ### Fixed
 
+- **No keyed handler duplicates user data on retry** (THE-572, closing the residual #13
+  documented but could not reach from the dispatch layer): #13 marks an idempotency claim
+  `effect_committed` only when the whole handler *returns*, so a handler that committed effect #1
+  and then did more fallible work still had a real window — a throw before the return deleted the
+  claim and a retry **re-ran the handler**. Two keyed handlers duplicated user data outright:
+  `add_observation` (SQLite append, then note re-materialize) appended the observation twice, and
+  `append_note` / `append_to_periodic_note` (note write, then a post-write step) concatenated the
+  content twice. Others corrupted bookkeeping rather than content — `start_session` inserted a
+  second session row, `enqueue_capture` a second queue row, `write_note`/`copy_note` a second
+  snapshot-ledger row consuming a retention slot — and `move_note`, `move_attachment` and
+  `bulk_move_notes` answered a retry with `note_not_found` (or a wholly-failed batch) about the
+  caller's *own* prior attempt. The fix is two-part:
+  - **`ctx.markEffectCommitted()`** — a mid-execution signal that moves the marker to the
+    handler's own first durable effect. Deliberately write-ahead: it can only over-report (a
+    caller told to verify state when nothing in fact applied), never under-report a silent
+    double-apply. The dispatch catch consults the **durable** claim state rather than the
+    in-memory flag, so a signal rolled back with the handler's transaction still releases the
+    claim for a real retry.
+  - **Per-handler ordering/atomicity.** Where both effects are `ctx.db` writes — `add_observation`,
+    `start_session`, `enqueue_capture` — the marker joins them in one transaction via a new
+    `inTransaction` helper, so the effect and the claim either both land or neither does. Where the
+    second effect is a *filesystem* write, no transaction can span it, so `add_observation` instead
+    runs its **idempotent** effect first (a full-note overwrite, byte-identical on a re-run) and
+    commits the SQLite side after.
+
+  The heading says **user data** deliberately, and the scope is worth stating exactly. What is
+  closed: no keyed handler appends, inserts or rewrites *caller content* twice on a retry. What is
+  not: two handlers can still leave duplicate **bookkeeping** behind. `start_session` writes its
+  JSONL trace before the row, so each failed attempt leaves an orphan trace file — unique per
+  attempt, so never mistaken for a duplicate, and first-party readers are row-first and ignore it,
+  but not idempotent. `bulk_create_notes` signals before its first worker, which bounds a crash
+  mid-batch to a re-written file rather than a re-run batch, but its `overwrite`/`upsert` items are
+  not individually idempotent.
+
+  The other limit is the cost of ordering-first. `add_observation` renders the note from the state
+  it is about to commit, so the projection can drift from SQLite — and under two *concurrent* calls
+  it can end up **behind** it (both render from the same base, the last writer wins the file while
+  both appends commit). Nothing schedules reconciliation: the note is corrected only when something
+  later happens to rematerialize that entity, which may be never. SQLite remains the source of
+  truth and every read path uses it, so this is a stale *projection*, not lost data — but it is not
+  self-healing, and calling it that would be wrong.
+
+  Also reconciles the #13 prose, which named a keyed-tool set that was never verified against the
+  schemas. `extractIdempotencyKey` reads a top-level `idempotency_key`, the `bulk_idempotency_key`
+  alias, **or a nested `options.idempotency_key`** — and every tool taking `WriteOptions` carries
+  the nested one, which is easy to miss by grep. The full keyed set is `add_observation`,
+  `enqueue_capture`, `start_session`, `create_periodic_note`, `append_to_periodic_note`,
+  `bulk_create_notes`, `bulk_move_notes`, `write_note`, `append_note`, `move_note`, `copy_note`,
+  `move_attachment`, `create_canvas` and `create_base` — **not** `commit_capture`, `link_entities`
+  or `bulk_set_property`, which the #13 prose named but which never entered this pipeline.
 - **At-most-once idempotency under post-effect faults** (THE-562 #13, closing the THE-413 residual):
   the dispatch pipeline deleted an idempotency claim on any failure *after* the handler had already
   committed its side effect (a strict-output-schema violation, a `JSON.stringify` failure on the

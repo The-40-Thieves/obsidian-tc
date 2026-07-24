@@ -17,6 +17,7 @@ import {
   listCaptures,
   markCommitted,
 } from "../../capture/queue";
+import { inTransaction } from "../../db/txn";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { type Frontmatter, serializeNote } from "../../vault/frontmatter";
@@ -69,17 +70,25 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const now = (ctx.now ?? Date.now)();
-        const row = enqueueCapture(ctx.db, {
-          vaultId: v.id,
-          content: input.content,
-          title: input.title,
-          tags: input.tags,
-          source: input.source,
-          // The hint is normalized for path-safety but never written here.
-          targetPathHint: input.target_path_hint
-            ? normalizeVaultPath(input.target_path_hint)
-            : undefined,
-          now,
+        // THE-572: enqueueCapture is not the single statement it looks like — it INSERTs, then
+        // does a separate SELECT to read the row back. Auto-committed, those are two steps: if the
+        // read-back threw, the INSERT stood, the claim was released, and a retry enqueued the same
+        // content again under a fresh capture id (nothing collides to stop it). One transaction
+        // carrying the marker makes the pair atomic.
+        const row = inTransaction(ctx.db, () => {
+          ctx.markEffectCommitted?.();
+          return enqueueCapture(ctx.db, {
+            vaultId: v.id,
+            content: input.content,
+            title: input.title,
+            tags: input.tags,
+            source: input.source,
+            // The hint is normalized for path-safety but never written here.
+            targetPathHint: input.target_path_hint
+              ? normalizeVaultPath(input.target_path_hint)
+              : undefined,
+            now,
+          });
         });
         return { capture_id: row.id, captured_at: row.captured_at, vault: v.id };
       },

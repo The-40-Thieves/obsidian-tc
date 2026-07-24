@@ -243,9 +243,17 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
               "expand_template requires the write:templater scope",
               { required: ["write:templater"] },
             );
+          // THE-572: Templater writes the note itself, so this call IS the first durable effect.
+          ctx.markEffectCommitted?.();
           expanded = await expandViaTemplater(deps, v.id, templateUsed, resolved.path);
         }
         if (!expanded) {
+          // THE-572: the note write is self-protected against a double-write by the noteExists
+          // refusal above, but a retry after a fallible `deps.reindex` throw would answer
+          // `note_exists` — telling the caller someone ELSE holds the path, when in fact their own
+          // prior attempt created it. Marking here makes that retry the accurate
+          // `indeterminate_outcome` instead.
+          ctx.markEffectCommitted?.();
           writeNoteAtomic(abs, content, true);
           deps.reindex?.(v.id, resolved.path, content);
         }
@@ -349,6 +357,12 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           throw err.invalidInput("path is a folder", { path: resolved.path });
         const existing = ex.exists ? readNote(abs).raw : "";
         const next = appendContent(existing, input.content, input.ensure_newline, input.heading);
+        // THE-572: appending is the one effect here that CANNOT be made idempotent — re-running it
+        // appends the content a second time — and `deps.reindex` below is fallible (the index
+        // coordinator rejects under backpressure). Without this signal a reindex throw deleted the
+        // claim and a retry duplicated the appended block. Marked write-ahead, so the worst case is
+        // a caller told to verify state when the write never landed, never a silent double-append.
+        ctx.markEffectCommitted?.();
         writeNoteAtomic(abs, next, true);
         deps.reindex?.(v.id, resolved.path, next);
         return {
