@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CACHE_MIGRATIONS } from "../src/db/provision";
 import { runMigrations } from "../src/db/migrate";
+import { CACHE_MIGRATIONS } from "../src/db/provision";
 import { JobQueue } from "../src/scheduler/job-queue";
 import { openMemoryDb } from "./helpers";
 

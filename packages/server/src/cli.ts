@@ -55,10 +55,12 @@ import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
 import { auditJob } from "./plane/jobs/audit";
-import { makeContradictionDrainer } from "./plane/jobs/contradiction-drain";
+import { checkContradictions } from "./plane/jobs/contradiction";
 import { synthesisJob } from "./plane/jobs/synthesis";
 import { registerPlaneScheduler, SleepTimePlane } from "./plane/plane";
 import { createPlurBackend } from "./plur/client";
+import { JobQueue } from "./scheduler/job-queue";
+import { type JobHandler, makeJobRunner } from "./scheduler/job-runner";
 import { Scheduler } from "./scheduler/scheduler";
 import { assignClusters } from "./search/cluster";
 import { runLlmDensify } from "./search/densify-runner";
@@ -103,7 +105,7 @@ import { registerM8Tools } from "./tools/m8";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { resolveMode, type VaultMode } from "./vault/mode";
-import { resolveVaultPath } from "./vault/paths";
+import { contentHash, resolveVaultPath } from "./vault/paths";
 import { VaultRegistry } from "./vault/registry";
 import { ActiveSessionTracker, appendTrace, getSession } from "./workspace/sessions";
 
@@ -906,8 +908,6 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     lastWriteError?: string;
     /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
     notesReady: boolean;
-    /** THE-457: chunks dropped from the bounded contradiction queue under backpressure. */
-    contradictionsDropped: number;
     /** THE-457: fail-open audit writes that threw (locked DB / disk full) — the audit trail is lossy. */
     auditWriteFailures: number;
     /** THE-458 (audit #5): times the index-on-write queue depth crossed queueMax (backpressure edges). */
@@ -921,7 +921,6 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     reconcileErrors: [],
     writeFailures: 0,
     notesReady: false,
-    contradictionsDropped: 0,
     auditWriteFailures: 0,
     indexQueueBackpressures: 0,
     lastChunksUpserted: null,
@@ -946,7 +945,6 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           ? {
               detail: {
                 reconcile_errors: indexHealth.reconcileErrors,
-                contradictions_dropped: indexHealth.contradictionsDropped,
                 audit_write_failures: indexHealth.auditWriteFailures,
                 // THE-458 (audit #5): index-on-write coordinator depth + backpressure.
                 index_queue_depth: indexCoordinator.stats().queued,
@@ -1004,43 +1002,53 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       }
     : null;
   // W-INGEST onIndexed hook -> contradiction-check enqueue. The detector needs the gateway, so we
-  // only enqueue when roles are present; the queue is drained best-effort after the boot reconcile.
-  const contradictionQueue: Array<{ vaultId: string; chunk: IndexedChunk }> = [];
-  // THE-457: bound the queue (an unbounded runtime write stream must not grow it without limit) and
-  // count drops for the health signal.
-  const CONTRADICTION_QUEUE_MAX = 5000;
-  const CONTRADICTION_DRAIN_BATCH = 100;
+  // only enqueue when roles are present.
+  // #14: durable contradiction jobs (was an in-memory queue that dropped under backpressure).
+  const jobQueue = new JobQueue(db, { now: Date.now });
+  const CONTRADICTION_MAX_ATTEMPTS = 3;
   const CONTRADICTION_DRAIN_MS = 15_000;
-  // THE-457: cap on how long graceful shutdown waits for in-flight index + contradiction work.
+  // THE-457: cap on how long graceful shutdown waits for in-flight index work.
   const SHUTDOWN_DRAIN_MS = 5000;
   const makeOnIndexed = (vaultId: string): IndexHook | undefined =>
     roles
       ? (chunks) => {
           for (const c of chunks) {
-            if (contradictionQueue.length >= CONTRADICTION_QUEUE_MAX) {
-              indexHealth.contradictionsDropped++;
-              continue;
-            }
-            contradictionQueue.push({ vaultId, chunk: c });
+            jobQueue.enqueue("contradiction", {
+              class: "contradiction",
+              payload: { vaultId, chunk: c },
+              // Content-sensitive key: chunk.id (chunkId(vaultId, path, index)) is deterministic
+              // from PATH+POSITION, not content, and enqueue() dedups against a completed job's
+              // row forever (jobs are never pruned). Keying on id alone would mean editing a note
+              // silently produces NO new job — the id repeats, enqueue() returns the old completed
+              // row — even though the indexer just deleted that chunk's prior contradiction flags
+              // on re-embed, expecting this hook to regenerate them. Folding in the content hash
+              // makes an edit (new content) a distinct key -> re-judged; an identical-content
+              // rapid re-index still dedups to the same key, exactly as groupContradictionQueue's
+              // transient per-drain dedup did.
+              idempotencyKey: `${vaultId}:${c.id}:${contentHash(c.content)}`,
+              maxAttempts: CONTRADICTION_MAX_ATTEMPTS,
+            });
           }
         }
       : undefined;
-  // THE-457/THE-458 (audit #6): continuous, single-flight, bounded contradiction drain. The boot sweep
-  // drained the queue ONCE; post-boot, runtime index-on-write kept enqueuing with no drain, so the
-  // queue grew unbounded and runtime writes received no contradiction analysis. makeContradictionDrainer
-  // drains one bounded batch at a time (deduped by (vault, chunk)); its in-flight batch is a PROMISE
-  // (drainer.inFlight), so shutdown can await a live batch instead of racing db.close() against it.
-  const contradictionDrainer = makeContradictionDrainer({
-    db,
-    roles,
-    queue: contradictionQueue,
-    batchSize: CONTRADICTION_DRAIN_BATCH,
-    model: embeddingProvider.id, // THE-530: constrain neighbor discovery to the active model
-    now: Date.now,
-    onError: (e) => {
-      indexHealth.writeFailures++;
-      indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
-    },
+  const jobHandlers = new Map<string, JobHandler>();
+  if (roles) {
+    jobHandlers.set("contradiction", async (job) => {
+      const { vaultId, chunk } = job.payload as { vaultId: string; chunk: IndexedChunk };
+      await checkContradictions(
+        { db, roles, now: Date.now, model: embeddingProvider.id },
+        vaultId,
+        [chunk],
+      );
+    });
+    // plane handlers are added in Task 4
+  }
+  const jobRunner = makeJobRunner({
+    queue: jobQueue,
+    leaseOwner: `serve:${process.pid}`,
+    handlers: jobHandlers,
+    classLimits: { contradiction: 4, plane: 1 },
+    // outcomes are surfaced via server_health stats, not per-job logging; onOutcome left unset
   });
 
   // THE-291 (part 2): shared index-on-write hooks for the non-M1 writers (m3 periodic, m4
@@ -1444,13 +1452,13 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           `for a slow or small-context local runner).\n`,
       );
     }
-    // THE-458 (audit #6): sweep chunks enqueued during the boot reconcile through the SAME bounded,
-    // single-flight worker as runtime writes (was a fire-and-forget, unbounded splice(0) that ran the
-    // whole queue at once and bypassed the batch limit + single-flight guard). No-op without the
-    // gateway (roles null -> queue stays empty). Fire-and-forget by design (boot does not block on it),
-    // but now deduped with the interval worker so the two cannot double-process the same chunk.
+    // #14: sweep jobs enqueued during the boot reconcile through the SAME durable runner as runtime
+    // writes, rather than waiting for the scheduler's next CONTRADICTION_DRAIN_MS tick. No-op without
+    // the gateway (jobHandlers stays empty -> drainOnce is a no-op). Fire-and-forget by design (boot
+    // does not block on it); the jobs are durable, so even a crash before this runs loses nothing —
+    // the next scheduler tick (or process restart) picks them up.
     if (!roles) return;
-    await contradictionDrainer.drainToEmpty();
+    await jobRunner.drainOnce(new AbortController().signal);
   });
 
   morgiana.emit(firstVault.id, "tc.server.start");
@@ -1532,15 +1540,16 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     });
   }
 
-  // THE-457/THE-462: continuous contradiction drain worker, folded into the unified scheduler.
-  // contradictionDrainer keeps its own single-flight guard; the scheduler's single-flight wraps it
-  // harmlessly (idempotent). Registered only when the gateway is configured (the drainer is a no-op
-  // without roles).
+  // #14: the durable job-queue runner, folded into the unified scheduler exactly as the old
+  // contradiction-drain worker was — claim/lease/retry/dead-letter all live in JobQueue itself, so
+  // this registration only needs to tick. Registered only when the gateway is configured (no
+  // handlers are registered without roles, so an unconditional registration would just dead-letter
+  // every claimed job — see makeJobRunner's empty-handlers guard).
   if (roles) {
     scheduler.register({
-      name: "contradiction-drain",
+      name: "job-queue-runner",
       intervalMs: CONTRADICTION_DRAIN_MS,
-      run: (signal) => contradictionDrainer.drainOnce(signal),
+      run: (signal) => jobRunner.drainOnce(signal),
     });
   }
 
@@ -1556,11 +1565,18 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     await Promise.race([
       (async () => {
         await indexCoordinator.idle().catch(() => {});
-        // THE-458 (audit #6): AWAIT any in-flight contradiction batch before touching the DB (the old
-        // boolean guard made this call return immediately, so db.close() below could race a live
-        // checkContradictions write), then run one final bounded batch for residual work.
-        await contradictionDrainer.inFlight?.catch(() => {});
-        await contradictionDrainer.drainOnce().catch(() => {});
+        // #14: no explicit contradiction drain here any more — durable jobs survive the process
+        // exiting mid-lease (claim()'s lease-expiry reclaim picks them up, here or in the next
+        // process), so there is nothing that would be LOST by skipping a final drain. One bounded
+        // best-effort pass still gives a live worker a chance to clear the queue before exit rather
+        // than always waiting out the lease.
+        const shutdownDrain = new AbortController();
+        setTimeout(() => shutdownDrain.abort(), SHUTDOWN_DRAIN_MS).unref();
+        // If the outer Promise.race's own SHUTDOWN_DRAIN_MS timeout wins first, a handler already
+        // mid-write here is abandoned in place — safe, because the job row is still 'running' with
+        // a lease that will expire; claim()'s reclaim picks it back up next tick or next process,
+        // never silently lost.
+        await jobRunner.drainOnce(shutdownDrain.signal).catch(() => {});
       })(),
       new Promise<void>((resolve) => {
         setTimeout(resolve, SHUTDOWN_DRAIN_MS).unref();

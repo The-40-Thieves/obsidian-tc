@@ -15,8 +15,6 @@ export interface IndexHealthSnapshot {
   detail?: {
     reconcile_errors: Array<{ vault: string; error: string }>;
     last_write_error?: string;
-    /** THE-457: chunks dropped from the bounded contradiction queue under backpressure. */
-    contradictions_dropped?: number;
     /** THE-457: fail-open audit writes that threw (locked DB / disk full). */
     audit_write_failures?: number;
     /** THE-458 (audit #5): index-on-write coordinator — distinct paths queued/in-flight. */

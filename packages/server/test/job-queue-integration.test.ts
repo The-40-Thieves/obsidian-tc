@@ -1,0 +1,187 @@
+// THE-562 #14: the contradiction workload wired through the durable JobQueue, replacing the
+// in-memory queue that dropped chunks under backpressure and lost everything on crash. This
+// exercises the exact seam cli.ts wires up: enqueue(vaultId, chunk) with idempotencyKey
+// `${vaultId}:${chunk.id}:${contentHash(chunk.content)}` -> a "contradiction" handler that calls
+// checkContradictions -> the generic runner's claim/dispatch/complete/retry/dead-letter machinery.
+//
+// The key is content-sensitive, not just `${vaultId}:${chunk.id}` — chunk.id (chunkId(vaultId,
+// path, index) in search/indexer.ts) is deterministic from PATH+POSITION, not content, and
+// enqueue()'s dedup matches a completed job's row too (jobs are never pruned). An id-only key
+// would mean editing a note produces NO new job forever after the first index — silently starving
+// re-judging even though the indexer deletes the chunk's prior contradiction flags on every
+// re-embed, expecting this hook to regenerate them (see the "re-judges an edited chunk" case
+// below).
+import { describe, expect, it } from "vitest";
+import { runMigrations } from "../src/db/migrate";
+import { CACHE_MIGRATIONS } from "../src/db/provision";
+import type { Database } from "../src/db/types";
+import { type GatewayRoles, prompt } from "../src/plane/gateway";
+import { checkContradictions, type IndexedChunk } from "../src/plane/jobs/contradiction";
+import { JobQueue } from "../src/scheduler/job-queue";
+import { type JobHandler, makeJobRunner } from "../src/scheduler/job-runner";
+import { floatBlob } from "../src/search/vec";
+import { contentHash } from "../src/vault/paths";
+import { openMemoryDb } from "./helpers";
+
+// The exact key construction cli.ts's makeOnIndexed uses — kept as one helper so every test case
+// exercises production's actual dedup semantics, not a stand-in opaque string.
+function jobKey(vaultId: string, chunk: IndexedChunk): string {
+  return `${vaultId}:${chunk.id}:${contentHash(chunk.content)}`;
+}
+
+// Verbatim from contradiction-job.test.ts (per the task-3 brief: reuse the fixture builders).
+function rolesReturning(text: string): GatewayRoles {
+  const r = async () => ({ text, model: "mock" });
+  return { extract: r, synthesize: r, judge: r };
+}
+
+function addChunk(db: Database, id: string, path: string, vec: number[]): void {
+  db.prepare(
+    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'v1', ?, '0', '[]', ?, ?, 1, 0, 0)",
+  ).run(id, path, `body ${id}`, `h-${id}`);
+  db.prepare(
+    "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, 'm', ?, ?, 1, 0)",
+  ).run(id, vec.length, floatBlob(vec));
+}
+
+function setup(roles: GatewayRoles | null) {
+  const db = openMemoryDb();
+  runMigrations(db, CACHE_MIGRATIONS);
+  // The contradiction pair: "a" is the freshly-indexed chunk; "b" is its conflicting neighbor
+  // already in the db (checkContradictions finds neighbors FROM THE DB, not from the batch).
+  addChunk(db, "a", "A.md", [1, 0, 0]);
+  addChunk(db, "b", "B.md", [0.95, 0.312, 0]); // cosine ~0.95 with A -> in [0.85, 0.99)
+  const jobQueue = new JobQueue(db, { now: () => 1000 });
+  const chunkA: IndexedChunk = { id: "a", path: "A.md", content: "alpha", embedding: [1, 0, 0] };
+  const handlers = new Map<string, JobHandler>([
+    [
+      "contradiction",
+      async (job) => {
+        const { vaultId, chunk } = job.payload as { vaultId: string; chunk: IndexedChunk };
+        await checkContradictions({ db, roles, now: () => 1000 }, vaultId, [chunk]);
+      },
+    ],
+  ]);
+  const runner = makeJobRunner({ queue: jobQueue, leaseOwner: "test", handlers });
+  return { db, jobQueue, runner, chunkA };
+}
+
+const never = new AbortController().signal;
+
+describe("job-queue-integration: contradiction workload (THE-562 #14)", () => {
+  it("enqueues, runs via the durable queue, and flags the contradiction", async () => {
+    const roles = rolesReturning('{"kind":"contradiction","rationale":"A negates B"}');
+    const { db, jobQueue, runner, chunkA } = setup(roles);
+    jobQueue.enqueue("contradiction", {
+      class: "contradiction",
+      payload: { vaultId: "v1", chunk: chunkA },
+      idempotencyKey: jobKey("v1", chunkA),
+      maxAttempts: 3,
+    });
+    await runner.drainOnce(never);
+    expect(jobQueue.stats().complete).toBe(1);
+    const row = db.prepare("SELECT judge_verdict, status FROM contradictions").get() as {
+      judge_verdict: string;
+      status: string;
+    };
+    expect(row.judge_verdict).toBe("contradiction");
+    expect(row.status).toBe("open");
+  });
+
+  it("dedups a rapid re-enqueue of IDENTICAL content into ONE job (idempotency)", () => {
+    const roles = rolesReturning('{"kind":"no_conflict","rationale":"fine"}');
+    const { jobQueue, chunkA } = setup(roles);
+    const first = jobQueue.enqueue("contradiction", {
+      class: "contradiction",
+      payload: { vaultId: "v1", chunk: chunkA },
+      idempotencyKey: jobKey("v1", chunkA),
+      maxAttempts: 3,
+    });
+    const second = jobQueue.enqueue("contradiction", {
+      class: "contradiction",
+      payload: { vaultId: "v1", chunk: chunkA },
+      idempotencyKey: jobKey("v1", chunkA),
+      maxAttempts: 3,
+    });
+    expect(second.id).toBe(first.id);
+    expect(jobQueue.stats().queued).toBe(1);
+  });
+
+  it("re-judges an edited chunk: same id + different content is a SECOND job, even after the first completed", async () => {
+    // The bug this guards: chunk.id alone is content-independent (chunkId(vaultId, path, index)),
+    // and enqueue()'s dedup matches a COMPLETE job's row too (jobs are never pruned). Keying only
+    // on id would mean: index -> job completes -> edit the note (same id, new content) -> the
+    // indexer deletes the old contradiction flags on re-embed -> enqueue() finds the completed
+    // row for that id and enqueues NOTHING -> the edited chunk is never re-judged, and its flags
+    // are gone for good. Folding the content hash into the key must prevent that.
+    const roles = rolesReturning('{"kind":"no_conflict","rationale":"fine"}');
+    const { jobQueue, runner, chunkA } = setup(roles);
+    const original = jobQueue.enqueue("contradiction", {
+      class: "contradiction",
+      payload: { vaultId: "v1", chunk: chunkA },
+      idempotencyKey: jobKey("v1", chunkA),
+      maxAttempts: 3,
+    });
+    await runner.drainOnce(never); // the first job runs to completion
+    expect(jobQueue.stats().complete).toBe(1);
+
+    const edited: IndexedChunk = { ...chunkA, content: "alpha, but edited" };
+    const second = jobQueue.enqueue("contradiction", {
+      class: "contradiction",
+      payload: { vaultId: "v1", chunk: edited },
+      idempotencyKey: jobKey("v1", edited),
+      maxAttempts: 3,
+    });
+    expect(second.id).not.toBe(original.id); // a NEW job, not the stale completed one
+    expect(jobQueue.stats().queued).toBe(1);
+    expect(jobQueue.stats().complete).toBe(1); // the original job is untouched
+  });
+
+  it("retries a judge failure and dead-letters at attempt 3 (maxAttempts)", async () => {
+    // checkContradictions is deliberately resilient to a per-pair judge failure — it degrades that
+    // pair to `no_conflict` internally (see plane/jobs/contradiction.ts) rather than rejecting, so
+    // one flaky judge call never sinks a whole batch. That means a handler which only ever calls
+    // checkContradictions can never observe a judge throw. To still verify the QUEUE's retry ->
+    // dead-letter mechanics for the "contradiction" job type end-to-end, this handler calls
+    // `roles.judge` directly (as checkContradictions itself does, one layer in) and — unlike
+    // checkContradictions — lets the failure propagate, modeling any handler-level failure mode
+    // (a judge outage, a DB write error) that the runner must still retry and eventually dead-letter.
+    const throwingRoles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "mock" }),
+      synthesize: async () => ({ text: "", model: "mock" }),
+      judge: async () => {
+        throw new Error("judge unavailable");
+      },
+    };
+    const { db, chunkA } = setup(throwingRoles);
+    // A fresh JobQueue over the SAME db, whose clock we control directly, so the test can advance
+    // past each retry's backoff window without depending on wall-clock time.
+    const clock = { t: 1000 };
+    const queue = new JobQueue(db, { now: () => clock.t });
+    queue.enqueue("contradiction", {
+      class: "contradiction",
+      payload: { vaultId: "v1", chunk: chunkA },
+      idempotencyKey: jobKey("v1", chunkA),
+      maxAttempts: 3,
+    });
+    const handlers = new Map<string, JobHandler>([
+      [
+        "contradiction",
+        async (job) => {
+          const { chunk } = job.payload as { vaultId: string; chunk: IndexedChunk };
+          await throwingRoles.judge(prompt("judge", chunk.content));
+        },
+      ],
+    ]);
+    const controlledRunner = makeJobRunner({ queue, leaseOwner: "test", handlers });
+    await controlledRunner.drainOnce(never); // attempt 1 -> retrying
+    expect(queue.stats().retrying).toBe(1);
+    clock.t += 10 * 60_000; // past backoff so attempt 2 is due
+    await controlledRunner.drainOnce(never); // attempt 2 -> retrying
+    expect(queue.stats().retrying).toBe(1);
+    clock.t += 20 * 60_000; // past backoff so attempt 3 is due
+    await controlledRunner.drainOnce(never); // attempt 3 (== maxAttempts) -> dead-letter
+    expect(queue.stats().failed).toBe(1);
+    expect(queue.stats().retrying).toBe(0);
+  });
+});
