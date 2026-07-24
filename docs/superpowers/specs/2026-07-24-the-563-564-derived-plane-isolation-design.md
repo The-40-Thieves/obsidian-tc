@@ -39,7 +39,9 @@ Both are the same defect class as already-fixed tickets: THE-310 (added `vault_i
 
 **Migration** — new `packages/server/src/migrations/20260724_001_plane_vault_id.sql`, appended to `CACHE_MIGRATIONS` in `db/provision.ts` (version `20260724_001`).
 
-Contradictions and syntheses are **regenerable derived caches** — contradictions re-flag on the next reindex, syntheses regenerate on the next weekly run. Existing rows have no recoverable `vault_id` (a contradiction may pair chunks from different vaults; a synthesis blended all vaults). Following THE-310's `vault_edges` precedent, we **purge** rather than backfill a guessed value:
+Contradictions and syntheses are **regenerable derived caches** — contradictions re-flag on the next reindex, syntheses regenerate on the next weekly run. Existing rows have no recoverable `vault_id` (a contradiction may pair chunks from different vaults; a synthesis blended all vaults). Following THE-310's `vault_edges` precedent, we **purge** rather than backfill a guessed value.
+
+> **Note (industry-default vs this case).** The general multi-tenant guidance (Citus, Azure Cosmos for PostgreSQL) is to add `tenant_id` and **backfill** existing rows — but that assumes the correct value is *recoverable* (e.g. deriving `store_id` on `line_items` via a join to `orders`). That precondition fails here: the correct namespace of a blended contradiction/synthesis row is unrecoverable. When the value is unrecoverable **and** the data regenerates, purge is the justified exception to the backfill default — the same reasoning THE-310 applied. (Validated by deep research 2026-07-24; report in the branch scratchpad.)
 
 ```sql
 -- contradictions: purge unscoped rows, add vault_id, re-scope the dedup index.
@@ -98,6 +100,8 @@ Mirror THE-543's prewarm recheck (`readableRel(ctx.acl, rel)` over every referen
 **Challenge / model-egress path** (`plane/challenge.ts` via `knowledge_challenge`): the challenge tool composes open contradictions into the gateway prompt through the same `openContradictionsForPaths` helper. Once the helper filters, the model-egress path is covered by the identical gate. A regression test asserts a row whose conflict-side note is unreadable never appears in the composed challenge prompt.
 
 **Syntheses boundary (explicit).** A synthesis row is a whole-vault aggregate and does **not** carry a per-source path list, so per-path ACL is not enforceable on it — the vault predicate (I1) is the enforceable gate: a caller with any read grant in the vault may see that vault's synthesis patterns. This is stated as a known boundary, not silently skipped; it matches the audit framing ("563 = first gate for syntheses").
+
+**Two-layer design is deliberate (pre- + post-fetch).** OWASP's RAG guidance prefers pushing authorization *into* the query (pre-retrieval) over "retrieve-all-then-filter," whose risk is leaking the *similarity scores* of restricted documents. This design already pushes the coarse gate into SQL — the vault predicate (`WHERE vault_id = ?`, I1) is pre-retrieval — and applies the per-path ACL as a **post-fetch drop**, mirroring THE-543's shipped layer-3 recheck. The score-leak concern is vector-search-specific (ANN ranking); it does not transfer to a `contradictions` lookup keyed on exact path membership, so post-fetch dropping of unreadable-source rows is sound here. Per-path ACL is not cleanly SQL-expressible for folder-glob rules, and THE-543 already sets the post-fetch-recheck precedent. (Validated by deep research 2026-07-24.)
 
 ### Item 3 — audit #9: migration completeness gate
 
