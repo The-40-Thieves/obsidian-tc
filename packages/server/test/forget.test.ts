@@ -226,4 +226,43 @@ describe("forgetNote", () => {
     expect(existsSync(untouched)).toBe(true);
     expect(res.outdated_reflections).toEqual(["2026-07-12-thing.md"]);
   });
+
+  it("scopes synthMentions/contraMentions to the target vault (I1 completeness gap)", () => {
+    const { edb, cache } = rig();
+    // A path can exist in two vaults (the exact collision THE-563/564 fixes). Seed derived rows
+    // in vault "other" that mention the SAME relPath as the note being forgotten in vault "main" —
+    // these must NOT be counted, or forgetting a.md in "main" leaks "other"'s derived references.
+    cache
+      .prepare(
+        "INSERT INTO syntheses (vault_id, iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns) VALUES ('other', 2026, 1, ?, 1, 1, '[]', ?)",
+      )
+      .run(NOW, JSON.stringify([{ note: "notes/target.md" }]));
+    cache
+      .prepare(
+        `INSERT INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, judge_verdict, detected_at)
+         VALUES ('c-other', 'other', 'x1', 'notes/target.md', 'x2', 'notes/elsewhere.md', 'sha1', 'sha2', 'contradiction', ?)`,
+      )
+      .run(NOW);
+    // Same-path row in the target vault ("main") — this ONE must be counted, proving the fix
+    // scopes rather than just zeroing everything out.
+    cache
+      .prepare(
+        "INSERT INTO syntheses (vault_id, iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns) VALUES ('main', 2026, 1, ?, 1, 1, '[]', ?)",
+      )
+      .run(NOW, JSON.stringify([{ note: "notes/target.md" }]));
+    cache
+      .prepare(
+        `INSERT INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, judge_verdict, detected_at)
+         VALUES ('c-main', 'main', 'x3', 'notes/target.md', 'x4', 'notes/elsewhere.md', 'sha3', 'sha4', 'contradiction', ?)`,
+      )
+      .run(NOW);
+
+    const res = forgetNote(edb, cache, {
+      vaultId: "main",
+      relPath: "notes/target.md",
+      nowMs: NOW,
+    });
+    expect(res.syntheses_mentions).toBe(1); // only "main"'s row counted, not "other"'s
+    expect(res.contradictions_mentions).toBe(1); // only "main"'s row counted, not "other"'s
+  });
 });
