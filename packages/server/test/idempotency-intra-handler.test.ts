@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { provisionCacheDb } from "../src/db/provision";
+import { inTransaction } from "../src/db/txn";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { getEntityById, parseObservations } from "../src/memory/entities";
@@ -440,5 +441,71 @@ describe("enqueue_capture is atomic across its INSERT + read-back (THE-572)", ()
     } finally {
       v.cleanup();
     }
+  });
+});
+
+// ── 7. inTransaction rollback semantics ──────────────────────────────────────
+//
+// The re-review's remaining concern about this helper: swallowing EVERY rollback error hides a real
+// hazard (a failed ROLLBACK leaves the connection inside an abandoned transaction), but throwing
+// from the rollback path would replace the error that actually explains the failure.
+
+describe("inTransaction rollback semantics (THE-572)", () => {
+  it("propagates the primary error unchanged when rollback succeeds normally", () => {
+    const db = freshDb();
+    const primary = new Error("the real failure");
+    expect(() =>
+      inTransaction(db, () => {
+        throw primary;
+      }),
+    ).toThrow(primary);
+    // Benign path: nothing attached, connection is clean enough for the next transaction.
+    expect((primary as { rollbackError?: unknown }).rollbackError).toBeUndefined();
+    expect(() => inTransaction(db, () => 1)).not.toThrow();
+  });
+
+  it("a COMMIT that throws still surfaces the COMMIT error, not a rollback error", () => {
+    const db = freshDb();
+    const realExec = db.exec.bind(db);
+    (db as { exec: (s: string) => void }).exec = (sql: string) => {
+      if (/^COMMIT/i.test(sql)) throw new Error("commit boom");
+      return realExec(sql);
+    };
+    expect(() => inTransaction(db, () => 1)).toThrow(/commit boom/);
+  });
+
+  it("a GENUINE rollback failure is attached to the primary error, never thrown in its place", () => {
+    const db = freshDb();
+    const realExec = db.exec.bind(db);
+    (db as { exec: (s: string) => void }).exec = (sql: string) => {
+      if (/^ROLLBACK/i.test(sql)) throw new Error("disk I/O error");
+      return realExec(sql);
+    };
+    const primary = new Error("the real failure");
+    expect(() =>
+      inTransaction(db, () => {
+        throw primary;
+      }),
+    ).toThrow(primary); // the caller still sees the error that explains the failure...
+    // ...with the rollback fault preserved for diagnostics rather than discarded.
+    expect((primary as { rollbackError?: Error }).rollbackError?.message).toMatch(/disk I\/O/);
+    // Non-enumerable, so it cannot leak into a JSON-serialized client response.
+    expect(Object.keys(primary)).not.toContain("rollbackError");
+  });
+
+  it("SQLite's own 'no transaction is active' is treated as benign and NOT attached", () => {
+    const db = freshDb();
+    const realExec = db.exec.bind(db);
+    (db as { exec: (s: string) => void }).exec = (sql: string) => {
+      if (/^ROLLBACK/i.test(sql)) throw new Error("cannot rollback - no transaction is active");
+      return realExec(sql);
+    };
+    const primary = new Error("the real failure");
+    expect(() =>
+      inTransaction(db, () => {
+        throw primary;
+      }),
+    ).toThrow(primary);
+    expect((primary as { rollbackError?: unknown }).rollbackError).toBeUndefined();
   });
 });

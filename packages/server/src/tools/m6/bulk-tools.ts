@@ -166,6 +166,13 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       requiredScopes: ["write:notes", "bulk:notes"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        // THE-572: keyed via `bulk_idempotency_key`. runBulk catches each item's own throw, so an
+        // in-process item failure never escapes — but a CRASH after a worker has completed an
+        // `overwrite`/`upsert` write and before runBulk returns leaves the claim `in_flight`, and
+        // reclaim re-runs the whole batch, rewriting that file. (`mode: "create"` is self-protecting
+        // — the retry hits the noteExists refusal — but the other two modes are not.) Signal before
+        // the first worker can write anything.
+        ctx.markEffectCommitted?.();
         const report = await runBulk(
           input.items,
           {

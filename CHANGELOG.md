@@ -179,7 +179,7 @@ because it is an architectural refactor, not a contained fix.
 
 ### Fixed
 
-- **No keyed handler double-applies a durable effect on retry** (THE-572, closing the residual #13
+- **No keyed handler duplicates user data on retry** (THE-572, closing the residual #13
   documented but could not reach from the dispatch layer): #13 marks an idempotency claim
   `effect_committed` only when the whole handler *returns*, so a handler that committed effect #1
   and then did more fallible work still had a real window — a throw before the return deleted the
@@ -204,12 +204,22 @@ because it is an architectural refactor, not a contained fix.
     runs its **idempotent** effect first (a full-note overwrite, byte-identical on a re-run) and
     commits the SQLite side after.
 
-  Two limits worth stating plainly. Ordering-first is not free: `add_observation` renders the note
-  from the state it is about to commit, so a rolled-back append can leave a note briefly ahead of
-  SQLite — self-healing, since SQLite is the source of truth and the next rematerialize corrects
-  it, and strictly preferable to duplicating user data. And `start_session` writing its trace first
-  makes a failed attempt leave an orphan JSONL file: unique per attempt, so it is never mistaken
-  for a duplicate, but it is *not* idempotent — first-party readers are row-first and ignore it.
+  The heading says **user data** deliberately, and the scope is worth stating exactly. What is
+  closed: no keyed handler appends, inserts or rewrites *caller content* twice on a retry. What is
+  not: two handlers can still leave duplicate **bookkeeping** behind. `start_session` writes its
+  JSONL trace before the row, so each failed attempt leaves an orphan trace file — unique per
+  attempt, so never mistaken for a duplicate, and first-party readers are row-first and ignore it,
+  but not idempotent. `bulk_create_notes` signals before its first worker, which bounds a crash
+  mid-batch to a re-written file rather than a re-run batch, but its `overwrite`/`upsert` items are
+  not individually idempotent.
+
+  The other limit is the cost of ordering-first. `add_observation` renders the note from the state
+  it is about to commit, so the projection can drift from SQLite — and under two *concurrent* calls
+  it can end up **behind** it (both render from the same base, the last writer wins the file while
+  both appends commit). Nothing schedules reconciliation: the note is corrected only when something
+  later happens to rematerialize that entity, which may be never. SQLite remains the source of
+  truth and every read path uses it, so this is a stale *projection*, not lost data — but it is not
+  self-healing, and calling it that would be wrong.
 
   Also reconciles the #13 prose, which named a keyed-tool set that was never verified against the
   schemas. `extractIdempotencyKey` reads a top-level `idempotency_key`, the `bulk_idempotency_key`
