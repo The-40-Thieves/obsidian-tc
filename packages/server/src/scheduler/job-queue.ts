@@ -319,6 +319,31 @@ export class JobQueue {
     return updated.changes === 1;
   }
 
+  /** #14: counts by state + oldest-queued age, for the server_health job-queue block. A non-zero
+   *  `failed` is the dead-letter signal — a workload persistently failing, now durable and visible. */
+  stats(): {
+    queued: number;
+    running: number;
+    retrying: number;
+    complete: number;
+    failed: number;
+    oldestQueuedAgeMs: number | null;
+  } {
+    const rows = this.db.prepare("SELECT state, COUNT(*) AS n FROM jobs GROUP BY state").all() as {
+      state: JobState;
+      n: number;
+    }[];
+    const by = { queued: 0, running: 0, retrying: 0, complete: 0, failed: 0 };
+    for (const r of rows) by[r.state] = r.n;
+    const oldest = this.db
+      .prepare("SELECT MIN(created_at) AS t FROM jobs WHERE state = 'queued'")
+      .get() as { t: number | null };
+    return {
+      ...by,
+      oldestQueuedAgeMs: oldest.t == null ? null : Math.max(0, this.now() - oldest.t),
+    };
+  }
+
   isCancelRequested(id: string): boolean {
     const row = this.db.prepare("SELECT cancel_requested FROM jobs WHERE id = ?").get(id) as
       | { cancel_requested: number }
