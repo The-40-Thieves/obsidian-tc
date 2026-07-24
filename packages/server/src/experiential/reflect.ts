@@ -13,6 +13,13 @@
 //   * unstable evidence — the same caller+tool+args_hash showing BOTH ok and error among the
 //     pending set — is held pending rather than promoted (contradictory runs are not a lesson
 //     yet, they are noise or an attack surface).
+//   * THE-565: an episode the system has already judged a BAD outcome (`outcome = -1`, stamped
+//     by the citation / session-close outcome pass) is held pending, never auto-promoted — a
+//     known-negative-outcome row must not enter the eligible pool as a default lesson. This is
+//     the one place the deterministic pass consults the outcome axis. NOTE the deliberate
+//     asymmetry: a `status = 'error'` dispatch with NO bad outcome still promotes ("errors are
+//     lessons too" — a forbidden delete teaches a boundary); it is the explicit -1 outcome, not
+//     a failed dispatch, that we refuse. `status`/`skipped` are otherwise unchanged.
 import type { Database } from "../db/types";
 import { type GatewayRoles, prompt } from "../plane/gateway";
 
@@ -32,6 +39,8 @@ interface PendingRow {
   status: string;
   args_hash: string | null;
   summary: string | null;
+  /** THE-230 outcome axis (-1 | 0 | +1 | null). -1 (known-bad) is held; see the invariants. */
+  outcome: number | null;
 }
 
 const MAX_JUDGED = 25;
@@ -44,7 +53,7 @@ export async function evaluateEpisodes(
 ): Promise<EvaluateStats> {
   const pending = edb
     .prepare(
-      `SELECT id, caller, tool, status, args_hash, summary FROM agent_episodes
+      `SELECT id, caller, tool, status, args_hash, summary, outcome FROM agent_episodes
        WHERE eligibility = 'pending' AND blocked = 0
          AND (valid_until IS NULL OR valid_until > ?)
        ORDER BY ts ASC`,
@@ -84,7 +93,9 @@ export async function evaluateEpisodes(
 
   const candidates: PendingRow[] = [];
   for (const r of pending) {
-    if (unstable(r)) stats.held++;
+    // Hold: unstable ok/error cluster, or a known-bad outcome (THE-565). Everything else — incl.
+    // a plain error dispatch with no bad-outcome stamp — remains a promotion candidate.
+    if (unstable(r) || r.outcome === -1) stats.held++;
     else candidates.push(r);
   }
 
