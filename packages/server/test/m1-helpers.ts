@@ -21,6 +21,9 @@ export interface TestVaultOptions {
   vaultId?: string;
   snapshots?: { enabled: boolean; retention: number };
   requireCas?: boolean;
+  /** Index-coordinator hook. Unwired by default; a test that needs to fault the post-write step
+   *  supplies a throwing one (THE-572). */
+  reindex?: (vaultId: string, path: string, content: string) => void;
 }
 
 export interface EventRow {
@@ -72,6 +75,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     embeddings: { provider: "ollama", model: "nomic-embed-text" },
     snapshots: opts.snapshots,
     requireCas: opts.requireCas,
+    ...(opts.reindex ? { reindex: opts.reindex } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

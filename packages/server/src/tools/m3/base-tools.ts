@@ -155,6 +155,9 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
           throw err.basesSyntaxError("base definition is invalid", { issues: check.error.issues });
         requireConfirmation(ctx, "create_base", input, ex.exists && input.overwrite, { path: rel });
         const content = serializeBase(input.base);
+        // THE-572: keyed via WriteOptions' nested idempotency_key; mark at the durable write so a
+        // fault anywhere after it resolves a retry to indeterminate rather than re-executing.
+        ctx.markEffectCommitted?.();
         writeNoteAtomic(abs, content, input.options.create_dirs);
         // THE-280: surface the obsidian-tc aliases as deprecations (removal at v2.0) so authors
         // migrate toward real Bases shapes (top-level filters; per-view order/groupBy).

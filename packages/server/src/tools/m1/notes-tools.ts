@@ -453,7 +453,12 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
         persistGovernedNote(
           ctx.db,
-          { snapshots: deps.snapshots, reindex: deps.reindex, now: ctx.now },
+          {
+            snapshots: deps.snapshots,
+            reindex: deps.reindex,
+            now: ctx.now,
+            markEffectCommitted: ctx.markEffectCommitted,
+          },
           {
             vaultId: v.id,
             root: v.root,
@@ -519,6 +524,13 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           next = input.content;
         }
 
+        // THE-572: append is the one write in this file that is NOT idempotent — re-running it
+        // concatenates the content a second time — and it is keyed through the nested
+        // `options.idempotency_key` that WriteOptions carries. Before this signal, a throw between
+        // the snapshot/write below and the handler's return released the claim, and a retry with
+        // the same key appended `content` again on top of the already-appended file. Marked
+        // write-ahead of the first durable effect (the snapshot row).
+        ctx.markEffectCommitted?.();
         if (prevRaw !== null)
           captureSnapshot(ctx.db, deps.snapshots, v.id, rel, prevRaw, "append_note", ctx.now);
         writeNoteAtomic(abs, next, input.options.create_dirs);
@@ -689,6 +701,12 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           overwrite: overwriteExisting,
         });
 
+        // THE-572: the relocation below is self-protecting against a double MOVE (a retry finds the
+        // source gone and answers note_not_found), but that answer is wrong — it blames a missing
+        // source when the caller's own prior attempt moved it, and leaves updateBacklinks' rewrites
+        // unfinished with no indication. Signalling here makes the retry an accurate
+        // indeterminate_outcome, and stops an overwrite retry re-trashing the destination.
+        ctx.markEffectCommitted?.();
         // On overwrite, soft-delete the destination first so its content is recoverable
         // (the source is hardDelete'd below, but its content survives at toRel).
         let trashedDestTo: string | null = null;
@@ -764,6 +782,10 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
         });
 
         const { raw, hash } = readNote(fromAbs);
+        // THE-572: unlike move_note this leaves the source in place, so a retry re-runs the WHOLE
+        // sequence — under overwrite that means a second .trash entry and a second snapshot row for
+        // content that never changed. Signal before the first of those effects.
+        ctx.markEffectCommitted?.();
         let trashedDestTo: string | null = null;
         if (overwriteExisting) {
           captureSnapshot(

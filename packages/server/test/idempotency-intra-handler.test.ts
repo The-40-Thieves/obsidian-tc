@@ -8,12 +8,21 @@
 // The fix has two halves, and each is asserted here:
 //   1. `ctx.markEffectCommitted()` — a mid-execution signal that moves the marker to the handler's
 //      own first durable effect (suite 1).
-//   2. Per-handler ordering/atomicity — the idempotent effect runs first, and where both effects
-//      are ctx.db writes the marker joins them in one transaction, so a rollback leaves the claim
-//      legitimately re-runnable instead of falsely indeterminate (suites 2-4).
+//   2. Per-handler ordering/atomicity — where both effects are ctx.db writes the marker joins them
+//      in one transaction, so a rollback leaves the claim legitimately re-runnable instead of
+//      falsely indeterminate; where the second effect is a filesystem write, the idempotent effect
+//      runs first instead (suites 2-6).
 //
 // Every handler assertion is written as the FAULT the old code mishandled, followed by the retry,
 // and asserts the effect count — the property that actually broke.
+//
+// Coverage note: the keyed set is larger than the handlers exercised here. `write_note`,
+// `move_note`, `copy_note`, `move_attachment`, `create_canvas` and `create_base` are keyed through
+// the NESTED `options.idempotency_key` that WriteOptions carries and now signal too, but their
+// writes are either self-protecting or idempotent, so their exposure was duplicated bookkeeping
+// (an extra snapshot row, an extra .trash entry) or a misleading retry answer rather than
+// duplicated user content. `append_note` — covered below — is the member of that group whose write
+// is genuinely non-idempotent.
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -23,6 +32,7 @@ import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { getEntityById, parseObservations } from "../src/memory/entities";
 import { openMemoryDb } from "./helpers";
+import { makeTestVault } from "./m1-helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM5Vault } from "./m5-helpers";
 
@@ -301,11 +311,17 @@ describe("start_session is atomic across its row insert + trace write (THE-572)"
 
 // ── 4. append_to_periodic_note ───────────────────────────────────────────────
 
-describe("append_to_periodic_note never double-appends after a reindex fault (THE-572)", () => {
-  it("a post-write reindex throw yields indeterminate_outcome, not a second append", async () => {
+// `deps.reindex` is the injection point these handlers call after their durable write. In the
+// production wiring it is IndexCoordinator.submitWrite, which is fire-and-forget and does not
+// throw — so the throwing hook below is not a reproduction of a live coordinator failure. It is a
+// stand-in for "any fallible step between the durable write and the handler's return", which is
+// the class of fault the marker exists to classify correctly, and which the injection point admits
+// by contract (deps.reindex is typed as an arbitrary caller-supplied function).
+describe("append_to_periodic_note never double-appends after a post-write fault (THE-572)", () => {
+  it("a post-write throw yields indeterminate_outcome, not a second append", async () => {
     const v = makeM3Vault({
       reindex: () => {
-        throw new Error("index coordinator rejected the write");
+        throw new Error("post-write step failed");
       },
     });
     try {
@@ -329,6 +345,98 @@ describe("append_to_periodic_note never double-appends after a reindex fault (TH
       expect(b.ok).toBe(false);
       if (!b.ok) expect(b.error.code).toBe("indeterminate_outcome");
       expect(v.read(path).match(/- a line/g)?.length).toBe(1);
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+// ── 5. append_note ───────────────────────────────────────────────────────────
+//
+// The keyed-tool set is NOT just the tools whose schema spells out `idempotency_key` at the top
+// level: extractIdempotencyKey also reads a NESTED `options.idempotency_key`, and every tool taking
+// `WriteOptions` carries one. append_note is the member of that set whose write is non-idempotent,
+// so it is the one that could actually double-apply.
+
+describe("append_note never double-appends after a post-write fault (THE-572)", () => {
+  it("a post-write throw yields indeterminate_outcome, not a second append", async () => {
+    const v = makeTestVault({
+      files: { "note.md": "base" },
+      reindex: () => {
+        throw new Error("post-write step failed");
+      },
+    });
+    try {
+      const args = {
+        vault: "test",
+        path: "note.md",
+        content: "APPENDED",
+        options: { idempotency_key: "K" },
+      };
+      const a = await v.call("append_note", args);
+      expect(a.ok).toBe(false);
+      // The append landed exactly once...
+      expect(v.read("note.md").match(/APPENDED/g)?.length).toBe(1);
+
+      // ...and the retry must NOT concatenate it again. Before THE-572 the claim was deleted here
+      // and this second call appended a second copy.
+      const b = await v.call("append_note", args);
+      expect(b.ok).toBe(false);
+      if (!b.ok) expect(b.error.code).toBe("indeterminate_outcome");
+      expect(v.read("note.md").match(/APPENDED/g)?.length).toBe(1);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a keyless append is unaffected — it still appends on every call", async () => {
+    const v = makeTestVault({ files: { "note.md": "base" } });
+    try {
+      const args = { vault: "test", path: "note.md", content: "X" };
+      expect((await v.call("append_note", args)).ok).toBe(true);
+      expect((await v.call("append_note", args)).ok).toBe(true);
+      // No key means no claim and no marker; two calls are two appends, exactly as before.
+      expect(v.read("note.md").match(/X/g)?.length).toBe(2);
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+// ── 6. enqueue_capture ───────────────────────────────────────────────────────
+
+describe("enqueue_capture is atomic across its INSERT + read-back (THE-572)", () => {
+  it("a read-back fault rolls the INSERT back, so the retry enqueues exactly one capture", async () => {
+    const v = makeM5Vault();
+    try {
+      // enqueueCapture INSERTs, then SELECTs the row back. Fault the read-back.
+      const realPrepare = v.db.prepare.bind(v.db);
+      let faulting = true;
+      (v.db as { prepare: (sql: string) => unknown }).prepare = (sql: string) => {
+        if (faulting && /SELECT .* FROM capture_queue WHERE id = \?/.test(sql))
+          throw new Error("read-back boom");
+        return realPrepare(sql);
+      };
+
+      const args = { vault: "test", content: "captured thought", idempotency_key: "K" };
+      const a = await v.call("enqueue_capture", args, { now: () => 100 });
+      expect(a.ok).toBe(false);
+
+      faulting = false;
+      // The INSERT was rolled back with the marker, so nothing is stranded and nothing is claimed.
+      expect(
+        (v.db.prepare("SELECT COUNT(*) AS n FROM capture_queue").get() as { n: number }).n,
+      ).toBe(0);
+      expect(
+        v.db.prepare("SELECT state FROM idempotency_keys WHERE key='K'").get(),
+      ).toBeUndefined();
+
+      const b = await v.call("enqueue_capture", args, { now: () => 200 });
+      expect(b.ok).toBe(true);
+      // Before THE-572 the first attempt's row survived and this produced TWO captures.
+      expect(
+        (v.db.prepare("SELECT COUNT(*) AS n FROM capture_queue").get() as { n: number }).n,
+      ).toBe(1);
     } finally {
       v.cleanup();
     }

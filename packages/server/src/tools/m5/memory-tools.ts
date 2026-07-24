@@ -11,6 +11,7 @@
 // handler-side enforcePathAcl call instead, so the P1.4 rule-scope gate still applies here.
 import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { inTransaction } from "../../db/txn";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
   appendObservation,
@@ -258,23 +259,18 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         // transaction: either the observation lands AND the claim is durably marked, or neither
         // does and the claim stays in-flight for a legitimate re-run. Marking inside the
         // transaction is what avoids a false `indeterminate_outcome` when the append itself fails.
-        ctx.db.exec("BEGIN");
-        try {
+        return inTransaction(ctx.db, () => {
           ctx.markEffectCommitted?.();
           const r = appendObservation(ctx.db, existing.id, input.observation, now);
           if (!r) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
           if (existing.materialize === 1) setEntityVaultPath(ctx.db, existing.id, vaultPath, now);
-          ctx.db.exec("COMMIT");
           return {
             entity_id: existing.id,
             observation_count: r.observationCount,
             updated_at: r.updatedAt,
             vault_path: vaultPath,
           };
-        } catch (e) {
-          ctx.db.exec("ROLLBACK");
-          throw e;
-        }
+        });
       },
     }),
 

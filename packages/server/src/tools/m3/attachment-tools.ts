@@ -215,6 +215,10 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           overwrite: overwriteExisting,
         });
 
+        // THE-572: copy + hardDelete + rewriteAttachmentReferences is multi-step, and the reference
+        // rewrite at the end is fallible. A throw there released the claim, and the retry found the
+        // source already gone and reported not-found rather than the accurate "may have applied".
+        ctx.markEffectCommitted?.();
         // On overwrite, soft-delete the destination first so its prior bytes are recoverable.
         let trashedDestTo: string | null = null;
         if (overwriteExisting) trashedDestTo = trashNote(v.root, toRel);

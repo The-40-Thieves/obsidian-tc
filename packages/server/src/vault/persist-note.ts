@@ -11,6 +11,12 @@ export interface GovernedWriteDeps {
   snapshots?: { enabled: boolean; retention: number };
   reindex?: (vaultId: string, path: string, content: string) => void;
   now?: () => number;
+  /** THE-572: `ctx.markEffectCommitted` from the calling handler's dispatch, when the call carries
+   *  an idempotency key. This sequence is multi-step — the snapshot ledger row commits before the
+   *  note is written — so without the signal a `writeNoteAtomic` throw released the claim and a
+   *  retry captured a SECOND snapshot of the same unchanged content, consuming a retention slot
+   *  that would otherwise hold a genuinely distinct recovery point. */
+  markEffectCommitted?: () => void;
 }
 
 export interface GovernedWriteParams {
@@ -29,6 +35,8 @@ export function persistGovernedNote(
 ): void {
   const abs = resolveVaultPath(params.root, params.rel);
   const ex = noteExists(abs);
+  // THE-572: everything above is a read; the snapshot below is the first durable effect.
+  deps.markEffectCommitted?.();
   if (ex.exists) {
     const prev = readNote(abs);
     captureSnapshot(

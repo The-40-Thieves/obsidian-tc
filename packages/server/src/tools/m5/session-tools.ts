@@ -8,6 +8,7 @@
 // ambient capture worker (THE-175) targets to add tool-invocation records over time.
 import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { inTransaction } from "../../db/txn";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { resolveVaultPath } from "../../vault/paths";
@@ -74,8 +75,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         });
         // The row and the idempotency marker are both writes on ctx.db, so they commit together:
         // a failed INSERT rolls the marker back too and the claim stays legitimately re-runnable.
-        ctx.db.exec("BEGIN");
-        try {
+        inTransaction(ctx.db, () => {
           ctx.markEffectCommitted?.();
           insertSession(ctx.db, {
             id,
@@ -85,11 +85,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
             tracePath,
             metadata: input.session_metadata,
           });
-          ctx.db.exec("COMMIT");
-        } catch (e) {
-          ctx.db.exec("ROLLBACK");
-          throw e;
-        }
+        });
         deps.activeSessions?.set(ctx.caller, id, v.id);
         return { session_id: id, vault: v.id, started_at: now, trace_path: tracePath };
       },
