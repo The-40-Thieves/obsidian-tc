@@ -109,6 +109,18 @@ because it is an architectural refactor, not a contained fix.
   `readPaths`), and the few tools without a `pathAcl` extractor whose fs access is gated only
   handler-side (periodic-note template/target reads+writes, memory `materialize`) — a THE-414
   extractor-coverage item, not a regression (nothing enforced rule-scopes before this change).
+- **Experiential caller-partition is now an authorization boundary, not a default filter**
+  (`tools/m8/experiential-tools.ts`; audit P1.7): the per-principal partition on the work-memory
+  tools could be crossed at will — `work_search`/`work_episodes` `any_caller: true` needed only
+  `read:workspace`, `work_forget` tombstoned any episode id with no ownership check, and
+  `record_retrieval_feedback` stamped outcomes across sessions. Crossing the partition now requires
+  an elevated `admin:workspace` scope: `any_caller` is forbidden without it; `work_forget` scopes its
+  UPDATE to the caller's own episodes (a foreign/unknown id is a silent no-op — no existence oracle)
+  unless elevated; feedback is scoped to a session (the given `session_id` or the caller's active
+  session), and an unscoped cross-session stamp requires the scope. Zero blast radius on
+  single-principal deployments. Boundary: `chunk_retrievals` carries no caller column, so feedback
+  ownership is enforced at session granularity, not per-caller — a true per-caller feedback owner
+  needs a schema column (tracked as a THE-230 follow-up).
 
 ### Changed
 
