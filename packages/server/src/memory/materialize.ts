@@ -95,6 +95,11 @@ export interface MaterializeInput {
   name: string;
   observations: readonly string[];
   relations: readonly RelationLink[];
+  // THE-567: the memory-note path is server-computed (folder + type + name), so it cannot be
+  // declared via a central pathAcl extractor (which only sees raw input). Threading the caller's
+  // granted scopes through to this handler-side enforcePathAcl call closes that P1.4 gap here
+  // instead — the rule-scope gate is enforced, not skipped, just not at the central stage.
+  grantedScopes?: Iterable<string>;
 }
 
 /**
@@ -108,7 +113,7 @@ export function materializeEntity(input: MaterializeInput): {
 } {
   const rel = entityNotePath(input.folder, input.entityType, input.name);
   const abs = resolveVaultPath(input.root, rel);
-  enforcePathAcl(input.acl, "write", rel, input.root);
+  enforcePathAcl(input.acl, "write", rel, input.root, input.grantedScopes);
   let preserved: Frontmatter | null = null;
   const ex = noteExists(abs);
   if (ex.exists && ex.type === "file") preserved = parseNote(readNote(abs).raw).frontmatter;

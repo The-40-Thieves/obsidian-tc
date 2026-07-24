@@ -5,7 +5,10 @@
 // resolve in Obsidian's graph. Reads take read:memory, mutations take write:memory
 // (write family — readOnly kill-switch applies, no execute HITL floor; spec hitl:never).
 // Materialization funnels through resolveVaultPath + enforcePathAcl; the write ACL is
-// pre-checked before the SQLite insert so an ACL denial leaves no orphan row.
+// pre-checked before the SQLite insert so an ACL denial leaves no orphan row. THE-567: the
+// memory-note path is server-computed (folder + type + name), not input-derivable, so it cannot
+// be declared via a central pathAcl extractor — ctx.grantedScopes is threaded into every
+// handler-side enforcePathAcl call instead, so the P1.4 rule-scope gate still applies here.
 import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
@@ -55,6 +58,7 @@ function rematerialize(
     name: e.name,
     observations: parseObservations(e.observations),
     relations: outgoingLinks(ctx, e.id),
+    grantedScopes: ctx.grantedScopes,
   });
   setEntityVaultPath(ctx.db, e.id, res.vaultPath, now);
   return res.vaultPath;
@@ -84,7 +88,13 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         const folder = memoryFolderFor(deps, v.id);
         // Pre-check the materialization ACL so a denial leaves no orphan SQLite row.
         if (input.materialize)
-          enforcePathAcl(ctx.acl, "write", entityNotePath(folder, input.type, input.name), v.root);
+          enforcePathAcl(
+            ctx.acl,
+            "write",
+            entityNotePath(folder, input.type, input.name),
+            v.root,
+            ctx.grantedScopes,
+          );
         let e: EntityRow;
         try {
           e = insertEntity(ctx.db, {
@@ -184,6 +194,18 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         const existing = getEntityById(ctx.db, input.entity_id);
         if (!existing || existing.vault_id !== v.id)
           throw err.invalidInput("entity not found", { entity_id: input.entity_id });
+        // THE-567 fix: pre-check the materialization ACL BEFORE the SQLite append (mirrors
+        // create_entity) so a caller lacking the note folder's rule-scope cannot get the
+        // observation durably committed to the graph while only the note write is blocked.
+        // rematerialize() only touches a note when materialize===1, so gate on that same condition.
+        if (existing.materialize === 1)
+          enforcePathAcl(
+            ctx.acl,
+            "write",
+            entityNotePath(memoryFolderFor(deps, v.id), existing.entity_type, existing.name),
+            v.root,
+            ctx.grantedScopes,
+          );
         const now = (ctx.now ?? Date.now)();
         const r = appendObservation(ctx.db, existing.id, input.observation, now);
         if (!r) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
@@ -219,6 +241,19 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           throw err.invalidInput("source entity not found", { entity_id: input.source_id });
         if (!tgt || tgt.vault_id !== v.id)
           throw err.invalidInput("target entity not found", { entity_id: input.target_id });
+        // THE-567 fix: pre-check the SOURCE's materialization ACL BEFORE the SQLite relation
+        // insert (mirrors create_entity) so a caller lacking the note folder's rule-scope cannot
+        // get the edge durably committed while only the note write is blocked. link_entities only
+        // re-materializes the source's note (the target's [[links]] projection is unaffected), so
+        // only the source path needs gating here.
+        if (src.materialize === 1)
+          enforcePathAcl(
+            ctx.acl,
+            "write",
+            entityNotePath(memoryFolderFor(deps, v.id), src.entity_type, src.name),
+            v.root,
+            ctx.grantedScopes,
+          );
         const now = (ctx.now ?? Date.now)();
         const { existedAlready } = insertRelation(ctx.db, src.id, tgt.id, input.relation_type, now);
         const sourceVaultPath = rematerialize(deps, ctx, v, src, now);
