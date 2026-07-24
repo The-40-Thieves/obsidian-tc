@@ -34,6 +34,7 @@ import {
   writeNoteAtomic,
 } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { persistGovernedNote } from "../../vault/persist-note";
 import { rewriteLinks } from "../../vault/rewrite";
 import { captureSnapshot } from "../../vault/snapshots";
 import { defineTool } from "./define";
@@ -431,12 +432,10 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
 
         let prevHash: string | null = null;
         let prevEmpty = true;
-        let prevRaw: string | null = null;
         if (ex.exists) {
           const cur = readNote(abs);
           prevHash = cur.hash;
           prevEmpty = cur.raw.length === 0;
-          prevRaw = cur.raw;
           if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
             throw err.concurrentModification("note changed since prev_hash", {
               path: rel,
@@ -452,10 +451,18 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           prev_hash: prevHash,
         });
 
-        if (prevRaw !== null)
-          captureSnapshot(ctx.db, deps.snapshots, v.id, rel, prevRaw, "write_note", ctx.now);
-        writeNoteAtomic(abs, input.content, input.options.create_dirs);
-        deps.reindex?.(v.id, rel, input.content);
+        persistGovernedNote(
+          ctx.db,
+          { snapshots: deps.snapshots, reindex: deps.reindex, now: ctx.now },
+          {
+            vaultId: v.id,
+            root: v.root,
+            rel,
+            content: input.content,
+            op: "write_note",
+            createDirs: input.options.create_dirs,
+          },
+        );
         return {
           vault: v.id,
           path: rel,

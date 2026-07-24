@@ -4,8 +4,7 @@
 // red-team core). Both degrade gracefully when the inference gateway is unconfigured.
 // knowledge_get_critical is intentionally absent (vendor-KB data model not in the tree).
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { err, grantsAll, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { tableExists } from "../../db/introspect";
@@ -40,6 +39,7 @@ import { semanticSearch } from "../../search/semantic";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
+import { persistGovernedNote } from "../../vault/persist-note";
 import type { VaultRegistry } from "../../vault/registry";
 import { defineTool } from "../m1/define";
 import { resolveQueryColbert, resolveQuerySparse } from "./query-sparse";
@@ -88,6 +88,9 @@ export interface M7Deps {
    *  mode reads a fresh entry instead of cold-querying and writes through on a live compose;
    *  absent -> every bootstrap composes live. */
   prewarmDir?: string;
+  /** THE-562 P1.6: governed-write handles so reflect.persist snapshots + reindexes like write_note. */
+  snapshots?: { enabled: boolean; retention: number };
+  reindex?: (vaultId: string, path: string, content: string) => void;
 }
 
 /** THE-231: lesson-class paths — decision notes, lessons, postmortems, retros. Convention-based
@@ -739,22 +742,22 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           const nowMs = (ctx.now ?? Date.now)();
           const rel = `${folder}/reflections/${new Date(nowMs).toISOString().slice(0, 10)}-${slug}.md`;
           enforcePathAcl(ctx.acl, "write", rel, v.root);
-          const abs = resolveVaultPath(v.root, rel);
-          mkdirSync(dirname(abs), { recursive: true });
-          writeFileSync(
-            abs,
-            [
-              "---",
-              `generated_at: ${new Date(nowMs).toISOString()}`,
-              `source_model: ${res.model}`,
-              `query: ${JSON.stringify(input.query)}`,
-              `source_chunks: ${JSON.stringify(results.slice(0, 20).map((r) => r.chunk_id))}`,
-              `source_paths: ${JSON.stringify([...new Set(results.slice(0, 20).map((r) => r.path))])}`,
-              "---",
-              "",
-              res.text,
-              "",
-            ].join("\n"),
+          const content = [
+            "---",
+            `generated_at: ${new Date(nowMs).toISOString()}`,
+            `source_model: ${res.model}`,
+            `query: ${JSON.stringify(input.query)}`,
+            `source_chunks: ${JSON.stringify(results.slice(0, 20).map((r) => r.chunk_id))}`,
+            `source_paths: ${JSON.stringify([...new Set(results.slice(0, 20).map((r) => r.path))])}`,
+            "---",
+            "",
+            res.text,
+            "",
+          ].join("\n");
+          persistGovernedNote(
+            ctx.db,
+            { snapshots: deps.snapshots, reindex: deps.reindex, now: ctx.now ?? Date.now },
+            { vaultId: v.id, root: v.root, rel, content, op: "reflect_persist", createDirs: true },
           );
           persisted = { path: rel };
         }

@@ -1304,6 +1304,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // THE-136: bootstrap mode reads the prewarm cache (TTL + signal-hash enforced) and
     // writes through on a live compose.
     prewarmDir: config.cacheDir,
+    // THE-562 P1.6: reflect.persist writes through the governed path (snapshot + index-on-write).
+    snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
+    reindex: reindexHook,
   });
 
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over
