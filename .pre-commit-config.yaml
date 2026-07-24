@@ -1,0 +1,80 @@
+# Pre-commit hooks, run by `prek` (the Rust reimplementation of pre-commit; `prek install` once).
+#
+# WHY: every formatting and hygiene gate in this repo was CI-only, so the feedback loop for a
+# misformatted file or a stray NUL byte was a push and a red check. All of these run in under a
+# second locally against staged files.
+#
+# EVERY HOOK IS `repo: local`, deliberately. The alternative — pinning upstream hook repos — would
+# add a second set of tool versions to keep in step with mise.toml and the CI workflows, and those
+# would drift. These invoke the tools this machine and CI already agree on.
+#
+# NOT INCLUDED, on purpose:
+#   * tests, typecheck, boundaries — seconds-to-minutes, not commit-time work. CI owns them.
+#   * knip / lychee / cargo-deny — need a resolved dependency graph or network; too slow per commit.
+#   * the vault-leak and workflow-injection guards — they audit the whole REPO, not the diff, which
+#     is the entire point of them (six code reviews missed a leak by auditing only diffs). Running
+#     them on staged files would quietly weaken them.
+#   * shfmt and taplo. Both are installed and useful by hand, but their default output rewrites
+#     files nobody intended to touch: taplo reformats .gitleaks.toml and the service pyprojects,
+#     and shfmt collapses the deliberately column-aligned `case` arms in services/qwen-tei/run.sh
+#     into a taller, less readable form. A formatter added to an existing repo either reformats
+#     everything in one deliberate pass or stays out of the commit path; it should not ambush the
+#     next person who edits an unrelated file.
+repos:
+  - repo: local
+    hooks:
+      - id: biome
+        name: biome (format + lint TS/JS/JSON)
+        entry: bun run biome check --error-on-warnings --no-errors-on-unmatched
+        language: system
+        types_or: [ts, tsx, javascript, jsx, json]
+        pass_filenames: true
+
+      - id: typos
+        name: typos (spelling)
+        # Config is _typos.toml at the repo root; residual is 0 repo-wide, so any hit is real.
+        entry: typos
+        language: system
+        pass_filenames: true
+
+
+      - id: shellcheck
+        name: shellcheck
+        entry: shellcheck -S warning
+        language: system
+        types: [shell]
+        pass_filenames: true
+
+
+      - id: hadolint
+        name: hadolint (Dockerfile)
+        entry: hadolint
+        language: system
+        files: '^Dockerfile$'
+        pass_filenames: true
+
+      - id: actionlint
+        name: actionlint (workflow lint + shell + expression checks)
+        # Takes no file arguments: it discovers .github/workflows itself, and checking a single
+        # workflow in isolation loses the cross-file reusable-workflow validation.
+        entry: actionlint
+        language: system
+        files: '^\.github/workflows/.*\.ya?ml$'
+        pass_filenames: false
+
+      - id: nul-bytes
+        name: no NUL bytes in tracked text
+        # Cheap, and it has already caught a real one: a raw NUL makes a file binary to git and
+        # grep, so the diff becomes unreviewable and every grep-based guard silently matches
+        # nothing while still reporting success.
+        entry: node scripts/check-nul-bytes.mjs
+        language: system
+        pass_filenames: false
+
+      - id: tree-map
+        name: TREE.md dependency-graph drift
+        # Only when source moves — the graph is derived from packages/{server,shared}/src.
+        entry: node scripts/gen-tree-map.mjs --check
+        language: system
+        files: '^packages/(server|shared)/src/.*\.ts$'
+        pass_filenames: false

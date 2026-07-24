@@ -10,7 +10,7 @@ _DOCLING_SUFFIXES = frozenset(
 )
 # Already-clean text is passed through unparsed.
 _PASSTHROUGH_SUFFIXES = frozenset({".md", ".markdown", ".txt"})
-# Web markup goes to Firecrawl (JS rendering + crawl).
+# Web markup goes to crawl4ai (headless Chromium render -> markdown).
 _WEB_SUFFIXES = frozenset({".html", ".htm"})
 
 
@@ -24,7 +24,7 @@ def select_parser(source: SourceRef) -> ParserKind:
     """Route by file type first, then by URL scheme.
 
     A remote PDF (``https://.../x.pdf``) still routes to Docling: fetch, then parse for
-    layout. A web page routes to Firecrawl. Markdown/txt is passed through. An unknown local
+    layout. A web page routes to crawl4ai. Markdown/txt is passed through. An unknown local
     file falls back to Docling (best-effort structured parse).
     """
     lowered = source.uri.lower()
@@ -34,5 +34,5 @@ def select_parser(source: SourceRef) -> ParserKind:
     if suffix in _PASSTHROUGH_SUFFIXES:
         return "passthrough"
     if lowered.startswith(("http://", "https://")) or suffix in _WEB_SUFFIXES:
-        return "firecrawl"
+        return "crawl4ai"
     return "docling"

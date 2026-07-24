@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 Severity = Literal["informational", "medium", "high", "critical"]
-ParserKind = Literal["docling", "firecrawl", "passthrough"]
+ParserKind = Literal["docling", "crawl4ai", "passthrough"]
 
 
 class SourceRef(BaseModel):

@@ -7,14 +7,15 @@ and `knowledge_get_critical` serve, kept separate from the private vault.
 
 ```
 source (URL or file)
-  -> select_parser()        # Docling (PDF/Office) | Firecrawl (web) | passthrough (md)
+  -> select_parser()        # Docling (PDF/Office) | crawl4ai (web) | passthrough (md)
   -> parse -> Markdown
   -> LangExtract            # grounded {title, content, category, severity, source} chunks
   -> write md+frontmatter   # into the corpus vault dir
   -> obsidian-tc indexes it -> knowledge_search / knowledge_get_critical
 ```
 
-Live Docling / Firecrawl / LangExtract backends load lazily (install the `parse` / `extract`
+Live Docling / LangExtract backends load lazily (crawl4ai is a self-hosted HTTP service,
+no client library) (install the `parse` / `extract`
 extras); the router + writer core need none of them. `dry_run=True` exercises the
 route -> write loop with no backends, which is enough to prove the write -> index -> serve loop.
 

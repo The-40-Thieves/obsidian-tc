@@ -52,13 +52,20 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const raw = run("./node_modules/.bin/depcruise", [
-  ...files,
-  "--config",
-  ".dependency-cruiser.cjs",
-  "--output-type",
-  "json",
-]);
+const DEPCRUISE = "./node_modules/.bin/depcruise";
+let raw;
+try {
+  raw = run(DEPCRUISE, [...files, "--config", ".dependency-cruiser.cjs", "--output-type", "json"]);
+} catch (err) {
+  // A fresh git worktree has no node_modules, so this is the first thing that breaks there — and a
+  // raw ENOENT stack trace is a poor way to say "run bun install", especially now that this runs as
+  // a pre-commit hook and a CI gate.
+  if (err?.code === "ENOENT") {
+    console.error(`gen-tree-map: ${DEPCRUISE} not found — run \`bun install\` in this checkout`);
+    process.exit(1);
+  }
+  throw err;
+}
 const graph = JSON.parse(raw);
 const modules = graph.modules ?? [];
 

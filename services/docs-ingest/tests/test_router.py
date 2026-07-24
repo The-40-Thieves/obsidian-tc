@@ -11,8 +11,8 @@ from obsidian_tc_docs_ingest.router import select_parser
 @pytest.mark.parametrize(
     ("uri", "expected"),
     [
-        ("https://docs.example.com/guide", "firecrawl"),
-        ("http://example.com/page.html", "firecrawl"),
+        ("https://docs.example.com/guide", "crawl4ai"),
+        ("http://example.com/page.html", "crawl4ai"),
         ("/local/manual.pdf", "docling"),
         ("https://example.com/whitepaper.pdf", "docling"),
         ("C:\\docs\\report.docx", "docling"),

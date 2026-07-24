@@ -1,0 +1,27 @@
+# hadolint configuration.
+#
+# Two rules are ignored deliberately, with reasons — not to make the gate pass quietly.
+
+ignored:
+  # DL3008 "Pin versions in apt-get install".
+  #
+  # Sound advice for a build that must be bit-reproducible, and wrong for this one. Ubuntu's archive
+  # only carries the CURRENT patch of each package: the moment a security update lands, the pinned
+  # version 404s and every image build fails until someone hand-edits the Dockerfile. That trades a
+  # theoretical reproducibility gain for a recurring, guaranteed outage of the release path.
+  #
+  # The reproducibility that matters here is covered elsewhere and more precisely: the base image is
+  # pinned by digest, bun.lock is frozen (`--frozen-lockfile`), Cargo.lock is committed, and the
+  # bge-m3 service installs from a hash-pinned requirements lock. What remains unpinned is a handful
+  # of OS packages — and those are now SCANNED, which is the actual mitigation: ci-docker runs trivy
+  # against the built image, so a vulnerable OS package fails a check rather than hiding behind a
+  # version number nobody updates.
+  - DL3008
+
+  # DL3003 "Use WORKDIR to switch directories".
+  #
+  # The flagged RUN is a single `cd` inside one layer to run `bun install` in a subdirectory. A
+  # WORKDIR would change the directory for every SUBSEQUENT layer too, which is not what is meant
+  # and would need a second WORKDIR to undo. The `cd` is scoped to its own shell and is the clearer
+  # expression of the intent.
+  - DL3003
