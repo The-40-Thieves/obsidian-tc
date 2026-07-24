@@ -63,6 +63,32 @@ describe("THE-521 assembleDoctorReport", () => {
     expect(report.schemaVersion).toBe(1);
   });
 
+  it("#16: adds retrieval.heads only when the config view supplies the retrieval readiness", async () => {
+    const withoutRetrieval = await assembleDoctorReport({ config, profile, now: () => "t" });
+    expect(withoutRetrieval.checks["retrieval.heads"]).toBeUndefined();
+
+    const withRetrieval = await assembleDoctorReport({
+      config: {
+        ...config,
+        retrieval: {
+          denseProvider: "bge-m3",
+          denseModel: "BAAI/bge-m3",
+          denseDimensions: 1024,
+          multiVector: true,
+          sparseEnabled: true,
+          colbertEnabled: false,
+        },
+      },
+      profile,
+      now: () => "t",
+    });
+    const head = withRetrieval.checks["retrieval.heads"];
+    expect(head).toBeDefined();
+    expect(head?.status).toBe("ok");
+    expect(head?.details?.sparse).toContain("ready");
+    expect(head?.details?.colbert).toContain("off");
+  });
+
   it("threads a supplied deployed token into auth.maxAge and catches the max-age trap", async () => {
     const iat = 1_000_000_000;
     const token = makeJwt({ iat, exp: iat + 365 * 86400 }); // exp 1y, but ttl is 1d
