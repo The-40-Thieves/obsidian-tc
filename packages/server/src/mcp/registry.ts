@@ -800,7 +800,9 @@ export class ToolRegistry {
           if (
             row &&
             (row.expires_at <= now() ||
-              (row.completed_at == null && row.started_at + this.idempotencyReclaimMs <= now()))
+              (row.state === "in_flight" &&
+                row.completed_at == null &&
+                row.started_at + this.idempotencyReclaimMs <= now()))
           ) {
             this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
             if (
@@ -824,6 +826,7 @@ export class ToolRegistry {
                 { key: idemKey },
               );
             if (row.state === "indeterminate") return indeterminateReplay(idemKey);
+            if (row.state === "effect_committed") return indeterminateReplay(idemKey);
             if (row.completed_at != null) {
               // Terminal-overflow replay: the original call committed its side effect but its response
               // exceeded the byte budget, so the claim was finalized with the real over-limit size and
