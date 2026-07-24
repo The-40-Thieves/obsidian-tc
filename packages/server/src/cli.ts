@@ -1031,6 +1031,11 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
               // transient per-drain dedup did.
               idempotencyKey: `${vaultId}:${c.id}:${contentHash(c.content)}`,
               maxAttempts: CONTRADICTION_MAX_ATTEMPTS,
+              // #14: a completed or dead-lettered job for this exact key must not permanently block
+              // re-judging recurring identical content (revert, or re-index after dead-letter) — see
+              // EnqueueOptions.replaceIfTerminal. The plane (synthesis/audit) producers deliberately
+              // do NOT set this; their once-per-period dedup against a terminal row is correct.
+              replaceIfTerminal: true,
             });
           }
         }

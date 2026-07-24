@@ -85,6 +85,14 @@ export interface EnqueueOptions {
   /** Enqueuing twice with the same key returns the FIRST job unchanged — enqueue is a no-op. */
   idempotencyKey?: string;
   payload?: unknown;
+  /** #14: when set, an existing keyed row in a TERMINAL state (complete/failed) is replaced by a
+   *  fresh queued job rather than deduped against. An ACTIVE row (queued/running/retrying) still
+   *  dedups — the in-flight double-work guard is preserved. Off by default so the plane's
+   *  once-per-period dedup (a completed weekly synthesis must block re-runs) is unaffected.
+   *  Needed for content-keyed jobs (contradiction): the indexer deletes a re-embedded chunk's
+   *  flags and relies on the re-enqueue to regenerate them, so a finished/dead-lettered job must
+   *  not permanently block re-judging recurring identical content. */
+  replaceIfTerminal?: boolean;
 }
 
 export interface ClaimOptions {
@@ -149,7 +157,17 @@ export class JobQueue {
       const existing = this.db
         .prepare("SELECT * FROM jobs WHERE idempotency_key = ?")
         .get(opts.idempotencyKey) as JobRow | undefined;
-      if (existing) return fromRow(existing);
+      if (existing) {
+        const terminal = existing.state === "complete" || existing.state === "failed";
+        if (opts.replaceIfTerminal && terminal) {
+          // Free the UNIQUE key so a legitimate re-run of recurring content can enqueue. This
+          // discards the terminal row (incl. a dead-letter record) for that exact key — acceptable
+          // for content-keyed jobs, where re-judging matters more than retaining a stale outcome.
+          this.db.prepare("DELETE FROM jobs WHERE id = ?").run(existing.id);
+        } else {
+          return fromRow(existing); // active row, or dedup-as-before: enqueue is a no-op
+        }
+      }
     }
     const id = randomUUID();
     const row = {

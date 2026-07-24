@@ -185,6 +185,85 @@ describe("job-queue-integration: contradiction workload (THE-562 #14)", () => {
     expect(queue.stats().failed).toBe(1);
     expect(queue.stats().retrying).toBe(0);
   });
+
+  it("#14: replaceIfTerminal re-judges past a dead-lettered row for the same content key", async () => {
+    // The bug this guards: a dead-lettered ("failed") row for a content-keyed job is never
+    // pruned, so without replaceIfTerminal a later enqueue of the SAME key (identical content
+    // recurring, e.g. after a revert) would dedup against that failed row forever -- the chunk
+    // can never be re-judged, permanently. cli.ts's makeOnIndexed hook sets replaceIfTerminal:
+    // true for exactly this reason.
+    const db = openMemoryDb();
+    runMigrations(db, CACHE_MIGRATIONS);
+    addChunk(db, "a", "A.md", [1, 0, 0]);
+    addChunk(db, "b", "B.md", [0.95, 0.312, 0]); // cosine ~0.95 with A -> in [0.85, 0.99)
+    const jobQueue = new JobQueue(db, { now: () => 1000 });
+    const chunkA: IndexedChunk = { id: "a", path: "A.md", content: "alpha", embedding: [1, 0, 0] };
+    const key = jobKey("v1", chunkA);
+
+    // First job: a handler that always throws (models e.g. a judge-gateway outage). With
+    // maxAttempts: 1 the runner dead-letters it on the very first failure -> a `failed` row for
+    // this exact idempotency key.
+    jobQueue.enqueue("contradiction", {
+      class: "contradiction",
+      payload: { vaultId: "v1", chunk: chunkA },
+      idempotencyKey: key,
+      maxAttempts: 1,
+      replaceIfTerminal: true,
+    });
+    const throwingHandlers = new Map<string, JobHandler>([
+      [
+        "contradiction",
+        async () => {
+          throw new Error("judge unavailable");
+        },
+      ],
+    ]);
+    const failingRunner = makeJobRunner({
+      queue: jobQueue,
+      leaseOwner: "test",
+      handlers: throwingHandlers,
+    });
+    await failingRunner.drainOnce(never);
+    expect(jobQueue.stats().failed).toBe(1);
+
+    // Re-enqueue the SAME key with replaceIfTerminal: true and a working handler. Without the
+    // fix, this would return the SAME dead-lettered job (a no-op) and the chunk would never be
+    // re-judged.
+    const second = jobQueue.enqueue("contradiction", {
+      class: "contradiction",
+      payload: { vaultId: "v1", chunk: chunkA },
+      idempotencyKey: key,
+      maxAttempts: 3,
+      replaceIfTerminal: true,
+    });
+    expect(second.state).toBe("queued");
+    expect(jobQueue.stats().queued).toBe(1);
+
+    const roles = rolesReturning('{"kind":"contradiction","rationale":"A negates B"}');
+    const workingHandlers = new Map<string, JobHandler>([
+      [
+        "contradiction",
+        async (job) => {
+          const { vaultId, chunk } = job.payload as { vaultId: string; chunk: IndexedChunk };
+          await checkContradictions({ db, roles, now: () => 1000 }, vaultId, [chunk]);
+        },
+      ],
+    ]);
+    const workingRunner = makeJobRunner({
+      queue: jobQueue,
+      leaseOwner: "test",
+      handlers: workingHandlers,
+    });
+    await workingRunner.drainOnce(never);
+    expect(jobQueue.stats().complete).toBe(1);
+    expect(jobQueue.stats().failed).toBe(0);
+    const row = db.prepare("SELECT judge_verdict, status FROM contradictions").get() as {
+      judge_verdict: string;
+      status: string;
+    };
+    expect(row.judge_verdict).toBe("contradiction");
+    expect(row.status).toBe("open");
+  });
 });
 
 // The exact key construction cli.ts's plane-enqueue scheduler tick uses for the weekly synthesis

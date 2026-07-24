@@ -209,6 +209,59 @@ describe("JobQueue (THE-517)", () => {
     expect(rows.n).toBe(1);
   });
 
+  // --- #14: replaceIfTerminal (re-enqueue past a terminal idempotency row) -------------------
+  describe("replaceIfTerminal", () => {
+    it("default dedup unchanged: enqueuing a completed key again (no replaceIfTerminal) is a no-op", () => {
+      const shared = db();
+      const q = new JobQueue(shared, { now: () => 0 });
+      const first = q.enqueue("contradiction", { idempotencyKey: "k" });
+      const claimed = q.claim({ leaseOwner: "w1" }) as NonNullable<ReturnType<typeof q.claim>>;
+      q.complete(claimed.id, "w1");
+
+      const second = q.enqueue("contradiction", { idempotencyKey: "k" });
+      expect(second.id).toBe(first.id);
+      expect(q.stats().complete).toBe(1);
+      expect(q.stats().queued).toBe(0);
+    });
+
+    it("replaceIfTerminal replaces a completed row with a fresh queued job", () => {
+      const shared = db();
+      const q = new JobQueue(shared, { now: () => 0 });
+      const first = q.enqueue("contradiction", { idempotencyKey: "k" });
+      const claimed = q.claim({ leaseOwner: "w1" }) as NonNullable<ReturnType<typeof q.claim>>;
+      q.complete(claimed.id, "w1");
+
+      const second = q.enqueue("contradiction", { idempotencyKey: "k", replaceIfTerminal: true });
+      expect(second.id).not.toBe(first.id);
+      expect(second.state).toBe("queued");
+      expect(q.stats().queued).toBe(1);
+    });
+
+    it("replaceIfTerminal replaces a failed (dead-lettered) row with a fresh queued job", () => {
+      const shared = db();
+      const q = new JobQueue(shared, { now: () => 0 });
+      q.enqueue("contradiction", { idempotencyKey: "k", maxAttempts: 1 });
+      const claimed = q.claim({ leaseOwner: "w1" }) as NonNullable<ReturnType<typeof q.claim>>;
+      q.fail(claimed.id, "w1", new Error("boom"), { terminal: true });
+      expect(q.get(claimed.id)?.state).toBe("failed");
+
+      const second = q.enqueue("contradiction", { idempotencyKey: "k", replaceIfTerminal: true });
+      expect(second.state).toBe("queued");
+      expect(q.stats().queued).toBe(1);
+      expect(q.stats().failed).toBe(0);
+    });
+
+    it("replaceIfTerminal does NOT replace an ACTIVE row: the in-flight guard still dedups", () => {
+      const shared = db();
+      const q = new JobQueue(shared, { now: () => 0 });
+      const first = q.enqueue("contradiction", { idempotencyKey: "k" }); // queued, never claimed
+
+      const second = q.enqueue("contradiction", { idempotencyKey: "k", replaceIfTerminal: true });
+      expect(second.id).toBe(first.id);
+      expect(q.stats().queued).toBe(1);
+    });
+  });
+
   // --- HARD TEST 4: dead-letter -----------------------------------------------------------------
   it("dead-letter: a job exceeding max attempts lands in failed and is never retried again", () => {
     let t = 0;
