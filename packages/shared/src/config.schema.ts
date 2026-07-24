@@ -270,7 +270,7 @@ export const AclRuleSchema = z.object({
     .array(z.string())
     .default([])
     .describe(
-      "Scopes granted to paths matching this rule. The LAST matching rule wins, replacing rather than merging the scopes of earlier matches.",
+      "Scopes REQUIRED to operate on paths matching this rule (P1.4): a caller must hold every listed scope, in addition to the tool's own required scopes, to read/write/delete a matching path. The LAST matching rule wins, replacing rather than merging the scopes of earlier matches. An empty list adds no requirement. Enforced at dispatch on tool operations; it does not filter search/enumeration result visibility, which is governed by readPaths.",
     ),
 });
 
@@ -284,11 +284,15 @@ export const AclConfigSchema = z.object({
   defaultScopes: z
     .array(z.string())
     .default([])
-    .describe("Scopes granted to a path that matches no rule."),
+    .describe(
+      "Scopes REQUIRED to operate on a path that matches no rule (P1.4). Empty (the default) adds no requirement.",
+    ),
   rules: z
     .array(AclRuleSchema)
     .default([])
-    .describe("Ordered glob-to-scope rules. Later matches override earlier ones."),
+    .describe(
+      "Ordered glob-to-required-scope rules enforced at dispatch (P1.4). Later matches override earlier ones.",
+    ),
   // Per-path operation ACL (G2.2 section 5 / G2.4). Optional and back-compatible:
   // when a field is omitted that operation kind is unrestricted (M0 behavior);
   // when present it is a glob whitelist — a path must match at least one entry.

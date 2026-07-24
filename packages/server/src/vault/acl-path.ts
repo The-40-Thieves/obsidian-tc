@@ -1,5 +1,5 @@
 import { type Stats, statSync } from "node:fs";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 // Per-path ACL enforcement — activates the dormant M0 FolderAcl seam.
 // Every path-based tool calls this with the operation kind and the resolved
 // vault-relative path. Membership is "matches at least one glob in the op's
@@ -61,11 +61,34 @@ export function evaluatePathAcl(
   return { allowed: true, deniedBy: null, matchedGlob };
 }
 
+/**
+ * P1.4 (audit THE-562): are the scopes a path DECLARES (its last-match-winning rule scopes, or
+ * defaultScopes when no rule matches) a subset of the caller's granted scopes? Pure — no filesystem.
+ * A path whose effective scope set is empty (the shipped-config default: no rules, empty
+ * defaultScopes) requires nothing, so this is a zero-cost `true` for configs that don't use
+ * rule-scopes. Wildcard-aware via grantsAll (`*` / `read:*` satisfy). This makes the formerly
+ * diagnostic-only scopesForPath an actual per-path authorization gate, alongside the readPaths/
+ * writePaths/deletePaths allowlist (evaluatePathAcl) and the tool-level requiredScopes gate.
+ */
+export function pathScopesSatisfied(
+  acl: FolderAcl | undefined,
+  path: string,
+  grantedScopes: Iterable<string>,
+): boolean {
+  if (!acl) return true;
+  const required = acl.scopesForPath(path);
+  return required.length === 0 || grantsAll(grantedScopes, required);
+}
+
 export function enforcePathAcl(
   acl: FolderAcl | undefined,
   op: AclOp,
   rel: string,
   root: string,
+  // P1.4: when the central dispatch stage passes the caller's granted scopes, a path's declared
+  // rule-scopes are enforced too. Omitted (undefined) by the ~120 handler-side defense-in-depth
+  // calls, which stay folder-only — the central runDispatch stage is the authoritative scope gate.
+  grantedScopes?: Iterable<string>,
 ): void {
   // THE-286: `root` is mandatory, so enforcement can never silently fall back to a lexical-only
   // check. We always gate on the REAL (symlink-resolved) vault-relative path (THE-269): an
@@ -78,6 +101,16 @@ export function enforcePathAcl(
     if (decision.deniedBy === "read_only")
       throw err.readOnlyMode(`vault is read-only; ${op} denied`, { path, op });
     throw err.aclDenied(`path is outside the ${op} whitelist`, { path, op });
+  }
+  // P1.4: rule-scopes are load-bearing. Checked on the RESOLVED path (so an in-vault symlink cannot
+  // reach a scope-gated target through an unscoped folder), and only when the caller's scopes were
+  // threaded in (the central dispatch stage). fail-closed: caller must hold the path's scope(s).
+  if (grantedScopes !== undefined && !pathScopesSatisfied(acl, path, grantedScopes)) {
+    throw err.aclDenied("caller lacks the scope(s) required for this path", {
+      path,
+      op,
+      required_scopes: acl?.scopesForPath(path) ?? [],
+    });
   }
   // THE-414 / #280: this path passed its folder-ACL check; record it for the (default-off) ACL
   // audit so a handler that later resolves an UNdeclared path for an fs op is caught in dev/test.

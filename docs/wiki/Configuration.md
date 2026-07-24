@@ -172,13 +172,13 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `acl.defaultScopes` | `array<string>` | `[]` |  | Scopes granted to a path that matches no rule. |
+| `acl.defaultScopes` | `array<string>` | `[]` |  | Scopes REQUIRED to operate on a path that matches no rule (P1.4). Empty (the default) adds no requirement. |
 | `acl.deletePaths` | `array<string>` | — |  | Glob whitelist for deletes: a path must match at least one entry. Omitted leaves deletes unrestricted. |
 | `acl.readOnly` | `boolean` | `false` |  | Reject every mutating operation on this vault regardless of the scopes a caller holds. |
 | `acl.readPaths` | `array<string>` | — |  | Glob whitelist for reads: a path must match at least one entry. Omitted leaves reads unrestricted (see strictReadDefault). |
-| `acl.rules` | `array<object>` | — |  | Ordered glob-to-scope rules. Later matches override earlier ones. |
+| `acl.rules` | `array<object>` | — |  | Ordered glob-to-required-scope rules enforced at dispatch (P1.4). Later matches override earlier ones. |
 | `acl.rules[].glob` | `string` | — | **yes** | Glob matched against the vault-relative note path. |
-| `acl.rules[].scopes` | `array<string>` | `[]` |  | Scopes granted to paths matching this rule. The LAST matching rule wins, replacing rather than merging the scopes of earlier matches. |
+| `acl.rules[].scopes` | `array<string>` | `[]` |  | Scopes REQUIRED to operate on paths matching this rule (P1.4): a caller must hold every listed scope, in addition to the tool's own required scopes, to read/write/delete a matching path. The LAST matching rule wins, replacing rather than merging the scopes of earlier matches. An empty list adds no requirement. Enforced at dispatch on tool operations; it does not filter search/enumeration result visibility, which is governed by readPaths. |
 | `acl.strictReadDefault` | `boolean` | `false` |  | When true, an UNDEFINED readPaths whitelist fails CLOSED on the request path rather than only on bridge enumeration. Default false preserves allow-all back-compatibility. |
 | `acl.writePaths` | `array<string>` | — |  | Glob whitelist for writes: a path must match at least one entry. Omitted leaves writes unrestricted. |
 

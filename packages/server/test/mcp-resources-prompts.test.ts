@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
-import type { FolderAcl } from "../src/acl";
+import { FolderAcl } from "../src/acl";
 import type { Database } from "../src/db/types";
 import { getPrompt, listPrompts } from "../src/mcp/prompts";
 import type { CallerContext } from "../src/mcp/registry";
@@ -114,6 +114,23 @@ describe("readResource", () => {
     expect(() => readResource(tempVault(), ctx([]), "obsidian-tc://main/alpha.md")).toThrow(
       /read:notes/,
     );
+  });
+  it("P1.4: honors a path's rule-scopes (no bypass of the read_note path-scope gate)", () => {
+    const reg = tempVaultWith({ "finance/secret.md": "# Secret\nnumbers" });
+    const acl = new FolderAcl({
+      readOnly: false,
+      defaultScopes: [],
+      rules: [{ glob: "finance/**", scopes: ["read:finance"] }],
+      readPaths: ["finance/**"],
+    });
+    const uri = buildResourceUri("main", "finance/secret.md");
+    // Holds the baseline read:notes but NOT the path's read:finance -> denied, same as read_note.
+    expect(() => readResource(reg, ctx(["read:notes"], acl), uri)).toThrow(/scope/i);
+    // Holds the path scope -> the content is returned.
+    const out = readResource(reg, ctx(["read:notes", "read:finance"], acl), uri);
+    const c = out.contents[0];
+    if (!c || !("text" in c)) throw new Error("expected text contents");
+    expect(c.text).toContain("Secret");
   });
   it("rejects a URI pointing at a vault the caller is not bound to", () => {
     // Caller bound to "main" (ctx.vaultId) must not read "other" even with full scope.

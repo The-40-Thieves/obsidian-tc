@@ -925,7 +925,9 @@ export class ToolRegistry {
             const root = this.rootResolver?.(effVault);
             if (root) {
               for (const { op, path } of def.pathAcl(parsed.data)) {
-                enforcePathAcl(ctx.acl, op, path, root);
+                // P1.4: pass the caller's granted scopes so a path's declared rule-scopes are
+                // enforced here (the authoritative central stage), not just the folder allowlist.
+                enforcePathAcl(ctx.acl, op, path, root, ctx.grantedScopes);
               }
             }
           }

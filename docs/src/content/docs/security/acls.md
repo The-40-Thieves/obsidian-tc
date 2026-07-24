@@ -30,9 +30,13 @@ and, optionally, a per-vault `acl` that overrides it. Both share the same shape:
 
 - **`readOnly`** (default `false`) — a vault-wide read-only kill switch; when `true`,
   every write/delete is refused regardless of scopes.
-- **`defaultScopes`** — scopes granted to a caller when no `rules` entry matches.
-- **`rules`** — `{ "glob": "…", "scopes": [ … ] }` entries granting scopes on matching
-  paths.
+- **`defaultScopes`** — scopes **required** to operate on a path that matches no `rules`
+  entry (P1.4). Empty (the default) adds no requirement.
+- **`rules`** — `{ "glob": "…", "scopes": [ … ] }` entries. A rule's `scopes` are the
+  scopes a caller must hold — **in addition to the tool's own required scopes** — to
+  read/write/delete a matching path (P1.4). The **last** matching rule wins (replacing,
+  not merging). Enforced centrally at dispatch on tool *operations*; rule-scopes do **not**
+  filter search/enumeration result visibility, which is governed by `readPaths`.
 - **`readPaths` / `writePaths` / `deletePaths`** — optional glob whitelists. When a
   list is **omitted**, that operation is unrestricted (the M0 default); when
   **present**, a path must match at least one entry or the call is denied.

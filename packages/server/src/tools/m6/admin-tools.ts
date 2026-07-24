@@ -10,7 +10,7 @@ import { parseScope, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shar
 import { z } from "zod";
 import type { Database } from "../../db/types";
 import type { ToolDefinition } from "../../mcp/registry";
-import { evaluatePathAcl } from "../../vault/acl-path";
+import { evaluatePathAcl, pathScopesSatisfied } from "../../vault/acl-path";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M6Deps } from "./shared";
@@ -120,7 +120,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
     defineTool({
       name: "inspect_acl",
       description:
-        "Test whether a (vault, path, op, scopes) tuple would be permitted. Shares the live path evaluator (read-only kill switch + per-op whitelist) so it cannot drift from enforcement, then checks the op-family scope grant. Reports the matched path rule, the rule-based effective_scopes, and what denied it.",
+        "Test whether a (vault, path, op, scopes) tuple would be permitted. Shares the live path evaluator (read-only kill switch + per-op whitelist) so it cannot drift from enforcement, then checks the op-family scope grant and the path-required rule-scopes (P1.4: a matching rule's scopes must all be held). Reports the matched path rule, the rule-based effective_scopes, and what denied it.",
       inputSchema: InspectAclInput,
       requiredScopes: ["admin:acl"],
       handler: (input, ctx) => {
@@ -164,6 +164,18 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
           return {
             allowed: false,
             denied_by: "scope",
+            kill_switch: false,
+            matched_rule: matchedRule,
+            effective_scopes,
+          };
+
+        // 4. P1.4: rule-scopes are load-bearing — the caller must hold every scope the path's rule
+        //    declares (Require semantics). Mirrors the central dispatch enforcement so this
+        //    diagnostic cannot drift from what a real call would do.
+        if (!pathScopesSatisfied(acl, rel, input.scopes))
+          return {
+            allowed: false,
+            denied_by: "path_scope",
             kill_switch: false,
             matched_rule: matchedRule,
             effective_scopes,
