@@ -16,10 +16,18 @@
 // work_forget surfaces the control-1 tombstone as a user verb. record_retrieval_feedback is
 // the THE-230 outcome writer: stamps feedback/outcome onto the most recent retrieval
 // event(s) for a chunk, feeding the ACT-R recompute.
+import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
-import type { ToolDefinition } from "../../mcp/registry";
+import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
+
+// P1.7 (audit THE-562): the experiential per-principal partition is an AUTHORIZATION boundary, not
+// a default filter. Crossing it — reading other principals' episodes (any_caller), forgetting an
+// episode you don't own, or stamping feedback across sessions — requires this elevated scope.
+const CROSS_PRINCIPAL_SCOPE = "admin:workspace";
+const canCrossPrincipal = (ctx: CallerContext): boolean =>
+  grantsAll(ctx.grantedScopes, [CROSS_PRINCIPAL_SCOPE]);
 
 export interface M8Deps {
   /** Open experiential.db handle; absent (all capture/config off) -> tools report unavailable. */
@@ -99,7 +107,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
     defineTool({
       name: "work_search",
       description:
-        "Search the experiential work-memory (agent_episodes) — what the agent actually did. MEMORY semantics with the THE-238 reader contract enforced: only evaluator-approved (eligible) episodes by default, tombstoned/expired rows never surface, results are partitioned to the calling principal, and a trust floor (default 0.3) excludes high-risk content. include_pending opts into not-yet-evaluated episodes (still trust-floored); any_caller crosses the agent partition explicitly.",
+        "Search the experiential work-memory (agent_episodes) — what the agent actually did. MEMORY semantics with the THE-238 reader contract enforced: only evaluator-approved (eligible) episodes by default, tombstoned/expired rows never surface, results are partitioned to the calling principal, and a trust floor (default 0.3) excludes high-risk content. include_pending opts into not-yet-evaluated episodes (still trust-floored); any_caller crosses the agent partition and requires the admin:workspace scope (P1.7: the partition is an authorization boundary, not a free filter).",
       inputSchema: z
         .object({
           query: z.string().min(1).optional(),
@@ -125,6 +133,10 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         }
         clauses.push("(trust IS NULL OR trust >= ?)");
         params.push(input.min_trust);
+        // P1.7: any_caller crosses the agent partition — an authorization boundary, not a free
+        // filter. Without the elevated scope it is a forbidden request, not a silent self-scope.
+        if (input.any_caller && !canCrossPrincipal(ctx))
+          throw err.forbidden(`any_caller requires the ${CROSS_PRINCIPAL_SCOPE} scope`);
         if (!input.any_caller) {
           clauses.push("caller IS ?");
           params.push(ctx.caller ?? null);
@@ -171,7 +183,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
     defineTool({
       name: "work_episodes",
       description:
-        "List/inspect the raw experiential episode log (management surface, the first-party list/inspect verb). Shows pending and ineligible state for review; tombstoned rows stay hidden unless include_blocked. Partitioned to the calling principal unless any_caller.",
+        "List/inspect the raw experiential episode log (management surface, the first-party list/inspect verb). Shows pending and ineligible state for review; tombstoned rows stay hidden unless include_blocked. Partitioned to the calling principal unless any_caller, which requires the admin:workspace scope (P1.7).",
       inputSchema: z
         .object({
           session_id: z.string().optional(),
@@ -190,6 +202,10 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         const clauses = ["1=1"];
         const params: unknown[] = [];
         if (!input.include_blocked) clauses.push("blocked = 0");
+        // P1.7: any_caller crosses the agent partition — an authorization boundary, not a free
+        // filter. Without the elevated scope it is a forbidden request, not a silent self-scope.
+        if (input.any_caller && !canCrossPrincipal(ctx))
+          throw err.forbidden(`any_caller requires the ${CROSS_PRINCIPAL_SCOPE} scope`);
         if (!input.any_caller) {
           clauses.push("caller IS ?");
           params.push(ctx.caller ?? null);
@@ -230,15 +246,24 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
     defineTool({
       name: "work_forget",
       description:
-        "Tombstone an experiential episode (the THE-238 control-1 blocklist, surfaced as the first-party forget verb). A forgotten episode never surfaces in work_search again; the append-only log row remains for forensics. Idempotent.",
+        "Tombstone an experiential episode (the THE-238 control-1 blocklist, surfaced as the first-party forget verb). A forgotten episode never surfaces in work_search again; the append-only log row remains for forensics. Idempotent. P1.7: only your OWN episodes unless you hold admin:workspace — a foreign or unknown id is a silent no-op (forgotten:false), not an error.",
       inputSchema: z.object({ episode_id: z.string().min(1) }).strict(),
       requiredScopes: ["write:workspace"],
       tags: ["experiential"],
-      handler: (input) => {
+      handler: (input, ctx) => {
         if (!deps.edb) return UNAVAILABLE;
-        const res = deps.edb
-          .prepare("UPDATE agent_episodes SET blocked = 1 WHERE id = ? AND blocked = 0")
-          .run(input.episode_id);
+        // P1.7: forget only your OWN episodes unless you hold the elevated scope. The caller
+        // predicate is added to the UPDATE (not a pre-check) so a foreign/absent id is a silent
+        // no-op (forgotten:false) — no cross-principal existence oracle.
+        const res = canCrossPrincipal(ctx)
+          ? deps.edb
+              .prepare("UPDATE agent_episodes SET blocked = 1 WHERE id = ? AND blocked = 0")
+              .run(input.episode_id)
+          : deps.edb
+              .prepare(
+                "UPDATE agent_episodes SET blocked = 1 WHERE id = ? AND blocked = 0 AND caller IS ?",
+              )
+              .run(input.episode_id, ctx.caller ?? null);
         return { available: true, episode_id: input.episode_id, forgotten: res.changes > 0 };
       },
     }),
@@ -246,7 +271,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
     defineTool({
       name: "record_retrieval_feedback",
       description:
-        "Stamp relevance feedback and/or the THE-230 outcome axis (-1|0|+1) onto the most recent retrieval event(s) for a chunk in the experiential log. feedback = 'was this the right chunk'; outcome = 'did acting on it lead somewhere good'. Feeds the ACT-R activation recompute.",
+        "Stamp relevance feedback and/or the THE-230 outcome axis (-1|0|+1) onto the most recent retrieval event(s) for a chunk in the experiential log. feedback = 'was this the right chunk'; outcome = 'did acting on it lead somewhere good'. Feeds the ACT-R activation recompute. P1.7: scoped to a session (the given session_id, else your active session); an unscoped cross-session stamp requires admin:workspace.",
       inputSchema: z
         .object({
           chunk_id: z.string().min(1),
@@ -261,11 +286,21 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         }),
       requiredScopes: ["write:workspace"],
       tags: ["experiential"],
-      handler: (input) => {
+      handler: (input, ctx) => {
         if (!deps.edb) return UNAVAILABLE;
-        const sessionClause = input.session_id ? "AND session_id = ?" : "";
+        // P1.7: chunk_retrievals carries no caller attribution, so the enforceable partition is the
+        // session. A non-elevated caller may only stamp feedback within a session (the explicit
+        // session_id, or their own active session); an unscoped cross-session stamp requires the
+        // elevated scope. True per-caller feedback ownership needs a caller column on
+        // chunk_retrievals — tracked as a THE-230 follow-up.
+        const session = input.session_id ?? ctx.sessionId;
+        if (session === undefined && !canCrossPrincipal(ctx))
+          throw err.forbidden(
+            `stamping feedback across sessions requires a session_id or the ${CROSS_PRINCIPAL_SCOPE} scope`,
+          );
+        const sessionClause = session !== undefined ? "AND session_id = ?" : "";
         const selectParams: unknown[] = [input.chunk_id];
-        if (input.session_id) selectParams.push(input.session_id);
+        if (session !== undefined) selectParams.push(session);
         const res = deps.edb
           .prepare(
             `UPDATE chunk_retrievals

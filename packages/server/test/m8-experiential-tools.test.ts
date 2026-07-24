@@ -123,8 +123,12 @@ describe("M8 experiential tools (THE-229)", () => {
     const pending = await registry.dispatch("work_search", { include_pending: true }, ctx());
     expect(asIds(pending)).toEqual(["e-eligible", "e-pending"]);
 
-    // any_caller crosses the partition explicitly
-    const cross = await registry.dispatch("work_search", { any_caller: true }, ctx());
+    // any_caller crosses the partition, but ONLY with the elevated admin:workspace scope (P1.7)
+    const cross = await registry.dispatch(
+      "work_search",
+      { any_caller: true },
+      ctx({ grantedScopes: new Set(["read:workspace", "admin:workspace"]) }),
+    );
     expect(asIds(cross)).toEqual(["e-eligible", "e-other-caller"]);
 
     // provenance rides every result
@@ -191,7 +195,9 @@ describe("M8 experiential tools (THE-229)", () => {
       await registry.dispatch(
         "record_retrieval_feedback",
         { chunk_id: "c1", outcome: 1, feedback: 1 },
-        ctx(),
+        // these retrievals have a NULL session -> the stamp is unscoped, which now needs
+        // admin:workspace (P1.7). A per-session stamp is covered by the dedicated test below.
+        ctx({ grantedScopes: new Set(["write:workspace", "admin:workspace"]) }),
       ),
     );
     expect(res.updated).toBe(1); // last_n defaults to 1 -> newest only
@@ -200,5 +206,64 @@ describe("M8 experiential tools (THE-229)", () => {
       .all() as Array<{ query_text: string; feedback: number | null; outcome: number | null }>;
     expect(rows[0]).toMatchObject({ query_text: "q1", feedback: null, outcome: null });
     expect(rows[1]).toMatchObject({ query_text: "q2", feedback: 1, outcome: 1 });
+  });
+
+  it("P1.7: any_caller without admin:workspace is forbidden (partition is an authz boundary)", async () => {
+    const db = edb0();
+    seed(db, { id: "mine", eligibility: "eligible" });
+    seed(db, { id: "theirs", eligibility: "eligible", caller: "someone-else" });
+    const { registry, ctx } = harness(db);
+    const denied = await registry.dispatch("work_search", { any_caller: true }, ctx());
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("forbidden");
+    // work_episodes enforces the same gate
+    const denied2 = await registry.dispatch("work_episodes", { any_caller: true }, ctx());
+    expect(denied2.ok).toBe(false);
+    if (!denied2.ok) expect(denied2.error.code).toBe("forbidden");
+  });
+
+  it("P1.7: work_forget is own-only unless admin:workspace (foreign id is a silent no-op)", async () => {
+    const db = edb0();
+    seed(db, { id: "theirs", eligibility: "eligible", caller: "someone-else" });
+    const { registry, ctx } = harness(db);
+    // non-owner without elevation: no rows changed, no existence oracle
+    const noop = un<{ forgotten: boolean }>(
+      await registry.dispatch("work_forget", { episode_id: "theirs" }, ctx()),
+    );
+    expect(noop.forgotten).toBe(false);
+    // admin:workspace can forget across principals
+    const ok = un<{ forgotten: boolean }>(
+      await registry.dispatch(
+        "work_forget",
+        { episode_id: "theirs" },
+        ctx({ grantedScopes: new Set(["write:workspace", "admin:workspace"]) }),
+      ),
+    );
+    expect(ok.forgotten).toBe(true);
+  });
+
+  it("P1.7: record_retrieval_feedback needs a session or admin; scopes to the caller's session", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id) VALUES ('r1', 'c1', ?, 's1')",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    // no session_id, no active session, not admin -> forbidden (was a silent unscoped write)
+    const denied = await registry.dispatch(
+      "record_retrieval_feedback",
+      { chunk_id: "c1", outcome: 1 },
+      ctx(),
+    );
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("forbidden");
+    // a caller with an active session stamps only that session's retrievals
+    const ok = un<{ updated: number }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: 1 },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(ok.updated).toBe(1);
   });
 });
