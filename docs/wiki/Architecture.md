@@ -46,7 +46,7 @@ The native module never throws on a missing prebuild — a hand-written loader t
 
 ## Multi-vault registry
 
-Each configured vault is isolated at the storage layer: its own SQLite caches (`cache.db` + `experiential.db`), its own JSONL trace directory, its own embedding provider, and its own slice of the global ACL (per-vault `acl` overrides supported). Vault resolution order: explicit `args.vault` → `OBSIDIAN_TC_DEFAULT_VAULT` → config default → the sole vault → else `invalid_input`.
+Each configured vault is **logically** isolated: its data lives in the **shared** SQLite cache (`cache.db` + `experiential.db`) row-scoped by `vault_id` — not a per-vault DB file (physically separate per-vault files are a planned V2 rewrite, not current) — under its own slice of the global ACL (per-vault `acl` overrides supported). The embedding provider is server-global (one per server). Vault resolution order: explicit `args.vault` → `OBSIDIAN_TC_DEFAULT_VAULT` → config default → the sole vault → else `invalid_input`.
 
 ## Retrieval (shipped, measured)
 

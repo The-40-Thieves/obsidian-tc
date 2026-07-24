@@ -9,7 +9,7 @@ obsidian-tc is **observable from day one**. The Observability layer is the last 
 | **OpenTelemetry** | A span `obsidian_tc.tool_call` tagged `{tool, vault, caller, status, args_hash}` with end-to-end duration, exported over OTLP |
 | **Prometheus** | Increments `obsidian_tc_tool_calls_total{tool, vault, status}` and records `obsidian_tc_tool_duration_seconds{tool, vault}` |
 | **CloudEvents / MORGIANA** | A structured event per call, async fire-and-forget |
-| **JSONL trace** | Appends to the current session's per-vault trace file |
+| **JSONL trace** | Appends to the current session's trace file |
 | **event_log row** | A SQLite insert for local debug replay |
 
 ## Configuration
@@ -33,7 +33,7 @@ Per-vault, per-session: `<cacheDir>/traces/<YYYY-MM-DD>/<session_id>.jsonl`, rol
 
 ## event_log
 
-A per-vault SQLite table for local debug replay. Naturally isolated per vault (one DB each); no cross-vault analytics in v1. `get_metrics` can scope to one vault or aggregate across all.
+A table in the shared `cache.db`, row-scoped by vault (not a per-vault file); no cross-vault analytics in v1. `get_metrics` can scope to one vault or aggregate across all.
 
 ## Health
 

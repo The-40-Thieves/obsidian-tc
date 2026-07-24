@@ -85,7 +85,7 @@ Thirteen named components in V1. Each component has an owner of state, a languag
 - TypeScript core ↔ Rust native: napi-rs FFI. Sync calls, copy-on-boundary memory.
 
 **Hard boundaries (data ownership):**
-- Vault files: Obsidian owns. Server reads via REST API plugin (HTTP) or direct filesystem (with care — only for read paths; writes always go through REST API plugin to keep Obsidian's index consistent).
+- Vault files: Obsidian owns. Server reads via REST API plugin (HTTP) or direct filesystem (with care — reads may use either. Note **writes go direct to disk** via an atomic write (`writeNoteAtomic`, the sole read/write backend) — correct whether Obsidian is open or not (THE-255). The Local REST API plugin backs the companion **bridge** tools (Dataview, Tasks, Templater, …), not note CRUD.
 - SQLite cache: server owns **one shared `cache.db`** (rows scoped by `vault_id` — see component 10 for the exceptions). Companion plugin never touches it.
 - Idempotency / elicit tokens: server-only state in SQLite.
 

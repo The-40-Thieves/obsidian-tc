@@ -12,7 +12,7 @@
 
 **Local or cloud embeddings?** Either, per vault. Default is local Ollama (`nomic-embed-text`, 768-dim, with title+breadcrumb chunk context). OpenAI, Voyage, or Cohere are opt-in. A local-Ollama vault and a cloud-Voyage vault coexist in one server. See **[[Configuration]]**.
 
-**Can I serve multiple vaults?** Yes — multi-vault is native. Each vault is isolated: its own SQLite caches, traces, embedding provider, and ACL slice (per-vault ACL overrides supported). Adding/removing a vault needs a restart; editing an existing vault's config can be applied live with `reload_vault`. See **[[Architecture]]**.
+**Can I serve multiple vaults?** Yes — multi-vault is native. Each vault is **logically** isolated: its rows in the shared SQLite cache are scoped by `vault_id` (not a per-vault DB file; the embedding provider is server-global), under its own ACL slice (per-vault ACL overrides supported). Adding/removing a vault needs a restart; editing an existing vault's config can be applied live with `reload_vault`. See **[[Architecture]]**.
 
 **Does it support Bases (`.base`)?** Yes — native, with a real expression-DSL evaluator: `read_base`, `create_base`, `update_base`, `query_base`. Canvas and Excalidraw are supported too.
 

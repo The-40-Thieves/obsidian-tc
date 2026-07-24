@@ -15,7 +15,7 @@ Also ships as a Docker image (`ghcr.io/the-40-thieves/obsidian-tc`), a one-click
 
 An AI agent with raw filesystem access to your Obsidian vault can do real damage: overwrite years of notes, delete the wrong folder, read the journal you never meant to expose, or quietly leak plugin API keys sitting in `.obsidian/`. Most Obsidian MCP servers hand an agent that access with little more than an API key between it and everything you have written.
 
-obsidian-tc gives agents **governed** access instead. Every tool call — no exceptions — runs through one dispatch pipeline: auth → scopes → folder ACL → read-only kill switch → idempotency → throttle → human-in-the-loop confirmation → handler → response governor → audit log. You decide which folders an agent can read, write, or delete (per vault, per caller); destructive operations fail closed until a human approves them; and every invocation is audited.
+obsidian-tc gives agents **governed** access instead. Every tool call — no exceptions — runs through one dispatch pipeline: auth → scopes → folder ACL → read-only kill switch → idempotency → throttle → human-in-the-loop confirmation → handler → response governor → audit log. You decide which folders an agent can read, write, or delete (per vault, per caller); destructive operations fail closed until a human approves them; and every invocation is audited on a best-effort basis (an audit-store write failure surfaces in `server_health` and is never swallowed silently, but it does not block the call — observability must never break dispatch).
 
 New here? Start with the [5-minute quickstart](./docs/QUICKSTART.md) or the [threat model and design rationale](./docs/WHY.md).
 
@@ -153,7 +153,7 @@ obsidian-tc plugin install --vault /path/to/your/vault
 No cloud account or API key is required. With the defaults, everything runs on your
 machine: embeddings via a local [Ollama](https://ollama.com) model (`nomic-embed-text`,
 768-dim), vector search via the bundled `sqlite-vec` (with a pure-JS cosine fallback), and
-a per-vault SQLite cache. Pull the model once, then start:
+a shared SQLite cache (one `cache.db`, row-scoped by vault). Pull the model once, then start:
 
 ```bash
 ollama pull nomic-embed-text       # the default embeddings model
@@ -231,7 +231,7 @@ servers (tool counts and features as of 2026-07 — these projects move; check t
 
 Where obsidian-tc goes further: multi-vault in one process with per-vault ACLs, hybrid
 lexical + vector + graph retrieval, compare-and-swap and idempotency on writes, a
-per-invocation audit trail, and production observability. Where the community servers win:
+per-invocation audit trail (best-effort persistence; see the pipeline above), and production observability. Where the community servers win:
 footprint and simplicity — see the next section.
 
 ## When NOT to use obsidian-tc
