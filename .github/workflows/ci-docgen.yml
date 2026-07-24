@@ -11,6 +11,12 @@ on:
       - 'packages/shared/**'
       - 'docs/wiki/**'
       - 'docs/src/content/**'
+      # TREE.md's graph sections are generated from the same source paths above; listing the file
+      # and its generator here catches a HAND-EDIT of a generated region, exactly as docs/wiki/**
+      # does for the docgen pages.
+      - 'TREE.md'
+      - 'scripts/gen-tree-map.mjs'
+      - '.dependency-cruiser.cjs'
       - 'bun.lock'
       - '.github/workflows/ci-docgen.yml'
   push:
@@ -35,3 +41,12 @@ jobs:
       - name: narrative fact gate (THE-566 — no stale tool-count / golden-set numbers in prose)
         working-directory: packages/server
         run: bun run docgen:facts-check
+      - name: TREE.md dependency-graph drift gate (THE-470)
+        # TREE.md carried a standing "hand-generated and will drift" warning, and it had — the
+        # committed numbers were 232 modules / 785 dependencies against a real 246 / 978. The graph
+        # sections are now generated into marker regions, so this keeps them honest.
+        #
+        # The generator refuses to write from an empty module set rather than reporting success over
+        # nothing: depcruise 18.x declares typescript <7 and this repo is on TS 7, so handed a
+        # DIRECTORY it resolves zero files and exits 0. The file list is explicit for that reason.
+        run: bun run map:check
