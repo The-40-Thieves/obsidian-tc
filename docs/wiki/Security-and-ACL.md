@@ -14,7 +14,7 @@ Scopes are op-on-path: `read:vault`, `write:vault/02-projects/**`, `delete:vault
 
 The root `acl` is the inherited default; each `vaults[]` entry may carry its own `acl` block (same shape) to override it **per vault** — e.g. writable in vault A, read-only in vault B, enforced at dispatch in one process. Set `strictReadDefault: true` to make an undefined `readPaths` fail **closed** on reads.
 
-The scope check fires in the **ACL layer only** — never scattered across the 141 tool impls — so adding a scope class is a single parser change.
+The scope check fires in the **ACL layer only** — never scattered across the 146 tool impls — so adding a scope class is a single parser change.
 
 Path enforcement is inode-aware: an in-vault symlink pointing outside the vault is rejected by realpath canonicalization, and a **hard-linked** file (`st_nlink > 1`) is rejected under a folder ACL (a hard link aliases an inode realpath cannot dereference). Reads run on the opened fd. The .obsidian/.git/.trash default-deny folds case, so a case-variant control-directory path cannot evade it on a case-insensitive filesystem (Windows/macOS).
 

@@ -62,6 +62,11 @@ describe("scanFacts (THE-566 narrative fact gate)", () => {
     expect(scanFacts("Plugin bridges — 20 tools across 9 domains — merged", RULES)).toEqual([]);
   });
 
+  it("flags 'N tool impls' (the phrasing a canonical-only sweep would miss)", () => {
+    const v = scanFacts("never scattered across the 141 tool impls — so adding", RULES);
+    expect(v).toEqual([expect.objectContaining({ fact: "toolCount", found: 141, expected: 146 })]);
+  });
+
   it("skips a line marked facts-check:ignore (intentional historical value)", () => {
     const text =
       "the golden set expanded 136 to 250 in July <!-- facts-check:ignore -->\nnext line 143 tools across 31 domains";

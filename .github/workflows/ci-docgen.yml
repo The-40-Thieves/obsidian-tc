@@ -32,3 +32,6 @@ jobs:
       - name: docs drift gate (regenerate + fail if stale)
         working-directory: packages/server
         run: bun run docgen:render -- --check
+      - name: narrative fact gate (THE-566 — no stale tool-count / golden-set numbers in prose)
+        working-directory: packages/server
+        run: bun run docgen:facts-check

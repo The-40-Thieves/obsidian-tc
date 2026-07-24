@@ -120,6 +120,7 @@ export function factRules(toolCount: number, goldenSetSize: number): FactRule[] 
         new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+across\\s+31\\s+domains`, "i"),
         new RegExp(`${STANDALONE}(\\d+)[-\\s]tool\\s+surface`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+typed\\s+tools`, "i"),
+        new RegExp(`${STANDALONE}(\\d+)\\s+tool\\s+impls?`, "i"), // "across the 141 tool impls"
       ],
     },
     {
@@ -163,6 +164,11 @@ function narrativeFiles(repoRoot: string): string[] {
     "ARCHITECTURE.md",
     "SECURITY.md",
     "packages/server/README.md",
+    // Top-level docs/ narrative surfaces (NOT under wiki/ or src/content/, so a directory walk
+    // misses them — the coverage gap that let "143 tools" survive here).
+    "docs/WHY.md",
+    "docs/QUICKSTART.md",
+    "docs/G2.1-tools.md",
     ...walk("docs/wiki"),
     ...walk("docs/src/content"),
   ];
