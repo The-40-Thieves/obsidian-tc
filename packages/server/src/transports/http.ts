@@ -294,31 +294,62 @@ export interface HttpHandle {
   close: () => Promise<void>;
 }
 
+/** Minimal shape of a `Bun.serve` server — only what startHttp uses. */
+interface BunServer {
+  port: number;
+  stop(closeActiveConnections?: boolean): void | Promise<void>;
+}
+interface BunGlobal {
+  serve(opts: {
+    port: number;
+    hostname: string;
+    fetch: (req: Request) => Response | Promise<Response>;
+  }): BunServer;
+}
+
 /**
- * Serve the HTTP app on host:port via @hono/node-server (Node-first). Pass
- * port 0 for an ephemeral port; the resolved handle reports the actual port.
- * Bun-native serving is a follow-up.
+ * Serve the HTTP app on host:port. Pass port 0 for an ephemeral port; the resolved handle
+ * reports the actual port.
+ *
+ * THE-561: under Bun — the production runtime (see Dockerfile ENTRYPOINT) — @hono/node-server's
+ * Node-compat `http.Server` drops ~25% of requests that arrive on a REUSED keep-alive connection
+ * with ECONNRESET. A pooling client such as LiteLLM's httpx (the gateway) reuses connections by
+ * default, so it hit this constantly; a fresh connection per call was 100% reliable. The identical
+ * code is unaffected under Node (measured 40/40 on Node vs ~26/40 on Bun). Bun's native server
+ * handles keep-alive correctly, so serve natively under Bun and keep @hono/node-server for Node
+ * (tests run under Node via vitest). The in-handler fetch-to-node bridge is unchanged and works
+ * under both. Regression harness: test/http-keepalive-reuse.bun.ts (Bun-only, by design).
  */
 export function startHttp(
   opts: HttpAppOptions & { host: string; port: number },
 ): Promise<HttpHandle> {
   const app = createHttpApp(opts);
+  const hostname = normalizeHostForBind(opts.host);
+
+  const bun = (globalThis as unknown as { Bun?: BunGlobal }).Bun;
+  if (bun) {
+    const server = bun.serve({ port: opts.port, hostname, fetch: app.fetch });
+    return Promise.resolve({
+      port: server.port,
+      // stop(true) closes active connections so close() resolves promptly (parity with the Node
+      // path's closeIdleConnections). Wrapped in Promise.resolve to tolerate both void and Promise.
+      close: () => Promise.resolve(server.stop(true)).then(() => undefined),
+    });
+  }
+
   return new Promise((resolve) => {
-    const server = serve(
-      { fetch: app.fetch, hostname: normalizeHostForBind(opts.host), port: opts.port },
-      (info) => {
-        resolve({
-          port: info.port,
-          close: () =>
-            new Promise<void>((done) => {
-              server.close(() => done());
-              // THE-186: force idle keep-alive sockets shut so close() resolves promptly instead
-              // of waiting out Node's ~4s keep-alive drain (the standalone SSE GET the stateless
-              // server 405s leaves an idle socket behind; also tightens production shutdown).
-              (server as { closeIdleConnections?: () => void }).closeIdleConnections?.();
-            }),
-        });
-      },
-    );
+    const server = serve({ fetch: app.fetch, hostname, port: opts.port }, (info) => {
+      resolve({
+        port: info.port,
+        close: () =>
+          new Promise<void>((done) => {
+            server.close(() => done());
+            // THE-186: force idle keep-alive sockets shut so close() resolves promptly instead
+            // of waiting out Node's ~4s keep-alive drain (the standalone SSE GET the stateless
+            // server 405s leaves an idle socket behind; also tightens production shutdown).
+            (server as { closeIdleConnections?: () => void }).closeIdleConnections?.();
+          }),
+      });
+    });
   });
 }
