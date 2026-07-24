@@ -84,7 +84,9 @@ export function listResources(
 
 /**
  * resources/read — read one note's raw markdown. Enforces the read:notes scope, the folder
- * read-ACL, and path containment (the same gates read_note applies), then a size ceiling.
+ * read-ACL, path containment, AND the P1.4 per-path rule-scopes (the same gates read_note applies —
+ * this is the same content read on the same path, so it must honor an operator's rule-scope fence),
+ * then a size ceiling.
  */
 export function readResource(
   vaultRegistry: VaultRegistry,
@@ -103,7 +105,10 @@ export function readResource(
     });
   const v = vaultRegistry.resolve(vaultId);
   const rel = normalizeVaultPath(relPath);
-  enforcePathAcl(ctx.acl, "read", rel, v.root);
+  // P1.4: pass the caller's granted scopes so a path's rule-scopes gate this direct content read
+  // too — otherwise resources/read would be a bypass of the read_note path-scope gate for the
+  // identical bytes. (readResource is not a runDispatch tool, so the central stage never covers it.)
+  enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
   const abs = resolveVaultPath(v.root, rel);
   // Stat before reading: readNote loads the whole file into memory, so enforcing the ceiling
   // only after the read would let any read:notes caller point at a multi-hundred-MB file and

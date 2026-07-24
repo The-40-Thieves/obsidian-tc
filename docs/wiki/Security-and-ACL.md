@@ -10,7 +10,7 @@ Two modes: `none` and `jwt`. JWT accepts **HS256** (shared `jwtSecret`) or **asy
 
 ## Scopes and ACL
 
-Scopes are op-on-path: `read:vault`, `write:vault/02-projects/**`, `delete:vault/...`, `execute:<plugin>`, `admin`. The **ACL layer** parses each tool's declarative annotation (e.g. `acl: write on path`), resolves the resource against the vault's `readPaths` / `writePaths` / `deletePaths` globs, and matches it against the caller's scopes. `rules` are last-match-wins. The `inspect_acl` admin tool tests any `(vault, path, op, scopes)` tuple.
+Scopes are op-on-path: `read:vault`, `write:vault/02-projects/**`, `delete:vault/...`, `execute:<plugin>`, `admin`. The **ACL layer** parses each tool's declarative annotation (e.g. `acl: write on path`), resolves the resource against the vault's `readPaths` / `writePaths` / `deletePaths` globs, and matches it against the caller's scopes. A path's `rules` scopes are additionally **required** of the caller to operate on that path (P1.4, last-match-wins) — enforced centrally at dispatch on tool operations; they do not filter search-result visibility (that is `readPaths`). The `inspect_acl` admin tool tests any `(vault, path, op, scopes)` tuple, including the path-required scopes.
 
 The root `acl` is the inherited default; each `vaults[]` entry may carry its own `acl` block (same shape) to override it **per vault** — e.g. writable in vault A, read-only in vault B, enforced at dispatch in one process. Set `strictReadDefault: true` to make an undefined `readPaths` fail **closed** on reads.
 

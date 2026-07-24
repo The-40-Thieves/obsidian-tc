@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -46,6 +49,48 @@ describe("dispatch guards", () => {
     const writable = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
     const ok = await reg.dispatch("write_note", { path: "a.md" }, ctx(db, { acl: writable }));
     expect(ok.ok).toBe(true);
+  });
+
+  it("P1.4: central stage denies a path whose rule-scope the caller lacks; allows when held", async () => {
+    const db = freshDb();
+    const root = mkdtempSync(join(tmpdir(), "acl-scope-"));
+    mkdirSync(join(root, "finance"), { recursive: true });
+    writeFileSync(join(root, "finance", "q1.md"), "secret");
+
+    const reg = new ToolRegistry({ rootResolver: () => root });
+    reg.register({
+      name: "read_it",
+      description: "reads a declared path",
+      inputSchema: z.object({ path: z.string() }),
+      requiredScopes: ["read:notes"],
+      pathAcl: (input) => [{ op: "read", path: input.path }],
+      handler: () => ({ ok: true }),
+    });
+
+    // finance/** is in the read whitelist (folder gate passes) but declares a read:finance scope.
+    const acl = new FolderAcl({
+      readOnly: false,
+      defaultScopes: [],
+      rules: [{ glob: "finance/**", scopes: ["read:finance"] }],
+      readPaths: ["finance/**"],
+    });
+
+    // Holds the TOOL scope (read:notes) but not the PATH scope (read:finance) -> acl_denied.
+    const denied = await reg.dispatch(
+      "read_it",
+      { path: "finance/q1.md" },
+      ctx(db, { acl, grantedScopes: new Set(["read:notes"]) }),
+    );
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("acl_denied");
+
+    // Holds both -> allowed.
+    const allowed = await reg.dispatch(
+      "read_it",
+      { path: "finance/q1.md" },
+      ctx(db, { acl, grantedScopes: new Set(["read:notes", "read:finance"]) }),
+    );
+    expect(allowed.ok).toBe(true);
   });
 
   it("gates a destructive tool behind a single-use elicit token (HITL)", async () => {

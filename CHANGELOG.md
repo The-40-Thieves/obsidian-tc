@@ -91,6 +91,24 @@ because it is an architectural refactor, not a contained fix.
   vault predicate (THE-563) is the first gate, per-path ACL (the THE-543 recheck pattern) the second.
   Also scoped `forget.ts`'s dependency-mention counts to the caller's vault. Syntheses (whole-vault
   aggregates with no per-source list) remain vault-predicate-gated, a documented boundary.
+- **Per-path rule-scopes are now enforced** (`vault/acl-path.ts`, `mcp/registry.ts`,
+  `tools/m6/admin-tools.ts`, `mcp/resources.ts`; audit P1.4): `acl.rules[].scopes` / `acl.defaultScopes` were computed
+  by `scopesForPath` but only fed the cache fingerprint and the `inspect_acl` display — the config
+  shape implied a per-path authorization dimension the code never enforced. They are now
+  load-bearing (Require semantics): a caller must hold every scope a matching rule declares, on top
+  of the tool's own required scopes, to operate on that path. Enforced centrally at dispatch (on the
+  symlink-resolved path, so an in-vault symlink can't dodge a scope-gated target). The MCP
+  `resources/read` content endpoint honors the same gate (it reads the same bytes as `read_note`, so
+  it must not be a bypass); `inspect_acl` applies the same check (`denied_by: "path_scope"`) so the
+  diagnostic can't drift from enforcement.
+  Empty rule/default scopes add no requirement, so no shipped or live config changes behavior. The
+  config docs/schema were reframed from the misleading "scopes granted to a path" to "required".
+  Boundary: enforcement covers every tool that declares its paths via a `pathAcl` extractor (the
+  central dispatch stage) plus the `resources/read` content endpoint. Two surfaces remain folder-ACL
+  only and are tracked follow-ups: search/enumeration *result visibility* (`readableRel`, governed by
+  `readPaths`), and the few tools without a `pathAcl` extractor whose fs access is gated only
+  handler-side (periodic-note template/target reads+writes, memory `materialize`) — a THE-414
+  extractor-coverage item, not a regression (nothing enforced rule-scopes before this change).
 
 ### Changed
 

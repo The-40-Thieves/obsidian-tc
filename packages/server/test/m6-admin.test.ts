@@ -186,6 +186,28 @@ describe("inspect_acl", () => {
     expect(out.effective_scopes).toEqual(["admin:config"]);
   });
 
+  it("denies when the caller lacks a path-required rule scope (P1.4 Require)", async () => {
+    v = makeM6Vault({
+      acl: {
+        defaultScopes: [],
+        rules: [{ glob: "secret/**", scopes: ["admin:config"] }],
+        readPaths: ["secret/**"],
+      },
+      register,
+    });
+    // read op-family is satisfied by read:notes, but the path requires admin:config, which the
+    // caller does not hold -> denied at the new path-scope stage, mirroring dispatch enforcement.
+    const out = data<{ allowed: boolean; denied_by: string }>(
+      await v.call("inspect_acl", {
+        vault: "test",
+        path: "secret/x.md",
+        op: "read",
+        scopes: ["read:notes"],
+      }),
+    );
+    expect(out).toMatchObject({ allowed: false, denied_by: "path_scope" });
+  });
+
   it("errors with vault_not_found for an unknown vault", async () => {
     v = makeM6Vault({ register });
     const r = await v.call("inspect_acl", {
