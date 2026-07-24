@@ -19,6 +19,7 @@ const EXP_CHAIN = [
   { version: "20260626_001", sql: read("20260626_001_experiential_init.sql") },
   { version: "20260711_001", sql: read("20260711_001_experiential_outcome.sql") },
   { version: "20260711_002", sql: read("20260711_002_agent_episodes.sql") },
+  { version: "20260724_001", sql: read("20260724_001_chunk_retrievals_caller.sql") },
 ];
 const NOW = 1_700_000_000_000;
 
@@ -244,8 +245,9 @@ describe("M8 experiential tools (THE-229)", () => {
 
   it("P1.7: record_retrieval_feedback needs a session or admin; scopes to the caller's session", async () => {
     const db = edb0();
+    // caller "tester" matches harness()'s default ctx().caller — session AND caller both own it.
     db.prepare(
-      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id) VALUES ('r1', 'c1', ?, 's1')",
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('r1', 'c1', ?, 's1', 'tester')",
     ).run(NOW);
     const { registry, ctx } = harness(db);
     // no session_id, no active session, not admin -> forbidden (was a silent unscoped write)
@@ -265,5 +267,57 @@ describe("M8 experiential tools (THE-229)", () => {
       ),
     );
     expect(ok.updated).toBe(1);
+  });
+
+  it("THE-568: record_retrieval_feedback is gated on per-caller ownership; admin:workspace crosses it", async () => {
+    const db = edb0();
+    // caller-a's retrieval, logged in a session that caller-b (a different principal) also shares —
+    // isolates the caller check from the pre-existing session check.
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('r-a', 'c1', ?, 's1', 'caller-a')",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+
+    // caller-b shares the session but does NOT own the retrieval -> 0 rows stamped, not forbidden
+    // (mirrors work_forget's foreign-id no-op: no existence oracle).
+    const foreign = un<{ updated: number }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: 1 },
+        ctx({ caller: "caller-b", sessionId: "s1" }),
+      ),
+    );
+    expect(foreign.updated).toBe(0);
+    expect(
+      (
+        db.prepare("SELECT outcome FROM chunk_retrievals WHERE id = 'r-a'").get() as {
+          outcome: number | null;
+        }
+      ).outcome,
+    ).toBeNull();
+
+    // caller-a, same session -> owns it, can stamp
+    const own = un<{ updated: number }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: 1 },
+        ctx({ caller: "caller-a", sessionId: "s1" }),
+      ),
+    );
+    expect(own.updated).toBe(1);
+
+    // reset, then prove admin:workspace crosses the caller partition (a foreign caller, no session)
+    db.prepare("UPDATE chunk_retrievals SET outcome = NULL WHERE id = 'r-a'").run();
+    const admin = un<{ updated: number }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: -1 },
+        ctx({
+          caller: "caller-b",
+          grantedScopes: new Set(["write:workspace", "admin:workspace"]),
+        }),
+      ),
+    );
+    expect(admin.updated).toBe(1);
   });
 });

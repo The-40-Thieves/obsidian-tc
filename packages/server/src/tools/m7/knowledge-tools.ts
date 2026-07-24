@@ -374,6 +374,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           queryText: query,
           surfaceType: "vault_context",
           sessionId: ctx.sessionId ?? null,
+          caller: ctx.caller ?? null,
           hits: results.map((r, i) => ({
             chunkId: r.chunk_id,
             rank: i + 1,
@@ -661,6 +662,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           queryText: input.query,
           surfaceType: "reflect",
           sessionId: ctx.sessionId ?? null,
+          caller: ctx.caller ?? null,
           hits: results.map((r, i) => ({
             chunkId: r.chunk_id,
             rank: i + 1,
@@ -816,6 +818,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             queryText: input.query,
             surfaceType: "vault_graph_search",
             sessionId: ctx.sessionId ?? null,
+            caller: ctx.caller ?? null,
             hits: results.map((r, i) => ({
               chunkId: r.chunk_id,
               rank: i + 1,
@@ -857,6 +860,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           queryText: input.query,
           surfaceType: "vault_graph_search",
           sessionId: ctx.sessionId ?? null,
+          caller: ctx.caller ?? null,
           hits: results.map((r, i) => ({
             chunkId: r.chunk_id,
             rank: i + 1,
@@ -907,6 +911,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             queryText: input.query,
             surfaceType: "knowledge_search",
             sessionId: ctx.sessionId ?? null,
+            caller: ctx.caller ?? null,
             hits: results.map((r, i) => ({
               chunkId: r.chunk_id,
               rank: i + 1,
@@ -939,6 +944,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           queryText: input.query,
           surfaceType: "knowledge_search",
           sessionId: ctx.sessionId ?? null,
+          caller: ctx.caller ?? null,
           hits: results.map((r, i) => ({
             chunkId: r.chunk_id,
             rank: i + 1,
@@ -1040,6 +1046,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           queryText: input.proposal,
           surfaceType: "knowledge_challenge",
           sessionId: ctx.sessionId ?? null,
+          caller: ctx.caller ?? null,
           hits: hits.map((h, i) => ({ chunkId: h.chunk_id, rank: i + 1, score: h.score })),
         });
         // Enrich with note-level tags so isDecisionChunk's tag rule fires (not just the path

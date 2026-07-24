@@ -271,7 +271,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
     defineTool({
       name: "record_retrieval_feedback",
       description:
-        "Stamp relevance feedback and/or the THE-230 outcome axis (-1|0|+1) onto the most recent retrieval event(s) for a chunk in the experiential log. feedback = 'was this the right chunk'; outcome = 'did acting on it lead somewhere good'. Feeds the ACT-R activation recompute. P1.7: scoped to a session (the given session_id, else your active session); an unscoped cross-session stamp requires admin:workspace.",
+        "Stamp relevance feedback and/or the THE-230 outcome axis (-1|0|+1) onto the most recent retrieval event(s) for a chunk in the experiential log. feedback = 'was this the right chunk'; outcome = 'did acting on it lead somewhere good'. Feeds the ACT-R activation recompute. THE-568: gated on per-caller ownership — a non-elevated caller may only stamp retrievals it caused itself; also scoped to a session (the given session_id, else your active session), an unscoped cross-session stamp requires admin:workspace.",
       inputSchema: z
         .object({
           chunk_id: z.string().min(1),
@@ -288,25 +288,28 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       tags: ["experiential"],
       handler: (input, ctx) => {
         if (!deps.edb) return UNAVAILABLE;
-        // P1.7: chunk_retrievals carries no caller attribution, so the enforceable partition is the
-        // session. A non-elevated caller may only stamp feedback within a session (the explicit
-        // session_id, or their own active session); an unscoped cross-session stamp requires the
-        // elevated scope. True per-caller feedback ownership needs a caller column on
-        // chunk_retrievals — tracked as a THE-230 follow-up.
+        // THE-568 (P1.7 follow-up): chunk_retrievals now carries a caller column, so the primary
+        // authorization boundary is per-caller ownership — a non-elevated caller may only stamp
+        // retrievals it caused itself (AND caller IS ? below), mirroring the agent_episodes
+        // partition. The pre-existing session scoping is kept as an additional narrowing on top:
+        // a non-elevated caller still needs a session_id or active session to stamp at all.
         const session = input.session_id ?? ctx.sessionId;
-        if (session === undefined && !canCrossPrincipal(ctx))
+        const crossPrincipal = canCrossPrincipal(ctx);
+        if (session === undefined && !crossPrincipal)
           throw err.forbidden(
             `stamping feedback across sessions requires a session_id or the ${CROSS_PRINCIPAL_SCOPE} scope`,
           );
         const sessionClause = session !== undefined ? "AND session_id = ?" : "";
+        const callerClause = crossPrincipal ? "" : "AND caller IS ?";
         const selectParams: unknown[] = [input.chunk_id];
         if (session !== undefined) selectParams.push(session);
+        if (!crossPrincipal) selectParams.push(ctx.caller ?? null);
         const res = deps.edb
           .prepare(
             `UPDATE chunk_retrievals
              SET feedback = COALESCE(?, feedback), outcome = COALESCE(?, outcome)
              WHERE id IN (
-               SELECT id FROM chunk_retrievals WHERE chunk_id = ? ${sessionClause}
+               SELECT id FROM chunk_retrievals WHERE chunk_id = ? ${sessionClause} ${callerClause}
                ORDER BY retrieved_at DESC LIMIT ?
              )`,
           )
