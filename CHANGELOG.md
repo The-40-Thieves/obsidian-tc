@@ -73,6 +73,24 @@ because it is an architectural refactor, not a contained fix.
   the secret-scan job ran `ghcr.io/gitleaks/gitleaks:latest`; it now pins the `@sha256:` digest
   (refresh instructions in-line). Completes the supply-chain SHA-pinning pass (GitHub Actions
   were pinned in #272).
+- **Namespaced the derived-cognition plane** (`migrations/20260724_001_plane_vault_id.sql`,
+  `plane/jobs/{contradiction,synthesis}.ts`; THE-563): `contradictions` and `syntheses` carried
+  no `vault_id`, so a weekly synthesis blended every vault into one record and path-equal notes
+  in different vaults collided on the contradiction readers. Both tables now carry `vault_id`
+  (contradiction dedup index re-scoped to `(vault_id, source_content_sha, conflict_content_sha)`;
+  `syntheses` PK `(vault_id, iso_year, iso_week)`), the detector folds `vault_id` into the row id,
+  and `runSynthesis` runs per vault. Following THE-310's `vault_edges` precedent the migration
+  **purges** the unscoped rows (regenerable derived caches with unrecoverable historical vault)
+  rather than backfilling a guess. Extends the vault-isolation invariant THE-310 established.
+- **All-source ACL on derived objects before return / model egress** (`tools/m7/knowledge-tools.ts`,
+  `experiential/forget.ts`; THE-564): a contradiction row exposed — and could send to the inference
+  gateway — both contributing sources plus a rationale after checking only the caller-supplied
+  side, so the opposite side could sit outside the caller's readable set. `openContradictionsForPaths`
+  now drops any row where *either* `source_path` or `conflict_path` is unreadable, at all four call
+  sites including the model-egress paths (`knowledge_challenge`, `reflect` challenge-mode) — the
+  vault predicate (THE-563) is the first gate, per-path ACL (the THE-543 recheck pattern) the second.
+  Also scoped `forget.ts`'s dependency-mention counts to the caller's vault. Syntheses (whole-vault
+  aggregates with no per-source list) remain vault-predicate-gated, a documented boundary.
 
 ### Changed
 
@@ -82,6 +100,16 @@ because it is an architectural refactor, not a contained fix.
   (`scripts/check-release-lag.mjs`) goes red when `main` drifts past a threshold ahead of the
   latest tag while carrying unreleased Fixed/Security CHANGELOG entries — the THE-285 pattern
   where critical fixes sat unshipped. Advisory (a scheduled nag), not a per-PR gate.
+- **`reflect.persist` writes through the governed note-write service** (`vault/persist-note.ts`,
+  `tools/m7/knowledge-tools.ts`; audit P1.6): the derived-reflection write used a raw `writeFileSync`,
+  bypassing the snapshot, atomic tmp+rename, and index-on-write/generation bump — so a same-query
+  same-day reflection silently overwrote its predecessor with no recovery point and left the note
+  unindexed. It now shares one `persistGovernedNote` helper with `write_note`, so the two write paths
+  cannot drift.
+- **Single migration manifest + completeness gate** (`db/migration-manifest.ts`; audit #9): the
+  cache.db and experiential.db chains were hand-enumerated in two files, so a `.sql` wired into
+  neither chain silently never ran. Both chains now build from one manifest, and a CI bijection test
+  fails when a migration file on disk is registered in neither chain.
 
 ### Documentation
 
