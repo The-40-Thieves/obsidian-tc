@@ -1,8 +1,18 @@
 # Release tag signing
 
-**Status: not yet enabled.** The CI verification step exists and reports on every release, but it
-cannot enforce until a maintainer public key is committed (see below). This document is the setup
-runbook.
+**Status: wired, awaiting a key.** The CI verification step now *gates* the release — `build-native`
+declares `needs: verify-tag`, and every other job chains from it — but it still runs in report mode
+until a maintainer public key is committed. This document is the setup runbook.
+
+> **Fixed 2026-07-24.** `verify-tag` previously gated nothing: no job declared `needs: verify-tag`
+> and `build-native` had no `needs:` at all, so it ran in parallel. A failing signature check could
+> not stop `publish-npm` from publishing — immutably. One `needs:` edge is what makes the check
+> load-bearing rather than decorative.
+>
+> The same commit added a `github.ref_type != 'tag'` guard, because a `workflow_dispatch` dry run
+> targets a *branch*: with the new `needs:` edge in place, enforcing on a branch would have broken
+> every dry run the moment `REQUIRE_SIGNED_TAG` flipped — precisely the 8-target rehearsal that has
+> to keep working.
 
 ## Why the tag specifically
 
@@ -45,6 +55,11 @@ The format is `<principal> <key-type> <key>` — one line per authorised signer.
 
 **4. Flip the workflow to enforce.** In `.github/workflows/publish.yml`, set
 `REQUIRE_SIGNED_TAG: "true"`. Until then the step reports the gap and continues.
+
+Once flipped, an unsigned or lightweight tag fails `verify-tag`, and because `build-native` needs
+that job, **nothing downstream runs** — no npm publish, no ghcr push. That is the intended
+behaviour: npm versions are immutable, so a release must be refused *before* it starts rather than
+half-completed.
 
 ## Releasing after setup
 
