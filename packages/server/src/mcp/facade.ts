@@ -200,6 +200,13 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
 // every gate + the target's own Layer-6 schema validation fire) — this is a BOUNDARY-ONLY grouping,
 // not a new dispatch path. The domain map is the one catalog that must track the tool surface; a
 // tool with no mapping still ships under an "other" domain, so nothing is ever hidden.
+//
+// THE-577: that fallback is a safety net, not a licence to drift. It kept the surface complete but
+// SILENT while the map fell 38 tools behind (146 registered, 108 mapped) — whole families, git and
+// kanban and tables and snapshots among them, collapsed into one "Miscellaneous capabilities."
+// bucket that reproduced exactly the tool-selection ambiguity domain mode exists to remove. The map
+// is now complete and `tool-facade-domain-coverage.test.ts` fails CI in BOTH directions: a tool
+// registered without a domain, or a domain naming a tool that no longer exists.
 interface DomainSpec {
   domain: string;
   title: string;
@@ -211,7 +218,7 @@ const DOMAINS: readonly DomainSpec[] = [
   {
     domain: "notes",
     title: "Notes",
-    blurb: "Read, write, move, copy, and delete vault notes.",
+    blurb: "Read, write, move, copy, and delete vault notes, and restore them from snapshots.",
     members: [
       "read_note",
       "read_notes",
@@ -225,6 +232,11 @@ const DOMAINS: readonly DomainSpec[] = [
       "list_notes",
       "bulk_create_notes",
       "bulk_move_notes",
+      // Point-in-time snapshots are note versioning: same subject, same read/write:notes scopes.
+      "snapshot_note",
+      "read_snapshot",
+      "list_snapshots",
+      "restore_note",
     ],
   },
   {
@@ -243,12 +255,14 @@ const DOMAINS: readonly DomainSpec[] = [
       "find_notes_by_tag",
       "list_tags",
       "bulk_set_property",
+      // Metadata Menu's typed fields are metadata by another route.
+      "read_metadata_fields",
     ],
   },
   {
     domain: "links",
     title: "Links",
-    blurb: "Backlinks, outgoing links, orphans, and link maintenance.",
+    blurb: "Backlinks, outgoing links, orphans, link maintenance, and link-graph health.",
     members: [
       "get_backlinks",
       "get_outgoing_links",
@@ -256,6 +270,12 @@ const DOMAINS: readonly DomainSpec[] = [
       "find_orphans",
       "rewrite_link",
       "prune_hub_links",
+      // Analytics OVER the link graph rather than edits to it — vault_health_score is explicitly a
+      // composite link-health score, so it belongs with the graph it scores.
+      "find_link_cycles",
+      "get_link_strength",
+      "suggest_links",
+      "vault_health_score",
     ],
   },
   {
@@ -269,13 +289,26 @@ const DOMAINS: readonly DomainSpec[] = [
       "search_vault",
       "search_dql",
       "search_jsonlogic",
+      // Plugin-backed search surfaces: Omnisearch is ranked full-text, Datacore is a query
+      // language — siblings of search_dql rather than of the automation bridges.
+      "search_omnisearch",
+      "query_datacore",
     ],
   },
   {
     domain: "vault",
     title: "Vault",
-    blurb: "Vault registry and the search index.",
-    members: ["get_vault", "list_vaults", "reload_vault", "reset_vault_cache", "index_vault"],
+    blurb: "Vault registry, runtime registration, and the search index.",
+    members: [
+      "get_vault",
+      "list_vaults",
+      "reload_vault",
+      "reset_vault_cache",
+      "index_vault",
+      // Both admin:vault, both mutate what the registry knows about a vault.
+      "add_vault",
+      "refresh_plugin_capabilities",
+    ],
   },
   {
     domain: "attachments",
@@ -293,7 +326,7 @@ const DOMAINS: readonly DomainSpec[] = [
   {
     domain: "structured",
     title: "Structured documents",
-    blurb: "Bases, canvases, and Excalidraw drawings.",
+    blurb: "Bases, canvases, Excalidraw drawings, Kanban boards, and markdown tables.",
     members: [
       "create_base",
       "read_base",
@@ -306,6 +339,16 @@ const DOMAINS: readonly DomainSpec[] = [
       "create_excalidraw",
       "read_excalidraw",
       "update_excalidraw",
+      // Kanban boards and GFM tables are structure held INSIDE a note, read and edited as
+      // structure rather than as prose — the same contract as bases and canvases.
+      "read_kanban_board",
+      "list_kanban_boards",
+      "add_kanban_card",
+      "move_kanban_card",
+      "format_table",
+      "insert_table_row",
+      "insert_table_column",
+      "sort_table_by_column",
     ],
   },
   {
@@ -324,6 +367,8 @@ const DOMAINS: readonly DomainSpec[] = [
       "list_periodic_notes",
       "append_to_periodic_note",
       "find_or_create_periodic_note",
+      // Daily Notes resolution is the periodic-note family's other entry point.
+      "resolve_daily_note",
     ],
   },
   {
@@ -347,12 +392,28 @@ const DOMAINS: readonly DomainSpec[] = [
       "list_tasks",
       "tasks_filter",
       "update_task",
+      // Remotely Save is a companion-plugin bridge whose verb is "kick off a run" — execution,
+      // like trigger_quickadd, not vault registry state.
+      "remotely_save_status",
+      "remotely_save_trigger",
     ],
+  },
+  {
+    // THE-577: the only genuinely new domain the 38-tool backfill needed. Version control is not
+    // notes, metadata or automation — it is its own subject with its own scope family
+    // (read:git / write:git / execute:git, the last a HITL gate), and it is what a caller looks
+    // for by name. Folding it into `automation` would have pushed that domain to 21 members and
+    // buried five verbs no one would think to look for there.
+    domain: "git",
+    title: "Git",
+    blurb: "Vault version control via the Obsidian Git companion bridge.",
+    members: ["git_status", "git_diff", "git_log", "git_stage", "git_commit"],
   },
   {
     domain: "knowledge",
     title: "Knowledge",
-    blurb: "Knowledge graph, entities, memory, capture queue, and sessions.",
+    blurb:
+      "Knowledge graph, entities, memory, work-memory, capture queue, sessions, and provenance.",
     members: [
       "knowledge_challenge",
       "vault_graph_search",
@@ -372,6 +433,19 @@ const DOMAINS: readonly DomainSpec[] = [
       "start_session",
       "end_session",
       "get_session_traces",
+      // The experiential work-memory plane (agent_episodes) and its feedback stamp. Grouped with
+      // the plur_* memory verbs already here rather than split into a second memory domain —
+      // whether `knowledge` should be broken up is a curation call for THE-508, not this gate.
+      "work_search",
+      "work_episodes",
+      "work_forget",
+      "record_retrieval_feedback",
+      // Recall/synthesis and session triage verbs.
+      "reflect",
+      "session_bootstrap",
+      // Knowledge-quality surfaces: unsourced claims and unresolved contradictions.
+      "audit_provenance",
+      "list_contradictions",
     ],
   },
   {
@@ -384,7 +458,15 @@ const DOMAINS: readonly DomainSpec[] = [
     domain: "admin",
     title: "Admin",
     blurb: "Server config, ACL inspection, health, and metrics.",
-    members: ["get_metrics", "get_server_config", "inspect_acl", "server_health"],
+    // get_index_status sits here rather than under `vault` because it is registered directly in
+    // cli.ts alongside server_health (THE-491) and reports the same class of health signal.
+    members: [
+      "get_metrics",
+      "get_server_config",
+      "inspect_acl",
+      "server_health",
+      "get_index_status",
+    ],
   },
 ];
 
@@ -401,6 +483,13 @@ export function isDomainTool(name: string): boolean {
 /** The domain a capability belongs to, or undefined if unmapped (would ship under "other"). */
 export function domainOfTool(name: string): string | undefined {
   return DOMAIN_OF.get(name);
+}
+
+/** Every capability name the domain map claims, with its domain. Exported for THE-577's coverage
+ *  gate, which must check the map in BOTH directions — `domainOfTool` only answers the forward
+ *  question, so a member naming a renamed or deleted tool would otherwise go unnoticed. */
+export function domainMapEntries(): ReadonlyArray<readonly [name: string, domain: string]> {
+  return [...DOMAIN_OF.entries()];
 }
 
 function isReadOnly(def: ToolDefinition): boolean {
