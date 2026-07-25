@@ -8,6 +8,42 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [1.11.0] - 2026-07-24
 
+### Verification and release infrastructure
+
+Six PRs landed after the version was rolled and before the tag was pushed. They are in the 1.11.0
+artifact, so they are documented here rather than deferred to 1.12.0. No runtime behaviour changes.
+
+- **Release tags are now signed and CI refuses an unverified one** (THE-528, #421 + #422). The `v*`
+  tag triggers the entire release — image build, npm publishes, SBOMs, provenance — and was the one
+  input nothing authenticated. A maintainer key is registered and its public half committed to
+  `.github/allowed_signers`; `verify-tag` enforces. Two defects were fixed to make that real: the
+  job **gated nothing** (no `needs:` edge, so `build-native` ran in parallel and a failing check
+  could not stop an immutable npm publish), and adding that edge would have broken every
+  `workflow_dispatch` dry run until guarded on `github.ref_type`. Verified in both directions —
+  a signed listed signer passes, an unlisted signer and an unsigned tag each exit 1.
+- **New gates: `cargo-deny`, `typos`, `lychee`, `actionlint`, `osv-scanner`, `trivy`** (#414, #417,
+  #419). Each was configured down to a genuine zero first — unconfigured they report 120, 318 and
+  318 findings respectively on correct code, because this repo deliberately contains truncated SQL
+  fixtures, homoglyph poison-scanner payloads, and Astro root-relative links. `trivy` scans the
+  built image, closing a layer every lockfile scanner is blind to. `knip` is configured but
+  deliberately not gated: its remaining findings are invisible-to-static-analysis by design.
+- **`docs-ingest`'s web path was dead and is fixed** (#419). It called a metered hosted API whose
+  credits are exhausted (HTTP 402) with no fallback, so every `http(s)` and `.html` ingest failed.
+  Now renders through a self-hosted crawl4ai server over plain HTTP — no new dependency.
+- **TREE.md's dependency graph is generated and drift-gated** (`just map`, THE-470, #418). It
+  carried a standing "will drift" warning and had: 232 modules/785 dependencies committed against a
+  real 246/978.
+- **Dead code removed** (THE-570, #420): the superseded in-memory contradiction drainer, two dead
+  exports, and its boundary-gate allowlist entry. Unreachable modules 4 → 3.
+- **Four live 404s fixed on the published docs site** (#420), found by link-checking the *built*
+  output — three stale `/obsidian-tc/` prefixes left by the move to a custom domain, and a
+  `favicon.svg` referenced by every page with no such file. Source-level checking cannot see these:
+  a root-relative link has no meaning relative to a `.md` file.
+- **An SBOM of the container image** (#420). The existing step runs `npm sbom` — dependency trees
+  only — so the Debian base, bun runtime and native binary that actually ship had no bill of
+  materials.
+- **Pre-commit hooks** (#419): seven gates via `prek`, previously CI-only.
+
 ### Added
 
 - **`doctor` surfaces retrieval-head readiness independently** (`retrieval.heads` check; audit #16):
