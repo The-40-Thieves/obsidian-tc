@@ -24,6 +24,10 @@ const knnFullSpy = vi.hoisted(() =>
 const knnDeltaSpy = vi.hoisted(() =>
   vi.fn((_db: unknown, _vaultId: string, _scope: Set<string>, _opts?: unknown) => [] as never[]),
 );
+// THE-533: the scope builder the delta path must use. Left UNSTUBBED (the real implementation is
+// installed below), because this spy only needs to prove which function the indexer reaches for —
+// stubbing it would also silently disable the neighbor expansion the other assertions here rely on.
+const knnScopeSpy = vi.hoisted(() => vi.fn());
 const tagFullSpy = vi.hoisted(() =>
   vi.fn(() => [
     {
@@ -43,10 +47,12 @@ const tagDeltaSpy = vi.hoisted(() =>
 
 vi.mock("../src/search/derived-edges", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/search/derived-edges")>();
+  knnScopeSpy.mockImplementation(actual.knnDiscoveryScope);
   return {
     ...actual,
     computeKnnEdges: knnFullSpy,
     computeKnnEdgesForPaths: knnDeltaSpy,
+    knnDiscoveryScope: knnScopeSpy,
     tagCooccurrenceEdges: tagFullSpy,
     tagCooccurrenceEdgesForNotes: tagDeltaSpy,
   };
@@ -134,8 +140,15 @@ describe("THE-486: index_vault routes cold-start vs delta densification", () => 
     expect(knnFullSpy).not.toHaveBeenCalled();
     expect(knnDeltaSpy).toHaveBeenCalledTimes(1);
     // Scope is a.md itself PLUS b.md — the cold-start pass's knnFullSpy() planted a REAL a.md<->b.md
-    // similar_to edge, so knnNeighborScope must pull b.md in too (neighbor invalidation).
+    // similar_to edge, so the scope builder must pull b.md in too (neighbor invalidation).
     expect(knnDeltaSpy.mock.calls[0]?.[2]).toEqual(new Set(["a.md", "b.md"]));
+    // THE-533: and that scope must come from knnDiscoveryScope, not the edge-only knnNeighborScope —
+    // otherwise a brand-new note's discovery gap reopens. Asserted on the OBJECT IDENTITY of the
+    // returned set, so this cannot pass just because both builders happen to agree here (under
+    // vitest's node:sqlite there is no sqlite-vec, so knnDiscoveryScope degrades to exactly the
+    // knnNeighborScope result and a value comparison would be satisfied by either one).
+    expect(knnScopeSpy).toHaveBeenCalledTimes(1);
+    expect(knnDeltaSpy.mock.calls[0]?.[2]).toBe(knnScopeSpy.mock.results[0]?.value);
     v.cleanup();
   });
 

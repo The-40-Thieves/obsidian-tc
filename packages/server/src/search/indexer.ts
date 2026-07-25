@@ -21,7 +21,7 @@ import {
   computeKnnEdges,
   computeKnnEdgesForPaths,
   countDerivedEdges,
-  knnNeighborScope,
+  knnDiscoveryScope,
   notesWithTagChanges,
   reconcileDerivedEdges,
   reconcileDerivedEdgesScoped,
@@ -1380,7 +1380,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // that is what makes "turn the flag off" actually prune (the layer must not survive invisibly,
     // ready to reappear the moment the flag flips back on). A flag ON reconciles DELTA-only once a
     // baseline exists: only the notes/chunks this pass actually touched (plus, for kNN, their existing
-    // edge-neighbors — see knnNeighborScope) are re-scored; edges entirely outside that scope are
+    // edge-neighbors and forward vector neighbors — see knnDiscoveryScope) are re-scored; edges
+    // entirely outside that scope are
     // assumed already correct and are never read or rewritten. The very FIRST on-pass (no rows of this
     // edge_type exist yet — "cold start", which also covers a flag just flipped from off, since off
     // always prunes to zero) has no delta baseline to build on and falls back to the full recompute,
@@ -1435,7 +1436,11 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
         const knnDesired = computeKnnEdges(args.db, args.vaultId, knnOpts);
         reconcileDerivedEdges(args.db, args.vaultId, knnDesired, ["similar_to"], now);
       } else if (changedChunkPaths.size > 0) {
-        const scope = knnNeighborScope(args.db, args.vaultId, changedChunkPaths);
+        // THE-533: knnDiscoveryScope, not knnNeighborScope — the edge-only expansion cannot reach a
+        // note that would newly rank a changed/new note in its OWN top-k without being ranked back,
+        // so it needs the forward vector neighbours too. Costs one extra vecKnn per CHANGED chunk
+        // (not per vault chunk), which is what keeps THE-486's speedup intact.
+        const scope = knnDiscoveryScope(args.db, args.vaultId, changedChunkPaths, knnOpts);
         const knnDesired = computeKnnEdgesForPaths(args.db, args.vaultId, scope, knnOpts);
         reconcileDerivedEdgesScoped(args.db, args.vaultId, knnDesired, ["similar_to"], scope, now);
       }
