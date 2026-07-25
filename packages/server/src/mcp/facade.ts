@@ -276,6 +276,11 @@ const DOMAINS: readonly DomainSpec[] = [
       "get_link_strength",
       "suggest_links",
       "vault_health_score",
+      // THE-452: structural analytics over the PERSISTED graph (vault_edges) rather than the
+      // filesystem walk the tools above use. Read-only; never wired into retrieval ranking.
+      "graph_centrality",
+      "graph_communities",
+      "graph_path_between",
     ],
   },
   {
