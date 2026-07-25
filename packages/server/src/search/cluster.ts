@@ -5,6 +5,7 @@
 // neighbourhood. Clustering is OFFLINE (run via `obsidian-tc cluster`): cluster_id stays NULL until
 // then and the cap no-ops, so this is purely additive.
 import type { Database } from "../db/types";
+import { bumpGeneration } from "./generation";
 import { blobToFloats } from "./vec";
 
 // Deterministic RNG (mulberry32) so a given (corpus, k, seed) reproduces the same assignment —
@@ -167,6 +168,11 @@ export function assignClusters(
   db.exec("BEGIN");
   try {
     for (const [i, row] of rows.entries()) upd.run(res.assignments[i] ?? 0, row.id);
+    // THE-579: cluster_id is read by the maxPerCluster diversification stage, so reassigning it
+    // changes what a query returns. The bump commits with the assignment in this same transaction —
+    // exactly as indexer.ts does — or not at all. Reached only when rows.length > 0 (the empty case
+    // returned null above), so a pass with nothing to cluster does not bump.
+    bumpGeneration(db, vaultId);
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");

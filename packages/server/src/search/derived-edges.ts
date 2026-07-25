@@ -11,6 +11,7 @@
 // the multi-hop golden set. Hub exclusion happens at creation time — a tag on too many notes is a
 // hub, not a similarity signal (graphify --exclude-hubs).
 import type { Database } from "../db/types";
+import { bumpGeneration } from "./generation";
 import { blobToFloats, loadVec, vecKnn } from "./vec";
 
 export type DerivedEdgeType = "shared_tag" | "similar_to" | "semantically_similar_to";
@@ -193,6 +194,26 @@ interface DerivedRow {
   source_path: string;
   target_path: string;
   edge_type: string;
+  // THE-579: the scored fields, read back so a re-run can tell "same row" from "same VALUES".
+  // Absent (undefined) on a vault_edges predating migration 20260713_001 — see hasScoredColumns.
+  edge_kind?: string;
+  provenance?: string | null;
+  confidence?: number | null;
+  source_fingerprint?: string | null;
+}
+
+/** THE-579: does vault_edges carry the densification (scored) columns? A db predating migration
+ *  20260713_001 has only the literal-edge shape, and selecting `confidence` there throws. Kept local
+ *  rather than reusing indexer.ts's hasDerivedEdgeColumns, which would make derived-edges import the
+ *  module that imports it. */
+function hasScoredColumns(db: Database): boolean {
+  try {
+    const cols = db.prepare("PRAGMA table_info(vault_edges)").all() as Array<{ name: string }>;
+    const names = new Set(cols.map((c) => c.name));
+    return names.has("confidence") && names.has("source_fingerprint");
+  } catch {
+    return false;
+  }
 }
 
 // THE-486: shared body for reconcileDerivedEdges (full) and reconcileDerivedEdgesScoped (delta). A
@@ -216,12 +237,27 @@ function reconcileDerivedEdgesCore(
       ? ` AND (source_path IN (${[...scope].map(() => "?").join(", ")}) OR target_path IN (${[...scope].map(() => "?").join(", ")}))`
       : "";
   const scopeParams = scope !== null ? [...scope, ...scope] : [];
+  // THE-579: the VALUE columns ride along, not just the row key. They are what decides whether a
+  // re-run actually changed anything — an upsert that rewrites a row with identical values changes
+  // no query result, and counting it as an update would bump the generation on every densify pass
+  // and churn THE-497's cache for nothing.
+  //
+  // Selected only when the densification columns exist. A vault_edges predating migration
+  // 20260713_001 has just the literal-edge shape, and SELECTing confidence there would throw —
+  // turning a path that used to work (reconciling to an EMPTY desired set never reaches the upsert)
+  // into a hard error. Without them every existing row is treated as changed, i.e. exactly the
+  // pre-THE-579 behaviour.
+  const scored = hasScoredColumns(db);
+  const valueCols = scored ? ", edge_kind, provenance, confidence, source_fingerprint" : "";
   const current = db
     .prepare(
-      `SELECT source_path, target_path, edge_type FROM vault_edges WHERE vault_id = ? AND edge_type IN (${placeholders})${scopeClause}`,
+      `SELECT source_path, target_path, edge_type${valueCols} FROM vault_edges WHERE vault_id = ? AND edge_type IN (${placeholders})${scopeClause}`,
     )
     .all(vaultId, ...edgeTypes, ...scopeParams) as DerivedRow[];
   const currentKeys = new Set(current.map((r) => key(r.source_path, r.target_path, r.edge_type)));
+  const currentByKey = new Map(
+    current.map((r) => [key(r.source_path, r.target_path, r.edge_type), r]),
+  );
 
   const del = db.prepare(
     "DELETE FROM vault_edges WHERE vault_id = ? AND source_path = ? AND target_path = ? AND edge_type = ?",
@@ -250,7 +286,25 @@ function reconcileDerivedEdgesCore(
   let inserted = 0;
   let updated = 0;
   for (const e of desired) {
-    const isNew = !currentKeys.has(key(e.source_path, e.target_path, e.edge_type));
+    const k = key(e.source_path, e.target_path, e.edge_type);
+    const isNew = !currentKeys.has(k);
+    if (!isNew) {
+      // THE-579: an existing row whose scored fields all match is a genuine no-op. Skip the write
+      // entirely rather than rewriting it to itself — that keeps `updated` meaning "a value actually
+      // changed" (which is what the generation bump keys off) instead of "a row was revisited".
+      // Nothing reads vault_edges.updated_at, so not refreshing the timestamp costs nothing.
+      const cur = currentByKey.get(k);
+      if (
+        scored &&
+        cur !== undefined &&
+        cur.edge_kind === e.edge_kind &&
+        cur.provenance === e.provenance &&
+        cur.confidence === e.confidence &&
+        cur.source_fingerprint === e.source_fingerprint
+      ) {
+        continue;
+      }
+    }
     up.run(
       vaultId,
       e.source_path,
@@ -266,6 +320,12 @@ function reconcileDerivedEdgesCore(
     if (isNew) inserted += 1;
     else updated += 1;
   }
+  // THE-579: the derived plane is result-affecting — the graph-expansion stage walks these edges when
+  // densify.includeInWalk is on, and confidence is the weight the fusion reads. bumpGeneration lives
+  // here, inside whatever write transaction the caller holds, exactly as indexer.ts does it. Guarded
+  // on a real write so an idempotent re-run stays a true no-op (THE-496's "over-bump is merely a cache
+  // miss, a missed bump serves stale results" asymmetry decides the direction when in doubt).
+  if (inserted > 0 || updated > 0 || deleted > 0) bumpGeneration(db, vaultId);
   return { desired: desired.length, inserted, updated, deleted };
 }
 

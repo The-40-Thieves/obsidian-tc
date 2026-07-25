@@ -193,7 +193,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**252 modules · 1001 dependencies · 63 distinct subsystem pairs · 408 cross-subsystem imports.**
+**252 modules · 1003 dependencies · 63 distinct subsystem pairs · 408 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 ### Subsystem graph
