@@ -432,4 +432,4 @@ describe("THE-571 contradiction payload is id-only", () => {
     const { db } = setup(null);
     expect(loadChunkForContradiction(db, "other-vault", "a")).toBeNull();
   });
-})
+});

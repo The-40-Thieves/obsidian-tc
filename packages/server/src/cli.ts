@@ -70,12 +70,7 @@ import { ensureNotesFts } from "./search/fts";
 import { readGeneration } from "./search/generation";
 import { graphSearch } from "./search/graph_search";
 import { IndexCoordinator } from "./search/index-coordinator";
-import {
-  deindexNote,
-  type IndexHook,
-  indexNote,
-  indexVault,
-} from "./search/indexer";
+import { deindexNote, type IndexHook, indexNote, indexVault } from "./search/indexer";
 import { nativeLoaded } from "./search/native";
 import { callerAclFingerprint, prewarmPathFor, writePrewarm } from "./search/prefetch";
 import { createRetrievalCaches } from "./search/query_cache";
