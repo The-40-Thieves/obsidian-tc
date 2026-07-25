@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { cpus } from "node:os";
 import { performance } from "node:perf_hooks";
 import { collectDispatch } from "./collectors/dispatch";
 import { collectHttp, collectHttpConcurrency } from "./collectors/http";
@@ -70,7 +72,54 @@ function writeCalibrationReference(medianMs: number, tol = 0.5): void {
   process.stdout.write(`wrote ${CALIBRATION_REFERENCE_PATH}\n`);
 }
 
-function writeBaseline(name: Scenario["name"], report: PerfReport): void {
+/** THE-534: what the baseline was measured against. Written as a SIDECAR rather than a key inside
+ *  baseline.<name>.json on purpose — the gate now walks the baseline's own keys and demands a sample
+ *  for each, so a metadata key living in that file would be read as a metric that never gets
+ *  measured, i.e. a permanent phantom hard failure. */
+function writeBaselineProvenance(
+  name: Scenario["name"],
+  mode: "isolated-median" | "single-shot",
+  samples: number,
+): void {
+  const git = (args: string[]): string => {
+    try {
+      return execFileSync("git", args, { encoding: "utf8" }).trim();
+    } catch {
+      return "";
+    }
+  };
+  const sha = git(["rev-parse", "HEAD"]) || "unknown";
+  // A baseline measured on a dirty tree is not reproducible from its SHA, so the SHA alone would be
+  // a false provenance claim. Record it and say so loudly rather than quietly writing a number
+  // nobody can reproduce.
+  const dirty = git(["status", "--porcelain"]) !== "";
+  const provenance = {
+    scenario: name,
+    mode,
+    samples,
+    measuredAtSha: sha,
+    treeDirty: dirty,
+    measuredAt: new Date().toISOString(),
+    host: { platform: process.platform, arch: process.arch, cpus: cpus().length },
+  };
+  writeFileSync(
+    `eval/perf/baseline.${name}.provenance.json`,
+    `${JSON.stringify(provenance, null, 2)}\n`,
+  );
+  process.stdout.write(`wrote eval/perf/baseline.${name}.provenance.json (sha ${sha})\n`);
+  if (dirty) {
+    process.stdout.write(
+      `WARN baseline measured on a DIRTY working tree — ${sha} does not reproduce it. Commit first, then re-record.\n`,
+    );
+  }
+}
+
+function writeBaseline(
+  name: Scenario["name"],
+  report: PerfReport,
+  mode: "isolated-median" | "single-shot",
+  samples: number,
+): void {
   const baseline: Baseline = {};
   for (const s of report.samples) {
     baseline[s.key] = {
@@ -84,6 +133,7 @@ function writeBaseline(name: Scenario["name"], report: PerfReport): void {
   }
   writeFileSync(`eval/perf/baseline.${name}.json`, JSON.stringify(baseline, null, 2));
   process.stdout.write(`\nwrote eval/perf/baseline.${name}.json\n`);
+  writeBaselineProvenance(name, mode, samples);
 }
 
 /** Returns true iff a hard failure occurred (caller decides when to exit — isolated mode also
@@ -91,14 +141,32 @@ function writeBaseline(name: Scenario["name"], report: PerfReport): void {
 function runGate(name: Scenario["name"], report: PerfReport): boolean {
   const baseline = JSON.parse(readFileSync(`eval/perf/baseline.${name}.json`, "utf8")) as Baseline;
   const result = evaluate(report, baseline);
-  for (const w of result.warnings)
-    process.stdout.write(`WARN ${w.key}: ${w.actual} vs baseline ${w.baseline}\n`);
+  // THE-534: a "missing" violation has no measured value, so print WHY rather than `NaN vs
+  // baseline X` — the actionable fact is that the harness stopped emitting the metric (or the key
+  // was renamed), not that some number drifted.
+  const describe = (v: (typeof result.hardFailures)[number]): string =>
+    v.reason === "missing"
+      ? `${v.key}: NOT MEASURED (baseline ${v.baseline} — metric absent from report; renamed or no longer emitted?)`
+      : `${v.key}: ${v.actual} vs baseline ${v.baseline} (tol ${v.tol})`;
+
+  for (const w of result.warnings) process.stdout.write(`WARN ${describe(w)}\n`);
+
+  // Improvements never fail, but a large one means this baseline no longer describes the system —
+  // THE-486's 113x landed through a silent `perf gate OK`, and THE-467/THE-468 are gated on these
+  // numbers being current. Say so loudly instead.
+  for (const s of result.stale) {
+    process.stdout.write(
+      `STALE BASELINE ${s.key}: ${s.actual} is ${s.factor.toFixed(1)}x better than baseline ${s.baseline} — re-record the baseline (THE-534).\n`,
+    );
+  }
+
   if (result.hardFailures.length > 0) {
-    for (const f of result.hardFailures)
-      process.stderr.write(`FAIL ${f.key}: ${f.actual} vs baseline ${f.baseline} (tol ${f.tol})\n`);
+    for (const f of result.hardFailures) process.stderr.write(`FAIL ${describe(f)}\n`);
     return true;
   }
-  process.stdout.write(`perf gate OK (${result.warnings.length} warnings)\n`);
+  process.stdout.write(
+    `perf gate OK (${result.warnings.length} warnings, ${result.stale.length} stale)\n`,
+  );
   return false;
 }
 
@@ -210,7 +278,7 @@ async function main(): Promise<void> {
         );
         process.exit(1);
       }
-      writeBaseline(name, medianReport);
+      writeBaseline(name, medianReport, "isolated-median", agg.n);
       writeCalibrationReference(contention.median);
       return;
     }
@@ -233,7 +301,7 @@ async function main(): Promise<void> {
   process.stdout.write(toMarkdown(report));
 
   if (args.includes("--update-baseline")) {
-    writeBaseline(name, report);
+    writeBaseline(name, report, "single-shot", 1);
     return;
   }
 
