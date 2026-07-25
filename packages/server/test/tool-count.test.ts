@@ -2,7 +2,8 @@
 // headline fails CI. This assembles the full registry exactly as cli.ts does (server_health + M1–M8)
 // against cheap stubs — registration only builds tool definitions (handlers close over deps), so no
 // live backends are needed. Bump REGISTERED_TOOL_COUNT together with the docs headline when the
-// surface changes; the docs side is asserted by scripts/check-version-coherence.mjs.
+// surface changes; the docs side is asserted by scripts/check-version-coherence.mjs, which since
+// THE-580 READS this constant rather than keeping its own copy.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,9 +24,14 @@ import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
 /** The shipped tool surface — the ACTUAL number the registry assembles (server_health + the
- *  M1–M8 domains). Bump this WITH the docs headline (README/ARCHITECTURE/docs-site) and the
- *  EXPECTED_TOOL_COUNT in scripts/check-version-coherence.mjs (which asserts the docs match it) when
- *  a tool is added or removed. */
+ *  M1–M8 domains). Bump this WITH the docs headline (README/ARCHITECTURE/docs-site) when a tool is
+ *  added or removed.
+ *
+ *  THIS DECLARATION IS PARSED, so keep it a plain `const REGISTERED_TOOL_COUNT = <digits>;` on one
+ *  line. scripts/check-version-coherence.mjs reads it with a regex to derive the number it holds the
+ *  docs to (THE-580 — it used to keep a second literal "in lockstep" by remembering, which drifted).
+ *  That gate hard-fails if it cannot find this declaration, so a rename or a computed value breaks
+ *  it loudly rather than silently reverting it to an unchecked default. */
 const REGISTERED_TOOL_COUNT = 150;
 
 const NO_THROTTLE = {
