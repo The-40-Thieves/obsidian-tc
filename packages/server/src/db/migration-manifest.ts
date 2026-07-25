@@ -31,7 +31,9 @@ export const CACHE_MIGRATION_FILES = [
  * ACT-R activation recompute. THE-568: 20260724_001 adds the `caller` column to chunk_retrievals
  * so record_retrieval_feedback can gate on per-caller ownership (P1.7 follow-up). THE-538:
  * 20260725_001 adds the retrieval_policy table plus chunk_retrievals.event_group/stream_source, so
- * a retrieval outcome can be attributed to the fusion configuration that produced it.
+ * a retrieval outcome can be attributed to the fusion configuration that produced it. THE-537:
+ * 20260725_002 is the note_quality rollup — a derived, resettable read surface over signals that
+ * already exist in both stores.
  */
 export const EXPERIENTIAL_MIGRATION_FILES = [
   "20260626_001_experiential_init.sql",
@@ -43,6 +45,7 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   "20260723_001_activation_watermark.sql",
   "20260724_001_chunk_retrievals_caller.sql",
   "20260725_001_retrieval_policy.sql",
+  "20260725_002_note_quality.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

@@ -45,6 +45,7 @@ import {
 } from "./experiential/gaps";
 import { createRetrievalLogger } from "./experiential/log";
 import { vaultMetrics } from "./experiential/metrics";
+import { readNoteQuality, recomputeNoteQuality } from "./experiential/note-quality";
 import { evaluateEpisodes, extractPreferences } from "./experiential/reflect";
 import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
@@ -383,6 +384,48 @@ async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<void> {
     cacheDb.close?.();
   }
   return;
+}
+
+// THE-537: recompute the note_quality rollup, then print the flagged notes. An OFFLINE pass — no
+// gateway, no inference, no ranking change. Modelled on run_contribution_report (same store
+// handling, same finally-close discipline).
+async function run_note_quality(cmd: Cmd<"note-quality">): Promise<void> {
+  const cfg = resolveOrUsageExit(cmd.input);
+  mkdirSync(cfg.cacheDir, { recursive: true });
+  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+    version: VERSION,
+  });
+  try {
+    const vaults = cmd.vault ? cfg.vaults.filter((v) => v.id === cmd.vault) : cfg.vaults;
+    if (cmd.vault && vaults.length === 0) {
+      process.stderr.write(`note-quality: unknown vault ${cmd.vault}\n`);
+      process.exit(2);
+    }
+    for (const v of vaults) {
+      const stats = recomputeNoteQuality(cacheDb, edb, { vaultId: v.id, nowMs: Date.now() });
+      process.stdout.write(
+        `note-quality [${v.id}]: ${stats.notes} note(s), ${stats.flagged} flagged, ` +
+          // "unscored" is reported separately and prominently: it is NOT a count of bad notes, it
+          // is a count of notes there is not yet evidence to judge.
+          `${stats.scored} scored, ${stats.unscored} unscored (no usage evidence yet)\n`,
+      );
+      const rows = readNoteQuality(edb, {
+        vaultId: v.id,
+        ...(cmd.flags ? { flags: cmd.flags } : {}),
+        limit: cmd.limit ?? 20,
+      });
+      for (const r of rows) {
+        const flags = JSON.parse(r.flags) as string[];
+        if (flags.length === 0 && !cmd.flags) continue;
+        const score = r.quality_score === null ? "  n/a" : r.quality_score.toFixed(3);
+        process.stdout.write(`  ${score}  ${r.path}  [${flags.join(",")}]\n`);
+      }
+    }
+  } finally {
+    edb.close?.();
+    cacheDb.close?.();
+  }
 }
 
 async function run_contribution_report(cmd: Cmd<"contribution-report">): Promise<void> {
@@ -1729,6 +1772,8 @@ async function main(): Promise<void> {
       return run_citation_infer(cmd);
     case "contribution-report":
       return run_contribution_report(cmd);
+    case "note-quality":
+      return run_note_quality(cmd);
     case "forget":
       return run_forget(cmd);
     case "gaps":

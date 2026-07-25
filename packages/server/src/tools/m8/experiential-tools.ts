@@ -16,9 +16,10 @@
 // work_forget surfaces the control-1 tombstone as a user verb. record_retrieval_feedback is
 // the THE-230 outcome writer: stamps feedback/outcome onto the most recent retrieval
 // event(s) for a chunk, feeding the ACT-R recompute.
-import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
+import { err, grantsAll, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
+import { readNoteQuality } from "../../experiential/note-quality";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
 
@@ -315,6 +316,70 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           )
           .run(input.feedback ?? null, input.outcome ?? null, ...selectParams, input.last_n);
         return { available: true, chunk_id: input.chunk_id, updated: res.changes };
+      },
+    }),
+
+    // THE-537: the read surface the quality signals never had. READ-ONLY and NOT the ranker —
+    // quality_score is reported, never fed into fusion (that would be a ranking change needing its
+    // own eval gate). The rollup is written by the offline `obsidian-tc note-quality` pass; this
+    // tool only reads what that pass computed, so a stale `computed_at` is visible to the caller
+    // rather than hidden behind a silent recompute.
+    defineTool({
+      name: "note_quality_report",
+      description:
+        "Read-only note-health report from the note_quality rollup (THE-537): which notes are duplicated, orphaned, stale by edit or by access, contradicted, or tombstoned — with the raw components behind each verdict. quality_score is NULL when there is no usage evidence yet, which means UNMEASURED, not bad. Populated by the offline `obsidian-tc note-quality` pass; computed_at tells you how fresh it is. Never used for ranking.",
+      inputSchema: z
+        .object({
+          vault: VaultId,
+          flags: z
+            .array(
+              z.enum([
+                "duplicate",
+                "orphan",
+                "stale_edit",
+                "stale_access",
+                "contradicted",
+                "tombstoned",
+              ]),
+            )
+            .optional(),
+          limit: z.number().int().positive().max(500).default(50),
+        })
+        .strict(),
+      requiredScopes: ["read:notes"],
+      tags: ["experiential", "knowledge"],
+      handler: (input) => {
+        if (!deps.edb) return UNAVAILABLE;
+        const rows = readNoteQuality(deps.edb, {
+          vaultId: input.vault,
+          ...(input.flags ? { flags: input.flags } : {}),
+          limit: input.limit,
+        });
+        return {
+          available: true,
+          vault: input.vault,
+          count: rows.length,
+          // Surfaced so a caller can tell a clean vault from a rollup that was never computed.
+          computed_at: rows[0]?.computed_at ?? null,
+          notes: rows.map((r) => ({
+            path: r.path,
+            quality_score: r.quality_score,
+            score_version: r.score_version,
+            flags: JSON.parse(r.flags) as string[],
+            chunk_count: r.chunk_count,
+            dup_chunk_count: r.dup_chunk_count,
+            dup_ratio: r.dup_ratio,
+            age_days: r.age_days,
+            last_retrieved_at: r.last_retrieved_at,
+            retrievals: r.retrievals,
+            citations: r.citations,
+            outcome_balance: r.outcome_balance,
+            in_degree: r.in_degree,
+            out_degree: r.out_degree,
+            contradictions_open: r.contradictions_open,
+            tombstoned: r.tombstoned === 1,
+          })),
+        };
       },
     }),
   ];
