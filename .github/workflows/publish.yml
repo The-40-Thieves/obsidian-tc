@@ -56,6 +56,14 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -uo pipefail
+          # A workflow_dispatch dry run targets a BRANCH, not a tag — there is no tag object to
+          # verify and github.ref_name is the branch name. Now that build-native needs this job,
+          # enforcing here would break every dry run the moment REQUIRE_SIGNED_TAG flips to true,
+          # which is precisely the 8-target rehearsal that must keep working.
+          if [ "${{ github.ref_type }}" != "tag" ]; then
+            echo "ref_type is '${{ github.ref_type }}', not a tag — nothing to verify (dry run)."
+            exit 0
+          fi
           if [ ! -f .github/allowed_signers ]; then
             echo "::warning title=Release tag not verified::No .github/allowed_signers committed, so the signature on '$TAG' cannot be checked. See docs/RELEASE-SIGNING.md."
             if [ "$REQUIRE_SIGNED_TAG" = "true" ]; then
@@ -79,6 +87,12 @@ jobs:
           exit 0
 
   build-native:
+    # THE-528: gate the entire release on the tag check. Without this `needs:`, verify-tag was an
+    # island — nothing depended on it, so it ran in parallel and a FAILING signature check could not
+    # stop anything. build-native is the root of the DAG (publish-npm needs it, and everything else
+    # needs publish-npm), so one edge here is what makes the check load-bearing rather than
+    # decorative. A gate that cannot block is worse than no gate, because it is trusted.
+    needs: verify-tag
     strategy:
       fail-fast: true
       matrix:
