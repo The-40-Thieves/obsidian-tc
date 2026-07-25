@@ -6,7 +6,7 @@
 
 import { type IsoWeek, isoWeek } from "../../util/iso-week";
 import { type GatewayRoles, prompt } from "../gateway";
-import type { Job, JobContext, JobResult } from "../plane";
+import type { JobContext, JobResult } from "../plane";
 
 export { type IsoWeek, isoWeek };
 
@@ -159,5 +159,3 @@ export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
   if (perVault.length === 0) return { ok: true, detail: { skipped: "no chunks" } };
   return { ok: true, detail: { iso_year: iso.year, iso_week: iso.week, vaults: perVault } };
 }
-
-export const synthesisJob: Job = { name: "synthesis", run: runSynthesis };

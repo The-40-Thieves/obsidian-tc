@@ -121,11 +121,6 @@ const ROOTS = [
 // list has to be a deliberate act with a reason, which is the whole point.
 const UNREACHABLE_ALLOWLIST = new Map([
   [
-    "packages/server/src/plane/jobs/contradiction-drain.ts",
-    "THE-562 #14 — superseded by the durable JobQueue (cli.ts no longer constructs it); kept only " +
-      "because test/scheduler-abort-propagation.test.ts still imports it directly",
-  ],
-  [
     "packages/server/src/search/multi_query.ts",
     "THE-448 — fan-out engine, tool surface is a follow-up",
   ],

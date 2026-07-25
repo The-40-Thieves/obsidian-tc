@@ -6,8 +6,8 @@ sidebar:
 ---
 
 The complete tool surface, generated from the registry so it never drifts from the running server.
-See the [API Reference](/obsidian-tc/tools/api-reference/) for how to call these, and the
-[Tool Reference](/obsidian-tc/tools/) for the facade + domain overview.
+See the [API Reference](/tools/api-reference/) for how to call these, and the
+[Tool Reference](/tools/) for the facade + domain overview.
 
 :::note
 This table is generated from the tool registry (`bun run docgen:render`). Do not hand-edit the region
