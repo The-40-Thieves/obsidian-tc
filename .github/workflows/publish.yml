@@ -421,10 +421,18 @@ jobs:
       - name: build plugin
         working-directory: packages/plugin
         run: bun run build
+      # Version comes from package.json, not the ref name. check-version-coherence.mjs already
+      # asserts all 7 version strings agree, making it authoritative — whereas ${GITHUB_REF_NAME#v}
+      # is only the version when the ref is a tag whose NAME encodes it. On any other ref it
+      # silently produces nonsense, and the workflow declares a workflow_dispatch trigger, so a
+      # non-tag ref is reachable: dispatching on a branch yielded
+      # "obsidian-tc-plugin-release/v1.11.0-artifacts.zip", whose slash made zip fail with
+      # "Could not create output file".
       - name: zip plugin
         run: |
+          version=$(node -p "require('./packages/server/package.json').version")
           cd packages/plugin/dist
-          zip -r "../obsidian-tc-plugin-${GITHUB_REF_NAME#v}.zip" main.js manifest.json styles.css
+          zip -r "../obsidian-tc-plugin-${version}.zip" main.js manifest.json styles.css
         shell: bash
       # Upload the zip AND the loose 3-file set (manifest.json + main.js + styles.css) so the release
       # attaches them as individual assets for BRAT sideloading (THE-206), not only the zip.
@@ -460,17 +468,28 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Same reasoning as the plugin zip: on a non-tag ref the old form produced the docker tag
+      # "ghcr.io/the-40-thieves/obsidian-tc:release/v1.11.0-artifacts", which buildx rejected as an
+      # "invalid reference format" because a docker tag cannot contain a slash. Deriving from the
+      # version also makes the prerelease test agree with publish-npm's (THE-574), which already
+      # classifies from the version string rather than the ref: a tag named v1.12.0-beta.1 was
+      # previously detected as a prerelease only because its NAME contained a hyphen.
       - name: extract version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          version=$(node -p "require('./packages/server/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+        shell: bash
       - name: is pre-release
         id: prerelease
         run: |
-          if [[ "${GITHUB_REF_NAME}" == *"-"* ]]; then
+          version=$(node -p "require('./packages/server/package.json').version")
+          if [[ "$version" == *"-"* ]]; then
             echo "value=true" >> "$GITHUB_OUTPUT"
           else
             echo "value=false" >> "$GITHUB_OUTPUT"
           fi
+        shell: bash
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
