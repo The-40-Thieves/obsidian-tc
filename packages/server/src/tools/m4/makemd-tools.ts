@@ -47,7 +47,12 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
           space_id: z.string().min(1),
           filter: z.record(z.string(), z.unknown()).optional(),
           sort: z.record(z.string(), z.unknown()).optional(),
-          limit: z.number().int().positive().max(1000).optional(),
+          // THE-516: default the page size to this tool's own cap rather than leaving it absent.
+          // Forwarding no limit let the REMOTE plugin decide how much to return, which obsidian-tc
+          // cannot bound — the byte governor then rejects an oversized response as `overflow`
+          // instead of returning a usable first page. Defaulting to the existing .max() keeps every
+          // request that fits today working unchanged, while making the ceiling ours.
+          limit: z.number().int().positive().max(1000).default(1000),
           cursor: z.string().optional(),
         })
         .strict(),
@@ -62,7 +67,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
             space_id: input.space_id,
             ...(input.filter ? { filter: input.filter } : {}),
             ...(input.sort ? { sort: input.sort } : {}),
-            ...(input.limit ? { limit: input.limit } : {}),
+            limit: input.limit,
             ...(input.cursor ? { cursor: input.cursor } : {}),
           },
           plugin: "make-md",
