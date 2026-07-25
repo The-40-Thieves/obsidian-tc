@@ -15,7 +15,7 @@ between the markers — change the tool and regenerate.
 :::
 
 <!-- BEGIN GENERATED: tools -->
-_147 tools. Access is a coarse hint; the required scopes are authoritative._
+_150 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -71,6 +71,9 @@ _147 tools. Access is a coarse hint; the required scopes are authoritative._
 | `git_log` | read | `read:git` | Recent commits of the vault's git repo (hash/message/author/date), via the Obsidian Git companion bridge. Unavailable under a read whitelist (log messages enumerate paths). |
 | `git_stage` | write | `write:git` | Stage vault files for the next commit, via the Obsidian Git companion bridge. Write-family: the readOnly kill switch applies. |
 | `git_status` | read | `read:git` | Working-tree status of the vault's git repo (changed/staged/conflicted), via the Obsidian Git companion bridge. Unavailable under a read whitelist (repo status enumerates every path). |
+| `graph_centrality` | read | `read:notes` | Structural importance of notes in the persisted link graph (THE-452). metric 'pagerank' answers 'what do many notes point at' (power iteration, damping 0.85); metric 'betweenness' answers the different question 'what sits between otherwise disconnected areas' — a bridge note can score high on betweenness with only two links. ANALYTICS ONLY: these scores are never used for retrieval ranking. Notes outside your read scope are excluded from the graph entirely, not just from the output. |
+| `graph_communities` | read | `read:notes` | Community detection over the persisted link graph (Louvain, THE-452). Partitions notes into clusters that link to each other more than to the rest of the vault. Deterministic: the same vault and seed always yield the same partition. ALWAYS read `meaningful` — a modularity below 0.3 means the partition is not distinguishable from chance, and presenting those clusters as 'your vault's topics' would be inventing structure. ANALYTICS ONLY, never used for retrieval ranking. |
+| `graph_path_between` | read | `read:notes` | Trace how one note connects to another through the persisted link graph (THE-452): the shortest chain of notes joining them, with the edge types behind each hop. Undirected by default, because a reader follows a backlink as readily as a link; directed:true answers the narrower 'can I reach B by following links out of A'. Returns connected:false when no chain exists within your read scope. |
 | `index_vault` | write | `admin:vault` | Chunk and embed the vault (or a folder) into the search index. Incremental: chunks whose content hash is unchanged are skipped; removed chunks are pruned. |
 | `insert_table_column` | write | `write:notes` | Insert a column into a GFM table: a header plus per-row values (default empty) and an alignment. `at` is the 0-based column position (default: append). |
 | `insert_table_row` | write | `write:notes` | Insert a data row into a GFM table. `values` are cell strings (padded/truncated to the column count); `at` is the 0-based data-row position (default: append). |

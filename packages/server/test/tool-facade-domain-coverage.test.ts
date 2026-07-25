@@ -34,7 +34,7 @@ import { openMemoryDb } from "./helpers";
 
 /** Mirrors tool-count.test.ts. Only a floor here, so the coverage assertions below cannot pass
  *  against an empty or partially-assembled registry. THE-306 owns keeping this in step with docs. */
-const REGISTERED_TOOL_COUNT = 147;
+const REGISTERED_TOOL_COUNT = 150;
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },
