@@ -1,6 +1,6 @@
 # Tool Reference
 
-**146 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
+**147 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
 
 Every tool carries four annotations enforced by the dispatch pipeline: **acl** (`read` / `write` / `delete` / `execute` / `admin`), **hitl** (`never` / `required` / conditional), **idem** (`pure` / `natural` / `keyed` / `non-idem`), and **ratelimit** (`read` / `write` / `bulk`). See **[[Security and ACL]]**.
 
@@ -77,7 +77,7 @@ Every error also carries a **`recovery`** string: bounded next-step guidance for
 _Auto-generated from the tool registry — the exhaustive, always-current list. Run `bun run docgen:render`; do not hand-edit between the markers._
 
 <!-- BEGIN GENERATED: tools -->
-_146 tools. Access is a coarse hint; the required scopes are authoritative._
+_147 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -163,6 +163,7 @@ _146 tools. Access is a coarse hint; the required scopes are authoritative._
 | `move_kanban_card` | write | `write:notes` | Move a card (matched by text) from one Kanban column to another, preserving its original line (checkbox state, inline metadata). |
 | `move_note` | write | `write:notes`, `delete:notes` | Move/rename a note and update backlinks. Crossing a folder boundary OR overwriting an existing destination requires confirmation; an overwritten destination is soft-deleted to .trash (recoverable). |
 | `note_exists` | read | `read:notes` | Check whether a path exists in the vault and whether it is a file or folder. |
+| `note_quality_report` | read | `read:notes` | Read-only note-health report from the note_quality rollup (THE-537): which notes are duplicated, orphaned, stale by edit or by access, contradicted, or tombstoned — with the raw components behind each verdict. quality_score is NULL when there is no usage evidence yet, which means UNMEASURED, not bad. Populated by the offline `obsidian-tc note-quality` pass; computed_at tells you how fresh it is. Never used for ranking. |
 | `ocr_attachment` | read | `read:ocr` | Run OCR on a single image or PDF attachment via the Text Extractor bridge. Returns extracted text (cached by the plugin per file+model). |
 | `ocr_bulk` | read | `read:ocr` | OCR a batch of attachments via the Text Extractor bridge. Resolves and ACL-filters the candidate set server-side; requires confirmation past 20 files. |
 | `open_workspace` | write | `write:workspaces` | Mark a saved workspace active and return its stored layout. Fails if the workspace does not exist. |

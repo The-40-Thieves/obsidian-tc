@@ -443,9 +443,11 @@ const DOMAINS: readonly DomainSpec[] = [
       // Recall/synthesis and session triage verbs.
       "reflect",
       "session_bootstrap",
-      // Knowledge-quality surfaces: unsourced claims and unresolved contradictions.
+      // Knowledge-quality surfaces: unsourced claims, unresolved contradictions, and the
+      // THE-537 note-health rollup (duplicate / orphan / stale / contradicted / tombstoned).
       "audit_provenance",
       "list_contradictions",
+      "note_quality_report",
     ],
   },
   {

@@ -193,7 +193,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**248 modules · 983 dependencies · 62 distinct subsystem pairs · 399 cross-subsystem imports.**
+**249 modules · 987 dependencies · 62 distinct subsystem pairs · 402 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 ### Subsystem graph
@@ -208,7 +208,7 @@ flowchart LR
   search[search<br/>43 files]
   vault[vault<br/>17 files]
   db[(db<br/>13 files)]
-  experiential[experiential<br/>10 files]
+  experiential[experiential<br/>11 files]
   bridge[bridge<br/>8 files]
   model[model<br/>7 files]
   embeddings[embeddings<br/>6 files]
@@ -221,7 +221,7 @@ flowchart LR
   search -->|29| db
   tools -->|16| search
   search -->|12| vault
-  experiential -->|9| db
+  experiential -->|11| db
   tools -->|9| db
   formats -->|8| vault
   mcp -->|8| vault
@@ -238,9 +238,9 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 186 | `tools` | 261 |
-| `db` | 60 | `search` | 45 |
-| `mcp` | 58 | `experiential` | 14 |
+| `vault` | 186 | `tools` | 262 |
+| `db` | 62 | `search` | 45 |
+| `mcp` | 58 | `experiential` | 16 |
 | `search` | 27 | `mcp` | 13 |
 | `embeddings` | 12 | `model` | 11 |
 <!-- END GENERATED: tree-fan -->

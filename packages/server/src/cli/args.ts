@@ -22,6 +22,7 @@ export type CliCommand =
       transcript?: string;
     }
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
+  | { kind: "note-quality"; input?: string; vault?: string; flags?: string[]; limit?: number }
   | { kind: "prefetch"; input?: string; vault?: string; ttlHours?: number }
   | { kind: "densify-llm"; input?: string; vault?: string }
   | { kind: "reflect"; input?: string; maxJudged?: number }
@@ -78,6 +79,9 @@ Usage:
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
   obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]
                                           Knowledge-health scorecard from the derive layer (THE-44/46)
+  obsidian-tc note-quality [path] [--vault id] [--flags a,b] [--limit N]
+                                          Recompute the note_quality rollup and list flagged notes:
+                                          duplicate | orphan | stale_edit | stale_access | contradicted | tombstoned (THE-537)
   obsidian-tc gaps [path] --queries <file> [--vault id] [--threshold T] [--min-results N] [--json file]
   obsidian-tc gaps [path] --calibrate <golden.yaml> [--vault id]
                                           Knowledge-gap detector / threshold calibration (THE-48)
@@ -246,6 +250,32 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
         ...(json !== undefined ? { json } : {}),
+      };
+    }
+    // THE-537: recompute the note_quality rollup and print the flagged notes.
+    if (first === "note-quality") {
+      const scan = [...rest];
+      for (const f of ["--vault", "--flags", "--limit", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const limitRaw = flagValue(rest, "--limit");
+      const limit = limitRaw === undefined ? undefined : Number(limitRaw);
+      if (limit !== undefined && (!Number.isFinite(limit) || limit <= 0)) {
+        throw new CliError("--limit must be a positive number");
+      }
+      const flagsRaw = flagValue(rest, "--flags");
+      const flags = flagsRaw
+        ?.split(",")
+        .map((f) => f.trim())
+        .filter(Boolean);
+      const vault = flagValue(rest, "--vault");
+      return {
+        kind: "note-quality",
+        input: flagValue(rest, "--config") ?? positional(scan),
+        ...(vault !== undefined ? { vault } : {}),
+        ...(flags && flags.length > 0 ? { flags } : {}),
+        ...(limit !== undefined ? { limit } : {}),
       };
     }
     // THE-239: dependency-aware deletion — forget an episode or propagate a note deletion.
