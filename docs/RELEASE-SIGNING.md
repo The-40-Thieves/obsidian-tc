@@ -119,17 +119,19 @@ To resume: `gh run rerun <run-id>` (a **full** re-run, not `--failed`).
 > and are unexpired — it resolves them scoped to the run *attempt*. A full re-run rebuilds them in
 > the same attempt. This costs a full native-matrix rebuild, which is the price of resumability.
 
-### The promote step still needs a human (THE-574)
+### The promote step is gone (THE-574, resolved)
 
-Trusted publishing authorises `npm publish` only. `npm dist-tag add` is package *management*, so it
-falls back to token auth and requires an interactive OTP that CI cannot supply. Until THE-574 is
-decided, finish a release by hand — **dependencies before the umbrella**, or `obsidian-tc@latest`
-briefly resolves against non-latest deps:
+There is no longer a manual promote. Trusted publishing authorises `npm publish` only, so
+`npm dist-tag add` fell back to token auth and failed `EOTP` on **every** release — a structural
+incompatibility, not a misconfiguration, and one on a deadline: npm's 2026-07-08 changelog withdraws
+package *management* actions from 2FA-bypass tokens first, in early August 2026.
 
-```bash
-npm dist-tag add @the-40-thieves/obsidian-tc-native@<version> latest
-npm dist-tag add @the-40-thieves/obsidian-tc-shared@<version> latest
-npm dist-tag add obsidian-tc@<version> latest          # server LAST
-```
+The workflow now publishes straight to the release dist-tag in dependency order with `obsidian-tc`
+**last**, which is safe because every inter-package dependency is exact-pinned rather than ranged —
+so no install resolves a sub-package by tag, and a sequence that dies partway leaves
+`obsidian-tc@latest` on the previous intact release. See *Ordered npm publish* in `RELEASING.md`,
+which also records why npm's staged publishing was evaluated and not adopted.
 
-Omit `--otp` and npm prompts, which keeps the code out of shell history.
+If you ever do need to move a dist-tag by hand, it requires an interactive OTP. Omit `--otp` so npm
+prompts for it — passing it on the command line puts the code in shell history, and a stale or
+mistyped value fails with an opaque `E400`.
