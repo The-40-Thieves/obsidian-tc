@@ -7,6 +7,7 @@
 import { z } from "zod";
 import type { Database } from "../../db/types";
 import { semanticSearch } from "../../search/semantic";
+import { blobToFloats } from "../../search/vec";
 import { contentHash } from "../../vault/paths";
 import { type GatewayRoles, prompt } from "../gateway";
 
@@ -20,6 +21,46 @@ export interface IndexedChunk {
   path: string;
   content: string;
   embedding: number[];
+}
+
+/**
+ * THE-571: re-read a chunk (with its active embedding) at job RUN time.
+ *
+ * The contradiction job used to carry the whole chunk in `jobs.payload`, which meant JSON-encoding a
+ * dense vector into a queue row on every enqueue — on a table that, before this ticket, was never
+ * pruned. The payload is now `{ vaultId, chunkId }` and this reads the rest back: a single indexed
+ * lookup, cheaper than the embedding it replaces.
+ *
+ * Re-reading also fixes a staleness bug the size problem was hiding. A payload-embedded vector is a
+ * snapshot from enqueue time, so a chunk re-embedded before the job ran would be judged on its OLD
+ * vector. Reading at run time always judges what is actually stored.
+ *
+ * Returns null when the chunk is gone or has no active embedding — deleted or re-embedded between
+ * enqueue and run. That is a normal race, NOT a failure: callers must skip, because throwing is how
+ * the runner dead-letters, and dead-lettering a job for doing its work correctly is worse than the
+ * unbounded growth this ticket set out to fix.
+ */
+export function loadChunkForContradiction(
+  db: Database,
+  vaultId: string,
+  chunkId: string,
+): IndexedChunk | null {
+  const row = db
+    .prepare(
+      `SELECT c.id AS id, c.path AS path, c.content AS content, e.embedding AS embedding
+       FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1
+       WHERE c.id = ? AND c.vault_id = ?`,
+    )
+    .get(chunkId, vaultId) as
+    | { id: string; path: string; content: string; embedding: Uint8Array }
+    | undefined;
+  if (!row) return null;
+  return {
+    id: row.id,
+    path: row.path,
+    content: row.content,
+    embedding: [...blobToFloats(row.embedding)],
+  };
 }
 
 /** THE-457: group a drained contradiction queue by vault, deduplicating chunks by (vault, id) so a

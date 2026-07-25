@@ -1058,6 +1058,24 @@ export const MaintenanceConfigSchema = z
       .positive()
       .default(60)
       .describe("Minutes between maintenance sweeps."),
+    // THE-571: the durable queue never pruned finished rows, so `jobs` grew without bound. Only
+    // TERMINAL rows are swept -- queued/running/retrying are live work regardless of age.
+    jobsCompleteRetentionDays: z
+      .number()
+      .int()
+      .positive()
+      .default(7)
+      .describe(
+        "Days a COMPLETE job row is retained before the maintenance sweep prunes it. Must stay LONGER than the longest producer dedup window: enqueue() dedups against a terminal row unless replaceIfTerminal is set, so pruning one frees its idempotency key and lets that period run again (the weekly synthesis is the longest today).",
+      ),
+    jobsFailedRetentionDays: z
+      .number()
+      .int()
+      .positive()
+      .default(30)
+      .describe(
+        "Days a FAILED (dead-lettered) job row is retained. Longer than the complete-row window because these exist to be read; bounded by age, so a burst of failures inside the window is still unbounded in count.",
+      ),
   })
   .prefault({});
 

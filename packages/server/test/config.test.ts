@@ -128,7 +128,14 @@ describe("config schema", () => {
 describe("maintenance config (THE-292)", () => {
   it("defaults: enabled hourly sweep; a pre-THE-292 config validates unchanged", () => {
     const c = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }] });
-    expect(c.maintenance).toEqual({ enabled: true, intervalMinutes: 60 });
+    // THE-571 added the two jobs-retention keys; both default, so a pre-THE-292 config still
+    // validates unchanged — which is what this test is really asserting.
+    expect(c.maintenance).toEqual({
+      enabled: true,
+      intervalMinutes: 60,
+      jobsCompleteRetentionDays: 7,
+      jobsFailedRetentionDays: 30,
+    });
   });
 
   it("partial override fills the rest from defaults", () => {
@@ -136,6 +143,11 @@ describe("maintenance config (THE-292)", () => {
       vaults: [{ id: "main", path: "/v" }],
       maintenance: { intervalMinutes: 5 },
     });
-    expect(c.maintenance).toEqual({ enabled: true, intervalMinutes: 5 });
+    expect(c.maintenance).toEqual({
+      enabled: true,
+      intervalMinutes: 5,
+      jobsCompleteRetentionDays: 7,
+      jobsFailedRetentionDays: 30,
+    });
   });
 });

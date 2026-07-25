@@ -16,7 +16,11 @@ import { runMigrations } from "../src/db/migrate";
 import { CACHE_MIGRATIONS } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type GatewayRoles, prompt } from "../src/plane/gateway";
-import { checkContradictions, type IndexedChunk } from "../src/plane/jobs/contradiction";
+import {
+  checkContradictions,
+  type IndexedChunk,
+  loadChunkForContradiction,
+} from "../src/plane/jobs/contradiction";
 import { isoWeek, runSynthesis } from "../src/plane/jobs/synthesis";
 import { JobQueue } from "../src/scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "../src/scheduler/job-runner";
@@ -58,7 +62,12 @@ function setup(roles: GatewayRoles | null) {
     [
       "contradiction",
       async (job) => {
-        const { vaultId, chunk } = job.payload as { vaultId: string; chunk: IndexedChunk };
+        // THE-571: mirrors production — the payload carries only ids, and the chunk is re-read at
+        // RUN time. A chunk deleted between enqueue and run is a normal race, so it SKIPS rather
+        // than throwing (a throw is how the runner dead-letters).
+        const { vaultId, chunkId } = job.payload as { vaultId: string; chunkId: string };
+        const chunk = loadChunkForContradiction(db, vaultId, chunkId);
+        if (!chunk) return;
         await checkContradictions({ db, roles, now: () => 1000 }, vaultId, [chunk]);
       },
     ],
@@ -75,7 +84,7 @@ describe("job-queue-integration: contradiction workload (THE-562 #14)", () => {
     const { db, jobQueue, runner, chunkA } = setup(roles);
     jobQueue.enqueue("contradiction", {
       class: "contradiction",
-      payload: { vaultId: "v1", chunk: chunkA },
+      payload: { vaultId: "v1", chunkId: chunkA.id },
       idempotencyKey: jobKey("v1", chunkA),
       maxAttempts: 3,
     });
@@ -94,13 +103,13 @@ describe("job-queue-integration: contradiction workload (THE-562 #14)", () => {
     const { jobQueue, chunkA } = setup(roles);
     const first = jobQueue.enqueue("contradiction", {
       class: "contradiction",
-      payload: { vaultId: "v1", chunk: chunkA },
+      payload: { vaultId: "v1", chunkId: chunkA.id },
       idempotencyKey: jobKey("v1", chunkA),
       maxAttempts: 3,
     });
     const second = jobQueue.enqueue("contradiction", {
       class: "contradiction",
-      payload: { vaultId: "v1", chunk: chunkA },
+      payload: { vaultId: "v1", chunkId: chunkA.id },
       idempotencyKey: jobKey("v1", chunkA),
       maxAttempts: 3,
     });
@@ -119,7 +128,7 @@ describe("job-queue-integration: contradiction workload (THE-562 #14)", () => {
     const { jobQueue, runner, chunkA } = setup(roles);
     const original = jobQueue.enqueue("contradiction", {
       class: "contradiction",
-      payload: { vaultId: "v1", chunk: chunkA },
+      payload: { vaultId: "v1", chunkId: chunkA.id },
       idempotencyKey: jobKey("v1", chunkA),
       maxAttempts: 3,
     });
@@ -161,7 +170,7 @@ describe("job-queue-integration: contradiction workload (THE-562 #14)", () => {
     const queue = new JobQueue(db, { now: () => clock.t });
     queue.enqueue("contradiction", {
       class: "contradiction",
-      payload: { vaultId: "v1", chunk: chunkA },
+      payload: { vaultId: "v1", chunkId: chunkA.id },
       idempotencyKey: jobKey("v1", chunkA),
       maxAttempts: 3,
     });
@@ -205,7 +214,7 @@ describe("job-queue-integration: contradiction workload (THE-562 #14)", () => {
     // this exact idempotency key.
     jobQueue.enqueue("contradiction", {
       class: "contradiction",
-      payload: { vaultId: "v1", chunk: chunkA },
+      payload: { vaultId: "v1", chunkId: chunkA.id },
       idempotencyKey: key,
       maxAttempts: 1,
       replaceIfTerminal: true,
@@ -231,7 +240,7 @@ describe("job-queue-integration: contradiction workload (THE-562 #14)", () => {
     // re-judged.
     const second = jobQueue.enqueue("contradiction", {
       class: "contradiction",
-      payload: { vaultId: "v1", chunk: chunkA },
+      payload: { vaultId: "v1", chunkId: chunkA.id },
       idempotencyKey: key,
       maxAttempts: 3,
       replaceIfTerminal: true,
@@ -244,7 +253,10 @@ describe("job-queue-integration: contradiction workload (THE-562 #14)", () => {
       [
         "contradiction",
         async (job) => {
-          const { vaultId, chunk } = job.payload as { vaultId: string; chunk: IndexedChunk };
+          // THE-571: id-only payload, re-read at run time (mirrors production).
+          const { vaultId, chunkId } = job.payload as { vaultId: string; chunkId: string };
+          const chunk = loadChunkForContradiction(db, vaultId, chunkId);
+          if (!chunk) return;
           await checkContradictions({ db, roles, now: () => 1000 }, vaultId, [chunk]);
         },
       ],
@@ -393,3 +405,31 @@ describe("job-queue-integration: plane workload (THE-562 #14)", () => {
     expect(jobQueue.stats().retrying).toBe(0);
   });
 });
+
+// THE-571: the contradiction payload used to serialize the WHOLE chunk, embedding included, into
+// jobs.payload — a dense vector JSON-encoded per enqueue, on a table that (before this ticket) was
+// never pruned. It now carries only { vaultId, chunkId } and the handler re-reads the chunk.
+//
+// That is not merely smaller. Re-reading at RUN time means the judge sees the chunk as it is now,
+// not as it was at enqueue; and a chunk deleted between the two must SKIP rather than throw, since
+// throwing is how the runner dead-letters, and a deleted chunk is a normal race, not a failure.
+describe("THE-571 contradiction payload is id-only", () => {
+  it("loads a chunk by id with its embedding", () => {
+    const { db } = setup(null);
+    const chunk = loadChunkForContradiction(db, "v1", "a");
+    expect(chunk).not.toBeNull();
+    expect(chunk?.id).toBe("a");
+    expect(chunk?.embedding.length).toBeGreaterThan(0);
+    expect(chunk?.content.length).toBeGreaterThan(0);
+  });
+
+  it("returns null for a chunk that no longer exists (deleted between enqueue and run)", () => {
+    const { db } = setup(null);
+    expect(loadChunkForContradiction(db, "v1", "gone")).toBeNull();
+  });
+
+  it("scopes by vault — another vault's chunk id does not resolve", () => {
+    const { db } = setup(null);
+    expect(loadChunkForContradiction(db, "other-vault", "a")).toBeNull();
+  });
+})

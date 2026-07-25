@@ -143,6 +143,8 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 |---|---|---|---|---|
 | `maintenance.enabled` | `boolean` | `true` |  | Run the periodic cache.db maintenance sweep (expired idempotency and elicitation rows, event_log retention, PRAGMA optimize). |
 | `maintenance.intervalMinutes` | `number` | `60` |  | Minutes between maintenance sweeps. |
+| `maintenance.jobsCompleteRetentionDays` | `number` | `7` |  | Days a COMPLETE job row is retained before the maintenance sweep prunes it. Must stay LONGER than the longest producer dedup window: enqueue() dedups against a terminal row unless replaceIfTerminal is set, so pruning one frees its idempotency key and lets that period run again (the weekly synthesis is the longest today). |
+| `maintenance.jobsFailedRetentionDays` | `number` | `30` |  | Days a FAILED (dead-lettered) job row is retained. Longer than the complete-row window because these exist to be read; bounded by age, so a burst of failures inside the window is still unbounded in count. |
 
 ### `observability`
 
