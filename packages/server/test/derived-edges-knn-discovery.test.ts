@@ -99,6 +99,20 @@ function fakeDb(): any {
     prepare: (sql: string) => ({
       all: (...args: unknown[]) => {
         if (sql.includes("sqlite_master")) return [];
+        // THE-579: reconcileDerivedEdgesCore probes for the densification columns before selecting
+        // them. Answer honestly so these tests exercise the SAME path production takes, rather than
+        // silently falling back to the pre-migration branch.
+        if (sql.startsWith("PRAGMA table_info(vault_edges)")) {
+          return [
+            { name: "source_path" },
+            { name: "target_path" },
+            { name: "edge_type" },
+            { name: "edge_kind" },
+            { name: "provenance" },
+            { name: "confidence" },
+            { name: "source_fingerprint" },
+          ];
+        }
         if (sql.includes("chunk_embeddings")) {
           const rows = phase === "before" ? ROWS_BEFORE : ROWS_AFTER;
           if (sql.includes("c.path IN")) {
@@ -130,7 +144,11 @@ function fakeDb(): any {
               (scope.has(e.source_path) || scope.has(e.target_path)),
           );
         }
-        if (sql.startsWith("SELECT source_path, target_path, edge_type FROM vault_edges")) {
+        if (
+          sql.startsWith(
+            "SELECT source_path, target_path, edge_type, edge_kind, provenance, confidence, source_fingerprint FROM vault_edges",
+          )
+        ) {
           const [vaultId, edgeType, ...scopeParams] = args as [string, string, ...string[]];
           const scope = sql.includes("source_path IN") ? new Set(scopeParams) : null;
           return edges.filter(
@@ -154,6 +172,11 @@ function fakeDb(): any {
               e.edge_type === edgeType,
           );
           if (i >= 0) edges.splice(i, 1);
+        } else if (sql.startsWith("INSERT INTO vault_generation")) {
+          // THE-579: reconcile now bumps the generation inside the same transaction. This fake's
+          // edge store must not swallow that INSERT as an edge row — matching bare "INSERT" did
+          // exactly that and materialised a phantom edge.
+          return { changes: 1 };
         } else if (sql.startsWith("INSERT")) {
           const [vaultId, sourcePath, targetPath, edgeType, , , confidence] = args as [
             string,

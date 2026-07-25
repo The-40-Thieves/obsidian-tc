@@ -5,6 +5,24 @@
 // lives INSIDE each index write transaction so a mutation and its generation change commit atomically
 // — a missed bump would silently serve stale cached results, and over-bumping is merely a cache miss
 // (safe), so the design errs toward bumping.
+//
+// THE-579 — who bumps, and the one writer that deliberately does not:
+//
+//   * indexer.ts (indexVault / indexNote / deindexNote) — authored content. The original three sites.
+//   * derived-edges.ts (reconcileDerivedEdges / …Scoped) — the DERIVED plane: similar_to, shared_tag
+//     and semantically_similar_to. The graph-expansion stage walks these when densify.includeInWalk
+//     is on, and `confidence` is the weight fusion reads, so rewriting them changes results. Bumps
+//     only when a row was actually inserted, deleted, or had its VALUES changed — an idempotent
+//     re-run stays a true no-op rather than churning the cache on every densify pass.
+//   * cluster.ts (assignClusters) — chunks.cluster_id, read by maxPerCluster diversification.
+//
+//   * NOT the activation recompute (experiential/activation.ts), and this is deliberate rather than
+//     an oversight. `cached_activation_score` lives in vault_object_state in experiential.db — a
+//     PHYSICALLY separate store with no cross-file FK and no vault_id column (ADR-0004, the
+//     membrane). recomputeActivation() receives only that db, so bumping cache.db's counter from
+//     there means crossing the membrane and inventing a chunk→vault mapping; that is a design
+//     decision, not a missing line. Bounded in the meantime: activation is off by default and shifts
+//     a result by at most one position, and THE-497's required TTL still covers it.
 
 import { tableExists } from "../db/introspect";
 import { cachedPrepare, type Database } from "../db/types";
