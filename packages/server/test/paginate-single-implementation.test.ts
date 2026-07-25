@@ -8,13 +8,23 @@
 // behavioural test in the suite while quietly re-forking the contract. Only counting definitions
 // catches that. Same reasoning as THE-577's facade domain-map gate.
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PAGE_SIZE, paginate } from "../src/util/paginate";
 
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
 const CANONICAL = join(SRC, "util", "paginate.ts");
+
+/** src-relative path with POSIX separators. The suite runs on Windows too (build-test
+ *  windows-latest), where join() yields backslashes and a bare slice() would compare
+ *  "util\\paginate.ts" against "util/paginate.ts". */
+function relPosix(abs: string): string {
+  return abs
+    .slice(SRC.length + 1)
+    .split(sep)
+    .join("/");
+}
 
 function tsFiles(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir)) {
@@ -35,7 +45,7 @@ describe("THE-516 pagination has one implementation", () => {
       /^\s*(export\s+)?function paginate\s*</m.test(readFileSync(f, "utf8")),
     );
     expect(
-      definers.map((f) => f.slice(SRC.length + 1)),
+      definers.map(relPosix),
       "paginate() must be defined only in util/paginate.ts — import it instead of re-declaring it",
     ).toEqual(["util/paginate.ts"]);
     expect(definers[0]).toBe(CANONICAL);
@@ -46,7 +56,7 @@ describe("THE-516 pagination has one implementation", () => {
       /^\s*(export\s+)?interface Page<T>/m.test(readFileSync(f, "utf8")),
     );
     expect(
-      definers.map((f) => f.slice(SRC.length + 1)),
+      definers.map(relPosix),
       "Page<T> is the paginated wire shape — declare it once, next to paginate()",
     ).toEqual(["util/paginate.ts"]);
   });
