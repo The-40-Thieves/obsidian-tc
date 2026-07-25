@@ -1,0 +1,8 @@
+# Public keys authorised to sign a v* release tag. Verified by publish.yml's verify-tag job
+# (`git -c gpg.ssh.allowedSignersFile=.github/allowed_signers verify-tag <tag>`).
+#
+# Format: <principal> <key-type> <key>. One line per signer. PUBLIC keys only — the private half
+# never leaves the maintainer machine and is deliberately not under chezmoi/dotfile management.
+#
+# Setup runbook: docs/RELEASE-SIGNING.md
+mislam2@gmail.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIL2y0TQsCXI4D1AMnUmIKzLmilwKkWqFsbWP5HqNWd0 release signing — obsidian-tc
