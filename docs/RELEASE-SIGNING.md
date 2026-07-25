@@ -1,8 +1,17 @@
 # Release tag signing
 
-**Status: wired, awaiting a key.** The CI verification step now *gates* the release — `build-native`
-declares `needs: verify-tag`, and every other job chains from it — but it still runs in report mode
-until a maintainer public key is committed. This document is the setup runbook.
+**Status: ENABLED (2026-07-24).** A maintainer key is registered and committed, and
+`REQUIRE_SIGNED_TAG` is `"true"` — an unsigned, lightweight, or unlisted-signer `v*` tag now fails
+`verify-tag`, and because `build-native` needs that job, nothing downstream runs. This document is
+the setup runbook and the record of how it was enabled.
+
+Verified end to end before enforcement was turned on:
+
+| case | exit | outcome |
+|---|---|---|
+| `v1.11.0`, signed, listed signer | 0 | accepted |
+| same tag, signer absent from the allowlist | 1 | rejected — *"No principal matched"* |
+| `v1.10.0`, unsigned | 1 | rejected — *"no signature found"* |
 
 > **Fixed 2026-07-24.** `verify-tag` previously gated nothing: no job declared `needs: verify-tag`
 > and `build-native` had no `needs:` at all, so it ran in parallel. A failing signature check could
@@ -26,10 +35,13 @@ nothing cryptographically binds that tag to a person.
 
 Current state, for the record:
 
-- `v1.10.0` — annotated, **unsigned**
+- `v1.11.0` — annotated, **signed** (ed25519, `SHA256:S0ERslg2h7R5xuvz0Z01gBHyXzBZzZNKyAq25Xh3ElY`)
+- `v1.10.0` — annotated, **unsigned** (predates this work; would be rejected today)
 - `v1.9.1` — a **lightweight** tag (a bare commit ref), so there is not even an object to sign
 
 ## One-time setup
+
+*(Done for the current maintainer; kept for the next one, or for a key rotation.)*
 
 **1. Create a signing key.** SSH signing is simpler than GPG here and reuses a key you likely have:
 
