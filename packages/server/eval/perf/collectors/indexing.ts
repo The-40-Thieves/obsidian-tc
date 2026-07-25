@@ -11,6 +11,7 @@ export function collectIndexing(vault: VaultCtx, buildMs: number): MetricSample[
   return [
     {
       key: "index.chunk_count",
+      portable: true,
       value: chunks,
       unit: "count",
       class: "hard",
@@ -18,6 +19,7 @@ export function collectIndexing(vault: VaultCtx, buildMs: number): MetricSample[
     },
     {
       key: "index.chunks_per_s",
+      portable: true,
       value: seconds > 0 ? chunks / seconds : 0,
       unit: "per_s",
       // Throughput is runner-variable; warn-only per spec §3 (the hard invariant is
@@ -41,6 +43,7 @@ export function collectIndexing(vault: VaultCtx, buildMs: number): MetricSample[
     // field.
     {
       key: "index.txn_count",
+      portable: true,
       value: vault.writeTxnCount,
       unit: "count",
       class: "hard",
@@ -48,6 +51,7 @@ export function collectIndexing(vault: VaultCtx, buildMs: number): MetricSample[
     },
     {
       key: "embed.call_count",
+      portable: true,
       value: vault.provider.calls,
       unit: "count",
       class: "hard",
@@ -55,6 +59,7 @@ export function collectIndexing(vault: VaultCtx, buildMs: number): MetricSample[
     },
     {
       key: "embed.texts_per_s",
+      portable: true,
       value: seconds > 0 ? embedded / seconds : 0,
       unit: "per_s",
       class: "warn",
@@ -62,6 +67,7 @@ export function collectIndexing(vault: VaultCtx, buildMs: number): MetricSample[
     },
     {
       key: "embed.dup_ratio",
+      portable: true,
       value: dupRatio,
       unit: "ratio",
       class: "hard",

@@ -97,7 +97,50 @@ The harness runs **under bun**, not node, because:
 - `node` + `sqlite` (the Node.js built-in) does NOT load sqlite-vec; queries that depend on it fail.
 - This means `migration.rebuilt` (vec-index rebuild metric) and `graph.candidates_*` (ANN-based graph traversal counts) only work under bun.
 
-**Node.js parity is deferred to [THE-494](https://linear.app/the-40-thieves/issue/THE-494).**
+### Node portability run (THE-494)
+
+There **is** a Node run now, and it is deliberately not a second perf gate:
+
+```bash
+bun run perf:node-parity     # bundles the harness for node, then runs it under node
+```
+
+It bundles `run.ts` with `bun build --target node` (Node cannot resolve the harness's extensionless
+TypeScript imports directly) and executes `--profile portable` under `node`. That profile reports
+**only** the metrics tagged `portable: true` at their source — deterministic and storage-agnostic,
+so they mean the same thing with or without sqlite-vec — and the runner **refuses** `--gate` and
+`--update-baseline` under it. Two runtimes, two meanings, never one baseline.
+
+The tag is **opt-in**: a new metric is non-portable until someone says so. Forgetting it
+under-reports by one metric (visible, harmless); the inverse default would silently benchmark a
+brute-force fallback and call it parity. The set is enumerated, floored and reasoned in
+`test/perf-node-parity.test.ts`, and a profile that selects zero metrics exits non-zero rather than
+reporting a clean portability result over an empty set.
+
+Excluded on purpose: everything vec/ANN-dependent (`graph.candidates_*`, `retrieval.*`),
+`storage.bytes` (the vec virtual tables do not exist under Node, so the file is a different size by
+construction), and the runtime-characteristic metrics (`runtime.*`, `dispatch.*`, `http.*`).
+
+Measured 2026-07-25 on the `small` scenario — every **hard-class** metric is identical across
+runtimes, which is exactly the signal this run exists to produce:
+
+| metric | class | bun 1.3.14 | node 26.5.0 |
+| --- | --- | --- | --- |
+| `index.chunk_count` | hard | 200 | 200 |
+| `index.txn_count` | hard | 3 | 3 |
+| `embed.call_count` | hard | 2 | 2 |
+| `embed.dup_ratio` | hard | 0.4 | 0.4 |
+| `freshness.visible` | hard | 1 | 1 |
+| `index.chunks_per_s` | warn | 861.8 | 437.5 |
+| `embed.texts_per_s` | warn | 517.1 | 262.5 |
+| `freshness.ms` | warn | 214.0 | 139.8 |
+
+The warn-class rows differ by runtime and are **not** a cross-runtime latency claim — note that
+`freshness.ms` is *lower* under node while throughput is *higher* under bun. Informational only.
+
+CI runs it as a `continue-on-error` **step** (not a job-level setting, which does not survive a
+failed step — every later step would be skipped, silently dropping the artifact upload) and
+publishes `perf-node-parity.json`.
 
 ## Determinism
 

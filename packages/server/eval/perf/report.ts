@@ -7,6 +7,18 @@ export type Direction = "lower-worse" | "higher-worse" | "exact";
 export interface MetricSample {
   key: string;
   value: number;
+  /**
+   * THE-494: this metric is runtime-portable — deterministic and storage-agnostic, so it means the
+   * same thing under Node + `node:sqlite` (where the sqlite-vec extension does NOT load and vector
+   * search silently degrades to brute force) as it does under the gated bun + better-sqlite3 +
+   * sqlite-vec path.
+   *
+   * OPT-IN ON PURPOSE. A new metric is non-portable until someone says otherwise, so the failure
+   * mode of forgetting the flag is a Node parity run that reports one metric too FEW — visible and
+   * harmless — rather than one that benchmarks a fallback path and calls the result parity. The
+   * portable set is enumerated and floored in `perf-node-parity.test.ts`.
+   */
+  portable?: boolean;
   // "mb" was missing, which is very likely how runtime.peak_rss_per_10k_mb ended up tagged
   // "count" while holding megabytes (THE-459). A unit that cannot be expressed gets mislabelled.
   unit: "count" | "per_s" | "ms" | "ratio" | "bytes" | "mb" | "bool";

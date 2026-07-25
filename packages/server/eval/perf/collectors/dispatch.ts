@@ -96,7 +96,25 @@ export async function collectDispatch(vault: VaultCtx): Promise<MetricSample[]> 
       class: "warn",
       direction: "higher-worse",
     },
-    { key: "freshness.visible", value: visible, unit: "bool", class: "hard", direction: "exact" },
-    { key: "freshness.ms", value: freshMs, unit: "ms", class: "warn", direction: "higher-worse" },
+    {
+      key: "freshness.visible",
+      value: visible,
+      unit: "bool",
+      class: "hard",
+      direction: "exact",
+      // THE-494: search_text is the LEXICAL (FTS) path — no vector search, so write-to-search
+      // visibility means the same thing with or without sqlite-vec.
+      portable: true,
+    },
+    {
+      key: "freshness.ms",
+      value: freshMs,
+      unit: "ms",
+      class: "warn",
+      direction: "higher-worse",
+      // Same lexical path as freshness.visible. Warn-class and informational under Node — the
+      // parity run never gates, so this is a portability signal, not a cross-runtime latency claim.
+      portable: true,
+    },
   ];
 }

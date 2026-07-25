@@ -123,3 +123,25 @@ jobs:
         with:
           name: perf-report
           path: packages/server/perf-report.json
+      # THE-494: Node portability run. Informational ONLY and deliberately never gated -- under
+      # Node + node:sqlite the sqlite-vec extension does not load and vector search degrades to
+      # brute force, so gating here would benchmark a path production never takes. It reports only
+      # the metrics tagged `portable` at their source (deterministic + storage-agnostic); the
+      # runner itself refuses --gate/--update-baseline under this profile.
+      #
+      # continue-on-error is on the STEP, not the job: a job-level setting does not survive a
+      # failed step -- every later step is SKIPPED -- which would silently drop the upload below.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v5
+        with:
+          node-version: '24'
+      - name: node portability run (informational, never gated; THE-494)
+        continue-on-error: true
+        run: bun run perf:node-parity
+        working-directory: packages/server
+      - name: upload node parity report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: perf-node-parity
+          path: packages/server/perf-node-parity.json
+          if-no-files-found: warn
