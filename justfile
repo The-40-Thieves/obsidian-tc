@@ -36,3 +36,18 @@ map:
 # Drift gate for `just map`. Fails if TREE.md's generated regions are stale. Run in ci-docgen.
 map-check:
     node scripts/gen-tree-map.mjs --check
+
+# THE-540 backlog hygiene: which OPEN tickets does the code already cite? This repo names ticket ids
+# in comments, so the code routinely knows things the tracker does not — THE-426 sat open eight days
+# after shipping, with its own number in a comment. Reports candidates for review, never closures.
+#
+# Deliberately a LOCAL recipe, not CI: the cross-check needs the open-ticket list, and the only
+# reason to put a Linear token in CI would be to automate a weekly nag. Run it when triaging.
+# With no argument it lists every ticket id the code cites (needs no credentials at all).
+#
+#   just ticket-drift                       # inventory: all cited ids
+#   just ticket-drift open-tickets.json     # cross-check; JSON: [{"id":"THE-1","state":"Todo"}]
+ticket-drift tickets="":
+    #!/usr/bin/env bash
+    if [ -z "{{tickets}}" ]; then node scripts/check-ticket-drift.mjs; \
+    else node scripts/check-ticket-drift.mjs --tickets "{{tickets}}"; fi
