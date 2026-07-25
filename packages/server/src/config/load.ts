@@ -8,17 +8,29 @@ import { applySecurityProfile } from "./security-profile";
  * Apply environment-secret overlays (kept off disk) to a raw config object and
  * validate it against the schema. Shared by file loading and zero-config startup.
  */
-export function finalizeConfig(raw: Record<string, unknown>): ServerConfig {
-  const envSecret = process.env.OBSIDIAN_TC_JWT_SECRET;
+/**
+ * Overlay environment-supplied values onto a raw config object, in place.
+ *
+ * THE-518: exported and `env`-injectable because `config/explain.ts` must apply the EXACT same
+ * overlay to attribute provenance. A second copy over there would be a hand-kept duplicate of a
+ * hand-written list — the drift this repo keeps finding — so there is one implementation and
+ * explain calls it.
+ *
+ * plur endpoint/token may come from the environment to keep the engram-store bearer off disk (same
+ * pattern as the JWT secret). The token is only ever placed in the Authorization header by the
+ * bridge transport, never logged.
+ */
+export function applyEnvOverlays(
+  raw: Record<string, unknown>,
+  env: Record<string, string | undefined> = process.env,
+): Record<string, unknown> {
+  const envSecret = env.OBSIDIAN_TC_JWT_SECRET;
   if (envSecret) {
     const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
     raw.auth = { ...auth, jwtSecret: envSecret };
   }
-  // plur endpoint/token may come from the environment to keep the engram-store
-  // bearer off disk (same pattern as the JWT secret). The token is only ever placed
-  // in the Authorization header by the bridge transport, never logged.
-  const plurEndpoint = process.env.OBSIDIAN_TC_PLUR_ENDPOINT;
-  const plurToken = process.env.OBSIDIAN_TC_PLUR_TOKEN;
+  const plurEndpoint = env.OBSIDIAN_TC_PLUR_ENDPOINT;
+  const plurToken = env.OBSIDIAN_TC_PLUR_TOKEN;
   if (plurEndpoint || plurToken) {
     const plur = (raw.plur as Record<string, unknown> | undefined) ?? {};
     raw.plur = {
@@ -27,6 +39,14 @@ export function finalizeConfig(raw: Record<string, unknown>): ServerConfig {
       ...(plurToken ? { apiKey: plurToken } : {}),
     };
   }
+  return raw;
+}
+
+export function finalizeConfig(
+  raw: Record<string, unknown>,
+  env: Record<string, string | undefined> = process.env,
+): ServerConfig {
+  applyEnvOverlays(raw, env);
   // THE-526: expand a named security profile into its field set BEFORE validation, so explicit fields
   // still override it and the result validates as a normal config.
   const config = ServerConfigSchema.parse(applySecurityProfile(raw));
