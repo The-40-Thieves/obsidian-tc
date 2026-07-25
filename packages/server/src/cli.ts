@@ -58,7 +58,7 @@ import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
 import { auditJob } from "./plane/jobs/audit";
-import { checkContradictions } from "./plane/jobs/contradiction";
+import { checkContradictions, loadChunkForContradiction } from "./plane/jobs/contradiction";
 import { isoWeek, runSynthesis } from "./plane/jobs/synthesis";
 import { createPlurBackend } from "./plur/client";
 import { JobQueue } from "./scheduler/job-queue";
@@ -70,13 +70,7 @@ import { ensureNotesFts } from "./search/fts";
 import { readGeneration } from "./search/generation";
 import { graphSearch } from "./search/graph_search";
 import { IndexCoordinator } from "./search/index-coordinator";
-import {
-  deindexNote,
-  type IndexedChunk,
-  type IndexHook,
-  indexNote,
-  indexVault,
-} from "./search/indexer";
+import { deindexNote, type IndexHook, indexNote, indexVault } from "./search/indexer";
 import { nativeLoaded } from "./search/native";
 import { callerAclFingerprint, prewarmPathFor, writePrewarm } from "./search/prefetch";
 import { createRetrievalCaches } from "./search/query_cache";
@@ -1134,7 +1128,11 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           for (const c of chunks) {
             jobQueue.enqueue("contradiction", {
               class: "contradiction",
-              payload: { vaultId, chunk: c },
+              // THE-571: ids only. The chunk (incl. its dense embedding) used to be JSON-encoded
+              // into jobs.payload on every enqueue; the handler re-reads it at run time instead,
+              // which is both smaller and fresher — a payload vector is a snapshot from enqueue
+              // time, so a re-embed before the job ran would have been judged on the OLD vector.
+              payload: { vaultId, chunkId: c.id },
               // Content-sensitive key: chunk.id (chunkId(vaultId, path, index)) is deterministic
               // from PATH+POSITION, not content, and enqueue() dedups against a completed job's
               // row forever (jobs are never pruned). Keying on id alone would mean editing a note
@@ -1158,7 +1156,11 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   const jobHandlers = new Map<string, JobHandler>();
   if (roles) {
     jobHandlers.set("contradiction", async (job) => {
-      const { vaultId, chunk } = job.payload as { vaultId: string; chunk: IndexedChunk };
+      const { vaultId, chunkId } = job.payload as { vaultId: string; chunkId: string };
+      const chunk = loadChunkForContradiction(db, vaultId, chunkId);
+      // Deleted or re-embedded between enqueue and run — a normal race, not a failure. Returning
+      // marks the job complete; THROWING here would dead-letter a job that did nothing wrong.
+      if (!chunk) return;
       await checkContradictions(
         { db, roles, now: Date.now, model: embeddingProvider.id },
         vaultId,
@@ -1630,8 +1632,13 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       db,
       intervalMs: config.maintenance.intervalMinutes * 60_000,
       eventLogDays: config.observability.retention.eventLogDays,
+      jobsCompleteDays: config.maintenance.jobsCompleteRetentionDays,
+      jobsFailedDays: config.maintenance.jobsFailedRetentionDays,
       onSweep: (counts) => {
-        const total = counts.idempotency_keys + counts.elicit_tokens + counts.event_log;
+        // THE-571: `jobs` joins the total so a sweep that only pruned queue rows still reports a
+        // non-zero count rather than reading as a no-op pass.
+        const total =
+          counts.idempotency_keys + counts.elicit_tokens + counts.event_log + counts.jobs;
         morgiana.emit(firstVault.id, "tc.maintenance.sweep", {
           count: total,
           rows_dropped: { ...counts },
