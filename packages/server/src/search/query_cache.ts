@@ -1,0 +1,408 @@
+// THE-497 — the query-product cache.
+//
+// Caches the expensive-but-reusable products of a retrieval (the query's dense/sparse/ColBERT
+// encodings, and the whole graph-search result) under a key that binds BOTH halves of THE-496:
+//
+//   1. IDENTITY — the caller's ACL fingerprint (acl.ts). Two callers with different effective read
+//      sets never share an entry, so the cache can never serve caller A's content to caller B. An
+//      incorrect key here is a data leak of the same class as THE-453/THE-456, which is why this is
+//      part of EVERY key in this file, even for products that do not depend on vault content: it
+//      costs only cross-principal hit rate (nothing at all in a single-principal runtime) and it
+//      also closes the timing side channel where B learns that A asked the same question.
+//   2. STALENESS — the vault generation (generation.ts). The bump lives inside each index write
+//      transaction, and the design deliberately errs toward bumping: a missed bump would silently
+//      serve stale results, while an over-bump is merely a cache miss. This cache inherits that
+//      asymmetry rather than re-deriving it.
+//
+// Two design decisions worth keeping:
+//
+// * THE KEY IS STRUCTURAL, NOT ENUMERATED. GraphSearchOptions carries ~30 knobs and grows most
+//   months. A hand-listed key would silently stop covering the next one added, and the failure mode
+//   is serving a result computed under a DIFFERENT configuration — invisible, and wrong. So the key
+//   hashes the whole options object generically (hashInto below); a new option participates the day
+//   it is added, with no edit here. `query-cache-key-coverage.test.ts` is the gate that proves it.
+// * THE KEY DOES NOT CONTAIN THE QUERY VECTORS. It contains the query TEXT plus a REPRESENTATION
+//   descriptor (what a vector means: provider/model/dimensions + which streams are on). Keying on
+//   the vectors would be circular — computing them is the expensive part we are trying to skip, so
+//   a cache that needs them first can only save the DB work, never the model round-trip. Vectors
+//   are a pure function of (text, representation), so this is exact, not an approximation.
+import { createHash, type Hash } from "node:crypto";
+import type { Database } from "../db/types";
+import { graphSearch } from "./graph_search";
+import type { GraphSearchOptions, GraphSearchResult } from "./graph_search_stages/types";
+
+/** Cache-key namespace per product, so two products can never collide on one key. */
+const PRODUCT_GRAPH_SEARCH = "THE-497/graph_search";
+const PRODUCT_QUERY_VECTORS = "THE-497/query_vectors";
+
+/** A function's IDENTITY is deliberately not part of any key — see `FUNCTION_FIELDS` below. One
+ *  more type tag in hashInto's alphabet (N/U/T/F/D/G/S/Y/V/A/O), distinct from all of them, so a
+ *  function is distinguishable from every other value and indistinguishable from another function. */
+const FN_SENTINEL = "X";
+
+export interface QueryCacheStats {
+  hits: number;
+  misses: number;
+  stores: number;
+  /** Entries dropped because the cache was full (LRU). */
+  evictions: number;
+  /** Entries found but past their TTL — a miss that also proves the TTL is doing work. */
+  expirations: number;
+}
+
+export interface QueryCacheOptions {
+  /** Hard cap on live entries. Retrieval results carry chunk CONTENT, so this bounds memory. */
+  maxEntries: number;
+  /** Entry lifetime. A TTL is required, not optional: several inputs to a retrieval are
+   *  wall-clock dependent and invisible to the key — `decay.nowMs` / `temporal.nowMs` default to
+   *  Date.now() INSIDE graphSearch when the caller omits them, and derived state (densified edges,
+   *  activation scores) is written by jobs that do not bump the vault generation. The TTL is the
+   *  only thing bounding how stale any of those can make an entry. */
+  ttlMs: number;
+  /** Injectable clock for deterministic tests. */
+  now?: () => number;
+}
+
+/**
+ * A bounded LRU cache with a TTL. Deliberately tiny and dependency-free: correctness here lives in
+ * the KEY (above), not in the eviction policy.
+ */
+export class QueryCache<V> {
+  private readonly entries = new Map<string, { value: V; expiresAt: number }>();
+  private readonly maxEntries: number;
+  private readonly ttlMs: number;
+  private readonly now: () => number;
+  private hits = 0;
+  private misses = 0;
+  private stores = 0;
+  private evictions = 0;
+  private expirations = 0;
+
+  constructor(opts: QueryCacheOptions) {
+    if (!Number.isInteger(opts.maxEntries) || opts.maxEntries < 1) {
+      throw new Error(`QueryCache maxEntries must be a positive integer, got ${opts.maxEntries}`);
+    }
+    if (!Number.isFinite(opts.ttlMs) || opts.ttlMs <= 0) {
+      throw new Error(`QueryCache ttlMs must be a positive number, got ${opts.ttlMs}`);
+    }
+    this.maxEntries = opts.maxEntries;
+    this.ttlMs = opts.ttlMs;
+    this.now = opts.now ?? Date.now;
+  }
+
+  get(key: string): V | undefined {
+    const hit = this.entries.get(key);
+    if (!hit) {
+      this.misses++;
+      return undefined;
+    }
+    if (hit.expiresAt <= this.now()) {
+      this.entries.delete(key);
+      this.expirations++;
+      this.misses++;
+      return undefined;
+    }
+    // Re-insert to move the key to the tail: Map iterates in insertion order, so the FIRST key is
+    // the least recently used one evict() drops.
+    this.entries.delete(key);
+    this.entries.set(key, hit);
+    this.hits++;
+    return hit.value;
+  }
+
+  set(key: string, value: V): void {
+    this.entries.delete(key);
+    this.entries.set(key, { value, expiresAt: this.now() + this.ttlMs });
+    this.stores++;
+    while (this.entries.size > this.maxEntries) {
+      const oldest = this.entries.keys().next();
+      if (oldest.done) break;
+      this.entries.delete(oldest.value);
+      this.evictions++;
+    }
+  }
+
+  /** Drop everything. Used by tests and by any caller that would rather pay a miss than reason
+   *  about whether an entry is still sound. */
+  clear(): void {
+    this.entries.clear();
+  }
+
+  get size(): number {
+    return this.entries.size;
+  }
+
+  stats(): QueryCacheStats {
+    return {
+      hits: this.hits,
+      misses: this.misses,
+      stores: this.stores,
+      evictions: this.evictions,
+      expirations: this.expirations,
+    };
+  }
+}
+
+/**
+ * What a query vector MEANS — the serve-side twin of search/representation.ts's VecFingerprint.
+ * Two encodings are interchangeable iff every field here matches, so this is what lets the cache
+ * key carry the query TEXT instead of the vectors themselves.
+ *
+ * `sparse`/`colbert` are here and not merely implied by the options object because they decide
+ * whether `embed()` produces those heads at all — a run with the sparse stream on and one with it
+ * off are different products of the same text and must not share an entry.
+ */
+export interface RepresentationDescriptor {
+  /** EmbeddingProvider.id — the configured provider instance. */
+  id: string;
+  provider: string;
+  model: string;
+  dimensions: number;
+  sparse: boolean;
+  colbert: boolean;
+}
+
+/** The per-dispatch half of the key: who is asking (ACL) and what the vault looked like. */
+export interface QueryCacheBinding {
+  /** THE-496 `aclFingerprint(config, grantedScopes)` for THIS caller and vault. */
+  aclFingerprint: string;
+  /** THE-496 `readGeneration(db, vaultId)` — 0 on a pre-migration cache.db, which is safe: a
+   *  never-bumping generation degrades this to a TTL-only cache, it never widens the key. */
+  generation: number;
+  representation: RepresentationDescriptor;
+}
+
+/** The query-side products of one retrieval — everything derivable from (text, representation). */
+export interface QueryVectors {
+  queryVec: number[];
+  querySparse?: GraphSearchOptions["querySparse"];
+  queryColbert?: GraphSearchOptions["queryColbert"];
+}
+
+/** The stores, held once per process. Absent -> every path below is an exact no-op. */
+export interface RetrievalCaches {
+  results: QueryCache<GraphSearchResult[]>;
+  vectors: QueryCache<QueryVectors>;
+}
+
+export function createRetrievalCaches(opts: QueryCacheOptions): RetrievalCaches {
+  return { results: new QueryCache(opts), vectors: new QueryCache(opts) };
+}
+
+// The option fields that hold FUNCTIONS. Their identity is not hashable, so hashInto folds each to
+// one sentinel — meaning "a function is here; which one is not part of the key". Every entry below
+// is a reviewed claim that this is sound, and query-cache-key-coverage.test.ts fails if a new
+// function-valued field appears without being added here and reviewed:
+//
+//   isReadable     — the read predicate. Purely a function of (ACL config, granted scopes), which
+//                    IS in the key as the ACL fingerprint. This is the isolation guarantee.
+//   activationFor  — a DB lookup of cached_activation_score. Inert unless bubbleSafe.enabled, and
+//                    even then bounded to a one-position shift. Activation recompute does not bump
+//                    the generation, so the TTL is what bounds its staleness (documented above).
+//   onStage        — observability only, cannot change results.
+//   onStageMetric  — observability only, cannot change results.
+//   reranker       — a bare `(query, docs, topN) => hits` function with no identity to hash. It is
+//                    built once per process from config, so swapping it mid-process is not a thing
+//                    that happens today; the key records only whether one is PRESENT, since absent
+//                    vs present does change results. Give Reranker a stable id and this becomes
+//                    exact.
+const FUNCTION_FIELDS = ["isReadable", "activationFor", "onStage", "onStageMetric"] as const;
+
+/** Fields excluded from the key because they are derived from (query text, representation), both
+ *  of which the key already carries — see the header note on circularity. */
+const DERIVED_VECTOR_FIELDS = ["queryVec", "querySparse", "queryColbert"] as const;
+
+export { DERIVED_VECTOR_FIELDS, FUNCTION_FIELDS };
+
+/**
+ * Fold an arbitrary value into a hash, deterministically and injectively.
+ *
+ * Every value is tag-prefixed and every variable-length value length-prefixed, so no two distinct
+ * structures can produce the same byte stream (without those, `["ab","c"]` and `["a","bc"]` hash
+ * identically — a silent key collision between two different configurations).
+ *
+ * `undefined` object properties are SKIPPED rather than encoded, so `{k: undefined}` and `{}` hash
+ * alike. That is deliberate and matches how the pipeline reads its options: every knob is
+ * `opts.x ?? default`, so absent and explicitly-undefined are the same configuration.
+ */
+export function hashInto(h: Hash, v: unknown): void {
+  if (v === null) {
+    h.update("N");
+    return;
+  }
+  switch (typeof v) {
+    case "undefined":
+      h.update("U");
+      return;
+    case "boolean":
+      h.update(v ? "T" : "F");
+      return;
+    case "number": {
+      // Bit-exact: 0.1+0.2 must not hash as 0.3, and -0 must not hash as 0.
+      const buf = Buffer.allocUnsafe(8);
+      buf.writeDoubleLE(v, 0);
+      h.update("D");
+      h.update(buf);
+      return;
+    }
+    case "bigint":
+      h.update("G");
+      updateString(h, v.toString());
+      return;
+    case "string":
+      h.update("S");
+      updateString(h, v);
+      return;
+    case "function":
+      h.update(FN_SENTINEL);
+      return;
+    case "symbol":
+      h.update("Y");
+      updateString(h, String(v));
+      return;
+  }
+  if (ArrayBuffer.isView(v)) {
+    h.update("V");
+    updateLength(h, v.byteLength);
+    h.update(Buffer.from(v.buffer, v.byteOffset, v.byteLength));
+    return;
+  }
+  if (Array.isArray(v)) {
+    // Embeddings are number[] of 768–4096 elements and ColBERT matrices are arrays of those. JSON
+    // would stringify every float; the raw little-endian buffer is exact and ~an order of magnitude
+    // cheaper on the hot path.
+    if (v.length > 0 && v.every((x) => typeof x === "number")) {
+      h.update("AD");
+      updateLength(h, v.length);
+      h.update(Buffer.from(Float64Array.from(v as number[]).buffer));
+      return;
+    }
+    h.update("A");
+    updateLength(h, v.length);
+    for (const el of v) hashInto(h, el);
+    return;
+  }
+  // Plain object (and anything object-like): sorted own enumerable string keys.
+  const obj = v as Record<string, unknown>;
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort();
+  h.update("O");
+  updateLength(h, keys.length);
+  for (const k of keys) {
+    updateString(h, k);
+    hashInto(h, obj[k]);
+  }
+}
+
+function updateString(h: Hash, s: string): void {
+  const buf = Buffer.from(s, "utf8");
+  updateLength(h, buf.byteLength);
+  h.update(buf);
+}
+
+function updateLength(h: Hash, n: number): void {
+  const buf = Buffer.allocUnsafe(4);
+  buf.writeUInt32LE(n >>> 0, 0);
+  h.update(buf);
+}
+
+/** sha256 hex over an arbitrary structure — the one key builder every product below shares. */
+export function structuralKey(parts: unknown): string {
+  const h = createHash("sha256");
+  hashInto(h, parts);
+  return h.digest("hex");
+}
+
+/** Key for the query-side encodings. No generation: an encoding of a TEXT cannot go stale when
+ *  vault CONTENT changes. The ACL fingerprint is still in the key — see the header. */
+export function queryVectorsKey(query: string, binding: QueryCacheBinding): string {
+  return structuralKey([
+    PRODUCT_QUERY_VECTORS,
+    binding.aclFingerprint,
+    binding.representation,
+    query,
+  ]);
+}
+
+/** Key for a whole graph-search result. Carries both halves of THE-496 plus the full option set. */
+export function graphSearchKey(
+  base: Omit<GraphSearchOptions, "queryVec">,
+  binding: QueryCacheBinding,
+  denseText: string,
+): string {
+  const keyed: Record<string, unknown> = { ...base };
+  for (const f of DERIVED_VECTOR_FIELDS) delete keyed[f];
+  // `reranker` is a bare function with no identity (see FUNCTION_FIELDS); record presence only.
+  keyed.reranker = keyed.reranker == null ? "absent" : "present";
+  return structuralKey([
+    PRODUCT_GRAPH_SEARCH,
+    base.vaultId,
+    binding.aclFingerprint,
+    binding.generation,
+    binding.representation,
+    denseText,
+    keyed,
+  ]);
+}
+
+// Results are handed out to callers that pack, sort and annotate them in place. Store and return
+// COPIES so a caller mutating its own results can never rewrite what the next caller reads —
+// the cheap structural half of the same rule FolderAcl's accessors follow.
+function copyResults(results: GraphSearchResult[]): GraphSearchResult[] {
+  return results.map((r) => ({ ...r }));
+}
+
+/** Everything the cache needs that is NOT already in the options object. */
+export interface QueryCacheContext {
+  caches: RetrievalCaches;
+  binding: QueryCacheBinding;
+  /**
+   * The text ACTUALLY embedded for the dense arm. Normally `base.query`, but under THE-451 HyDE it
+   * is the hypothetical answer while the raw query still rides `base.query` for the lexical arms —
+   * two different products of the same tool call. It is a required field rather than one defaulting
+   * to `base.query` precisely because the HyDE case is the one a default would get silently wrong.
+   *
+   * The vectors entry is keyed on it as a bundle, so a HyDE call re-encodes the sparse/ColBERT
+   * heads it could in principle have reused. That costs hit rate on one opt-in path and keeps the
+   * key a single obvious thing; splitting the bundle per head is the optimisation if it ever
+   * matters.
+   */
+  denseText: string;
+}
+
+/**
+ * graphSearch with the query-product cache in front of it.
+ *
+ * The lookup happens BEFORE `embed()` runs, so a hit skips the embedding round-trip(s) as well as
+ * the DB work — that ordering is the entire performance point (see the header note on why the key
+ * cannot contain the vectors). With `cache` absent this is exactly `graphSearch`, one extra await
+ * deep.
+ */
+export async function cachedGraphSearch(
+  db: Database,
+  base: Omit<GraphSearchOptions, "queryVec">,
+  embed: () => Promise<QueryVectors>,
+  cache?: QueryCacheContext,
+): Promise<GraphSearchResult[]> {
+  if (!cache) {
+    const v = await embed();
+    return graphSearch(db, { ...base, ...v });
+  }
+  const { caches, binding, denseText } = cache;
+
+  const resultKey = graphSearchKey(base, binding, denseText);
+  const cached = caches.results.get(resultKey);
+  if (cached) return copyResults(cached);
+
+  const vectorKey = queryVectorsKey(denseText, binding);
+  let vectors = caches.vectors.get(vectorKey);
+  if (!vectors) {
+    vectors = await embed();
+    caches.vectors.set(vectorKey, vectors);
+  }
+
+  const results = await graphSearch(db, { ...base, ...vectors });
+  caches.results.set(resultKey, copyResults(results));
+  return results;
+}

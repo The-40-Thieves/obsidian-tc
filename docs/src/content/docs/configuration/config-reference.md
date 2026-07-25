@@ -192,6 +192,9 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 |---|---|---|---|---|
 | `retrieval.adaptiveRrf.enabled` | `boolean` | `false` |  | Enable the adaptive per-stream RRF weighting tilt. Off by default. |
 | `retrieval.adaptiveRrf.gain` | `number` | `0.5` |  | Strength of the tilt, clamped to [0,1] so stream weights stay within [0,2] — an over-unity gain would drive a weight negative and invert its ranking rather than just reweight it. |
+| `retrieval.cache.enabled` | `boolean` | `false` |  | Cache query encodings and graph-search results in process, keyed by vault generation + caller ACL fingerprint + query + retrieval config. A latency optimisation only; off by default. |
+| `retrieval.cache.maxEntries` | `number` | `64` |  | Maximum live entries per cache (results and query encodings are counted separately). Results carry chunk content, so this is the memory bound. |
+| `retrieval.cache.ttlSeconds` | `number` | `60` |  | Entry lifetime. Bounds staleness from inputs the key cannot see: wall-clock recency decay, and derived state (densified edges, activation scores) written by jobs that do not bump the vault generation. |
 | `retrieval.classRouter` | `boolean` | `false` |  | Enable the deterministic query-class router: a temporal auto-stream and a lexical short-circuit that skips the embedding round-trip. Ships dark pending an A/B on the golden set. |
 | `retrieval.colbert` | `boolean` | `false` |  | Rerank the fused top-K by bge-m3 ColBERT late-interaction maxSim. A no-op unless the provider emits the multi-vector heads. |
 | `retrieval.densify.confidenceFloor` | `number` | `0.55` |  | Minimum discrete-rubric confidence required to keep an LLM-inferred edge. |

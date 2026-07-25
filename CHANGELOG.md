@@ -6,6 +6,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Query-product cache** (THE-497). Query encodings and whole graph-search results are cached in
+  process, keyed by the vault generation (THE-496) + the caller's ACL fingerprint + the query text
+  + a representation descriptor + the full retrieval option set. A hit is only ever the same caller
+  re-asking the same question of an unchanged vault under an unchanged configuration, and it skips
+  the embedding round-trip as well as the query, because the key carries the query TEXT rather than
+  the query VECTOR. Measured on the synthetic perf vault: 32.6 ms → ~0.3 ms on a hit (51.7× over a
+  500-call, 5-distinct-query workload), or 52.7 → 3.3 ms/call with a 15 ms embedding round-trip,
+  with byte-identical rankings. Off by default — `retrieval.cache.enabled`.
+
+  Two guarantees are pinned by tests rather than by review: an adversarial cross-principal test on a
+  real indexed vault (a restricted caller never receives a broad caller's `secret/**` results, and
+  really re-runs rather than being served a filtered replay), and a structural gate that parses
+  `GraphSearchOptions` from source and fails by name when a new retrieval option is neither keyed
+  nor explicitly reviewed as unkeyable.
+
 ## [1.11.0] - 2026-07-24
 
 ### Verification and release infrastructure

@@ -137,11 +137,14 @@ describe("graphSearch options threading (THE-545)", () => {
       join(__dirname, "..", "src", "tools", "m7", "knowledge-tools.ts"),
       "utf8",
     );
-    const inlineCalls = src.match(/graphSearch\(\s*ctx\.db\s*,\s*\{/g) ?? [];
+    // THE-497 moved every site from `graphSearch(...)` to `cachedGraphSearch(...)`; both shapes are
+    // matched so this keeps failing on a hand-assembled site of either kind. That the floor below
+    // caught the rename (0 calls read as "clean" until it refused) is the reason it is here.
+    const inlineCalls = src.match(/(?:cached)?[gG]raphSearch\(\s*ctx\.db\s*,\s*\{/g) ?? [];
     expect(inlineCalls).toEqual([]);
 
     // ...and every graphSearch call really does route through the builder.
-    const totalCalls = (src.match(/await graphSearch\(/g) ?? []).length;
+    const totalCalls = (src.match(/await (?:cachedG|g)raphSearch\(/g) ?? []).length;
     const viaBuilder = (src.match(/buildGraphSearchOptions\(deps,/g) ?? []).length;
     expect(totalCalls).toBeGreaterThan(0); // an empty match must never read as a pass
     expect(viaBuilder).toBe(totalCalls);
