@@ -48,7 +48,8 @@ same authorization / ACL / HITL / idempotency / throttle pipeline.
 A tool that needs an unavailable capability (a missing plugin, an unconfigured
 embedding provider) returns a typed error from the shared `ObsidianTcError`
 taxonomy (e.g. `plugin_missing`, `embedding_provider_error`) with a `retryable`
-flag — it never throws an opaque failure. At the MCP boundary a dispatch failure
+flag and a bounded `recovery` hint naming the next step — it never throws an
+opaque failure. At the MCP boundary a dispatch failure
 surfaces as a **Tool Execution Error** (`isError: true` with human-readable text
 plus the structured error as `structuredContent`), so a model can self-correct
 rather than seeing a protocol error.

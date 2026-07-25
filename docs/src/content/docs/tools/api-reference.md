@@ -88,6 +88,20 @@ Every call — direct or via `call_capability` — passes the same gates:
 
 Failures return a typed error from the `ObsidianTcError` taxonomy (e.g. `plugin_missing`, `embedding_provider_error`, `requires_live_obsidian`, `read_only_mode`) with a `retryable` flag — never an opaque throw. At the MCP boundary a dispatch failure surfaces as a **Tool Execution Error** (`isError: true`, human-readable text plus the structured error as `structuredContent`).
 
+The error envelope is:
+
+```json
+{
+  "code": "acl_denied",
+  "message": "path denied by folder ACL",
+  "retryable": false,
+  "details": { "path": "…", "op": "write" },
+  "recovery": "This path is outside the folder ACL for this caller. Call inspect_acl to see which roots are permitted and retry within one of them."
+}
+```
+
+`recovery` is bounded next-step guidance for the code — it names the tool to call next where one exists, and complements `retryable` (which says only *whether* a retry could help). It is selected by error code alone, so it never echoes a path, query, caller or vault back to the client. `details` is where request-specific context appears, when the raising site chooses to include it.
+
 ## See also
 
 - [Tool Reference](/tools/) — the tool surface, facade modes, and the domain map.

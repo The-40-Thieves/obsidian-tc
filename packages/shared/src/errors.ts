@@ -64,11 +64,124 @@ const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "plugin_unreachable",
 ]);
 
+/**
+ * THE-512: what to DO about each failure, keyed on the code alone.
+ *
+ * Two properties fall out of that keying, and both are the point:
+ *
+ *  - **Cannot leak.** A hint is a fixed string selected by `code`. No path, query, caller,
+ *    vault or argument can reach it, because none of them is in scope. THE-512 asks for hints
+ *    that carry no sensitive data; this makes that structural rather than a review promise.
+ *  - **Cannot drift per tool.** `ObsidianTcError.toJSON()` is the single serializer for every
+ *    error in the system (dispatch, bulk item outcomes, tool handlers), so the same failure
+ *    reads the same way everywhere. THE-512's "consistent across domains" requirement is
+ *    satisfied by construction, not by 146 hand-written hints agreeing with each other.
+ *
+ * `Record<ErrorCode, ...>` is deliberate: it is exhaustive, so adding a code to `ErrorCode`
+ * fails to compile until it declares a hint. `null` means "no hint helps" — a considered
+ * choice, not an omission. Guidance that only restates `message` is noise, so it is omitted.
+ *
+ * Hints complement `retryable`, which says *whether* to retry; these say *what to do instead*.
+ */
+const RECOVERY: Record<ErrorCode, string | null> = {
+  // M0 dispatch + foundation.
+  unauthorized:
+    "Authenticate first: send a credential this server accepts, then re-issue the call.",
+  forbidden:
+    "Missing a required scope (details.required lists it). Re-authenticate with a credential that grants it, or call inspect_acl to see what this caller may reach.",
+  validation_error:
+    "Read the tool's inputSchema via describe_capability and correct the arguments; details names the offending field where one could be identified.",
+  not_found:
+    "Confirm the target exists before retrying — note_exists checks one path, list_notes enumerates, and search_vault finds by content when the exact path is unknown.",
+  vault_not_found:
+    "Use one of the ids from list_vaults, or register the vault first with add_vault (no restart needed).",
+  conflict: "Re-read the current state, re-apply the change on top of it, and retry.",
+  idempotency_key_mismatch:
+    "This key was already used with different arguments. Use a fresh key — reusing one with changed input is what this rejects.",
+  idempotency_in_flight:
+    "An earlier call with this key is still running. Wait and retry the SAME key; issuing a new one would apply the effect twice.",
+  elicit_required:
+    "A human must approve this call. Re-send it with the token from the confirmation prompt; request a fresh prompt rather than reusing an old token.",
+  elicit_invalid:
+    "The token was rejected or expired. Re-issue the original call with no token to trigger a fresh confirmation prompt.",
+  overflow:
+    "The response exceeded the byte budget. Narrow the request — a smaller limit, fewer paths, or a compact/paginated read — rather than retrying unchanged.",
+  throttled:
+    "Rate limit for this scope class. Back off before retrying, and reduce batch size or spread the calls; a tight retry loop will keep hitting it.",
+  read_only:
+    "The server is in read-only mode, so no write will succeed until that changes. Use a read tool, or take this up with whoever runs the server.",
+  plugin_unavailable:
+    "The companion plugin is not answering. Check Obsidian is running with the Local REST API enabled, then re-probe with refresh_plugin_capabilities.",
+  internal:
+    "Unexpected server-side failure. Retryable once; if it persists, check server_health and the server log rather than retrying further.",
+  // M1 — tool-surface codes.
+  note_not_found:
+    "Confirm the path first: note_exists checks it, list_notes enumerates the folder, search_vault finds the note by content.",
+  path_invalid:
+    "Paths are vault-relative, must stay inside the vault, and must not traverse upward. Rewrite the path rather than retrying it.",
+  path_ambiguous:
+    "More than one note matches. Pass the full vault-relative path — list_notes or search_vault will show the candidates to choose between.",
+  acl_denied:
+    "This path is outside the folder ACL for this caller. Call inspect_acl to see which roots are permitted and retry within one of them.",
+  read_only_mode:
+    "This vault is configured read-only. Target a writable vault, or change the vault's configuration; retrying cannot help.",
+  note_exists:
+    "Something is already at that path. Choose a different path, or use the tool's overwrite/append option if it has one.",
+  concurrent_modification:
+    "The note changed after you read it. Re-read it, re-apply your edit to the new content, and retry with the fresh CAS token — do not retry the stale one.",
+  invalid_input:
+    "Check the argument types and required fields against describe_capability's inputSchema before retrying.",
+  internal_error:
+    "Unexpected failure inside the handler. Retryable once; if it persists, capture the call and check the server log.",
+  // M2 — search + retrieval substrate.
+  embedding_provider_error:
+    "The embedding backend failed. Retryable; if it persists, confirm the provider is reachable and the configured model is present (server_health reports the provider).",
+  operation_timeout:
+    "The operation exceeded its time budget. Retryable, but narrow it first — a smaller limit or a more selective query is more likely to finish.",
+  dql_error:
+    "Dataview rejected the query. Check it with validate_dql, which reports the syntax error without running it.",
+  jsonlogic_error:
+    "The JSONLogic expression is malformed. Verify the operator names and that every operator's argument arity matches.",
+  plugin_missing:
+    "The required Obsidian plugin is not installed or not enabled. Enable it in Obsidian, then run refresh_plugin_capabilities so the server re-probes.",
+  plugin_unreachable:
+    "The plugin is present but its endpoint failed. Retryable; check Obsidian is running and the Local REST API is enabled and reachable.",
+  // M3 — structured formats.
+  bases_syntax_error:
+    "The .base file's YAML or filter syntax is invalid. Fix the file — read_base shows how the server parses it.",
+  unsupported_base_filter:
+    "This base uses Obsidian's Bases expression DSL, which query_base does not evaluate. Read the base and filter the rows yourself, or simplify the base's filter.",
+  // M4 — command palette.
+  execute_command_disabled:
+    "Command execution is off for this vault. It must be enabled in configuration; this is a policy decision, not a transient failure.",
+  command_not_allowlisted:
+    "The command is not in this vault's allowlist. Add it there (deny-by-default is intentional) — list_commands shows what is currently permitted.",
+  // M-headless.
+  requires_live_obsidian:
+    "This capability needs a live Obsidian connection and the vault is headless. Start Obsidian with the Local REST API, or use a filesystem-only equivalent.",
+  // THE-293.
+  compute_budget_exceeded:
+    "The input exhausted its compute budget and will do so again identically — do not retry. Simplify the pattern or expression, or narrow what it runs over.",
+  // THE-282.
+  plugin_incompatible:
+    "The companion plugin's API major does not match this server's. Permanent until one side is upgraded; retrying will not help.",
+  // THE-562 #13 — the one hint that prevents a destructive retry.
+  indeterminate_outcome:
+    "A previous attempt with this idempotency key committed its effect but never recorded the result. Do NOT blindly retry: read the target state first, and only re-issue (with a NEW key) if the effect did not land.",
+};
+
+/** THE-512: the recovery hint for a code, or undefined when none is useful. */
+export function recoveryFor(code: ErrorCode): string | undefined {
+  return RECOVERY[code] ?? undefined;
+}
+
 export interface ErrorJSON {
   code: ErrorCode;
   message: string;
   retryable: boolean;
   details?: Record<string, unknown>;
+  /** THE-512: bounded, static next-step guidance for this error code. Absent when no hint helps. */
+  recovery?: string;
 }
 
 export class ObsidianTcError extends Error {
@@ -86,11 +199,13 @@ export class ObsidianTcError extends Error {
   }
 
   toJSON(): ErrorJSON {
+    const recovery = recoveryFor(this.code);
     return {
       code: this.code,
       message: this.message,
       retryable: this.retryable,
       ...(this.details ? { details: this.details } : {}),
+      ...(recovery ? { recovery } : {}),
     };
   }
 }

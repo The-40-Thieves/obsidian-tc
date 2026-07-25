@@ -2,6 +2,7 @@ import {
   AclConfigSchema,
   err,
   ObsidianTcError,
+  recoveryFor,
   VaultId,
   VaultPath,
 } from "@the-40-thieves/obsidian-tc-shared";
@@ -10,11 +11,17 @@ import { describe, expect, it } from "vitest";
 describe("M1 error taxonomy", () => {
   it("exposes the new G2.1 codes and serializes them", () => {
     const e = err.aclDenied("nope", { path: "x.md", op: "write" });
+    // THE-512 added `recovery` to the envelope — static next-step guidance keyed on the code.
+    // Asserted via recoveryFor rather than a literal so this test pins the WIRING (the field is
+    // present and comes from the taxonomy) without pinning the wording, which is prose and would
+    // otherwise make every copy-edit a test change. The hint's own invariants — bounded, leak-free,
+    // one per code — live in error-recovery-hints.test.ts.
     expect(e.toJSON()).toEqual({
       code: "acl_denied",
       message: "nope",
       retryable: false,
       details: { path: "x.md", op: "write" },
+      recovery: recoveryFor("acl_denied"),
     });
   });
   it("marks concurrent_modification retryable, path_ambiguous not", () => {
