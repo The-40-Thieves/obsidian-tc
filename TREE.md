@@ -193,7 +193,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**247 modules · 977 dependencies · 62 distinct subsystem pairs · 397 cross-subsystem imports.**
+**248 modules · 983 dependencies · 62 distinct subsystem pairs · 399 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 ### Subsystem graph
@@ -205,7 +205,7 @@ set is 62 pairs.
 ```mermaid
 flowchart LR
   tools[tools<br/>58 files]
-  search[search<br/>42 files]
+  search[search<br/>43 files]
   vault[vault<br/>17 files]
   db[(db<br/>13 files)]
   experiential[experiential<br/>10 files]
@@ -218,8 +218,8 @@ flowchart LR
 
   tools -->|151| vault
   tools -->|53| mcp
-  search -->|28| db
-  tools -->|15| search
+  search -->|29| db
+  tools -->|16| search
   search -->|12| vault
   experiential -->|9| db
   tools -->|9| db
@@ -238,10 +238,10 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 186 | `tools` | 260 |
-| `db` | 59 | `search` | 44 |
+| `vault` | 186 | `tools` | 261 |
+| `db` | 60 | `search` | 45 |
 | `mcp` | 58 | `experiential` | 14 |
-| `search` | 26 | `mcp` | 13 |
+| `search` | 27 | `mcp` | 13 |
 | `embeddings` | 12 | `model` | 11 |
 <!-- END GENERATED: tree-fan -->
 

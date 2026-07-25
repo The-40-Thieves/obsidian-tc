@@ -489,6 +489,43 @@ export const RetrievalConfigSchema = z.object({
     .describe(
       "Adaptive per-stream RRF weighting (THE-391): tilts dense vs lexical/sparse stream weight by per-query lexical specificity. Off by default.",
     ),
+  /** THE-497: the in-process query-product cache. Keyed by the vault generation (THE-496) + the
+   *  caller's ACL fingerprint + the query text + the full retrieval option set, so a hit is only
+   *  ever the SAME caller re-asking the SAME question of an UNCHANGED vault under the SAME
+   *  configuration. It is a latency optimisation with no intended effect on results.
+   *
+   *  Ships OFF. Not because the key is doubted — it has an adversarial cross-principal test and a
+   *  structural gate that fails when a new retrieval option is not covered — but because "results
+   *  are unchanged" is exactly the claim a cache can be wrong about, and a wrong hit is invisible
+   *  where a wrong ranking is merely worse. Flip after a perf-gate run on a real vault. */
+  cache: z
+    .object({
+      enabled: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Cache query encodings and graph-search results in process, keyed by vault generation + caller ACL fingerprint + query + retrieval config. A latency optimisation only; off by default.",
+        ),
+      maxEntries: z
+        .number()
+        .int()
+        .positive()
+        .default(64)
+        .describe(
+          "Maximum live entries per cache (results and query encodings are counted separately). Results carry chunk content, so this is the memory bound.",
+        ),
+      ttlSeconds: z
+        .number()
+        .positive()
+        .default(60)
+        .describe(
+          "Entry lifetime. Bounds staleness from inputs the key cannot see: wall-clock recency decay, and derived state (densified edges, activation scores) written by jobs that do not bump the vault generation.",
+        ),
+    })
+    .prefault({})
+    .describe(
+      "THE-497 in-process query-product cache. Off by default; a hit requires the same caller, query, vault generation and retrieval configuration.",
+    ),
 });
 
 /** Metadata-prior (authority-boost) rule: add `boost` to the fused score of a result whose note

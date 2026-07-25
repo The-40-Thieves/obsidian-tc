@@ -11,7 +11,7 @@ import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { RetrievalLogger } from "../../experiential/log";
-import type { ToolDefinition } from "../../mcp/registry";
+import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
   type ContradictionContext,
   challengeProposal,
@@ -21,11 +21,7 @@ import {
 import { type GatewayRoles, prompt } from "../../plane/gateway";
 import { bm25Chunks } from "../../search/chunk_fts";
 import { readGeneration } from "../../search/generation";
-import {
-  type GraphSearchOptions,
-  type GraphSearchResult,
-  graphSearch,
-} from "../../search/graph_search";
+import type { GraphSearchOptions, GraphSearchResult } from "../../search/graph_search";
 import {
   callerAclFingerprint,
   DEFAULT_PREFETCH_TTL_MS,
@@ -33,6 +29,12 @@ import {
   readPrewarm,
   writePrewarm,
 } from "../../search/prefetch";
+import {
+  cachedGraphSearch,
+  type QueryCacheContext,
+  type QueryVectors,
+  type RetrievalCaches,
+} from "../../search/query_cache";
 import type { Reranker } from "../../search/rerank";
 import { lexicalRouteResults, routeQuery } from "../../search/router";
 import { semanticSearch } from "../../search/semantic";
@@ -91,6 +93,42 @@ export interface M7Deps {
   /** THE-562 P1.6: governed-write handles so reflect.persist snapshots + reindexes like write_note. */
   snapshots?: { enabled: boolean; retention: number };
   reindex?: (vaultId: string, path: string, content: string) => void;
+  /** THE-497: the in-process query-product cache (retrieval.cache). Absent -> every retrieval
+   *  surface below embeds and searches exactly as it did before, with no cache path taken. */
+  retrievalCaches?: RetrievalCaches;
+}
+
+/**
+ * THE-497: the per-dispatch half of the cache key. Built here, at the only place that has all
+ * three inputs: the CALLER (ACL fingerprint — the isolation guarantee), the VAULT (generation —
+ * the staleness guarantee), and what the query vectors will MEAN (provider/model/dimensions plus
+ * which multi-vector streams are on, since those decide which heads `embed()` even produces).
+ *
+ * Returns undefined when the cache is off, which makes every call site an exact pass-through.
+ */
+function cacheContextFor(
+  deps: M7Deps,
+  ctx: CallerContext,
+  vaultId: string,
+  denseText: string,
+): QueryCacheContext | undefined {
+  if (!deps.retrievalCaches) return undefined;
+  return {
+    caches: deps.retrievalCaches,
+    denseText,
+    binding: {
+      aclFingerprint: callerAclFingerprint(ctx.acl, ctx.grantedScopes),
+      generation: readGeneration(ctx.db, vaultId),
+      representation: {
+        id: deps.embeddingProvider.id,
+        provider: deps.embeddingProvider.provider,
+        model: deps.embeddingProvider.model,
+        dimensions: deps.embeddingProvider.dimensions,
+        sparse: deps.retrieval?.sparse === true,
+        colbert: deps.retrieval?.colbert === true,
+      },
+    },
+  };
 }
 
 /** THE-231: lesson-class paths — decision notes, lessons, postmortems, retros. Convention-based
@@ -163,7 +201,9 @@ export function buildGraphSearchOptions(
   site: {
     route: { class: string };
     query: string;
-    queryVec: number[];
+    /** THE-497: optional. The cached path builds these options BEFORE embedding — a cache hit must
+     *  skip the model round-trip, so the vectors are merged in afterwards on a miss only. */
+    queryVec?: number[];
     querySparse?: GraphSearchOptions["querySparse"];
     queryColbert?: GraphSearchOptions["queryColbert"];
     vaultId: string;
@@ -171,11 +211,11 @@ export function buildGraphSearchOptions(
     reranker: GraphSearchOptions["reranker"];
     isReadable: GraphSearchOptions["isReadable"];
   },
-): GraphSearchOptions {
+): Omit<GraphSearchOptions, "queryVec"> & { queryVec?: number[] } {
   return {
     ...(site.route.class === "temporal" ? { temporal: { enabled: true } } : {}),
     query: site.query,
-    queryVec: site.queryVec,
+    ...(site.queryVec ? { queryVec: site.queryVec } : {}),
     model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
     vaultId: site.vaultId,
     finalTopK: site.finalTopK,
@@ -264,6 +304,26 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
     resolveQuerySparse(deps.embeddingProvider, q, deps.retrieval?.sparse);
   const embedQueryColbert = (q: string) =>
     resolveQueryColbert(deps.embeddingProvider, q, deps.retrieval?.colbert);
+  /**
+   * THE-497: the three query encodings as one bundle, invoked ONLY on a cache miss — which is why
+   * every retrieval site below passes this as a thunk rather than awaiting it first. `denseText`
+   * and `lexicalText` are the same string everywhere except the THE-451 HyDE path, where the dense
+   * arm embeds the hypothetical answer and the lexical/late-interaction arms must not.
+   *
+   * Absent heads are OMITTED rather than set to undefined: graphSearch distinguishes "unset" from
+   * "set to undefined" nowhere, but the cache key does — an explicit undefined would be dropped by
+   * the canonicaliser anyway, and omitting keeps the two representations identical by construction.
+   */
+  const embedAll = async (denseText: string, lexicalText: string): Promise<QueryVectors> => {
+    const queryVec = await embedQuery(denseText);
+    const querySparse = await embedQuerySparse(lexicalText);
+    const queryColbert = await embedQueryColbert(lexicalText);
+    return {
+      queryVec,
+      ...(querySparse ? { querySparse } : {}),
+      ...(queryColbert ? { queryColbert } : {}),
+    };
+  };
 
   return [
     defineTool({
@@ -352,22 +412,18 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             readableRel(ctx.acl, rel),
           );
         } else {
-          const queryVec = await embedQuery(query);
-          const querySparse = await embedQuerySparse(query);
-          const queryColbert = await embedQueryColbert(query);
-          results = await graphSearch(
+          results = await cachedGraphSearch(
             ctx.db,
             buildGraphSearchOptions(deps, {
               route,
               query,
-              queryVec,
-              querySparse,
-              queryColbert,
               vaultId: v.id,
               finalTopK: input.k,
               reranker: deps.reranker,
               isReadable: (rel) => readableRel(ctx.acl, rel),
             }),
+            () => embedAll(query, query),
+            cacheContextFor(deps, ctx, v.id, query),
           );
         }
         deps.retrievalLog?.({
@@ -636,22 +692,18 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             readableRel(ctx.acl, rel),
           );
         } else {
-          const queryVec = await embedQuery(input.query);
-          const querySparse = await embedQuerySparse(input.query);
-          const queryColbert = await embedQueryColbert(input.query);
-          results = await graphSearch(
+          results = await cachedGraphSearch(
             ctx.db,
             buildGraphSearchOptions(deps, {
               route,
               query: input.query,
-              queryVec,
-              querySparse,
-              queryColbert,
               vaultId: v.id,
               finalTopK: input.k,
               reranker: deps.reranker,
               isReadable: (rel) => readableRel(ctx.acl, rel),
             }),
+            () => embedAll(input.query, input.query),
+            cacheContextFor(deps, ctx, v.id, input.query),
           );
         }
         if (input.scope !== undefined) {
@@ -836,24 +888,22 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         // THE-451: the dense arm embeds the hypothetical answer when supplied; sparse/ColBERT
         // ALWAYS embed the raw query — HyDE seeds the dense vector only, it must never
         // contaminate lexical or late-interaction matching.
-        const queryVec = await embedQuery(hydeActive ? (hyde as string) : input.query);
-        const querySparse = await embedQuerySparse(input.query);
-        const queryColbert = await embedQueryColbert(input.query);
-        const results = await graphSearch(
+        // THE-497: that split is exactly why the cache takes an explicit `denseText` — the raw
+        // query rides `query` for the lexical arms, so it alone would not distinguish two calls
+        // that differ only in their hypothetical answer.
+        const denseText = hydeActive ? (hyde as string) : input.query;
+        const results = await cachedGraphSearch(
           ctx.db,
           buildGraphSearchOptions(deps, {
             route,
             query: input.query,
-            // THE-451: `queryVec` may be the HyDE-seeded vector; the raw query still rides
-            // `query` for the lexical arms. The builder threads whatever it is given.
-            queryVec,
-            querySparse,
-            queryColbert,
             vaultId: v.id,
             finalTopK: input.final_top_k,
             reranker: deps.reranker,
             isReadable: (rel) => readableRel(ctx.acl, rel),
           }),
+          () => embedAll(denseText, input.query),
+          cacheContextFor(deps, ctx, v.id, denseText),
         );
         // THE-230: serve-path retrieval telemetry (best-effort; the logger never throws).
         deps.retrievalLog?.({
@@ -920,17 +970,11 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           });
           return { vault: v.id, mode_used: "lexical-route", route: route.signals, results };
         }
-        const queryVec = await embedQuery(input.query);
-        const querySparse = await embedQuerySparse(input.query);
-        const queryColbert = await embedQueryColbert(input.query);
-        const results = await graphSearch(
+        const results = await cachedGraphSearch(
           ctx.db,
           buildGraphSearchOptions(deps, {
             route,
             query: input.query,
-            queryVec,
-            querySparse,
-            queryColbert,
             vaultId: v.id,
             finalTopK: input.final_top_k,
             // THE-441: reranking lost decisively to the champion on this stack; the docs corpus
@@ -939,6 +983,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             reranker: null,
             isReadable: (rel) => readableRel(ctx.acl, rel),
           }),
+          () => embedAll(input.query, input.query),
+          cacheContextFor(deps, ctx, v.id, input.query),
         );
         deps.retrievalLog?.({
           queryText: input.query,

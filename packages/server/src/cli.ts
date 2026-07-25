@@ -77,6 +77,7 @@ import {
 } from "./search/indexer";
 import { nativeLoaded } from "./search/native";
 import { callerAclFingerprint, prewarmPathFor, writePrewarm } from "./search/prefetch";
+import { createRetrievalCaches } from "./search/query_cache";
 import {
   CHUNKER_VERSION,
   ENRICHMENT_VERSION,
@@ -1365,6 +1366,17 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // THE-562 P1.6: reflect.persist writes through the governed path (snapshot + index-on-write).
     snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
     reindex: reindexHook,
+    // THE-497: the query-product cache (dark unless retrieval.cache.enabled). Built ONCE per
+    // process and shared across every dispatch — that is the point, and it is safe because the
+    // caller's ACL fingerprint is part of every key rather than of the store's identity.
+    ...(config.retrieval.cache.enabled
+      ? {
+          retrievalCaches: createRetrievalCaches({
+            maxEntries: config.retrieval.cache.maxEntries,
+            ttlMs: config.retrieval.cache.ttlSeconds * 1000,
+          }),
+        }
+      : {}),
   });
 
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over
