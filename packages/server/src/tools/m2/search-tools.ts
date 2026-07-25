@@ -173,6 +173,19 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       sessionId: ctx.sessionId ?? null,
       caller: ctx.caller ?? null,
       hits: hits.map((h, i) => ({ chunkId: h.chunk_id, rank: i + 1, score: h.score })),
+      // THE-538: M2 semantic search is a single dense scan — no fusion, so no stream to attribute
+      // a hit to and no lexical/sparse weight to record. Logged explicitly so a NULL weight reads
+      // as "this policy has no such weight" rather than "the surface forgot to describe itself".
+      policy: {
+        vaultId: s.id,
+        policyId: "dense-only",
+        denseW: 1,
+        lexW: null,
+        sparseW: null,
+        fusionMode: null,
+        rrfK: null,
+        routeClass: null,
+      },
     });
     return hits;
   };

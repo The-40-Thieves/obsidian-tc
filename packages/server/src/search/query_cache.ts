@@ -201,12 +201,21 @@ export function createRetrievalCaches(opts: QueryCacheOptions): RetrievalCaches 
 //                    the generation, so the TTL is what bounds its staleness (documented above).
 //   onStage        — observability only, cannot change results.
 //   onStageMetric  — observability only, cannot change results.
+//   onFusionWeights— observability only (THE-538 policy provenance), cannot change results. Note
+//                    it reports weights that are already a pure function of keyed inputs
+//                    (adaptiveRrf + query + vaultId), so nothing it observes is unkeyed.
 //   reranker       — a bare `(query, docs, topN) => hits` function with no identity to hash. It is
 //                    built once per process from config, so swapping it mid-process is not a thing
 //                    that happens today; the key records only whether one is PRESENT, since absent
 //                    vs present does change results. Give Reranker a stable id and this becomes
 //                    exact.
-const FUNCTION_FIELDS = ["isReadable", "activationFor", "onStage", "onStageMetric"] as const;
+const FUNCTION_FIELDS = [
+  "isReadable",
+  "activationFor",
+  "onStage",
+  "onStageMetric",
+  "onFusionWeights",
+] as const;
 
 /** Fields excluded from the key because they are derived from (query text, representation), both
  *  of which the key already carries — see the header note on circularity. */

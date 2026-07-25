@@ -10,7 +10,7 @@ import { z } from "zod";
 import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
-import type { RetrievalLogger } from "../../experiential/log";
+import type { RetrievalLogger, RetrievalPolicyRecord } from "../../experiential/log";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
   type ContradictionContext,
@@ -131,6 +131,45 @@ function cacheContextFor(
   };
 }
 
+/**
+ * THE-538: capture the ranking policy behind ONE search call, for `retrieval_policy`.
+ *
+ * The weights are taken from the fusion stage's own sink rather than re-derived from config: under
+ * adaptive RRF they are computed PER QUERY from lexical specificity, and a missing FTS signal
+ * silently falls back to static all-1 weights — so a record built from the configured gain would
+ * describe a policy that did not run. No sink call (the lexical short-circuit never fuses) leaves
+ * the weights null and the policy id explicit.
+ */
+function capturePolicy(deps: M7Deps, vaultId: string, routeClass: string) {
+  let weights: { policyId: string; dense: number; lex: number; sparse: number } | undefined;
+  return {
+    sink: (w: typeof weights) => {
+      weights = w;
+    },
+    record: (fallbackPolicyId: string): RetrievalPolicyRecord => ({
+      vaultId,
+      policyId: weights?.policyId ?? fallbackPolicyId,
+      denseW: weights?.dense ?? null,
+      lexW: weights?.lex ?? null,
+      sparseW: weights?.sparse ?? null,
+      // These surfaces never override fusionMode, so the effective mode is graphSearch's default.
+      fusionMode: weights ? "graph_rrf" : null,
+      rrfK: weights ? (deps.retrieval?.rrfK ?? 10) : null,
+      routeClass,
+    }),
+  };
+}
+
+/** THE-538: one log hit per result, carrying the fusion STREAM that produced it. */
+function retrievalHits(results: GraphSearchResult[]) {
+  return results.map((r, i) => ({
+    chunkId: r.chunk_id,
+    rank: i + 1,
+    score: r.rerank_score,
+    streamSource: r.source,
+  }));
+}
+
 /** THE-231: lesson-class paths — decision notes, lessons, postmortems, retros. Convention-based
  *  (path substring), matching the vault layouts the challenge corpus already assumes. */
 const LESSON_PATH_RE = /decision|lesson|postmortem|retro/i;
@@ -210,6 +249,8 @@ export function buildGraphSearchOptions(
     finalTopK: number;
     reranker: GraphSearchOptions["reranker"];
     isReadable: GraphSearchOptions["isReadable"];
+    /** THE-538: per-query fusion-weight sink for retrieval-policy provenance. */
+    onFusionWeights?: GraphSearchOptions["onFusionWeights"];
   },
 ): Omit<GraphSearchOptions, "queryVec"> & { queryVec?: number[] } {
   return {
@@ -227,6 +268,7 @@ export function buildGraphSearchOptions(
     ...(site.queryColbert ? { queryColbert: site.queryColbert } : {}),
     reranker: site.reranker,
     isReadable: site.isReadable,
+    ...(site.onFusionWeights ? { onFusionWeights: site.onFusionWeights } : {}),
     ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
   };
 }
@@ -406,6 +448,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         const route = deps.classRouter
           ? routeQuery(ctx.db, v.id, query)
           : { class: "standard" as const, signals: [] as string[] };
+        const policy = capturePolicy(deps, v.id, route.class);
         let results: GraphSearchResult[];
         if (route.class === "lexical") {
           results = lexicalRouteResults(ctx.db, v.id, query, input.k, (rel) =>
@@ -421,6 +464,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
               finalTopK: input.k,
               reranker: deps.reranker,
               isReadable: (rel) => readableRel(ctx.acl, rel),
+              onFusionWeights: policy.sink,
             }),
             () => embedAll(query, query),
             cacheContextFor(deps, ctx, v.id, query),
@@ -431,11 +475,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           surfaceType: "vault_context",
           sessionId: ctx.sessionId ?? null,
           caller: ctx.caller ?? null,
-          hits: results.map((r, i) => ({
-            chunkId: r.chunk_id,
-            rank: i + 1,
-            score: r.rerank_score,
-          })),
+          hits: retrievalHits(results),
+          policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
         });
 
         // Token costs from the authored store (token_count), length/4 fallback. 15% of the
@@ -686,6 +727,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         const route = deps.classRouter
           ? routeQuery(ctx.db, v.id, input.query)
           : { class: "standard" as const, signals: [] as string[] };
+        const policy = capturePolicy(deps, v.id, route.class);
         let results: GraphSearchResult[];
         if (route.class === "lexical") {
           results = lexicalRouteResults(ctx.db, v.id, input.query, input.k, (rel) =>
@@ -701,6 +743,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
               finalTopK: input.k,
               reranker: deps.reranker,
               isReadable: (rel) => readableRel(ctx.acl, rel),
+              onFusionWeights: policy.sink,
             }),
             () => embedAll(input.query, input.query),
             cacheContextFor(deps, ctx, v.id, input.query),
@@ -715,11 +758,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           surfaceType: "reflect",
           sessionId: ctx.sessionId ?? null,
           caller: ctx.caller ?? null,
-          hits: results.map((r, i) => ({
-            chunkId: r.chunk_id,
-            rank: i + 1,
-            score: r.rerank_score,
-          })),
+          hits: retrievalHits(results),
+          policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
         });
         const sources = results.map((r) => ({
           chunk_id: r.chunk_id,
@@ -862,6 +902,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         const route = deps.classRouter
           ? routeQuery(ctx.db, v.id, input.query)
           : { class: "standard" as const, signals: [] as string[] };
+        const policy = capturePolicy(deps, v.id, route.class);
         if (route.class === "lexical") {
           const results = lexicalRouteResults(ctx.db, v.id, input.query, input.final_top_k, (rel) =>
             readableRel(ctx.acl, rel),
@@ -871,11 +912,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             surfaceType: "vault_graph_search",
             sessionId: ctx.sessionId ?? null,
             caller: ctx.caller ?? null,
-            hits: results.map((r, i) => ({
-              chunkId: r.chunk_id,
-              rank: i + 1,
-              score: r.rerank_score,
-            })),
+            hits: retrievalHits(results),
+            policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
           });
           return {
             vault: v.id,
@@ -901,6 +939,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             finalTopK: input.final_top_k,
             reranker: deps.reranker,
             isReadable: (rel) => readableRel(ctx.acl, rel),
+            onFusionWeights: policy.sink,
           }),
           () => embedAll(denseText, input.query),
           cacheContextFor(deps, ctx, v.id, denseText),
@@ -911,11 +950,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           surfaceType: "vault_graph_search",
           sessionId: ctx.sessionId ?? null,
           caller: ctx.caller ?? null,
-          hits: results.map((r, i) => ({
-            chunkId: r.chunk_id,
-            rank: i + 1,
-            score: r.rerank_score,
-          })),
+          hits: retrievalHits(results),
+          // The lexical class returned early above, so this path always fused.
+          policy: policy.record("static"),
         });
         return {
           vault: v.id,
@@ -953,6 +990,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         const route = deps.classRouter
           ? routeQuery(ctx.db, v.id, input.query)
           : { class: "standard" as const, signals: [] as string[] };
+        const policy = capturePolicy(deps, v.id, route.class);
         if (route.class === "lexical") {
           const results = lexicalRouteResults(ctx.db, v.id, input.query, input.final_top_k, (rel) =>
             readableRel(ctx.acl, rel),
@@ -962,11 +1000,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             surfaceType: "knowledge_search",
             sessionId: ctx.sessionId ?? null,
             caller: ctx.caller ?? null,
-            hits: results.map((r, i) => ({
-              chunkId: r.chunk_id,
-              rank: i + 1,
-              score: r.rerank_score,
-            })),
+            hits: retrievalHits(results),
+            policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
           });
           return { vault: v.id, mode_used: "lexical-route", route: route.signals, results };
         }
@@ -982,6 +1017,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             // this stays a visible decision rather than looking like a dropped option.
             reranker: null,
             isReadable: (rel) => readableRel(ctx.acl, rel),
+            onFusionWeights: policy.sink,
           }),
           () => embedAll(input.query, input.query),
           cacheContextFor(deps, ctx, v.id, input.query),
@@ -991,11 +1027,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           surfaceType: "knowledge_search",
           sessionId: ctx.sessionId ?? null,
           caller: ctx.caller ?? null,
-          hits: results.map((r, i) => ({
-            chunkId: r.chunk_id,
-            rank: i + 1,
-            score: r.rerank_score,
-          })),
+          hits: retrievalHits(results),
+          // The lexical class returned early above, so this path always fused.
+          policy: policy.record("static"),
         });
         return { vault: v.id, mode_used: "graph", results };
       },
@@ -1094,6 +1128,20 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           sessionId: ctx.sessionId ?? null,
           caller: ctx.caller ?? null,
           hits: hits.map((h, i) => ({ chunkId: h.chunk_id, rank: i + 1, score: h.score })),
+          // THE-538: challenge recall is a bare dense scan (semanticSearch), not a fusion — there
+          // is no stream to attribute a hit to and no lexical/sparse weight to record. Saying so
+          // explicitly is the point: a NULL here must read as "this policy has no such weight",
+          // never as "we forgot to log it".
+          policy: {
+            vaultId: v.id,
+            policyId: "dense-only",
+            denseW: 1,
+            lexW: null,
+            sparseW: null,
+            fusionMode: null,
+            rrfK: null,
+            routeClass: null,
+          },
         });
         // Enrich with note-level tags so isDecisionChunk's tag rule fires (not just the path
         // prefix) and the judge sees the tags; the semantic hit itself carries no tags (THE-309).

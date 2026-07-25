@@ -71,6 +71,17 @@ export function fuseScores(input: FusionInput): FusionResult {
       sparseW = 1 + tilt;
     }
   }
+  // THE-538: report the weights ACTUALLY applied (post-tilt, post-clamp, post-signal-availability
+  // fallback), not the configured ones — under adaptive RRF a missing FTS signal silently returns
+  // all-1 static weights, and a log that recorded "idf" with the configured gain would describe a
+  // policy that did not run.
+  opts.onFusionWeights?.({
+    policyId: (opts.adaptiveRrf?.enabled ?? false) && denseW !== 1 ? "idf" : "static",
+    dense: denseW,
+    lex: lexW,
+    sparse: sparseW,
+  });
+
   // Expansion carries the SEMANTIC-side weight, same as the seeds: both are cosine evidence on
   // the lexical-vs-semantic axis, and weighting them apart would let the tilt reorder seeds vs
   // expansion — demoting the expansion stream that multi-hop targets ride (live-index eval:
