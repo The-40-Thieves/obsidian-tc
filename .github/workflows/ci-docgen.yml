@@ -50,3 +50,10 @@ jobs:
         # nothing: depcruise 18.x declares typescript <7 and this repo is on TS 7, so handed a
         # DIRECTORY it resolves zero files and exits 0. The file list is explicit for that reason.
         run: bun run map:check
+      - name: embedded-migrations drift gate (THE-578)
+        # db/migrations-embedded.ts inlines every migrations/*.sql so provisioning needs no
+        # filesystem — that is what makes the standalone binaries work at all. If a migration is
+        # added or edited without regenerating, the generated module and the .sql files disagree and
+        # the binaries provision a stale schema. Like the generator above, this refuses to emit from
+        # an empty source set rather than reporting success over nothing.
+        run: bun run migrations:embed:check

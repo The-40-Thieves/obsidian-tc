@@ -15,7 +15,8 @@
       "!**/packages/native/target",
       "!**/bun.lock",
       "!**/eval/perf/baseline.*.json",
-      "!**/.dependency-cruiser-known-violations.json"
+      "!**/.dependency-cruiser-known-violations.json",
+      "!**/packages/server/src/db/migrations-embedded.ts"
     ]
   },
   "formatter": {
@@ -46,7 +47,10 @@
   },
   "overrides": [
     {
-      "includes": ["**/test/**", "**/*.test.ts"],
+      "includes": [
+        "**/test/**",
+        "**/*.test.ts"
+      ],
       "linter": {
         "rules": {
           "suspicious": {

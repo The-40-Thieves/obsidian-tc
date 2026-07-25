@@ -35,7 +35,9 @@
     "map:check": "node scripts/gen-tree-map.mjs --check",
     "release": "bun scripts/release.mjs",
     "test": "bun run --filter='*' test",
-    "typecheck": "bun run --filter='*' typecheck"
+    "typecheck": "bun run --filter='*' typecheck",
+    "migrations:embed": "node scripts/gen-embedded-migrations.mjs",
+    "migrations:embed:check": "node scripts/gen-embedded-migrations.mjs --check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",

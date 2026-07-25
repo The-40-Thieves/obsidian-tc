@@ -22,6 +22,7 @@ import { installPlugin } from "./cli/plugin-install";
 import { provisionExperientialDb } from "./db/experiential";
 import { registerMaintenanceSweep } from "./db/maintenance";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "./db/migration-manifest";
+import { embeddedSql } from "./db/migrations-embedded";
 import { openDatabase } from "./db/open";
 import { provisionCacheDb } from "./db/provision";
 import { assembleDoctorReport, renderText } from "./doctor";
@@ -115,9 +116,12 @@ import { ActiveSessionTracker, appendTrace, getSession } from "./workspace/sessi
 // The experiential.db chain, applied by every entry point that opens the store (serve +
 // activation-recompute) so they can never diverge on schema. See migration-manifest.ts for the
 // per-file ticket references (THE-222, THE-44, THE-239, THE-461).
+// THE-578: inlined, not read from disk — see db/provision.ts for why. Under `bun build --compile`
+// import.meta.url freezes to the build-time path and no .sql files are embedded, so this
+// readFileSync was one of the two sites that made every published standalone binary unusable.
 const experientialMigrations = EXPERIENTIAL_MIGRATION_FILES.map((file) => ({
   version: versionOf(file),
-  sql: readFileSync(fileURLToPath(new URL(`./migrations/${file}`, import.meta.url)), "utf8"),
+  sql: embeddedSql(file),
 }));
 type Cmd<K extends string> = Extract<ReturnType<typeof parseCliArgs>, { kind: K }>;
 

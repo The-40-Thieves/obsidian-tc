@@ -193,7 +193,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**246 modules · 977 dependencies · 62 distinct subsystem pairs · 397 cross-subsystem imports.**
+**247 modules · 977 dependencies · 62 distinct subsystem pairs · 397 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 ### Subsystem graph
@@ -207,7 +207,7 @@ flowchart LR
   tools[tools<br/>58 files]
   search[search<br/>42 files]
   vault[vault<br/>17 files]
-  db[(db<br/>12 files)]
+  db[(db<br/>13 files)]
   experiential[experiential<br/>10 files]
   bridge[bridge<br/>8 files]
   model[model<br/>7 files]

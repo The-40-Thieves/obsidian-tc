@@ -382,16 +382,27 @@ jobs:
       fail-fast: true
       matrix:
         include:
+          # `smoke: true` where the host can EXECUTE its own output (host arch == target arch).
+          # THE-578: this job used to compile and upload without ever running the result, so every
+          # release shipped standalone binaries that died at module load — for v1.10.0 and v1.11.0
+          # alike — and CI stayed green throughout. Compiling is not evidence that it runs.
+          # The two cross-compiled rows (linux-arm64 on x64, darwin-x64 on an arm64 runner) cannot
+          # self-smoke, but they are the same bundle for a different arch, so smoking one target per
+          # OS covers the class. Prefer fixing the arch coverage over dropping the check if that
+          # stops being true.
           - host: ubuntu-latest
             target: bun-linux-x64
+            smoke: true
           - host: ubuntu-latest
             target: bun-linux-arm64
           - host: macos-latest
             target: bun-darwin-x64
           - host: macos-14
             target: bun-darwin-arm64
+            smoke: true
           - host: windows-latest
             target: bun-windows-x64
+            smoke: true
     runs-on: ${{ matrix.host }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -403,6 +414,46 @@ jobs:
       - name: compile standalone binary
         run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
         shell: bash
+      # THE-578: RUN the thing we are about to ship. Two assertions, because the first alone is not
+      # enough: `version` proves the module graph loads (the old failure was at load time, in
+      # db/provision.ts's top-level migration chain, so even --version died), and the stdio smoke
+      # proves it can actually PROVISION — which is what the embedded SQL exists for and what the
+      # old binary could never do on any machine but the build runner.
+      - name: smoke-test the compiled binary
+        if: matrix.smoke
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          # bun appends .exe on the windows target. Checked explicitly rather than globbed: the name
+          # is deterministic, and `ls | head` would silently pick a wrong file (shellcheck SC2012).
+          bin="packages/server/dist/obsidian-tc-$TARGET"
+          [ -f "$bin.exe" ] && bin="$bin.exe"
+          [ -f "$bin" ] || { echo "::error::compiled binary not found at $bin"; exit 1; }
+          echo "smoking: $bin"
+          chmod +x "$bin" || true
+
+          want=$(node -p "require('./packages/server/package.json').version")
+          got=$("$bin" version)
+          echo "version: want=$want got=$got"
+          [ "$got" = "$want" ] || { echo "::error::binary reports '$got', expected '$want'"; exit 1; }
+
+          # Provisioning smoke: a throwaway vault + cache, same helper the install-smoke lane uses.
+          tmp=$(mktemp -d)
+          node scripts/write-smoke-config.mjs "$tmp/vault" "$tmp/cache" "$tmp/config.json"
+          out=$("$bin" "$tmp/config.json" < /dev/null 2>&1) || true
+          echo "$out"
+          echo "$out" | grep -q "ready on stdio" || {
+            echo "::error::compiled binary did not reach stdio-ready — it cannot provision (THE-578)"
+            exit 1
+          }
+          # Both migration chains must have produced a database, not just cache.db: the experiential
+          # chain is assembled separately in cli.ts and was the second site reading SQL from disk.
+          for db in cache.db experiential.db; do
+            [ -f "$tmp/cache/$db" ] || { echo "::error::$db was not provisioned"; exit 1; }
+          done
+          echo "ok: $bin reports $want, reaches stdio-ready, and provisions both chains"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: binary-${{ matrix.target }}
