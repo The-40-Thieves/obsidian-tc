@@ -7,6 +7,7 @@ export type CliCommand =
   | { kind: "serve"; input?: string }
   | { kind: "config-show"; configPath?: string }
   | { kind: "config-validate"; configPath?: string }
+  | { kind: "config-explain"; configPath?: string; json?: boolean; source?: string }
   | { kind: "doctor"; configPath?: string; json?: boolean; token?: string }
   | { kind: "version" }
   | { kind: "help" }
@@ -79,6 +80,9 @@ Usage:
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
   obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]
                                           Knowledge-health scorecard from the derive layer (THE-44/46)
+  obsidian-tc config explain [path] [--source env|file|profile|default|derived] [--json]
+                                          Trace every resolved config value to WHERE it came from.
+                                          Secrets report their SOURCE, never their value (THE-518)
   obsidian-tc note-quality [path] [--vault id] [--flags a,b] [--limit N]
                                           Recompute the note_quality rollup and list flagged notes:
                                           duplicate | orphan | stale_edit | stale_access | contradicted | tombstoned (THE-537)
@@ -131,6 +135,27 @@ export function parseCliArgs(argv: string[]): CliCommand {
       const configPath = flagValue(rest, "--config") ?? positional(rest.slice(1));
       if (sub === "show") return { kind: "config-show", configPath };
       if (sub === "validate") return { kind: "config-validate", configPath };
+      // THE-518: `config explain` — the same resolved object as `config show`, but annotated with
+      // where each value came from. --source filters to one origin, which is how you answer
+      // "what is this deployment actually overriding" in one line.
+      if (sub === "explain") {
+        const scan = rest.slice(1);
+        for (const f of ["--source", "--config"]) {
+          const i = scan.indexOf(f);
+          if (i >= 0) scan.splice(i, 2);
+        }
+        const source = flagValue(rest, "--source");
+        const VALID = ["env", "file", "profile", "default", "derived"];
+        if (source !== undefined && !VALID.includes(source)) {
+          return { kind: "error", message: `--source must be one of ${VALID.join("|")}` };
+        }
+        return {
+          kind: "config-explain",
+          configPath: flagValue(rest, "--config") ?? positional(scan.filter((a) => a !== "--json")),
+          json: rest.includes("--json"),
+          ...(source !== undefined ? { source } : {}),
+        };
+      }
       return { kind: "error", message: `unknown config subcommand: ${sub ?? "(none)"}` };
     }
     if (first === "doctor") {
