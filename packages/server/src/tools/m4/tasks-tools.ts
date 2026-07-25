@@ -6,6 +6,7 @@
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { paginate } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import {
   filterBridgeItemsByAcl,
@@ -27,21 +28,6 @@ import {
 
 const StatusEnum = z.enum(["todo", "done", "cancelled", "in_progress", "scheduled"]);
 const PriorityEnum = z.enum(["highest", "high", "medium", "low", "lowest"]);
-
-interface Page<T> {
-  items: T[];
-  total: number;
-  next_cursor?: string;
-}
-
-function paginate<T>(items: T[], limit?: number, cursor?: string): Page<T> {
-  const size = limit ?? 50;
-  const start = cursor ? Math.max(0, Number.parseInt(cursor, 10) || 0) : 0;
-  const slice = items.slice(start, start + size);
-  const nextStart = start + slice.length;
-  const next = nextStart < items.length ? String(nextStart) : undefined;
-  return { items: slice, total: items.length, ...(next ? { next_cursor: next } : {}) };
-}
 
 function matchDue(
   due: string | undefined,

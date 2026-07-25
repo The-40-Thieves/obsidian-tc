@@ -102,7 +102,12 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           filter: z.string().optional(),
-          limit: z.number().int().positive().max(1000).optional(),
+          // THE-516: default the page size to this tool's own cap rather than leaving it absent.
+          // Forwarding no limit let the REMOTE plugin decide how much to return, which obsidian-tc
+          // cannot bound — the byte governor then rejects an oversized response as `overflow`
+          // instead of returning a usable first page. Defaulting to the existing .max() keeps every
+          // request that fits today working unchanged, while making the ceiling ours.
+          limit: z.number().int().positive().max(1000).default(1000),
           cursor: z.string().optional(),
         })
         .strict(),
@@ -116,7 +121,7 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
             path: "/commands/list",
             body: {
               ...(input.filter ? { filter: input.filter } : {}),
-              ...(input.limit ? { limit: input.limit } : {}),
+              limit: input.limit,
               ...(input.cursor ? { cursor: input.cursor } : {}),
             },
             plugin: "obsidian-tc-companion",

@@ -20,6 +20,7 @@ import { mtimesByPath, noteFreshness } from "../../search/freshness";
 import { evaluatesTruthy } from "../../search/jsonlogic";
 import { type SemanticHit, semanticSearch } from "../../search/semantic";
 import { searchRegex, searchText, searchTextIndexed } from "../../search/text";
+import { paginate } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
@@ -37,23 +38,8 @@ interface UnifiedHit {
   line?: number;
 }
 
-interface Page<T> {
-  items: T[];
-  total: number;
-  next_cursor?: string;
-}
-
 function underRoot(rel: string, sub: string | undefined): boolean {
   return sub === undefined || rel === sub || rel.startsWith(`${sub}/`);
-}
-
-function paginate<T>(items: T[], limit?: number, cursor?: string): Page<T> {
-  const size = limit ?? 50;
-  const start = cursor ? Math.max(0, Number.parseInt(cursor, 10) || 0) : 0;
-  const slice = items.slice(start, start + size);
-  const nextStart = start + slice.length;
-  const next = nextStart < items.length ? String(nextStart) : undefined;
-  return { items: slice, total: items.length, ...(next ? { next_cursor: next } : {}) };
 }
 
 function jsonlogicMatches(

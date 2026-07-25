@@ -18,7 +18,12 @@ export function buildDatacoreTools(deps: M4Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           query: z.string().min(1),
-          limit: z.number().int().positive().max(500).optional(),
+          // THE-516: default the page size to this tool's own cap rather than leaving it absent.
+          // Forwarding no limit let the REMOTE plugin decide how much to return, which obsidian-tc
+          // cannot bound — the byte governor then rejects an oversized response as `overflow`
+          // instead of returning a usable first page. Defaulting to the existing .max() keeps every
+          // request that fits today working unchanged, while making the ceiling ours.
+          limit: z.number().int().positive().max(500).default(500),
         })
         .strict(),
       requiredScopes: ["read:datacore"],
@@ -28,7 +33,7 @@ export function buildDatacoreTools(deps: M4Deps): ToolDefinition[] {
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
           path: "/datacore/query",
-          body: { query: input.query, ...(input.limit ? { limit: input.limit } : {}) },
+          body: { query: input.query, limit: input.limit },
           plugin: "datacore",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });

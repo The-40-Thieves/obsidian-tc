@@ -193,14 +193,14 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**245 modules · 975 dependencies · 61 distinct subsystem pairs · 395 cross-subsystem imports.**
+**246 modules · 977 dependencies · 62 distinct subsystem pairs · 397 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 ### Subsystem graph
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 61 pairs.
+set is 62 pairs.
 
 ```mermaid
 flowchart LR
@@ -238,7 +238,7 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 186 | `tools` | 258 |
+| `vault` | 186 | `tools` | 260 |
 | `db` | 59 | `search` | 44 |
 | `mcp` | 58 | `experiential` | 14 |
 | `search` | 26 | `mcp` | 13 |
