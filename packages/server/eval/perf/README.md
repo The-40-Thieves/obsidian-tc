@@ -189,6 +189,22 @@ This:
 
 **THE-503:** in isolated mode (`--samples N --update-baseline`), the same file is written from the **median** across N fresh-subprocess samples, and the run is **refused outright (exit 1, file untouched)** if host contention was detected during sampling — see "Isolation & Statistics" above. `eval/perf/calibration-reference.json` (the committed "quiet host" calibration median used for sustained-contention detection) is written alongside it, under the same refusal discipline, and should be regenerated whenever the reference CI hardware changes materially.
 
+**THE-534:** every baseline write also emits `eval/perf/baseline.<scenario>.provenance.json` recording the commit SHA it was measured against, whether the working tree was dirty at the time, the mode (`isolated-median` / `single-shot`), the sample count, and the host shape. A baseline measured on a dirty tree is **not reproducible from its SHA**, so that case prints a loud `WARN` — the SHA alone would be a false provenance claim. It is a **sidecar file, not a key inside the baseline**, because the gate now walks the baseline's own keys and demands a measurement for each; a metadata key living in that file would be read as a metric that is never measured, i.e. a permanent phantom failure.
+
+## Gate coverage: what the gate can and cannot see (THE-534 audit)
+
+The gate compares by walking the **baseline**, not the report. That inversion is load-bearing. The previous version iterated `report.samples` and looked the baseline up, which made it blind to anything the report failed to mention — and all three of these reported `perf gate OK`:
+
+1. an **empty report** (harness produced nothing at all);
+2. a **baselined metric that stopped being emitted**;
+3. a **key renamed upstream**, carrying a 100× regression, landing in no baseline entry.
+
+Now a baselined key with no sample is a violation of its own class (`reason: "missing"`), which is what gives the gate a non-empty floor. Samples present in the report but absent from the baseline stay informational — a new metric is not yet a promise; the renamed-key case is caught from the other side, because the old key goes missing.
+
+**Large improvements are reported, never silently accepted.** An improvement never fails (blocking a good change would be worse than the bug), but one beyond 2× is listed as `STALE BASELINE`, because a baseline that no longer describes the system gets cited later in a go/no-go.
+
+**What the gate still cannot see.** Re-read the "What this harness does NOT cover" section above before trusting a null result. In particular, **graph densification is not exercised at all** — `buildVault()` calls `indexVault()` without `densify`, and no collector emits a densification metric. This, not a weak assertion, is why THE-486's 113× improvement passed CI without comment: there was never a number to compare. THE-533's added densification write cost is likewise invisible here. Closing that needs a densify-enabled scenario plus a collector, which is deliberate follow-up work, not a tolerance change.
+
 ## Synthetic Labelled Set
 
 For family 9 (recall/nDCG) metrics, the harness uses a small, **throwaway synthetic relevance set**. It:
