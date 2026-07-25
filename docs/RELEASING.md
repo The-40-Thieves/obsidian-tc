@@ -29,17 +29,17 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
 
 4. **Tag.** A human pushes the annotated tag `v<x.y.z>`, firing `publish.yml`: the eight-triple
    native build matrix (linux gnu+musl x64/arm64, darwin x64/arm64, win32 x64/arm64) → npm
-   (`pending` → `latest`) → standalone binaries → Docker/ghcr → the `.mcpb` bundle → the
-   companion-plugin assets → a draft GitHub Release with checksums. See *What a tag produces* and
-   *Atomic npm publish* below for the details.
+   (dependency order, `obsidian-tc` last) → standalone binaries → Docker/ghcr → the `.mcpb` bundle →
+   the companion-plugin assets → a draft GitHub Release with checksums. See *What a tag produces* and
+   *Ordered npm publish* below for the details.
 
 5. **Publish the draft Release** once the assets are attached and verified.
 
 ## What a tag produces
 
 - **npm** — three umbrella packages (`obsidian-tc`, `@the-40-thieves/obsidian-tc-shared`,
-  `@the-40-thieves/obsidian-tc-native`) plus four platform sub-packages
-  (`@the-40-thieves/obsidian-tc-native-{linux-x64-gnu,darwin-x64,darwin-arm64,win32-x64-msvc}`),
+  `@the-40-thieves/obsidian-tc-native`) plus **eight** platform sub-packages
+  (`@the-40-thieves/obsidian-tc-native-{linux-x64-gnu,linux-x64-musl,linux-arm64-gnu,linux-arm64-musl,darwin-x64,darwin-arm64,win32-x64-msvc,win32-arm64-msvc}`),
   published with npm provenance.
 - **Standalone binaries** — `bun build --compile` for the four platforms.
 - **Companion plugin zip** — for `.obsidian/plugins/` (plus the loose `manifest.json` / `main.js` /
@@ -48,47 +48,79 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
 - **Docker image** — `ghcr.io/the-40-thieves/obsidian-tc` (amd64 + arm64).
 - **Draft GitHub Release** — binaries, plugin zip, and `SHASUMS256.txt`.
 
-## Atomic npm publish (THE-224)
+## Ordered npm publish (THE-224, revised by THE-574)
 
 npm publishes are immutable: a published version cannot be overwritten or moved backward, only
-deprecated. Publishing three interdependent umbrella packages straight to `latest` in sequence is
-therefore unsafe — a failure after the first publish would strand a half-released, version-skewed set
-on `latest` with no clean rollback. The workflow avoids this:
+deprecated. The release must therefore never be able to leave a version-skewed set resolvable by
+installers.
 
-1. **Preflight.** Before any publish, assert every target version is unpublished (the three umbrellas
-   and the four platform sub-packages). If any already exists on the registry the job fails
-   immediately, so a re-run can never half-publish a skewed release. Fix by bumping the version and
-   re-tagging.
-2. **Publish platform sub-packages.** The four leaf `@the-40-thieves/obsidian-tc-native-*` packages
-   publish via `napi prepublish`, which also pins the native umbrella's `optionalDependencies` to
-   exact versions. Until an umbrella referencing them is promoted to `latest`, they are unreferenced
-   and harmless.
-3. **Publish umbrellas to `pending`.** The three umbrellas publish to a holding `pending` dist-tag,
-   never straight to `latest`. While this runs, `latest` still points at the previous good release,
-   so installers are unaffected by a partial failure.
-4. **Promote to `latest`, server last.** Once all three are on `pending`, promote each with
-   `npm dist-tag add` in dependency order (native, shared, then the user-facing `obsidian-tc` server
-   **last**). `dist-tag add` is idempotent, so a promotion that fails partway can be re-run;
-   `obsidian-tc@latest` only moves after its dependencies are already on `latest`.
+THE-224 originally solved this by publishing the umbrellas to a holding `pending` dist-tag and
+promoting them to `latest` at the end. **That design could not survive trusted publishing**: OIDC
+authorises `npm publish` only, so `npm dist-tag add` fell back to token auth and failed `EOTP` on
+every release (THE-574). Worse, it is on a deadline — npm's 2026-07-08 changelog puts package
+*management* actions first in line as 2FA-bypass tokens are withdrawn from early August 2026.
+
+The `pending` tag is gone. Safety now rests on two structural facts instead of a tag mutation:
+
+1. **Every inter-package dependency is exact-pinned, never ranged.** `scripts/pin-workspace-deps.mjs`
+   rewrites `workspace:*` to the concrete version before publishing, so `obsidian-tc@X` depends on
+   exactly `-native@X` and `-shared@X`, and `-native@X` `optionalDependencies` exactly the eight
+   `-native-<triple>@X`. **Nothing resolves a sub-package through a dist-tag.** Where `latest` points
+   on the sub-packages cannot affect any install, and no already-installed release can drift onto a
+   half-published version.
+2. **`obsidian-tc` publishes last.** It is the only package installed by name, so its `latest` is the
+   only one that matters. If the sequence dies before it, `npm install obsidian-tc` keeps resolving
+   the previous release, wholly intact.
+
+Together those give the property `pending` was there to provide, with no step that CI cannot perform.
+
+1. **Preflight (F3).** Classify the target version on npm before publishing: **none** published →
+   fresh release; **all** published → resumed release, skip the npm-mutating steps and let the
+   pipeline finish (THE-575); **some** published → hard fail, because that is either a mid-publish
+   death or a tag cut without bumping, and guessing there is how a skewed release gets cemented.
+2. **Publish platform sub-packages.** The eight leaf `@the-40-thieves/obsidian-tc-native-*` packages
+   publish via `napi pre-publish`, which also pins the native umbrella's `optionalDependencies` to
+   exact versions. They are unreferenced until an umbrella that pins them is published.
+3. **Publish umbrellas in dependency order, `obsidian-tc` last** — `-native`, `-shared`, then
+   `obsidian-tc`. Stable versions go to `latest`; **prereleases go to `next`**, since a bare
+   `npm publish` defaults to `latest` regardless of semver and would drag the stable tag onto a
+   prerelease.
 
 ## Recovery
 
 - **Re-cutting a failed release.** Publishing is immutable (no rollback). If a tag's publish fails
   partway, fix on `main` and delete + re-create the tag at the fixed HEAD; never reuse a partially
   published version number.
-- **Publish-to-`pending` failed partway.** `latest` is untouched; users are unaffected. Any versions
-  that reached `pending` are orphaned and harmless — the next release overwrites the `pending` tag.
-- **Promotion failed partway** (e.g. native and shared promoted, server not). Re-run the job, or
-  promote by hand: `npm dist-tag add obsidian-tc@<version> latest`. Inspect tags with
-  `npm dist-tag ls obsidian-tc` (likewise for the shared and native umbrellas).
-- **Inspect a release.** `npm view obsidian-tc dist-tags` shows where `latest` and `pending` point.
+- **A release that failed *after* publishing** is resumable: re-run the workflow. The F3 preflight
+  recognises the fully-published case and skips straight to the artifact jobs (THE-575). Use a
+  **full** `gh run rerun <run-id>`, never `--failed` — see `RELEASE-SIGNING.md` for why.
+- **The publish sequence died partway** (e.g. `-native` and `-shared` up, `obsidian-tc` not).
+  `obsidian-tc@latest` still points at the previous release, so installers are unaffected. The
+  published sub-versions are orphaned and harmless: nothing references them, because the umbrella
+  that would pin them was never published. Bump and re-tag.
+- **Inspect a release.** `npm view obsidian-tc dist-tags` shows where `latest` and `next` point.
 
 ## Caveat: brand-new package names
 
-npm forces the first published version of a new package name onto `latest` regardless of `--tag`. The
-`pending` isolation therefore only protects packages that already exist on the registry (all current
-obsidian-tc packages do). When introducing a brand-new package name, publish a throwaway prerelease
-first, or accept that its first real version lands on `latest`.
+npm forces the first published version of a new package name onto `latest` regardless of `--tag`.
+That is now the desired behaviour for a stable release, but it means a **prerelease** of a
+brand-new package name will land on `latest` despite `--tag next`. When introducing a new package
+name in a prerelease, publish a throwaway version first or accept the initial `latest`.
+
+## Not adopted: npm staged publishing
+
+npm's own staged publishing (GA May 2026) is the registry-native version of THE-224's staging idea
+and was evaluated for THE-574. It fits OIDC by design — `npm stage publish` needs no 2FA and works
+with any token type, while `npm stage approve <stage-id>` requires 2FA and **cannot** be performed by
+an OIDC token, deliberately, since human approval is the point. Nothing is publicly resolvable until
+approved, which is stronger isolation than `pending` ever gave.
+
+It was not adopted because approval is **per staged package**: a release would need eleven separate
+2FA approvals, in dependency order, with the ordering footgun that made the promote step fragile in
+the first place. Ordered publishing gives the same install-time safety with zero human steps. If
+proof-of-presence on releases becomes a requirement, this is the mechanism to switch to — it needs
+npm CLI ≥ 11.15.0 and Node ≥ 22.14.0, and the trusted publisher must be reconfigured to
+*stage-only* so a plain `npm publish` from CI is rejected.
 
 ## Invariants enforced in CI
 

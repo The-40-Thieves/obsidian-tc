@@ -271,7 +271,8 @@ jobs:
           if [ "$published" -gt 0 ] && [ "$missing" -gt 0 ]; then
             echo "::error::PARTIAL publish state — $published of $((published + missing)) target versions exist on npm."
             echo "::error::A release died mid-publish, or a tag was cut without bumping. npm versions are immutable:"
-            echo "::error::inspect npm and either bump the version or promote/complete the existing one by hand."
+            echo "::error::inspect npm, then bump the version and re-tag. Orphaned sub-versions are harmless —"
+            echo "::error::nothing references them, since the umbrella that pins them was never published."
             exit 1
           fi
           if [ "$missing" -eq 0 ]; then
@@ -303,17 +304,42 @@ jobs:
         run: bunx napi pre-publish -t npm --no-gh-release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      # THE-224 atomic publish: umbrellas go to a holding `pending` dist-tag, never straight to
-      # `latest`. npm publish is immutable, so a mid-sequence failure would otherwise strand a
-      # half-published release on `latest` with no rollback. `pending` keeps `latest` on the
-      # previous good release until every umbrella is up.
-      - name: publish umbrellas to pending dist-tag (native, shared, server)
+      # THE-574: publish straight to the release dist-tag, in dependency order, with the
+      # user-facing `obsidian-tc` LAST. This replaces THE-224's publish-to-`pending`-then-promote
+      # design, which cannot work under trusted publishing: OIDC authorises `npm publish` only, so
+      # the `npm dist-tag add` promote fell back to token auth and failed EOTP on every release.
+      #
+      # Dropping `pending` costs no safety, because THE-224's actual property is preserved by two
+      # facts rather than by the holding tag:
+      #
+      #   1. Every inter-package dependency is EXACT-pinned, never ranged. pin-workspace-deps.mjs
+      #      rewrites workspace:* to the concrete version, so published obsidian-tc@X depends on
+      #      exactly -native@X and -shared@X, and -native@X optionalDepends on exactly the eight
+      #      -native-<triple>@X. Nothing resolves a sub-package through a dist-tag, so what `latest`
+      #      points at on the sub-packages cannot affect any install, and no already-installed
+      #      release can drift onto a half-published version.
+      #   2. `obsidian-tc` publishes LAST. It is the only package installed by name, so its
+      #      `latest` is the only one that matters. If the sequence dies before it, `npm install
+      #      obsidian-tc` keeps resolving the previous release, wholly intact — exactly the property
+      #      `pending` existed to provide.
+      #
+      # Prereleases go to `next`, never `latest`: bare `npm publish` defaults to `latest` regardless
+      # of semver, which would otherwise drag the stable tag onto a prerelease.
+      - name: publish umbrellas to the release dist-tag (obsidian-tc last)
         if: steps.preflight.outputs.already_published != 'true'
         run: |
           set -euo pipefail
-          (cd packages/native && npm publish --provenance --access public --tag pending)
-          (cd packages/shared && npm publish --provenance --access public --tag pending)
-          (cd packages/server && npm publish --provenance --access public --tag pending)
+          version=$(node -p "require('./packages/server/package.json').version")
+          case "$version" in
+            *-*) tag=next ;;
+            *) tag=latest ;;
+          esac
+          echo "publishing $version to dist-tag: $tag"
+          for dir in packages/native packages/shared packages/server; do
+            name=$(node -p "require('./$dir/package.json').name")
+            (cd "$dir" && npm publish --provenance --access public --tag "$tag")
+            echo "published: $name@$version -> $tag"
+          done
         shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -338,26 +364,6 @@ jobs:
           name: sboms
           path: sboms/
           if-no-files-found: warn
-      # Promote to `latest` only after all three are on `pending`, in dependency order with the
-      # user-facing server LAST. `npm dist-tag add` is idempotent, so a failed promotion can be
-      # re-run. After this `obsidian-tc@latest` resolves to a fully consistent release.
-      - name: promote umbrellas to latest (server last)
-        if: steps.preflight.outputs.already_published != 'true'
-        run: |
-          set -euo pipefail
-          promote() {
-            local dir="$1" name version
-            name=$(node -p "require('./$dir/package.json').name")
-            version=$(node -p "require('./$dir/package.json').version")
-            npm dist-tag add "$name@$version" latest
-            echo "promoted: $name@$version -> latest"
-          }
-          promote packages/native
-          promote packages/shared
-          promote packages/server
-        shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   build-binaries:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
