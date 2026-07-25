@@ -65,6 +65,12 @@ coverage/
 .omc/
 .claude/
 
+# graphify knowledge-graph build output (`/graphify`). Generated and rebuildable, multi-MB
+# (graph.json alone is ~7 MB), and machine-specific: the manifest and extraction cache key on
+# absolute scan-root paths, so a committed copy would be stale for every other checkout and would
+# churn the diff on every rebuild.
+graphify-out/
+
 # Internal THE-233 migration-planning doc — kept local/private, never published.
 MERGE-PROGRESS.md
 
