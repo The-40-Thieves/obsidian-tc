@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
+import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
 import { recomputeActivation } from "../src/experiential/activation";
 import { createRetrievalLogger } from "../src/experiential/log";
@@ -13,11 +14,13 @@ import { openMemoryDb } from "./helpers";
 
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
-const EXP_CHAIN = [
-  { version: "20260626_001", sql: read("20260626_001_experiential_init.sql") },
-  { version: "20260711_001", sql: read("20260711_001_experiential_outcome.sql") },
-  { version: "20260724_001", sql: read("20260724_001_chunk_retrievals_caller.sql") },
-];
+// THE-538: derived from the manifest rather than hand-listed. The hand-kept copy had already
+// drifted (it named 3 of the chain's files), and the drift only surfaces when a new migration adds
+// a column the logger writes — at which point this file fails for a reason that looks unrelated.
+const EXP_CHAIN = EXPERIENTIAL_MIGRATION_FILES.map((file) => ({
+  version: versionOf(file),
+  sql: read(file),
+}));
 const NOW = 1_700_000_000_000;
 
 function edb0(): Database {

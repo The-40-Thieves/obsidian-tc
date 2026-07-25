@@ -161,6 +161,17 @@ export interface GraphSearchOptions {
    *  midpoint. Empty on non-temporal queries — exactly the static configuration. `count` caps the
    *  stream (default seedCount); `nowMs` is injectable for deterministic tests. Off by default. */
   temporal?: { enabled?: boolean; count?: number; nowMs?: number };
+  /** THE-538 (additive, observability-only): fired once per fused query with the per-stream RRF
+   *  weights actually applied, so a logged retrieval outcome can be attributed to the ranking
+   *  policy that produced it rather than to the policy someone believes was configured. Under
+   *  adaptive RRF the weights are computed PER QUERY from lexical specificity, so the configured
+   *  gain alone does not identify them. Default undefined -> no behavior change. */
+  onFusionWeights?: (weights: {
+    policyId: string;
+    dense: number;
+    lex: number;
+    sparse: number;
+  }) => void;
   reranker?: Reranker | null;
   isReadable?: (path: string) => boolean;
   /** cached_activation_score lookup from vault_object_state (W-SCHEMA); inert when absent. */

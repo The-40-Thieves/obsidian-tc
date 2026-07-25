@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
+import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
 import { createRetrievalLogger } from "../src/experiential/log";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
@@ -15,12 +16,13 @@ import { openMemoryDb } from "./helpers";
 
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
-const EXP_CHAIN = [
-  { version: "20260626_001", sql: read("20260626_001_experiential_init.sql") },
-  { version: "20260711_001", sql: read("20260711_001_experiential_outcome.sql") },
-  { version: "20260711_002", sql: read("20260711_002_agent_episodes.sql") },
-  { version: "20260724_001", sql: read("20260724_001_chunk_retrievals_caller.sql") },
-];
+// THE-538: derived from the manifest, not hand-listed. The hand-kept copy named 4 of the chain's
+// files, so a new migration that adds a column the retrieval logger writes broke this file for a
+// reason that reads as unrelated.
+const EXP_CHAIN = EXPERIENTIAL_MIGRATION_FILES.map((file) => ({
+  version: versionOf(file),
+  sql: read(file),
+}));
 const NOW = 1_700_000_000_000;
 
 function edb0(): Database {
