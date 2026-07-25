@@ -409,6 +409,38 @@ jobs:
             org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.licenses=AGPL-3.0-only
+      # An SBOM of the IMAGE, which nothing else produces. The THE-299 step in publish-npm runs
+      # `npm sbom` over the three packages — npm dependency trees only. It cannot see what actually
+      # ships in the container: the Debian base packages, the bun runtime, or the compiled native
+      # binary. So the artefact users pull had no bill of materials at all.
+      #
+      # Complements rather than duplicates ci-docker's trivy scan. trivy answers "does this image
+      # have known CVEs *today*"; an SBOM is the durable record of what was in it, which is what
+      # answers "were we affected?" about a CVE disclosed six months from now — by which time the
+      # tag is immutable and the scan is stale.
+      #
+      # Non-blocking, matching the npm SBOM step's stance: a release must not brick on SBOM
+      # generation, but a failure is surfaced as a warning rather than swallowed.
+      - name: syft — SBOM of the published image (SPDX)
+        continue-on-error: true
+        env:
+          IMAGE: ghcr.io/the-40-thieves/obsidian-tc:${{ steps.version.outputs.version }}
+        run: |
+          set -uo pipefail
+          mkdir -p sboms
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/v1.49.0/install.sh \
+            | sh -s -- -b "$RUNNER_TEMP/syft-bin" v1.49.0
+          if ! "$RUNNER_TEMP/syft-bin/syft" "$IMAGE" -o spdx-json > "sboms/obsidian-tc-image.spdx.json"; then
+            echo "::warning::image SBOM generation failed for $IMAGE"
+            rm -f sboms/obsidian-tc-image.spdx.json
+          fi
+          ls -la sboms/
+      - name: upload image SBOM
+        if: hashFiles('sboms/obsidian-tc-image.spdx.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-image
+          path: sboms/
 
   build-mcpb:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of

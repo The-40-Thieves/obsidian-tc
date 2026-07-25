@@ -193,7 +193,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**246 modules · 978 dependencies · 61 distinct subsystem pairs · 396 cross-subsystem imports.**
+**245 modules · 975 dependencies · 61 distinct subsystem pairs · 395 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 ### Subsystem graph
@@ -211,7 +211,6 @@ flowchart LR
   experiential[experiential<br/>10 files]
   bridge[bridge<br/>8 files]
   model[model<br/>7 files]
-  plane[plane<br/>7 files]
   embeddings[embeddings<br/>6 files]
   formats[formats<br/>6 files]
   mcp[mcp<br/>6 files]
@@ -231,7 +230,6 @@ flowchart LR
   tools -->|7| bridge
   embeddings -->|5| search
   memory -->|5| vault
-  plane -->|5| db
 ```
 <!-- END GENERATED: tree-subsystem-graph -->
 
@@ -241,7 +239,7 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 186 | `tools` | 258 |
-| `db` | 60 | `search` | 44 |
+| `db` | 59 | `search` | 44 |
 | `mcp` | 58 | `experiential` | 14 |
 | `search` | 26 | `mcp` | 13 |
 | `embeddings` | 12 | `model` | 11 |

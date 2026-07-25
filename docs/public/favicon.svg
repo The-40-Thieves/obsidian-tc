@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="obsidian-tc">
+  <!-- Every page referenced /favicon.svg and no such file existed, so the whole site 404'd on it.
+       Starlight's default head links it unconditionally; the fix is to provide it. -->
+  <rect width="32" height="32" rx="6" fill="#4c2889"/>
+  <path d="M16 5l9 7-3.4 15H10.4L7 12z" fill="#a78bfa"/>
+  <path d="M16 5l9 7-9 3z" fill="#ede9fe"/>
+</svg>

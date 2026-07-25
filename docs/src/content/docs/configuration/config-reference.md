@@ -7,7 +7,7 @@ sidebar:
 
 Every configuration key obsidian-tc understands, generated from the Zod schema so it stays in sync
 with the server. For task-oriented guidance on setting these, see the
-[config.yaml guide](/obsidian-tc/configuration/config-yaml/).
+[config.yaml guide](/configuration/config-yaml/).
 
 :::tip
 Only `vaults` is strictly required — everything else has a sensible default. A minimal config is just

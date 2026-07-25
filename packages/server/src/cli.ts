@@ -1037,8 +1037,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
               // row — even though the indexer just deleted that chunk's prior contradiction flags
               // on re-embed, expecting this hook to regenerate them. Folding in the content hash
               // makes an edit (new content) a distinct key -> re-judged; an identical-content
-              // rapid re-index still dedups to the same key, exactly as groupContradictionQueue's
-              // transient per-drain dedup did.
+              // rapid re-index still dedups to the same key, exactly as the in-memory drainer's
+              // transient per-drain dedup did before THE-570 removed it.
               idempotencyKey: `${vaultId}:${c.id}:${contentHash(c.content)}`,
               maxAttempts: CONTRADICTION_MAX_ATTEMPTS,
               // #14: a completed or dead-lettered job for this exact key must not permanently block

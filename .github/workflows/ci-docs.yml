@@ -30,6 +30,30 @@ jobs:
       - name: Build (astro check && astro build)
         working-directory: docs
         run: bun run build
+      # Link-check the BUILT site, which is the only place these links can be resolved at all.
+      # ci-quality's lychee job checks source markdown and deliberately EXCLUDES docs/src, because
+      # a root-relative link like /tools/api-reference/ has no meaning relative to a .md file — it
+      # resolves against the deployed site root. So that class of link was unchecked everywhere.
+      #
+      # Its first run found three real 404s: /obsidian-tc/tools/, /obsidian-tc/tools/api-reference/
+      # and /obsidian-tc/configuration/config-yaml/ — stale prefixes from when this was a GitHub
+      # Pages PROJECT site, left behind when it moved to a custom domain at the root. Plus a
+      # /favicon.svg referenced by every page with no such file in the output.
+      #
+      # --offline: internal links only. External URLs rot for reasons unrelated to any PR, and a
+      # gate that fails on someone else's outage teaches people to ignore it.
+      - name: install lychee v0.24.2 (pinned binary + checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/lychee-bin"
+          curl -sSL --fail -o "$RUNNER_TEMP/lychee.tar.gz" \
+            https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-musl.tar.gz
+          echo "73657a111819a30c47c08352896796f23d64e4eb2b3ed39b6d32149241566fc5  $RUNNER_TEMP/lychee.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/lychee.tar.gz" -C "$RUNNER_TEMP/lychee-bin" \
+            --strip-components=1 lychee-x86_64-unknown-linux-musl/lychee
+          echo "$RUNNER_TEMP/lychee-bin" >> "$GITHUB_PATH"
+      - name: lychee — link-check the built site (root-relative links resolve here)
+        working-directory: docs
+        run: lychee --offline --no-progress --root-dir "$PWD/dist" 'dist/**/*.html'
       # On main, hand the built site to the deploy job as a Pages artifact. On PRs the build
       # above is the compile check; nothing is uploaded or deployed.
       - name: Upload Pages artifact
