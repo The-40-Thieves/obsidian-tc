@@ -30,7 +30,8 @@
     "perf:gate": "bun eval/perf/run.ts --scenario small --out perf-report.json --gate",
     "perf:isolated": "bun eval/perf/run.ts --scenario small --samples 5 --out perf-report.json",
     "perf:gate:isolated": "bun eval/perf/run.ts --scenario small --samples 5 --out perf-report.json --gate",
-    "perf:update-baseline:isolated": "bun eval/perf/run.ts --scenario small --samples 5 --out perf-report.json --update-baseline"
+    "perf:update-baseline:isolated": "bun eval/perf/run.ts --scenario small --samples 5 --out perf-report.json --update-baseline",
+    "perf:node-parity": "bun build eval/perf/run.ts --target node --external better-sqlite3 --outfile eval/perf/.node-parity.mjs && node eval/perf/.node-parity.mjs --scenario small --profile portable --out perf-node-parity.json"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.10",

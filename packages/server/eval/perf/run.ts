@@ -112,6 +112,13 @@ function printAggregateSummary(agg: AggregatedReport): void {
   }
 }
 
+/** Which runtime is executing — reported in the artifact so a Node number is never mistaken for a
+ *  bun one. `Bun` is a global only under bun. */
+function runtimeName(): string {
+  const bun = (globalThis as { Bun?: { version: string } }).Bun;
+  return bun ? `bun-${bun.version}` : `node-${process.versions.node}`;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const get = (flag: string): string | undefined => {
@@ -121,6 +128,45 @@ async function main(): Promise<void> {
   const name = (get("--scenario") ?? "small") as Scenario["name"];
   const out = get("--out") ?? "perf-report.json";
   const samplesFlag = get("--samples");
+  const profile = get("--profile");
+
+  // THE-494: the Node portability run. The gated harness is bun + better-sqlite3 + sqlite-vec —
+  // the real production storage path. Under Node + node:sqlite the sqlite-vec extension does not
+  // load and vector search silently degrades to brute force, so gating there would benchmark a
+  // path production never takes. This profile therefore reports ONLY the metrics tagged
+  // `portable` at their source (deterministic + storage-agnostic) and REFUSES to gate or to
+  // record a baseline: two runtimes, two meanings, never one baseline.
+  if (profile !== undefined) {
+    if (profile !== "portable") {
+      process.stderr.write(`unknown --profile ${profile} (only "portable" exists)\n`);
+      process.exit(2);
+    }
+    for (const forbidden of ["--gate", "--update-baseline"]) {
+      if (args.includes(forbidden)) {
+        process.stderr.write(
+          `--profile portable is informational and cannot ${forbidden}: it measures a runtime the production path never uses, so its numbers must never become a gate or a baseline.\n`,
+        );
+        process.exit(2);
+      }
+    }
+    const full = await runScenario(name);
+    const samples = full.samples.filter((s) => s.portable === true);
+    // A profile that silently measured nothing would read as a clean portability signal. The
+    // portable set is opt-in, so an empty one means the tags were lost, not that nothing ported.
+    if (samples.length === 0) {
+      process.stderr.write(
+        "portable profile selected ZERO metrics — the `portable` tags are missing from the collectors. Refusing to report a portability result over an empty set.\n",
+      );
+      process.exit(1);
+    }
+    const report: PerfReport = { scenario: `${name} (portable/${runtimeName()})`, samples };
+    writeFileSync(out, JSON.stringify(report, null, 2));
+    process.stdout.write(toMarkdown(report));
+    process.stdout.write(
+      `\nportable profile: ${samples.length} of ${full.samples.length} metrics, runtime ${runtimeName()} — informational, never gated.\n`,
+    );
+    return;
+  }
 
   if (samplesFlag !== undefined) {
     // THE-503 Part 1: isolated mode. Each of the N samples is a genuinely fresh `bun` subprocess
