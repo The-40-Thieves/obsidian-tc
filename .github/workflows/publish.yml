@@ -220,19 +220,43 @@ jobs:
       # sub-packages) sequentially with no rollback. If any target version is already on npm,
       # fail BEFORE the first publish so a re-run cannot half-publish a version-skewed release.
       # (Checks the umbrella packages; platform sub-packages track the native version.)
-      - name: preflight — assert target versions are unpublished (F3)
+      # THE-575: this used to fail unconditionally the moment ANY target version existed on npm,
+      # which made a partially-failed release unrecoverable — npm versions are immutable, so the
+      # publish could not be retried, and every downstream job gated on this one could never run.
+      # v1.11.0 hit exactly that: the publishes succeeded, the dist-tag promote failed (THE-574),
+      # and the image/binaries/bundle/release-notes became unreachable for that tag.
+      #
+      # It now CLASSIFIES instead of asserting, on the only distinction that is safe to draw:
+      #
+      #   none published  -> fresh release; publish normally.
+      #   ALL published   -> a RESUMED release; skip the publish steps and let the rest of the
+      #                      pipeline finish. Re-running the artifact jobs is idempotent (ghcr tags
+      #                      are mutable, the GitHub release is a draft), so this is recoverable
+      #                      rather than destructive.
+      #   SOME published  -> genuinely ambiguous: either a release died mid-publish or someone
+      #                      tagged without bumping. FAIL loudly. A human must look, because
+      #                      guessing here is how a version-skewed half-release gets cemented.
+      #
+      # Note this does weaken the original "bump before tagging" guard: re-tagging an already-released
+      # version now rebuilds its artifacts rather than erroring. That is a deliberate trade — the
+      # failure it prevents (an unrecoverable release) is far more expensive than the one it allows
+      # (a harmless artifact rebuild), and npm itself still refuses a duplicate publish regardless.
+      - name: preflight — classify target versions (F3, THE-575)
+        id: preflight
         run: |
           set -euo pipefail
-          fail=0
+          published=0
+          missing=0
           check() {
             local dir="$1" name version
             name=$(node -p "require('./$dir/package.json').name")
             version=$(node -p "require('./$dir/package.json').version")
             if npm view "$name@$version" version >/dev/null 2>&1; then
-              echo "::error::$name@$version is already published; bump the version before tagging."
-              fail=1
+              echo "published: $name@$version"
+              published=$((published + 1))
             else
-              echo "ok: $name@$version is unpublished"
+              echo "unpublished: $name@$version"
+              missing=$((missing + 1))
             fi
           }
           check packages/native
@@ -242,13 +266,27 @@ jobs:
           for d in packages/native/npm/*/; do
             check "${d%/}"
           done
-          [ "$fail" -eq 0 ]
+
+          echo "summary: $published published, $missing unpublished"
+          if [ "$published" -gt 0 ] && [ "$missing" -gt 0 ]; then
+            echo "::error::PARTIAL publish state — $published of $((published + missing)) target versions exist on npm."
+            echo "::error::A release died mid-publish, or a tag was cut without bumping. npm versions are immutable:"
+            echo "::error::inspect npm and either bump the version or promote/complete the existing one by hand."
+            exit 1
+          fi
+          if [ "$missing" -eq 0 ]; then
+            echo "::notice::All target versions are already published — treating this as a RESUMED release and skipping the publish steps."
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
         shell: bash
       # New scoped npm packages default to `restricted`, so the FIRST publish of the new musl
       # platform sub-packages died with `402 Payment Required` (must sign up for private packages).
       # Force every generated platform package public before napi publishes them: napi runs
       # `npm publish` per npm/<triple> dir and honors each dir's publishConfig.access.
       - name: make platform sub-packages public (npm 402 fix)
+        if: steps.preflight.outputs.already_published != 'true'
         working-directory: packages/native
         shell: bash
         run: |
@@ -260,6 +298,7 @@ jobs:
       # Platform sub-packages (one per built triple, @the-40-thieves/obsidian-tc-native-<triple>)
       # + the umbrella optionalDependencies are generated and published by `napi pre-publish`.
       - name: publish platform sub-packages (napi)
+        if: steps.preflight.outputs.already_published != 'true'
         working-directory: packages/native
         run: bunx napi pre-publish -t npm --no-gh-release
         env:
@@ -269,6 +308,7 @@ jobs:
       # half-published release on `latest` with no rollback. `pending` keeps `latest` on the
       # previous good release until every umbrella is up.
       - name: publish umbrellas to pending dist-tag (native, shared, server)
+        if: steps.preflight.outputs.already_published != 'true'
         run: |
           set -euo pipefail
           (cd packages/native && npm publish --provenance --access public --tag pending)
@@ -302,6 +342,7 @@ jobs:
       # user-facing server LAST. `npm dist-tag add` is idempotent, so a failed promotion can be
       # re-run. After this `obsidian-tc@latest` resolves to a fully consistent release.
       - name: promote umbrellas to latest (server last)
+        if: steps.preflight.outputs.already_published != 'true'
         run: |
           set -euo pipefail
           promote() {
@@ -323,7 +364,14 @@ jobs:
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || !inputs.dry_run
-    needs: publish-npm
+    # THE-575: was `needs: publish-npm`. This job builds from the TAG and consumes no
+    # npm-published package, so gating it on the publish only meant that a publish failure made it
+    # unreachable — which is how v1.11.0 shipped without its standalone binaries. Depends on
+    # verify-tag ONLY: checked with a grep for download-artifact and this job consumes no native
+    # artifact, so waiting on the 8-target matrix would just serialise the pipeline for nothing. An
+    # unsigned tag still stops it, and draft-release still requires build-native to have succeeded
+    # before a release is assembled.
+    needs: verify-tag
     strategy:
       fail-fast: true
       matrix:
@@ -388,7 +436,14 @@ jobs:
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || !inputs.dry_run
-    needs: publish-npm
+    # THE-575: was `needs: publish-npm`. This job builds from the TAG and consumes no
+    # npm-published package, so gating it on the publish only meant that a publish failure made it
+    # unreachable — which is how v1.11.0 shipped without its ghcr image. Depends on
+    # verify-tag ONLY: checked with a grep for download-artifact and this job consumes no native
+    # artifact, so waiting on the 8-target matrix would just serialise the pipeline for nothing. An
+    # unsigned tag still stops it, and draft-release still requires build-native to have succeeded
+    # before a release is assembled.
+    needs: verify-tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -461,7 +516,14 @@ jobs:
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || !inputs.dry_run
-    needs: publish-npm
+    # THE-575: was `needs: publish-npm`. This job builds from the TAG and consumes no
+    # npm-published package, so gating it on the publish only meant that a publish failure made it
+    # unreachable — which is how v1.11.0 shipped without its MCPB bundle. Depends on
+    # verify-tag ONLY: checked with a grep for download-artifact and this job consumes no native
+    # artifact, so waiting on the 8-target matrix would just serialise the pipeline for nothing. An
+    # unsigned tag still stops it, and draft-release still requires build-native to have succeeded
+    # before a release is assembled.
+    needs: verify-tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6

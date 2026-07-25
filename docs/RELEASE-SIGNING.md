@@ -95,3 +95,41 @@ one-line change once step 3 is done.
 
 A lightweight tag can never pass verification — it is a bare pointer with no object to carry a
 signature. `git tag -s` (or `-a`) is required.
+
+---
+
+## Recovering a partially-failed release (THE-575)
+
+npm versions are immutable, so a release that fails *after* publishing cannot be retried by bumping.
+Two changes make it resumable:
+
+* The **F3 preflight classifies** rather than asserts. All target versions unpublished → publish
+  normally. **All** published → treated as a RESUMED release: the npm-mutating steps are skipped and
+  the pipeline continues. **Some** published → hard failure, because that is either a mid-publish
+  death or a tag cut without bumping, and guessing is how a version-skewed half-release gets
+  cemented.
+* `build-docker`, `build-binaries` and `build-mcpb` **no longer depend on `publish-npm`**. None of
+  them consumes an npm-published package — they build from the tag. That dependency was why v1.11.0
+  shipped without its image, binaries, bundle and release notes.
+
+To resume: `gh run rerun <run-id>` (a **full** re-run, not `--failed`).
+
+> `actions/download-artifact` fails with `Failed to GetSignedArtifactURL: (404) Not Found: workflow
+> run not found` after repeated `gh run rerun --failed` invocations, even when the artifacts exist
+> and are unexpired — it resolves them scoped to the run *attempt*. A full re-run rebuilds them in
+> the same attempt. This costs a full native-matrix rebuild, which is the price of resumability.
+
+### The promote step still needs a human (THE-574)
+
+Trusted publishing authorises `npm publish` only. `npm dist-tag add` is package *management*, so it
+falls back to token auth and requires an interactive OTP that CI cannot supply. Until THE-574 is
+decided, finish a release by hand — **dependencies before the umbrella**, or `obsidian-tc@latest`
+briefly resolves against non-latest deps:
+
+```bash
+npm dist-tag add @the-40-thieves/obsidian-tc-native@<version> latest
+npm dist-tag add @the-40-thieves/obsidian-tc-shared@<version> latest
+npm dist-tag add obsidian-tc@<version> latest          # server LAST
+```
+
+Omit `--otp` and npm prompts, which keeps the code out of shell history.
