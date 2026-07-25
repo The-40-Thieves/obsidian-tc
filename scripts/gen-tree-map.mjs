@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+// GOTCHA (THE-578): run this with NO built dist/ output present. depcruise resolves the workspace
+// packages differently when packages/*/dist exists — with packages/shared/dist present this reports
+// 246 modules / 888 dependencies for a tree that is really 247 / 977. Both runs are internally
+// deterministic, so the wrong number looks perfectly stable and the drift gate then fails in CI
+// (which never builds before map:check) for reasons that look unrelated to your change. If
+// `map:check` disagrees with a fresh `map`, delete packages/*/dist and regenerate.
 /**
  * TREE.md dependency-graph generator (THE-470, partial).
  *

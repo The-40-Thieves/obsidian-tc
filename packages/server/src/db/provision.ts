@@ -12,22 +12,31 @@
 // implementation with nobody checking it against the first.
 //
 // Both paths now provision through this chain. Divergence is no longer possible.
-import { existsSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { type Migration, runMigrations } from "./migrate";
 import { CACHE_MIGRATION_FILES, versionOf } from "./migration-manifest";
+import { embeddedSql } from "./migrations-embedded";
 import type { Database } from "./types";
 
-// The migration SQL sits at src/migrations in source and dist/migrations in the bundle. This module
-// is at src/db/, so ../migrations resolves under the from-source runtime (vitest, bun-from-src), but
-// bun build collapses import.meta.url to the bundle ENTRY (dist/cli.js), where the assets live at
-// ./migrations. Resolve whichever actually exists so both the test runtime and the shipped CLI work.
-const MIGRATIONS_DIR = existsSync(fileURLToPath(new URL("../migrations/", import.meta.url)))
-  ? new URL("../migrations/", import.meta.url)
-  : new URL("./migrations/", import.meta.url);
-
-const sql = (file: string): string =>
-  readFileSync(fileURLToPath(new URL(file, MIGRATIONS_DIR)), "utf8");
+// THE-578: the SQL is INLINED (db/migrations-embedded.ts, generated) rather than read from disk.
+//
+// This used to resolve `../migrations/` or `./migrations/` against import.meta.url, picking
+// whichever existed so that both the from-source runtime and the dist bundle worked. It did — and
+// it was still broken in the STANDALONE BINARIES, which is the case neither branch covers:
+// `bun build --compile` freezes import.meta.url to the BUILD-TIME path and embeds no .sql files, so
+// every published binary died at module load with
+//   ENOENT ... '/home/runner/work/obsidian-tc/obsidian-tc/packages/server/src/db/migrations/...'
+// against the CI runner's directory. Not even `--version` survived, since this module's top-level
+// CACHE_MIGRATIONS runs before any argument parsing. v1.10.0 and v1.11.0 were both affected.
+//
+// The existsSync ternary is what made it look handled: two candidate paths, both resolved from the
+// same frozen base, so neither could ever exist on a user's machine. A fallback that cannot fire is
+// not a fallback.
+//
+// Inlining removes the filesystem from provisioning entirely, so there is ONE code path across
+// vitest, `bun run`, the npm dist build and --compile. Bun's own `with { type: "text" }` would be
+// the idiomatic embed, but vitest's rollup parser rejects that import attribute outright, and a
+// generated .ts module is understood by every runtime here. Drift-gated by
+// `bun run migrations:embed:check`.
 
 /**
  * The cache.db migration chain, in application order.
@@ -38,7 +47,7 @@ const sql = (file: string): string =>
  */
 export const CACHE_MIGRATIONS: Migration[] = CACHE_MIGRATION_FILES.map((file) => ({
   version: versionOf(file),
-  sql: sql(file),
+  sql: embeddedSql(file),
 }));
 
 /** Bring a cache.db up to the current schema. The only way anything should provision one. */
