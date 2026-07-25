@@ -121,7 +121,7 @@ describe("THE-486 kNN delta — end to end via indexVault", () => {
     v.cleanup();
   });
 
-  it("editing ONE note's content re-queries only it + its prior neighbor (2 calls, not 6) and matches full recompute", async () => {
+  it("editing ONE note's content re-queries only it + its prior neighbor + surviving discovery candidates (5 calls, not 6) and matches full recompute", async () => {
     const v = makeM2Vault({ files: FILES });
     v.db.exec("CREATE TABLE IF NOT EXISTS vec_chunks (dummy INTEGER)");
     const args = {
@@ -137,8 +137,24 @@ describe("THE-486 kNN delta — end to end via indexVault", () => {
     v.write("a.md", A_EDITED);
     vecKnnCalls.count = 0;
     await indexVault(args);
-    // scope = {a.md} (changed) ∪ {b.md} (a.md's ONLY prior similar_to neighbor) — NOT c/d/e/f.
-    expect(vecKnnCalls.count).toBe(2);
+    // THE-486 scope was {a.md} (changed) ∪ {b.md} (a.md's ONLY prior similar_to neighbor) = 2 calls.
+    //
+    // THE-533 adds one discovery probe per CHANGED chunk (here: 1) whose forward neighbours widen the
+    // source scope, so a brand-new/newly-drifted note is still found by a note that ranks it without
+    // being ranked back. The widened set is then re-closed 1 hop over existing edges, which is what
+    // keeps c.md-d.md alive below: c.md enters scope as a discovery candidate, and d.md — the note
+    // that actually OWNS that edge — has to come with it or the scoped delete would drop it.
+    //
+    // READ THIS NUMBER WITH CARE — this 6-note vault is a DEGENERATE case for the cost bound, not a
+    // representative one. The probe over-fetches k*4+1 = 5 chunks at k=1, which is nearly the entire
+    // vault, so almost everything becomes a discovery candidate and only the top-k prune keeps it
+    // under a full scan. In a real vault the over-fetch is a fixed small constant against thousands of
+    // chunks, so the added cost is O(changed chunks), independent of vault size — that is the property
+    // that preserves THE-486's speedup, and it is measured on the real harness (see the THE-533 PR),
+    // not here. What this assertion genuinely guards is that the delta path still does NOT scan the
+    // whole vault.
+    expect(vecKnnCalls.count).toBe(5);
+    expect(vecKnnCalls.count).toBeLessThan(6); // still strictly below a full scan
 
     const rows = knnRows(v);
     expect(rows.map((r) => `${r.source_path}-${r.target_path}`)).toEqual([

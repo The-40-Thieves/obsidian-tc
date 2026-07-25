@@ -508,3 +508,103 @@ export function knnNeighborScope(
   }
   return scope;
 }
+
+/**
+ * THE-533: knnNeighborScope PLUS forward vector discovery — the scope the delta pass actually needs.
+ *
+ * knnNeighborScope expands over EXISTING `similar_to` edges, so a brand-new note (no edges yet) expands
+ * to only itself. That leaves one case where the delta diverges from a full recompute: some untouched
+ * note X now ranks the new note N inside X's OWN top-k, while N does not rank X back, so neither side's
+ * re-query discovers the pair and X is never even queried.
+ *
+ * That asymmetry is real despite cosine similarity being symmetric — sim(N,X) always equals sim(X,N).
+ * What differs is the top-k CUT: if N joins a dense cluster its top-k is saturated by closer neighbours
+ * and a sparse-region X falls outside it, even while N is comfortably X's best match.
+ *
+ * The fix is to also treat the changed notes' own forward vector neighbours as sources. This works
+ * because it reads the RAW over-fetched vecKnn pool (k*4+1 chunks, the same over-fetch the edge builder
+ * uses), which still contains X at the point where the per-note top-k cut would later drop it. No new
+ * table, no reverse index, no migration — it reuses a query shape the pass already runs.
+ *
+ * Applies to every changed path, not just newly-created ones: a note that merely CHANGED can also drift
+ * into some previously-unconnected X's top-k, and its existing edges point at its OLD neighbourhood, not
+ * the new one. Restricting this to new notes would reintroduce the same gap one step along.
+ *
+ * Bounded by `minSim`: a neighbour below the floor can never form an edge with the changed note, and it
+ * cannot re-rank anything else on the changed note's account either, so it is not worth re-querying.
+ * Degrades to plain knnNeighborScope when sqlite-vec is unavailable (node:sqlite), matching how the
+ * edge builders return [] rather than throwing. `changed` empty short-circuits with no query at all,
+ * preserving THE-486's "a zero-change pass performs no kNN scan" guarantee.
+ */
+export function knnDiscoveryScope(
+  db: Database,
+  vaultId: string,
+  changed: ReadonlySet<string>,
+  opts: { k?: number; minSim?: number } = {},
+): Set<string> {
+  const scope = knnNeighborScope(db, vaultId, changed);
+  if (changed.size === 0) return scope;
+  const hasVecChunks =
+    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE name = 'vec_chunks'").get() !== undefined;
+  if (!loadVec(db) || !hasVecChunks) return scope;
+  const k = opts.k ?? 8;
+  const minSim = opts.minSim ?? 0;
+  const placeholders = [...changed].map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT c.path AS path, e.embedding AS embedding FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE e.is_active = 1 AND c.vault_id = ? AND c.path IN (${placeholders})`,
+    )
+    .all(vaultId, ...changed) as Array<{ path: string; embedding: Uint8Array }>;
+  // Best similarity each candidate note reaches against ANY changed chunk. Notes already in scope need
+  // no decision — they are being re-queried regardless.
+  const candidates = new Map<string, number>();
+  for (const row of rows) {
+    const vec = [...blobToFloats(row.embedding)];
+    for (const h of vecKnn(db, vec, k * 4 + 1, vaultId)) {
+      if (!h.path || scope.has(h.path)) continue;
+      const sim = 1 - h.distance;
+      if (sim < minSim) continue; // below the floor it can never form an edge, so it cannot re-rank
+      const prev = candidates.get(h.path);
+      if (prev === undefined || sim > prev) candidates.set(h.path, sim);
+    }
+  }
+  if (candidates.size === 0) return scope;
+  // Cost bound. Absorbing the whole over-fetch pool would drag a delta pass back toward a full scan, so
+  // drop candidates that provably cannot change: a stored confidence IS the cosine similarity and
+  // cosine similarity is SYMMETRIC, so a candidate already holding k neighbours strictly closer than
+  // its own similarity to the changed set has an untouchable top-k. This holds no matter which endpoint
+  // originally earned each edge — only the existence of k closer notes matters.
+  const candidatePaths = [...candidates.keys()];
+  const candidatePlaceholders = candidatePaths.map(() => "?").join(", ");
+  const edgeRows = db
+    .prepare(
+      `SELECT source_path, target_path, confidence FROM vault_edges WHERE vault_id = ? AND edge_type = 'similar_to' AND (source_path IN (${candidatePlaceholders}) OR target_path IN (${candidatePlaceholders}))`,
+    )
+    .all(vaultId, ...candidatePaths, ...candidatePaths) as Array<{
+    source_path: string;
+    target_path: string;
+    confidence: number | null;
+  }>;
+  const closerCount = new Map<string, number>();
+  for (const e of edgeRows) {
+    for (const [self, other] of [
+      [e.source_path, e.target_path],
+      [e.target_path, e.source_path],
+    ] as const) {
+      const sim = candidates.get(self);
+      if (sim === undefined) continue;
+      // An edge to a changed note carries a confidence computed BEFORE the change, so it proves
+      // nothing about the post-change neighbourhood and must not count toward the bound.
+      if (changed.has(other)) continue;
+      if ((e.confidence ?? 0) > sim) closerCount.set(self, (closerCount.get(self) ?? 0) + 1);
+    }
+  }
+  const survivors = candidatePaths.filter((p) => (closerCount.get(p) ?? 0) < k);
+  if (survivors.length === 0) return scope;
+  // Re-close the WIDENED set over existing edges. This is not optional bookkeeping: reconcileDerived-
+  // EdgesScoped deletes any edge that touches scope but is missing from `desired`, so pulling in a
+  // candidate C puts every C-edge at risk — including edges C does not own, which exist only because
+  // the note at the other end ranks C. That other note must therefore be a source too, or it never
+  // re-asserts the edge and the scoped delete silently removes something a full recompute keeps.
+  return knnNeighborScope(db, vaultId, new Set([...changed, ...survivors]));
+}
