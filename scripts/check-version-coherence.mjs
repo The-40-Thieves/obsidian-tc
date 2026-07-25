@@ -80,11 +80,44 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
 
 // THE-306: pin the shipped tool-count headline so the docs cannot silently drift from the registry.
 // The registry's ACTUAL count is asserted by packages/server/test/tool-count.test.ts
-// (REGISTERED_TOOL_COUNT); keep EXPECTED_TOOL_COUNT in lockstep with that constant. Each target is a
-// canonical shipped-count phrase; the historical "103 at r2" G2.1 design numbers are intentionally
-// excluded (they describe the r2 spec surface, not the shipped surface).
+// (REGISTERED_TOOL_COUNT, checked against registry.list().length). Each target is a canonical
+// shipped-count phrase; the historical "103 at r2" G2.1 design numbers are intentionally excluded
+// (they describe the r2 spec surface, not the shipped surface).
+//
+// THE-580 fixed two ways this gate could pass while stale:
+//
+//   1. It matched only the FIRST occurrence per file. In README.md the first hit is hand-written
+//      prose ABOVE the docgen-generated marker region, so after docgen wrote a new number into the
+//      generated block the gate still agreed with the prose eleven lines above and reported OK. A
+//      number could stay stale indefinitely as long as it stayed CONSISTENTLY stale — precisely the
+//      failure a coherence check exists to prevent. Now every occurrence is checked, with line
+//      numbers in the failure.
+//   2. EXPECTED_TOOL_COUNT was a hand-kept duplicate of REGISTERED_TOOL_COUNT, "kept in lockstep"
+//      by remembering. Remembering is not a mechanism. It is now DERIVED from that constant, so the
+//      two cannot diverge; the test still checks that constant against the live registry, which
+//      keeps the whole chain anchored to reality rather than to a literal.
+//
+// This gate is NOT redundant with docgen:facts-check, despite overlapping. facts-check sweeps every
+// narrative surface for generic phrasings but DELIBERATELY excludes bare "(\d+)-tool" (the
+// legitimate "3-tool facade" is a different fact). Verified by experiment: corrupting
+// ARCHITECTURE.md's "150-tool G2.1 surface" and README's "| 150 (3-tool facade) |" table cell leaves
+// facts-check reporting "no narrative drift" while this gate fails on both. The precise file+phrase
+// anchors here cover exactly what a global sweep cannot safely match.
 {
-  const EXPECTED_TOOL_COUNT = 150;
+  // Derived, not duplicated (THE-580). Parsed rather than imported because this script runs under
+  // plain node (ci-version.yml) and the authority lives in a TypeScript test.
+  const TOOL_COUNT_SOURCE = "packages/server/test/tool-count.test.ts";
+  const EXPECTED_TOOL_COUNT = (() => {
+    const src = readFileSync(resolve(ROOT, TOOL_COUNT_SOURCE), "utf8");
+    const m = src.match(/const\s+REGISTERED_TOOL_COUNT\s*=\s*(\d+)/);
+    if (!m) {
+      console.error(
+        `\nFAIL: could not read REGISTERED_TOOL_COUNT from ${TOOL_COUNT_SOURCE} — the tool-count gate has no authority to check against, so it must not report OK.`,
+      );
+      process.exit(1);
+    }
+    return Number(m[1]);
+  })();
   const readText = (p) => {
     const target = resolve(ROOT, p);
     if (relative(ROOT, target).startsWith("..")) {
@@ -105,6 +138,7 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
     ["docs/src/content/docs/roadmap.md", /(\d+) tools across 31 domains/],
   ];
   const drift = [];
+  let occurrences = 0;
   for (const [file, re] of targets) {
     let text;
     try {
@@ -113,18 +147,31 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
       drift.push(`${file}: not found`);
       continue;
     }
-    const m = text.match(re);
-    if (!m) drift.push(`${file}: no tool-count headline matched ${re}`);
-    else if (Number(m[1]) !== EXPECTED_TOOL_COUNT) {
-      drift.push(`${file}: headline says ${m[1]}, expected ${EXPECTED_TOOL_COUNT}`);
+    // EVERY occurrence, not just the first (THE-580). Scanned line by line so a failure names the
+    // exact line, and so one stale copy cannot hide behind a correct one earlier in the file.
+    const global = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
+    let matched = 0;
+    for (const [lineNo, line] of text.split("\n").entries()) {
+      for (const m of line.matchAll(global)) {
+        matched += 1;
+        if (Number(m[1]) !== EXPECTED_TOOL_COUNT) {
+          drift.push(
+            `${file}:${lineNo + 1}: headline says ${m[1]}, expected ${EXPECTED_TOOL_COUNT}`,
+          );
+        }
+      }
     }
+    // A pattern that matches nothing is itself drift: the phrase was reworded or deleted, and a
+    // silent zero-match would quietly retire the anchor while the gate kept reporting OK.
+    if (matched === 0) drift.push(`${file}: no tool-count headline matched ${re}`);
+    occurrences += matched;
   }
   if (drift.length) {
     console.error(`\nFAIL: tool-count headline drift (THE-306):\n  ${drift.join("\n  ")}`);
     process.exit(1);
   }
   console.log(
-    `tool-count headline OK (${EXPECTED_TOOL_COUNT} across ${targets.length} doc surfaces)`,
+    `tool-count headline OK (${EXPECTED_TOOL_COUNT} from ${TOOL_COUNT_SOURCE}; ${occurrences} occurrence(s) across ${targets.length} anchors)`,
   );
 }
 
