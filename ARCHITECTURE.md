@@ -822,7 +822,7 @@ Shipped in v1.0.2 (2026-06-21); reconciled to the shipped v1.x line on 2026-07-0
 
 ## References
 
-- [`docs/G2.1-tools.md`](docs/G2.1-tools.md) — the 146-tool surface specification (extended additively post-1.0)
+- [`docs/G2.1-tools.md`](docs/G2.1-tools.md) — the 147-tool surface specification (extended additively post-1.0)
 - [`CHANGELOG.md`](CHANGELOG.md) — the authoritative record of post-1.0 changes
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — development setup and conventions
 - MCP specification 2025-11-25 — https://modelcontextprotocol.io/specification/2025-11-25
