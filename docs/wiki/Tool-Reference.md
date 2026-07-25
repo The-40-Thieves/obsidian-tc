@@ -70,6 +70,8 @@ What `tools/list` advertises is controlled by `toolFacade.mode`: **`triad`** (de
 
 A tool that needs an unavailable capability (a missing plugin, an unconfigured embedding provider) returns a typed error from the shared taxonomy (e.g. `plugin_missing`, `embedding_provider_error`) with a `retryable` flag — never an opaque failure. At the MCP boundary a dispatch failure surfaces as a Tool Execution Error (`isError: true` plus the structured error), so a model can self-correct.
 
+Every error also carries a **`recovery`** string: bounded next-step guidance for that code, naming the tool to call next where one exists (`acl_denied` points at `inspect_acl`, `dql_error` at `validate_dql`, `plugin_missing` at `refresh_plugin_capabilities`). Where `retryable` says *whether* to retry, `recovery` says *what to do instead*. Hints are selected by error code alone, so they never echo a path, query, caller or vault back to the client.
+
 ## Full catalog (generated)
 
 _Auto-generated from the tool registry — the exhaustive, always-current list. Run `bun run docgen:render`; do not hand-edit between the markers._
