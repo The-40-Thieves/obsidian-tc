@@ -117,12 +117,32 @@ jobs:
       - name: perf gate (isolated - 5 fresh-subprocess samples, gated on the median; THE-503)
         run: bun run perf:gate:isolated
         working-directory: packages/server
+      # THE-581: the densification scenario, gated for real. Its metrics existed from #452 and its
+      # baseline from #456, but nothing compared them until this step — coverage that gates nothing
+      # is the weaker half of the bug THE-581 closed.
+      #
+      # A SEPARATE step, not a second scenario folded into the one above, so a densification
+      # regression names itself in the job log instead of arriving as "perf gate failed". Runs in
+      # the same job to inherit the perf-exclusive concurrency group: densification is measured in
+      # vec0 KNN call counts and wall time, and a run racing another perf job is exactly the
+      # contention THE-503 exists to keep out of these numbers.
+      #
+      # Gated hard despite kNN edges being default-off in production. The point is
+      # measurement integrity: the counts are deterministic, so this cannot flake, and a
+      # deliberate change to densification is supposed to require a deliberate re-record.
+      - name: perf gate - densification (family 15; THE-581)
+        run: bun run perf:gate:densify:isolated
+        working-directory: packages/server
       - name: upload perf report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: perf-report
-          path: packages/server/perf-report.json
+          # Both reports: the densify run writes its own file, and dropping it would leave a failed
+          # densification gate with no artifact to inspect.
+          path: |
+            packages/server/perf-report.json
+            packages/server/perf-report-densify.json
       # THE-494: Node portability run. Informational ONLY and deliberately never gated -- under
       # Node + node:sqlite the sqlite-vec extension does not load and vector search degrades to
       # brute force, so gating here would benchmark a path production never takes. It reports only
