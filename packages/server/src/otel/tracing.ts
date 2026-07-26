@@ -11,31 +11,12 @@
 // at laptop scale, so v1.0 emits the attribute-rich root span in both trace_detail modes. This
 // is a documented reconciliation, not an omission.
 import { type Tracer, trace } from "@opentelemetry/api";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { resourceFromAttributes } from "@opentelemetry/resources";
-import { BatchSpanProcessor, NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import {
-  ATTR_SERVICE_INSTANCE_ID,
-  ATTR_SERVICE_NAME,
-  ATTR_SERVICE_VERSION,
-} from "@opentelemetry/semantic-conventions";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 
-export const TRACER_NAME = "obsidian-tc";
+// THE-515: SPAN_ATTR (the attribute-key constants) moved to ./attrs, a leaf module with no SDK
+// imports — mcp/registry.ts needs the keys but must not drag in the OTEL SDK to get them.
 
-/** G2.4 per-span attribute keys (the obsidian_tc.* namespace plus rate_limit.hit). */
-export const SPAN_ATTR = {
-  vaultId: "obsidian_tc.vault_id",
-  tool: "obsidian_tc.tool",
-  callerHash: "obsidian_tc.caller_hash",
-  scopesRequired: "obsidian_tc.scopes_required",
-  status: "obsidian_tc.status",
-  errorCode: "obsidian_tc.error_code",
-  elicitUsed: "obsidian_tc.elicit_used",
-  overflowB: "obsidian_tc.overflow_b",
-  durationMs: "obsidian_tc.duration_ms",
-  rateLimitHit: "rate_limit.hit",
-} as const;
+export const TRACER_NAME = "obsidian-tc";
 
 export interface OtelHandle {
   enabled: boolean;
@@ -48,10 +29,29 @@ export interface OtelHandle {
  * Initialize OTEL tracing from the observability config. Returns a disabled handle (no tracer,
  * no-op shutdown) when otel.endpoint is unset. Otherwise registers a global NodeTracerProvider
  * exporting OTLP/HTTP to the endpoint and returns its tracer plus a shutdown hook.
+ *
+ * THE-515: async so the four OTEL SDK packages (exporter-trace-otlp-http, resources,
+ * sdk-trace-node, semantic-conventions) load only when an endpoint is actually configured,
+ * instead of being value-imported — and paid for by every process, `serve` or not — at module
+ * scope. `cli.ts` is this function's only caller and is already async.
  */
-export function initOtel(obs: ServerConfig["observability"], version: string): OtelHandle {
+export async function initOtel(
+  obs: ServerConfig["observability"],
+  version: string,
+): Promise<OtelHandle> {
   const endpoint = obs.otel.endpoint;
   if (!endpoint) return { enabled: false, shutdown: async () => undefined };
+  const [
+    { OTLPTraceExporter },
+    { resourceFromAttributes },
+    { BatchSpanProcessor, NodeTracerProvider },
+    { ATTR_SERVICE_INSTANCE_ID, ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION },
+  ] = await Promise.all([
+    import("@opentelemetry/exporter-trace-otlp-http"),
+    import("@opentelemetry/resources"),
+    import("@opentelemetry/sdk-trace-node"),
+    import("@opentelemetry/semantic-conventions"),
+  ]);
   const provider = new NodeTracerProvider({
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: TRACER_NAME,

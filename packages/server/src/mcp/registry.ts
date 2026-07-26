@@ -18,7 +18,7 @@ import { type AuditEvent, writeEvent } from "../audit";
 import { cachedPrepare, type Database } from "../db/types";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
-import { SPAN_ATTR } from "../otel/tracing";
+import { SPAN_ATTR } from "../otel/attrs";
 import { callerHash, type RateLimiter } from "../throttle";
 import { CROSS_NOTE_REWRITE_TOOLS, runAudited } from "../vault/acl-audit";
 import { type AclOp, enforcePathAcl } from "../vault/acl-path";

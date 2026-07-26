@@ -870,7 +870,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // share the same in-memory counters. The scrape endpoint is started below only when
   // observability.prometheus.enabled (default off / `:0`).
   // OTEL tracing (G2.4) — no-op unless observability.otel.endpoint is set.
-  const otel = initOtel(config.observability, VERSION);
+  const otel = await initOtel(config.observability, VERSION);
   // THE-507: hoisted ABOVE the recorder so its stats can be a gauge source. Construction is
   // unconditional now (it was inline under the retrieval-cache config branch), which is safe
   // because an unused cache is two empty Maps — but it is still only THREADED to the tools when
