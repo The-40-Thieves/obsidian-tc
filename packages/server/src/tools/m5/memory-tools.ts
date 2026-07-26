@@ -285,56 +285,64 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       requiredScopes: ["write:memory"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const existing = getEntityById(ctx.db, input.entity_id);
-        if (!existing || existing.vault_id !== v.id)
-          throw err.invalidInput("entity not found", { entity_id: input.entity_id });
-        // THE-567 fix: pre-check the materialization ACL BEFORE the SQLite append (mirrors
-        // create_entity) so a caller lacking the note folder's rule-scope cannot get the
-        // observation durably committed to the graph while only the note write is blocked.
-        // rematerialize() only touches a note when materialize===1, so gate on that same condition.
-        if (existing.materialize === 1)
-          enforcePathAcl(
-            ctx.acl,
-            "write",
-            entityNotePath(memoryFolderFor(deps, v.id), existing.entity_type, existing.name),
-            v.root,
-            ctx.grantedScopes,
-          );
         const now = (ctx.now ?? Date.now)();
 
-        // THE-572: this handler commits TWO effects — a SQLite append and a note write — that
-        // cannot share one transaction (SQLite cannot roll back the filesystem). Previously the
-        // append ran first, so a throw in the note write left the observation durably committed
-        // while dispatch deleted the idempotency claim, and a retry appended it a SECOND time.
+        // THE-573 (residual #2): `existing` used to be read, the next-observations list derived,
+        // and the note rendered to disk ALL BEFORE this transaction opened — only the SQLite
+        // append and the idempotency marker were inside it. That split let the file and the DB
+        // disagree in two real ways:
+        //  1. A contended `BEGIN IMMEDIATE` can fail with plain SQLITE_BUSY after exhausting
+        //     busy_timeout (txn.ts:119-127), and that failure is NOT retryable by raising the
+        //     timeout. By the time it fired, the note below had already been rendered to disk, so
+        //     the file gained an observation that never reached SQLite.
+        //  2. A second connection can commit between our read and our write. appendObservation
+        //     re-reads the row itself (entities.ts:135) inside ITS OWN transaction, so SQLite ends
+        //     up correct — but the note we already rendered from the stale snapshot is missing the
+        //     interleaved observation. (The ticket's "two concurrent calls" framing is wrong: this
+        //     handler has zero `await`s, so two in-process dispatches cannot interleave here at
+        //     all — the trigger is a SECOND connection, or process, sharing the same vault.)
         //
-        // Fix: run the IDEMPOTENT effect first. materializeProjection renders the whole note and
-        // overwrites it atomically, so re-running it is a no-op, whereas appendObservation is
-        // strictly additive and re-running it double-applies. The note is therefore rendered from
-        // the observation list we are ABOUT to commit. SQLite stays the source of truth, so the
-        // one failure this ordering can leave — a note containing an observation whose append then
-        // rolled back — is stale-but-regenerable and the next rematerialize corrects it. That is
-        // strictly better than the reverse, which silently duplicated user data.
-        const nextObservations = parseObservations(
-          serializeObservations([...parseObservations(existing.observations), input.observation]),
-        );
-        const vaultPath =
-          existing.materialize === 1
-            ? materializeProjection(deps, ctx, v, existing, nextObservations)
-            : existing.vault_path;
-
-        // Both remaining effects are writes on ctx.db, so the idempotency marker joins them in ONE
-        // transaction: either the observation lands AND the claim is durably marked, or neither
-        // does and the claim stays in-flight for a legitimate re-run. Marking inside the
-        // transaction is what avoids a false `indeterminate_outcome` when the append itself fails.
-        // THE-587: inWriteTransaction (BEGIN IMMEDIATE), not inTransaction (deferred BEGIN).
-        // `appendObservation` READS the entity row (getEntityById, entities.ts:135) and then runs
-        // an UPDATE on it (:140) — both inside this transaction. Under a deferred BEGIN that read pins a
-        // snapshot, and if any other connection commits before the UPDATE, SQLite refuses the
-        // upgrade with SQLITE_BUSY_SNAPSHOT. That failure is NOT retryable by `busy_timeout`
-        // (measured: 0.2ms against a 5000ms timeout), so the configured timeout cannot rescue it.
-        // Taking the write lock up front removes the upgrade entirely.
+        // Fix: take the write lock BEFORE the read, and do the read, the ACL check, the render, and
+        // the append all inside it. A failed BEGIN IMMEDIATE now never runs the render at all (closes
+        // #1), and a second connection's BEGIN IMMEDIATE blocks until we commit, then re-reads OUR
+        // committed state (closes #2) — cross-connection writers serialize on the write lock instead
+        // of racing past each other.
+        //
+        // The cost, paid on every call to a materialized entity: a filesystem write now happens
+        // INSIDE the held write lock, lengthening the `memory_observation` lock hold. That is
+        // exactly the series THE-585's onLockWait histogram measures, so the cost is observable
+        // rather than theoretical — keep the fs write below as tight as possible.
+        //
+        // Rendering AFTER the commit instead (so the lock never covers the fs write) was rejected:
+        // it would turn a currently-retryable pre-effect failure into a caller-visible
+        // `indeterminate_outcome`. A background reconciler was rejected too: more code for a
+        // guarantee this lock already gives for free. `ctx.markEffectCommitted?.()` stays INSIDE
+        // the transaction (registry.ts:1209-1225 depends on this), called only once the checks that
+        // can still fail cleanly (not-found, ACL) are behind us.
         return inWriteTransaction(ctx.db, "memory_observation", () => {
+          const existing = getEntityById(ctx.db, input.entity_id);
+          if (!existing || existing.vault_id !== v.id)
+            throw err.invalidInput("entity not found", { entity_id: input.entity_id });
+          // THE-567 fix: pre-check the materialization ACL BEFORE the SQLite append (mirrors
+          // create_entity) so a caller lacking the note folder's rule-scope cannot get the
+          // observation durably committed to the graph while only the note write is blocked.
+          // rematerialize() only touches a note when materialize===1, so gate on that condition.
+          if (existing.materialize === 1)
+            enforcePathAcl(
+              ctx.acl,
+              "write",
+              entityNotePath(memoryFolderFor(deps, v.id), existing.entity_type, existing.name),
+              v.root,
+              ctx.grantedScopes,
+            );
           ctx.markEffectCommitted?.();
+          const nextObservations = parseObservations(
+            serializeObservations([...parseObservations(existing.observations), input.observation]),
+          );
+          const vaultPath =
+            existing.materialize === 1
+              ? materializeProjection(deps, ctx, v, existing, nextObservations)
+              : existing.vault_path;
           const r = appendObservation(ctx.db, existing.id, input.observation, now);
           if (!r) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
           if (existing.materialize === 1) setEntityVaultPath(ctx.db, existing.id, vaultPath, now);

@@ -23,19 +23,42 @@
 // (an extra snapshot row, an extra .trash entry) or a misleading retry answer rather than
 // duplicated user content. `append_note` — covered below — is the member of that group whose write
 // is genuinely non-idempotent.
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { FolderAcl } from "../src/acl";
+import { openNodeSqlite } from "../src/db/node-node-sqlite";
 import { provisionCacheDb } from "../src/db/provision";
-import { inSavepoint, inTransaction } from "../src/db/txn";
+import { busyReason, inSavepoint, inTransaction } from "../src/db/txn";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { getEntityById, parseObservations } from "../src/memory/entities";
+import { parseEntityNote } from "../src/memory/materialize";
+import { registerM5Tools } from "../src/tools/m5";
+import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM5Vault } from "./m5-helpers";
+
+// THE-573 #2 interleave test below needs to observe a real BEGIN IMMEDIATE landing (or not)
+// exactly while add_observation is rendering its note projection. materializeEntity is the only
+// seam that call sits behind (memory-tools.ts imports it directly, not via an injectable dep), so
+// it is wrapped here to fire a test-controlled hook around the real implementation. Every other
+// test in this file leaves `onMaterialize` unset, so the wrapper is a pure passthrough for them.
+let onMaterialize: (() => void) | undefined;
+vi.mock("../src/memory/materialize", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/memory/materialize")>();
+  return {
+    ...actual,
+    materializeEntity: (input: Parameters<typeof actual.materializeEntity>[0]) => {
+      onMaterialize?.();
+      return actual.materializeEntity(input);
+    },
+  };
+});
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -651,5 +674,160 @@ describe("THE-573 #3: inSavepoint (nested-safe) and rollback-failure reporting",
     const rollbackReport = seen.find((s) => s.tool.startsWith("txn_rollback:"));
     expect(rollbackReport).toBeDefined();
     expect((rollbackReport?.err as Error)?.message).toMatch(/disk I\/O/);
+  });
+});
+
+// ── THE-573 #2: the LIVE residual — add_observation's read + render + append used to be split
+// around its write lock, not covered by it ──────────────────────────────────────────────────────
+//
+// #1 and #3 above were already closed by bb4e776 (PR #445). #2 was not: `existing` was read, the
+// next-observations list derived, and the note rendered to disk ALL BEFORE `inWriteTransaction`
+// ever opened (memory-tools.ts:288-323, pre-fix). Two real failure modes fell out of that split:
+//   1. A contended `BEGIN IMMEDIATE` can fail with plain SQLITE_BUSY after exhausting
+//      busy_timeout (txn.ts:119-127) — by then the note had ALREADY been rendered, so the file
+//      gains an observation that never reaches SQLite.
+//   2. A second connection's commit can land between our read and our write — SQLite ends up
+//      correct (appendObservation re-reads inside its own transaction), but the note we already
+//      rendered from a stale snapshot is missing the interleaved observation.
+// The ticket's own "two concurrent calls" framing is unreachable in-process (memory-tools.ts has
+// zero `await`s), so both tests below drive the failure through REAL SQLite mechanics — a stubbed
+// busy error for #1, and a second real connection to the same file for #2 — rather than simulated
+// concurrency.
+describe("THE-573 #2: add_observation's read + render + append now share ONE write lock", () => {
+  it("a BEGIN IMMEDIATE busy failure leaves the note file byte-for-byte UNCHANGED", async () => {
+    const v = makeM5Vault();
+    try {
+      const id = await makeEntity(v);
+      const before = v.read("memory/person/Ada.md");
+
+      // Fault injection: BEGIN IMMEDIATE itself throws SQLITE_BUSY (the shape busyReason.ts:195-205
+      // reads), reproducing a contended write lock without waiting out busy_timeout. Under the
+      // pre-fix ordering the note was already rendered to disk BEFORE this statement ever ran, so a
+      // busy lock still left "second" on disk with nothing committed to SQLite.
+      const realExec = v.db.exec.bind(v.db);
+      (v.db as { exec: (s: string) => void }).exec = (sql: string) => {
+        if (/^BEGIN IMMEDIATE/.test(sql)) {
+          const e = new Error("database is locked") as Error & { code: string };
+          e.code = "SQLITE_BUSY";
+          throw e;
+        }
+        return realExec(sql);
+      };
+
+      const a = await v.call(
+        "add_observation",
+        { vault: "test", entity_id: id, observation: "second", idempotency_key: "K" },
+        { now: () => 200 },
+      );
+      expect(a.ok).toBe(false);
+      // The read, the render, and the append are now ALL inside the callback that
+      // inWriteTransaction never invokes when BEGIN IMMEDIATE itself throws — so the note is
+      // untouched...
+      expect(v.read("memory/person/Ada.md")).toBe(before);
+      expect(observations(v, id)).toEqual(["first"]);
+      // ...which makes this a pre-effect failure: the claim is released for a real retry.
+      expect(
+        v.db.prepare("SELECT state FROM idempotency_keys WHERE key='K'").get(),
+      ).toBeUndefined();
+
+      (v.db as { exec: (s: string) => void }).exec = realExec; // clear the fault
+      const b = await v.call(
+        "add_observation",
+        { vault: "test", entity_id: id, observation: "second", idempotency_key: "K" },
+        { now: () => 300 },
+      );
+      expect(b.ok).toBe(true);
+      expect(observations(v, id)).toEqual(["first", "second"]);
+      expect(v.read("memory/person/Ada.md")).toContain("- second");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a real second connection cannot begin a write while ours is rendering, so the note never diverges from SQLite", async () => {
+    const dbDir = mkdtempSync(join(tmpdir(), "obtc-interleave-db-"));
+    const root = mkdtempSync(join(tmpdir(), "obtc-interleave-vault-"));
+    let dbA: Database | undefined;
+    let dbB: Database | undefined;
+    try {
+      dbA = await openNodeSqlite(join(dbDir, "cache.db"));
+      provisionCacheDb(dbA);
+      dbB = await openNodeSqlite(join(dbDir, "cache.db"));
+      // Short-circuit dbB's wait so a genuinely-blocked probe fails fast instead of eating the
+      // adapter's 5000ms default (set by openNodeSqlite for every connection).
+      dbB.exec("PRAGMA busy_timeout = 150");
+
+      const vaultRegistry = new VaultRegistry([{ id: "test", path: root }]);
+      const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
+      const regA = new ToolRegistry();
+      registerM5Tools(regA, { vaultRegistry });
+      const regB = new ToolRegistry();
+      registerM5Tools(regB, { vaultRegistry });
+      const base = {
+        caller: "test",
+        authenticated: true,
+        grantedScopes: new Set(["*"]),
+        vaultId: "test",
+        acl,
+      };
+      const ctxA: CallerContext = { ...base, db: dbA };
+      const ctxB: CallerContext = { ...base, db: dbB };
+
+      const created = await regA.dispatch(
+        "create_entity",
+        { vault: "test", type: "person", name: "Ada", observations: ["first"] },
+        ctxA,
+      );
+      if (!created.ok) throw new Error("setup failed");
+      const id = (created.data as { entity_id: string }).entity_id;
+
+      // Fires from INSIDE regA's add_observation, exactly where the note projection is rendered.
+      // A genuine second connection tries to begin its OWN write right there. Pre-fix, A had not
+      // yet opened its transaction at this point (the render ran before inWriteTransaction), so
+      // this probe would acquire the lock immediately — reproducing the interleave. Post-fix, A's
+      // transaction has been open since BEFORE the read, so the probe must find the lock held.
+      let probed: unknown;
+      onMaterialize = () => {
+        try {
+          (dbB as Database).exec("BEGIN IMMEDIATE");
+          (dbB as Database).exec("ROLLBACK");
+          probed = "acquired"; // the bug: A's lock did not cover the render
+        } catch (e) {
+          probed = e; // expected: a real SQLITE_BUSY from dbA's held lock
+        }
+      };
+      let a: Awaited<ReturnType<typeof regA.dispatch>>;
+      try {
+        a = await regA.dispatch(
+          "add_observation",
+          { vault: "test", entity_id: id, observation: "from-A" },
+          ctxA,
+        );
+      } finally {
+        onMaterialize = undefined;
+      }
+      expect(a.ok).toBe(true);
+      expect(busyReason(probed)).not.toBeNull();
+
+      // Once A has released the lock, a real second-connection add_observation lands cleanly.
+      const b = await regB.dispatch(
+        "add_observation",
+        { vault: "test", entity_id: id, observation: "from-B" },
+        ctxB,
+      );
+      expect(b.ok).toBe(true);
+
+      const row = getEntityById(dbA, id);
+      const dbObs = row ? parseObservations(row.observations) : [];
+      const noteText = readFileSync(join(root, "memory/person/Ada.md"), "utf8");
+      const fileObs = parseEntityNote(noteText).observations;
+      expect(dbObs).toEqual(["first", "from-A", "from-B"]);
+      expect(fileObs).toEqual(dbObs);
+    } finally {
+      dbA?.close?.();
+      dbB?.close?.();
+      rmSync(dbDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
