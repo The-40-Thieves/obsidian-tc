@@ -74,6 +74,22 @@ function isThenable(v: unknown): v is Promise<void> {
 
 export class Scheduler {
   private readonly jobs = new Map<string, JobState>();
+
+  /** THE-585 (#9): live per-job health for the metrics gauges. A SNAPSHOT accessor rather than a
+   *  push into a recorder, matching the query-cache precedent — the scheduler already owns both
+   *  numbers, and a Counter would make it call INTO the metrics layer, inverting the composition
+   *  root's one-way dependency.
+   *
+   *  `job` labels are bounded: they are the registered job NAMES, all defined in code at startup,
+   *  never derived from a request. `onSkip` already reported skips, but only as a callback fired at
+   *  the moment of a skip — nothing accumulated it anywhere a scrape could read. */
+  stats(): Array<{ job: string; skipped: number; consecutiveFailures: number }> {
+    return [...this.jobs.entries()].map(([job, st]) => ({
+      job,
+      skipped: st.skipped,
+      consecutiveFailures: st.consecutiveFailures,
+    }));
+  }
   private readonly now: () => number;
   private readonly db?: Database;
   private readonly eventLoopDeferMs?: number;

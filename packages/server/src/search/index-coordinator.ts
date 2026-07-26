@@ -52,6 +52,9 @@ export interface IndexCoordinatorStats {
   backpressured: boolean;
   /** Per-vault active-drain counts (only vaults with >0 active are listed). */
   perVaultActive: Record<string, number>;
+  /** THE-585 (#2): cumulative writes avoided by coalescing — a pending op replaced by a newer one
+   *  for the same (vault, path) before it ran. Monotonic for the process's lifetime. */
+  coalesced: number;
 }
 
 /** A fair FIFO counting semaphore. release() hands a permit directly to the head waiter (no wakeup
@@ -88,6 +91,8 @@ export class IndexCoordinator {
   private readonly queueMax: number;
   private readonly onBackpressure?: (depth: number) => void;
   private active = 0;
+  /** THE-585 (#2): cumulative count of pending ops superseded before they ran. */
+  private coalesced = 0;
   private overQueueMax = false;
 
   constructor(
@@ -136,6 +141,11 @@ export class IndexCoordinator {
 
   private enqueue(vaultId: string, path: string, op: IndexOp): void {
     const k = this.key(vaultId, path);
+    // THE-585 (#2): a pending op being REPLACED is a write this process will never perform — the
+    // coalescing THE-455 exists to do. Counted here, at the only place it happens, rather than
+    // inferred from a difference between two other counters. Like the dedup counter, a RISE IS
+    // GOOD (work avoided); a fall to zero under a bursty writer means coalescing stopped working.
+    if (this.latest.has(k)) this.coalesced += 1;
     this.latest.set(k, op); // coalesce: the newest desired state wins
     const prev = this.chain.get(k) ?? Promise.resolve();
     const next = prev.then(() => this.drain(vaultId, path, k));
@@ -201,6 +211,7 @@ export class IndexCoordinator {
       active: this.active,
       backpressured: this.chain.size > this.queueMax,
       perVaultActive: Object.fromEntries(this.vaultActive),
+      coalesced: this.coalesced,
     };
   }
 

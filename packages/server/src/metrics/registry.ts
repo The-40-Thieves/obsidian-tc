@@ -41,6 +41,22 @@ export interface GaugeSources {
   indexQueueDepth?: () => Array<{ vault: string; value: number }>;
   /** In-flight index operations, genuinely per vault (the coordinator tracks them that way). */
   indexActive?: () => Array<{ vault: string; value: number }>;
+  /** THE-585 (#2): cumulative writes AVOIDED by the coordinator's per-(vault,path) coalescing.
+   *  A rise is good — like the dedup counter, this is work not done. */
+  indexCoalesced?: () => Array<{ vault: string; value: number }>;
+  /** THE-585 (#9): scheduler health. `vault` carries the bounded JOB NAME (registered in code at
+   *  startup, never request-derived), per the process-wide-subsystem precedent. */
+  schedulerSkipped?: () => Array<{ vault: string; value: number }>;
+  schedulerConsecutiveFailures?: () => Array<{ vault: string; value: number }>;
+  /** THE-585 (#11): seconds spent constructing the HTTP app/transport at boot. Measured once, so a
+   *  gauge rather than a histogram — there is exactly one sample per process lifetime. */
+  httpConstructSeconds?: () => Array<{ vault: string; value: number }>;
+  /** THE-585 (#13): the ACTIVE embedding fingerprint per vault, as a labelled always-1 gauge —
+   *  the standard Prometheus "info metric" shape. The value carries no information; the LABEL is
+   *  the datum, so an operator can see at a glance which representation an index was built under
+   *  and correlate a retrieval-quality change with a model swap. Bounded: one series per vault per
+   *  active fingerprint, and a vault has exactly one active fingerprint at a time. */
+  vecFingerprint?: () => Array<{ vault: string; fingerprint: string }>;
   queryCacheHits?: () => Array<{ vault: string; value: number }>;
   queryCacheMisses?: () => Array<{ vault: string; value: number }>;
   queryCacheEvictions?: () => Array<{ vault: string; value: number }>;
@@ -307,6 +323,49 @@ export class MetricsRecorder {
       "Index operations currently executing, by vault.",
       sources.indexActive,
     );
+    // THE-585 (#2). Work AVOIDED, so a rise is good — the same reading as the dedup counter. A
+    // bursty editor autosaving one note should drive this up; if it stops moving under that load,
+    // coalescing has broken and every keystroke is being embedded.
+    gauge(
+      "obsidian_tc_index_coalesced_total",
+      "Index writes avoided by per-(vault,path) coalescing — a pending op replaced by a newer one before it ran. Cumulative. A RISE IS GOOD (work not done); a flat line under a bursty writer means coalescing stopped working.",
+      sources.indexCoalesced,
+    );
+    // THE-585 (#9). `vault` carries the bounded job NAME — registered in code at startup, never
+    // request-derived. Skips and backoff are the scheduler's own numbers, read rather than pushed.
+    gauge(
+      "obsidian_tc_scheduler_skipped_total",
+      "Due ticks skipped because the job's prior run was still in flight, by job name. Cumulative. Sustained growth means the job's interval is shorter than its runtime.",
+      sources.schedulerSkipped,
+    );
+    gauge(
+      "obsidian_tc_scheduler_consecutive_failures",
+      "Consecutive failures per job name — the exponent behind the scheduler's backoff. Non-zero means the job is currently backing off; it resets to 0 on the next success.",
+      sources.schedulerConsecutiveFailures,
+    );
+    // THE-585 (#11). Measured once at boot, so a gauge: a histogram over a single sample would
+    // imply a distribution that does not exist.
+    gauge(
+      "obsidian_tc_http_construct_seconds",
+      "Seconds spent constructing the HTTP app/transport at boot, by subsystem. One sample per process.",
+      sources.httpConstructSeconds,
+    );
+    // THE-585 (#13): an INFO metric — value always 1, the label is the datum. The standard
+    // Prometheus shape for "what configuration is this process running under". Registered
+    // separately from gauge() because its source yields a label, not a value.
+    new Gauge({
+      name: "obsidian_tc_vec_fingerprint_active",
+      help: "Always 1; the `fingerprint` label carries the embedding representation the vault's vector index was actually built under (provider/model/dimensions/metric/enrichment/chunker/schema). Lets a retrieval-quality change be correlated with a representation swap instead of guessed at.",
+      labelNames: ["vault", "fingerprint"],
+      registers,
+      collect() {
+        if (!sources.vecFingerprint) return;
+        this.reset();
+        for (const s of sources.vecFingerprint()) {
+          this.set({ vault: s.vault, fingerprint: s.fingerprint }, 1);
+        }
+      },
+    });
     // THE-507: retrieval-cache effectiveness. The `vault` label holds the cache name
     // ("results"/"vectors") — see GaugeSources. Hit rate is hits/(hits+misses); a rising
     // eviction count against a flat hit count means retrieval.cache.maxEntries is too small,
