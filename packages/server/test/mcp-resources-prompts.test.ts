@@ -171,6 +171,45 @@ describe("prompts", () => {
   it("rejects a required arg provided as an empty string", () => {
     expect(() => getPrompt("summarize_note", { path: "" })).toThrow(/path/);
   });
+
+  // THE-448: the prompt drives SEPARATE per-facet searches rather than the `queries[]` fan-out,
+  // because the fan-out measured -0.047 nDCG@10 (p=0.0004) against single-query on the n=250
+  // golden set while leaving recall unchanged. These tests pin that choice so a future edit
+  // cannot quietly reintroduce a measured regression, and pin the clamp on an argument the MCP
+  // protocol gives no schema to.
+  describe("decompose_and_research (THE-448)", () => {
+    const text = (args: Record<string, string>): string => {
+      const m = getPrompt("decompose_and_research", args).messages[0];
+      if (m?.content.type !== "text") throw new Error("expected a text message");
+      return m.content.text;
+    };
+    it("is listed and requires the question", () => {
+      expect(listPrompts().prompts.map((p) => p.name)).toContain("decompose_and_research");
+      expect(() => getPrompt("decompose_and_research", {})).toThrow(/question/);
+    });
+    it("carries the question and names the search tool", () => {
+      const t = text({ question: "how does X relate to Y?" });
+      expect(t).toContain("how does X relate to Y?");
+      expect(t).toContain("vault_graph_search");
+    });
+    it("asks for SEPARATE per-facet searches, not the measured-worse queries[] fan-out", () => {
+      const t = text({ question: "q" });
+      expect(t).toContain("SEPARATE vault_graph_search");
+      // Keeping the lists apart is what makes per-facet attribution possible in the synthesis
+      // step; a fused list cannot say which facet surfaced a note.
+      expect(t).toContain("Keep the result lists separate");
+      // The regression guard: the prompt must not instruct the agent to populate `queries`.
+      expect(t).not.toMatch(/as\s+`?queries`?/i);
+    });
+    it("defaults, honours, and clamps max_variants", () => {
+      expect(text({ question: "q" })).toContain("up to 4 facet queries");
+      expect(text({ question: "q", max_variants: "6" })).toContain("up to 6 facet queries");
+      // Above the cap, and every shape of garbage, fall back inside the bound.
+      expect(text({ question: "q", max_variants: "99" })).toContain("up to 8 facet queries");
+      for (const bad of ["0", "-3", "2.5", "lots", ""])
+        expect(text({ question: "q", max_variants: bad })).toContain("up to 4 facet queries");
+    });
+  });
 });
 
 describe("Greptile review fixes", () => {

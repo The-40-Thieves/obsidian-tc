@@ -18,6 +18,7 @@ import type { Database } from "../src/db/types";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { pairSparse } from "../src/embeddings/bge-m3";
 import { graphSearch, seedZMargin } from "../src/search/graph_search";
+import { multiQueryGraphSearch } from "../src/search/multi_query";
 import type { Reranker } from "../src/search/rerank";
 import { lexicalRouteResults, routeQuery } from "../src/search/router";
 import { semanticSearch } from "../src/search/semantic";
@@ -40,6 +41,10 @@ import { describeNonInferiority, describePaired, describePower } from "./stats";
 const TOP_K = 30;
 // THE-446: hop bound for the --diagnose reachability probe (multi-hop bridges sit ~2-3 hops out).
 const DIAGNOSE_MAX_HOPS = 4;
+// THE-448: multi_query.ts's per-variant over-fetch, restated so the CONTROL arm can fetch the same
+// depth. Kept in step with `perQueryK` there (max(finalTopK*2, finalTopK+10)); it is not exported,
+// and importing it would not help — the control needs the depth, not the same expression.
+const FANOUT_OVERFETCH_K = Math.max(TOP_K * 2, TOP_K + 10);
 
 // Golden-set paths are Windows-style (KMS-era); normalize both sides to forward slashes so the
 // comparison is separator-agnostic against whatever the local index stored.
@@ -54,6 +59,29 @@ function normQuery(q: GoldenQuery): GoldenQuery {
 }
 function normHits(hits: RankedChunk[]): RankedChunk[] {
   return hits.map((h) => ({ ...h, path: norm(h.path) }));
+}
+
+/**
+ * THE-448: collapse a ranked chunk list to one hit per PATH, keeping the best-ranked chunk.
+ *
+ * This exists to keep the fan-out A/B honest, and it is the whole reason `--path-dedup` is a flag
+ * rather than something the fan-out arm just does. multiQueryGraphSearch's fuseVariants dedupes by
+ * `path` (multi_query.ts), so its top-30 is 30 DISTINCT notes; a plain graphSearch top-30 is 30
+ * CHUNKS, which routinely means far fewer distinct notes. Every metric here — recall@10, nDCG@10,
+ * bridge recall — is scored against expected PATHS. So comparing the two arms as-shipped measures
+ * "deduped by note" against "not deduped by note" and credits the whole difference to the fan-out.
+ * The unit has to match on both sides before the fusion effect is readable.
+ */
+function dedupeByPath(hits: RankedChunk[], k: number): RankedChunk[] {
+  const seen = new Set<string>();
+  const out: RankedChunk[] = [];
+  for (const h of hits) {
+    if (seen.has(h.path)) continue;
+    seen.add(h.path);
+    out.push(h);
+    if (out.length === k) break;
+  }
+  return out;
 }
 
 export interface EvalQueryResult {
@@ -142,6 +170,16 @@ export interface RunEvalOptions {
   /** THE-258: the deterministic class router — same rules as the serve path
    *  (retrieval.classRouter): lexical short-circuit + temporal auto-stream. */
   classRouter?: boolean;
+  /** THE-448: multi-query fan-out. `variantsFor` returns the ADDITIONAL phrasings for a query (the
+   *  original always leads, matching vault_graph_search's handler); returning fewer than one
+   *  variant leaves that query on the plain single-query path, so a partial variants file measures
+   *  a partial fan-out rather than silently dropping queries from the set. Variants are supplied,
+   *  never generated here — the fan-out has no server LLM by design, and a generator inside the
+   *  eval would measure the generator as much as the fusion. */
+  fanout?: { variantsFor: (queryText: string) => string[] };
+  /** THE-448: collapse the graph arm to one hit per path (see dedupeByPath). Required for a
+   *  readable fan-out A/B; harmless and off elsewhere. */
+  pathDedup?: boolean;
   /** THE-404 spike: for z-HARD queries only (z1 < zThreshold, default 2.54), decompose the query
    *  into 2–3 atomic sub-queries via a small local instruct LLM (Ollama /api/chat), run the full
    *  graph search per sub-query (original included), and RRF-merge the ranked lists. Easy queries
@@ -251,12 +289,19 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       vec: number[],
       sparse?: SparseVec,
       temporalOverride?: boolean,
+      /** THE-448: additional phrasings. 1+ engages the fan-out; absent/empty is the plain path. */
+      variants?: string[],
     ): Promise<RankedChunk[]> => {
-      const res = await graphSearch(opts.db, {
+      const fanOut = !!variants && variants.length > 0;
+      const searchOptions = {
         query: text,
         queryVec: vec,
         vaultId: opts.vaultId,
-        finalTopK: TOP_K,
+        // The control fetches the fan-out's per-variant depth when deduping, so the two arms enter
+        // dedupeByPath with the same number of chunks. Without this the control's 30 chunks could
+        // collapse below 30 notes while the fan-out's stayed at 30 — a depth difference the metrics
+        // would read as a ranking difference.
+        finalTopK: opts.pathDedup && !fanOut ? FANOUT_OVERFETCH_K : TOP_K,
         reranker: opts.reranker ?? null,
         ...(opts.seedCount !== undefined ? { seedCount: opts.seedCount } : {}),
         ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
@@ -277,12 +322,29 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ...(opts.bubbleSafe ? { bubbleSafe: opts.bubbleSafe } : {}),
         ...(opts.metadataPrior ? { metadataPrior: opts.metadataPrior } : {}),
         ...(process.env.DENSIFY === "1" ? { densify: { includeInWalk: true } } : {}),
-      });
+      };
+      // THE-448: the ORIGINAL always leads the variant list — the same rule vault_graph_search's
+      // handler applies, so the eval measures the shipped shape and not a variant-only fan-out
+      // nobody can invoke. Blanks dropped, duplicates collapsed: a variants file that echoes the
+      // original back must not double-weight it in the cross-variant RRF.
+      const res = fanOut
+        ? await multiQueryGraphSearch(
+            opts.db,
+            searchOptions,
+            [...new Set([text, ...(variants as string[])].map((v) => v.trim()))].filter(
+              (v) => v.length > 0,
+            ),
+          )
+        : await graphSearch(opts.db, searchOptions);
       // THE-446: preserve `source`/hop (additive, ignored by metrics) so the failure classifier can
       // tell expansion chunks from seeds when --diagnose retains these.
-      return normHits(
+      const hits = normHits(
         res.map((r) => ({ chunk_id: r.chunk_id, path: r.path, source: r.source, hop: r.hop })),
       );
+      // Normalize FIRST, then dedupe: the golden set's paths are Windows-style, so two chunks of
+      // one note can differ as raw strings and match only after norm(). Deduping before that would
+      // leave duplicates behind on exactly the paths the metrics care about.
+      return opts.pathDedup ? dedupeByPath(hits, TOP_K) : hits;
     };
     // THE-258: the class router, same rules as serve. Lexical short-circuits to enriched
     // BM25 (no embed on serve; the eval already has the vec but ranks identically);
@@ -297,7 +359,16 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
               (r) => ({ chunk_id: r.chunk_id, path: r.path }),
             ),
           )
-        : await runGraph(q.query_text, queryVec, querySparse, route.class === "temporal");
+        : await runGraph(
+            q.query_text,
+            queryVec,
+            querySparse,
+            route.class === "temporal",
+            // THE-448: the lexical branch above deliberately does NOT fan out — it short-circuits
+            // before graphSearch on serve too, so fanning out here would measure a path production
+            // cannot take.
+            opts.fanout?.variantsFor(q.query_text),
+          );
     // THE-404 spike: z-HARD queries only — decompose into atomic sub-queries, run the full
     // pipeline per sub-query (each lands its own seeds + expansion), RRF-merge the ranked lists
     // (original included). Empty decomposition (LLM missing/broken) falls back to the plain path.
@@ -410,6 +481,12 @@ async function main(): Promise<void> {
   const zRouterIdx = argv.indexOf("--z-router");
   const zRouterArg = zRouterIdx >= 0 ? Number(argv[zRouterIdx + 1]) : undefined;
   const hardZ = process.env.GATED_HARD_Z ? Number(process.env.GATED_HARD_Z) : undefined;
+  // THE-448: `--fanout <variants.json>` — multi-query fan-out over supplied phrasings
+  // ({ "<query text>": ["variant", ...] }). `--path-dedup` collapses the graph arm to one hit per
+  // note; see dedupeByPath for why the A/B is unreadable without it on BOTH arms.
+  const fanoutIdx = argv.indexOf("--fanout");
+  const fanoutPath = fanoutIdx >= 0 ? argv[fanoutIdx + 1] : undefined;
+  const pathDedup = argv.includes("--path-dedup");
   const jsonIdx = argv.indexOf("--json");
   const jsonPath = jsonIdx >= 0 ? argv[jsonIdx + 1] : undefined;
   // THE-440: `--query-vecs <file.json>` injects precomputed query embeddings ({ "query text": [..] })
@@ -423,6 +500,7 @@ async function main(): Promise<void> {
       (jsonIdx < 0 || i !== jsonIdx + 1) &&
       (fusionIdx < 0 || i !== fusionIdx + 1) &&
       (zRouterIdx < 0 || i !== zRouterIdx + 1) &&
+      (fanoutIdx < 0 || i !== fanoutIdx + 1) &&
       (qvIdx < 0 || i !== qvIdx + 1),
   );
   const configPath = positional[0];
@@ -437,6 +515,8 @@ async function main(): Promise<void> {
         "--z-router <t> enables THE-400 z-margin routing (skip expansion when top-1 z >= t; replaces sim/margin rule).\n" +
         "--metadata-prior enables the POST-FUSION frontmatter authority boost (representative rules; META_PRIOR_CLAMP env, default 0.5).\n" +
         "--decompose enables THE-404 sub-query decomposition for z-hard queries (Ollama; DECOMPOSE_MODEL/DECOMPOSE_Z envs).\n" +
+        '--fanout <variants.json> enables the THE-448 multi-query fan-out over supplied phrasings ({"<query text>": ["variant", ...]}).\n' +
+        "--path-dedup collapses the graph arm to one hit per note. REQUIRED on both arms of a --fanout A/B (the fan-out dedupes by path; a plain search does not).\n" +
         "--temporal enables the THE-221 conditional temporal stream (fires only on explicit temporal intent).\n" +
         "SPARSE_URL=<bge-m3 token_classify server> + --sparse fuses the learned-sparse stream into a NON-bge dense pipeline (THE-403).\n" +
         "--mmr enables THE-393 diversification (note-collapse maxPerNote=2 + MMR final pick).\n" +
@@ -566,11 +646,35 @@ async function main(): Promise<void> {
         }));
       }
     : null;
+  // THE-448: load the phrasing variants. Keyed by EXACT query text (that is what the golden set
+  // and the tool both carry); a query absent from the file simply does not fan out. Coverage is
+  // reported because a typo'd or stale variants file otherwise runs a silent no-op fan-out and
+  // reports it as "fan-out made no difference".
+  let fanout: { variantsFor: (queryText: string) => string[] } | undefined;
+  if (fanoutPath) {
+    const raw = JSON.parse(readFileSync(fanoutPath, "utf8")) as Record<string, string[]>;
+    const map = new Map(Object.entries(raw));
+    const covered = golden.queries.filter((q) => (map.get(q.query_text)?.length ?? 0) > 0).length;
+    process.stderr.write(
+      `--fanout: ${map.size} entries; ${covered}/${golden.queries.length} golden queries will fan out\n`,
+    );
+    if (covered === 0)
+      throw new Error(
+        `--fanout: ${fanoutPath} matched 0 of ${golden.queries.length} golden queries. Keys must be the EXACT query_text. This would have run as a no-op and reported "no effect".`,
+      );
+    if (!pathDedup)
+      process.stderr.write(
+        "--fanout WARNING: --path-dedup is off. The fan-out dedupes by path and a plain graph search does not, so this comparison credits that unit change to the fan-out. Pass --path-dedup on BOTH arms.\n",
+      );
+    fanout = { variantsFor: (t) => map.get(t) ?? [] };
+  }
   const report = await runEval({
     db,
     provider,
     golden,
     vaultId: firstVault.id,
+    ...(fanout ? { fanout } : {}),
+    ...(pathDedup ? { pathDedup: true } : {}),
     ...(diagnose ? { retainRaw: true } : {}),
     ...(bubbleSafe
       ? { bubbleSafe: { enabled: true, ...(bubbleSafeK !== undefined ? { k: bubbleSafeK } : {}) } }
@@ -632,6 +736,8 @@ async function main(): Promise<void> {
     temporal ? "temporal stream" : null,
     activation ? "activation bubble" : null,
     classRouter ? "class router" : null,
+    fanoutPath ? "multi-query fan-out" : null,
+    pathDedup ? "path-dedup" : null,
   ]
     .filter((f) => f !== null)
     .join(", ");
@@ -764,6 +870,8 @@ async function main(): Promise<void> {
       temporal && "temporal",
       activation && "activation",
       classRouter && "class-router",
+      fanoutPath && "fanout",
+      pathDedup && "path-dedup",
     ].filter((x): x is string => typeof x === "string");
     // Strip the retained raw hits (THE-446, --diagnose only) so --json stays lean.
     const lean = report.perQuery.map(({ baselineRaw: _b, treatmentRaw: _t, ...rest }) => rest);
