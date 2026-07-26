@@ -5,9 +5,7 @@ from __future__ import annotations
 from .contracts import ParserKind, SourceRef
 
 # PDFs and Office documents go to Docling (layout + table fidelity).
-_DOCLING_SUFFIXES = frozenset(
-    {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
-)
+_DOCLING_SUFFIXES = frozenset({".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"})
 # Already-clean text is passed through unparsed.
 _PASSTHROUGH_SUFFIXES = frozenset({".md", ".markdown", ".txt"})
 # Web markup goes to crawl4ai (headless Chromium render -> markdown).
