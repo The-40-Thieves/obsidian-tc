@@ -11,6 +11,10 @@ on:
       - 'packages/shared/**'
       - 'docs/wiki/**'
       - 'docs/src/content/**'
+      # THE-595: the G2 design docs (docs/*.md) are now in the marker/hand-written-table scan's
+      # scope too — without this, a PR that only hand-edits one of them (the exact class of change
+      # THE-595 exists to catch) would never trigger this gate at all.
+      - 'docs/*.md'
       # TREE.md's graph sections are generated from the same source paths above; listing the file
       # and its generator here catches a HAND-EDIT of a generated region, exactly as docs/wiki/**
       # does for the docgen pages.
