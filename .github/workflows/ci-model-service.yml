@@ -50,5 +50,15 @@ jobs:
         run: ruff check .
       - name: py_compile
         run: python -m py_compile obsidian_tc_bge/*.py
+      - name: requirements lock covers the declared runtime deps
+        # requirements.txt is a hash-verified lock of the HEAVY stack (torch, FlagEmbedding,
+        # sentence-transformers) that this job deliberately never installs — it mocks the model
+        # layer and installs the package --no-deps. So nothing here would otherwise notice a
+        # runtime dependency added to pyproject.toml and never compiled into the lock: it would
+        # stay green, stay hash-verified, and silently stop describing the service.
+        #
+        # Deliberately a structural comparison, NOT a recompile. Recompiling needs the network,
+        # takes minutes, and churns on every upstream release — a gate people learn to ignore.
+        run: python scripts/check_requirements_sync.py
       - name: pytest
         run: pytest -q
