@@ -795,8 +795,13 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // THE-291 (3B): FTS-accelerated search_text once the boot reconcile's notes pass commits.
     metadataIndex: { hasFts, ready: () => indexHealth.notesReady },
     // THE-491: get_index_status reports chunks_upserted from the last index_vault call.
-    onIndexVaultComplete: (_vaultId, stats) => {
+    // THE-590: this MCP tool path was the one caller of indexVault that never fed the ingest
+    // counters / event_log row — add_vault (line ~685) and the boot reconcile (line ~1000) both
+    // already call recordIngestStatsFor, so agent-triggered indexing (the normal production path)
+    // was invisible to telemetry.
+    onIndexVaultComplete: (vaultId, stats) => {
       indexHealth.lastChunksUpserted = stats.chunks_upserted;
+      recordIngestStatsFor(vaultId, stats);
     },
   });
   registerM3Tools(registry, {

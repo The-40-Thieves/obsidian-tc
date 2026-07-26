@@ -43,6 +43,13 @@ jobs:
       # reintroduce the exact class of flake (macOS, then windows-latest) this ticket closed.
       - name: perf timing-scope (source scan)
         run: bun run check:perf-timing-scope
+      # THE-590: guards the ingest-telemetry fix itself -- vitest cannot catch a regression here
+      # because the test that proves onIndexVaultComplete's wiring works constructs its own sink
+      # rather than booting cli.ts's. This scans every indexVault() call path under
+      # packages/server/src and the onIndexVaultComplete sink assignment(s) that some of them
+      # delegate to, and fails if any path's stats no longer reach a recordIngestStats*(...) call.
+      - name: ingest telemetry wiring (source scan)
+        run: bun run check:ingest-telemetry-wiring
 
   build-test:
     strategy:

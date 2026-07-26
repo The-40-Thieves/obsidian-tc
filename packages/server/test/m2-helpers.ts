@@ -11,6 +11,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type EmbeddingProvider, fakeEmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import type { IndexStats } from "../src/search/indexer";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -24,6 +25,9 @@ export interface M2VaultOptions {
   chunkContext?: boolean;
   /** THE-490/THE-591: config.indexing.streamingWalk, threaded to index_vault. */
   streamingWalk?: boolean;
+  /** THE-590: passthrough so a test can wire this the same way cli.ts's run_serve does (e.g. to
+   *  recordIngestStats) and observe it fire from a real registry dispatch of index_vault. */
+  onIndexVaultComplete?: (vaultId: string, stats: IndexStats) => void;
 }
 
 export interface M2Vault {
@@ -65,6 +69,7 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
     embeddingProvider: provider,
     chunkContext: opts.chunkContext,
     streamingWalk: opts.streamingWalk,
+    onIndexVaultComplete: opts.onIndexVaultComplete,
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
