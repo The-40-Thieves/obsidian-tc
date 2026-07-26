@@ -41,6 +41,11 @@ export interface GraphSearchOptions {
    *  {stage, candidatesIn, candidatesOut, durationMs} record. Default undefined -> no behavior
    *  change. Independent of `onStage` — both may be supplied together. */
   onStageMetric?: OnStageMetric;
+  /** THE-585 (#7, #8, additive, observability-only): forwarded to semanticSearch's `onFallback`,
+   *  fired when the seed stage abandons the vec0 index for the brute-force scan. Default undefined
+   *  -> no behavior change. Lives here because the seed stage is where most production searches
+   *  touch vec0, so a fallback counter that skipped it would miss the common case. */
+  onVecFallback?: (reason: "error" | "underfill") => void;
   maxExpansionChunks?: number;
   hopLimit?: number;
   similarityThreshold?: number;

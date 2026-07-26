@@ -901,6 +901,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         )
         .all(Date.now()) as Array<{ vault: string; value: number }>,
   });
+  // THE-585 (#7, #8): vec0 -> brute-force degradation counter. Defined here, next to the recorder,
+  // so the search layer keeps taking a plain callback and never imports metrics.
+  const onVecFallback = (vault: string, reason: "error" | "underfill"): void =>
+    metrics.incVecFallback(vault, reason);
   // MORGIANA CloudEvents spool (G2.4) — JSONL by default; a dropped event feeds
   // morgiana_emit_dropped_total + the event_log and never blocks a tool call.
   const morgiana = new MorgianaEmitter({
@@ -1535,6 +1539,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     ranking: config.ranking,
     // THE-230: serve-path retrieval logging (experiential.logRetrievals).
     ...(retrievalLog ? { retrievalLog } : {}),
+    // THE-585: vec0 -> brute-force degradation counter. Unconditional, unlike the config-gated
+    // callbacks around it — a silent degradation is exactly the thing you want counted by default.
+    onVecFallback,
     // THE-187/193: activation bubble lookup (dark unless experiential.activationRerank).
     ...(activationFor ? { activationFor } : {}),
     // THE-258: class router (dark unless retrieval.classRouter).
