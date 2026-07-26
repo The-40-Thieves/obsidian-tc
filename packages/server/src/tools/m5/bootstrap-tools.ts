@@ -17,6 +17,27 @@ import { bootstrapConfigFor, type M5Deps } from "./shared";
 
 type BootstrapMode = "lightweight" | "standard" | "deep";
 
+// THE-417: written from the return statement, not from parseNote/readNote's own types — a loaded
+// entry is `{ path, content, frontmatter, content_hash }`, a subset assembled at the call site.
+// `frontmatter` mirrors parseNote's `Frontmatter | null` (Record<string, unknown> | null) verbatim.
+const LoadedNote = z.object({
+  path: z.string(),
+  content: z.string(),
+  frontmatter: z.record(z.string(), z.unknown()).nullable(),
+  content_hash: z.string(),
+});
+
+const SkippedPath = z.object({ path: z.string(), reason: z.string() });
+
+const SessionBootstrapOutput = z.object({
+  vault: z.string(),
+  mode: z.enum(["lightweight", "standard", "deep"]),
+  matched_domains: z.array(z.string()),
+  loaded: z.array(LoadedNote),
+  skipped: z.array(SkippedPath),
+  truncated: z.boolean(),
+});
+
 export function buildBootstrapTools(deps: M5Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -30,6 +51,7 @@ export function buildBootstrapTools(deps: M5Deps): ToolDefinition[] {
           mode: z.enum(["auto", "lightweight", "standard", "deep"]).default("auto"),
         })
         .strict(),
+      outputSchema: SessionBootstrapOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

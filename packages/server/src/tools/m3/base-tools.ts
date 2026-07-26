@@ -109,6 +109,64 @@ const QueryInput = z
   .merge(Pagination)
   .strict();
 
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below.
+//
+// A .base document (`base`/`raw`) is genuinely caller-authored, round-tripped YAML — real files
+// carry keys this module does not model (per-view order/limit, top-level filters/properties, and
+// whatever a future plugin version adds). z.record(z.string(), z.unknown()) states that honestly
+// rather than inventing a BaseDoc-shaped contract the format module itself refuses to fully pin
+// down (BaseDoc is `.passthrough()` for exactly this reason).
+// ---------------------------------------------------------------------------------------------
+
+const ReadBaseOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  base: z.record(z.string(), z.unknown()),
+  content_hash: z.string(),
+});
+
+const CreateBaseOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  created: z.boolean(),
+  content_hash: z.string(),
+  // Present only when the created doc used a deprecated obsidian-tc alias (source/columns/group).
+  deprecations: z.array(z.string()).optional(),
+});
+
+const UpdateBaseOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  applied: z.object({
+    views_added: z.number().int(),
+    views_removed: z.number().int(),
+    views_updated: z.number().int(),
+    source_changed: z.boolean(),
+  }),
+  content_hash: z.string(),
+  prev_hash: z.string(),
+});
+
+/** query_base's resolved row: `columns` are the projected/formula values for the row — an
+ *  arbitrary mix of frontmatter values, computed formulas and namespaced ids — so
+ *  z.record(z.string(), z.unknown()) is the honest column-value contract. `group` is present only
+ *  when the view has a groupBy/group. */
+const QueryBaseRow = z.object({
+  note_path: z.string(),
+  columns: z.record(z.string(), z.unknown()),
+  group: z.unknown().optional(),
+});
+
+const QueryBaseOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  view_used: z.string().nullable(),
+  total: z.number().int(),
+  items: z.array(QueryBaseRow),
+  next_cursor: z.string().optional(),
+});
+
 export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -116,6 +174,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Read a .base file's structure (source, views, formulas).",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+      outputSchema: ReadBaseOutput,
       requiredScopes: ["read:bases"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -138,6 +197,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       description:
         "Create a new .base file from a base definition. Overwriting an existing base requires confirmation.",
       inputSchema: CreateInput,
+      outputSchema: CreateBaseOutput,
       requiredScopes: ["write:bases"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -192,6 +252,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       description:
         "Patch a .base file's source/filters/properties/views/formulas. Unknown keys are preserved. Changing `source` (deprecated alias) or the note-set-defining top-level `filters` requires confirmation.",
       inputSchema: UpdateInput,
+      outputSchema: UpdateBaseOutput,
       requiredScopes: ["write:bases"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -282,6 +343,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       description:
         "Execute a base view and return resolved rows. Filters/formulas may use obsidian-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset, THE-281); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter.",
       inputSchema: QueryInput,
+      outputSchema: QueryBaseOutput,
       requiredScopes: ["read:bases"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

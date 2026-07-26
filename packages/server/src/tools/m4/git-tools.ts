@@ -14,6 +14,17 @@ import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
+// THE-417: every git tool proxies the Obsidian Git companion route's own JSON verbatim
+// (`{ vault, ...result }`, some with an echoed input field) — arbitrary plugin JSON, so
+// .passthrough() is the honest schema beyond the fields the handler itself guarantees.
+const GitStatusOutput = z.object({ vault: z.string() }).passthrough();
+const GitDiffOutput = z
+  .object({ vault: z.string(), path: z.string(), staged: z.boolean() })
+  .passthrough();
+const GitLogOutput = z.object({ vault: z.string() }).passthrough();
+const GitStageOutput = z.object({ vault: z.string() }).passthrough();
+const GitCommitOutput = z.object({ vault: z.string() }).passthrough();
+
 export function buildGitTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -21,6 +32,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Working-tree status of the vault's git repo (changed/staged/conflicted), via the Obsidian Git companion bridge. Unavailable under a read whitelist (repo status enumerates every path).",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: GitStatusOutput,
       requiredScopes: ["read:git"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -47,6 +59,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       inputSchema: z
         .object({ vault: VaultId, path: VaultPath, staged: z.boolean().default(false) })
         .strict(),
+      outputSchema: GitDiffOutput,
       requiredScopes: ["read:git"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -71,6 +84,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       inputSchema: z
         .object({ vault: VaultId, limit: z.number().int().positive().max(100).default(20) })
         .strict(),
+      outputSchema: GitLogOutput,
       requiredScopes: ["read:git"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -96,6 +110,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Stage vault files for the next commit, via the Obsidian Git companion bridge. Write-family: the readOnly kill switch applies.",
       inputSchema: z.object({ vault: VaultId, paths: z.array(VaultPath).min(1).max(200) }).strict(),
+      outputSchema: GitStageOutput,
       requiredScopes: ["write:git"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -118,6 +133,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Commit the staged changes of the vault's git repo. Always requires human confirmation (execute:git is a HITL-floor family) — a commit is irreversible-in-effect from the agent's side.",
       inputSchema: z.object({ vault: VaultId, message: z.string().min(3).max(2000) }).strict(),
+      outputSchema: GitCommitOutput,
       requiredScopes: ["execute:git"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);

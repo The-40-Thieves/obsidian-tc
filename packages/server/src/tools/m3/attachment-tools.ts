@@ -78,6 +78,65 @@ const DeleteInput = z
   })
   .strict();
 
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below (not from
+// the WalkEntry/NoteStat types the data came from).
+// ---------------------------------------------------------------------------------------------
+
+/** list_attachments per-item shape. `mtime` here is WalkEntry.mtime — epoch millis (a number) —
+ *  NOT the ISO-string mtime that statNote produces elsewhere in M3 (see periodic-tools.ts); two
+ *  different helpers, two different representations, and this schema follows THIS handler's.
+ *  `reference_count` is a conditional spread, so it is optional, present only when
+ *  include_reference_count was requested. */
+const AttachmentEntry = z.object({
+  path: z.string(),
+  size: z.number(),
+  mtime: z.number(),
+  mime: z.string(),
+  reference_count: z.number().int().optional(),
+});
+
+const ListAttachmentsOutput = z.object({
+  vault: z.string(),
+  folder: z.string(),
+  attachment_folder: z.string(),
+  attachments: z.array(AttachmentEntry),
+  next_cursor: z.string().nullable(),
+  total_returned: z.number().int(),
+});
+
+/** get_attachment. `references` is a conditional spread (include_references), so optional —
+ *  never returned as an empty array when omitted. */
+const GetAttachmentOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  mime: z.string(),
+  size: z.number(),
+  encoding: z.literal("base64"),
+  content: z.string(),
+  references: z.array(z.string()).optional(),
+});
+
+const MoveAttachmentOutput = z.object({
+  vault: z.string(),
+  from: z.string(),
+  to: z.string(),
+  moved: z.literal(true),
+  overwritten: z.boolean(),
+  trashed_dest_to: z.string().nullable(),
+  references_updated: z.object({ notes: z.number().int(), refs: z.number().int() }),
+});
+
+const DeleteAttachmentOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  deleted: z.literal(true),
+  permanent: z.boolean(),
+  trashed_to: z.string().nullable(),
+  size: z.number().nullable(),
+  references: z.array(z.string()),
+});
+
 export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -86,6 +145,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       description:
         "List attachment files in the vault (filtered by extension, read-ACL aware), with cursor pagination. Optionally count referencing notes per file.",
       inputSchema: ListInput,
+      outputSchema: ListAttachmentsOutput,
       requiredScopes: ["read:attachments"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -129,6 +189,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       description:
         "Read an attachment's bytes (base64) plus MIME type and size. Fails with invalid_input when the file exceeds max_bytes.",
       inputSchema: GetInput,
+      outputSchema: GetAttachmentOutput,
       requiredScopes: ["read:attachments"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -186,6 +247,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       description:
         "Move/rename an attachment and repoint note links to it (link style preserved). Crossing a folder boundary or overwriting requires confirmation.",
       inputSchema: MoveInput,
+      outputSchema: MoveAttachmentOutput,
       requiredScopes: ["write:attachments", "delete:attachments"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -246,6 +308,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       description:
         "Delete an attachment (to the vault's .trash mirror, or permanently). Destructive — requires confirmation. Reports notes that still reference it.",
       inputSchema: DeleteInput,
+      outputSchema: DeleteAttachmentOutput,
       requiredScopes: ["delete:attachments"],
       destructive: true,
       handler: (input, ctx) => {

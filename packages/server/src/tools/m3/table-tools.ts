@@ -179,6 +179,18 @@ function colIndex(t: Table, column: number | string): number {
 
 const Base = { vault: VaultId, path: VaultPath, table_index: z.number().int().min(0).default(0) };
 
+/** THE-417 Phase 1: all four table tools return withTable()'s summary verbatim — one shared
+ *  output contract, written from that helper's single return statement. */
+const TableMutationOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  table_index: z.number().int(),
+  rows: z.number().int(),
+  columns: z.number().int(),
+  content_hash: z.string(),
+  prev_hash: z.string(),
+});
+
 export function buildTableTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -187,6 +199,7 @@ export function buildTableTools(deps: M3Deps): ToolDefinition[] {
       description:
         "Reformat a GFM markdown table in a note: realign columns to a uniform width, honoring the delimiter row's alignment. Addressed by 0-based table_index within the note.",
       inputSchema: z.object({ ...Base, prev_hash: z.string().optional() }).strict(),
+      outputSchema: TableMutationOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) =>
         withTable(deps, ctx, input.vault, input.path, input.table_index, input.prev_hash, () => {}),
@@ -205,6 +218,7 @@ export function buildTableTools(deps: M3Deps): ToolDefinition[] {
           prev_hash: z.string().optional(),
         })
         .strict(),
+      outputSchema: TableMutationOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) =>
         withTable(deps, ctx, input.vault, input.path, input.table_index, input.prev_hash, (t) => {
@@ -229,6 +243,7 @@ export function buildTableTools(deps: M3Deps): ToolDefinition[] {
           prev_hash: z.string().optional(),
         })
         .strict(),
+      outputSchema: TableMutationOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) =>
         withTable(deps, ctx, input.vault, input.path, input.table_index, input.prev_hash, (t) => {
@@ -255,6 +270,7 @@ export function buildTableTools(deps: M3Deps): ToolDefinition[] {
           prev_hash: z.string().optional(),
         })
         .strict(),
+      outputSchema: TableMutationOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) =>
         withTable(deps, ctx, input.vault, input.path, input.table_index, input.prev_hash, (t) => {

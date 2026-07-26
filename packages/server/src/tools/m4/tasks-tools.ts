@@ -40,6 +40,25 @@ function matchDue(
   return true;
 }
 
+// THE-417: mirrors toOutput's fields exactly (below). .passthrough() rather than a plain object:
+// toOutput's own return type is annotated Record<string, unknown> (an index signature), so the
+// schema needs one too to stay assignable to the handlers' inferred output types.
+const TaskItemOutput = z
+  .object({
+    path: z.string(),
+    line: z.number().int(),
+    status: StatusEnum,
+    description: z.string(),
+    tags: z.array(z.string()),
+    due: z.string().optional(),
+    scheduled: z.string().optional(),
+    start: z.string().optional(),
+    done: z.string().optional(),
+    priority: PriorityEnum.optional(),
+    recur: z.string().optional(),
+  })
+  .passthrough();
+
 function toOutput(t: TaskFields, path: string, line: number): Record<string, unknown> {
   return {
     path,
@@ -81,6 +100,14 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
           cursor: z.string().optional(),
         })
         .strict(),
+      // Mirrors util/paginate's Page<T> shape (items/total/next_cursor, the last present only
+      // when a further page remains) with T = TaskItemOutput.
+      outputSchema: z.object({
+        vault: z.string(),
+        items: z.array(TaskItemOutput),
+        total: z.number().int(),
+        next_cursor: z.string().optional(),
+      }),
       requiredScopes: ["read:tasks"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -143,6 +170,15 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
             .optional(),
         })
         .strict(),
+      // Note: no `vault` field — update_task's return omits it (unlike every other M4 tool here).
+      outputSchema: z.object({
+        path: z.string(),
+        line: z.number().int(),
+        updated_at: z.string(),
+        prev_state: TaskItemOutput,
+        new_state: TaskItemOutput,
+        content_hash: z.string(),
+      }),
       requiredScopes: ["write:tasks"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -205,6 +241,12 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
           cursor: z.string().optional(),
         })
         .strict(),
+      // items/total are ALWAYS the ACL-filtered, recomputed values (overriding whatever raw
+      // items/total the bridge sent); under a read whitelist the raw `...result` siblings
+      // (e.g. `groups`) are dropped entirely (THE-270) — passthrough covers them when present.
+      outputSchema: z
+        .object({ vault: z.string(), items: z.array(z.unknown()), total: z.number().int() })
+        .passthrough(),
       requiredScopes: ["read:tasks"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

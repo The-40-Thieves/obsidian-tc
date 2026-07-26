@@ -11,6 +11,29 @@ import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M2Deps } from "./index";
 
+// THE-417 Phase 1: mirrors search/indexer.ts's IndexStats field for field — every field there is
+// required (no optionals), so this is a plain object, not a union.
+const IndexVaultOutput = z.object({
+  vault: z.string(),
+  notes_seen: z.number(),
+  notes_indexed: z.number(),
+  chunks_upserted: z.number(),
+  chunks_deleted: z.number(),
+  chunks_unchanged: z.number(),
+  edges_inserted: z.number(),
+  edges_deleted: z.number(),
+  secrets_skipped: z.number(),
+  vec_enabled: z.boolean(),
+  fts_enabled: z.boolean(),
+  notes_upserted: z.number(),
+  notes_deleted: z.number(),
+  notes_embed_failed: z.number(),
+  chunks_dedup_reused: z.number(),
+  embed_batch_rejections: z.number(),
+  model: z.string(),
+  dimensions: z.number(),
+});
+
 export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -18,6 +41,7 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
       description:
         "Chunk and embed the vault (or a folder) into the search index. Incremental: chunks whose content hash is unchanged are skipped; removed chunks are pruned.",
       inputSchema: z.object({ vault: VaultId, folder: VaultPath.optional() }).strict(),
+      outputSchema: IndexVaultOutput,
       requiredScopes: ["admin:vault"],
       handler: async (input, ctx) => {
         // index_vault writes the index/cache DB. admin:vault is a non-mutating family,

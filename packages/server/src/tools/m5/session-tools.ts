@@ -36,6 +36,46 @@ function parseIso(value: string | undefined, field: string): number | undefined 
   return ms;
 }
 
+const StartSessionOutput = z.object({
+  session_id: z.string(),
+  vault: z.string(),
+  started_at: z.number(),
+  trace_path: z.string(),
+});
+
+const EndSessionOutput = z.object({
+  session_id: z.string(),
+  ended_at: z.number(),
+  trace_path: z.string(),
+  event_count: z.number(),
+  duration_ms: z.number(),
+});
+
+// THE-417: mirrors TraceRecord (workspace/sessions.ts), which carries an index signature — the
+// JSONL trace is appended to by multiple writers (session_start/session_end here, and the THE-175
+// ambient capture worker over time), so its shape is only PARTIALLY known up front. The named
+// fields are the ones this module itself writes; .catchall(z.unknown()) is the honest encoding of
+// "and whatever else a writer put in this record", not a blanket z.any() escape hatch.
+const TraceRecordOutput = z
+  .object({
+    session_id: z.string(),
+    ts: z.number(),
+    type: z.string().optional(),
+    tool: z.string().optional(),
+    caller: z.string().nullable().optional(),
+    duration_ms: z.number().optional(),
+    args_hash: z.string().optional(),
+    result_size: z.number().optional(),
+  })
+  .catchall(z.unknown());
+
+const GetSessionTracesOutput = z.object({
+  vault: z.string(),
+  items: z.array(TraceRecordOutput),
+  next_cursor: z.string().nullable(),
+  total_returned: z.number(),
+});
+
 export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -50,6 +90,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           idempotency_key: z.string().min(1).max(128).optional(),
         })
         .strict(),
+      outputSchema: StartSessionOutput,
       requiredScopes: ["write:workspace"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -102,6 +143,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           end_metadata: z.record(z.string(), z.unknown()).optional(),
         })
         .strict(),
+      outputSchema: EndSessionOutput,
       requiredScopes: ["write:workspace"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -145,6 +187,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         })
         .merge(Pagination)
         .strict(),
+      outputSchema: GetSessionTracesOutput,
       requiredScopes: ["read:workspace"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

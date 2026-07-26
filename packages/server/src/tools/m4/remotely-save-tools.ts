@@ -8,6 +8,12 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
+// THE-417: both tools proxy the Remotely Save companion route's own JSON verbatim
+// (`{ vault, ...result }`) — arbitrary plugin JSON, so .passthrough() is the honest schema
+// beyond `vault`, which the handler itself always supplies.
+const RemotelySaveStatusOutput = z.object({ vault: z.string() }).passthrough();
+const RemotelySaveTriggerOutput = z.object({ vault: z.string() }).passthrough();
+
 export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -15,6 +21,7 @@ export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Last sync state of the Remotely Save plugin (sync status + last successful sync time) — an independent backup-verification signal, via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: RemotelySaveStatusOutput,
       requiredScopes: ["read:remotely-save"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -34,6 +41,7 @@ export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Kick off a Remotely Save sync run (fire-and-poll: check remotely_save_status afterwards), via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: RemotelySaveTriggerOutput,
       requiredScopes: ["write:remotely-save"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);

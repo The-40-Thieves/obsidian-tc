@@ -15,6 +15,9 @@ export function buildDailyNotesTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Resolve the daily note for a date (default today) via the core Daily Notes plugin's configured folder + format. Returns whether it exists and its path — no path guessing. Read-only; does not create.",
       inputSchema: z.object({ vault: VaultId, date: z.string().optional() }).strict(),
+      // The companion's /daily-notes/resolve response is arbitrary plugin JSON passed through
+      // verbatim (`{ vault, ...result }`); only `vault` is structurally guaranteed here.
+      outputSchema: z.object({ vault: z.string() }).passthrough(),
       requiredScopes: ["read:daily-notes"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);

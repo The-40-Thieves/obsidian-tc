@@ -150,6 +150,77 @@ async function expandViaTemplater(
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below.
+//
+// get_periodic_note and find_or_create_periodic_note share the same `content`/`frontmatter`
+// shape: a conditional spread on `include_content`, so both fields are optional together, never
+// nullable — the key is simply absent when content was not requested. `frontmatter` is
+// parseNote()'s own Frontmatter type, which IS nullable (no frontmatter block at all).
+// ---------------------------------------------------------------------------------------------
+
+const PeriodicContentFields = {
+  content: z.string().optional(),
+  frontmatter: z.record(z.string(), z.unknown()).nullable().optional(),
+};
+
+/** get_periodic_note has an early return (note absent, `exists: false`, no content fields at
+ *  all) and a later one (`exists: true` plus the conditional content fields above). One object
+ *  with optionals covers both arms rather than a union, matching every other m3/m7/m8 "optional
+ *  fields on a conditional path" contract in this ticket. */
+const GetPeriodicNoteOutput = z.object({
+  period: PeriodEnum,
+  date: z.string(),
+  path: z.string(),
+  exists: z.boolean(),
+  ...PeriodicContentFields,
+});
+
+const CreatePeriodicNoteOutput = z.object({
+  period: PeriodEnum,
+  date: z.string(),
+  path: z.string(),
+  created_at: z.string(),
+  template_used: z.string().nullable(),
+  template_expanded: z.boolean(),
+});
+
+const FindOrCreatePeriodicNoteOutput = z.object({
+  period: PeriodEnum,
+  date: z.string(),
+  path: z.string(),
+  created: z.boolean(),
+  ...PeriodicContentFields,
+});
+
+const AppendToPeriodicNoteOutput = z.object({
+  period: PeriodEnum,
+  date: z.string(),
+  path: z.string(),
+  updated_at: z.string(),
+  appended_bytes: z.number().int(),
+  created: z.boolean(),
+});
+
+const ListPeriodicNotesOutput = z.object({
+  vault: z.string(),
+  period: PeriodEnum,
+  total: z.number().int(),
+  items: z.array(
+    z.object({
+      period: PeriodEnum,
+      date: z.string(),
+      path: z.string(),
+      // statNote's mtime — an ISO-string, NOT the WalkEntry epoch-millis mtime used in
+      // attachment-tools.ts's list_attachments; the two helpers disagree on representation.
+      mtime: z.string(),
+    }),
+  ),
+  // Present only when the scan hit LIST_MAX_STEPS before reaching `to`.
+  overflow: z.literal(true).optional(),
+  next_cursor: z.string().optional(),
+});
+
 export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -164,6 +235,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           include_content: z.boolean().default(true),
         })
         .strict(),
+      outputSchema: GetPeriodicNoteOutput,
       requiredScopes: ["read:periodic"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -207,6 +279,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
       // periodic-notes config — not input-derivable — so it stays handler-side (see below).
       pathAcl: (input) =>
         input.template_override ? [{ op: "read" as const, path: input.template_override }] : [],
+      outputSchema: CreatePeriodicNoteOutput,
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const date = parseDateInput(input.date);
@@ -281,6 +354,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           expand_template: z.boolean().default(false),
         })
         .strict(),
+      outputSchema: FindOrCreatePeriodicNoteOutput,
       requiredScopes: ["read:periodic", "write:periodic"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -345,6 +419,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           idempotency_key: z.string().min(1).max(128).optional(),
         })
         .strict(),
+      outputSchema: AppendToPeriodicNoteOutput,
       requiredScopes: ["write:periodic"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -389,6 +464,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         })
         .merge(Pagination)
         .strict(),
+      outputSchema: ListPeriodicNotesOutput,
       requiredScopes: ["read:periodic"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

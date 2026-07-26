@@ -42,6 +42,103 @@ function isExternal(kind: string, target: string): boolean {
   return kind === "markdown" && /^[a-z]+:\/\//i.test(target);
 }
 
+// ── output schemas (THE-417 Phase 1) ────────────────────────────────────────
+// Written from each handler's RETURN statements, not from ExtractedLink/Resolution/
+// PruneResult — those types feed the response but several fields (counts, truncated,
+// content_hash) are computed on the way out and do not exist on the source types.
+
+/** Mirrors vault/links.ts's LinkKind. */
+const LinkKindSchema = z.enum(["wikilink", "markdown", "embed"]);
+
+const GetOutgoingLinksOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  counts: z.object({
+    total: z.number().int(),
+    resolved: z.number().int(),
+    unresolved: z.number().int(),
+  }),
+  links: z.array(
+    z.object({
+      raw: z.string(),
+      kind: LinkKindSchema,
+      target: z.string(),
+      display: z.string().nullable(),
+      heading: z.string().nullable(),
+      line: z.number().int(),
+      col: z.number().int(),
+      resolved: z.boolean(),
+      target_path: z.string().nullable(),
+      candidates: z.array(z.string()).nullable(),
+    }),
+  ),
+});
+
+const GetBacklinksOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  total: z.number().int(),
+  truncated: z.boolean(),
+  backlinks: z.array(
+    z.object({
+      source_path: z.string(),
+      line: z.number().int(),
+      col: z.number().int(),
+      raw: z.string(),
+      kind: LinkKindSchema,
+      display: z.string().nullable(),
+    }),
+  ),
+});
+
+const FindOrphansOutput = z.object({
+  vault: z.string(),
+  total: z.number().int(),
+  truncated: z.boolean(),
+  orphans: z.array(z.string()),
+});
+
+const FindUnresolvedLinksOutput = z.object({
+  vault: z.string(),
+  total: z.number().int(),
+  truncated: z.boolean(),
+  unresolved: z.array(
+    z.object({
+      source_path: z.string(),
+      target: z.string(),
+      line: z.number().int(),
+      col: z.number().int(),
+      kind: LinkKindSchema,
+    }),
+  ),
+});
+
+const RewriteLinkOutput = z.object({
+  vault: z.string(),
+  dry_run: z.boolean(),
+  from_target: z.string(),
+  to_target: z.string(),
+  notes_changed: z.number().int(),
+  links_rewritten: z.number().int(),
+  changes: z.array(z.object({ path: z.string(), count: z.number().int() })),
+});
+
+const PruneHubLinksOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  dry_run: z.boolean(),
+  removed_count: z.number().int(),
+  removed: z.array(
+    z.object({
+      target: z.string(),
+      line: z.number().int(),
+      reason: z.enum(["unresolved", "duplicate"]),
+    }),
+  ),
+  prev_hash: z.string(),
+  content_hash: z.string(),
+});
+
 // ── schemas ──────────────────────────────────────────────────────────────────
 
 const ScanInput = z
@@ -86,6 +183,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       inputSchema: z
         .object({ vault: VaultId, path: VaultPath, include_embeds: z.boolean().default(true) })
         .strict(),
+      outputSchema: GetOutgoingLinksOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -139,6 +237,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           limit: z.number().int().positive().max(5000).default(500),
         })
         .strict(),
+      outputSchema: GetBacklinksOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -189,6 +288,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           require_no_outgoing: z.boolean().default(false),
         })
         .strict(),
+      outputSchema: FindOrphansOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -224,6 +324,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       name: "find_unresolved_links",
       description: "Find internal links that do not resolve to any note (dangling links).",
       inputSchema: ScanInput,
+      outputSchema: FindUnresolvedLinksOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -261,6 +362,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Repoint every link to `from_target` at `to_target` across the vault. Defaults to dry_run; a real run requires confirmation.",
       inputSchema: RewriteInput,
+      outputSchema: RewriteLinkOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -321,6 +423,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Prune unresolved and/or duplicate links from a hub note. Defaults to dry_run; a real run requires confirmation.",
       inputSchema: PruneInput,
+      outputSchema: PruneHubLinksOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

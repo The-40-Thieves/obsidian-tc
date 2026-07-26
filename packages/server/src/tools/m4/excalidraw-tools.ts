@@ -134,6 +134,36 @@ function readFromDisk(root: string, rel: string, format: "elements" | "text" | "
   return out;
 }
 
+// THE-417: read_excalidraw has two arms — source="filesystem" (readFromDisk's own fields:
+// compressed/content_hash always, elements/element_count/embedded_files/app_state when format is
+// not "text", text when format is not "elements") and source="plugin" (the companion's arbitrary
+// /excalidraw/read JSON, passthrough). readFromDisk builds its result into an `Obj`
+// (Record<string, unknown>) via property assignment rather than an object literal, so TypeScript
+// does not preserve per-arm literal shapes across the handler's three return statements — encoded
+// as ONE object with optional fields (the ReflectOutput pattern) rather than a union that would not
+// match the inferred return type, plus .passthrough() for the plugin arm's unknown extra keys.
+const ReadExcalidrawOutput = z
+  .object({
+    vault: z.string(),
+    path: z.string(),
+    source: z.enum(["filesystem", "plugin"]),
+    compressed: z.boolean().optional(),
+    content_hash: z.string().optional(),
+    elements: z.array(z.unknown()).optional(),
+    element_count: z.number().int().optional(),
+    embedded_files: z
+      .array(z.object({ id: z.string(), mime_type: z.string().nullable() }))
+      .optional(),
+    app_state: z.record(z.string(), z.unknown()).nullable().optional(),
+    text: z.string().optional(),
+  })
+  .passthrough();
+
+// create_excalidraw / update_excalidraw both proxy the companion's /excalidraw/write response
+// verbatim (`{ vault, path, ...result }`) — arbitrary plugin JSON, passthrough.
+const CreateExcalidrawOutput = z.object({ vault: z.string(), path: z.string() }).passthrough();
+const UpdateExcalidrawOutput = z.object({ vault: z.string(), path: z.string() }).passthrough();
+
 export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -149,6 +179,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
           source: z.enum(["auto", "plugin", "filesystem"]).default("plugin"),
         })
         .strict(),
+      outputSchema: ReadExcalidrawOutput,
       requiredScopes: ["read:excalidraw"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -188,6 +219,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
           overwrite: z.boolean().default(false),
         })
         .strict(),
+      outputSchema: CreateExcalidrawOutput,
       requiredScopes: ["write:excalidraw"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -229,6 +261,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
           update_app_state: z.record(z.string(), z.unknown()).optional(),
         })
         .strict(),
+      outputSchema: UpdateExcalidrawOutput,
       requiredScopes: ["write:excalidraw"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

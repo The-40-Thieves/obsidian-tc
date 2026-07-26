@@ -9,6 +9,14 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
+// THE-417: both tools proxy the QuickAdd companion route's own JSON verbatim
+// (`{ vault, ...result }` / `{ vault, action_name, ...result }`) — arbitrary plugin JSON, so
+// .passthrough() is the honest schema beyond the fields the handler itself guarantees.
+const ListQuickAddActionsOutput = z.object({ vault: z.string() }).passthrough();
+const TriggerQuickAddOutput = z
+  .object({ vault: z.string(), action_name: z.string() })
+  .passthrough();
+
 export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -16,6 +24,7 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Enumerate configured QuickAdd actions (template/macro/capture/multi) via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: ListQuickAddActionsOutput,
       requiredScopes: ["read:quickadd"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -41,6 +50,7 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
           args: z.record(z.string(), z.unknown()).optional(),
         })
         .strict(),
+      outputSchema: TriggerQuickAddOutput,
       requiredScopes: ["execute:quickadd"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);

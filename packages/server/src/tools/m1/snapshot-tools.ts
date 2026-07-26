@@ -13,6 +13,56 @@ import { captureSnapshot, listSnapshots, readSnapshot } from "../../vault/snapsh
 import { defineTool } from "./define";
 import type { M1Deps } from "./index";
 
+// ── output schemas ───────────────────────────────────────────────────────────
+// THE-417 Phase 1: written from each handler's return statements, mirroring vault/snapshots.ts's
+// SnapshotRow/SnapshotContent shapes (renamed/joined at the SQL layer, so those source interfaces
+// are the closest thing to a spec — but the handler below is still the thing checked).
+
+const SnapshotNoteOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  // captureSnapshot()'s signature allows null (cfg disabled), but every call site here passes a
+  // hardcoded { enabled: true, ... }, so nullable states the callee's real contract rather than
+  // narrowing to what this one call path happens to produce.
+  snapshot_id: z.number().nullable(),
+  content_hash: z.string(),
+});
+
+/** Mirrors vault/snapshots.ts's SnapshotRow verbatim. */
+const SnapshotRowOut = z.object({
+  id: z.number(),
+  content_hash: z.string(),
+  op: z.string(),
+  size: z.number(),
+  created_at: z.number(),
+});
+
+const ListSnapshotsOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  total: z.number(),
+  snapshots: z.array(SnapshotRowOut),
+});
+
+/** `{ vault, ...snap }` — SnapshotContent's path/content/content_hash/op/created_at spread in. */
+const ReadSnapshotOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  content: z.string(),
+  content_hash: z.string(),
+  op: z.string(),
+  created_at: z.number(),
+});
+
+const RestoreNoteOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  restored: z.literal(true),
+  restored_from: z.number(),
+  content_hash: z.string(),
+  prev_hash: z.string().nullable(),
+});
+
 export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -21,6 +71,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Capture the current content of a note as a restorable point-in-time snapshot (retained per config.snapshots.retention). Returns the snapshot id and content hash.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+      outputSchema: SnapshotNoteOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -56,6 +107,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
           limit: z.number().int().positive().max(500).default(50),
         })
         .strict(),
+      outputSchema: ListSnapshotsOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -70,6 +122,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
       name: "read_snapshot",
       description: "Read the full stored content of a single snapshot by id.",
       inputSchema: z.object({ vault: VaultId, snapshot_id: z.number().int().positive() }).strict(),
+      outputSchema: ReadSnapshotOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -93,6 +146,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
           prev_hash: z.string().optional(),
         })
         .strict(),
+      outputSchema: RestoreNoteOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

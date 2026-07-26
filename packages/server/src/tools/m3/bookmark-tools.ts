@@ -108,6 +108,43 @@ const MatchCriteria = z
     message: "match must specify at least one field",
   });
 
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below.
+//
+// Bookmark items round-trip whatever Obsidian's core bookmarks plugin wrote (file/folder/search/
+// graph/url/group/heading/block, each with plugin-version-specific extra keys, plus nested
+// groups) — z.record(z.string(), z.unknown()) is the honest per-item contract; BookmarkItem's own
+// input schema is `.passthrough()` for the same reason. `content_hash` is nullable on the read
+// path only: readJsonFile returns hash:null for a bookmarks.json that does not exist yet, but
+// writeJsonFile (add/remove, which always write) always produces one.
+// ---------------------------------------------------------------------------------------------
+
+const BookmarkItemOutput = z.record(z.string(), z.unknown());
+
+const ListBookmarksOutput = z.object({
+  vault: z.string(),
+  exists: z.boolean(),
+  items: z.array(BookmarkItemOutput),
+  count: z.number().int(),
+  content_hash: z.string().nullable(),
+});
+
+const AddBookmarkOutput = z.object({
+  vault: z.string(),
+  added: z.boolean(),
+  duplicate: z.boolean(),
+  group: z.string().nullable(),
+  count: z.number().int(),
+  content_hash: z.string(),
+});
+
+const RemoveBookmarkOutput = z.object({
+  vault: z.string(),
+  removed: z.number().int(),
+  count: z.number().int(),
+  content_hash: z.string(),
+});
+
 export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -116,6 +153,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
       description:
         "List the vault's bookmarks tree (.obsidian/bookmarks.json), preserving groups and unknown fields.",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: ListBookmarksOutput,
       requiredScopes: ["read:bookmarks"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -147,6 +185,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
           prev_hash: z.string().optional(),
         })
         .strict(),
+      outputSchema: AddBookmarkOutput,
       requiredScopes: ["write:bookmarks"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -204,6 +243,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
           prev_hash: z.string().optional(),
         })
         .strict(),
+      outputSchema: RemoveBookmarkOutput,
       requiredScopes: ["delete:bookmarks"],
       // Deletes every match recursively (a whole group + its children), so it requires a
       // HITL elicit token like delete_note / delete_attachment.

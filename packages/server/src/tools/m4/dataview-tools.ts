@@ -19,6 +19,9 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Parse a Dataview DQL query without executing it. Returns the AST or a parse-error location.",
       inputSchema: z.object({ vault: VaultId, dql: z.string().min(1) }).strict(),
+      // The companion's /dataview/validate response (AST or parse-error location) is arbitrary
+      // plugin JSON passed through verbatim; only `vault` is structurally guaranteed.
+      outputSchema: z.object({ vault: z.string() }).passthrough(),
       requiredScopes: ["read:dataview"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -42,6 +45,11 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
       inputSchema: z
         .object({ vault: VaultId, path: VaultPath, expression: z.string().min(1) })
         .strict(),
+      // The companion's /dataview/eval response (evaluated value + type) is arbitrary plugin JSON;
+      // vault/path/expression are echoed by the handler itself and always present.
+      outputSchema: z
+        .object({ vault: z.string(), path: z.string(), expression: z.string() })
+        .passthrough(),
       requiredScopes: ["read:dataview"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

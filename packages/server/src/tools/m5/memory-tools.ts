@@ -91,6 +91,70 @@ function rematerialize(
   return vaultPath;
 }
 
+// THE-417: written from each handler's return statement. `observations` is parseObservations'
+// projection of EntityRow.observations (newline-serialized -> string[]), and `relations` is
+// relationsForEntity's join projection, not the raw memory_relations columns.
+const CreateEntityOutput = z.object({
+  entity_id: z.string(),
+  type: z.string(),
+  name: z.string(),
+  materialized: z.boolean(),
+  vault_path: z.string().nullable(),
+  created_at: z.number(),
+});
+
+const EntityRelation = z.object({
+  target_id: z.string(),
+  target_name: z.string(),
+  target_type: z.string(),
+  relation_type: z.string(),
+  direction: z.enum(["out", "in"]),
+});
+
+const GetEntityOutput = z.object({
+  entity_id: z.string(),
+  type: z.string(),
+  name: z.string(),
+  observations: z.array(z.string()),
+  relations: z.array(EntityRelation),
+  vault_path: z.string().nullable(),
+  created_at: z.number(),
+  updated_at: z.number(),
+});
+
+const AddObservationOutput = z.object({
+  entity_id: z.string(),
+  observation_count: z.number(),
+  updated_at: z.number(),
+  vault_path: z.string().nullable(),
+});
+
+const LinkEntitiesOutput = z.object({
+  source_id: z.string(),
+  target_id: z.string(),
+  relation_type: z.string(),
+  created_at: z.number(),
+  existed_already: z.boolean(),
+  source_vault_path: z.string().nullable(),
+});
+
+const GraphNodeItem = z.object({
+  entity_id: z.string(),
+  type: z.string(),
+  name: z.string(),
+  distance: z.number(),
+  // bfsGraph's GraphNode.path: the hop-by-hop trail from the seed, not a vault path.
+  path: z.array(z.object({ via_entity_id: z.string(), via_relation: z.string() })),
+});
+
+const QueryEntityGraphOutput = z.object({
+  vault: z.string(),
+  seed_entity_id: z.string(),
+  items: z.array(GraphNodeItem),
+  next_cursor: z.string().nullable(),
+  total_returned: z.number(),
+});
+
 export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -106,6 +170,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           materialize: z.boolean().default(true),
         })
         .strict(),
+      outputSchema: CreateEntityOutput,
       requiredScopes: ["write:memory"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -162,6 +227,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           name: z.string().optional(),
         })
         .strict(),
+      outputSchema: GetEntityOutput,
       requiredScopes: ["read:memory"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -215,6 +281,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           idempotency_key: z.string().min(1).max(128).optional(),
         })
         .strict(),
+      outputSchema: AddObservationOutput,
       requiredScopes: ["write:memory"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -293,6 +360,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           relation_type: z.string().min(1),
         })
         .strict(),
+      outputSchema: LinkEntitiesOutput,
       requiredScopes: ["write:memory"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -344,6 +412,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         })
         .merge(Pagination)
         .strict(),
+      outputSchema: QueryEntityGraphOutput,
       requiredScopes: ["read:memory"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
