@@ -11,7 +11,16 @@ import { collectLifecycle } from "./collectors/lifecycle";
 import { collectRetrieval } from "./collectors/retrieval";
 import { collectRuntime } from "./collectors/runtime";
 import { collectStorage } from "./collectors/storage";
-import { type ContentionOptions, calibrate } from "./contention";
+import {
+  CALIBRATION_CHANNELS,
+  type CalibrationChannel,
+  type CalibrationReferenceVector,
+  type ChannelThresholdOverrides,
+  calibrate,
+  calibrateIo,
+  formatCalibrationVector,
+  type VectorContentionResult,
+} from "./contention";
 import { evaluate } from "./gate";
 import { buildVault } from "./harness";
 import { type AggregatedReport, toMedianReport } from "./isolate";
@@ -66,29 +75,53 @@ export async function runScenario(
 
 const CALIBRATION_REFERENCE_PATH = "eval/perf/calibration-reference.json";
 
+/** THE-584 shape: one committed quiet-host median per calibration channel. `referenceMs`/`tol` are
+ *  the pre-THE-584 scalar (CPU-only) fields, still read so a reference committed before this change
+ *  keeps working instead of silently losing the CPU absolute check. */
 interface CalibrationReference {
-  referenceMs: number;
-  tol: number;
+  channels?: Partial<Record<CalibrationChannel, number>>;
+  referenceMs?: number;
+  tol?: number;
 }
 
-/** The committed "quiet host" calibration reference (THE-503), used ONLY to catch SUSTAINED,
- *  uniform contention that the relative CV/max checks cannot see (see contention.ts's module
- *  comment). Optional by design: absent on a fresh checkout or a fork that never ran
- *  --update-baseline, in which case only the relative checks apply — never a hard requirement to
- *  run the harness at all. */
-function readCalibrationReference(): ContentionOptions {
+/** The committed "quiet host" calibration reference (THE-503, vectorised in THE-584), used ONLY to
+ *  catch SUSTAINED, uniform contention that the relative CV/max checks cannot see (see
+ *  contention.ts's module comment). Optional by design: absent on a fresh checkout or a fork that
+ *  never ran --update-baseline, in which case only the relative checks apply — never a hard
+ *  requirement to run the harness at all.
+ *
+ *  A channel missing from the file simply has no absolute check; it is NOT treated as 0, which
+ *  would make every run look infinitely slower than reference and refuse every recording. */
+function readCalibrationReference(): {
+  reference: CalibrationReferenceVector;
+  overrides: ChannelThresholdOverrides;
+} {
   try {
     const ref = JSON.parse(
       readFileSync(CALIBRATION_REFERENCE_PATH, "utf8"),
     ) as CalibrationReference;
-    return { referenceMs: ref.referenceMs, referenceTol: ref.tol };
+    if (ref.channels) return { reference: ref.channels, overrides: {} };
+    // Legacy scalar file: CPU only. The I/O channel then runs relative checks alone until the next
+    // --update-baseline rewrites this file in the vector shape.
+    //
+    // The legacy `tol` is carried through rather than dropped. It happens to equal the CPU default
+    // (0.5) in the committed file, so dropping it would look harmless here — but a checkout that
+    // had tuned it would silently get a different tolerance than the one it wrote down, which is a
+    // worse failure than not supporting the field at all.
+    if (ref.referenceMs === undefined) return { reference: {}, overrides: {} };
+    return {
+      reference: { cpuMs: ref.referenceMs },
+      overrides: ref.tol !== undefined ? { cpuMs: { referenceTol: ref.tol } } : {},
+    };
   } catch {
-    return {};
+    return { reference: {}, overrides: {} };
   }
 }
 
-function writeCalibrationReference(medianMs: number, tol = 0.5): void {
-  const ref: CalibrationReference = { referenceMs: medianMs, tol };
+function writeCalibrationReference(result: VectorContentionResult): void {
+  const channels: Partial<Record<CalibrationChannel, number>> = {};
+  for (const c of CALIBRATION_CHANNELS) channels[c] = result.channels[c].median;
+  const ref: CalibrationReference = { channels };
   // Trailing newline: these files are COMMITTED, and biome's formatter requires one — without it
   // every automated recording produces a lint-failing PR (caught on the first real run, THE-534).
   writeFileSync(CALIBRATION_REFERENCE_PATH, `${JSON.stringify(ref, null, 2)}\n`);
@@ -115,6 +148,11 @@ function writeBaselineProvenance(
   name: Scenario["name"],
   mode: "isolated-median" | "single-shot",
   samples: number,
+  /** THE-584: the per-channel calibration this recording was accepted under. Recorded so a PAST
+   *  baseline can be re-judged later — the CPU-only scalar could not answer "was the host's disk
+   *  slow when this was measured?", which is precisely the question the 40-90% drift raised.
+   *  Absent in single-shot mode, which runs no contention detection at all. */
+  calibration?: VectorContentionResult,
 ): void {
   const git = (args: string[]): string => {
     try {
@@ -142,6 +180,16 @@ function writeBaselineProvenance(
     treeDirty: dirty,
     measuredAt: new Date().toISOString(),
     host: { platform: process.platform, arch: process.arch, cpus: cpus().length },
+    ...(calibration
+      ? {
+          calibration: Object.fromEntries(
+            CALIBRATION_CHANNELS.map((c) => [
+              c,
+              { median: calibration.channels[c].median, cv: calibration.channels[c].cv },
+            ]),
+          ),
+        }
+      : {}),
   };
   writeFileSync(
     `eval/perf/baseline.${name}.provenance.json`,
@@ -160,6 +208,7 @@ function writeBaseline(
   report: PerfReport,
   mode: "isolated-median" | "single-shot",
   samples: number,
+  calibration?: VectorContentionResult,
 ): void {
   const baseline: Baseline = {};
   for (const s of report.samples) {
@@ -174,7 +223,7 @@ function writeBaseline(
   }
   writeFileSync(`eval/perf/baseline.${name}.json`, `${JSON.stringify(baseline, null, 2)}\n`);
   process.stdout.write(`\nwrote eval/perf/baseline.${name}.json\n`);
-  writeBaselineProvenance(name, mode, samples);
+  writeBaselineProvenance(name, mode, samples, calibration);
 }
 
 /** Returns true iff a hard failure occurred (caller decides when to exit — isolated mode also
@@ -291,14 +340,13 @@ async function main(): Promise<void> {
       aggregate: agg,
       contention,
       hardInstabilities,
-    } = runIsolatedSamples(name, {
-      n,
-      contention: readCalibrationReference(),
-    });
+    } = runIsolatedSamples(name, { n, ...readCalibrationReference() });
     writeFileSync(out, JSON.stringify(agg, null, 2));
     printAggregateSummary(agg);
+    // THE-584: print the VECTOR, not a scalar, so a reviewer can see which dimension was clean.
+    // The old single median could not distinguish a quiet host from an I/O-saturated one.
     process.stdout.write(
-      `\ncontention: ${contention.contended ? "DETECTED" : "clean"} (median ${contention.median.toFixed(2)}ms, cv ${contention.cv.toFixed(3)})` +
+      `\ncontention: ${contention.contended ? "DETECTED" : "clean"} [${formatCalibrationVector(contention)}]` +
         `${contention.reason ? ` — ${contention.reason}` : ""}\n`,
     );
 
@@ -322,8 +370,8 @@ async function main(): Promise<void> {
         );
         process.exit(1);
       }
-      writeBaseline(name, medianReport, "isolated-median", agg.n);
-      writeCalibrationReference(contention.median);
+      writeBaseline(name, medianReport, "isolated-median", agg.n, contention);
+      writeCalibrationReference(contention);
       return;
     }
 
@@ -341,6 +389,7 @@ async function main(): Promise<void> {
   // Single-shot mode (dev-fast default; also what each isolated subprocess sample runs as).
   const report = await runScenario(name);
   report.calibrationMs = calibrate();
+  report.calibrationIoMs = calibrateIo(); // THE-584: the second contention channel
   writeFileSync(out, JSON.stringify(report, null, 2));
   process.stdout.write(toMarkdown(report));
 

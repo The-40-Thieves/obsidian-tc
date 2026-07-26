@@ -1,3 +1,6 @@
+import { closeSync, fsyncSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 
 // THE-503: host-contention detection for the perf harness's isolation layer.
@@ -43,6 +46,91 @@ export function calibrate(iterations = CALIBRATION_ITERATIONS): number {
   if (Number.isNaN(acc)) throw new Error("unreachable: calibration accumulator is never NaN");
   return performance.now() - t0;
 }
+
+// THE-584: the CPU loop above is only ONE contention channel, and the harness treated it as the
+// whole answer. Two independent CI recordings came back 40-90% worse than the committed baseline
+// on every warn metric while the detector printed `contention: clean (median 15.39ms, cv 0.056)`
+// against a 15.37ms reference — CPU was genuinely unaffected. What was slow was I/O, and the
+// metrics that moved were exactly the I/O-shaped ones (SQLite writes, freshness, HTTP handshake).
+//
+// So a second probe, measured here rather than assumed (16 rounds x 32 KiB, this host):
+//
+//   quiet                          median  43.2ms   cv 0.123   max/med 1.26
+//   under 3 concurrent fsync writers  median 498.0ms   cv 0.105   max/med 1.23
+//
+// Two things that decided the design:
+//
+//  1. `fsync` is load-bearing. Without it the loop writes into page cache and measures a memcpy —
+//     it would stay flat under exactly the disk contention it exists to detect.
+//  2. The RELATIVE checks are blind here for the same reason they are blind to sustained CPU load:
+//     under 11.5x slowdown the CV was 0.105, LOWER than the quiet host's 0.123. Only the absolute
+//     reference check separates those two columns. That is why an I/O reference entry matters.
+//
+// I/O also needs its OWN thresholds. A quiet host reached cv 0.229 and max/med 1.46 across probe
+// sizes — under the CPU thresholds (0.20 / 1.6) that is a false alarm on an idle machine, and a
+// detector that cries wolf gets ignored, which is the failure this ticket was filed to prevent.
+
+/** Fixed I/O work: rewrite a small file and fsync it, N times. Sized (like the CPU loop) to be
+ *  well above timer noise but cheap enough to run once per isolated sample — ~43ms on a quiet
+ *  reference host, so 5 samples add ~0.2s to a run. */
+const IO_CALIBRATION_ROUNDS = 16;
+const IO_CALIBRATION_BYTES = 32 * 1024;
+
+export function calibrateIo(rounds = IO_CALIBRATION_ROUNDS, bytes = IO_CALIBRATION_BYTES): number {
+  const dir = mkdtempSync(join(tmpdir(), "obtc-perf-iocal-"));
+  try {
+    const file = join(dir, "calibration.bin");
+    // Allocated INSIDE the try: a bad `bytes` (negative, or larger than the max buffer length)
+    // throws here, and outside the try that would leave the temp directory behind on every call.
+    const buf = Buffer.alloc(bytes, 0xa5);
+    const t0 = performance.now();
+    for (let i = 0; i < rounds; i++) {
+      const fd = openSync(file, "w");
+      try {
+        writeSync(fd, buf);
+        // The whole point: force the data to the device. A buffered write would measure page-cache
+        // memcpy and read as "fast" on a host whose disk is saturated.
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+    }
+    return performance.now() - t0;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** One calibration observation per channel. Recorded per isolated sample by run.ts. */
+export interface CalibrationVector {
+  cpuMs: number;
+  ioMs: number;
+}
+
+/** The channels a recording is judged on. Adding one here is the only way to add a dimension, and
+ *  every consumer (reference file, detector, provenance sidecar) iterates this rather than naming
+ *  channels individually — so a new channel cannot be silently skipped by one of them. */
+export const CALIBRATION_CHANNELS = ["cpuMs", "ioMs"] as const;
+export type CalibrationChannel = (typeof CALIBRATION_CHANNELS)[number];
+
+/** Per-channel defaults. CPU keeps THE-503's original numbers exactly; I/O is looser because a
+ *  QUIET host already measures cv 0.229 / max-med 1.46 (see the module note) and reusing the CPU
+ *  thresholds would refuse clean recordings. The reference tolerance is 1.0 (100% slower) rather
+ *  than CPU's 0.5 for the same reason — and the observed contention signal is 11.5x, so the looser
+ *  bound costs nothing in detection power. */
+export const CHANNEL_DEFAULTS: Record<
+  CalibrationChannel,
+  Required<Omit<ContentionOptions, "referenceMs">>
+> = {
+  cpuMs: { cvThreshold: 0.2, maxOverMedianThreshold: 1.6, referenceTol: 0.5 },
+  ioMs: { cvThreshold: 0.45, maxOverMedianThreshold: 2.5, referenceTol: 1.0 },
+};
+
+/** Human label for a channel, used in operator-facing output. */
+export const CHANNEL_LABEL: Record<CalibrationChannel, string> = {
+  cpuMs: "cpu",
+  ioMs: "io",
+};
 
 export function median(nums: number[]): number {
   if (nums.length === 0) return 0;
@@ -111,4 +199,97 @@ export function detectContention(
           ? `calibration median ${med.toFixed(1)}ms is more than ${(referenceTol * 100).toFixed(0)}% above the committed quiet-host reference ${(referenceMs as number).toFixed(1)}ms (sustained load, not just noise)`
           : undefined,
   };
+}
+
+/** A committed quiet-host median per channel. Channels are optional individually: a reference
+ *  recorded before THE-584 has only `cpuMs`, and that must keep working (relative checks still run
+ *  on both channels; the absolute check simply does not apply to the missing one). */
+export type CalibrationReferenceVector = Partial<Record<CalibrationChannel, number>>;
+
+/** Per-channel THRESHOLD overrides. `referenceMs` is deliberately excluded: it is the committed
+ *  measurement, not a knob, and allowing it here would let a caller delete the absolute check by
+ *  passing `undefined` for it. Tests that want a different reference pass one via `reference`. */
+export type ContentionThresholds = Omit<ContentionOptions, "referenceMs">;
+export type ChannelThresholdOverrides = Partial<Record<CalibrationChannel, ContentionThresholds>>;
+
+/** Drop undefined-valued keys so a partially-filled override object cannot blank out a default. */
+function definedOnly(o: ContentionThresholds | undefined): ContentionThresholds {
+  if (!o) return {};
+  return Object.fromEntries(
+    Object.entries(o).filter(([, v]) => v !== undefined),
+  ) as ContentionThresholds;
+}
+
+export interface VectorContentionResult {
+  contended: boolean;
+  /** Per-channel verdicts, always present for every channel in CALIBRATION_CHANNELS. */
+  channels: Record<CalibrationChannel, ContentionResult>;
+  /** Names the FAILING channel(s), so a reviewer can see which dimension was dirty rather than
+   *  only that something was — the scalar output could not distinguish CPU from I/O at all. */
+  reason?: string;
+}
+
+/**
+ * THE-584: run the full check over every calibration channel and fail if ANY is contended.
+ *
+ * Deliberately a fan-out over the existing scalar `detectContention` rather than a reimplementation:
+ * the three checks (CV, max/median, absolute-vs-reference) ask the same question of each channel,
+ * and duplicating them would let the channels' semantics drift apart.
+ */
+export function detectContentionVector(
+  samples: CalibrationVector[],
+  reference?: CalibrationReferenceVector,
+  overrides?: ChannelThresholdOverrides,
+): VectorContentionResult {
+  const channels = {} as Record<CalibrationChannel, ContentionResult>;
+  const reasons: string[] = [];
+  for (const channel of CALIBRATION_CHANNELS) {
+    const series = samples.map((s) => s[channel]);
+    // An all-zero series means the probe never ran (an old subprocess, a collector that threw, a
+    // field renamed) — and every relative check trivially PASSES on it: cv 0, max/median 1. It
+    // would read as the quietest host imaginable. Unmeasured must never be reported as clean; that
+    // is the same measures-nothing-while-green failure this whole detector exists to prevent.
+    if (series.length === 0 || series.every((v) => v === 0)) {
+      channels[channel] = {
+        contended: true,
+        median: 0,
+        cv: 0,
+        raw: series,
+        reason:
+          "calibration probe reported nothing (all-zero series) — the channel was not measured",
+      };
+      reasons.push(`${CHANNEL_LABEL[channel]}: unmeasured`);
+      continue;
+    }
+    const result = detectContention(series, {
+      ...CHANNEL_DEFAULTS[channel],
+      // Only DEFINED override values win. A plain spread would let `{cvThreshold: undefined}` — the
+      // natural result of building an override object from optional fields — overwrite the channel
+      // default with undefined, at which point detectContention falls back to its own CPU-shaped
+      // defaults and the I/O channel is silently judged by the wrong thresholds.
+      ...definedOnly(overrides?.[channel]),
+      // Reference LAST and never overridable: `referenceMs` is not a threshold, it is the committed
+      // measurement, and an override carrying `referenceMs: undefined` would silently delete the
+      // absolute check — the exact "a check that quietly stops running" failure this ticket exists
+      // to fix. The type forbids it too (ChannelThresholdOverrides omits it); this is belt and braces.
+      ...(reference?.[channel] !== undefined ? { referenceMs: reference[channel] } : {}),
+    });
+    channels[channel] = result;
+    if (result.contended)
+      reasons.push(`${CHANNEL_LABEL[channel]}: ${result.reason ?? "contended"}`);
+  }
+  return {
+    contended: reasons.length > 0,
+    channels,
+    ...(reasons.length > 0 ? { reason: reasons.join("; ") } : {}),
+  };
+}
+
+/** Compact operator-facing summary of EVERY channel — the "calibration vector, not a scalar" the
+ *  ticket asked for, so a reviewer can see which dimension was clean instead of trusting one number. */
+export function formatCalibrationVector(result: VectorContentionResult): string {
+  return CALIBRATION_CHANNELS.map((c) => {
+    const r = result.channels[c];
+    return `${CHANNEL_LABEL[c]} ${r.median.toFixed(2)}ms cv ${r.cv.toFixed(3)}${r.contended ? " DIRTY" : ""}`;
+  }).join(", ");
 }
