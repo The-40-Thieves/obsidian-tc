@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 277,
-    "dependencies": 1128,
-    "subsystemPairs": 76,
-    "crossSubsystemImports": 465
+    "modules": 278,
+    "dependencies": 1133,
+    "subsystemPairs": 81,
+    "crossSubsystemImports": 473
   },
   "subsystems": {
     "auth": 3,
@@ -30,6 +30,7 @@
     "plane": 6,
     "plugin": 2,
     "plur": 2,
+    "runtime": 1,
     "scheduler": 3,
     "schemas": 1,
     "search": 43,
@@ -56,13 +57,13 @@
       "weight": 30
     },
     {
-      "from": "tools",
-      "to": "search",
-      "weight": 19
-    },
-    {
       "from": "cli",
       "to": "db",
+      "weight": 18
+    },
+    {
+      "from": "tools",
+      "to": "search",
       "weight": 18
     },
     {
@@ -151,6 +152,11 @@
       "weight": 3
     },
     {
+      "from": "runtime",
+      "to": "search",
+      "weight": 3
+    },
+    {
       "from": "scheduler",
       "to": "db",
       "weight": 3
@@ -213,6 +219,16 @@
     {
       "from": "plur",
       "to": "bridge",
+      "weight": 2
+    },
+    {
+      "from": "runtime",
+      "to": "db",
+      "weight": 2
+    },
+    {
+      "from": "runtime",
+      "to": "metrics",
       "weight": 2
     },
     {
@@ -368,6 +384,16 @@
     {
       "from": "plane",
       "to": "util",
+      "weight": 1
+    },
+    {
+      "from": "runtime",
+      "to": "morgiana",
+      "weight": 1
+    },
+    {
+      "from": "runtime",
+      "to": "scheduler",
       "weight": 1
     },
     {
