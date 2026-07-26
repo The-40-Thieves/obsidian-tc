@@ -199,6 +199,33 @@ for (const p of [
   }
 }
 
+// SECURITY.md advertises supported versions by MINOR ("1.11.x" covers every patch of that minor),
+// not the full x.y.z release version, so it cannot go through the literal full-version
+// string-replace loop above (THE-562: the table drifted silently for two days past the v1.11.0 tag
+// because SECURITY.md was in no script at all). Bump it here, only when the minor actually
+// changes — a patch release keeps the same supported minor, so the table is correctly left alone.
+// check-version-coherence.mjs's SECURITY.md block asserts this table matches the package minor.
+{
+  const minorOf = (v) => v.split(".").slice(0, 2).join(".");
+  const currentMinor = minorOf(current);
+  const nextMinor = minorOf(next);
+  if (currentMinor !== nextMinor) {
+    const target = inRepo("SECURITY.md");
+    const before = readFileSync(target, "utf8");
+    const after = before
+      .replace(`| ${currentMinor}.x`, `| ${nextMinor}.x`)
+      .replace(`< ${currentMinor}`, `< ${nextMinor}`);
+    if (after === before) {
+      console.error(
+        `FAIL: SECURITY.md supported-version row did not match the expected ${currentMinor}.x / < ${currentMinor} text; update the table format or this bump step.`,
+      );
+      process.exit(1);
+    }
+    writeFileSync(target, after);
+    console.log(`  SECURITY.md supported-version bumped to ${nextMinor}.x`);
+  }
+}
+
 // Refresh the lockfile for the workspace version bump (the step that broke 1.2.1).
 console.log("bun install (refresh bun.lock) ...");
 execSync("bun install", { stdio: "inherit" });

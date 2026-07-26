@@ -41,6 +41,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `GraphSearchOptions` from source and fails by name when a new retrieval option is neither keyed
   nor explicitly reviewed as unkeyable.
 
+### Security
+
+- **`SECURITY.md`'s supported-version table corrected, and the gate hole that let it drift closed
+  (THE-562 P0.3b, which had regressed since being recorded as fixed).** The table advertised
+  `1.10.x` as supported and `< 1.10` as not, but the shipped package version has been `1.11.0`
+  since v1.11.0 tagged on 2026-07-24 — the public security policy was factually wrong about which
+  versions receive security fixes. The text fix alone would not have held: `SECURITY.md` appeared
+  in **no script and no workflow** — absent from `scripts/release.mjs`'s prose-bump list and from
+  `scripts/check-version-coherence.mjs`'s version anchors — so nothing could have caught the drift,
+  and nothing would catch the next one at v1.12.0. `check-version-coherence.mjs` now anchors on the
+  supported-version table row specifically (not a loose file-wide version match, which would pass
+  on any incidental version string elsewhere in the file) and fails if it disagrees with the
+  package's minor version; `release.mjs` now bumps that row automatically on a minor/major release
+  cut (a dedicated step, not the literal full-version string-replace used for other prose, because
+  the table tracks the minor as `X.Y.x`, not the full `x.y.z` release version).
+
 ## [1.11.0] - 2026-07-24
 
 ### Verification and release infrastructure

@@ -210,3 +210,35 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
   }
   console.log(`version-prose OK (${version} across ${anchors.length} doc anchors)`);
 }
+
+// SECURITY.md supported-version table coherence (THE-562 regression fix). SECURITY.md previously
+// appeared in NO script and NO workflow — not this gate's anchors, not release.mjs's prose bump —
+// so nothing caught it when the table kept advertising "1.10.x" after v1.11.0 shipped. Anchored on
+// the SUPPORTED row specifically (":white_check_mark:"), not a loose file-wide version match: a
+// loose match would pass as long as *some* version string in the file happened to be current, even
+// if the actual supported-version claim were stale. SECURITY.md advertises support by MINOR
+// ("1.11.x" covers every patch of that minor — see the "Security fixes land on the latest minor"
+// sentence above the table), so this compares against the package's major.minor, not the full
+// x.y.z the version-prose block above checks. release.mjs bumps this table in a dedicated step
+// (search "SECURITY.md supported-version"), not the literal-string PROSE_FILES loop, because a
+// literal full-version replace would never match a minor-only "X.Y.x" cell.
+{
+  const version = distinct[0];
+  const minor = version.split(".").slice(0, 2).join(".");
+  const target = resolve(ROOT, "SECURITY.md");
+  const text = readFileSync(target, "utf8");
+  const m = text.match(/\|\s*(\d+\.\d+)\.x\s*\|\s*:white_check_mark:\s*\|/);
+  if (!m) {
+    console.error(
+      "\nFAIL: SECURITY.md has no supported-version table row matching /X.Y.x | :white_check_mark:/.",
+    );
+    process.exit(1);
+  }
+  if (m[1] !== minor) {
+    console.error(
+      `\nFAIL: SECURITY.md supported-version drift — table advertises ${m[1]}.x as supported, package minor is ${minor}.`,
+    );
+    process.exit(1);
+  }
+  console.log(`SECURITY.md supported-version OK (${m[1]}.x matches package minor ${minor})`);
+}
