@@ -1,0 +1,359 @@
+{
+  "generatedBy": "scripts/gen-tree-map.mjs",
+  "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
+  "scale": {
+    "modules": 255,
+    "dependencies": 1009,
+    "subsystemPairs": 63,
+    "crossSubsystemImports": 410
+  },
+  "subsystems": {
+    "auth": 3,
+    "bridge": 8,
+    "capability": 6,
+    "capture": 1,
+    "cli": 2,
+    "config": 3,
+    "db": 13,
+    "doctor": 5,
+    "embeddings": 6,
+    "experiential": 11,
+    "formats": 6,
+    "gateway": 2,
+    "graph": 1,
+    "mcp": 6,
+    "memory": 2,
+    "metrics": 2,
+    "model": 7,
+    "morgiana": 1,
+    "otel": 1,
+    "plane": 6,
+    "plugin": 2,
+    "plur": 2,
+    "scheduler": 3,
+    "schemas": 1,
+    "search": 43,
+    "tools": 59,
+    "transports": 2,
+    "util": 3,
+    "vault": 17,
+    "workspace": 1
+  },
+  "edges": [
+    {
+      "from": "tools",
+      "to": "vault",
+      "weight": 153
+    },
+    {
+      "from": "tools",
+      "to": "mcp",
+      "weight": 54
+    },
+    {
+      "from": "search",
+      "to": "db",
+      "weight": 29
+    },
+    {
+      "from": "tools",
+      "to": "search",
+      "weight": 17
+    },
+    {
+      "from": "search",
+      "to": "vault",
+      "weight": 12
+    },
+    {
+      "from": "experiential",
+      "to": "db",
+      "weight": 11
+    },
+    {
+      "from": "tools",
+      "to": "db",
+      "weight": 11
+    },
+    {
+      "from": "formats",
+      "to": "vault",
+      "weight": 8
+    },
+    {
+      "from": "mcp",
+      "to": "vault",
+      "weight": 8
+    },
+    {
+      "from": "model",
+      "to": "embeddings",
+      "weight": 8
+    },
+    {
+      "from": "tools",
+      "to": "formats",
+      "weight": 8
+    },
+    {
+      "from": "tools",
+      "to": "bridge",
+      "weight": 7
+    },
+    {
+      "from": "embeddings",
+      "to": "search",
+      "weight": 5
+    },
+    {
+      "from": "memory",
+      "to": "vault",
+      "weight": 5
+    },
+    {
+      "from": "plane",
+      "to": "db",
+      "weight": 4
+    },
+    {
+      "from": "tools",
+      "to": "embeddings",
+      "weight": 3
+    },
+    {
+      "from": "tools",
+      "to": "experiential",
+      "weight": 3
+    },
+    {
+      "from": "transports",
+      "to": "auth",
+      "weight": 3
+    },
+    {
+      "from": "transports",
+      "to": "mcp",
+      "weight": 3
+    },
+    {
+      "from": "doctor",
+      "to": "bridge",
+      "weight": 2
+    },
+    {
+      "from": "doctor",
+      "to": "capability",
+      "weight": 2
+    },
+    {
+      "from": "experiential",
+      "to": "plane",
+      "weight": 2
+    },
+    {
+      "from": "model",
+      "to": "search",
+      "weight": 2
+    },
+    {
+      "from": "plane",
+      "to": "search",
+      "weight": 2
+    },
+    {
+      "from": "plur",
+      "to": "bridge",
+      "weight": 2
+    },
+    {
+      "from": "scheduler",
+      "to": "db",
+      "weight": 2
+    },
+    {
+      "from": "search",
+      "to": "gateway",
+      "weight": 2
+    },
+    {
+      "from": "tools",
+      "to": "util",
+      "weight": 2
+    },
+    {
+      "from": "tools",
+      "to": "plur",
+      "weight": 2
+    },
+    {
+      "from": "tools",
+      "to": "workspace",
+      "weight": 2
+    },
+    {
+      "from": "tools",
+      "to": "memory",
+      "weight": 2
+    },
+    {
+      "from": "tools",
+      "to": "plane",
+      "weight": 2
+    },
+    {
+      "from": "vault",
+      "to": "db",
+      "weight": 2
+    },
+    {
+      "from": "capability",
+      "to": "search",
+      "weight": 1
+    },
+    {
+      "from": "capture",
+      "to": "db",
+      "weight": 1
+    },
+    {
+      "from": "cli",
+      "to": "config",
+      "weight": 1
+    },
+    {
+      "from": "db",
+      "to": "scheduler",
+      "weight": 1
+    },
+    {
+      "from": "embeddings",
+      "to": "model",
+      "weight": 1
+    },
+    {
+      "from": "experiential",
+      "to": "scheduler",
+      "weight": 1
+    },
+    {
+      "from": "experiential",
+      "to": "search",
+      "weight": 1
+    },
+    {
+      "from": "experiential",
+      "to": "mcp",
+      "weight": 1
+    },
+    {
+      "from": "formats",
+      "to": "util",
+      "weight": 1
+    },
+    {
+      "from": "mcp",
+      "to": "db",
+      "weight": 1
+    },
+    {
+      "from": "mcp",
+      "to": "metrics",
+      "weight": 1
+    },
+    {
+      "from": "mcp",
+      "to": "otel",
+      "weight": 1
+    },
+    {
+      "from": "mcp",
+      "to": "workspace",
+      "weight": 1
+    },
+    {
+      "from": "mcp",
+      "to": "search",
+      "weight": 1
+    },
+    {
+      "from": "memory",
+      "to": "db",
+      "weight": 1
+    },
+    {
+      "from": "metrics",
+      "to": "auth",
+      "weight": 1
+    },
+    {
+      "from": "model",
+      "to": "gateway",
+      "weight": 1
+    },
+    {
+      "from": "plane",
+      "to": "scheduler",
+      "weight": 1
+    },
+    {
+      "from": "plane",
+      "to": "vault",
+      "weight": 1
+    },
+    {
+      "from": "plane",
+      "to": "util",
+      "weight": 1
+    },
+    {
+      "from": "search",
+      "to": "embeddings",
+      "weight": 1
+    },
+    {
+      "from": "search",
+      "to": "util",
+      "weight": 1
+    },
+    {
+      "from": "tools",
+      "to": "graph",
+      "weight": 1
+    },
+    {
+      "from": "tools",
+      "to": "config",
+      "weight": 1
+    },
+    {
+      "from": "tools",
+      "to": "capture",
+      "weight": 1
+    },
+    {
+      "from": "transports",
+      "to": "db",
+      "weight": 1
+    },
+    {
+      "from": "transports",
+      "to": "metrics",
+      "weight": 1
+    },
+    {
+      "from": "transports",
+      "to": "vault",
+      "weight": 1
+    },
+    {
+      "from": "vault",
+      "to": "mcp",
+      "weight": 1
+    },
+    {
+      "from": "workspace",
+      "to": "db",
+      "weight": 1
+    }
+  ]
+}

@@ -37,6 +37,12 @@ const SOURCE_GLOBS = [
   "packages/server/src/**/*.ts",
   "packages/shared/src/*.ts",
   "packages/shared/src/**/*.ts",
+  // The companion plugin was invisible to this map: its coupling to the server — the thing an
+  // architecture diagram exists to show — did not appear anywhere. packages/plugin/src/routes.ts
+  // is one of the largest files in the repo (36KB) and was absent from the dependency graph that
+  // check-boundaries and every reader treat as the picture of the system.
+  "packages/plugin/src/*.ts",
+  "packages/plugin/src/**/*.ts",
 ];
 /** Subsystem = first path segment under src/. Edges below this weight are omitted from the diagram
  *  so it stays readable; the full pair count is still reported in the scale line. */
@@ -86,10 +92,18 @@ if (modules.length === 0) {
 }
 
 /** First path segment under a package's src/ — "packages/server/src/tools/x.ts" -> "tools".
- *  A top-level file (src/cli.ts) has no subsystem and is skipped for edge purposes. */
+ *  A top-level file (src/cli.ts) has no subsystem and is skipped for edge purposes.
+ *
+ *  The plugin is deliberately a SINGLE subsystem rather than being decomposed the same way. Its
+ *  files sit directly under src/ with no subdirectories, so the segment rule above would return
+ *  null for every one of them — adding the glob alone counts the modules and then drops them from
+ *  every edge, which looks like coverage and shows nothing. Treating the package as one node is
+ *  what actually surfaces the server<->plugin coupling, and it keeps server/shared grouping
+ *  byte-identical to before: nothing about the existing subsystems changes. */
 const subsystemOf = (p) => {
   const m = /^packages\/(?:server|shared)\/src\/([^/]+)\//.exec(p);
-  return m ? m[1] : null;
+  if (m) return m[1];
+  return /^packages\/plugin\/src\//.test(p) ? "plugin" : null;
 };
 
 const fileCount = new Map();
@@ -190,13 +204,55 @@ after = inject(after, "tree-scale", scale);
 after = inject(after, "tree-subsystem-graph", graphBlock);
 after = inject(after, "tree-fan", fanTable);
 
-if (after === before) {
+// Machine-readable twin of the Mermaid diagram. The edge weights are already computed above for
+// the diagram, which only renders pairs at or above MIN_EDGE_WEIGHT — this emits the FULL set, so
+// a tool (or an agent) reading the graph is not limited to what happened to be legible in a
+// picture. Sorted so the file is diffable and the drift check below is stable.
+const GRAPH_JSON = "docs/dependency-graph.json";
+const graphJson = `${JSON.stringify(
+  {
+    generatedBy: "scripts/gen-tree-map.mjs",
+    note: "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
+    scale: {
+      modules: modules.length,
+      dependencies: totalDeps,
+      subsystemPairs: edges.size,
+      crossSubsystemImports: crossImports,
+    },
+    subsystems: Object.fromEntries([...fileCount.entries()].sort(([a], [b]) => a.localeCompare(b))),
+    // Reuses the already-split `sortedEdges` above rather than re-splitting edges.entries(). The
+    // key separator is a NUL (line ~122); splitting on a guessed "->" produced `{from:"a<NUL>b"}`
+    // with no `to` field and wrote NUL bytes into a tracked file — the exact thing
+    // check-nul-bytes.mjs rejects. One split, one place, no second chance to get it wrong.
+    edges: sortedEdges,
+  },
+  null,
+  2,
+)}\n`;
+let jsonBefore = "";
+try {
+  jsonBefore = readFileSync(GRAPH_JSON, "utf8");
+} catch {
+  // absent — treated as stale below, which is what a first run should be
+}
+const jsonStale = jsonBefore !== graphJson;
+
+// Both artifacts are checked together: TREE.md can be current while the JSON is not (only one of
+// them is rewritten when the other's inputs change), and an early exit on TREE.md alone would let
+// a stale graph.json pass the gate forever.
+if (after === before && !jsonStale) {
   console.log(`gen-tree-map: up to date (${modules.length} modules, ${totalDeps} dependencies)`);
   process.exit(0);
 }
 if (CHECK) {
-  console.error("gen-tree-map: TREE.md is STALE — run `just map`");
+  const stale = [after !== before ? "TREE.md" : null, jsonStale ? GRAPH_JSON : null]
+    .filter(Boolean)
+    .join(" + ");
+  console.error(`gen-tree-map: ${stale} is STALE — run \`just map\``);
   process.exit(1);
 }
-writeFileSync("TREE.md", after);
-console.log(`gen-tree-map: wrote TREE.md (${modules.length} modules, ${totalDeps} dependencies)`);
+if (after !== before) writeFileSync("TREE.md", after);
+if (jsonStale) writeFileSync(GRAPH_JSON, graphJson);
+console.log(
+  `gen-tree-map: wrote ${[after !== before ? "TREE.md" : null, jsonStale ? GRAPH_JSON : null].filter(Boolean).join(" + ")} (${modules.length} modules, ${totalDeps} dependencies)`,
+);

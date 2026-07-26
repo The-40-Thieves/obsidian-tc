@@ -193,8 +193,19 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**252 modules · 1006 dependencies · 63 distinct subsystem pairs · 410 cross-subsystem imports.**
+**255 modules · 1009 dependencies · 63 distinct subsystem pairs · 410 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
+
+**Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
+was not before — its modules were absent from every number on this page, including the 36KB
+`routes.ts`). Adding it moved the module and dependency counts and moved **nothing else**: the
+subsystem-pair and cross-subsystem-import counts are unchanged, because the plugin imports only
+`obsidian` and its own `./routes` — it has **zero** imports from `server` or `shared`.
+
+That is not a gap in the scan. The plugin talks to the server over **HTTP**, so the coupling is a
+wire contract, and an import graph structurally cannot show it. Read the absence as "no import
+edge exists", never as "these two are unrelated" — the companion-plugin bridge in
+`ARCHITECTURE.md` §5 is where that relationship is actually documented.
 
 ### Subsystem graph
 
