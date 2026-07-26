@@ -1,0 +1,129 @@
+# THE-534: record the perf baseline ON THE CI RUNNER, which is the decided reference host.
+#
+# WHY THIS EXISTS AT ALL. The baseline is the reference the `perf` gate compares against, so it has
+# to be measured somewhere reproducible. A developer box is not that: the dev host this project is
+# built on sits at load ~7 on 4 cores with 43 containers, and the harness correctly REFUSES to record
+# there (calibration CV 0.822 against a 0.2 threshold). Rather than weaken the refusal, the reference
+# moves to the machine the gate already runs on.
+#
+# WHY IT OPENS A PR RATHER THAN PUSHING. eval/perf/README.md: "Baseline changes must be manually
+# committed and justified in the PR. The baseline is drift-safe because you hand-commit it, not
+# because it auto-updates." Recording moves to CI; REVIEW does not. A silently self-updating baseline
+# would ratchet a regression in one green run at a time, which is the precise failure THE-534 exists
+# to prevent.
+#
+# WHY workflow_dispatch ONLY. Re-baselining is a deliberate act taken when the system has changed on
+# purpose. On a schedule or on push it would quietly absorb drift.
+name: perf-baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Scenario to baseline (the gate uses "small")'
+        required: false
+        default: small
+        type: choice
+        options: [small, vault1k, medium, large]
+      samples:
+        description: "Isolated samples to take the median of (>= 5 recommended)"
+        required: false
+        default: "5"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    # MUST match the `perf` gate's runner class in ci-server.yml. A reference measured on a different
+    # machine than the one doing the comparing is not a reference, it is a second opinion.
+    #
+    # Same concurrency group as that gate, deliberately: a recording run and a gate run on the same
+    # shared capacity would contend, and while the contention detector would likely catch it and
+    # refuse, serializing means it never has to.
+    concurrency:
+      group: perf-exclusive
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.14'
+      - name: cache bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: install (native build for sqlite-vec)
+        run: bun install --frozen-lockfile
+
+      # No continue-on-error: a REFUSED recording (host contention detected) must fail the job and
+      # open no PR. Recording a contended baseline is worse than not recording one -- it looks
+      # authoritative and gets cited in a go/no-go.
+      - name: record baseline (isolated, median of N fresh subprocesses)
+        # Inputs go through env, never interpolated into the shell. `scenario` is a `choice` so it is
+        # already constrained to the enum, but `samples` is free-form: dispatching needs write access,
+        # yet "the attacker already had write access" is not a reason to hand them a shell. `samples`
+        # is additionally validated as digits before use.
+        env:
+          SCENARIO: ${{ inputs.scenario }}
+          SAMPLES: ${{ inputs.samples }}
+        run: |
+          set -euo pipefail
+          case "$SAMPLES" in
+            ''|*[!0-9]*) echo "::error title=Invalid samples::must be a positive integer, got '$SAMPLES'"; exit 1 ;;
+          esac
+          bun eval/perf/run.ts \
+            --scenario "$SCENARIO" \
+            --samples "$SAMPLES" \
+            --out perf-report.json \
+            --update-baseline
+        working-directory: packages/server
+
+      - name: open a PR with the recorded baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCENARIO: ${{ inputs.scenario }}
+          SAMPLES: ${{ inputs.samples }}
+        run: |
+          set -euo pipefail
+          # The three artifacts a recording writes: the baseline itself, the quiet-host calibration
+          # median used for sustained-contention detection, and THE-534's provenance sidecar.
+          FILES="packages/server/eval/perf/baseline.${SCENARIO}.json"
+          for extra in \
+            "packages/server/eval/perf/calibration-reference.json" \
+            "packages/server/eval/perf/baseline.${SCENARIO}.provenance.json"; do
+            if [ -f "$extra" ]; then FILES="$FILES $extra"; fi
+          done
+
+          # shellcheck disable=SC2086
+          if git diff --quiet -- $FILES; then
+            echo "::notice title=No baseline change::the recorded numbers match the committed baseline; nothing to open."
+            exit 0
+          fi
+
+          BRANCH="perf-baseline/${SCENARIO}-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          # shellcheck disable=SC2086
+          git add $FILES
+          # -s: the repo's dco-check gates every commit on a sign-off.
+          git commit -s -m "perf: re-record ${SCENARIO} baseline on the CI runner (THE-534)" \
+            -m "Recorded by .github/workflows/perf-baseline.yml on ubuntu-latest, the same runner class the perf gate compares on. Median of ${SAMPLES} fresh-subprocess samples; the run is refused outright if host contention is detected, so reaching this commit means it was not." \
+            -m "Measured against ${GITHUB_SHA}. Review the diff before merging: a baseline that moved in the WORSE direction is a regression being accepted, and should be justified here."
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "perf: re-record ${SCENARIO} baseline on the CI runner (THE-534)" \
+            --body "Recorded by \`perf-baseline.yml\` on \`ubuntu-latest\` — the reference host decided in THE-534, and the same runner class the \`perf\` gate compares on.
+
+          - Scenario: \`${SCENARIO}\`, median of ${SAMPLES} fresh-subprocess samples.
+          - Measured against \`${GITHUB_SHA}\`.
+          - Host contention was NOT detected: the harness refuses to record under contention, so this PR existing is itself that evidence.
+
+          **Review the direction of every change.** A number that moved the worse way is a regression being accepted into the reference, and needs a reason in this thread. \`baseline.${SCENARIO}.provenance.json\` records the SHA, sample count and host shape it was taken on." \
+            --head "$BRANCH"
