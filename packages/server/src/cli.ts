@@ -26,6 +26,7 @@ import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "./db/migration-manifest
 import { embeddedSql } from "./db/migrations-embedded";
 import { openDatabase } from "./db/open";
 import { provisionCacheDb } from "./db/provision";
+import type { WriteTxnHooks } from "./db/txn";
 import { assembleDoctorReport, renderText } from "./doctor";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
@@ -905,6 +906,14 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // so the search layer keeps taking a plain callback and never imports metrics.
   const onVecFallback = (vault: string, reason: "error" | "underfill"): void =>
     metrics.incVecFallback(vault, reason);
+  // THE-585 (#5): bind a vault to the write-lock hooks. Same seam as onVecFallback — the db and
+  // indexer layers take plain callbacks and never import metrics, so the composition root stays
+  // the only module that knows a recorder exists. `vault` is a real vault id for the index paths;
+  // process-wide subsystems pass a bounded subsystem name instead (see observeSqlLockWait).
+  const sqlHooksFor = (vault: string): WriteTxnHooks => ({
+    onLockWait: (txn, seconds) => metrics.observeSqlLockWait(vault, txn, seconds),
+    onBusy: (txn, reason) => metrics.incSqlBusy(vault, txn, reason),
+  });
   // MORGIANA CloudEvents spool (G2.4) — JSONL by default; a dropped event feeds
   // morgiana_emit_dropped_total + the event_log and never blocks a tool call.
   const morgiana = new MorgianaEmitter({
@@ -1071,7 +1080,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // Constructed here (ahead of its original ~line-1006 site) so server_health's getJobQueueStats
   // accessor below can close over it; it depends only on `db` + `Date.now`, both already
   // available at this point in boot.
-  const jobQueue = new JobQueue(db, { now: Date.now });
+  // THE-585 (#5): the job queue claims across every vault from one process-wide connection, so it
+  // has no vault id to report; "scheduler" is the bounded subsystem name, matching the precedent
+  // the query-cache gauges set for process-wide subsystems.
+  const jobQueue = new JobQueue(db, { now: Date.now, sql: sqlHooksFor("scheduler") });
   // server_health surfaces the build's active fast-paths (native module + sqlite-vec). Both are
   // non-identifying, so the tool keeps them in its unauthenticated payload; registered here (not
   // earlier) so hasVec is known.
@@ -1294,9 +1306,17 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           Date.now,
           makeOnIndexed(vaultId),
           config.embeddings.chunkContext,
+          sqlHooksFor(vaultId),
         ),
       delete: (vaultId, path) =>
-        deindexNote(db, vaultId, path, hasVec, config.embeddings.chunkContext),
+        deindexNote(
+          db,
+          vaultId,
+          path,
+          hasVec,
+          config.embeddings.chunkContext,
+          sqlHooksFor(vaultId),
+        ),
       onError: (e) => {
         indexHealth.writeFailures++;
         indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
@@ -1359,6 +1379,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         root: vaultRegistry.resolve(vaultId).root,
         isReadable: indexReadableFor(vaultId),
         now: Date.now,
+        sql: sqlHooksFor(vaultId),
         onIndexed: makeOnIndexed(vaultId),
         onNotesPass: () => {
           indexHealth.notesReady = true;
@@ -1653,6 +1674,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         root: vaultRegistry.resolve(v.id).root,
         isReadable: indexReadableFor(v.id),
         now: Date.now,
+        sql: sqlHooksFor(v.id),
         onIndexed: makeOnIndexed(v.id),
         // THE-291: metadata/FTS readiness is independent of embed success.
         onNotesPass: () => {

@@ -15,6 +15,9 @@
 // the `idempotency_cache_bytes` gauge likewise. They expose as registered-zero until that
 // subsystem lands; this is documented rather than faked.
 import { Counter, Gauge, Histogram, Registry } from "prom-client";
+// Type-only: the label unions are DEFINED at the write-transaction seam that produces them, so a
+// new transaction site cannot add a Prometheus series without widening the union there first.
+import type { BusyReason, WriteTxnLabel } from "../db/txn";
 
 /** Per-vault gauge sample sources, read lazily at scrape time (G2.4 gauges are per `vault`). */
 export interface GaugeSources {
@@ -42,6 +45,14 @@ export type ToolCallStatus = "ok" | "denied" | "error";
 // Log-spaced byte buckets from G2.4 (1k, 10k, 100k, 1M, 10M).
 const RESPONSE_BYTE_BUCKETS = [1_000, 10_000, 100_000, 1_000_000, 10_000_000];
 
+// THE-585 (#5): lock-wait buckets, in seconds. There is a bucket AT the configured `busy_timeout`
+// (5 s) and another ABOVE it, and the second one is the point: a timed-out acquisition always
+// measures slightly OVER the timeout — 5000 ms of busy_timeout was measured at 5006 ms, because
+// the sample spans SQLite's busy-handler loop plus the call overhead around it. With 5 as the top
+// bucket every timeout would fall into +Inf alone, and "waited the full timeout and then threw"
+// would be indistinguishable from "waited a minute". The 5..10 band is where timeouts land.
+const SQL_LOCK_WAIT_BUCKETS = [0.001, 0.01, 0.1, 0.5, 1, 5, 10];
+
 export class MetricsRecorder {
   readonly registry: Registry;
 
@@ -62,8 +73,10 @@ export class MetricsRecorder {
   private readonly embedBatchRejections: Counter<string>;
   private readonly indexWriteFailures: Counter<string>;
   private readonly vecFallbacks: Counter<string>;
+  private readonly sqlBusy: Counter<string>;
   private readonly toolDuration: Histogram<string>;
   private readonly responseBytes: Histogram<string>;
+  private readonly sqlLockWait: Histogram<string>;
 
   constructor(sources: GaugeSources = {}) {
     const registry = new Registry();
@@ -124,6 +137,12 @@ export class MetricsRecorder {
       labelNames: ["vault", "reason"],
       registers,
     });
+    this.sqlBusy = new Counter({
+      name: "obsidian_tc_sql_busy_total",
+      help: "Write transactions that failed on a busy database, by vault, transaction, and reason. reason=busy means contention outlived busy_timeout (5s) — the writers genuinely overlap that long. reason=snapshot is a BUG REPORT, not tuning: it can only be produced by a deferred BEGIN that read and then tried to write, a failure busy_timeout cannot retry, so any non-zero count names a write path still using BEGIN where it should use inWriteTransaction.",
+      labelNames: ["vault", "txn", "reason"],
+      registers,
+    });
     this.idempotencyHits = new Counter({
       name: "obsidian_tc_idempotency_hits_total",
       help: "Idempotency cache hits, by vault and tool.",
@@ -175,6 +194,21 @@ export class MetricsRecorder {
       help: "Tool response size in bytes, by vault and tool.",
       labelNames: ["vault", "tool"],
       buckets: RESPONSE_BYTE_BUCKETS,
+      registers,
+    });
+    // THE-585 (#5): the signal THE-467/468 cannot be argued without — how long writers block each
+    // other on ONE shared cache.db. Under WAL readers never block, so every sample here is
+    // writer-vs-writer contention and nothing else.
+    //
+    // Observed on EVERY acquisition, including the uncontended ones that fall in the 1 ms bucket:
+    // without those the histogram would have no denominator and "5% of index writes waited >100 ms"
+    // could not be computed at all. The `txn` label is a closed union (see WriteTxnLabel) so an
+    // operator can tell a reindex waiting on a live tool call from the reverse.
+    this.sqlLockWait = new Histogram({
+      name: "obsidian_tc_sql_lock_wait_seconds",
+      help: "Seconds spent acquiring SQLite's write lock (BEGIN IMMEDIATE), by vault and transaction. Only writers contend under WAL, so a rising tail here is the direct evidence for splitting the shared database per vault. Failed acquisitions are observed too, and land just ABOVE busy_timeout (5s) rather than at it — count the 5..10s band to find transactions that waited out the timeout and then threw.",
+      labelNames: ["vault", "txn"],
+      buckets: SQL_LOCK_WAIT_BUCKETS,
       registers,
     });
 
@@ -281,6 +315,16 @@ export class MetricsRecorder {
    *  label stays bounded per the ticket's cardinality constraint. */
   incVecFallback(vault: string, reason: "error" | "underfill"): void {
     this.vecFallbacks.inc({ vault, reason });
+  }
+  /** THE-585 (#5): one write-lock acquisition. `vault` carries the vault id where the write
+   *  transaction belongs to one, and a bounded SUBSYSTEM name where it does not — the scheduler's
+   *  job queue is process-wide and claims across every vault, so it reports as "scheduler". Same
+   *  precedent the query-cache gauges set. */
+  observeSqlLockWait(vault: string, txn: WriteTxnLabel, seconds: number): void {
+    this.sqlLockWait.observe({ vault, txn }, seconds);
+  }
+  incSqlBusy(vault: string, txn: WriteTxnLabel, reason: BusyReason): void {
+    this.sqlBusy.inc({ vault, txn, reason });
   }
   incAuditWriteFailed(vault: string, tool: string): void {
     this.auditWriteFailed.inc({ vault, tool });

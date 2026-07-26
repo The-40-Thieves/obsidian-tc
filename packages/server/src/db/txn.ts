@@ -82,6 +82,146 @@ export function inSavepoint<T>(db: Database, fn: () => T): T {
   return out;
 }
 
+/**
+ * THE-585 (#5): the WRITE counterpart to `inTransaction`, and the only shape a SQL lock wait can
+ * be measured at.
+ *
+ * ## Why `BEGIN IMMEDIATE` rather than `BEGIN`
+ *
+ * A deferred `BEGIN` takes NO lock — it returns instantly even while another connection holds the
+ * write lock, and the wait lands on the transaction's first write STATEMENT instead. Timing a
+ * deferred `BEGIN` therefore measures nothing at all: probed against a held lock, `BEGIN` returned
+ * in 0.0 ms and the following `INSERT` took 529.6 ms. `BEGIN IMMEDIATE` acquires the write lock up
+ * front, so its own duration IS the lock wait, cleanly separated from the work.
+ *
+ * The mode change is not merely instrumentation. A deferred transaction that READS and then writes
+ * is exposed to a failure `busy_timeout` cannot absorb: once another connection commits, the
+ * upgrade fails with `SQLITE_BUSY_SNAPSHOT` **immediately** (measured: 0.2 ms against a 5000 ms
+ * busy_timeout), because SQLite will not retry an upgrade that could deadlock. `BEGIN IMMEDIATE`
+ * never takes that path — it either waits out the timeout or fails cleanly with plain
+ * `SQLITE_BUSY`. So every read-then-write transaction is strictly safer here.
+ *
+ * Under WAL, readers never block, so this is purely a writer-vs-writer signal — which is exactly
+ * the question THE-467/468 (per-vault storage isolation) has to answer.
+ *
+ * Rollback discipline, `BEGIN` placement, and re-entrancy match `inTransaction` exactly; see there.
+ * The hooks are observability and are best-effort by contract: a throwing metrics sink must never
+ * turn a committed transaction into a failed one.
+ */
+export function inWriteTransaction<T>(
+  db: Database,
+  label: WriteTxnLabel,
+  fn: () => T,
+  hooks?: WriteTxnHooks,
+): T {
+  const started = performance.now();
+  try {
+    db.exec("BEGIN IMMEDIATE");
+  } catch (beginErr) {
+    // Record the wait even though acquisition FAILED. A busy timeout is the longest wait there is,
+    // and dropping those samples would bias the histogram toward fast acquisitions at exactly the
+    // moment contention is worst — the opposite of what the metric exists to show.
+    notify(hooks?.onLockWait, label, (performance.now() - started) / 1000);
+    reportBusy(hooks, label, beginErr);
+    throw beginErr; // no transaction was opened by us — nothing to roll back (see inTransaction)
+  }
+  notify(hooks?.onLockWait, label, (performance.now() - started) / 1000);
+
+  let out: T;
+  try {
+    out = fn();
+  } catch (primary) {
+    reportBusy(hooks, label, primary);
+    rollback(db, primary);
+    throw primary;
+  }
+  try {
+    db.exec("COMMIT");
+  } catch (commitErr) {
+    reportBusy(hooks, label, commitErr);
+    rollback(db, commitErr);
+    throw commitErr;
+  }
+  return out;
+}
+
+/** Which write transaction a lock-wait sample came from. A closed union, not a free string: it
+ *  becomes a Prometheus label, and THE-585's cardinality rule admits only bounded values. Adding a
+ *  member here is the ONLY way to add a series, so the label set cannot drift open by accident. */
+export type WriteTxnLabel =
+  | "index_batch"
+  | "index_note"
+  | "index_deindex"
+  | "index_notes_flush"
+  | "index_generation"
+  | "job_claim";
+
+/** Busy-class outcomes, split because they mean different things operationally: `busy` is
+ *  contention that outlived `busy_timeout` (tune the timeout, or reduce writer overlap), while
+ *  `snapshot` is an unrescuable deferred-upgrade failure that means a write path is STILL using
+ *  `BEGIN` where it should use `inWriteTransaction`. A non-zero `snapshot` count is a bug report. */
+export type BusyReason = "busy" | "snapshot";
+
+export interface WriteTxnHooks {
+  /** Seconds spent acquiring the write lock. Fires on every attempt, successful or not. */
+  onLockWait?: (label: WriteTxnLabel, seconds: number) => void;
+  /** A busy-class failure. Fires IN ADDITION to onLockWait, and the error still propagates. */
+  onBusy?: (label: WriteTxnLabel, reason: BusyReason) => void;
+}
+
+/** SQLite's primary result code for a busy database. Extended codes keep it in the low byte
+ *  (`SQLITE_BUSY_RECOVERY` 261, `SQLITE_BUSY_SNAPSHOT` 517, `SQLITE_BUSY_TIMEOUT` 773), which is
+ *  why the numeric test masks rather than compares. */
+const SQLITE_BUSY = 5;
+const SQLITE_BUSY_SNAPSHOT = 517;
+
+/**
+ * Classify a busy-class SQLite error across all three adapters, or null if it is not one.
+ *
+ * Both discriminators are needed — verified by probing each adapter directly:
+ *
+ * | adapter        | plain busy                       | snapshot                                  |
+ * | -------------- | -------------------------------- | ----------------------------------------- |
+ * | bun:sqlite     | `code:"SQLITE_BUSY"`, `errno:5`  | `code:"SQLITE_BUSY_SNAPSHOT"`, `errno:517`|
+ * | better-sqlite3 | `code:"SQLITE_BUSY"`             | `code:"SQLITE_BUSY_SNAPSHOT"`             |
+ * | node:sqlite    | `code:"ERR_SQLITE_ERROR"`, `errcode:5` | `code:"ERR_SQLITE_ERROR"`, `errcode:517` |
+ *
+ * `node:sqlite` collapses every error to the generic `ERR_SQLITE_ERROR`, so the string test alone
+ * would never fire on the test path OR in the .mcpb bundle, which is what it ships. better-sqlite3
+ * carries no numeric code at all, so the numeric test alone would never fire in Node production.
+ * `message` is byte-identical ("database is locked") on all three, so it cannot classify anything.
+ */
+export function busyReason(err: unknown): BusyReason | null {
+  if (err === null || typeof err !== "object") return null;
+  const e = err as { code?: unknown; errcode?: unknown; errno?: unknown };
+  if (typeof e.code === "string" && e.code.startsWith("SQLITE_BUSY")) {
+    return e.code === "SQLITE_BUSY_SNAPSHOT" ? "snapshot" : "busy";
+  }
+  const numeric =
+    typeof e.errcode === "number" ? e.errcode : typeof e.errno === "number" ? e.errno : null;
+  if (numeric === null || (numeric & 0xff) !== SQLITE_BUSY) return null;
+  return numeric === SQLITE_BUSY_SNAPSHOT ? "snapshot" : "busy";
+}
+
+function reportBusy(hooks: WriteTxnHooks | undefined, label: WriteTxnLabel, err: unknown): void {
+  const reason = busyReason(err);
+  if (reason) notify(hooks?.onBusy, label, reason);
+}
+
+/** Fire an observability hook without letting it affect the transaction — the same best-effort
+ *  contract semanticSearch's `onFallback`, retrievalLog, and the audit writer carry. */
+function notify<A>(
+  hook: ((label: WriteTxnLabel, arg: A) => void) | undefined,
+  label: WriteTxnLabel,
+  arg: A,
+): void {
+  try {
+    hook?.(label, arg);
+  } catch {
+    /* observability is never load-bearing */
+  }
+}
+
 /** SQLite's message when it has ALREADY rolled the transaction back for us (the common case for an
  *  I/O-class error). Distinguishing this from a genuine rollback failure is the whole point: the
  *  first is benign and expected, the second means the connection may still be INSIDE a transaction. */

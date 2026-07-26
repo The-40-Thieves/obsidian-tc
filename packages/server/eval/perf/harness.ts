@@ -74,6 +74,12 @@ export function countingProvider(base: EmbeddingProvider): CountingProvider {
  *  statement is prepared once and run per chunk. */
 const VEC_KNN_SQL = /FROM\s+vec_chunks\b[\s\S]*\bMATCH\b/i;
 
+/** Any transaction start, in any mode. Deliberately NOT `sql === "BEGIN"`: THE-585 (#5) moved the
+ *  index write paths to `BEGIN IMMEDIATE`, and an exact-string test silently stopped counting them.
+ *  Because `index.txn_count` is lower-is-better, that miss would have surfaced as a spectacular
+ *  improvement rather than a broken metric — the perf gate would have applauded it. */
+const BEGIN_STMT = /^\s*BEGIN\b/i;
+
 /** Counts write-transaction starts (`exec("BEGIN")`) issued through this connection, for
  *  THE-503's `index.txn_count` metric: how many transactions indexVault's own batching (THE-500)
  *  actually used to write this vault, as a "fewer is better" figure rather than an exact-match
@@ -104,7 +110,7 @@ export function countingDatabase(base: Database): CountingDatabase {
     writeTxnCount: 0,
     vecKnnCalls: 0,
     exec(sql: string) {
-      if (sql.trim().toUpperCase() === "BEGIN") wrapped.writeTxnCount += 1;
+      if (BEGIN_STMT.test(sql)) wrapped.writeTxnCount += 1;
       base.exec(sql);
     },
     prepare: (sql: string) => countIfKnn(sql, base.prepare(sql)),

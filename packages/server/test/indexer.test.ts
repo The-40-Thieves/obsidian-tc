@@ -180,7 +180,7 @@ describe("index_vault (incremental chunk + embed)", () => {
     let begins = 0;
     const counting: Database = {
       exec: (sql) => {
-        if (sql === "BEGIN") begins += 1;
+        if (/^\s*BEGIN\b/i.test(sql)) begins += 1; // any mode (THE-585 #5: BEGIN IMMEDIATE)
         v.db.exec(sql);
       },
       prepare: (sql) => v.db.prepare(sql),
@@ -256,7 +256,7 @@ describe("index_vault (incremental chunk + embed)", () => {
     let begins = 0;
     const counting: Database = {
       exec: (sql) => {
-        if (sql === "BEGIN") begins += 1;
+        if (/^\s*BEGIN\b/i.test(sql)) begins += 1; // any mode (THE-585 #5: BEGIN IMMEDIATE)
         v.db.exec(sql);
       },
       prepare: (sql) => v.db.prepare(sql),

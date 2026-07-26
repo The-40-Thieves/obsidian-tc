@@ -193,7 +193,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**255 modules · 1009 dependencies · 63 distinct subsystem pairs · 410 cross-subsystem imports.**
+**255 modules · 1013 dependencies · 64 distinct subsystem pairs · 413 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -211,7 +211,7 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 63 pairs.
+set is 64 pairs.
 
 ```mermaid
 flowchart LR
@@ -229,7 +229,7 @@ flowchart LR
 
   tools -->|153| vault
   tools -->|54| mcp
-  search -->|29| db
+  search -->|30| db
   tools -->|17| search
   search -->|12| vault
   experiential -->|11| db
@@ -250,7 +250,7 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 188 | `tools` | 269 |
-| `db` | 64 | `search` | 45 |
+| `db` | 67 | `search` | 46 |
 | `mcp` | 59 | `experiential` | 16 |
 | `search` | 29 | `mcp` | 13 |
 | `embeddings` | 12 | `model` | 11 |
