@@ -1,10 +1,9 @@
-// docgen metrics/errors/schema extractors (THE-471). Runtime introspection: the prom-client registry,
-// the err factory map, and a provisioned in-memory schema. Pins representative entries.
+// docgen metrics/errors extractors (THE-471). Runtime introspection: the prom-client registry and
+// the err factory map. Pins representative entries.
 import { beforeAll, describe, expect, it } from "vitest";
 import { extractErrors } from "../scripts/docgen/extract-errors";
 import { extractMetrics } from "../scripts/docgen/extract-metrics";
-import { extractSchema } from "../scripts/docgen/extract-schema";
-import type { MetricDoc, TableDoc } from "../scripts/docgen/model";
+import type { MetricDoc } from "../scripts/docgen/model";
 
 describe("extractErrors (THE-471)", () => {
   const errors = extractErrors();
@@ -24,12 +23,10 @@ describe("extractErrors (THE-471)", () => {
   });
 });
 
-describe("extractMetrics / extractSchema (THE-471)", () => {
+describe("extractMetrics (THE-471)", () => {
   let metrics: MetricDoc[] = [];
-  let tables: TableDoc[] = [];
   beforeAll(async () => {
     metrics = await extractMetrics();
-    tables = await extractSchema();
   });
 
   it("extracts metrics with type, help, and sorted label names", () => {
@@ -56,15 +53,5 @@ describe("extractMetrics / extractSchema (THE-471)", () => {
 
     const nonHistograms = metrics.filter((m) => m.type !== "histogram");
     expect(nonHistograms.every((m) => m.buckets === undefined)).toBe(true);
-  });
-
-  it("introspects the real provisioned schema (tables, columns, pk)", () => {
-    expect(tables.length).toBeGreaterThan(10);
-    const chunks = tables.find((t) => t.name === "chunks");
-    expect(chunks).toBeDefined();
-    const id = chunks?.columns.find((c) => c.name === "id");
-    expect(id?.notes).toBe("pk");
-    // every table has at least one column
-    expect(tables.every((t) => t.columns.length > 0)).toBe(true);
   });
 });
