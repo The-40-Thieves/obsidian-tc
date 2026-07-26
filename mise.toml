@@ -12,15 +12,15 @@
 bun = "1.3.14"
 
 # Every package declares `engines.node: ">=24"`, so 24 is the floor, not the target. This pin is
-# the exact version currently in use here and is deliberately ABOVE the floor: you develop on a
-# newer runtime than the minimum you support.
+# the exact version in use here and is deliberately ABOVE the floor: you develop on a newer
+# runtime than the minimum you support, and CI validates on the floor itself.
 #
-# Worth knowing before changing it — CI does not agree with itself on Node:
-#   ci-server.yml / ci-native.yml   node-version: '24'   (the engines floor)
-#   ci-security.yml                 node-version: 22     (BELOW the declared floor)
-# Reconciling those is a CI change with real blast radius, not a pin, so it is deliberately not
-# done here. `perf:node-parity` is the job that actually executes under Node, so a dev/CI major
-# mismatch would surface there first.
+# That split is intentional, and CI is now consistent about its half — every `node-version:` in
+# .github is '24', including the setup-repo default. It was not: ci-security.yml and
+# release-lag.yml ran on 22, BELOW the floor their own package.json declares.
+#
+# `perf:node-parity` is the job that actually executes under Node, so a dev/CI major mismatch
+# would surface there first.
 node = "26.5.0"
 
 # Both Python services declare `requires-python = ">=3.10"` (services/bge-m3-service,
