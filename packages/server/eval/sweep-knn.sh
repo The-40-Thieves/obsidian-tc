@@ -25,6 +25,33 @@ print(f'corpus OK: {len(q)} queries from $GOLDEN')
 
 cd "$(dirname "$0")/.."
 
+# THE-532: the INDEX must be settled before the control arm, and it must not move afterwards.
+#
+# This is not hypothetical. The first attempt at this sweep collected a control against a
+# 12,159-chunk index; the next densify ran indexVault, which found 142 notes added to the vault
+# since the index was built and re-embedded them. Every cell would then have been measured against
+# a 12,301-chunk corpus while the control sat at 12,159 — a corpus difference masquerading as a
+# densification effect, and nothing in the output would have shown it.
+#
+# So: run one reconcile FIRST to absorb any vault drift, assert every chunk carries an active
+# embedding, and record the count next to the results. A later reader can then check that the
+# control and the cells describe the same corpus instead of trusting that they do.
+CACHE_DB="$(python3 -c "import json,os;print(os.path.join(json.load(open('$CONFIG'))['cacheDir'],'cache.db'))")"
+echo "=== SETTLE INDEX (absorb vault drift before the control arm) ==="
+bun eval/densify-index.ts "$CONFIG" --k 8 --floor 0.0 > /dev/null 2>&1 || true
+python3 -c "
+import sqlite3, json, sys
+c = sqlite3.connect('$CACHE_DB')
+chunks = c.execute('select count(*) from chunks').fetchone()[0]
+active = c.execute('select count(*) from chunk_embeddings where is_active=1').fetchone()[0]
+if chunks != active:
+    sys.exit(f'index NOT settled: {chunks} chunks vs {active} active embeddings — a cell measured now '
+             'would differ from the control by CORPUS, not by densification')
+json.dump({'chunks': chunks, 'active_embeddings': active, 'corpus': '$GOLDEN'},
+          open('$OUT/index-state.json','w'), indent=2)
+print(f'index settled: {chunks} chunks, all embedded')
+"
+
 # Control: same index, derived edges NOT walked. Run once — it does not depend on the edge set.
 if [ ! -f "$OUT/control.json" ]; then
   echo "=== CONTROL (derived edges not walked) ==="
