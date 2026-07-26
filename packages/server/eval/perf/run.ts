@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { performance } from "node:perf_hooks";
+import { collectBoot } from "./collectors/boot";
 import { collectDensification } from "./collectors/densification";
 import { collectDispatch } from "./collectors/dispatch";
 import { collectHttp, collectHttpConcurrency } from "./collectors/http";
@@ -19,7 +20,18 @@ import { runIsolatedSamples } from "./sample";
 import { SCENARIOS, type Scenario } from "./scenarios";
 
 /** Build the vault once, run every collector in a fixed order (lifecycle LAST — it closes the DB). */
-export async function runScenario(name: Scenario["name"]): Promise<PerfReport> {
+export async function runScenario(
+  name: Scenario["name"],
+  opts: {
+    /** THE-515: skip the cold-boot probe (family 16). Set by the `portable` profile, which is the
+     *  one path that runs this file BUNDLED (`perf:node-parity` builds it to
+     *  eval/perf/.node-parity.mjs). The collector resolves the probe relative to `import.meta.url`,
+     *  so from a bundle that path is wrong and the spawn fails — and the profile discards boot.*
+     *  anyway, since none of it is tagged `portable`. Skipping is both the fix and the honest
+     *  behaviour: never pay for a subprocess whose output is thrown away. */
+    skipBoot?: boolean;
+  } = {},
+): Promise<PerfReport> {
   const sc = SCENARIOS[name];
   const t0 = performance.now();
   const vault = await buildVault(sc);
@@ -27,6 +39,11 @@ export async function runScenario(name: Scenario["name"]): Promise<PerfReport> {
 
   const samples = [
     ...collectIndexing(vault, buildMs),
+    // THE-515 (family 16). Cold boot is scenario-INDEPENDENT — the probe never touches the vault —
+    // so it is measured once, on the CI-gated scenario, rather than in every baseline. Emitting it
+    // everywhere would copy identical numbers into several baseline files and make one
+    // registration change demand several deliberate re-records for no added signal.
+    ...(name === "small" && !opts.skipBoot ? collectBoot() : []),
     // THE-581 (family 15). Emits nothing for scenarios without densification, so the existing
     // scenarios' metric sets — and therefore their committed baselines — are unchanged.
     ...collectDensification(vault),
@@ -241,7 +258,10 @@ async function main(): Promise<void> {
         process.exit(2);
       }
     }
-    const full = await runScenario(name);
+    // skipBoot: this profile runs from a BUNDLE, where the boot probe's path resolution does not
+    // hold — and it filters boot.* out immediately below regardless, since none of it is tagged
+    // `portable`. See runScenario's option doc.
+    const full = await runScenario(name, { skipBoot: true });
     const samples = full.samples.filter((s) => s.portable === true);
     // A profile that silently measured nothing would read as a clean portability signal. The
     // portable set is opt-in, so an empty one means the tags were lost, not that nothing ported.
