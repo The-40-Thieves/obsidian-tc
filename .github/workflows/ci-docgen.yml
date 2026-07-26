@@ -51,7 +51,13 @@ jobs:
         # The generator also refuses to write a schema that lost its descriptions in conversion:
         # a description-free schema is still valid JSON and would still pass a file-exists check
         # while being useless.
-        run: bun scripts/gen-config-schema.ts --check
+        #
+        # Runs from packages/shared because that is where `zod` is an actual dependency. Root
+        # resolution worked locally via workspace hoisting and failed on the runner, which is the
+        # kind of difference only CI finds. The script resolves every path from import.meta.url,
+        # so the working directory does not affect what it reads or writes.
+        working-directory: packages/shared
+        run: bun ../../scripts/gen-config-schema.ts --check
       - name: TREE.md dependency-graph drift gate (THE-470)
         # TREE.md carried a standing "hand-generated and will drift" warning, and it had — the
         # committed numbers were 232 modules / 785 dependencies against a real 246 / 978. The graph
