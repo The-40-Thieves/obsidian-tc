@@ -117,17 +117,7 @@ jobs:
             -m "Recorded by .github/workflows/perf-baseline.yml on ubuntu-latest, the same runner class the perf gate compares on. Median of ${SAMPLES} fresh-subprocess samples; the run is refused outright if host contention is detected, so reaching this commit means it was not." \
             -m "Measured against ${GITHUB_SHA}. Review the diff before merging: a baseline that moved in the WORSE direction is a regression being accepted, and should be justified here."
           git push origin "$BRANCH"
-
-          # The branch is the deliverable; the PR is a convenience. "Allow GitHub Actions to create
-          # and approve pull requests" is a repo/org setting that is OFF here, and `permissions:
-          # pull-requests: write` does not override it — so gh pr create fails with
-          # "GitHub Actions is not permitted to create or approve pull requests".
-          #
-          # Degrade to a link rather than fail the job: the measurement SUCCEEDED and the branch is
-          # pushed, so failing here would report "no baseline recorded" when one was — the same
-          # misleading-status problem the no-continue-on-error rule above exists to avoid. A PAT would
-          # also work but adds a rotatable secret, which this repo has good reason to avoid (THE-574).
-          if ! gh pr create \
+          gh pr create \
             --title "perf: re-record ${SCENARIO} baseline on the CI runner (THE-534)" \
             --body "Recorded by \`perf-baseline.yml\` on \`ubuntu-latest\` — the reference host decided in THE-534, and the same runner class the \`perf\` gate compares on.
 
@@ -136,6 +126,4 @@ jobs:
           - Host contention was NOT detected: the harness refuses to record under contention, so this PR existing is itself that evidence.
 
           **Review the direction of every change.** A number that moved the worse way is a regression being accepted into the reference, and needs a reason in this thread. \`baseline.${SCENARIO}.provenance.json\` records the SHA, sample count and host shape it was taken on." \
-            --head "$BRANCH"; then
-            echo "::notice title=Baseline recorded — open the PR manually::Actions cannot create PRs on this repo (a repo/org setting). The branch is pushed: https://github.com/${GITHUB_REPOSITORY}/compare/${BRANCH}?expand=1"
-          fi
+            --head "$BRANCH"
