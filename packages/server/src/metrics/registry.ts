@@ -22,6 +22,18 @@ export interface GaugeSources {
   captureQueueDepth?: () => Array<{ vault: string; value: number }>;
   elicitTokensPending?: () => Array<{ vault: string; value: number }>;
   idempotencyCacheBytes?: () => Array<{ vault: string; value: number }>;
+  /** THE-507: query-cache effectiveness (THE-497's cache). The `vault` label carries the CACHE
+   *  name ("results" / "vectors") rather than a vault id — the cache is process-wide and keyed
+   *  internally by vault, so it has no per-vault counts to report. Two bounded values.
+   *
+   *  These are cumulative counts exposed through the gauge seam rather than as Counters because
+   *  the cache owns the numbers and the recorder only reads them; a Counter would need the cache
+   *  to call INTO the recorder, which would invert the dependency the composition root exists to
+   *  keep one-way. */
+  queryCacheHits?: () => Array<{ vault: string; value: number }>;
+  queryCacheMisses?: () => Array<{ vault: string; value: number }>;
+  queryCacheEvictions?: () => Array<{ vault: string; value: number }>;
+  queryCacheExpirations?: () => Array<{ vault: string; value: number }>;
 }
 
 /** Terminal call status for `obsidian_tc_tool_calls_total` (matches the OTEL status attribute). */
@@ -197,6 +209,30 @@ export class MetricsRecorder {
       "obsidian_tc_idempotency_cache_bytes",
       "Idempotency cache size in bytes, by vault.",
       sources.idempotencyCacheBytes,
+    );
+    // THE-507: retrieval-cache effectiveness. The `vault` label holds the cache name
+    // ("results"/"vectors") — see GaugeSources. Hit rate is hits/(hits+misses); a rising
+    // eviction count against a flat hit count means retrieval.cache.maxEntries is too small,
+    // and expirations rising instead means the TTL is what is bounding reuse.
+    gauge(
+      "obsidian_tc_query_cache_hits_total",
+      "Retrieval query-cache hits, by cache name. Cumulative.",
+      sources.queryCacheHits,
+    );
+    gauge(
+      "obsidian_tc_query_cache_misses_total",
+      "Retrieval query-cache misses, by cache name. Cumulative.",
+      sources.queryCacheMisses,
+    );
+    gauge(
+      "obsidian_tc_query_cache_evictions_total",
+      "Entries dropped from the retrieval query cache because it was full (LRU), by cache name. Rising against a flat hit count means retrieval.cache.maxEntries is too small. Cumulative.",
+      sources.queryCacheEvictions,
+    );
+    gauge(
+      "obsidian_tc_query_cache_expirations_total",
+      "Entries found but past their TTL, by cache name — a miss that also proves the TTL is doing work, and distinguishes 'too small' from 'too short'. Cumulative.",
+      sources.queryCacheExpirations,
     );
   }
 

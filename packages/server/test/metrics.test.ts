@@ -26,17 +26,47 @@ const GAUGES = [
   "obsidian_tc_capture_queue_depth",
   "obsidian_tc_elicit_tokens_pending",
   "obsidian_tc_idempotency_cache_bytes",
+  // THE-507: retrieval-cache effectiveness. Gauges rather than counters because the cache owns
+  // the cumulative numbers and the recorder only reads them — a Counter would require the cache
+  // to call INTO the recorder, inverting the one-way dependency the composition root maintains.
+  "obsidian_tc_query_cache_hits_total",
+  "obsidian_tc_query_cache_misses_total",
+  "obsidian_tc_query_cache_evictions_total",
+  "obsidian_tc_query_cache_expirations_total",
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 14 counters, 2 histograms, 4 gauges", async () => {
+  it("registers the full catalog: 14 counters, 2 histograms, 8 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(20);
+    expect(new Set(declared).size).toBe(24);
+  });
+
+  // THE-507: the gauge must reflect the CACHE's own counters, not a value the recorder invented.
+  // Asserting only that the metric is registered would pass against a source that never fires —
+  // the same measures-nothing-while-green shape the perf collectors refuse.
+  it("reports query-cache effectiveness from the cache's own stats, by cache name", async () => {
+    const stats = { results: { hits: 7, misses: 3, evictions: 2, expirations: 1 } };
+    const r = new MetricsRecorder({
+      queryCacheHits: () => [{ vault: "results", value: stats.results.hits }],
+      queryCacheMisses: () => [{ vault: "results", value: stats.results.misses }],
+      queryCacheEvictions: () => [{ vault: "results", value: stats.results.evictions }],
+      queryCacheExpirations: () => [{ vault: "results", value: stats.results.expirations }],
+    });
+    let text = await r.metrics();
+    expect(text).toContain('obsidian_tc_query_cache_hits_total{vault="results"} 7');
+    expect(text).toContain('obsidian_tc_query_cache_misses_total{vault="results"} 3');
+    expect(text).toContain('obsidian_tc_query_cache_evictions_total{vault="results"} 2');
+    expect(text).toContain('obsidian_tc_query_cache_expirations_total{vault="results"} 1');
+
+    // Re-scraped, it must track the cache rather than latch its first reading.
+    stats.results.hits = 11;
+    text = await r.metrics();
+    expect(text).toContain('obsidian_tc_query_cache_hits_total{vault="results"} 11');
   });
 
   it("exposes recorded tool-call counters and histograms by label", async () => {
