@@ -189,6 +189,20 @@ This:
 
 **THE-503:** in isolated mode (`--samples N --update-baseline`), the same file is written from the **median** across N fresh-subprocess samples, and the run is **refused outright (exit 1, file untouched)** if host contention was detected during sampling — see "Isolation & Statistics" above. `eval/perf/calibration-reference.json` (the committed "quiet host" calibration median used for sustained-contention detection) is written alongside it, under the same refusal discipline, and should be regenerated whenever the reference CI hardware changes materially.
 
+### The reference host is the CI runner (THE-534)
+
+**Do not record a baseline on a developer machine.** The reference is the machine the gate compares on: `ubuntu-latest`, via the `perf-baseline` workflow (`workflow_dispatch` → pick a scenario → it opens a PR with the recorded files).
+
+This is a decision, not a convenience. A baseline is only meaningful if it was measured somewhere reproducible, and a dev box generally is not: the host this project is built on sits at load ~7 across 4 cores with 43 containers, where the harness correctly **refuses** to record (calibration CV 0.822 against a 0.2 threshold). The options were to weaken the refusal or to move the reference; the refusal is the feature, so the reference moved.
+
+Three properties are deliberate:
+
+- **It opens a PR, it does not push.** Recording moves to CI; *review* does not. A self-updating baseline would ratchet in a regression one green run at a time — the exact failure THE-534 exists to prevent. Review the **direction** of every changed number: one that moved the worse way is a regression being accepted into the reference, and needs a reason in the PR.
+- **`workflow_dispatch` only.** Re-baselining is a deliberate act taken when the system changed on purpose. On a schedule or on push it would quietly absorb drift.
+- **It shares the gate's `perf-exclusive` concurrency group**, so a recording run can never be contended by a gate run on the same shared capacity.
+
+A refused recording (contention detected) fails the job and opens no PR — so a PR existing is itself the evidence that contention was not detected.
+
 **THE-534:** every baseline write also emits `eval/perf/baseline.<scenario>.provenance.json` recording the commit SHA it was measured against, whether the working tree was dirty at the time, the mode (`isolated-median` / `single-shot`), the sample count, and the host shape. A baseline measured on a dirty tree is **not reproducible from its SHA**, so that case prints a loud `WARN` — the SHA alone would be a false provenance claim. It is a **sidecar file, not a key inside the baseline**, because the gate now walks the baseline's own keys and demands a measurement for each; a metadata key living in that file would be read as a metric that is never measured, i.e. a permanent phantom failure.
 
 ## Gate coverage: what the gate can and cannot see (THE-534 audit)
