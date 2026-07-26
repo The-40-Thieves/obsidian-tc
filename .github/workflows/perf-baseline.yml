@@ -20,11 +20,16 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: 'Scenario to baseline (the gate uses "small")'
+        # THE-581: `densify` is here because a scenario with no committed baseline is coverage that
+        # gates nothing — the collector runs, the numbers are real, and nothing compares them. It is
+        # the ONLY route to that baseline: the harness refuses to record on the dev host (calibration
+        # CV 0.822 against a 0.2 threshold), which is exactly the refusal this workflow exists to
+        # respect rather than weaken.
+        description: 'Scenario to baseline (the gate uses "small"; "densify" is THE-581 family 15)'
         required: false
         default: small
         type: choice
-        options: [small, vault1k, medium, large]
+        options: [small, densify, vault1k, medium, large]
       samples:
         description: "Isolated samples to take the median of (>= 5 recommended)"
         required: false
