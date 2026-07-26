@@ -22,6 +22,7 @@ import { type GatewayRoles, prompt } from "../../plane/gateway";
 import { bm25Chunks } from "../../search/chunk_fts";
 import { readGeneration } from "../../search/generation";
 import type { GraphSearchOptions, GraphSearchResult } from "../../search/graph_search";
+import { multiQueryGraphSearch } from "../../search/multi_query";
 import {
   callerAclFingerprint,
   DEFAULT_PREFETCH_TTL_MS,
@@ -886,6 +887,21 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           // squarely the latter). This is an opt-in lever for the CALLER to reach for on vague
           // queries — never make it the default path.
           hypothetical_answer: z.string().max(4000).optional().nullable(),
+          // THE-448: agent-supplied phrasing VARIANTS. Like hypothetical_answer above this is
+          // MCP-native — the CLIENT writes the paraphrases; no server LLM generates them. Each
+          // variant gets its own full graphSearch and the ranked lists are fused across variants by
+          // rank-based RRF (see search/multi_query.ts for why rank and not score).
+          //
+          // The main `query` is ALWAYS included as a variant, so supplying only paraphrases cannot
+          // silently drop the phrasing the caller actually asked about.
+          //
+          // Capped at 8: cost is LINEAR in variants — N phrasings is N complete searches — so an
+          // unbounded array is a denial-of-service shape rather than a feature. Blank entries are
+          // ignored, and a set that collapses to one distinct query is an exact no-op.
+          //
+          // Gains concentrate on compound / multi-facet queries and are roughly neutral on
+          // single-fact ones, while always costing latency and agent tokens. Opt-in per call.
+          queries: z.array(z.string().max(1000)).max(8).optional(),
           final_top_k: z.number().int().positive().max(100).default(30),
         })
         .strict(),
@@ -930,20 +946,47 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
         // query rides `query` for the lexical arms, so it alone would not distinguish two calls
         // that differ only in their hypothetical answer.
         const denseText = hydeActive ? (hyde as string) : input.query;
-        const results = await cachedGraphSearch(
-          ctx.db,
-          buildGraphSearchOptions(deps, {
-            route,
-            query: input.query,
-            vaultId: v.id,
-            finalTopK: input.final_top_k,
-            reranker: deps.reranker,
-            isReadable: (rel) => readableRel(ctx.acl, rel),
-            onFusionWeights: policy.sink,
-          }),
-          () => embedAll(denseText, input.query),
-          cacheContextFor(deps, ctx, v.id, denseText),
-        );
+        const searchOptions = buildGraphSearchOptions(deps, {
+          route,
+          query: input.query,
+          vaultId: v.id,
+          finalTopK: input.final_top_k,
+          reranker: deps.reranker,
+          isReadable: (rel) => readableRel(ctx.acl, rel),
+          onFusionWeights: policy.sink,
+        });
+        // THE-448: the main query ALWAYS leads, then the supplied phrasings, blanks dropped and
+        // duplicates collapsed — a repeat must not double-weight itself in the cross-variant RRF.
+        // One distinct query means no fan-out at all, which is the engine's exact no-op path.
+        const variants = [
+          ...new Set([input.query, ...(input.queries ?? [])].map((q) => q.trim())),
+        ].filter((q) => q.length > 0);
+        const fanOut = variants.length > 1;
+        let results: GraphSearchResult[];
+        if (fanOut) {
+          // The fan-out varies query TEXT, never the embedding: every variant runs against the same
+          // vectors (multi_query.ts's module header explains why, and why that still changes the
+          // per-variant ranking). So embed once, here, rather than per variant.
+          //
+          // This path deliberately bypasses THE-497's query cache: multiQueryGraphSearch calls
+          // graphSearch directly, so a fan-out neither reads nor populates it. That keeps N variants
+          // from evicting the cache in one call, at the cost of not serving a repeated identical
+          // fan-out from cache. Revisit if fan-out ever becomes a hot path.
+          const vectors = await embedAll(denseText, input.query);
+          // Named rather than spread inline at the call: the THE-545 gate reads a `{` directly after
+          // `ctx.db,` as a hand-assembled options object, and it is right to — that is what it exists
+          // to catch. These options DO come from the builder; naming them says so and keeps the gate
+          // protective instead of relaxed.
+          const fanOutOptions = { ...searchOptions, ...vectors };
+          results = await multiQueryGraphSearch(ctx.db, fanOutOptions, variants);
+        } else {
+          results = await cachedGraphSearch(
+            ctx.db,
+            searchOptions,
+            () => embedAll(denseText, input.query),
+            cacheContextFor(deps, ctx, v.id, denseText),
+          );
+        }
         // THE-230: serve-path retrieval telemetry (best-effort; the logger never throws).
         deps.retrievalLog?.({
           queryText: input.query,
@@ -960,6 +1003,12 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           // THE-451: echo `query` (audit — what the caller actually asked) and mark hyde:true
           // only when it fired; absent otherwise so existing callers see no new field.
           ...(hydeActive ? { query: input.query, hyde: true } : {}),
+          // THE-448: present ONLY when the fan-out actually engaged, matching the hyde convention
+          // above — an unconditional field would change every existing caller's response shape.
+          // Echoed because without it a caller cannot distinguish "fanned out over 3 phrasings"
+          // from "silently ignored queries[] and ran one search", which is how a feature ships
+          // inert and nobody notices.
+          ...(fanOut ? { variants_used: variants.length } : {}),
           results,
         };
       },
