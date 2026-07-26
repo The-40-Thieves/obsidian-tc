@@ -30,13 +30,16 @@ describe("THE-584 calibrateIo()", () => {
     expect(Number.isFinite(ms)).toBe(true);
   });
 
-  it("scales with the amount of work, so it is measuring the loop and not a constant", () => {
-    const small = calibrateIo(2, 4096);
-    const large = calibrateIo(24, 4096);
-    // Deliberately a weak inequality: fsync latency is dominated by the device, so the ratio is not
-    // predictable — but 12x the syncs cannot be FASTER on any sane host.
-    expect(large).toBeGreaterThan(small);
-  });
+  // THE-594: "scales with the amount of work" used to be asserted HERE, first as a strict
+  // two-point `>` (flaked on macOS CI), then as a ten-point Spearman rank correlation (flaked on
+  // windows-latest too — perf-contention-io.test.ts:131, 13237ms, even after that recalibration).
+  // A wall-clock assertion in the unit suite has to hold on three OSes, on shared runners, under
+  // arbitrary concurrency, with no isolation — the wrong venue for it twice over. The check now
+  // lives in the perf harness (eval/perf/contention.ts's measureIoScalingRho(), gated on the
+  // median across N isolated subprocess samples in run.ts's `main()`). The statistic itself
+  // (spearman.ts) is proven to have power — i.e. that it actually REJECTS a non-scaling
+  // calibrateIo — deterministically and without any real timing in
+  // test/perf-spearman.test.ts, which is what stayed a unit test.
 });
 
 describe("THE-584 detectContentionVector()", () => {

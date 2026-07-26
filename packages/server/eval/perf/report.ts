@@ -50,6 +50,14 @@ export interface PerfReport {
   // recordings were 40-90% slow on every I/O-shaped metric while the CPU probe read clean — so a
   // recording is only trustworthy when both are quiet. Optional for the same reason as above.
   calibrationIoMs?: number;
+  // THE-594: Spearman rank correlation (eval/perf/spearman.ts) between calibrateIo()'s round count
+  // and its measured duration, computed once per single-shot invocation via
+  // contention.ts's measureIoScalingRho(). Proves the I/O calibration probe measures real work
+  // rather than a constant -- moved here (a harness-level invariant, gated on the MEDIAN across N
+  // isolated samples in run.ts's `main()`) after the in-unit-suite version of this assertion
+  // flaked on macOS AND windows-latest even after recalibration. Optional for the same reason as
+  // calibrationMs/calibrationIoMs: absent from reports produced by calling runScenario() directly.
+  ioScalingRho?: number;
 }
 
 export function toMarkdown(report: PerfReport): string {

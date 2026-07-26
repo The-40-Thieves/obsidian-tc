@@ -38,6 +38,11 @@ jobs:
       # without depending on dependency-cruiser's TypeScript support.
       - name: dev-dependency imports (source scan)
         run: bun run check:dev-dep-imports
+      # THE-594: guards the "relocate, don't re-tune" fix itself -- a new real-timing comparison
+      # (calibrate/calibrateIo/measureIoScalingRho) landing back in packages/server/test/ would
+      # reintroduce the exact class of flake (macOS, then windows-latest) this ticket closed.
+      - name: perf timing-scope (source scan)
+        run: bun run check:perf-timing-scope
 
   build-test:
     strategy:
@@ -104,6 +109,31 @@ jobs:
     # NOT ref-scoped (unlike the workflow-level one above) so at most one `perf` job runs anywhere
     # in the repo at a time; `cancel-in-progress: false` because canceling one mid-measurement
     # would still leave a half-written artifact rather than just queuing the newer run.
+    #
+    # THE-592: `cancel-in-progress: false` only protects a job that is already RUNNING. It says
+    # nothing about a job that is merely QUEUED -- and GitHub keeps only the newest PENDING request
+    # per concurrency group, silently cancelling every older pending one. With N PRs open at once,
+    # N-2 of them lose their perf run entirely rather than waiting their turn, and because `perf`
+    # is not one of the 19 required checks, a CANCELLED run reads as "completed" on the PR and
+    # merges with no perf verdict at all. Observed live: PR #485's perf job was cancelled this way,
+    # and the very next run caught a real +39% `storage.bytes` regression that would otherwise have
+    # merged silently. Per-PR perf has also mostly been warn-class in practice, and this dev host
+    # cannot produce trustworthy numbers to begin with (calibration CV 0.822 against a 0.2
+    # threshold) -- see `perf-baseline.yml`, already `workflow_dispatch`-only for the same reason.
+    #
+    # So `perf` now runs on push-to-main ONLY (the `if:` below), never on `pull_request`. A
+    # post-merge run can still catch a regression before it compounds, and it can never be
+    # cancelled by a sibling PR's perf run the way a pending PR check could be -- `main` only
+    # advances one commit at a time, so there is no second push racing this one into the same
+    # `perf-exclusive` group. The concurrency group above stays: it still protects a merge-triggered
+    # run from overlapping anything else on the runner that also measures timing (e.g. a manual
+    # `perf-baseline.yml` dispatch), which is the part of THE-503's finding this ticket does not
+    # touch. A failed post-merge run is made visible via the issue step at the end of this job
+    # (see its comment) -- a red run nobody looks at would be no better than a cancelled one.
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      issues: write # THE-592: only this job needs it, for the post-merge-failure issue below
     concurrency:
       group: perf-exclusive
       cancel-in-progress: false
@@ -171,3 +201,41 @@ jobs:
           name: perf-node-parity
           path: packages/server/perf-node-parity.json
           if-no-files-found: warn
+      # THE-592: post-merge visibility. `perf` now runs only on push-to-main (see the `if:` on this
+      # job) and is not a required check, so without this a red run just sits on the Actions tab --
+      # GitHub's default per-user email notification is the only other signal, and it is easy to
+      # have muted or misconfigured. One ROLLING issue (like ci-prose-suggest.yml's advisory
+      # narrative-drift issue) rather than one per failing run, for the same reason that one is
+      # rolling: a fresh issue per push would become a notification firehose that gets muted --
+      # and therefore useless -- within a week.
+      - name: file or update a tracking issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE="perf: post-merge gate failed on main"
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          BODY_FILE=/tmp/perf-failure-issue-body.md
+          {
+            echo "The post-merge \`perf\` job failed against ${SHA}."
+            echo
+            echo "This job is not a required check (perf runs merge-only per THE-592, and this dev"
+            echo "host cannot produce gate-quality numbers to require it against), so nothing else"
+            echo "blocked the merge — this issue is the signal that a regression may have landed."
+            echo
+            echo "Run: ${RUN_URL}"
+            echo
+            echo "Download the \`perf-report\` / \`perf-report-densify\` artifacts from that run to"
+            echo "see which metric failed, then decide: revert, fix forward, or (if the baseline"
+            echo "itself is now stale) re-record it via \`perf-baseline.yml\`."
+          } > "$BODY_FILE"
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file "$BODY_FILE"
+            echo "Commented on existing issue #$EXISTING"
+          else
+            gh issue create --title "$TITLE" --body-file "$BODY_FILE"
+          fi

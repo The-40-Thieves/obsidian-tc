@@ -8,6 +8,7 @@ import {
   type CalibrationVector,
   type ChannelThresholdOverrides,
   detectContentionVector,
+  median,
   type VectorContentionResult,
 } from "./contention";
 import {
@@ -31,6 +32,11 @@ export interface IsolatedRunResult {
    *  EVERY channel is quiet — CPU alone said "clean" on hosts that were 40-90% slow on I/O. */
   contention: VectorContentionResult;
   hardInstabilities: HardInstability[];
+  /** THE-594: the calibrateIo() scaling calibration (see contention.ts's measureIoScalingRho),
+   *  gathered the same way as the contention channels above -- one real-timing observation per
+   *  subprocess, judged on the MEDIAN rather than any single noisy sample. `raw` is preserved for
+   *  the same "never drop a sample from the artifact" reason as AggregatedSample.raw. */
+  ioScalingRho: { raw: number[]; median: number };
 }
 
 export type SpawnRun = (scenario: Scenario["name"], outPath: string) => void;
@@ -85,17 +91,24 @@ export function runIsolatedSamples(
   try {
     const reports: PerfReport[] = [];
     const calibrations: CalibrationVector[] = [];
+    const ioScalingRhos: number[] = [];
     for (let i = 0; i < n; i++) {
       const outPath = join(dir, `sample-${i}.json`);
       spawn(scenario, outPath);
       const report = JSON.parse(readFileSync(outPath, "utf8")) as PerfReport;
       reports.push(report);
       calibrations.push({ cpuMs: report.calibrationMs ?? 0, ioMs: report.calibrationIoMs ?? 0 });
+      ioScalingRhos.push(report.ioScalingRho ?? 0);
     }
     const agg = aggregate(reports);
     const contention = detectContentionVector(calibrations, opts?.reference, opts?.overrides);
     const hardInstabilities = checkHardStability(agg);
-    return { aggregate: agg, contention, hardInstabilities };
+    return {
+      aggregate: agg,
+      contention,
+      hardInstabilities,
+      ioScalingRho: { raw: ioScalingRhos, median: median(ioScalingRhos) },
+    };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
