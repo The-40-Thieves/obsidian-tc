@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { performance } from "node:perf_hooks";
+import { collectDensification } from "./collectors/densification";
 import { collectDispatch } from "./collectors/dispatch";
 import { collectHttp, collectHttpConcurrency } from "./collectors/http";
 import { collectIndexing } from "./collectors/indexing";
@@ -26,6 +27,9 @@ export async function runScenario(name: Scenario["name"]): Promise<PerfReport> {
 
   const samples = [
     ...collectIndexing(vault, buildMs),
+    // THE-581 (family 15). Emits nothing for scenarios without densification, so the existing
+    // scenarios' metric sets — and therefore their committed baselines — are unchanged.
+    ...collectDensification(vault),
     ...(await collectRetrieval(vault)),
     ...(await collectDispatch(vault)),
     ...collectStorage(vault),
