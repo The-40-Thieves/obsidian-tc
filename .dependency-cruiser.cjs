@@ -15,6 +15,19 @@
  *      rule land green today and be paid down later. The baseline should only ever SHRINK.
  *      Matching is on the (from, to, rule) tuple, so moving a file re-surfaces its violation —
  *      that is expected, not a bug.
+ *
+ * THE-593: `not-to-dev-dep` below is currently INERT. dependency-cruiser 18.1.0 (latest at time
+ * of writing; no newer release exists) has no TypeScript 7 API support — root package.json pins
+ * `typescript@^7.0.2` — and prints so itself ("Support for typescript@>=7 will follow when its
+ * API is published and stable"). It falls back to a degraded resolver that classifies every npm
+ * import as `dependencyTypes: ['unknown']`, never `['npm-dev']`, so a rule keyed on
+ * `dependencyTypes` matches nothing, ever: proven by planting a `src` file that imports `vitest`
+ * and watching `check:boundaries` report 0 errors. Kept rather than deleted, so the intent stays
+ * documented and the rule resumes firing automatically the moment dependency-cruiser (or a future
+ * TypeScript downgrade for just this tool) regains TS-7 support — deliberately NOT decided here.
+ * Until then, the actual enforcement for "shipped code must not import a devDependency" is
+ * scripts/check-dev-dep-imports.mjs (`bun run check:dev-dep-imports`), a source-scan gate that
+ * does not depend on dependency-cruiser's TypeScript support at all.
  */
 module.exports = {
   forbidden: [
@@ -64,7 +77,8 @@ module.exports = {
       severity: "error",
       comment:
         "Shipped code must not import a devDependency — it resolves locally and fails for anyone " +
-        "installing the published package.",
+        "installing the published package. INERT under TypeScript 7 — see the THE-593 note at the " +
+        "top of this file. scripts/check-dev-dep-imports.mjs enforces this today.",
       from: { path: "^packages/[^/]+/src/", pathNot: "\\.test\\.ts$" },
       to: { dependencyTypes: ["npm-dev"] },
     },

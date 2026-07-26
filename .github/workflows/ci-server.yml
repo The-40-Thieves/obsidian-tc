@@ -32,6 +32,12 @@ jobs:
       # directory scan silently yields zero modules.
       - name: module boundaries (dependency-cruiser)
         run: bun run check:boundaries
+      # THE-593: dependency-cruiser's own `not-to-dev-dep` rule is inert under TypeScript 7 (see
+      # the note in .dependency-cruiser.cjs) — it never sees an npm-dev edge, so it never fires.
+      # This source-scan gate enforces the same "no shipped import of a devDependency" intent
+      # without depending on dependency-cruiser's TypeScript support.
+      - name: dev-dependency imports (source scan)
+        run: bun run check:dev-dep-imports
 
   build-test:
     strategy:
