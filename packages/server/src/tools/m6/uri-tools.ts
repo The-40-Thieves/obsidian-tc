@@ -2,10 +2,10 @@
 // builder: it constructs an obsidian:// URI from an action + params, touches no
 // vault state, requires no scope, and never mutates. Core actions (open/search/new)
 // emit the built-in obsidian:// scheme; daily/command/hookmark/advanced emit the
-// Advanced URI plugin scheme. The `vault` argument is used verbatim (the caller
-// passes the vault's display name) so the builder stays pure — it does not consult
-// the registry. Every value is percent-encoded so paths, queries, and fragments
-// round-trip safely.
+// Advanced URI plugin scheme. The `vault_name` argument is used verbatim (the caller
+// passes the vault's DISPLAY name, not its id — see the THE-589 note below) so the
+// builder stays pure: it does not consult the registry. Every value is percent-encoded
+// so paths, queries, and fragments round-trip safely.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
@@ -104,9 +104,29 @@ export function buildObsidianUri(
   }
 }
 
+// THE-589: the field is `vault_name`, NOT `vault`, and the distinction is load-bearing.
+//
+// This is an Obsidian DISPLAY NAME, copied verbatim into the `vault=` query parameter of the
+// obsidian:// URI. It is not a vault id. But the central vault-binding guard (THE-267,
+// mcp/registry.ts) matches on the argument NAME — any string argument called `vault` is compared
+// against the caller's bound vault id — so while this field was called `vault`, a bound HTTP caller
+// whose Obsidian display name differed from its configured vault id got `forbidden` from a tool
+// that requires no scope, reads nothing, and only concatenates a string. Reproduced before the
+// rename: `{vault:"My Notes"}` with bound vault `main` returned
+// `forbidden: vault is not the caller's bound vault`.
+//
+// Renaming is the right fix rather than exempting the tool: the guard's convention stays intact
+// (no security-relevant bypass to justify and maintain), and the field now says what it holds. A
+// caller still passing `vault` gets a clear strict-schema rejection naming the unknown key, which
+// is a far better error than a confusing `forbidden`.
+//
+// The durable fix is a DECLARED vault argument rather than one matched by name — see THE-546's
+// manifest work, where "vault binding inferred from a key literally spelled `vault`" is one of four
+// axes derived from convention. This rename should not be undone to accommodate that; it is correct
+// independently.
 const GenerateUriInput = z
   .object({
-    vault: z.string().min(1).optional(),
+    vault_name: z.string().min(1).optional(),
     action: z.enum(ACTIONS),
     params: z.record(z.string(), z.unknown()).prefault({}),
   })
@@ -118,10 +138,10 @@ export function buildUriTools(): ToolDefinition[] {
     defineTool({
       name: "generate_uri",
       description:
-        "Build an obsidian:// URI for a target (open/search/new/daily/command/hookmark/advanced). Pure string builder — touches no vault state, requires no scope. The vault display name is used verbatim.",
+        "Build an obsidian:// URI for a target (open/search/new/daily/command/hookmark/advanced). Pure string builder — touches no vault state, requires no scope. `vault_name` is the Obsidian DISPLAY NAME (not a vault id) and is used verbatim.",
       inputSchema: GenerateUriInput,
       requiredScopes: [],
-      handler: (input) => ({ uri: buildObsidianUri(input.action, input.params, input.vault) }),
+      handler: (input) => ({ uri: buildObsidianUri(input.action, input.params, input.vault_name) }),
     }),
   ];
 }

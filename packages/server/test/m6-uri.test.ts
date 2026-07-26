@@ -102,7 +102,7 @@ describe("generate_uri tool", () => {
 
   it("returns the built URI from a validated input", async () => {
     const out = (await tool.handler(
-      { action: "open", params: { file: "N.md" }, vault: "v" },
+      { action: "open", params: { file: "N.md" }, vault_name: "v" },
       {} as any,
     )) as { uri: string };
     expect(out.uri).toBe("obsidian://open?vault=v&file=N.md");

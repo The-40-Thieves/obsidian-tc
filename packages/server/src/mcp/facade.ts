@@ -193,7 +193,13 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
   return out;
 }
 
-// ---- Domain-verb mode (THE-275) --------------------------------------------------------------
+// ---- Domain-verb mode (shipped under THE-275; see the caveat) ---------------------------------
+// THE-275 was CANCELLED. Its actual proposal — stamping per-tool visibility `tags` and shipping a
+// hand-curated ~20-tool preset — was never built; only 15 of 150 definitions carry `tags` to this
+// day. What landed under its number is this domain-verb mode, which superseded that proposal
+// rather than implementing it. Recorded because the ticket number appears in several places in the
+// tree and a reader who looks it up finds a cancelled ticket. See
+// docs/adr/0006-the-default-surface-is-the-triad.md.
 // In "domain" mode tools/list advertises ~a dozen domain meta-tools instead of the full surface or
 // the triad. Each domain tool takes { action, args }: `action` names one capability in that domain
 // and `args` is passed through. call routing is identical to call_capability (registry.dispatch, so

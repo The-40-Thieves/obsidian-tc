@@ -1188,8 +1188,14 @@ export type ToolVisibilityConfig = z.infer<typeof ToolVisibilityConfigSchema>;
 
 // Tool-surface facade (THE-219 consolidation). Which surface tools/list advertises: "triad" (the
 // default) exposes three meta-tools (find/describe/call_capability); "flat" advertises the full
-// tool surface (back-compat); "domain" advertises ~a dozen domain meta-tools (THE-275). Every registered
-// tool stays callable by name regardless of mode, so nothing is removed.
+// tool surface (back-compat); "domain" advertises ~a dozen domain meta-tools (landed under THE-275,
+// which was itself cancelled — see facade.ts's note). Every registered tool stays callable by name
+// regardless of mode, so nothing is removed.
+//
+// The "triad" default is a DECISION, not an accident, and re-litigating it has a specific bar:
+// docs/adr/0006-the-default-surface-is-the-triad.md. Short version — 3 advertised tools is already
+// leaner than every comparable server (market range 6-15), and switching to "domain" wants an
+// eval that measures tool-SELECTION accuracy, which does not exist yet.
 export const ToolFacadeConfigSchema = z.object({
   mode: z
     .enum(["triad", "domain", "flat"])

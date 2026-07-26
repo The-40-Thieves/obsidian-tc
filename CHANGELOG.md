@@ -6,6 +6,24 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- **`generate_uri`'s `vault` input is renamed `vault_name` (THE-589).** **Callers passing `vault`
+  must rename it** — the tool's schema is `.strict()`, so the old key is now rejected with
+  `validation_error` naming the unrecognized field. This is the only tool affected; no other input
+  or tool changes.
+
+  The field is an Obsidian **display name**, not a vault id, and always was. But the central
+  vault-binding guard (THE-267) matches on the argument *name*: any string argument called `vault`
+  is compared against the caller's bound vault id. So a vault-bound HTTP caller whose Obsidian
+  display name differed from its configured vault id got `forbidden` from a tool that requires no
+  scope, reads nothing, and only concatenates a string. Reproduced before the fix:
+  `{vault: "My Notes"}` with bound vault `main` returned
+  `forbidden: vault is not the caller's bound vault`.
+
+  Renamed rather than exempting the tool from the guard, so no bypass is added to a
+  security-relevant check. Unbound (trusted stdio) callers were never affected.
+
 ### Added
 
 - **Query-product cache** (THE-497). Query encodings and whole graph-search results are cached in
@@ -1165,7 +1183,7 @@ config.
 - **Distribution hardening (THE-276).** The packed `.mcpb` no longer ships local state / non-runtime files (`.claude/` including `settings.local.json` + `state/`, `.ruff_cache/`, `.gitleaks.toml`, `.gitattributes`, and the stray 26 KB `packages/native/false` left by `napi build --js false`). The server bundle is now built with `--minify --sourcemap=linked` (it was ~2.4 MB parsed on every stdio spawn), and the standalone `--compile` binaries add `--bytecode --minify --sourcemap` for faster cold start.
 - **Batched embeddings on index / reconcile (THE-277).** `indexVault` now computes all of a batch's chunk plans first and embeds them together in provider-sized sub-batches under bounded concurrency, instead of one serial `embed()` round-trip per note. A cold/warm reconcile makes ~`ceil(chunks / 512)` requests with a few in flight rather than one per changed note; the write lock is still never held across a network call and the stored vectors are unchanged.
 - **Parallelized the contradiction sweep (THE-277).** The post-index contradiction detector judged each (chunk, neighbor) pair with a serial `judge()` round-trip; it now windows the judge calls at 4 in flight (neighbor discovery and the DB inserts stay serial on the single connection), and a single pair's judge failure degrades to `no_conflict` instead of sinking the batch.
-- **Domain-verb facade mode (THE-275).** `toolFacade.mode: "domain"` now advertises ~a dozen domain meta-tools (`notes`, `metadata`, `links`, `search`, `vault`, `attachments`, `structured`, `workspace`, `automation`, `knowledge`, `admin`) instead of the full ~100-tool surface or the triad. Each takes a shallow `{ action, args }` and routes the named action through the same `registry.dispatch` pipeline (every ACL / HITL / idempotency / throttle gate and the target's own schema validation fire unchanged). Boundary-only; every tool stays callable by name, and an unmapped tool still ships under an `other` domain rather than being hidden.
+- **Domain-verb facade mode (shipped under THE-275 — see correction).** _Correction, 2026-07-26: THE-275 was **cancelled**, and this entry credited it with shipping. The feature below is real and shipped in 1.3.0; the attribution was misleading. THE-275's actual proposal — per-tool visibility `tags` plus a hand-curated ~20-tool preset — was never built (only 15 of 150 definitions carry `tags`). The domain-verb mode below **superseded** that proposal rather than implementing it. Rationale and the current default's standing: `docs/adr/0006-the-default-surface-is-the-triad.md`._ `toolFacade.mode: "domain"` now advertises ~a dozen domain meta-tools (`notes`, `metadata`, `links`, `search`, `vault`, `attachments`, `structured`, `workspace`, `automation`, `knowledge`, `admin`) instead of the full ~100-tool surface or the triad. Each takes a shallow `{ action, args }` and routes the named action through the same `registry.dispatch` pipeline (every ACL / HITL / idempotency / throttle gate and the target's own schema validation fire unchanged). Boundary-only; every tool stays callable by name, and an unmapped tool still ships under an `other` domain rather than being hidden.
 - **Unicode-normalization-insensitive folder ACL (THE-272).** ACL glob matching and the default-deny check now normalize both the rule and the path to NFC before comparing, so a deny/whitelist rule authored in NFC still matches the same name stored on disk as NFD (notably on macOS) instead of silently failing to match. Residual path-hardening items remain open on THE-272 (hardlink / TOCTOU, which needs non-portable `openat`/`O_NOFOLLOW`, and case-folding, which cannot be applied blindly without breaking case-sensitive filesystems); the symlink canonicalization landed earlier in THE-269.
 - **Tool / capability schemas emitted as JSON Schema 2020-12 (THE-278).** `tools/list` (flat), the facade meta-tools (triad + domain), and `describe_capability` now emit input schemas in the **2020-12** dialect (the MCP `2025-11-25` default) instead of draft-7. The server already negotiates protocol `2025-11-25` via `@modelcontextprotocol/sdk@1.29.0` (`LATEST_PROTOCOL_VERSION`); this aligns the advertised schema dialect with the negotiated version. draft-7 remains spec-valid, so this is a forward-alignment with no client-visible breakage.
 - **MCP 2025-11-25 tool-surface alignment (THE-278).** Three spec-aligned additions, all opt-in and non-breaking: (1) a dispatch failure now returns as a **Tool Execution Error** with a human-readable sentence plus the full error (including the Zod issues) as `structuredContent`, so a model can self-correct (SEP-1303), instead of an opaque JSON blob; (2) `ToolDefinition` gains an optional **`outputSchema`** advertised in `tools/list` + `describe_capability` (conformant clients then validate the `structuredContent` the server already emits); (3) optional **`icons`** metadata on tools (and prompts). Tools that declare neither `outputSchema` nor `icons` serialize byte-identically to before.

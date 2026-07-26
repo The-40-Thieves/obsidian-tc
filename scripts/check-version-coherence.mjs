@@ -106,7 +106,10 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
 {
   // Derived, not duplicated (THE-580). Parsed rather than imported because this script runs under
   // plain node (ci-version.yml) and the authority lives in a TypeScript test.
-  const TOOL_COUNT_SOURCE = "packages/server/test/tool-count.test.ts";
+  // THE-548: moved out of tool-count.test.ts, which used to hold it AND a second copy lived in
+  // tool-facade-domain-coverage.test.ts that this gate never read. Both tests now import from here,
+  // so the number this gate checks and the number the suite asserts cannot diverge.
+  const TOOL_COUNT_SOURCE = "packages/server/test/registered-tool-count.ts";
   const EXPECTED_TOOL_COUNT = (() => {
     const src = readFileSync(resolve(ROOT, TOOL_COUNT_SOURCE), "utf8");
     const m = src.match(/const\s+REGISTERED_TOOL_COUNT\s*=\s*(\d+)/);

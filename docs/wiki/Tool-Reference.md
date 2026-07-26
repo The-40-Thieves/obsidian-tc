@@ -115,7 +115,7 @@ _150 tools. Access is a coarse hint; the required scopes are authoritative._
 | `find_orphans` | read | `read:notes` | Find notes that nothing else links to (optionally also requiring no outgoing links). |
 | `find_unresolved_links` | read | `read:notes` | Find internal links that do not resolve to any note (dangling links). |
 | `format_table` | write | `write:notes` | Reformat a GFM markdown table in a note: realign columns to a uniform width, honoring the delimiter row's alignment. Addressed by 0-based table_index within the note. |
-| `generate_uri` | read | — | Build an obsidian:// URI for a target (open/search/new/daily/command/hookmark/advanced). Pure string builder — touches no vault state, requires no scope. The vault display name is used verbatim. |
+| `generate_uri` | read | — | Build an obsidian:// URI for a target (open/search/new/daily/command/hookmark/advanced). Pure string builder — touches no vault state, requires no scope. `vault_name` is the Obsidian DISPLAY NAME (not a vault id) and is used verbatim. |
 | `get_attachment` | read | `read:attachments` | Read an attachment's bytes (base64) plus MIME type and size. Fails with invalid_input when the file exceeds max_bytes. |
 | `get_backlinks` | read | `read:notes` | Find every note that links to the given note, with source line/column. |
 | `get_entity` | read | `read:memory` | Read a memory entity by id, by type+name, or by unique name, with its observations and relations. |

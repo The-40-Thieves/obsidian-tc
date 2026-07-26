@@ -69,7 +69,7 @@ describe("M6 live-vault integration", () => {
     // ── URI generation through dispatch (pure, no scope) ─────────────────────
     const uri = data<{ uri: string }>(
       await v.call("generate_uri", {
-        vault: "My Vault",
+        vault_name: "My Vault",
         action: "open",
         params: { file: "Renamed.md" },
       }),
