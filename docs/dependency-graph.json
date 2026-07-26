@@ -2,17 +2,17 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 258,
-    "dependencies": 1024,
-    "subsystemPairs": 65,
-    "crossSubsystemImports": 418
+    "modules": 277,
+    "dependencies": 1127,
+    "subsystemPairs": 76,
+    "crossSubsystemImports": 464
   },
   "subsystems": {
     "auth": 3,
     "bridge": 8,
     "capability": 6,
     "capture": 1,
-    "cli": 2,
+    "cli": 21,
     "config": 3,
     "db": 13,
     "doctor": 5,
@@ -56,6 +56,11 @@
       "weight": 30
     },
     {
+      "from": "cli",
+      "to": "db",
+      "weight": 18
+    },
+    {
       "from": "tools",
       "to": "search",
       "weight": 18
@@ -74,6 +79,11 @@
       "from": "tools",
       "to": "db",
       "weight": 11
+    },
+    {
+      "from": "cli",
+      "to": "experiential",
+      "weight": 8
     },
     {
       "from": "formats",
@@ -101,6 +111,11 @@
       "weight": 7
     },
     {
+      "from": "cli",
+      "to": "search",
+      "weight": 5
+    },
+    {
       "from": "embeddings",
       "to": "search",
       "weight": 5
@@ -114,6 +129,21 @@
       "from": "plane",
       "to": "db",
       "weight": 4
+    },
+    {
+      "from": "cli",
+      "to": "embeddings",
+      "weight": 3
+    },
+    {
+      "from": "cli",
+      "to": "gateway",
+      "weight": 3
+    },
+    {
+      "from": "cli",
+      "to": "tools",
+      "weight": 3
     },
     {
       "from": "metrics",
@@ -144,6 +174,11 @@
       "from": "transports",
       "to": "mcp",
       "weight": 3
+    },
+    {
+      "from": "cli",
+      "to": "config",
+      "weight": 2
     },
     {
       "from": "doctor",
@@ -187,11 +222,6 @@
     },
     {
       "from": "tools",
-      "to": "util",
-      "weight": 2
-    },
-    {
-      "from": "tools",
       "to": "plur",
       "weight": 2
     },
@@ -211,6 +241,11 @@
       "weight": 2
     },
     {
+      "from": "tools",
+      "to": "util",
+      "weight": 2
+    },
+    {
       "from": "vault",
       "to": "db",
       "weight": 2
@@ -227,7 +262,27 @@
     },
     {
       "from": "cli",
-      "to": "config",
+      "to": "bridge",
+      "weight": 1
+    },
+    {
+      "from": "cli",
+      "to": "capability",
+      "weight": 1
+    },
+    {
+      "from": "cli",
+      "to": "doctor",
+      "weight": 1
+    },
+    {
+      "from": "cli",
+      "to": "mcp",
+      "weight": 1
+    },
+    {
+      "from": "cli",
+      "to": "vault",
       "weight": 1
     },
     {
@@ -317,12 +372,17 @@
     },
     {
       "from": "search",
-      "to": "embeddings",
+      "to": "util",
       "weight": 1
     },
     {
       "from": "search",
-      "to": "util",
+      "to": "embeddings",
+      "weight": 1
+    },
+    {
+      "from": "tools",
+      "to": "capture",
       "weight": 1
     },
     {
@@ -333,11 +393,6 @@
     {
       "from": "tools",
       "to": "config",
-      "weight": 1
-    },
-    {
-      "from": "tools",
-      "to": "capture",
       "weight": 1
     },
     {

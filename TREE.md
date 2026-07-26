@@ -193,7 +193,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**258 modules · 1024 dependencies · 65 distinct subsystem pairs · 418 cross-subsystem imports.**
+**277 modules · 1127 dependencies · 76 distinct subsystem pairs · 464 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -211,12 +211,13 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 65 pairs.
+set is 76 pairs.
 
 ```mermaid
 flowchart LR
   tools[tools<br/>59 files]
   search[search<br/>43 files]
+  cli[cli<br/>21 files]
   vault[vault<br/>17 files]
   db[(db<br/>13 files)]
   experiential[experiential<br/>11 files]
@@ -230,15 +231,18 @@ flowchart LR
   tools -->|153| vault
   tools -->|54| mcp
   search -->|30| db
+  cli -->|18| db
   tools -->|18| search
   search -->|12| vault
   experiential -->|11| db
   tools -->|11| db
+  cli -->|8| experiential
   formats -->|8| vault
   mcp -->|8| vault
   model -->|8| embeddings
   tools -->|8| formats
   tools -->|7| bridge
+  cli -->|5| search
   embeddings -->|5| search
   memory -->|5| vault
 ```
@@ -249,11 +253,11 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 188 | `tools` | 270 |
-| `db` | 69 | `search` | 46 |
-| `mcp` | 59 | `experiential` | 16 |
-| `search` | 32 | `mcp` | 13 |
-| `embeddings` | 12 | `model` | 11 |
+| `vault` | 189 | `tools` | 270 |
+| `db` | 87 | `cli` | 47 |
+| `mcp` | 60 | `search` | 46 |
+| `search` | 37 | `experiential` | 16 |
+| `embeddings` | 15 | `mcp` | 13 |
 <!-- END GENERATED: tree-fan -->
 
 The shape is layered and largely acyclic at the subsystem level: the tool surface
