@@ -1,0 +1,28 @@
+# RUNTIME dependencies for the model service — the deployment manifest.
+#
+# This is the companion to requirements-ci.in, and the two cover deliberately different surfaces:
+#
+#   requirements-ci.in   the CI TEST surface. Installs the package --no-deps and adds only light
+#                        deps, because CI mocks the model layer. Its own header says it "is not a
+#                        runtime deployment manifest".
+#   requirements.in      THIS file. The heavy ML stack CI never installs — torch, FlagEmbedding,
+#                        sentence-transformers — which is precisely the part where an unpinned
+#                        upstream release breaks the service. sentence-transformers 5.x changing
+#                        `device="auto"` already did exactly that; scripts/modal_smoke.py exists
+#                        because of it.
+#
+# Mirrors [project.dependencies] in pyproject.toml, which states the SUPPORTED RANGES (what the
+# package declares it works with). This file exists to turn one point in those ranges into a
+# reproducible, hash-verified install. Change a range there, recompile here.
+#
+# Regenerate (note the platform — see the header of requirements.txt for why):
+#   uv pip compile requirements.in --generate-hashes --python-version 3.11 \
+#     --python-platform x86_64-unknown-linux-gnu -o requirements.txt
+fastapi>=0.139
+uvicorn[standard]>=0.51
+pydantic>=2.13
+FlagEmbedding>=1.4
+torch>=2.3
+huggingface-hub>=1
+sentence-transformers>=5
+numpy>=2
