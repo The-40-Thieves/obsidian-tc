@@ -14,6 +14,7 @@ import type { RetrievalLogger, RetrievalPolicyRecord } from "../../experiential/
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
   type ContradictionContext,
+  challengeOutputSchema,
   challengeProposal,
   type EvidenceChunk,
   isDecisionChunk,
@@ -47,6 +48,208 @@ import { persistGovernedNote } from "../../vault/persist-note";
 import type { VaultRegistry } from "../../vault/registry";
 import { defineTool } from "../m1/define";
 import { resolveQueryColbert, resolveQuerySparse } from "./query-sparse";
+
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts for m7.
+//
+// m7 is where the surface's shape inconsistency actually lives. THE-548 found three different
+// "unavailable" returns across the tool surface; three of them are IN THIS FILE, and they are not
+// the same shape as each other — only `{ vault, available: false, message }` is common. reflect
+// adds mode/route/sources/answer, list_contradictions adds total/contradictions, and
+// knowledge_challenge returns just the triple. Declaring each one is what makes that legible to a
+// caller instead of something you learn by reading handlers.
+//
+// Written from the RETURN STATEMENTS, not from the types the data came from: several fields are
+// renamed, derived, or conditionally spread on the way out, so a schema inferred from the source
+// row/interface would be wrong. Conditional spreads (`...(cond ? { x } : {})`) omit the key
+// entirely, which is `.optional()`, not `.nullable()`.
+// ---------------------------------------------------------------------------------------------
+
+/** Mirrors search/graph_search_stages/types.ts's GraphSearchResult. `content` is genuinely
+ *  optional (omitted when the projection did not hydrate it), not nullable. */
+const GraphSearchResultSchema = z.object({
+  chunk_id: z.string(),
+  path: z.string(),
+  content: z.string().optional(),
+  source: z.enum(["seed", "expansion", "lexical", "sparse", "temporal"]),
+  hop: z.number(),
+  via_edge: z
+    .object({ type: z.string(), source_path: z.string(), provenance: z.string().nullable() })
+    .nullable(),
+  root_seed: z.string().nullable(),
+  rerank_score: z.number(),
+});
+
+/** The trimmed citation shape reflect returns (NOT a full GraphSearchResult). */
+const SourceRef = z.object({ chunk_id: z.string(), path: z.string(), score: z.number() });
+
+const ContradictionRow = z.object({
+  id: z.string(),
+  source_path: z.string(),
+  conflict_path: z.string(),
+  judge_verdict: z.string(),
+  judge_rationale: z.string(),
+});
+
+/** vault_context. The prefetch path returns the SAME bundle plus two markers, so they are optional
+ *  here rather than a separate union arm — a second arm would duplicate ~30 fields to add two. */
+const VaultContextOutput = z.object({
+  vault: z.string(),
+  route: z.array(z.string()),
+  query_source: z.enum(["input", "next_session"]),
+  signal: z.string().optional(),
+  signal_hash: z.string().optional(),
+  budget: z.object({
+    requested: z.number(),
+    chunk_budget: z.number(),
+    packed_tokens: z.number(),
+  }),
+  stats: z.object({
+    chunks_considered: z.number(),
+    chunks_packed: z.number(),
+    notes: z.number(),
+    contradictions: z.number(),
+    syntheses: z.number(),
+    lessons: z.number(),
+  }),
+  notes: z.array(
+    z.object({
+      path: z.string(),
+      chunks: z.array(
+        z.object({
+          chunk_id: z.string(),
+          content: z.string().optional(),
+          score: z.number(),
+          source: z.string(),
+          hop: z.number(),
+        }),
+      ),
+    }),
+  ),
+  // `patterns` is JSON.parse'd with a fallback to the raw string, so its shape is genuinely not
+  // known here. z.unknown() states that honestly rather than inventing a contract for it.
+  syntheses: z.array(
+    z.object({
+      iso_year: z.number(),
+      iso_week: z.number(),
+      generated_at: z.number(),
+      patterns: z.unknown(),
+    }),
+  ),
+  contradictions: z.array(ContradictionRow),
+  lessons: z.array(
+    z.object({
+      chunk_id: z.string(),
+      path: z.string(),
+      excerpt: z.string(),
+      via: z.enum(["engine", "lexical"]),
+    }),
+  ),
+  // Present only with include_work; degrades to a marker object rather than an empty array, so a
+  // caller can tell "no work" from "work plane unavailable".
+  episodes: z
+    .union([
+      z.array(
+        z.object({
+          id: z.string(),
+          ts: z.number(),
+          tool: z.string().nullable(),
+          status: z.string(),
+          summary: z.string().nullable(),
+        }),
+      ),
+      z.object({ work_unavailable: z.literal(true) }),
+    ])
+    .optional(),
+  prefetched: z.literal(true).optional(),
+  prefetch_generated_at: z.number().optional(),
+});
+
+/** reflect: three arms. `mode` in the degraded arm ECHOES the input rather than being normalised,
+ *  which is why it is a plain string there and a literal in the other two. */
+/** reflect. Encoded as ONE object with optionals rather than a discriminated union, because
+ *  TypeScript unifies the handler's three branch returns into a single widened shape
+ *  (`available: boolean`, absent fields as `?: undefined`) rather than preserving the union — so a
+ *  union of literal-tagged arms cannot match the inferred return type.
+ *
+ *  What the three arms actually are, since the schema can no longer say it:
+ *    degraded  { available: false, message, answer: null, sources }   — `mode` ECHOES the input here
+ *    challenge { available: true,  model, challenge, sources }
+ *    synthesis { available: true,  model, answer, sources, persisted? }
+ *
+ *  Every field name and type is still checked; only the correlation between them is not. */
+const ReflectOutput = z.object({
+  vault: z.string(),
+  mode: z.string(),
+  route: z.array(z.string()),
+  available: z.boolean(),
+  message: z.string().optional(),
+  answer: z.string().nullable().optional(),
+  model: z.string().optional(),
+  challenge: challengeOutputSchema.optional(),
+  sources: z.array(SourceRef),
+  persisted: z.object({ path: z.string() }).optional(),
+});
+
+/** vault_graph_search: `route` appears only on the lexical arm; hyde/variants_used are spread in
+ *  conditionally. Kept as one object with optionals rather than a union, because the two arms
+ *  differ only by which optional keys are present. */
+const VaultGraphSearchOutput = z.object({
+  vault: z.string(),
+  mode_used: z.enum(["lexical-route", "graph"]),
+  route: z.array(z.string()).optional(),
+  query: z.string().optional(),
+  hyde: z.literal(true).optional(),
+  variants_used: z.number().optional(),
+  results: z.array(GraphSearchResultSchema),
+});
+
+/** knowledge_search: `route` is present on the lexical arm and ABSENT on the graph arm — not null,
+ *  not empty. Optional is the honest encoding. */
+const KnowledgeSearchOutput = z.object({
+  vault: z.string(),
+  mode_used: z.enum(["lexical-route", "graph"]),
+  route: z.array(z.string()).optional(),
+  results: z.array(GraphSearchResultSchema),
+});
+
+const KnowledgeCriticalOutput = z.object({
+  vault: z.string(),
+  count: z.number(),
+  items: z.array(
+    z.object({
+      path: z.string(),
+      title: z.string(),
+      category: z.string().nullable(),
+      source: z.string().nullable(),
+      severity: z.literal("critical"),
+    }),
+  ),
+});
+
+/** knowledge_challenge: three arms, and the degraded one is only the shared triple — deliberately
+ *  narrower than reflect's, which is exactly the inconsistency THE-548 surfaced. */
+/** knowledge_challenge. Same widening reason as ReflectOutput. Its degraded arm is only
+ *  `{ vault, available: false, message }` — deliberately NARROWER than reflect's, which is exactly
+ *  the surface inconsistency THE-548 surfaced and this ticket is making legible. */
+const KnowledgeChallengeOutput = z.object({
+  vault: z.string(),
+  available: z.boolean(),
+  message: z.string().optional(),
+  evidence_count: z.number().optional(),
+  contradiction_count: z.number().optional(),
+  // null on the no-evidence arm, a full ChallengeOutput on success, absent when degraded.
+  output: challengeOutputSchema.nullable().optional(),
+  model: z.string().optional(),
+});
+
+const ListContradictionsOutput = z.object({
+  vault: z.string(),
+  available: z.boolean(),
+  message: z.string().optional(),
+  total: z.number(),
+  contradictions: z.array(ContradictionRow),
+});
 
 export interface M7Deps {
   vaultRegistry: VaultRegistry;
@@ -407,6 +610,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           include_lessons: z.boolean().default(true),
         })
         .strict(),
+      outputSchema: VaultContextOutput,
       requiredScopes: ["read:notes"],
       tags: ["knowledge", "search"],
       handler: async (input, ctx) => {
@@ -454,15 +658,26 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             // dispatch's ACL regardless of the key match above. A bundle is a composed whole —
             // if any path in it is now unreadable, the whole entry is a miss, never a partial
             // return, so it falls through to the live compose below.
+            // THE-417: layer 4 — the bundle's SHAPE. `PrewarmEntry.bundle` is
+            // `Record<string, unknown>` read from disk, so nothing here has ever guaranteed a
+            // cached entry matches what this tool returns today. A bundle written by an older
+            // build with a different response shape would have been served verbatim. Now that the
+            // shape is declared, validate it and treat a mismatch as a MISS — the same discipline
+            // as the ACL and generation layers above, and the same rule the comment there states:
+            // a bundle is a composed whole, so a partial or stale-shaped one falls through to a
+            // live compose rather than being returned in part.
+            const shaped =
+              cached?.empty === false && cached.bundle
+                ? VaultContextOutput.safeParse(cached.bundle)
+                : null;
             if (
-              cached &&
-              !cached.empty &&
-              cached.bundle &&
+              cached?.bundle &&
+              shaped?.success &&
               prewarmBundlePaths(cached.bundle).every((rel) => readableRel(ctx.acl, rel))
             ) {
               return {
-                ...cached.bundle,
-                prefetched: true,
+                ...shaped.data,
+                prefetched: true as const,
                 prefetch_generated_at: cached.generated_at,
               };
             }
@@ -742,6 +957,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           persist: z.boolean().default(false),
         })
         .strict(),
+      outputSchema: ReflectOutput,
       requiredScopes: ["read:notes"],
       tags: ["knowledge"],
       handler: async (input, ctx) => {
@@ -929,6 +1145,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           final_top_k: z.number().int().positive().max(100).default(30),
         })
         .strict(),
+      outputSchema: VaultGraphSearchOutput,
       requiredScopes: ["read:notes"],
       tags: ["knowledge", "search"],
       handler: async (input, ctx) => {
@@ -1049,6 +1266,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           final_top_k: z.number().int().positive().max(100).default(20),
         })
         .strict(),
+      outputSchema: KnowledgeSearchOutput,
       requiredScopes: ["read:docs"],
       tags: ["docs", "search", "knowledge"],
       handler: async (input, ctx) => {
@@ -1119,6 +1337,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           limit: z.number().int().positive().max(200).default(100),
         })
         .strict(),
+      outputSchema: KnowledgeCriticalOutput,
       requiredScopes: ["read:docs"],
       tags: ["docs", "knowledge"],
       handler: (input, ctx) => {
@@ -1176,6 +1395,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           proposal: z.string().min(10).max(4000),
         })
         .strict(),
+      outputSchema: KnowledgeChallengeOutput,
       requiredScopes: ["read:notes"],
       tags: ["knowledge"],
       handler: async (input, ctx) => {
@@ -1269,6 +1489,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
       description:
         "List open contradictions (judge_verdict: 'contradiction' | 'tension') touching any of the given notes — the same detector output vault_context/reflect/knowledge_challenge surface indirectly, exposed directly for standalone inspection. Read-only.",
       inputSchema: z.object({ vault: VaultId, paths: z.array(VaultPath).min(1).max(200) }).strict(),
+      outputSchema: ListContradictionsOutput,
       requiredScopes: ["read:notes"],
       tags: ["knowledge"],
       pathAcl: (input) => input.paths.map((p) => ({ op: "read" as const, path: p })),

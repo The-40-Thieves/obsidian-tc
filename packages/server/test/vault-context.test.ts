@@ -284,16 +284,42 @@ describe("vault_context (THE-132)", () => {
       signal: "memory/_next-session.md",
       signal_hash: hash,
       empty: false,
-      bundle: { sentinel: true },
+      // THE-417: a REALISTIC bundle, not a `{ sentinel: true }` marker. vault_context now declares
+      // an outputSchema, and the prefetch path validates the cached bundle against it — a stored
+      // entry whose shape does not match what the tool returns today is treated as a MISS (layer 4,
+      // alongside the existing ACL and generation layers). A sentinel object is exactly the stale
+      // shape that check exists to reject, so the fixture has to be a real response.
+      //
+      // `prefetched` + `prefetch_generated_at` are what prove the cache served this: the handler
+      // only adds them on the cache-hit path, and a live compose here would hit the throwing embed
+      // stub. The old sentinel assertion was belt-and-braces on top of that.
+      bundle: {
+        vault: "main",
+        route: [],
+        query_source: "next_session",
+        budget: { requested: 4000, chunk_budget: 4000, packed_tokens: 12 },
+        stats: {
+          chunks_considered: 1,
+          chunks_packed: 1,
+          notes: 1,
+          contradictions: 0,
+          syntheses: 0,
+          lessons: 0,
+        },
+        notes: [{ path: "a.md", chunks: [{ chunk_id: "c1", score: 1, source: "seed", hop: 0 }] }],
+        syntheses: [],
+        contradictions: [],
+        lessons: [],
+      },
       acl_fingerprint: NO_ACL_FP,
       vault_generation: 0,
     });
     try {
       const { registry, ctx } = harness(undefined, root4, warmDir);
-      const res = un<{ sentinel?: boolean; prefetched?: boolean; prefetch_generated_at?: number }>(
+      const res = un<{ vault?: string; prefetched?: boolean; prefetch_generated_at?: number }>(
         await registry.dispatch("vault_context", { vault: "main" }, ctx),
       );
-      expect(res.sentinel).toBe(true);
+      expect(res.vault).toBe("main");
       expect(res.prefetched).toBe(true);
       expect(res.prefetch_generated_at).toBe(111);
     } finally {
