@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { MetricsRecorder } from "../src/metrics/registry";
 
-// The exact catalog: 14 counters, 2 histograms, 4 gauges (G2.4's 10 + THE-507's 4 ingest).
+// The exact catalog. Stale comment fixed (THE-585): this was "14 counters, 2 histograms,
+// 4 gauges" long after the lists below and the size assertion had moved past it — the comment
+// was never the gate, the size assertion is. Now 21 counters, 4 histograms, 16 gauges.
 const COUNTERS = [
   "obsidian_tc_tool_calls_total",
   "obsidian_tc_acl_denied_total",
@@ -32,6 +34,11 @@ const COUNTERS = [
   // 1.0 pass-through has stopped filtering while still costing its latency.
   "obsidian_tc_retrieval_stage_candidates_in_total",
   "obsidian_tc_retrieval_stage_candidates_out_total",
+  // THE-585 (#12): content bytes hydrated at the boundaries that waste it — duplicate hydration
+  // across streams (candidateAssembly) and the top-K cut (diversity/gatedRerank). Only those
+  // stages populate StageMetric.bytesIn/bytesOut, so only they emit a series here.
+  "obsidian_tc_retrieval_content_bytes_in_total",
+  "obsidian_tc_retrieval_content_bytes_out_total",
 ];
 const HISTOGRAMS = [
   "obsidian_tc_tool_duration_seconds",
@@ -56,6 +63,9 @@ const GAUGES = [
   "obsidian_tc_index_coalesced_total",
   "obsidian_tc_scheduler_skipped_total",
   "obsidian_tc_scheduler_consecutive_failures",
+  // THE-585 (#9): due ticks deferred by budget deferral, distinct from skipped (in-flight) and
+  // consecutiveFailures (threw). Inert (all-zero) unless eventLoopDeferMs is configured.
+  "obsidian_tc_scheduler_deferred_total",
   "obsidian_tc_http_construct_seconds",
   "obsidian_tc_vec_fingerprint_active",
   // THE-507: retrieval-cache effectiveness. Gauges rather than counters because the cache owns
@@ -68,14 +78,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 19 counters, 4 histograms, 15 gauges", async () => {
+  it("registers the full catalog: 21 counters, 4 histograms, 16 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(38);
+    expect(new Set(declared).size).toBe(41);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {

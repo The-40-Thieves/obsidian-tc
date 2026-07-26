@@ -27,19 +27,32 @@ export interface StageMetric {
   candidatesIn: number;
   candidatesOut: number;
   durationMs: number;
+  /** THE-585 (#12): content bytes materialized before/after this stage's boundary
+   *  (`Buffer.byteLength`, not character count). Optional and populated ONLY at the stages
+   *  where hydrated content actually changes hands — candidateAssembly (where the merged
+   *  candidate set's content is first counted) and diversity/gatedRerank (where the top-K cut
+   *  discards most of what was hydrated). Every other stage omits both fields. */
+  bytesIn?: number;
+  bytesOut?: number;
 }
 
 export type OnStageMetric = (metric: StageMetric) => void;
 
 /** Runs `fn`, timing it and reporting a StageMetric to `onStageMetric` (if provided). Never
  *  alters `fn`'s return value or throws behavior — a stage that throws still propagates the
- *  error after nothing is reported (no partial/misleading metric on failure). */
+ *  error after nothing is reported (no partial/misleading metric on failure).
+ *
+ *  `bytes`, like `candidatesIn`/`countOut`, is optional: only the call sites that materialize or
+ *  discard hydrated content pass it (THE-585 #12). `bytes.in` is a plain number (the caller
+ *  already has it before `fn` runs); `bytes.out` is derived from the result, mirroring
+ *  `countOut`. */
 export async function runStage<T>(
   stage: StageName,
   candidatesIn: number,
   fn: () => T | Promise<T>,
   countOut: (result: T) => number,
   onStageMetric: OnStageMetric | undefined,
+  bytes?: { in: number; out: (result: T) => number },
 ): Promise<T> {
   const t0 = performance.now();
   const result = await fn();
@@ -49,6 +62,7 @@ export async function runStage<T>(
       candidatesIn,
       candidatesOut: countOut(result),
       durationMs: performance.now() - t0,
+      ...(bytes ? { bytesIn: bytes.in, bytesOut: bytes.out(result) } : {}),
     });
   }
   return result;

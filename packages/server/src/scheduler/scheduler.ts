@@ -62,6 +62,9 @@ interface JobState {
   inFlight: Promise<void> | null;
   consecutiveFailures: number;
   skipped: number;
+  /** THE-585 (#9): due ticks deferred (not skipped) by budget deferral — see the tick() branch
+   *  below. Inert (stays 0 forever) unless `eventLoopDeferMs` is configured. */
+  deferred: number;
 }
 
 const DEFAULT_MAX_BACKOFF_MS = 5 * 60_000;
@@ -83,11 +86,17 @@ export class Scheduler {
    *  `job` labels are bounded: they are the registered job NAMES, all defined in code at startup,
    *  never derived from a request. `onSkip` already reported skips, but only as a callback fired at
    *  the moment of a skip — nothing accumulated it anywhere a scrape could read. */
-  stats(): Array<{ job: string; skipped: number; consecutiveFailures: number }> {
+  stats(): Array<{
+    job: string;
+    skipped: number;
+    consecutiveFailures: number;
+    deferred: number;
+  }> {
     return [...this.jobs.entries()].map(([job, st]) => ({
       job,
       skipped: st.skipped,
       consecutiveFailures: st.consecutiveFailures,
+      deferred: st.deferred,
     }));
   }
   private readonly now: () => number;
@@ -145,6 +154,7 @@ export class Scheduler {
       inFlight: null,
       consecutiveFailures: 0,
       skipped: 0,
+      deferred: 0,
     });
     return this;
   }
@@ -253,7 +263,10 @@ export class Scheduler {
     // jobs (reschedule a short recheck out) so background work never starves interactive dispatch.
     if (this.eventLoopDeferMs !== undefined && this.loopDelay && due.length > 0) {
       if (this.loopDelay() > this.eventLoopDeferMs) {
-        for (const state of due) state.nextRunAt = this.virtualNow + this.deferralRecheckMs;
+        for (const state of due) {
+          state.nextRunAt = this.virtualNow + this.deferralRecheckMs;
+          state.deferred += 1;
+        }
         this.arm();
         return;
       }

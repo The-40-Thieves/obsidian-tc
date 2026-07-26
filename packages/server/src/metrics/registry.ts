@@ -48,6 +48,9 @@ export interface GaugeSources {
    *  startup, never request-derived), per the process-wide-subsystem precedent. */
   schedulerSkipped?: () => Array<{ vault: string; value: number }>;
   schedulerConsecutiveFailures?: () => Array<{ vault: string; value: number }>;
+  /** THE-585 (#9): due ticks DEFERRED (not skipped) by budget deferral — inert (all-zero) unless
+   *  `eventLoopDeferMs` is configured on the Scheduler; see JobState.deferred. */
+  schedulerDeferred?: () => Array<{ vault: string; value: number }>;
   /** THE-585 (#11): seconds spent constructing the HTTP app/transport at boot. Measured once, so a
    *  gauge rather than a histogram — there is exactly one sample per process lifetime. */
   httpConstructSeconds?: () => Array<{ vault: string; value: number }>;
@@ -106,6 +109,8 @@ export class MetricsRecorder {
   private readonly outputSchemaDrift: Counter<string>;
   private readonly retrievalStageCandidatesIn: Counter<string>;
   private readonly retrievalStageCandidatesOut: Counter<string>;
+  private readonly retrievalContentBytesIn: Counter<string>;
+  private readonly retrievalContentBytesOut: Counter<string>;
   private readonly toolDuration: Histogram<string>;
   private readonly responseBytes: Histogram<string>;
   private readonly sqlLockWait: Histogram<string>;
@@ -274,6 +279,24 @@ export class MetricsRecorder {
       labelNames: ["vault", "stage"],
       registers,
     });
+    // THE-585 (#12): content bytes hydrated at the two boundaries that waste it — duplicate
+    // hydration across streams (candidateAssembly) and the top-K cut (diversity/gatedRerank).
+    // Only those stages populate StageMetric.bytesIn/bytesOut (see observeRetrievalStage), so
+    // only they get a series here; the other 5 stages never touch these counters at all. Bytes,
+    // not characters (Buffer.byteLength) — this tracks actual I/O cost, which multi-byte UTF-8
+    // content would understate if counted by character.
+    this.retrievalContentBytesIn = new Counter({
+      name: "obsidian_tc_retrieval_content_bytes_in_total",
+      help: "Content bytes materialized entering a stage boundary, by vault and stage. Populated only at candidateAssembly (pre-dedup, across streams) and diversity/gatedRerank (pre-top-K-cut). Compare to the _out_ counter for the same stage: the gap is hydrated content that was never used.",
+      labelNames: ["vault", "stage"],
+      registers,
+    });
+    this.retrievalContentBytesOut = new Counter({
+      name: "obsidian_tc_retrieval_content_bytes_out_total",
+      help: "Content bytes surviving a stage boundary, by vault and stage. See the _in_ counter.",
+      labelNames: ["vault", "stage"],
+      registers,
+    });
     this.sqlLockWait = new Histogram({
       name: "obsidian_tc_sql_lock_wait_seconds",
       help: "Seconds spent acquiring SQLite's write lock (BEGIN IMMEDIATE), by vault and transaction. Only writers contend under WAL, so a rising tail here is the direct evidence for splitting the shared database per vault. Failed acquisitions are observed too, and land just ABOVE busy_timeout (5s) rather than at it — count the 5..10s band to find transactions that waited out the timeout and then threw.",
@@ -354,6 +377,11 @@ export class MetricsRecorder {
       "obsidian_tc_scheduler_consecutive_failures",
       "Consecutive failures per job name — the exponent behind the scheduler's backoff. Non-zero means the job is currently backing off; it resets to 0 on the next success.",
       sources.schedulerConsecutiveFailures,
+    );
+    gauge(
+      "obsidian_tc_scheduler_deferred_total",
+      "Due ticks deferred (not skipped) because the event-loop delay p99 exceeded eventLoopDeferMs, by job name. Cumulative. Stays 0 forever unless budget deferral is configured — a flat 0 does not mean deferral never mattered, it means it is off.",
+      sources.schedulerDeferred,
     );
     // THE-585 (#11). Measured once at boot, so a gauge: a histogram over a single sample would
     // imply a distribution that does not exist.
@@ -464,6 +492,13 @@ export class MetricsRecorder {
     this.retrievalStageDuration.observe({ vault, stage }, metric.durationMs / 1000);
     this.retrievalStageCandidatesIn.inc({ vault, stage }, metric.candidatesIn);
     this.retrievalStageCandidatesOut.inc({ vault, stage }, metric.candidatesOut);
+    // THE-585 (#12): optional, and only present at the stages that actually hydrate/discard
+    // content (see StageMetric's doc comment) — every other stage leaves both undefined and
+    // creates no series here.
+    if (metric.bytesIn !== undefined)
+      this.retrievalContentBytesIn.inc({ vault, stage }, metric.bytesIn);
+    if (metric.bytesOut !== undefined)
+      this.retrievalContentBytesOut.inc({ vault, stage }, metric.bytesOut);
   }
   incAuditWriteFailed(vault: string, tool: string): void {
     this.auditWriteFailed.inc({ vault, tool });

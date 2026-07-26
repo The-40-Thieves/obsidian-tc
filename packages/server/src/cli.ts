@@ -928,6 +928,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     schedulerSkipped: () => scheduler.stats().map((j) => ({ vault: j.job, value: j.skipped })),
     schedulerConsecutiveFailures: () =>
       scheduler.stats().map((j) => ({ vault: j.job, value: j.consecutiveFailures })),
+    schedulerDeferred: () => scheduler.stats().map((j) => ({ vault: j.job, value: j.deferred })),
     // THE-585 (#11): boot-time HTTP construction. Stays an empty series until the transport is
     // actually started — a stdio-only server never constructs one, and reporting 0 there would
     // claim a measurement that never happened.
