@@ -192,6 +192,38 @@ Issues are triaged on a rolling basis. Labels indicate state:
 
 Before starting work on a non-trivial issue, comment that you are picking it up. This avoids duplicate effort.
 
+## Branch Protection and Required Checks
+
+`main` is protected. A pull request cannot merge until **19 required checks** report success:
+
+| group | checks |
+| -- | -- |
+| CodeQL (default setup, all six languages) | `CodeQL`, `Analyze (actions)`, `Analyze (javascript-typescript)`, `Analyze (python)`, `Analyze (rust)` |
+| supply chain | `Socket Security: Project Report`, `Socket Security: Pull Request Alerts`, `cargo-deny` |
+| secrets / leaks | `gitleaks`, `vault leak (structural)` |
+| workflow safety | `actionlint (…)`, `no untrusted context in shell steps` |
+| source hygiene | `typecheck`, `no NUL bytes in tracked text`, `typos (source + docs spelling)`, `lychee (internal link rot)`, `config threading`, `version-coherence`, `dco-check` |
+
+### Why the test suite is not on that list
+
+It cannot be, as the workflows are written today. `build-test`, `test`, `lint`, `bun-smoke`, `perf` and `drift-gate` are **path-filtered** — they only run when the paths they cover change. GitHub treats a required check that never reports as *"Expected — waiting for status"* and blocks the pull request **forever**, so requiring a path-filtered check would deadlock every docs-only PR.
+
+The required set was therefore derived empirically: the intersection of checks that reported on five pull requests with deliberately different footprints (`packages/**`, `.github/**`, `services/**`, `scripts/**`, and a single root file). Those five ranged from 26 to 37 checks; 24 were common to all, and the list above is what remains after removing the advisory ones.
+
+To make the test suite requireable, a path-filtered workflow needs an always-running job that short-circuits to success when its paths are untouched. That is real work and has not been done.
+
+### Deliberately not required
+
+* **`bun-audit`, `cargo-audit`, `osv-scanner`, `opengrep-full-scan`** — all `continue-on-error` by design (see `ci-security.yml`): a newly disclosed transitive advisory should *surface* without blocking unrelated work. They show as failing in `gh pr checks` while the PR stays mergeable. Requiring them would convert an advisory signal into a merge blocker the author cannot fix.
+* **`semgrep-cloud-platform/scan`** — a third-party app. A vendor outage would block every merge, and CodeQL plus `opengrep` already cover this ground.
+
+### Settings, and why
+
+* **`strict: false`** — a PR need not be rebased onto the latest `main` before merging. With frequent merges, `strict: true` forces a rebase-and-rewait cycle on every PR that lands second.
+* **`enforce_admins: false`** — admins can override. On a repo with few maintainers, enforcing it risks locking out the only person able to land an emergency fix.
+* **No required reviews** — self-approval is not possible on GitHub, so requiring one review would block every solo-authored PR outright.
+* **Force pushes and branch deletion are blocked** on `main`.
+
 ## Release Process
 
 Releases are coordinated by maintainers; contributors do not need to drive them. Briefly:
