@@ -6,6 +6,14 @@
 // would just re-drift the next time the catalog changes.
 import type { MetricDoc } from "./model";
 
+/** Markdown-table-safe cell: collapse newlines, escape backslashes THEN pipes (order matters — a
+ *  bare `\|` in the input must not become an unescaped pipe that breaks the table). Mirrors
+ *  render-config.ts's `cell()` — CodeQL flagged the first draft here for escaping `|` alone,
+ *  which leaves a trailing backslash in `help` free to combine with the escape it just inserted. */
+function cell(v: string): string {
+  return v.replace(/\r?\n/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").trim();
+}
+
 function table(title: string, docs: MetricDoc[]): string[] {
   if (docs.length === 0) return [];
   return [
@@ -17,7 +25,7 @@ function table(title: string, docs: MetricDoc[]): string[] {
       (d) =>
         `| \`${d.name}\` | ${
           d.labels.length ? d.labels.map((l) => `\`${l}\``).join(", ") : "—"
-        } | ${d.help.replace(/\|/g, "\\|")} |`,
+        } | ${cell(d.help)} |`,
     ),
     "",
   ];

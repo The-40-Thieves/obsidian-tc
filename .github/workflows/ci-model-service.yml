@@ -85,10 +85,13 @@ jobs:
         # unit tests need neither — installing the `test` extra alone is enough. Unlike
         # bge-m3-service, docs-ingest has no hash-locked requirements-ci.txt yet; its own
         # pyproject.toml pins by floor only (pydantic>=2.13, pytest>=8), which is the existing
-        # convention there.
+        # convention there. ruff isn't a project dependency (it's a dev tool, not something
+        # obsidian_tc_docs_ingest imports), so it needs its own install — pinned to the same
+        # version bge-m3-service's requirements-ci.txt locks, for one ruff version across the repo.
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
+          pip install ruff==0.15.22
       - name: ruff
         run: ruff check .
       - name: pytest
