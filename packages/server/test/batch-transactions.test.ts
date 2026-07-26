@@ -9,12 +9,14 @@ import { indexVault } from "../src/search/indexer";
 import { makeM2Vault } from "./m2-helpers";
 
 /** Count BEGIN statements (one per committed write transaction — notes flush + chunk flushes). Uses
- *  the same plain-object delegate as the P2 test rather than a Proxy (indexer only calls exec/prepare). */
+ *  the same plain-object delegate as the P2 test rather than a Proxy (indexer only calls exec/prepare).
+ *  Matches any transaction MODE: THE-585 (#5) moved these paths to `BEGIN IMMEDIATE`, and an
+ *  exact `=== "BEGIN"` test would count zero of them while still passing as "0 is not greater than 0". */
 function countingBegins(db: Database): { db: Database; begins: () => number } {
   let begins = 0;
   const wrapped: Database = {
     exec: (sql: string) => {
-      if (sql === "BEGIN") begins += 1;
+      if (/^\s*BEGIN\b/i.test(sql)) begins += 1;
       return db.exec(sql);
     },
     prepare: (sql: string) => db.prepare(sql),

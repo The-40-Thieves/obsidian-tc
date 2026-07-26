@@ -15,6 +15,7 @@
 // WAL) can never both claim the same row: the second's BEGIN IMMEDIATE blocks until the first
 // commits, and by then the row's state/lease_owner have already moved.
 import { randomUUID } from "node:crypto";
+import { inWriteTransaction, type WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 
 export type JobState = "queued" | "running" | "retrying" | "complete" | "failed";
@@ -110,6 +111,9 @@ export interface JobQueueOptions {
   maxAttempts?: number;
   backoffBaseMs?: number;
   maxBackoffMs?: number;
+  /** THE-585 (#5): write-lock observability for `claim()`. Additive and best-effort; absent in
+   *  tests and anywhere no MetricsRecorder exists. */
+  sql?: WriteTxnHooks;
 }
 
 const DEFAULT_LEASE_MS = 30_000;
@@ -128,8 +132,10 @@ export class JobQueue {
   private readonly maxAttempts: number;
   private readonly backoffBaseMs: number;
   private readonly maxBackoffMs: number;
+  private readonly sql: WriteTxnHooks | undefined;
 
   constructor(db: Database, opts: JobQueueOptions = {}) {
+    this.sql = opts.sql;
     this.db = db;
     this.now = opts.now ?? Date.now;
     this.leaseMsValue = opts.leaseMs ?? DEFAULT_LEASE_MS;
@@ -218,14 +224,19 @@ export class JobQueue {
   claim(opts: ClaimOptions): Job | null {
     const t = this.now();
     const leaseMs = opts.leaseMs ?? this.leaseMsValue;
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const typeFilter = opts.types?.length
-        ? `AND type IN (${opts.types.map(() => "?").join(",")})`
-        : "";
-      const candidates = this.db
-        .prepare(
-          `SELECT * FROM jobs
+    // THE-585 (#5): already a BEGIN IMMEDIATE — routing it through inWriteTransaction changes no
+    // SQL, only who gets told how long the lock took. This is the cross-process contention site,
+    // so its samples are the cleanest evidence in the whole catalog.
+    return inWriteTransaction(
+      this.db,
+      "job_claim",
+      (): Job | null => {
+        const typeFilter = opts.types?.length
+          ? `AND type IN (${opts.types.map(() => "?").join(",")})`
+          : "";
+        const candidates = this.db
+          .prepare(
+            `SELECT * FROM jobs
            WHERE (
              state = 'queued'
              OR (state = 'retrying' AND next_attempt_at <= ?)
@@ -234,37 +245,31 @@ export class JobQueue {
            ${typeFilter}
            ORDER BY COALESCE(next_attempt_at, created_at) ASC
            LIMIT ?`,
-        )
-        .all(t, t, ...(opts.types ?? []), CLAIM_SCAN_LIMIT) as JobRow[];
-
-      for (const row of candidates) {
-        const limit = opts.classLimits?.[row.class];
-        if (limit !== undefined) {
-          const running = this.db
-            .prepare(
-              "SELECT COUNT(*) AS n FROM jobs WHERE class = ? AND state = 'running' AND lease_expires_at > ?",
-            )
-            .get(row.class, t) as { n: number };
-          if (running.n >= limit) continue; // class at capacity: try the next candidate
-        }
-        const updated = this.db
-          .prepare(
-            `UPDATE jobs SET state = 'running', attempt = attempt + 1, lease_owner = ?,
-               lease_expires_at = ?, updated_at = ? WHERE id = ?`,
           )
-          .run(opts.leaseOwner, t + leaseMs, t, row.id);
-        if (updated.changes === 1) {
-          const claimed = this.get(row.id) as Job;
-          this.db.exec("COMMIT");
-          return claimed;
+          .all(t, t, ...(opts.types ?? []), CLAIM_SCAN_LIMIT) as JobRow[];
+
+        for (const row of candidates) {
+          const limit = opts.classLimits?.[row.class];
+          if (limit !== undefined) {
+            const running = this.db
+              .prepare(
+                "SELECT COUNT(*) AS n FROM jobs WHERE class = ? AND state = 'running' AND lease_expires_at > ?",
+              )
+              .get(row.class, t) as { n: number };
+            if (running.n >= limit) continue; // class at capacity: try the next candidate
+          }
+          const updated = this.db
+            .prepare(
+              `UPDATE jobs SET state = 'running', attempt = attempt + 1, lease_owner = ?,
+               lease_expires_at = ?, updated_at = ? WHERE id = ?`,
+            )
+            .run(opts.leaseOwner, t + leaseMs, t, row.id);
+          if (updated.changes === 1) return this.get(row.id) as Job;
         }
-      }
-      this.db.exec("COMMIT");
-      return null;
-    } catch (e) {
-      this.db.exec("ROLLBACK");
-      throw e;
-    }
+        return null;
+      },
+      this.sql,
+    );
   }
 
   /** Extend the lease. Fails (returns false) if the caller no longer owns it — an already-reaped

@@ -6,6 +6,7 @@
 // foreign_keys off). vec_chunks is kept in lock-step only when the extension loaded.
 import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { tableExists } from "../db/introspect";
+import { inWriteTransaction, type WriteTxnHooks } from "../db/txn";
 import { cachedPrepare, type Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { parseNote } from "../vault/frontmatter";
@@ -844,6 +845,10 @@ export async function indexNote(
   onIndexed?: IndexHook,
   /** THE-406: embeddings.chunkContext — enrich the embedded/BM25 text with title + breadcrumb. */
   enrich = false,
+  /** THE-585 (#5): write-lock observability hooks. This is the index-ON-WRITE path, so its samples
+   *  are the ones that show a live tool call blocking behind a running reindex — the contention
+   *  THE-467/468 is actually about. */
+  sql?: WriteTxnHooks,
 ): Promise<{ upserted: number; deleted: number; unchanged: number; secretsSkipped: number }> {
   const { plan, unchanged, secretsSkipped, flagged } = await planNoteWrites(
     db,
@@ -868,42 +873,40 @@ export async function indexNote(
   if (!plan) {
     // Chunks unchanged; refresh the notes row only when missing/stale (backfill path).
     if (note && noteRowHash(db, vaultId, path) !== note.contentHash) {
-      db.exec("BEGIN");
-      try {
-        upsertNoteRow(db, vaultId, note, hasFts, now());
-        db.exec("COMMIT");
-      } catch (e) {
-        db.exec("ROLLBACK");
-        throw e;
-      }
+      inWriteTransaction(
+        db,
+        "index_note",
+        () => upsertNoteRow(db, vaultId, note, hasFts, now()),
+        sql,
+      );
     }
     return { upserted: 0, deleted: 0, unchanged, secretsSkipped };
   }
-  let result: { upserted: number; deleted: number };
-  db.exec("BEGIN");
-  try {
-    result = applyNoteWrites(
-      db,
-      provider,
-      vaultId,
-      plan,
-      hasVec,
-      hasChunkFts,
-      hasChunkSparse,
-      hasChunkColbert,
-      hasBodySha,
-      new Map(), // THE-488: single-note path — a fresh (effectively empty) dedup cache
-    );
-    if (note) upsertNoteRow(db, vaultId, note, hasFts, now());
-    // THE-496: this note's chunks/embeddings changed (the plan-null early return above skips a
-    // no-op), so bump the vault generation inside the SAME transaction — the query cache must not
-    // serve pre-mutation results.
-    if (result.upserted > 0 || result.deleted > 0) bumpGeneration(db, vaultId);
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  const result = inWriteTransaction(
+    db,
+    "index_note",
+    () => {
+      const r = applyNoteWrites(
+        db,
+        provider,
+        vaultId,
+        plan,
+        hasVec,
+        hasChunkFts,
+        hasChunkSparse,
+        hasChunkColbert,
+        hasBodySha,
+        new Map(), // THE-488: single-note path — a fresh (effectively empty) dedup cache
+      );
+      if (note) upsertNoteRow(db, vaultId, note, hasFts, now());
+      // THE-496: this note's chunks/embeddings changed (the plan-null early return above skips a
+      // no-op), so bump the vault generation inside the SAME transaction — the query cache must not
+      // serve pre-mutation results.
+      if (r.upserted > 0 || r.deleted > 0) bumpGeneration(db, vaultId);
+      return r;
+    },
+    sql,
+  );
   fireIndexHook(onIndexed, plan);
   return { ...result, unchanged, secretsSkipped };
 }
@@ -922,45 +925,47 @@ export function deindexNote(
   /** THE-408: embeddings.chunkContext — a divergence-rebuild fired from this path must match the
    *  index's enrichment. */
   enrich = false,
+  /** THE-585 (#5): write-lock observability hooks; see indexNote. */
+  sql?: WriteTxnHooks,
 ): void {
   const hasNotes = hasNotesTable(db);
   const hasFts = hasNotes && ensureNotesFts(db);
   const hasChunkFts = ensureChunkFts(db, { enrich });
   const hasChunkSparse = tableExists(db, "chunk_sparse");
   const hasChunkColbert = tableExists(db, "chunk_colbert");
-  db.exec("BEGIN");
-  try {
-    // THE-316: static-arity SQL on the deindex write path (also driven once per note in the
-    // stale-path sweep) — cache by SQL text so the sweep does not recompile these on every call.
-    const rows = cachedPrepare(db, "SELECT id FROM chunks WHERE vault_id = ? AND path = ?").all(
-      vaultId,
-      path,
-    ) as Array<{ id: string }>;
-    const delEmb = cachedPrepare(db, "DELETE FROM chunk_embeddings WHERE chunk_id = ?");
-    const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
-    const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
-    // #280-followup: drop the deleted note's chunks' contradiction flags (plane table optional).
-    const delContra = tableExists(db, "contradictions")
-      ? cachedPrepare(db, DELETE_CONTRADICTIONS_SQL)
-      : null;
-    for (const r of rows) {
-      delEmb.run(r.id);
-      delChunk.run(r.id);
-      if (delVec) delVec.run(r.id);
-      if (hasChunkFts) deleteChunkFtsRow(db, r.id);
-      if (hasChunkSparse) deleteChunkSparse(db, r.id);
-      if (hasChunkColbert) deleteChunkColbert(db, r.id);
-      if (delContra) delContra.run(r.id, r.id);
-    }
-    if (hasNotes) deleteNoteRow(db, vaultId, path, hasFts);
-    // THE-496: a removed path drops chunks/edges from the searchable set, so bump the generation in
-    // the same transaction when anything was actually deleted.
-    if (rows.length > 0) bumpGeneration(db, vaultId);
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  inWriteTransaction(
+    db,
+    "index_deindex",
+    () => {
+      // THE-316: static-arity SQL on the deindex write path (also driven once per note in the
+      // stale-path sweep) — cache by SQL text so the sweep does not recompile these on every call.
+      const rows = cachedPrepare(db, "SELECT id FROM chunks WHERE vault_id = ? AND path = ?").all(
+        vaultId,
+        path,
+      ) as Array<{ id: string }>;
+      const delEmb = cachedPrepare(db, "DELETE FROM chunk_embeddings WHERE chunk_id = ?");
+      const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
+      const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
+      // #280-followup: drop the deleted note's chunks' contradiction flags (plane table optional).
+      const delContra = tableExists(db, "contradictions")
+        ? cachedPrepare(db, DELETE_CONTRADICTIONS_SQL)
+        : null;
+      for (const r of rows) {
+        delEmb.run(r.id);
+        delChunk.run(r.id);
+        if (delVec) delVec.run(r.id);
+        if (hasChunkFts) deleteChunkFtsRow(db, r.id);
+        if (hasChunkSparse) deleteChunkSparse(db, r.id);
+        if (hasChunkColbert) deleteChunkColbert(db, r.id);
+        if (delContra) delContra.run(r.id, r.id);
+      }
+      if (hasNotes) deleteNoteRow(db, vaultId, path, hasFts);
+      // THE-496: a removed path drops chunks/edges from the searchable set, so bump the generation in
+      // the same transaction when anything was actually deleted.
+      if (rows.length > 0) bumpGeneration(db, vaultId);
+    },
+    sql,
+  );
 }
 
 /** Does vault_edges carry the densification columns (migration 20260713_001: confidence +
@@ -1057,6 +1062,11 @@ export interface IndexVaultArgs {
    *  compared, so a non-globally-sorted traversal produces an IDENTICAL final DB state. Left
    *  default-off anyway, per THE-490's instruction to keep the existing path the default. */
   walk?: { streaming?: boolean };
+  /** THE-585 (#5): observability-only hooks fired when a write transaction acquires (or fails to
+   *  acquire) SQLite's write lock. Additive and best-effort — an absent value, or a throwing sink,
+   *  changes nothing about what gets indexed. Threaded from the composition root, which is the only
+   *  place that knows a MetricsRecorder exists. */
+  sql?: WriteTxnHooks;
 }
 
 // THE-500 defaults: 100 notes was the prior hardcoded flush size; 8 MiB caps a batch of large notes.
@@ -1228,33 +1238,33 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           `use a larger-context embedding model.\n`,
       );
     }
-    args.db.exec("BEGIN");
     // THE-488: one dedup-source cache for the WHOLE flush batch — duplicates span notes/paths, so the
     // memo must outlive a single applyNoteWrites call to collapse the repeated JOINs.
     const dedupCache: DedupCache = new Map();
-    try {
-      for (const plan of toApply) {
-        const r = applyNoteWrites(
-          args.db,
-          args.provider,
-          args.vaultId,
-          plan,
-          hasVec,
-          hasChunkFts,
-          hasChunkSparse,
-          hasChunkColbert,
-          hasBodySha,
-          dedupCache,
-        );
-        stats.chunks_upserted += r.upserted;
-        stats.chunks_deleted += r.deleted;
-        if (r.upserted > 0 || r.deleted > 0) stats.notes_indexed += 1;
-      }
-      args.db.exec("COMMIT");
-    } catch (e) {
-      args.db.exec("ROLLBACK");
-      throw e;
-    }
+    inWriteTransaction(
+      args.db,
+      "index_batch",
+      () => {
+        for (const plan of toApply) {
+          const r = applyNoteWrites(
+            args.db,
+            args.provider,
+            args.vaultId,
+            plan,
+            hasVec,
+            hasChunkFts,
+            hasChunkSparse,
+            hasChunkColbert,
+            hasBodySha,
+            dedupCache,
+          );
+          stats.chunks_upserted += r.upserted;
+          stats.chunks_deleted += r.deleted;
+          if (r.upserted > 0 || r.deleted > 0) stats.notes_indexed += 1;
+        }
+      },
+      args.sql,
+    );
     // THE-486: a committed plan means this note's chunk embeddings changed this pass (toEmbed
     // non-empty and/or a prune) — computeNotePlan never returns a plan otherwise (see its
     // toEmbed.length === 0 && !willPrune early return). This is the kNN delta's change signal,
@@ -1273,14 +1283,14 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     if (!hasNotes || notesBatch.length === 0) return;
     const rows = notesBatch;
     notesBatch = [];
-    args.db.exec("BEGIN");
-    try {
-      for (const rec of rows) upsertNoteRow(args.db, args.vaultId, rec, hasFts, now());
-      args.db.exec("COMMIT");
-    } catch (e) {
-      args.db.exec("ROLLBACK");
-      throw e;
-    }
+    inWriteTransaction(
+      args.db,
+      "index_notes_flush",
+      () => {
+        for (const rec of rows) upsertNoteRow(args.db, args.vaultId, rec, hasFts, now());
+      },
+      args.sql,
+    );
     stats.notes_upserted += rows.length;
   };
   // THE-490: the per-note processing body, shared by both the eager (default) and streaming
@@ -1353,7 +1363,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       .all(args.vaultId) as Array<{ path: string }>;
     for (const row of known) {
       if (!walkedSet.has(row.path)) {
-        deindexNote(args.db, args.vaultId, row.path, hasVec, args.chunkContext === true);
+        deindexNote(args.db, args.vaultId, row.path, hasVec, args.chunkContext === true, args.sql);
         stats.notes_deleted += 1;
         // THE-486: a deleted note's chunk embeddings AND its tags are both gone — both delta
         // computations need to know, so its derived edges in both directions get pruned rather than
@@ -1465,14 +1475,12 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.edges_inserted > 0 ||
     stats.edges_deleted > 0;
   if (changed) {
-    args.db.exec("BEGIN");
-    try {
-      bumpGeneration(args.db, args.vaultId);
-      args.db.exec("COMMIT");
-    } catch (e) {
-      args.db.exec("ROLLBACK");
-      throw e;
-    }
+    inWriteTransaction(
+      args.db,
+      "index_generation",
+      () => bumpGeneration(args.db, args.vaultId),
+      args.sql,
+    );
   }
   // THE-499: one aggregate dedup line per pass (was ~1 stderr line per duplicate chunk). Individual
   // paths are available behind OBSIDIAN_TC_DEBUG_DEDUP (emitted inline in computeNotePlan).

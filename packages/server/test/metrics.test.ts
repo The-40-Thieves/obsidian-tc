@@ -22,8 +22,16 @@ const COUNTERS = [
   // THE-585 (#7, #8): vec0 -> brute-force degradation. Results stay correct; the cost profile
   // does not, and nothing reported it before.
   "obsidian_tc_vec_fallback_total",
+  // THE-585 (#5): busy-class write-transaction failures. reason=snapshot is a bug report — see
+  // the counter's help text and src/db/txn.ts.
+  "obsidian_tc_sql_busy_total",
 ];
-const HISTOGRAMS = ["obsidian_tc_tool_duration_seconds", "obsidian_tc_response_bytes"];
+const HISTOGRAMS = [
+  "obsidian_tc_tool_duration_seconds",
+  "obsidian_tc_response_bytes",
+  // THE-585 (#5): the writer-vs-writer contention signal THE-467/468 turns on.
+  "obsidian_tc_sql_lock_wait_seconds",
+];
 const GAUGES = [
   "obsidian_tc_active_sessions",
   "obsidian_tc_capture_queue_depth",
@@ -39,14 +47,51 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 15 counters, 2 histograms, 8 gauges", async () => {
+  it("registers the full catalog: 16 counters, 3 histograms, 8 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(25);
+    expect(new Set(declared).size).toBe(27);
+  });
+
+  it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
+    const r = new MetricsRecorder();
+    r.observeSqlLockWait("main", "index_batch", 0.0004); // uncontended
+    r.observeSqlLockWait("main", "index_batch", 0.75); // waited behind another writer
+    // A REAL timed-out acquisition, not a tidy 5.0: a 5000ms busy_timeout measures ~5006ms, because
+    // the sample spans the busy-handler loop plus call overhead. Using the exact boundary here is
+    // what let a top bucket of 5 look correct while no production timeout could ever land in it.
+    r.observeSqlLockWait("scheduler", "job_claim", 5.0061);
+    r.incSqlBusy("scheduler", "job_claim", "busy");
+    r.incSqlBusy("main", "index_deindex", "snapshot");
+    const text = await r.metrics();
+
+    // The fast sample is the denominator: without it no "fraction of writes that waited" exists.
+    const bucket = (le: string, vault: string, txn: string): string =>
+      `obsidian_tc_sql_lock_wait_seconds_bucket{le="${le}",vault="${vault}",txn="${txn}"}`;
+    expect(text).toContain(`${bucket("0.001", "main", "index_batch")} 1`);
+    expect(text).toContain(`${bucket("0.1", "main", "index_batch")} 1`); // 0.75 is NOT in here
+    expect(text).toContain(`${bucket("1", "main", "index_batch")} 2`); // both samples by 1s
+    expect(text).toContain(
+      'obsidian_tc_sql_lock_wait_seconds_count{vault="main",txn="index_batch"} 2',
+    );
+    // A timed-out acquisition overshoots busy_timeout, so it must NOT be in the 5s bucket — and
+    // must still be inside the histogram (the 10s bucket) rather than only in +Inf, which is what
+    // makes "waited the whole timeout and then threw" countable.
+    expect(text).toContain(`${bucket("0.5", "scheduler", "job_claim")} 0`);
+    expect(text).toContain(`${bucket("5", "scheduler", "job_claim")} 0`);
+    expect(text).toContain(`${bucket("10", "scheduler", "job_claim")} 1`);
+    // Process-wide subsystems report a bounded subsystem name in `vault`, per the documented
+    // precedent — the job queue claims across every vault and has no vault id of its own.
+    expect(text).toContain(
+      'obsidian_tc_sql_busy_total{vault="scheduler",txn="job_claim",reason="busy"} 1',
+    );
+    expect(text).toContain(
+      'obsidian_tc_sql_busy_total{vault="main",txn="index_deindex",reason="snapshot"} 1',
+    );
   });
 
   it("counts vec fallbacks separately by reason (THE-585)", async () => {

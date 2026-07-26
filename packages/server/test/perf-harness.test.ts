@@ -57,4 +57,32 @@ describe("countingDatabase()", () => {
     expect(execCalls).toEqual(["BEGIN", "COMMIT", "BEGIN", "SELECT 1"]);
     expect(wrapped.prepare("SELECT 1")).toBe(fakeStatement);
   });
+
+  // THE-585 (#5) moved the index write paths to BEGIN IMMEDIATE. The counter previously tested
+  // `sql === "BEGIN"`, so it counted NONE of them — and because index.txn_count is lower-is-better,
+  // a silent zero reads as a triumphant improvement instead of a broken metric. Pin every mode.
+  it("counts a transaction start in any mode, not only the bare BEGIN", () => {
+    const base = {
+      exec: () => {},
+      prepare: () => ({ run: () => ({ changes: 0 }), get: () => undefined, all: () => [] }),
+    };
+    for (const sql of [
+      "BEGIN",
+      "BEGIN IMMEDIATE",
+      "BEGIN EXCLUSIVE",
+      "begin immediate",
+      "  BEGIN  ",
+    ]) {
+      const wrapped = countingDatabase(base);
+      wrapped.exec(sql);
+      expect(wrapped.writeTxnCount, `${sql} should count as a write transaction`).toBe(1);
+    }
+    // ...but nothing else does. SAVEPOINT opens a transaction too, yet it is nested work inside one
+    // already counted; counting it would double-count THE-573's savepoint paths.
+    for (const sql of ["COMMIT", "ROLLBACK", "SELECT 1", "SAVEPOINT sp_1", "BEGINNING"]) {
+      const wrapped = countingDatabase(base);
+      wrapped.exec(sql);
+      expect(wrapped.writeTxnCount, `${sql} must not count`).toBe(0);
+    }
+  });
 });
