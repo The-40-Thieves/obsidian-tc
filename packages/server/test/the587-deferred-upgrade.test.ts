@@ -17,7 +17,7 @@
 //   migrate.ts:58         idempotence check is pre-transaction; body is exec + INSERT
 //
 // Exposed: memory-tools.ts's add_observation, because appendObservation READS the entity row
-// (entities.ts:135) and then UPDATEs it (:140), both inside the transaction callback.
+// (entities.ts:135) and then runs an UPDATE on it (:140), both inside the transaction callback.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -260,8 +260,8 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         // does and the claim stays in-flight for a legitimate re-run. Marking inside the
         // transaction is what avoids a false `indeterminate_outcome` when the append itself fails.
         // THE-587: inWriteTransaction (BEGIN IMMEDIATE), not inTransaction (deferred BEGIN).
-        // `appendObservation` READS the entity row (getEntityById, entities.ts:135) and then UPDATEs
-        // it (:140) — both inside this transaction. Under a deferred BEGIN that read pins a
+        // `appendObservation` READS the entity row (getEntityById, entities.ts:135) and then runs
+        // an UPDATE on it (:140) — both inside this transaction. Under a deferred BEGIN that read pins a
         // snapshot, and if any other connection commits before the UPDATE, SQLite refuses the
         // upgrade with SQLITE_BUSY_SNAPSHOT. That failure is NOT retryable by `busy_timeout`
         // (measured: 0.2ms against a 5000ms timeout), so the configured timeout cannot rescue it.
