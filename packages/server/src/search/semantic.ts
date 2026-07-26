@@ -146,7 +146,14 @@ export function semanticSearch(
     if (opts.minScore !== undefined && opts.minScore > 0) continue;
     scored.push(hit(r.id, r.path, 0, r.model, r.content, opts.returnContent));
   }
-  scored.sort((a, b) => b.score - a.score);
+  // THE-582: total order — score descending, then chunk_id. The rows feeding this sort come from a
+  // SELECT with no ORDER BY at all, so tied scores would otherwise resolve in table-scan order, and
+  // this fallback would rank identical-content chunks differently from the vec0 path above (which
+  // now breaks the same ties on the same key). Code-unit comparison, not localeCompare.
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.chunk_id < b.chunk_id ? -1 : a.chunk_id > b.chunk_id ? 1 : 0;
+  });
   return scored.slice(0, k);
 }
 

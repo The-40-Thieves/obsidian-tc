@@ -183,9 +183,35 @@ export function ensureVecChunks(
   return true;
 }
 
+/**
+ * THE-582: impose a TOTAL order on the KNN result — distance ascending, then chunk_id — so equal
+ * distances rank deterministically instead of in whatever order vec0's scan produced.
+ *
+ * This has to happen here rather than in the SQL: vec0 rejects a second sort key outright
+ * ("Only a single 'ORDER BY distance' clause is allowed on vec0 KNN queries"), so
+ * `ORDER BY distance, chunk_id` is not available to us.
+ *
+ * Exact ties are not a corner case. Any two chunks with identical content embed to identical
+ * vectors and therefore to a bit-identical distance — duplicate bodies, repeated boilerplate,
+ * shared templates. In the perf corpus (dupGroups=20 over 100 notes) the rank-10 distance spans
+ * the top-10 cut on 3 of 5 labelled queries, meaning the tie order decides top-10 MEMBERSHIP.
+ * That is how the same commit produced retrieval.ndcg_at10 0.8028 on aarch64 and 0.8414 on
+ * x86_64 while recall_at10 (set-based) and the candidate counts matched exactly.
+ *
+ * chunk_id is compared by code unit, NOT localeCompare: locale-sensitive collation would trade
+ * one source of host dependence for another.
+ */
+function totalOrderByDistance<T extends { chunk_id: string; distance: number }>(rows: T[]): T[] {
+  return rows.sort((a, b) => {
+    if (a.distance !== b.distance) return a.distance - b.distance;
+    return a.chunk_id < b.chunk_id ? -1 : a.chunk_id > b.chunk_id ? 1 : 0;
+  });
+}
+
 // k-NN over vec_chunks for a query vector; returns chunk_id + cosine distance
-// (0 = identical direction, 1 = orthogonal) nearest-first. Cosine similarity is
-// 1 - distance. Requires loadVec to have already succeeded on this connection.
+// (0 = identical direction, 1 = orthogonal) nearest-first, ties broken by chunk_id
+// (THE-582). Cosine similarity is 1 - distance. Requires loadVec to have already
+// succeeded on this connection.
 // THE-277: pass vaultId to prune the KNN to that vault's partition shard — the
 // scan never touches other vaults' vectors, and the aux path rides along free.
 export function vecKnn(
@@ -195,21 +221,25 @@ export function vecKnn(
   vaultId?: string,
 ): Array<{ chunk_id: string; distance: number; path?: string }> {
   if (vaultId !== undefined) {
-    return db
-      .prepare(
-        "SELECT chunk_id, path, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ? AND vault_id = ? ORDER BY distance",
-      )
-      .all(floatBlob(query), k, vaultId) as Array<{
-      chunk_id: string;
-      distance: number;
-      path?: string;
-    }>;
+    return totalOrderByDistance(
+      db
+        .prepare(
+          "SELECT chunk_id, path, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ? AND vault_id = ? ORDER BY distance",
+        )
+        .all(floatBlob(query), k, vaultId) as Array<{
+        chunk_id: string;
+        distance: number;
+        path?: string;
+      }>,
+    );
   }
-  return db
-    .prepare(
-      "SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ? ORDER BY distance",
-    )
-    .all(floatBlob(query), k) as Array<{ chunk_id: string; distance: number }>;
+  return totalOrderByDistance(
+    db
+      .prepare(
+        "SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ? ORDER BY distance",
+      )
+      .all(floatBlob(query), k) as Array<{ chunk_id: string; distance: number }>,
+  );
 }
 
 // Insert/replace a chunk's vector in vec_chunks. vec0 has no UPSERT, so this is
