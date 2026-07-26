@@ -321,7 +321,20 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ...(opts.activation ? { activationFor: opts.activation } : {}),
         ...(opts.bubbleSafe ? { bubbleSafe: opts.bubbleSafe } : {}),
         ...(opts.metadataPrior ? { metadataPrior: opts.metadataPrior } : {}),
-        ...(process.env.DENSIFY === "1" ? { densify: { includeInWalk: true } } : {}),
+        // THE-532: DENSIFY=1 walks derived edges; DERIVED_WEIGHT overrides the 0.5 similarity
+        // discount applied to a non-literal edge (graph_expansion.ts). derivedWeight is a
+        // SEARCH-time knob — unlike knnK/knnMinSim, which are baked into the edge set at index
+        // time — so a sweep can vary it across runs against one densified index.
+        ...(process.env.DENSIFY === "1"
+          ? {
+              densify: {
+                includeInWalk: true,
+                ...(process.env.DERIVED_WEIGHT
+                  ? { derivedWeight: Number(process.env.DERIVED_WEIGHT) }
+                  : {}),
+              },
+            }
+          : {}),
       };
       // THE-448: the ORIGINAL always leads the variant list — the same rule vault_graph_search's
       // handler applies, so the eval measures the shipped shape and not a variant-only fan-out
