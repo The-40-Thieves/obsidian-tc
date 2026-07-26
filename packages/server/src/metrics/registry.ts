@@ -43,6 +43,12 @@ export class MetricsRecorder {
   private readonly morgianaDropped: Counter<string>;
   private readonly authRejections: Counter<string>;
   private readonly auditWriteFailed: Counter<string>;
+  // THE-507 (folding in THE-489): ingest work counters. Additive to the [ingest]/[index] stderr
+  // lines the indexer already writes — these make the same events queryable instead of grep-able.
+  private readonly ingestSecretsSkipped: Counter<string>;
+  private readonly ingestDedupSkipped: Counter<string>;
+  private readonly embedBatchRejections: Counter<string>;
+  private readonly indexWriteFailures: Counter<string>;
   private readonly toolDuration: Histogram<string>;
   private readonly responseBytes: Histogram<string>;
 
@@ -73,6 +79,30 @@ export class MetricsRecorder {
       name: "obsidian_tc_audit_write_failed_total",
       help: "Security-audit event writes that failed, by vault and tool. Audit is fail-open by design (a failed write must never break dispatch), so this counter is the only signal that the audit trail has gone lossy.",
       labelNames: ["vault", "tool"],
+      registers,
+    });
+    this.ingestSecretsSkipped = new Counter({
+      name: "obsidian_tc_ingest_secrets_skipped_total",
+      help: "Chunks the secret gate refused to index, by vault. Non-zero is expected on a vault containing credentials; a SUDDEN rise means content that used to index no longer does.",
+      labelNames: ["vault"],
+      registers,
+    });
+    this.ingestDedupSkipped = new Counter({
+      name: "obsidian_tc_ingest_dedup_skipped_total",
+      help: "Chunks whose embedding was reused from an identical-body sibling instead of recomputed, by vault. This is work AVOIDED, so a rise is good; a fall means the dedup path stopped matching.",
+      labelNames: ["vault"],
+      registers,
+    });
+    this.embedBatchRejections = new Counter({
+      name: "obsidian_tc_embed_batch_rejections_total",
+      help: "Embed requests the provider rejected for exceeding its context (HTTP 400/413), then bisected + retried, by vault. Each is an extra round-trip; a persistent count means embeddings.maxBatchTokens is too high.",
+      labelNames: ["vault"],
+      registers,
+    });
+    this.indexWriteFailures = new Counter({
+      name: "obsidian_tc_index_write_failures_total",
+      help: "Notes skipped in a pass because the embed provider rejected them even at single-text size, by vault. Unlike the batch rejections above these are NOT retried within the pass, so the note is absent from the index until the next reconcile.",
+      labelNames: ["vault"],
       registers,
     });
     this.idempotencyHits = new Counter({
@@ -188,6 +218,21 @@ export class MetricsRecorder {
   }
   incHitlElicited(vault: string, tool: string): void {
     this.hitlElicited.inc({ vault, tool });
+  }
+  /** THE-507: ingest counters come from an indexing pass's AGGREGATE stats, not per event, so each
+   *  takes the pass's count. Guarded on n > 0 so a clean pass does not create a label series that
+   *  never moves. */
+  incIngestSecretsSkipped(vault: string, n: number): void {
+    if (n > 0) this.ingestSecretsSkipped.inc({ vault }, n);
+  }
+  incIngestDedupSkipped(vault: string, n: number): void {
+    if (n > 0) this.ingestDedupSkipped.inc({ vault }, n);
+  }
+  incEmbedBatchRejections(vault: string, n: number): void {
+    if (n > 0) this.embedBatchRejections.inc({ vault }, n);
+  }
+  incIndexWriteFailures(vault: string, n: number): void {
+    if (n > 0) this.indexWriteFailures.inc({ vault }, n);
   }
   incAuditWriteFailed(vault: string, tool: string): void {
     this.auditWriteFailed.inc({ vault, tool });

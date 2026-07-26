@@ -24,17 +24,61 @@ interface Metric {
   labels: Record<string, string>;
 }
 
-function invocationCounters(db: Database, vault?: string): Metric[] {
+/**
+ * THE-507: the ingest events that carry a COUNT rather than a single occurrence.
+ *
+ * `result_size` holds the count for these rows: a pass that skipped 3 secrets writes ONE row worth
+ * 3, not three rows. event_log retention is time-based (observability.retention.eventLogDays), so
+ * row COUNT is the unbounded axis — letting an indexing pass write one row per skipped chunk would
+ * make event_log grow with vault size on every reconcile.
+ */
+const INGEST_EVENT_METRICS: Record<string, string> = {
+  ingest_secrets_skipped: "obsidian_tc_ingest_secrets_skipped_total",
+  ingest_dedup_skipped: "obsidian_tc_ingest_dedup_skipped_total",
+  embed_batch_rejections: "obsidian_tc_embed_batch_rejections_total",
+  index_write_failures: "obsidian_tc_index_write_failures_total",
+};
+
+function ingestCounters(db: Database, vault?: string): Metric[] {
+  const types = Object.keys(INGEST_EVENT_METRICS);
+  const placeholders = types.map(() => "?").join(", ");
   const rows = (
     vault
       ? db
           .prepare(
-            "SELECT vault_id, tool_name, status, COUNT(*) AS n FROM event_log WHERE vault_id = ? GROUP BY vault_id, tool_name, status",
+            `SELECT vault_id, event_type, SUM(result_size) AS n FROM event_log WHERE event_type IN (${placeholders}) AND vault_id = ? GROUP BY vault_id, event_type`,
+          )
+          .all(...types, vault)
+      : db
+          .prepare(
+            `SELECT vault_id, event_type, SUM(result_size) AS n FROM event_log WHERE event_type IN (${placeholders}) GROUP BY vault_id, event_type`,
+          )
+          .all(...types)
+  ) as Array<{ vault_id: string | null; event_type: string; n: number | null }>;
+  return rows.map((r) => ({
+    name: INGEST_EVENT_METRICS[r.event_type] as string,
+    type: "counter",
+    value: r.n ?? 0,
+    labels: { vault: r.vault_id ?? "" },
+  }));
+}
+
+function invocationCounters(db: Database, vault?: string): Metric[] {
+  // THE-507: event_type filter. event_log is NOT a tool-call log — it also carries `sweep_run`,
+  // `morgiana_emit_dropped` and (now) the ingest counters above. Grouping over every row reported
+  // those as tool calls that never happened, with an empty `tool` label; adding ingest events to the
+  // same table would have compounded it. Only `tool_invocation` (writeEvent's default, set by the
+  // registry for real dispatches) is a tool call.
+  const rows = (
+    vault
+      ? db
+          .prepare(
+            "SELECT vault_id, tool_name, status, COUNT(*) AS n FROM event_log WHERE event_type = 'tool_invocation' AND vault_id = ? GROUP BY vault_id, tool_name, status",
           )
           .all(vault)
       : db
           .prepare(
-            "SELECT vault_id, tool_name, status, COUNT(*) AS n FROM event_log GROUP BY vault_id, tool_name, status",
+            "SELECT vault_id, tool_name, status, COUNT(*) AS n FROM event_log WHERE event_type = 'tool_invocation' GROUP BY vault_id, tool_name, status",
           )
           .all()
   ) as Array<{ vault_id: string | null; tool_name: string | null; status: string; n: number }>;
@@ -193,7 +237,11 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       requiredScopes: ["admin:metrics"],
       handler: (input, ctx) => {
         const now = (ctx.now ?? Date.now)();
-        const metrics: Metric[] = [...invocationCounters(ctx.db, input.vault)];
+        const metrics: Metric[] = [
+          ...invocationCounters(ctx.db, input.vault),
+          // THE-507: ingest work counters, additive to the stderr lines the indexer already writes.
+          ...ingestCounters(ctx.db, input.vault),
+        ];
 
         for (const row of deps.rateLimiter.snapshot()) {
           if (input.vault && row.vault !== input.vault) continue;

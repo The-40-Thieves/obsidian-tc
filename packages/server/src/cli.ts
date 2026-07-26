@@ -70,7 +70,13 @@ import { ensureNotesFts } from "./search/fts";
 import { readGeneration } from "./search/generation";
 import { graphSearch } from "./search/graph_search";
 import { IndexCoordinator } from "./search/index-coordinator";
-import { deindexNote, type IndexHook, indexNote, indexVault } from "./search/indexer";
+import {
+  deindexNote,
+  type IndexHook,
+  type IndexStats,
+  indexNote,
+  indexVault,
+} from "./search/indexer";
 import { nativeLoaded } from "./search/native";
 import { callerAclFingerprint, prewarmPathFor, writePrewarm } from "./search/prefetch";
 import { createRetrievalCaches } from "./search/query_cache";
@@ -1120,6 +1126,57 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // server_health registration above) so its stats accessor can be wired there.
   const CONTRADICTION_MAX_ATTEMPTS = 3;
   const CONTRADICTION_DRAIN_MS = 15_000;
+
+  /**
+   * THE-507 (folding in THE-489): translate an indexing pass's aggregate stats into telemetry.
+   *
+   * Emitted by the CALLER rather than from inside indexVault, deliberately: indexer.ts has no
+   * telemetry-layer references today and keeping it that way means the indexing path stays testable
+   * without a metrics double. Three of the four counts were already in IndexStats; only
+   * embed_batch_rejections had to be added.
+   *
+   * BOTH sinks, because they are different surfaces with different lifetimes: the Prometheus
+   * counters are in-memory and reset on restart, while `get_metrics` reads event_log and therefore
+   * survives one. `result_size` carries the COUNT (one row per pass, not per event) so an indexing
+   * pass cannot grow event_log in proportion to vault size — retention is time-based, so row count
+   * is the unbounded axis. A zero-count event writes nothing.
+   */
+  const recordIngestStats = (vaultId: string, s: IndexStats): void => {
+    const events: Array<[string, number, (v: string, n: number) => void]> = [
+      [
+        "ingest_secrets_skipped",
+        s.secrets_skipped,
+        (v, n) => metrics.incIngestSecretsSkipped(v, n),
+      ],
+      [
+        "ingest_dedup_skipped",
+        s.chunks_dedup_reused,
+        (v, n) => metrics.incIngestDedupSkipped(v, n),
+      ],
+      [
+        "embed_batch_rejections",
+        s.embed_batch_rejections,
+        (v, n) => metrics.incEmbedBatchRejections(v, n),
+      ],
+      ["index_write_failures", s.notes_embed_failed, (v, n) => metrics.incIndexWriteFailures(v, n)],
+    ];
+    for (const [eventType, count, inc] of events) {
+      if (count <= 0) continue;
+      inc(vaultId, count);
+      try {
+        writeEvent(db, {
+          ts: Date.now(),
+          vault_id: vaultId,
+          status: "ok",
+          result_size: count,
+          event_type: eventType,
+        });
+      } catch {
+        /* telemetry must never break an indexing pass */
+      }
+    }
+  };
+
   // THE-457: cap on how long graceful shutdown waits for in-flight index work.
   const SHUTDOWN_DRAIN_MS = 5000;
   const makeOnIndexed = (vaultId: string): IndexHook | undefined =>
@@ -1279,6 +1336,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           indexHealth.notesReady = true;
         },
       });
+      recordIngestStats(vaultId, s);
       return { notes_seen: s.notes_seen };
     },
   });
@@ -1574,13 +1632,18 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         // THE-390: a completed reconcile that had to SKIP notes (embed provider rejected a
         // chunk even at single-text size) still degrades health — precise, non-fatal, retried
         // next reconcile — instead of the old behavior of aborting the whole reindex.
-        (s) => ({
-          vault: v.id,
-          error:
-            s.notes_embed_failed > 0
-              ? `${s.notes_embed_failed} note(s) skipped: embed provider rejected their chunks (HTTP 400)`
-              : (null as string | null),
-        }),
+        (s) => {
+          // THE-507: the boot reconcile is the pass most worth counting — it is the one that
+          // processes the whole vault after downtime.
+          recordIngestStats(v.id, s);
+          return {
+            vault: v.id,
+            error:
+              s.notes_embed_failed > 0
+                ? `${s.notes_embed_failed} note(s) skipped: embed provider rejected their chunks (HTTP 400)`
+                : (null as string | null),
+          };
+        },
         (e) => ({ vault: v.id, error: e instanceof Error ? e.message : String(e) }),
       ),
     ),

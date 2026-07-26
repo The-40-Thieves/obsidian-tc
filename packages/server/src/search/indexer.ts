@@ -70,6 +70,10 @@ export interface IndexStats {
   /** THE-499: chunks whose embedding was reused from an identical-body sibling this pass (dedup),
    *  aggregated instead of logged per-chunk. */
   chunks_dedup_reused: number;
+  /** THE-507 (additive): embed requests the provider rejected for exceeding its context (HTTP
+   *  400/413) and that were bisected + retried this pass. Already reported on stderr; surfaced here
+   *  so the caller can emit it as a counter without the indexer taking a telemetry dependency. */
+  embed_batch_rejections: number;
   model: string;
   dimensions: number;
 }
@@ -1161,6 +1165,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     notes_deleted: 0,
     notes_embed_failed: 0,
     chunks_dedup_reused: 0,
+    embed_batch_rejections: 0,
     model: args.provider.id,
     dimensions: args.provider.dimensions,
   };
@@ -1193,6 +1198,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.embed?.concurrency ?? EMBED_CONCURRENCY,
       args.embed?.maxBatchTokens ?? EMBED_MAX_BATCH_TOKENS,
     );
+    stats.embed_batch_rejections += report.rejections;
     if (report.rejections > 0) {
       process.stderr.write(
         `[index] vault "${args.vaultId}": ${report.rejections} embed request(s) exceeded the ` +

@@ -38,3 +38,46 @@ describe("/metrics endpoint (THE-211)", () => {
     ).toThrow(/non-localhost/);
   });
 });
+
+// THE-507 (folding in THE-489): the four ingest events had no telemetry at all — only
+// `[ingest]`/`[index]` stderr lines, which are grep-able but not queryable. They are emitted from an
+// indexing pass's AGGREGATE stats (one inc per pass carrying the pass's count), not per event, so
+// the indexer keeps its property of having zero telemetry-layer references.
+describe("THE-507 ingest work counters", () => {
+  it("exports all four counters with a bounded `vault` label and no per-path cardinality", async () => {
+    const rec = new MetricsRecorder();
+    rec.incIngestSecretsSkipped("v1", 3);
+    rec.incIngestDedupSkipped("v1", 2);
+    rec.incEmbedBatchRejections("v1", 1);
+    rec.incIndexWriteFailures("v1", 5);
+    const text = await rec.registry.metrics();
+    expect(text).toMatch(/obsidian_tc_ingest_secrets_skipped_total\{vault="v1"\} 3/);
+    expect(text).toMatch(/obsidian_tc_ingest_dedup_skipped_total\{vault="v1"\} 2/);
+    expect(text).toMatch(/obsidian_tc_embed_batch_rejections_total\{vault="v1"\} 1/);
+    expect(text).toMatch(/obsidian_tc_index_write_failures_total\{vault="v1"\} 5/);
+    // The audit constraint: bounded labels ONLY — never paths, queries, chunk ids or caller ids.
+    // `vault` is the sole label, so cardinality is bounded by the vault count.
+    const ingestLines = text
+      .split("\n")
+      .filter((l) => /^obsidian_tc_(ingest_|embed_batch_|index_write_)/.test(l));
+    expect(ingestLines.length).toBeGreaterThan(0);
+    for (const l of ingestLines) expect(l).not.toMatch(/path=|query=|chunk=|caller=/);
+  });
+
+  it("accumulates across passes rather than overwriting", async () => {
+    const rec = new MetricsRecorder();
+    rec.incIngestSecretsSkipped("v1", 3);
+    rec.incIngestSecretsSkipped("v1", 4);
+    expect(await rec.registry.metrics()).toMatch(
+      /obsidian_tc_ingest_secrets_skipped_total\{vault="v1"\} 7/,
+    );
+  });
+
+  it("a clean pass creates no label series at all", async () => {
+    // Emitting inc(0) would register a vault series that never moves, which reads on a dashboard as
+    // "this vault has a counter" rather than "nothing happened".
+    const rec = new MetricsRecorder();
+    rec.incIngestSecretsSkipped("quiet-vault", 0);
+    expect(await rec.registry.metrics()).not.toMatch(/quiet-vault/);
+  });
+});
