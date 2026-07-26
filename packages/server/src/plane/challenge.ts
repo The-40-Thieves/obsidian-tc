@@ -61,7 +61,9 @@ Cite evidence by path. Omit a category entirely if it has nothing. If no genuine
 Output STRICT JSON only. No prose, no code fences. Schema:
 {"verdict":"proceed"|"reconsider"|"do_not_proceed","summary":"<one sentence>","categories":[{"kind":"DIRECT_CONTRADICTION"|"PATTERN_REPEAT"|"REVERSAL"|"HIDDEN_DEPENDENCY","items":[{"evidence_paths":["..."],"why_it_matters":"...","severity":"high"|"medium"|"low"}]}]}`;
 
-const challengeOutputSchema = z.object({
+// THE-417: exported so the two tools that RETURN a ChallengeOutput (reflect, knowledge_challenge)
+// advertise the same schema the parser enforces, rather than a hand-copied restatement of it.
+export const challengeOutputSchema = z.object({
   verdict: z.enum(["proceed", "reconsider", "do_not_proceed"]),
   summary: z.string().min(1),
   categories: z.array(

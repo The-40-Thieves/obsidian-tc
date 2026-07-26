@@ -57,6 +57,30 @@ function availableWith<T extends z.ZodRawShape>(shape: T) {
   return z.union([Unavailable, z.object({ available: z.literal(true), ...shape })]);
 }
 
+/** Mirrors `projectEpisode()` field for field. Written from the PROJECTION, not from EpisodeRow —
+ *  the projection renames (`vault_id` -> `vault`), derives (`tags` parsed from JSON, `blocked`
+ *  narrowed to a boolean) and drops (`prev_id`), so a schema built from the row type would be
+ *  wrong in four places. */
+const EpisodeProjection = z.object({
+  id: z.string(),
+  ts: z.number(),
+  vault: z.string().nullable(),
+  session_id: z.string().nullable(),
+  caller: z.string().nullable(),
+  channel: z.string(),
+  episode_type: z.string(),
+  tool: z.string().nullable(),
+  status: z.string(),
+  error_code: z.string().nullable(),
+  duration_ms: z.number().nullable(),
+  result_size: z.number().nullable(),
+  summary: z.string().nullable(),
+  tags: z.array(z.string()),
+  trust: z.number().nullable(),
+  eligibility: z.string(),
+  blocked: z.boolean(),
+});
+
 interface EpisodeRow {
   id: string;
   ts: number;
@@ -136,6 +160,10 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           any_caller: z.boolean().default(false),
         })
         .strict(),
+      outputSchema: availableWith({
+        floor: z.object({ min_trust: z.number(), include_pending: z.boolean() }),
+        results: z.array(EpisodeProjection),
+      }),
       requiredScopes: ["read:workspace"],
       tags: ["experiential", "search"],
       handler: (input, ctx) => {
@@ -211,6 +239,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           k: z.number().int().positive().max(500).default(50),
         })
         .strict(),
+      outputSchema: availableWith({ episodes: z.array(EpisodeProjection) }),
       requiredScopes: ["read:workspace"],
       tags: ["experiential"],
       handler: (input, ctx) => {
@@ -363,6 +392,32 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           limit: z.number().int().positive().max(500).default(50),
         })
         .strict(),
+      outputSchema: availableWith({
+        vault: z.string(),
+        count: z.number().int(),
+        // Null distinguishes a clean vault from a rollup that was never computed.
+        computed_at: z.number().nullable(),
+        notes: z.array(
+          z.object({
+            path: z.string(),
+            quality_score: z.number().nullable(),
+            score_version: z.number(),
+            flags: z.array(z.string()),
+            chunk_count: z.number(),
+            dup_chunk_count: z.number(),
+            dup_ratio: z.number().nullable(),
+            age_days: z.number().nullable(),
+            last_retrieved_at: z.number().nullable(),
+            retrievals: z.number(),
+            citations: z.number(),
+            outcome_balance: z.number(),
+            in_degree: z.number(),
+            out_degree: z.number(),
+            contradictions_open: z.number(),
+            tombstoned: z.boolean(),
+          }),
+        ),
+      }),
       requiredScopes: ["read:notes"],
       tags: ["experiential", "knowledge"],
       handler: (input) => {
