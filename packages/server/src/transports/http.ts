@@ -239,7 +239,10 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       );
     }
 
-    const context = (): CallerContext => ({
+    // THE-514: signal is the per-request AbortSignal the MCP SDK hands each handler
+    // (extra.signal in mcp/server.ts) — threaded through so a cancelled/disconnected HTTP call
+    // stops runDispatch at the next stage boundary instead of running to completion unobserved.
+    const context = (signal?: AbortSignal): CallerContext => ({
       caller: authz.caller,
       authenticated: true,
       grantedScopes: authz.scopes,
@@ -250,6 +253,7 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       vaultBound: true,
       db: opts.db,
       acl: opts.acl,
+      signal,
     });
 
     const server = createMcpServer({

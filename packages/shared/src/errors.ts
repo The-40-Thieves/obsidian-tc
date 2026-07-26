@@ -49,7 +49,11 @@ export type ErrorCode =
   // THE-562 #13 — a prior attempt with this idempotency key committed its effect but faulted
   // before recording a result (or crashed). NOT auto-retryable: the caller must verify state
   // before deciding whether to retry, since blindly retrying is exactly what this prevents.
-  | "indeterminate_outcome";
+  | "indeterminate_outcome"
+  // THE-514 — the caller's AbortSignal fired before (or during) dispatch. Distinct from
+  // `internal`/`operation_timeout`: nothing failed, the caller withdrew the request, so a
+  // fresh call (not a blind retry of this exact attempt) is the expected recovery.
+  | "aborted";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -62,6 +66,8 @@ const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "embedding_provider_error",
   "operation_timeout",
   "plugin_unreachable",
+  // THE-514: cancellation is caller-driven, not a property of the input — re-issuing is expected.
+  "aborted",
 ]);
 
 /**
@@ -168,6 +174,9 @@ const RECOVERY: Record<ErrorCode, string | null> = {
   // THE-562 #13 — the one hint that prevents a destructive retry.
   indeterminate_outcome:
     "A previous attempt with this idempotency key committed its effect but never recorded the result. Do NOT blindly retry: read the target state first, and only re-issue (with a NEW key) if the effect did not land.",
+  // THE-514 — abort is cancellation, not failure.
+  aborted:
+    "The caller's AbortSignal fired before the operation finished. Re-issue the call fresh if the work is still wanted; this is not a transient failure of the operation itself.",
 };
 
 /** THE-512: the recovery hint for a code, or undefined when none is useful. */
@@ -271,4 +280,6 @@ export const err = {
     "plugin_incompatible",
     "companion plugin API version is incompatible with this server",
   ),
+  // THE-514 — cooperative AbortSignal cancellation.
+  aborted: mk("aborted", "operation aborted by caller"),
 } as const;
