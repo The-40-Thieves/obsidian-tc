@@ -68,7 +68,9 @@ function readCalibrationReference(): ContentionOptions {
 
 function writeCalibrationReference(medianMs: number, tol = 0.5): void {
   const ref: CalibrationReference = { referenceMs: medianMs, tol };
-  writeFileSync(CALIBRATION_REFERENCE_PATH, JSON.stringify(ref, null, 2));
+  // Trailing newline: these files are COMMITTED, and biome's formatter requires one — without it
+  // every automated recording produces a lint-failing PR (caught on the first real run, THE-534).
+  writeFileSync(CALIBRATION_REFERENCE_PATH, `${JSON.stringify(ref, null, 2)}\n`);
   process.stdout.write(`wrote ${CALIBRATION_REFERENCE_PATH}\n`);
 }
 
@@ -131,7 +133,7 @@ function writeBaseline(
       direction: s.direction,
     };
   }
-  writeFileSync(`eval/perf/baseline.${name}.json`, JSON.stringify(baseline, null, 2));
+  writeFileSync(`eval/perf/baseline.${name}.json`, `${JSON.stringify(baseline, null, 2)}\n`);
   process.stdout.write(`\nwrote eval/perf/baseline.${name}.json\n`);
   writeBaselineProvenance(name, mode, samples);
 }
