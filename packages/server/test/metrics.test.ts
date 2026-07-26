@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MetricsRecorder } from "../src/metrics/registry";
 
-// The exact G2.4 catalog: 10 counters, 2 histograms, 4 gauges.
+// The exact catalog: 14 counters, 2 histograms, 4 gauges (G2.4's 10 + THE-507's 4 ingest).
 const COUNTERS = [
   "obsidian_tc_tool_calls_total",
   "obsidian_tc_acl_denied_total",
@@ -13,6 +13,12 @@ const COUNTERS = [
   "obsidian_tc_morgiana_emit_dropped_total",
   "obsidian_tc_audit_write_failed_total",
   "obsidian_tc_auth_rejections_total", // THE-520
+  // THE-507 (folding in THE-489): ingest work counters. This list plus the size assertion below is
+  // the "no unlisted obsidian_tc_* metric" gate — adding a metric without declaring it here fails.
+  "obsidian_tc_ingest_secrets_skipped_total",
+  "obsidian_tc_ingest_dedup_skipped_total",
+  "obsidian_tc_embed_batch_rejections_total",
+  "obsidian_tc_index_write_failures_total",
 ];
 const HISTOGRAMS = ["obsidian_tc_tool_duration_seconds", "obsidian_tc_response_bytes"];
 const GAUGES = [
@@ -23,14 +29,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 10 counters, 2 histograms, 4 gauges", async () => {
+  it("registers the full catalog: 14 counters, 2 histograms, 4 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(16);
+    expect(new Set(declared).size).toBe(20);
   });
 
   it("exposes recorded tool-call counters and histograms by label", async () => {

@@ -253,3 +253,71 @@ describe("get_metrics", () => {
     expect(hit?.value).toBe(1);
   });
 });
+
+// THE-507 (folding in THE-489): the four operationally-interesting ingest events had NO telemetry
+// at all — only `[ingest]`/`[index]` stderr lines. They now increment Prometheus counters AND land
+// in event_log so get_metrics reports them, since get_metrics is the persistent event-log view, not
+// a projection of the in-memory registry.
+//
+// Surfacing them there forced a PRE-EXISTING defect into the open, which the first test covers.
+describe("THE-507 get_metrics separates tool calls from non-tool events", () => {
+  it("does NOT count a non-tool-call event_log row as a tool call", async () => {
+    // invocationCounters() grouped over EVERY event_log row with no event_type filter, so the
+    // maintenance sweep's `sweep_run` rows and morgiana's `morgiana_emit_dropped` rows were already
+    // being reported as obsidian_tc_tool_calls_total — a tool call that never happened, with an
+    // empty tool label. Writing ingest events into the same table would have compounded it.
+    v = makeM6Vault({ register });
+    await v.call("get_server_config", {}); // one REAL tool call
+    v.db
+      .prepare(
+        "INSERT INTO event_log (ts, vault_id, tool_name, caller, duration_ms, result_size, status, error_code, args_hash, event_type) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      )
+      .run(Date.now(), "v1", null, null, null, null, "ok", null, null, "sweep_run");
+
+    const out = data<{
+      metrics: { name: string; value: number; labels: Record<string, string> }[];
+    }>(await v.call("get_metrics", {}));
+    const calls = out.metrics.filter((m) => m.name === "obsidian_tc_tool_calls_total");
+    // Every reported tool-call row must name an actual tool.
+    expect(calls.every((m) => m.labels.tool !== "")).toBe(true);
+    expect(calls.reduce((n, m) => n + m.value, 0)).toBe(1); // the sweep_run row is not a call
+  });
+
+  it("reports ingest counters from event_log, by vault and kind", async () => {
+    v = makeM6Vault({ register });
+    const ins = v.db.prepare(
+      "INSERT INTO event_log (ts, vault_id, tool_name, caller, duration_ms, result_size, status, error_code, args_hash, event_type) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    );
+    // result_size carries the COUNT for an ingest event: a pass that skipped 3 secrets writes one
+    // row worth 3, not three rows. An indexing pass must not be able to flood event_log in
+    // proportion to vault size — retention is time-based, so row COUNT is the unbounded axis.
+    ins.run(Date.now(), "v1", null, null, null, 3, "ok", null, null, "ingest_secrets_skipped");
+    ins.run(Date.now(), "v1", null, null, null, 2, "ok", null, null, "ingest_dedup_skipped");
+    ins.run(Date.now(), "v1", null, null, null, 1, "ok", null, null, "embed_batch_rejections");
+    ins.run(Date.now(), "v1", null, null, null, 5, "ok", null, null, "index_write_failures");
+
+    const out = data<{
+      metrics: { name: string; value: number; labels: Record<string, string> }[];
+    }>(await v.call("get_metrics", {}));
+    const val = (n: string) => out.metrics.find((m) => m.name === n)?.value;
+    expect(val("obsidian_tc_ingest_secrets_skipped_total")).toBe(3);
+    expect(val("obsidian_tc_ingest_dedup_skipped_total")).toBe(2);
+    expect(val("obsidian_tc_embed_batch_rejections_total")).toBe(1);
+    expect(val("obsidian_tc_index_write_failures_total")).toBe(5);
+  });
+
+  it("sums repeated ingest passes rather than reporting only the latest", async () => {
+    v = makeM6Vault({ register });
+    const ins = v.db.prepare(
+      "INSERT INTO event_log (ts, vault_id, tool_name, caller, duration_ms, result_size, status, error_code, args_hash, event_type) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    );
+    ins.run(Date.now(), "v1", null, null, null, 3, "ok", null, null, "ingest_secrets_skipped");
+    ins.run(Date.now(), "v1", null, null, null, 4, "ok", null, null, "ingest_secrets_skipped");
+    const out = data<{
+      metrics: { name: string; value: number; labels: Record<string, string> }[];
+    }>(await v.call("get_metrics", {}));
+    expect(
+      out.metrics.find((m) => m.name === "obsidian_tc_ingest_secrets_skipped_total")?.value,
+    ).toBe(7);
+  });
+});
