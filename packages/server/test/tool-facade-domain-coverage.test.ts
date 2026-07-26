@@ -32,9 +32,11 @@ import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
-/** Mirrors tool-count.test.ts. Only a floor here, so the coverage assertions below cannot pass
- *  against an empty or partially-assembled registry. THE-306 owns keeping this in step with docs. */
-const REGISTERED_TOOL_COUNT = 150;
+/** Imported, not mirrored. This used to be a second hand-kept literal "mirroring" tool-count.test.ts
+ *  — the same drift class THE-580 removed from check-version-coherence.mjs, and one that gate does
+ *  NOT cover (it parses only tool-count.test.ts). Used here as a floor, so the coverage assertions
+ *  below cannot pass against an empty or partially-assembled registry. */
+import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },

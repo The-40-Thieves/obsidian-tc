@@ -23,16 +23,10 @@ import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
-/** The shipped tool surface — the ACTUAL number the registry assembles (server_health + the
- *  M1–M8 domains). Bump this WITH the docs headline (README/ARCHITECTURE/docs-site) when a tool is
- *  added or removed.
- *
- *  THIS DECLARATION IS PARSED, so keep it a plain `const REGISTERED_TOOL_COUNT = <digits>;` on one
- *  line. scripts/check-version-coherence.mjs reads it with a regex to derive the number it holds the
- *  docs to (THE-580 — it used to keep a second literal "in lockstep" by remembering, which drifted).
- *  That gate hard-fails if it cannot find this declaration, so a rename or a computed value breaks
- *  it loudly rather than silently reverting it to an unchecked default. */
-const REGISTERED_TOOL_COUNT = 150;
+// The count lives in its own module so tool-facade-domain-coverage.test.ts can share it rather
+// than keeping a second literal in step by remembering (THE-548). See that file for the parsing
+// contract check-version-coherence.mjs depends on.
+import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },
