@@ -90,6 +90,42 @@ The collector **throws** rather than emitting zeros if a densify scenario produc
 
 **No baseline is committed yet.** Recording one needs a quiet host (the harness correctly refuses on a loaded one — calibration CV 0.822 against a 0.2 threshold), so it goes through the CI baseline workflow the same way `small`'s did. Until then the scenario runs on demand and is not part of the CI-gated set.
 
+### Cold boot (family 16, THE-515)
+
+Emitted for the **`small` scenario only**. Cold boot is scenario-independent — the probe never touches the vault — so measuring it in every baseline would copy identical numbers into several files and make one registration change demand several deliberate re-records for no added signal.
+
+| metric | class | direction | why |
+| -- | -- | -- | -- |
+| `boot.tools_registered` | hard | exact | The only deterministic figure here, so it carries the gate. It also pins the module-registrar surface: adding a tool to a module moves it and demands a deliberate re-record. |
+| `boot.module_eval_ms` | warn | higher-worse | Importing the tool surface cold. **The dominant term** — see below. |
+| `boot.registration_ms` | warn | higher-worse | Running every `register*Tools`: ~148 tools and their Zod schemas. |
+| `boot.tools_list_ms` | warn | higher-worse | First `tools/list`: visibility filtering **plus** the per-tool `toMcpTool` schema projection, which is what `mcp/server.ts` actually does. Timing `registry.list()` alone measured a map copy at 0.3 ms and would have stayed flat through a regression in the projection — the real path costs ~60 ms. Pagination and caller-context resolution are excluded: those need a live server, and this probe stands up no transport. |
+
+`boot.tools_registered` is **148, not the 150** that `check-version-coherence` tracks. Two tools (`health`, `index_status`) are registered inline in `cli.ts` from live runtime state and cannot be built from a stub. 148 + 2 = 150.
+
+**Why a subprocess.** `boot-probe.ts` runs as a fresh `bun` process, and this is mandatory rather than stylistic: by the time any collector runs, the harness has already imported the tool surface, so an in-process timing would report warm-module-cache numbers and understate the one term that dominates.
+
+**Not collected under `--profile portable`.** That profile is the one path that runs `run.ts` **bundled** (`perf:node-parity` builds it to `eval/perf/.node-parity.mjs`), where the collector's `import.meta.url`-relative probe path does not resolve — and it discards `boot.*` anyway, since none of it is tagged `portable`. Skipping is both the fix and the honest behaviour: never pay for a subprocess whose output is thrown away.
+
+**Registration is stubbed, and the stub throws.** Tool builders construct Zod schemas at build time and touch `deps` only inside handlers, so a stub pays the real registration cost without a vault, provider or database. The stub raises on *call*, verified against all eight registrars (148 tools still build) — a stub that quietly returned `undefined` would let a future builder do construction-time work for free and report a cheaper registration than production pays.
+
+**Why this family exists.** THE-515 proposed lazy-initializing embeddings, ColBERT, the native module, sqlite-vec, graph analytics, the Dataview bridge and the scheduler, on the premise that startup pays for them. Measured 2026-07-26, it does not:
+
+```
+import mcp/registry (+transitive)   738.2 ms   <- 83% of cold start
+import tools/m1 (+transitive)       101.0 ms
+--- everything THE-515 proposed to lazy-init ---
+createEmbeddingProvider (ollama)      0.4 ms
+loadVec (sqlite-vec)                  2.1 ms
+native binding load + first call      0.3 ms
+new ToolRegistry({})                  0.2 ms
+db open + migrations                 10.5 ms
+```
+
+~13 ms combined, against ~290 ms of module load for the bundled artifact (`dist/index.js`; ~560 ms from TS source). Nothing in the harness could have said so: `http.cold_ms` measures the per-request pipeline against an **empty** registry, and `migration.ms` covers only schema setup. This family is the missing description, so the next cold-start proposal is argued from a number instead of an intuition.
+
+The collector **throws** if the probe registered no tools or returned a non-positive duration — a probe that measured nothing would otherwise report excellent timings, the same measures-nothing-while-green failure family 15 refuses.
+
 ## Gate Model: Hard vs. Warn
 
 Metrics are classified into two enforcement levels:
