@@ -82,6 +82,18 @@ function writeCalibrationReference(medianMs: number, tol = 0.5): void {
  *  baseline.<name>.json on purpose — the gate now walks the baseline's own keys and demands a sample
  *  for each, so a metadata key living in that file would be read as a metric that never gets
  *  measured, i.e. a permanent phantom hard failure. */
+/** Was the working tree dirty BEFORE this process wrote anything? Captured at module load, which is
+ *  the only moment that answers the question the provenance actually asks — "does `measuredAtSha`
+ *  reproduce this measurement?". Any later read is contaminated by the run's own output files. */
+const treeDirtyAtStart = ((): boolean => {
+  try {
+    return execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim() !== "";
+  } catch {
+    // Not a git checkout (or git unavailable): claim nothing rather than assert cleanliness.
+    return false;
+  }
+})();
+
 function writeBaselineProvenance(
   name: Scenario["name"],
   mode: "isolated-median" | "single-shot",
@@ -98,7 +110,13 @@ function writeBaselineProvenance(
   // A baseline measured on a dirty tree is not reproducible from its SHA, so the SHA alone would be
   // a false provenance claim. Record it and say so loudly rather than quietly writing a number
   // nobody can reproduce.
-  const dirty = git(["status", "--porcelain"]) !== "";
+  //
+  // The dirtiness snapshot is taken at process START (see `treeDirtyAtStart`), NOT here. Read here,
+  // it would see the baseline/calibration files this very run just wrote and report `true` on every
+  // recording that changed a number — including a pristine CI checkout, which is exactly the case
+  // this flag exists to bless. `baseline.small.provenance.json` carries that false positive today.
+  // A flag that is always true carries no information and would camouflage a genuinely dirty run.
+  const dirty = treeDirtyAtStart;
   const provenance = {
     scenario: name,
     mode,
