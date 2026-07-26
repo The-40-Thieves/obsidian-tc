@@ -139,6 +139,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "restore_note",
       domain: "notes",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Restore a note to a prior snapshot's content. Destructive — overwrites the current note (whose current state is itself snapshotted first when snapshots are enabled, so the restore is reversible) and requires confirmation.",

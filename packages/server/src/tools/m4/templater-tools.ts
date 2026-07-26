@@ -56,6 +56,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
     defineTool({
       name: "execute_template",
       domain: "automation",
+      vaultArg: "vault",
       pathAcl: (input) => [
         { op: "read", path: input.template },
         { op: "write", path: input.target },

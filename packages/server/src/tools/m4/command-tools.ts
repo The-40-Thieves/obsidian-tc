@@ -155,6 +155,7 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
     defineTool({
       name: "execute_command",
       domain: "automation",
+      vaultArg: "vault",
       description:
         "Fire an Obsidian command by id. Deny-by-default and triple-gated: requires human confirmation (execute:command is a HITL floor), command execution must be enabled for the vault, and the id must be on the vault allowlist. Falls back to Local REST API's native /commands/{id}/ route when the companion is unreachable. Never silently runnable.",
       inputSchema: z

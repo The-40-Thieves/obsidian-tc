@@ -240,6 +240,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "reset_vault_cache",
       domain: "vault",
+      vaultArg: "vault",
       description:
         "Drop the SQLite cache for a vault (chunks, embeddings, idempotency keys; optionally the event log). Destructive — requires confirmation.",
       inputSchema: ResetInput,

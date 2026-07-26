@@ -364,6 +364,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "rewrite_link",
       domain: "links",
+      vaultArg: "vault",
       description:
         "Repoint every link to `from_target` at `to_target` across the vault. Defaults to dry_run; a real run requires confirmation.",
       inputSchema: RewriteInput,
@@ -423,6 +424,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "prune_hub_links",
       domain: "links",
+      vaultArg: "vault",
       // Reads the hub note (input.path); the write targets are the computed set of notes linking to
       // it, enforced handler-side (each edit calls enforcePathAcl write) — not input-derivable.
       pathAcl: (input) => [{ op: "read", path: input.path }],

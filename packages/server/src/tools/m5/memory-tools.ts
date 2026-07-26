@@ -160,6 +160,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
     defineTool({
       name: "create_entity",
       domain: "knowledge",
+      vaultArg: "vault",
       description:
         "Create a typed memory entity (optionally materialized as a vault .md note). SQLite is the source of truth.",
       inputSchema: z
@@ -274,6 +275,8 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
     defineTool({
       name: "add_observation",
       domain: "knowledge",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       description:
         "Append a fact to a memory entity (re-materializing its note when materialized).",
       inputSchema: z
@@ -362,6 +365,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
     defineTool({
       name: "link_entities",
       domain: "knowledge",
+      vaultArg: "vault",
       description:
         "Create a typed relation between two memory entities (idempotent; re-materializes the source's [[links]]).",
       inputSchema: z

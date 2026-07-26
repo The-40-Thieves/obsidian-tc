@@ -43,6 +43,7 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
     defineTool({
       name: "trigger_quickadd",
       domain: "automation",
+      vaultArg: "vault",
       description:
         "Fire a QuickAdd action by name. Always requires human confirmation (execute:quickadd is a HITL floor): actions can create or modify notes broadly and run macros.",
       inputSchema: z

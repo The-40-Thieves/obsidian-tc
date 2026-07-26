@@ -195,6 +195,8 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "create_base",
       domain: "structured",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Create a new .base file from a base definition. Overwriting an existing base requires confirmation.",
@@ -251,6 +253,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "update_base",
       domain: "structured",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Patch a .base file's source/filters/properties/views/formulas. Unknown keys are preserved. Changing `source` (deprecated alias) or the note-set-defining top-level `filters` requires confirmation.",

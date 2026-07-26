@@ -254,6 +254,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "update_frontmatter",
       domain: "metadata",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Mutate a note's frontmatter (set/remove/merge/replace). `replace` discards all existing metadata and requires confirmation. Optional prev_hash gives compare-and-swap. Set nested=true to address a dotted key path for set/remove (intermediate objects are created as needed).",

@@ -11,6 +11,15 @@ export interface ToolSpec<S extends z.ZodTypeAny, O> {
   /** THE-513: see ToolDefinition.domain — required here too so defineTool's cast to
    *  ToolDefinition can never paper over a missing domain at a call site. */
   domain: ToolDomain;
+  /** THE-513 Part 2: this tool's target-vault input field name, when it has one. See
+   *  ToolDefinition.vaultArg — declared here too for the same reason `domain` is: a production
+   *  tool with a vault-shaped input field but no declaration is a gap `vault-arg-coverage.test.ts`
+   *  catches, not silence. */
+  vaultArg?: string;
+  /** THE-513 Part 2: declares that this tool's input schema exposes a whole-operation idempotency
+   *  key (see ToolDefinition.acceptsIdempotencyKey). Cross-checked against the runtime extraction
+   *  by `idempotency-declaration-coverage.test.ts` in both directions. */
+  acceptsIdempotencyKey?: boolean;
   description: string;
   inputSchema: S;
   /** Optional output schema (Zod object) advertised as the tool's `outputSchema` (THE-278). */

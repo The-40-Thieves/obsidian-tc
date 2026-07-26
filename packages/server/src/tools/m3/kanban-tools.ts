@@ -187,6 +187,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "add_kanban_card",
       domain: "structured",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Add a card to a Kanban column (by name). Appends `- [ ] text` (or `- [x]` when checked) under the column heading, preserving the rest of the board.",
@@ -246,6 +247,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "move_kanban_card",
       domain: "structured",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Move a card (matched by text) from one Kanban column to another, preserving its original line (checkbox state, inline metadata).",

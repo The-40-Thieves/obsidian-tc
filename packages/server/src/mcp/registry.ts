@@ -112,6 +112,25 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  ship without one — the failure mode that let the old hand-kept facade map fall 38 tools behind
    *  in THE-577 is now a type error at the definition site, not a silent "other" bucket. */
   domain?: ToolDomain;
+  /** THE-513 Part 2: the input field name that carries this tool's target vault id, when it has
+   *  one — default "vault", the name every tool used before this field existed. The four
+   *  `vaultArgOf` call sites below (vault-binding, per-vault ACL swap, vault-kind gate, central
+   *  pathAcl) read THIS instead of hardcoding "vault", so a tool naming the field anything else
+   *  is still bound/ACL-swapped/gated correctly. Before this field, a capability naming its vault
+   *  argument anything other than "vault" silently escaped all four of those checks — they simply
+   *  saw `undefined` and skipped. Optional here (the sink type, same reasoning as `domain`); every
+   *  MUTATING tool whose schema has a vault-shaped field MUST declare it via `vault-arg-coverage
+   *  .test.ts`, mirroring `acl-extraction-coverage.test.ts`'s mutating derivation. */
+  vaultArg?: string;
+  /** THE-513 Part 2: declares that this tool's input schema exposes a whole-operation idempotency
+   *  key recognized by `extractIdempotencyKey` (top-level `idempotency_key` / `bulk_idempotency_key`,
+   *  or nested `options.idempotency_key`) — never a per-item `items[].idempotency_key`. Before this
+   *  field, extractIdempotencyKey sniffed the input shape at runtime for every one of the ~150
+   *  tools and nothing declared which ones actually accept a key, so a capability that SHOULD be
+   *  idempotent and isn't (or vice versa) went unnoticed. `idempotency-declaration-coverage.test.ts`
+   *  cross-checks this against the schema in both directions: declared-but-schema-silent and
+   *  schema-exposes-a-key-but-undeclared both fail. */
+  acceptsIdempotencyKey?: boolean;
   description: string;
   inputSchema: z.ZodType<I>;
   /** Optional output schema (MUST be a Zod OBJECT) advertised as the tool's `outputSchema`
@@ -213,6 +232,16 @@ function extractIdempotencyKey(data: unknown): string | undefined {
     if (typeof nested === "string" && nested.length > 0) return nested;
   }
   return undefined;
+}
+
+/** THE-513 Part 2: the caller-supplied target vault id for this call, read from the tool's
+ *  declared `vaultArg` field (defaulting to "vault", the name every tool used before this field
+ *  existed) — the single place the four call sites below resolve it, instead of each hardcoding
+ *  `.vault` on the parsed input. */
+function vaultArgOf(def: ToolDefinition, data: unknown): string | undefined {
+  if (data === null || typeof data !== "object") return undefined;
+  const v = (data as Record<string, unknown>)[def.vaultArg ?? "vault"];
+  return typeof v === "string" ? v : undefined;
 }
 
 /** THE-514: a stage-boundary cooperative-cancellation check. Throws the same modelled
@@ -846,8 +875,8 @@ export class ToolRegistry {
       // already enforces the same invariant. Fires only when a `vault` arg is present, so the execute
       // family (no vault arg) and vault-omitting calls are unaffected; trusted stdio is unbound.
       if (ctx.vaultBound === true) {
-        const requested = (parsed.data as { vault?: unknown } | null)?.vault;
-        if (typeof requested === "string" && requested !== ctx.vaultId)
+        const requested = vaultArgOf(def, parsed.data);
+        if (requested !== undefined && requested !== ctx.vaultId)
           throw new ObsidianTcError("forbidden", "vault is not the caller's bound vault", {
             vault: requested,
             bound_vault: ctx.vaultId,
@@ -861,8 +890,8 @@ export class ToolRegistry {
       // tool surface (listVisible) deliberately keeps the caller's default ACL; enforcement is
       // per-vault here at dispatch.
       if (this.aclResolver) {
-        const requestedVault = (parsed.data as { vault?: unknown } | null)?.vault;
-        if (typeof requestedVault === "string") {
+        const requestedVault = vaultArgOf(def, parsed.data);
+        if (requestedVault !== undefined) {
           const vaultAcl = this.aclResolver(requestedVault);
           // Property mutation (not param reassignment): ctx objects are per-dispatch.
           if (vaultAcl) (ctx as { acl?: typeof vaultAcl }).acl = vaultAcl;
@@ -881,8 +910,7 @@ export class ToolRegistry {
       // touched. A no-op when no vaultKindResolver is wired (a registry built with no
       // VaultRegistry, or a unit test that omits it).
       if (this.vaultKindResolver && mutating) {
-        const requestedVault = (parsed.data as { vault?: unknown } | null)?.vault;
-        const effVault = typeof requestedVault === "string" ? requestedVault : ctx.vaultId;
+        const effVault = vaultArgOf(def, parsed.data) ?? ctx.vaultId;
         const kind = this.vaultKindResolver(effVault);
         if (kind === "docs" || kind === "system")
           throw err.forbidden(`${name} cannot mutate a ${kind}-kind vault`, {
@@ -1125,10 +1153,7 @@ export class ToolRegistry {
         },
         async () => {
           if (def.pathAcl) {
-            const effVault =
-              typeof (parsed.data as { vault?: unknown } | null)?.vault === "string"
-                ? (parsed.data as { vault: string }).vault
-                : ctx.vaultId;
+            const effVault = vaultArgOf(def, parsed.data) ?? ctx.vaultId;
             const root = this.rootResolver?.(effVault);
             if (root) {
               for (const { op, path } of def.pathAcl(parsed.data)) {

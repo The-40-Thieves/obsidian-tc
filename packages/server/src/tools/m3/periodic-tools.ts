@@ -262,6 +262,8 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "create_periodic_note",
       domain: "workspace",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       description:
         "Create the periodic note for a period + date using the configured (or overridden) template. Fails if it already exists. Set expand_template=true to expand the template through Templater (requires write:templater; degrades to a verbatim copy when the companion/plugin is unavailable).",
       inputSchema: z
@@ -346,6 +348,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "find_or_create_periodic_note",
       domain: "workspace",
+      vaultArg: "vault",
       description:
         "Get the periodic note for a period + date, creating it (empty/template) if absent. With expand_template=true a newly created note is expanded through Templater when available (requires write:templater).",
       inputSchema: z
@@ -410,6 +413,8 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "append_to_periodic_note",
       domain: "workspace",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       description:
         "Append content to a period's note (creating it if needed), optionally under a heading. idempotency_key is accepted (enforcement lands with the policy layer).",
       inputSchema: z
