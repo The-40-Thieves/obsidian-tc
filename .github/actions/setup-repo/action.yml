@@ -24,6 +24,11 @@ inputs:
   node-version:
     description: Node version, when node-required is true.
     required: false
+    # 24 is the FLOOR every package declares (`engines.node: ">=24"`), and CI deliberately
+    # validates on the floor rather than on whatever developers run — mise pins 26.5.0 locally.
+    # Testing above the floor is how a Node-26-only API ships to a user on 24 without anything
+    # catching it. Keep this and every `node-version:` in the workflows on the same value; a
+    # straggler below the floor is a job validating a runtime we do not claim to support.
     default: '24'
   install-mode:
     description: >-
