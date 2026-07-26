@@ -4,18 +4,34 @@
 // sweep over them cannot be done from the search side. This script is the index-side half; the
 // search-side half (derivedWeight) is an env var on eval/run.ts.
 //
-// It DELETES the existing similar_to edges first, deliberately. indexVault only runs the full
-// kNN pass when the vault has none (`countDerivedEdges(...) === 0`); with edges already present
-// and no content change it takes the incremental branch and would leave the previous cell's edge
-// set in place, silently measuring the wrong configuration. Deleting is what makes each cell a
-// clean rebuild rather than a mutation of its predecessor.
+// WHY IT CALLS THE DENSIFICATION FUNCTIONS DIRECTLY RATHER THAN indexVault.
+//
+// The first version routed through indexVault with `densify: {...}`, which is how production does
+// it. That took 48+ MINUTES per cell and was the single reason this sweep looked infeasible.
+// Measured, the KNN is not the cost: one vecKnn on this 12,386-chunk index runs a median 10.2 ms,
+// so the whole pass should be ~2.1 minutes. The other ~46 were indexVault doing its full
+// reconcile — walking every note, hashing it, re-embedding drift, writing transactions — none of
+// which a sweep over edge parameters needs, because the chunks and their vectors do not change
+// between cells.
+//
+// computeKnnEdges + reconcileDerivedEdges are exactly what indexVault calls internally for this
+// pass, so going direct runs the same code on the same inputs, minus the reindex.
+//
+// `--settle` keeps the old behaviour for the ONE place it is genuinely needed: absorbing vault
+// drift once, before the control arm, so every cell measures the same corpus.
+//
+// It DELETES the existing similar_to edges before rebuilding, deliberately: with edges already
+// present, a reconcile would diff against the previous cell's set rather than build this cell's,
+// silently measuring the wrong configuration.
 //
 // usage:
 //   bun eval/densify-index.ts <config.json> --k 8 --floor 0.0
+//   bun eval/densify-index.ts <config.json> --settle          # one-time drift absorb
 import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
 import { openDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
+import { computeKnnEdges, reconcileDerivedEdges } from "../src/search/derived-edges";
 import { indexVault } from "../src/search/indexer";
 
 function arg(name: string): string | undefined {
@@ -25,19 +41,43 @@ function arg(name: string): string | undefined {
 
 const configPath = process.argv[2];
 if (!configPath || configPath.startsWith("--")) {
-  process.stderr.write("usage: bun eval/densify-index.ts <config.json> --k <n> --floor <f>\n");
+  process.stderr.write(
+    "usage: bun eval/densify-index.ts <config.json> [--k <n> --floor <f> | --settle]\n",
+  );
   process.exit(2);
 }
+const settleOnly = process.argv.includes("--settle");
 const k = Number(arg("k") ?? 8);
 const floor = Number(arg("floor") ?? 0);
-if (!Number.isInteger(k) || k < 1) throw new Error(`--k must be a positive integer, got ${k}`);
-if (!Number.isFinite(floor) || floor < 0 || floor > 1)
-  throw new Error(`--floor must be in [0,1], got ${floor}`);
+if (!settleOnly) {
+  if (!Number.isInteger(k) || k < 1) throw new Error(`--k must be a positive integer, got ${k}`);
+  if (!Number.isFinite(floor) || floor < 0 || floor > 1)
+    throw new Error(`--floor must be in [0,1], got ${floor}`);
+}
 
 const config = loadConfig(configPath);
 const vault = config.vaults[0];
 if (!vault) throw new Error("config.vaults is empty");
 const db = await openDatabase(join(config.cacheDir, "cache.db"));
+const chunks = (db.prepare("SELECT count(*) AS n FROM chunks").get() as { n: number }).n;
+
+if (settleOnly) {
+  // The expensive path, run ONCE: a full reconcile so the corpus stops moving under the sweep.
+  const t0 = performance.now();
+  await indexVault({
+    db,
+    provider: createEmbeddingProvider(config.embeddings),
+    vaultId: vault.id,
+    root: vault.path,
+    isReadable: () => true,
+  });
+  const after = (db.prepare("SELECT count(*) AS n FROM chunks").get() as { n: number }).n;
+  process.stdout.write(
+    `${JSON.stringify({ mode: "settle", chunks_before: chunks, chunks_after: after, ms: Math.round(performance.now() - t0) })}\n`,
+  );
+  db.close?.();
+  process.exit(0);
+}
 
 const before = db
   .prepare("SELECT count(*) AS n FROM vault_edges WHERE vault_id = ? AND edge_type = 'similar_to'")
@@ -46,14 +86,8 @@ db.prepare("DELETE FROM vault_edges WHERE vault_id = ? AND edge_type = 'similar_
 process.stderr.write(`cleared ${before.n} existing similar_to edge(s)\n`);
 
 const t0 = performance.now();
-const stats = await indexVault({
-  db,
-  provider: createEmbeddingProvider(config.embeddings),
-  vaultId: vault.id,
-  root: vault.path,
-  isReadable: () => true,
-  densify: { knnEdges: true, knnK: k, knnMinSim: floor },
-});
+const desired = computeKnnEdges(db, vault.id, { k, minSim: floor });
+const stats = reconcileDerivedEdges(db, vault.id, desired, ["similar_to"]);
 const ms = performance.now() - t0;
 
 const after = db
@@ -68,6 +102,6 @@ if (after.n === 0)
   );
 
 process.stdout.write(
-  `${JSON.stringify({ k, floor, edges: after.n, densify_ms: Math.round(ms), chunks_upserted: stats.chunks_upserted })}\n`,
+  `${JSON.stringify({ k, floor, edges: after.n, densify_ms: Math.round(ms), inserted: stats.inserted, deleted: stats.deleted, chunks })}\n`,
 );
 db.close?.();

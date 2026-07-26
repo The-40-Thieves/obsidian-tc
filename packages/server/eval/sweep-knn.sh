@@ -38,7 +38,7 @@ cd "$(dirname "$0")/.."
 # control and the cells describe the same corpus instead of trusting that they do.
 CACHE_DB="$(python3 -c "import json,os;print(os.path.join(json.load(open('$CONFIG'))['cacheDir'],'cache.db'))")"
 echo "=== SETTLE INDEX (absorb vault drift before the control arm) ==="
-bun eval/densify-index.ts "$CONFIG" --k 8 --floor 0.0 > /dev/null 2>&1 || true
+bun eval/densify-index.ts "$CONFIG" --settle || true
 python3 -c "
 import sqlite3, json, sys
 c = sqlite3.connect('$CACHE_DB')
