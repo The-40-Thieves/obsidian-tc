@@ -27,6 +27,10 @@ export interface ProjectFacts {
   _note?: string;
   goldenSetSize: number;
   enrichmentNdcgGain: string;
+  // THE-470 hole 3: curated, not touched by this tool (no --domain-count flag exists), but
+  // serializeFacts must round-trip it — otherwise the next `docgen:sync-facts` run silently drops
+  // it from the file, which is exactly the class of drift this file exists to prevent.
+  domainCount: number;
 }
 
 /** Count the golden set's queries. Only asserts a non-empty `queries` array — deliberately NOT
@@ -54,6 +58,7 @@ export function serializeFacts(f: ProjectFacts): string {
     ...(f._note !== undefined ? { _note: f._note } : {}),
     goldenSetSize: f.goldenSetSize,
     enrichmentNdcgGain: f.enrichmentNdcgGain,
+    domainCount: f.domainCount,
   } as ProjectFacts;
   return `${JSON.stringify(ordered, null, 2)}\n`;
 }

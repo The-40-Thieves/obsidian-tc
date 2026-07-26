@@ -14,9 +14,12 @@ export const GENERATED_DOC_FILES = [
   "docs/wiki/Tool-Reference.md",
   "docs/wiki/Configuration.md",
   "docs/wiki/Home.md",
+  "docs/wiki/Plugin-Bridges.md",
   // Astro docs site (THE-474).
   "docs/src/content/docs/tools/tool-catalog.md",
   "docs/src/content/docs/configuration/config-reference.md",
+  // THE-470 hole 2: the metrics catalog table, generated from extract-metrics.ts.
+  "docs/src/content/docs/observability/prometheus.md",
   // Hand-authored narrative docs (THE-473) — only the marked region is generated.
   "README.md",
   "ARCHITECTURE.md",

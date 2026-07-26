@@ -14,6 +14,7 @@ const base: ProjectFacts = {
   _note: "keep me",
   goldenSetSize: 136,
   enrichmentNdcgGain: "+0.223 nDCG",
+  domainCount: 31,
 };
 
 describe("sync-facts", () => {
@@ -50,6 +51,14 @@ describe("sync-facts", () => {
       _note: "keep me",
       goldenSetSize: 250,
       enrichmentNdcgGain: "+0.223 nDCG",
+      domainCount: 31,
     });
+  });
+
+  it("round-trips domainCount even though no flag ever sets it (THE-470)", () => {
+    // serializeFacts once rebuilt the object from an explicit field list that didn't know about
+    // domainCount — the next sync-facts run would have silently dropped it from the file.
+    const out = serializeFacts(mergeFacts(base, { goldenSetSize: 250 }));
+    expect(JSON.parse(out)).toHaveProperty("domainCount", 31);
   });
 });
