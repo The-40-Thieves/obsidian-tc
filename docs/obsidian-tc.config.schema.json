@@ -1,0 +1,1434 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "securityProfile": {
+      "description": "Named security posture applied before validation. 'hardened' sets the least-privilege defaults (strictReadDefault, requireCas, snapshots on, HTTP off); explicit fields override it. 'trusted-local' (the default) keeps the permissive single-user posture.",
+      "type": "string",
+      "enum": [
+        "hardened",
+        "trusted-local"
+      ]
+    },
+    "cacheDir": {
+      "default": ".obsidian-tc",
+      "description": "Directory holding the derived index and caches. Everything in it is regenerable — deleting it forces a full reindex, it is never the source of truth.",
+      "type": "string"
+    },
+    "vaults": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable identifier for this vault. Tools take it as their `vault` argument."
+          },
+          "name": {
+            "description": "Human-readable display name. Defaults to the id when absent.",
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute path to the vault directory on disk."
+          },
+          "kind": {
+            "default": "private",
+            "description": "Isolation kind, enforced one-directionally: the read:docs tools (knowledge_search/knowledge_get_critical) refuse any vault whose kind is not `docs`. `private` (default) = personal vault; `docs` = external docs corpus the read:docs surface is bound to; `system` = reserved internal vault. Not yet enforced: the private read:notes tools are NOT fenced out of a docs/system vault (a follow-up).",
+            "type": "string",
+            "enum": [
+              "private",
+              "docs",
+              "system"
+            ]
+          },
+          "acl": {
+            "description": "Per-vault ACL override, same shape as the root `acl` block. Absent means the root ACL is inherited.",
+            "type": "object",
+            "properties": {
+              "readOnly": {
+                "default": false,
+                "description": "Reject every mutating operation on this vault regardless of the scopes a caller holds.",
+                "type": "boolean"
+              },
+              "defaultScopes": {
+                "default": [],
+                "description": "Scopes REQUIRED to operate on a path that matches no rule (P1.4). Empty (the default) adds no requirement.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "rules": {
+                "default": [],
+                "description": "Ordered glob-to-required-scope rules enforced at dispatch (P1.4). Later matches override earlier ones.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "glob": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Glob matched against the vault-relative note path."
+                    },
+                    "scopes": {
+                      "default": [],
+                      "description": "Scopes REQUIRED to operate on paths matching this rule (P1.4): a caller must hold every listed scope, in addition to the tool's own required scopes, to read/write/delete a matching path. The LAST matching rule wins, replacing rather than merging the scopes of earlier matches. An empty list adds no requirement. Enforced at dispatch on tool operations; it does not filter search/enumeration result visibility, which is governed by readPaths.",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "glob"
+                  ]
+                }
+              },
+              "readPaths": {
+                "description": "Glob whitelist for reads: a path must match at least one entry. Omitted leaves reads unrestricted (see strictReadDefault).",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "writePaths": {
+                "description": "Glob whitelist for writes: a path must match at least one entry. Omitted leaves writes unrestricted.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "deletePaths": {
+                "description": "Glob whitelist for deletes: a path must match at least one entry. Omitted leaves deletes unrestricted.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "strictReadDefault": {
+                "default": false,
+                "description": "When true, an UNDEFINED readPaths whitelist fails CLOSED on the request path rather than only on bridge enumeration. Default false preserves allow-all back-compatibility.",
+                "type": "boolean"
+              }
+            }
+          },
+          "restApiUrl": {
+            "description": "Base URL of this vault's Obsidian Local REST API, used for live-mode bridge calls.",
+            "type": "string",
+            "format": "uri"
+          },
+          "restApiKey": {
+            "description": "Bearer token for the Local REST API. Secret — never logged or echoed in a tool result.",
+            "type": "string"
+          },
+          "mode": {
+            "description": "How this vault is reached. `auto` (the default when absent) probes the Local REST API once at startup: reachable means live, otherwise headless direct-filesystem access with Tier-3 action tools degrading to requires_live_obsidian. `live`/`headless` force the mode and skip the probe.",
+            "type": "string",
+            "enum": [
+              "live",
+              "headless",
+              "auto"
+            ]
+          },
+          "bridges": {
+            "description": "Per-vault plugin-bridge timeouts. Absent uses the documented defaults.",
+            "type": "object",
+            "properties": {
+              "timeoutMs": {
+                "default": 5000,
+                "description": "Timeout in ms for a general plugin-bridge call to this vault's Local REST API.",
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "probeTimeoutMs": {
+                "default": 500,
+                "description": "Timeout in ms for the startup plugin/liveness probe. Deliberately short: it runs before the server is useful, so a dead Obsidian must not stall boot.",
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "ocrTimeoutMs": {
+                "default": 30000,
+                "description": "Timeout in ms for an OCR bridge call, which is far slower than a normal request.",
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "templaterTimeoutMs": {
+                "default": 30000,
+                "description": "Timeout in ms for a Templater bridge call, which may run arbitrary user template logic.",
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            }
+          },
+          "plugins": {
+            "description": "Per-vault plugin probe overrides, for forcing a plugin present/absent or skipping the probe.",
+            "type": "object",
+            "properties": {
+              "forceEnabled": {
+                "default": [],
+                "description": "Plugin ids to treat as installed and enabled regardless of what the probe finds.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "forceDisabled": {
+                "default": [],
+                "description": "Plugin ids to treat as missing regardless of what the probe finds.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "probeSkip": {
+                "default": false,
+                "description": "Skip the startup plugin probe entirely, making forceEnabled/forceDisabled the sole source of truth. The seam CI uses to assert tool behaviour without a live Obsidian.",
+                "type": "boolean"
+              }
+            }
+          },
+          "commands": {
+            "description": "Per-vault command-palette execution policy. Absent means command execution is disabled.",
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "default": false,
+                "description": "Allow execute_command on this vault at all. Deny-by-default: command execution stays off unless this is explicitly true.",
+                "type": "boolean"
+              },
+              "allowlist": {
+                "default": [],
+                "description": "Command ids that may be fired when enabled. Only ids listed here run, and only with a HITL token — there is no wildcard.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "memory": {
+            "description": "Per-vault memory-entity materialization settings.",
+            "type": "object",
+            "properties": {
+              "folder": {
+                "default": "memory",
+                "description": "Vault folder where create_entity(materialize) writes the regenerable .md projection. A normal folder so the [[link]] graph resolves in Obsidian; SQLite remains the source of truth.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "workspace": {
+            "description": "Per-vault workspace session-trace settings.",
+            "type": "object",
+            "properties": {
+              "traceFolder": {
+                "default": ".obsidian-tc/traces",
+                "description": "Vault-relative folder for append-only JSONL session traces. Defaults to a dot-folder so traces stay out of Obsidian's graph view.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "required": [
+          "id",
+          "path"
+        ]
+      },
+      "description": "Vaults this server serves. At least one is required."
+    },
+    "plur": {
+      "description": "plur engram-store read proxy. Global rather than per-vault, since the plur store is global.",
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "description": "Base URL of the plur read API. When absent (and no `command` is set) the plur tools degrade to plugin_missing with NO network call.",
+          "type": "string",
+          "format": "uri"
+        },
+        "apiKey": {
+          "description": "Bearer token for the plur read API. Secret — placed only in the Authorization header, never logged or included in an error or audit payload.",
+          "type": "string"
+        },
+        "apiPrefix": {
+          "default": "",
+          "description": "Path prefix prepended to plur API routes.",
+          "type": "string"
+        },
+        "timeoutMs": {
+          "default": 5000,
+          "description": "Timeout in ms for a plur read call.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "command": {
+          "description": "argv prefix for shelling out to a local plur CLI instead of the HTTP endpoint, e.g. [\"plur\"]. Takes precedence over `endpoint`.",
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "auth": {
+      "description": "Authentication and token verification.",
+      "default": {
+        "mode": "none"
+      },
+      "type": "object",
+      "properties": {
+        "mode": {
+          "default": "none",
+          "description": "Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` requires a jwtSecret or a JWKS.",
+          "type": "string",
+          "enum": [
+            "none",
+            "jwt"
+          ]
+        },
+        "jwtSecret": {
+          "description": "Shared secret for HS256 verification, minimum 32 characters. Secret. HS256 tokens verify ONLY against this, never against the JWKS.",
+          "type": "string",
+          "minLength": 32
+        },
+        "tokenTtlSeconds": {
+          "default": 86400,
+          "description": "Maximum accepted token AGE in seconds, measured from the token's `iat`. This caps age INDEPENDENTLY of `exp`: a token with a one-year expiry is still rejected once it is older than this, so a long-lived credential needs this raised to match.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "jwks": {
+          "description": "Inline JWKS document for asymmetric verification (RS256/ES256/EdDSA). Rotation is multiple keys in the set, selected by the token's `kid`.",
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "jwksFile": {
+          "description": "Path to a JWKS document, loaded once at transport boot. File or inline only — no URL fetch, so verification adds no network attack surface.",
+          "type": "string"
+        },
+        "algorithms": {
+          "description": "Explicit allowlist of accepted JWT algorithms. Algorithm confusion is structurally impossible regardless: HS256 verifies only against jwtSecret and asymmetric algorithms only against the JWKS.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "audience": {
+          "description": "Expected `aud` claim. Binding it rejects a token an issuer minted for a DIFFERENT service (confused deputy). Required with a JWKS or a non-loopback bind; defaults to `resource` when Protected Resource Metadata is configured.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "issuer": {
+          "description": "Expected `iss` claim. Setting it also requires an audience — validating the issuer alone does not establish that the token was meant for this server.",
+          "type": "string"
+        },
+        "resource": {
+          "description": "This server's canonical resource URI (RFC 9728). Set together with authorizationServers to advertise Protected Resource Metadata; also serves as the default bound audience.",
+          "type": "string",
+          "format": "uri"
+        },
+        "authorizationServers": {
+          "description": "Authorization server issuer URLs advertised in the Protected Resource Metadata document. At least one is needed for PRM to be served.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "resourceName": {
+          "description": "Human-readable resource name published in the Protected Resource Metadata document.",
+          "type": "string"
+        },
+        "scopesSupported": {
+          "description": "Scopes advertised as supported in the Protected Resource Metadata document.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "acl": {
+      "description": "Default path ACL, inherited by any vault without its own.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "readOnly": {
+          "default": false,
+          "description": "Reject every mutating operation on this vault regardless of the scopes a caller holds.",
+          "type": "boolean"
+        },
+        "defaultScopes": {
+          "default": [],
+          "description": "Scopes REQUIRED to operate on a path that matches no rule (P1.4). Empty (the default) adds no requirement.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rules": {
+          "default": [],
+          "description": "Ordered glob-to-required-scope rules enforced at dispatch (P1.4). Later matches override earlier ones.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "glob": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Glob matched against the vault-relative note path."
+              },
+              "scopes": {
+                "default": [],
+                "description": "Scopes REQUIRED to operate on paths matching this rule (P1.4): a caller must hold every listed scope, in addition to the tool's own required scopes, to read/write/delete a matching path. The LAST matching rule wins, replacing rather than merging the scopes of earlier matches. An empty list adds no requirement. Enforced at dispatch on tool operations; it does not filter search/enumeration result visibility, which is governed by readPaths.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "glob"
+            ]
+          }
+        },
+        "readPaths": {
+          "description": "Glob whitelist for reads: a path must match at least one entry. Omitted leaves reads unrestricted (see strictReadDefault).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "writePaths": {
+          "description": "Glob whitelist for writes: a path must match at least one entry. Omitted leaves writes unrestricted.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deletePaths": {
+          "description": "Glob whitelist for deletes: a path must match at least one entry. Omitted leaves deletes unrestricted.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "strictReadDefault": {
+          "default": false,
+          "description": "When true, an UNDEFINED readPaths whitelist fails CLOSED on the request path rather than only on bridge enumeration. Default false preserves allow-all back-compatibility.",
+          "type": "boolean"
+        }
+      }
+    },
+    "embeddings": {
+      "description": "Embedding provider and indexing throughput.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "provider": {
+          "default": "ollama",
+          "description": "Embeddings backend. `model-tier` splits dense and multi-vector across two services.",
+          "type": "string",
+          "enum": [
+            "ollama",
+            "openai",
+            "voyage",
+            "cohere",
+            "bge-m3",
+            "model-tier"
+          ]
+        },
+        "model": {
+          "default": "nomic-embed-text",
+          "description": "Embedding model name as the provider names it.",
+          "type": "string"
+        },
+        "dimensions": {
+          "default": 768,
+          "description": "Stored vector width, and the width of the vec0 column. Changing it requires a fresh index — existing vectors are not re-projected.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "baseUrl": {
+          "description": "Provider base URL. Required for self-hosted runners; hosted providers default to their public API.",
+          "type": "string",
+          "format": "uri"
+        },
+        "apiKey": {
+          "description": "Provider API key. Secret — never logged or returned by a tool.",
+          "type": "string"
+        },
+        "timeoutMs": {
+          "default": 120000,
+          "description": "Timeout in ms for a single embed request. Defaults high because local runners are far slower than hosted APIs.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "batchSize": {
+          "default": 512,
+          "description": "Maximum inputs per embed request.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxBatchTokens": {
+          "default": 2048,
+          "description": "Estimated-token ceiling per request (chars/4), splitting a dense sub-batch before it overruns a local runner's budget. Must stay UNDER the provider's loaded context: Ollama defaults to n_ctx 4096 and rejects an over-budget request, and the chars/4 estimate undercounts real tokenization on link-dense markdown.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "concurrency": {
+          "default": 4,
+          "description": "How many embed requests run in flight at once.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "truncate": {
+          "default": false,
+          "description": "Matryoshka (MRL) truncation: accept a provider vector WIDER than `dimensions` by keeping the first `dimensions` components and renormalising. Off by default so a non-MRL width mismatch errors instead of silently storing a meaningless prefix.",
+          "type": "boolean"
+        },
+        "chunkContext": {
+          "default": true,
+          "description": "Embed and BM25-index each chunk as \"{title}{ — heading breadcrumb}\\n\\n{content}\" rather than bare section text, so title- and heading-only evidence is visible to both retrieval streams. Displayed content stays raw. The chunk hash covers the enriched text, so changing this re-embeds the vault on the next reconcile.",
+          "type": "boolean"
+        },
+        "queryPrefix": {
+          "default": "",
+          "description": "Instruct prefix prepended to query-side embeds, for models whose cards require one. Empty by default — such prefixes measured harmful on this corpus.",
+          "type": "string"
+        },
+        "documentPrefix": {
+          "default": "",
+          "description": "Instruct prefix prepended to document-side (indexing) embeds. Empty by default. Changing it re-embeds nothing on its own, since hashes cover chunk text and not the prefix — pair a change with a fresh cacheDir.",
+          "type": "string"
+        },
+        "modelTier": {
+          "description": "Polyglot model tier: dense retrieval from one service and sparse/ColBERT from another, fused by RRF on ranks. Required when provider is model-tier.",
+          "type": "object",
+          "properties": {
+            "dense": {
+              "type": "object",
+              "properties": {
+                "baseUrl": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "Base URL of the dense (Qwen3 via Rust TEI) embedding service."
+                },
+                "model": {
+                  "default": "Qwen/Qwen3-Embedding-0.6B",
+                  "description": "Dense model id. Its width is what embeddings.dimensions must match.",
+                  "type": "string"
+                },
+                "revision": {
+                  "description": "Pinned model revision for the dense service.",
+                  "type": "string"
+                },
+                "pooling": {
+                  "default": "last-token",
+                  "description": "Pooling strategy for the dense model.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "baseUrl"
+              ],
+              "description": "Dense retrieval half of the model tier. Required when provider is model-tier."
+            },
+            "full": {
+              "description": "Sparse and ColBERT half of the model tier. Absent disables the retrieval.sparse and retrieval.colbert streams.",
+              "type": "object",
+              "properties": {
+                "baseUrl": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "Base URL of the multi-vector (BGE-M3) service."
+                },
+                "model": {
+                  "default": "BAAI/bge-m3",
+                  "description": "Multi-vector model id.",
+                  "type": "string"
+                },
+                "revision": {
+                  "description": "Pinned model revision for the multi-vector service.",
+                  "type": "string"
+                },
+                "authToken": {
+                  "description": "Bearer token for the multi-vector service. Secret.",
+                  "type": "string"
+                },
+                "dimensions": {
+                  "default": 1024,
+                  "description": "Dense width of the multi-vector model, separate from embeddings.dimensions.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "baseUrl"
+              ]
+            }
+          },
+          "required": [
+            "dense"
+          ]
+        }
+      }
+    },
+    "indexing": {
+      "description": "Index-on-write concurrency and backpressure.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "writeConcurrency": {
+          "default": 8,
+          "description": "Ceiling on concurrent index/embed calls across ALL vaults.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "writeConcurrencyPerVault": {
+          "default": 4,
+          "description": "Ceiling on concurrent index/embed calls for a single vault.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "queueMax": {
+          "default": 1000,
+          "description": "Soft cap on distinct pending paths, surfaced as backpressure in server_health. Writes are never dropped when it is exceeded.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "retrieval": {
+      "description": "Retrieval fusion and graph densification.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "rrfK": {
+          "default": 10,
+          "description": "Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "classRouter": {
+          "default": false,
+          "description": "Enable the deterministic query-class router: a temporal auto-stream and a lexical short-circuit that skips the embedding round-trip. Ships dark pending an A/B on the golden set.",
+          "type": "boolean"
+        },
+        "sparse": {
+          "default": false,
+          "description": "Fuse a bge-m3 learned-sparse stream into RRF at serve time. A no-op unless the embeddings provider emits the multi-vector heads (bge-m3 or model-tier).",
+          "type": "boolean"
+        },
+        "colbert": {
+          "default": false,
+          "description": "Rerank the fused top-K by bge-m3 ColBERT late-interaction maxSim. A no-op unless the provider emits the multi-vector heads.",
+          "type": "boolean"
+        },
+        "densify": {
+          "description": "Graph densification: derived edges added beyond the literal wikilink layer to reach multi-hop targets whose bridge notes are not explicitly linked. All off by default.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "tagEdges": {
+              "default": false,
+              "description": "Emit shared-frontmatter-tag co-occurrence edges (edge_type shared_tag).",
+              "type": "boolean"
+            },
+            "maxTagFanout": {
+              "default": 25,
+              "description": "A tag applied to more notes than this is treated as a hub rather than a signal and emits no edges.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "knnEdges": {
+              "default": false,
+              "description": "Emit vec0 kNN semantic-neighbour edges (edge_type similar_to).",
+              "type": "boolean"
+            },
+            "knnK": {
+              "default": 8,
+              "description": "Number of neighbours per note when knnEdges is enabled.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "knnMinSim": {
+              "default": 0,
+              "description": "Drop kNN edges below this cosine similarity. 0 keeps every neighbour the kNN returns.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "includeInWalk": {
+              "default": false,
+              "description": "Let the graph walk traverse derived edges, down-weighted against authored links.",
+              "type": "boolean"
+            },
+            "derivedWeight": {
+              "default": 0.5,
+              "description": "Down-weight factor applied to expansion reached via a derived edge. Annotates the score rather than gating the edge.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "llmEdges": {
+              "default": false,
+              "description": "Build LLM-inferred semantic edges (semantically_similar_to) via the configured gateway. Batch-only, and it sends note content to the model — local by default.",
+              "type": "boolean"
+            },
+            "confidenceFloor": {
+              "default": 0.55,
+              "description": "Minimum discrete-rubric confidence required to keep an LLM-inferred edge.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "adaptiveRrf": {
+          "description": "Adaptive per-stream RRF weighting (THE-391): tilts dense vs lexical/sparse stream weight by per-query lexical specificity. Off by default.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Enable the adaptive per-stream RRF weighting tilt. Off by default.",
+              "type": "boolean"
+            },
+            "gain": {
+              "default": 0.5,
+              "description": "Strength of the tilt, clamped to [0,1] so stream weights stay within [0,2] — an over-unity gain would drive a weight negative and invert its ranking rather than just reweight it.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "cache": {
+          "description": "THE-497 in-process query-product cache. Off by default; a hit requires the same caller, query, vault generation and retrieval configuration.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Cache query encodings and graph-search results in process, keyed by vault generation + caller ACL fingerprint + query + retrieval config. A latency optimisation only; off by default.",
+              "type": "boolean"
+            },
+            "maxEntries": {
+              "default": 64,
+              "description": "Maximum live entries per cache (results and query encodings are counted separately). Results carry chunk content, so this is the memory bound.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "ttlSeconds": {
+              "default": 60,
+              "description": "Entry lifetime. Bounds staleness from inputs the key cannot see: wall-clock recency decay, and derived state (densified edges, activation scores) written by jobs that do not bump the vault generation.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        }
+      }
+    },
+    "ranking": {
+      "description": "Post-fusion ranking overlays.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "metadataPrior": {
+          "description": "Frontmatter metadata prior (authority boost) applied post-fusion in graph_search.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Apply the frontmatter authority-boost overlay after fusion.",
+              "type": "boolean"
+            },
+            "rules": {
+              "default": [],
+              "description": "Field/value/boost rules summed for each result before the list is re-sorted.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Frontmatter field name to test on a candidate note."
+                  },
+                  "value": {
+                    "type": "string",
+                    "description": "Value that frontmatter[field] must equal for the boost to apply."
+                  },
+                  "boost": {
+                    "type": "number",
+                    "description": "Amount added to the fused score on a match. May be negative, which makes the rule an archive-style penalty."
+                  }
+                },
+                "required": [
+                  "field",
+                  "value",
+                  "boost"
+                ]
+              }
+            },
+            "clampFraction": {
+              "default": 0.5,
+              "description": "Cap the absolute total boost per result at this fraction of the observed fused-score spread. Below 1 this guarantees the prior stays a tie-break: a fully boosted bottom result still cannot overtake the top base-scored one.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        }
+      }
+    },
+    "experiential": {
+      "description": "Local-only experiential telemetry tier.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "logRetrievals": {
+          "default": true,
+          "description": "Append serve-path retrieval events (chunk id, rank, score, query text, surface) to experiential.db. Local-only telemetry feeding activation recompute and usage stats; eval runs never log.",
+          "type": "boolean"
+        },
+        "captureEpisodes": {
+          "default": true,
+          "description": "Record every dispatch outcome as an agent_episodes row — tool, status, duration, sizes, hashes, attribution. No payloads are stored.",
+          "type": "boolean"
+        },
+        "captureContent": {
+          "default": false,
+          "description": "Also persist each episode's raw parsed arguments, secret-scanned and size-capped. Off until the poisoning defence lands: this is the write-side of the gate.",
+          "type": "boolean"
+        },
+        "activationRerank": {
+          "default": false,
+          "description": "Build the ACT-R cached-activation-score lookup and thread it to every M7 graphSearch call. NOT YET WIRED to the serve-path bubble pass (bubble_safe_rerank) — that requires opts.bubbleSafe.enabled, which nothing under src/ sets, so enabling this flag currently changes no ranking. See THE-424 for the (deliberately deferred) wiring decision.",
+          "type": "boolean"
+        }
+      }
+    },
+    "transports": {
+      "description": "Which MCP transports are served.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "stdio": {
+          "default": true,
+          "description": "Serve the MCP stdio transport.",
+          "type": "boolean"
+        },
+        "http": {
+          "description": "HTTP transport settings.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Serve the MCP HTTP transport.",
+              "type": "boolean"
+            },
+            "host": {
+              "default": "127.0.0.1",
+              "description": "Bind address. A non-loopback host is refused while auth.mode is `none`, since every request would otherwise resolve to full wildcard scopes.",
+              "type": "string"
+            },
+            "port": {
+              "default": 8765,
+              "description": "TCP port for the HTTP transport.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "enableDnsRebindingProtection": {
+              "default": true,
+              "description": "Reject a request whose Host is neither loopback nor operator-allowed, or whose Origin is neither same-origin nor operator-allowed. Server-to-server clients send no Origin and are unaffected.",
+              "type": "boolean"
+            },
+            "allowedHosts": {
+              "default": [],
+              "description": "Additional Host header values accepted by the rebinding guard.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "allowedOrigins": {
+              "default": [],
+              "description": "Additional Origin header values accepted by the rebinding guard.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "governor": {
+      "description": "Response-size and regex execution limits.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "maxResponseBytes": {
+          "default": 1000000,
+          "description": "Ceiling on a single tool response in bytes, before it is truncated or refused.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "regexTimeoutMs": {
+          "default": 2000,
+          "description": "Worker-time budget in ms for one regex search. Only regex execution counts — file I/O does not — so a benign pattern over a large vault cannot false-positive the ReDoS guard.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "writes": {
+      "description": "Write-safety policy.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "requireCas": {
+          "default": false,
+          "description": "Require a prev_hash (compare-and-swap) on overwriting writes and on appends to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber.",
+          "type": "boolean"
+        }
+      }
+    },
+    "toolVisibility": {
+      "description": "Static tool-surface scoping. Absent means allow all.",
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "description": "Name allowlist: only these tools are listed. Absent lists all; an empty array lists none.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hidden": {
+          "default": [],
+          "description": "Tool names dropped from tools/list but still callable by name. A leaner default surface, NOT a security boundary.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "disabled": {
+          "default": [],
+          "description": "Tool names dropped from tools/list AND rejected at dispatch, so they behave as if unregistered.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hiddenTags": {
+          "default": [],
+          "description": "Tags whose tools are hidden from tools/list but remain callable.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "disabledTags": {
+          "default": [],
+          "description": "Tags whose tools are hidden and rejected at dispatch.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requireReadOnly": {
+          "default": false,
+          "description": "List only non-mutating tools. Mutation is derived from each tool's required scopes, so no per-tool annotation is needed. Hides rather than rejects.",
+          "type": "boolean"
+        }
+      }
+    },
+    "toolFacade": {
+      "description": "Which tool surface tools/list advertises.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "mode": {
+          "default": "triad",
+          "description": "Which surface tools/list advertises: `triad` exposes three meta-tools (find/describe/call_capability), `domain` about a dozen domain meta-tools, `flat` the full tool surface. Every registered tool stays callable by name in every mode.",
+          "type": "string",
+          "enum": [
+            "triad",
+            "domain",
+            "flat"
+          ]
+        }
+      }
+    },
+    "bootstrap": {
+      "description": "session_bootstrap context routing table.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "deepPaths": {
+          "default": [],
+          "description": "Context notes loaded additionally in deep mode.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "domains": {
+          "default": [],
+          "description": "Signal-to-path routing table. Empty means the tool degrades to lightweight with nothing to load.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Label for this routing domain."
+              },
+              "signals": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Lowercased substrings; the domain matches when any one appears in the opening message."
+              },
+              "paths": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Context notes loaded when this domain matches."
+              }
+            },
+            "required": [
+              "name",
+              "signals",
+              "paths"
+            ]
+          }
+        },
+        "maxPaths": {
+          "default": 10,
+          "description": "Ceiling on how many context notes one bootstrap may read.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 50
+        },
+        "deepPhrases": {
+          "default": [
+            "where did we leave off",
+            "what's open",
+            "whats open",
+            "catch me up",
+            "current state",
+            "where are we",
+            "what should i be working on",
+            "what should i work on"
+          ],
+          "description": "Catch-up phrases that force deep mode regardless of the triage result.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "throttle": {
+      "description": "Per-scope-class rate limits and write concurrency.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Enforce per-scope-class rate limits.",
+          "type": "boolean"
+        },
+        "tiers": {
+          "description": "Per-scope-class rate limits.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "read": {
+              "description": "Throttle tier for read-scope tools.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "perMinute": {
+                  "default": 600,
+                  "description": "Sustained read-scope calls allowed per minute.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "burst": {
+                  "default": 100,
+                  "description": "Bucket depth for read-scope calls: how many may fire back-to-back before the per-minute rate applies.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "write": {
+              "description": "Throttle tier for write-scope tools.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "perMinute": {
+                  "default": 60,
+                  "description": "Sustained write-scope calls allowed per minute.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "burst": {
+                  "default": 20,
+                  "description": "Bucket depth for write-scope calls: how many may fire back-to-back before the per-minute rate applies.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "delete": {
+              "description": "Throttle tier for delete-scope tools.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "perMinute": {
+                  "default": 60,
+                  "description": "Sustained delete-scope calls allowed per minute.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "burst": {
+                  "default": 20,
+                  "description": "Bucket depth for delete-scope calls: how many may fire back-to-back before the per-minute rate applies.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "bulk": {
+              "description": "Throttle tier for bulk-scope tools.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "perMinute": {
+                  "default": 10,
+                  "description": "Sustained bulk-scope calls allowed per minute.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "burst": {
+                  "default": 3,
+                  "description": "Bucket depth for bulk-scope calls: how many may fire back-to-back before the per-minute rate applies.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "execute": {
+              "description": "Throttle tier for execute-scope tools.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "perMinute": {
+                  "default": 5,
+                  "description": "Sustained execute-scope calls allowed per minute.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "burst": {
+                  "default": 1,
+                  "description": "Bucket depth for execute-scope calls: how many may fire back-to-back before the per-minute rate applies.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "admin": {
+              "description": "Throttle tier for admin-scope tools.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "perMinute": {
+                  "default": 5,
+                  "description": "Sustained admin-scope calls allowed per minute.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "burst": {
+                  "default": 1,
+                  "description": "Bucket depth for admin-scope calls: how many may fire back-to-back before the per-minute rate applies.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            }
+          }
+        },
+        "maxConcurrentWritesPerVault": {
+          "default": 16,
+          "description": "Ceiling on concurrent write operations against a single vault.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "observability": {
+      "description": "Metrics, traces and event export.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "otel": {
+          "description": "OpenTelemetry trace export.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "endpoint": {
+              "description": "OTLP collector endpoint. OpenTelemetry export is a no-op until this is set.",
+              "type": "string",
+              "format": "uri"
+            },
+            "headers": {
+              "description": "Extra headers sent with OTLP exports, e.g. an auth token. Values may be secret.",
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "prometheus": {
+          "description": "Prometheus metrics endpoint.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Serve the Prometheus /metrics endpoint.",
+              "type": "boolean"
+            },
+            "port": {
+              "default": 9464,
+              "description": "Port for the Prometheus scrape endpoint.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535
+            },
+            "bind": {
+              "default": "127.0.0.1",
+              "description": "Bind address for the scrape endpoint. Loopback by default — /metrics is unauthenticated.",
+              "type": "string"
+            }
+          }
+        },
+        "morgiana": {
+          "description": "CloudEvents export stream.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "spool": {
+              "default": true,
+              "description": "Write CloudEvents to a local JSONL spool file.",
+              "type": "boolean"
+            },
+            "httpEndpoint": {
+              "description": "Push CloudEvents to this URL. Absent means spool-only, with no network calls.",
+              "type": "string",
+              "format": "uri"
+            },
+            "httpHeaders": {
+              "description": "Extra headers sent with event pushes. Values may be secret.",
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "retention": {
+          "description": "Retention policy for locally stored observability data.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "eventLogDays": {
+              "default": 30,
+              "description": "Days of event_log rows kept by the maintenance sweep. This is the ONLY retention that is enforced: trace files and the event spool are not pruned and grow without bound.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        }
+      }
+    },
+    "maintenance": {
+      "description": "Periodic cache.db maintenance sweep.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Run the periodic cache.db maintenance sweep (expired idempotency and elicitation rows, event_log retention, PRAGMA optimize).",
+          "type": "boolean"
+        },
+        "intervalMinutes": {
+          "default": 60,
+          "description": "Minutes between maintenance sweeps.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "jobsCompleteRetentionDays": {
+          "default": 7,
+          "description": "Days a COMPLETE job row is retained before the maintenance sweep prunes it. Must stay LONGER than the longest producer dedup window: enqueue() dedups against a terminal row unless replaceIfTerminal is set, so pruning one frees its idempotency key and lets that period run again (the weekly synthesis is the longest today).",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "jobsFailedRetentionDays": {
+          "default": 30,
+          "description": "Days a FAILED (dead-lettered) job row is retained. Longer than the complete-row window because these exist to be read; bounded by age, so a burst of failures inside the window is still unbounded in count.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "snapshots": {
+      "description": "Point-in-time note snapshot policy.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "description": "Capture the prior content-addressed state before a destructive note write, so restore_note can roll back.",
+          "type": "boolean"
+        },
+        "retention": {
+          "default": 10,
+          "description": "Maximum snapshot versions kept per note. Older versions are pruned.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
+    "plane": {
+      "description": "Ambient sleep-time consolidation jobs.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Run ambient sleep-time consolidation (synthesis and audit jobs). Only meaningful when the inference gateway roles are configured.",
+          "type": "boolean"
+        },
+        "intervalMinutes": {
+          "default": 240,
+          "description": "Minutes between consolidation passes.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "idempotencyTtlSeconds": {
+      "default": 86400,
+      "description": "Seconds an idempotency record is retained, bounding how long a repeated request key is deduplicated.",
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "idempotencyReclaimSeconds": {
+      "default": 60,
+      "description": "Seconds after which a crashed in-flight idempotency row may be reclaimed at dispatch. Raise it for legitimately slow bulk tools: setting it below a live tool's runtime risks executing that tool twice.",
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "elicitTtlSeconds": {
+      "default": 300,
+      "description": "Seconds a pending elicitation (human-in-the-loop prompt) stays valid before it expires.",
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "vaults"
+  ],
+  "title": "obsidian-tc server config",
+  "description": "Configuration for obsidian-tc. Generated from packages/shared/src/config.schema.ts — do not edit by hand. Add `\"$schema\": \"./obsidian-tc.config.schema.json\"` to your config for editor autocomplete."
+}

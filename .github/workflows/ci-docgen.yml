@@ -41,6 +41,21 @@ jobs:
       - name: narrative fact gate (THE-566 — no stale tool-count / golden-set numbers in prose)
         working-directory: packages/server
         run: bun run docgen:facts-check
+      - name: config JSON Schema drift gate
+        # The published schema is what editors read for autocomplete + inline docs on
+        # obsidian-tc.config.json. It is generated from the Zod schema that already validates the
+        # config, so a new key with a .describe() reaches users automatically — but only if the
+        # committed artifact is regenerated. Stale here means an editor silently tells someone a
+        # valid key is invalid, which is worse than having no schema at all.
+        #
+        # The generator also refuses to write a schema that lost its descriptions in conversion:
+        # a description-free schema is still valid JSON and would still pass a file-exists check
+        # while being useless.
+        #
+        # The zod->JSON-Schema conversion lives in packages/shared, not in the script: a script
+        # under scripts/ resolves imports from its own directory upward, so it finds zod only when
+        # the workspace hoists it to the root — true locally, false on this runner.
+        run: bun scripts/gen-config-schema.ts --check
       - name: TREE.md dependency-graph drift gate (THE-470)
         # TREE.md carried a standing "hand-generated and will drift" warning, and it had — the
         # committed numbers were 232 modules / 785 dependencies against a real 246 / 978. The graph
