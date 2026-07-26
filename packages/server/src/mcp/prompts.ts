@@ -15,6 +15,19 @@ interface PromptDef {
   build: (args: Record<string, string>) => string;
 }
 
+/** THE-448: clamp a caller-supplied facet count. Prompt arguments are strings with no schema
+ *  behind them — the MCP protocol types them as Record<string, string> — so this normalizes
+ *  garbage ("lots", "-3", "2.5", "99") to the default rather than rendering a prompt that asks
+ *  for an unbounded number of searches. The ceiling matches vault_graph_search's `queries` cap so
+ *  a caller who does reach for the fan-out instead is not told a number the tool would reject. */
+const MAX_FACETS = 8;
+const DEFAULT_FACETS = 4;
+function clampVariants(raw: string | undefined): number {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) return DEFAULT_FACETS;
+  return Math.min(n, MAX_FACETS);
+}
+
 // Built-in prompt templates. Each renders a single user message that primes the agent to use
 // obsidian-tc's tools; the prompts themselves perform no vault access.
 const PROMPTS: PromptDef[] = [
@@ -43,6 +56,51 @@ const PROMPTS: PromptDef[] = [
     ],
     build: (a) =>
       `Use vault_graph_search (or search_vault) to find the notes most related to "${a.topic}". Then explain how the top results connect to each other and to "${a.topic}", grouping by theme and citing note paths.`,
+  },
+  {
+    // THE-448: decompose -> per-facet retrieve -> synthesize with citations + open questions.
+    //
+    // This prompt deliberately does NOT drive vault_graph_search's `queries[]` fan-out, and the
+    // reason is measured rather than stylistic. On the n=250 golden set, fan-out vs single-query
+    // (both path-deduped, identical code, paired):
+    //
+    //   ΔnDCG@10  -0.047  p=0.0004  SIGNIFICANT, fails the Δ>-0.015 ship floor
+    //   ΔMRR@10   -0.063  p=0.0011  SIGNIFICANT, fails the floor
+    //   Δrecall@10 -0.002  p=0.82   ns — ties on 228 of 250 queries
+    //
+    // The fan-out retrieves the SAME documents in a WORSE order. Sliced, the harm concentrates
+    // off the multi-hop set: queries with labelled bridge paths (n=103) are near-neutral at
+    // -0.0085, single-hop queries (n=147) lose -0.0746. The ticket's predicted gain on compound
+    // queries did not appear on this corpus.
+    //
+    // There is also a structural reason to keep the searches separate here even if the ranking
+    // were neutral: cross-variant RRF discards WHICH facet surfaced each note, and that
+    // attribution is exactly what step 3 needs to group evidence by facet. Fusing throws away the
+    // information this workflow is built to use.
+    name: "decompose_and_research",
+    description:
+      "Answer a compound question by decomposing it into facets, retrieving per facet, and synthesizing with citations and open questions.",
+    arguments: [
+      {
+        name: "question",
+        description: "The compound or multi-facet question to research against the vault",
+        required: true,
+      },
+      {
+        name: "max_variants",
+        description: "How many additional phrasings to fan out over (1-8, default 4)",
+        required: false,
+      },
+    ],
+    build: (a) =>
+      // Step 2 issues SEPARATE searches rather than one `queries[]` fan-out, and that is a
+      // measured choice, not an oversight. See the header comment above.
+      `Research this question against the vault: "${a.question}"
+
+1. DECOMPOSE. Identify the distinct facets the question spans (entities, domains, time periods, or sub-claims). Write up to ${clampVariants(a.max_variants)} facet queries — each self-contained, and phrased in the vocabulary that facet would actually be written in rather than the question's wording repeated.
+2. RETRIEVE PER FACET. Run a SEPARATE vault_graph_search for the original question and for each facet query. Keep the result lists separate — knowing which facet surfaced a note is what lets you attribute claims in step 3, and it is information a fused list cannot give back.
+3. SYNTHESIZE. Answer the original question, grouping by facet and naming which facet each piece of evidence came from. Cite the note path for every claim. Where the retrieved notes disagree, say so rather than picking one silently.
+4. OPEN QUESTIONS. End with what the vault does NOT answer — facets that returned nothing relevant, and claims resting on a single note.`,
   },
   {
     name: "recent_changes_digest",
