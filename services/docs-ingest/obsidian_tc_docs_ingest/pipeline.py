@@ -9,11 +9,104 @@ serve it.
 
 from __future__ import annotations
 
+import textwrap
+import typing
 from pathlib import Path
 
 from .contracts import DocChunk, ParseResult, SourceRef
 from .router import select_parser
 from .writer import write_chunk
+
+# The LangExtract extraction_class every doc-fact extraction is tagged with, so mapping code
+# can ignore any other class a model might invent despite the prompt.
+_EXTRACTION_CLASS = "doc_fact"
+
+_PROMPT = textwrap.dedent("""\
+    Extract every self-contained, retrievable doc fact from the text: a gotcha, breaking
+    change, required parameter, footgun, or rate limit -- anything a reader needs verbatim
+    when integrating with this vendor's API, SDK, or CLI.
+
+    extraction_text MUST be an exact, verbatim, contiguous span copied character-for-character
+    from the source -- it becomes the stored fact, so do not paraphrase, summarize, truncate,
+    or let spans overlap.
+
+    Attach these attributes to every extraction:
+      - title: a short (under 12 words) human-readable label for the fact
+      - category: a short lowercase snake_case tag, e.g. "breaking_change", "rate_limit",
+        "auth", "gotcha", "config"
+      - severity: one of "informational", "medium", "high", "critical" -- "critical" only for
+        something that silently breaks or loses data, "high" for a blocking error, "medium"
+        for a footgun with a workaround, "informational" for everything else
+      - source: the vendor or product the doc is about, lowercase, e.g. "context7"
+
+    Skip marketing copy and anything with no actionable detail.
+    """)
+
+# Plain data, not lx.data.ExampleData: this module must stay importable with none of the live
+# backends installed (see module docstring), so the langextract types only get built inside
+# _call_langextract, where the import already happens.
+_FEW_SHOT_EXAMPLES: list[dict[str, str]] = [
+    {
+        "text": (
+            "Context7's resolve-library-id endpoint requires the library id to include a "
+            "leading slash, e.g. /vercel/next.js. Omitting the slash returns a bare 404 with "
+            "no other diagnostic, so 'vercel/next.js' silently fails resolution."
+        ),
+        "extraction_text": (
+            "requires the library id to include a leading slash, e.g. /vercel/next.js. "
+            "Omitting the slash returns a bare 404 with no other diagnostic"
+        ),
+        "title": "Context7 library id needs a leading slash",
+        "category": "gotcha",
+        "severity": "high",
+        "source": "context7",
+    },
+    {
+        "text": (
+            "crawl4ai's /crawl endpoint caches page renders by default; set "
+            "crawler_config.params.cache_mode to BYPASS to force a fresh render of a page "
+            "you have already crawled."
+        ),
+        "extraction_text": (
+            "caches page renders by default; set crawler_config.params.cache_mode to BYPASS "
+            "to force a fresh render"
+        ),
+        "title": "crawl4ai caches renders unless cache_mode=BYPASS",
+        "category": "gotcha",
+        "severity": "medium",
+        "source": "crawl4ai",
+    },
+    {
+        "text": (
+            "LiteLLM's tokenTtlSeconds setting caps a token's age independently of its own "
+            "exp claim; the 24h schema default silently rejects a long-lived token 24 hours "
+            "after minting with a bare 401, not an expiry error."
+        ),
+        "extraction_text": (
+            "tokenTtlSeconds setting caps a token's age independently of its own exp claim; "
+            "the 24h schema default silently rejects a long-lived token 24 hours after "
+            "minting with a bare 401, not an expiry error"
+        ),
+        "title": "tokenTtlSeconds caps token age, not just exp",
+        "category": "auth",
+        "severity": "critical",
+        "source": "litellm",
+    },
+    {
+        "text": (
+            "Docling's DocumentConverter.convert() accepts a local path or a URL directly; "
+            "there is no separate download step."
+        ),
+        "extraction_text": (
+            "DocumentConverter.convert() accepts a local path or a URL directly; there is no "
+            "separate download step"
+        ),
+        "title": "DocumentConverter.convert accepts a URL directly",
+        "category": "usage",
+        "severity": "informational",
+        "source": "docling",
+    },
+]
 
 
 def parse(source: SourceRef, kind: str) -> ParseResult:
@@ -85,16 +178,88 @@ def _parse_crawl4ai(source: SourceRef) -> ParseResult:
     return ParseResult(markdown=markdown, source=source, parser="crawl4ai")
 
 
-def extract(parsed: ParseResult) -> list[DocChunk]:
-    """Run LangExtract to produce grounded DocChunk records (live extraction: next increment).
+def _call_langextract(text: str) -> typing.Any:
+    """Run the live LangExtract model call. The one seam in this module that imports
+    langextract, so tests can monkeypatch this function and exercise the rest of ``extract()``
+    (prompt/example wiring, DocChunk mapping, char-interval grounding) without the ``extract``
+    optional dependency installed.
 
-    The extraction prompt + few-shot schema (targeting the self-contained-chunk style, with
-    category/severity/source and char-interval grounding) is the next increment; until then
-    use ``dry_run`` to exercise the write -> index -> serve loop.
+    Talks to Cave's LiteLLM gateway (the single AI access point for every agent on the box)
+    through LangExtract's OpenAI-compatible provider, the same way ``_parse_crawl4ai`` talks to
+    a self-hosted service: no vendor SDK for what is one gateway.
     """
-    raise NotImplementedError(
-        "live LangExtract extraction not yet wired; use dry_run=True"
+    import os
+
+    import langextract as lx
+    from langextract.factory import ModelConfig
+
+    examples = [
+        lx.data.ExampleData(
+            text=ex["text"],
+            extractions=[
+                lx.data.Extraction(
+                    extraction_class=_EXTRACTION_CLASS,
+                    extraction_text=ex["extraction_text"],
+                    attributes={
+                        "title": ex["title"],
+                        "category": ex["category"],
+                        "severity": ex["severity"],
+                        "source": ex["source"],
+                    },
+                )
+            ],
+        )
+        for ex in _FEW_SHOT_EXAMPLES
+    ]
+
+    base_url = os.environ.get("LANGEXTRACT_BASE_URL", "http://100.78.123.100:4001/v1")
+    model_id = os.environ.get("LANGEXTRACT_MODEL_ID", "openai/gpt-4o-mini")
+    api_key = os.environ.get("LANGEXTRACT_API_KEY") or os.environ.get("LITELLM_AGENT_KEY", "")
+
+    return lx.extract(
+        text_or_documents=text,
+        prompt_description=_PROMPT,
+        examples=examples,
+        config=ModelConfig(
+            model_id=model_id,
+            provider="openai",
+            provider_kwargs={"api_key": api_key, "base_url": base_url},
+        ),
     )
+
+
+def _to_chunks(annotated: typing.Any, default_source: str) -> list[DocChunk]:
+    """Map a LangExtract ``AnnotatedDocument`` onto the corpus's ``DocChunk`` contract.
+
+    ``content`` is the extraction's own verbatim span (not a paraphrase): that is what keeps
+    ``char_start``/``char_end`` a true index into the parsed source rather than provenance for
+    text that no longer matches it. An invalid ``severity`` is not coerced here -- DocChunk's
+    ``Severity`` Literal makes pydantic reject it, which is the desired behavior.
+    """
+    chunks: list[DocChunk] = []
+    for extraction in annotated.extractions or []:
+        if getattr(extraction, "extraction_class", None) != _EXTRACTION_CLASS:
+            continue
+        attrs = extraction.attributes or {}
+        interval = extraction.char_interval
+        chunks.append(
+            DocChunk(
+                title=attrs.get("title", extraction.extraction_text[:80]),
+                content=extraction.extraction_text,
+                source=attrs.get("source") or default_source,
+                severity=attrs.get("severity", "informational"),
+                category=attrs.get("category"),
+                char_start=interval.start_pos if interval else None,
+                char_end=interval.end_pos if interval else None,
+            )
+        )
+    return chunks
+
+
+def extract(parsed: ParseResult) -> list[DocChunk]:
+    """Run LangExtract on parsed Markdown to produce grounded, corpus-ready DocChunks."""
+    annotated = _call_langextract(parsed.markdown)
+    return _to_chunks(annotated, parsed.source.vendor or "unknown")
 
 
 def ingest(source: SourceRef, corpus_dir: Path, *, dry_run: bool = False) -> list[Path]:

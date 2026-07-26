@@ -17,8 +17,11 @@ dependencies = [
 # Web pages go to a self-hosted crawl4ai server over plain HTTP (urllib), so there is deliberately
 # no client library here — the previous firecrawl-py backend was a metered hosted API that took
 # every web ingest down with HTTP 402 when credits ran out.
+# LangExtract's OpenAI provider imports the `openai` package lazily, and it is not a hard
+# dependency of langextract itself -- pull it in via langextract's own `openai` extra so the
+# provider that talks to Cave's LiteLLM gateway (OpenAI-compatible) actually has a client.
 parse = ["docling>=2"]
-extract = ["langextract>=1.5"]
+extract = ["langextract[openai]>=1.5"]
 test = ["pytest>=8"]
 
 [tool.hatch.build.targets.wheel]
