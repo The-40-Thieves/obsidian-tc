@@ -5,7 +5,6 @@
 import { extractConfig } from "./extract-config";
 import { extractErrors } from "./extract-errors";
 import { extractMetrics } from "./extract-metrics";
-import { extractSchema } from "./extract-schema";
 import { extractTools } from "./extract-tools";
 import { emptyModel } from "./model";
 
@@ -15,6 +14,5 @@ const model = {
   tools: extractTools(),
   metrics: await extractMetrics(),
   errors: extractErrors(),
-  tables: await extractSchema(),
 };
 process.stdout.write(`${JSON.stringify(model, null, 2)}\n`);

@@ -27,7 +27,7 @@ code ──(extractors, THE-471)──▶ docs-model.json ──(renderers, THE-
 
 - `extract-tools.ts` — enumerate the registry, `describeCapability` → `ToolDoc[]`
 - `extract-config.ts` — walk the config schema → `ConfigDoc[]`
-- `extract-metrics.ts` / `extract-errors.ts` / `extract-schema.ts`
+- `extract-metrics.ts` / `extract-errors.ts`
 
 ## Markers
 

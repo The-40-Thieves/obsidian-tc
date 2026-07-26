@@ -42,13 +42,6 @@ export interface ErrorDoc {
   statusClass?: string;
 }
 
-/** A database table, extracted from the migrations + introspection. */
-export interface TableDoc {
-  name: string;
-  columns: Array<{ name: string; type: string; notes?: string }>;
-  indexes: string[];
-}
-
 /** The whole model. Extractors fill the slices they own; absent slices are empty arrays. */
 export interface DocsModel {
   /** ISO date the model was generated (stamped by the CLI, not the extractors). */
@@ -57,10 +50,9 @@ export interface DocsModel {
   config: ConfigDoc[];
   metrics: MetricDoc[];
   errors: ErrorDoc[];
-  tables: TableDoc[];
 }
 
 /** An empty model — extractors merge their slice into this. */
 export function emptyModel(): DocsModel {
-  return { tools: [], config: [], metrics: [], errors: [], tables: [] };
+  return { tools: [], config: [], metrics: [], errors: [] };
 }
