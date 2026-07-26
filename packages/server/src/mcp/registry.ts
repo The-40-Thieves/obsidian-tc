@@ -259,6 +259,11 @@ export interface RegistryOptions {
    *  the client response is redacted to `{code:"internal"}`; this sink receives the real error +
    *  stack for operator diagnosis. Never wired to stdout (the MCP channel); best-effort. */
   onInternalError?: (tool: string, vaultId: string, err: unknown) => void;
+  /** THE-417 Phase 2: fired once per output-schema mismatch, in BOTH warn and strict mode. Carries
+   *  only the tool name and vault — never the payload or the Zod issues, which would put note
+   *  content into a metrics label. The `message` on the onInternalError line above is where a
+   *  human-readable diagnosis lives. */
+  onOutputSchemaDrift?: (tool: string, vaultId: string) => void;
   /** THE-457: called when the fail-open audit write throws (locked DB, disk full, migration drift).
    *  Already counted as a metric; this sink lets the composition root also surface it in server_health
    *  so an operator watching health (not metrics) sees the audit trail going lossy. Best-effort. */
@@ -302,6 +307,7 @@ export class ToolRegistry {
   private readonly onProfile?: (p: DispatchProfile) => void;
   private readonly sessionTracer?: RegistryOptions["sessionTracer"];
   private readonly onInternalError?: RegistryOptions["onInternalError"];
+  private readonly onOutputSchemaDrift?: RegistryOptions["onOutputSchemaDrift"];
   private readonly onAuditFailure?: RegistryOptions["onAuditFailure"];
   private readonly aclResolver?: RegistryOptions["aclResolver"];
   private readonly rootResolver?: RegistryOptions["rootResolver"];
@@ -322,6 +328,7 @@ export class ToolRegistry {
     this.onProfile = opts.onProfile;
     this.sessionTracer = opts.sessionTracer;
     this.onInternalError = opts.onInternalError;
+    this.onOutputSchemaDrift = opts.onOutputSchemaDrift;
     this.onAuditFailure = opts.onAuditFailure;
     this.aclResolver = opts.aclResolver;
     this.rootResolver = opts.rootResolver;
@@ -1103,6 +1110,21 @@ export class ToolRegistry {
             );
           } catch {
             /* diagnostics sink must never break dispatch */
+          }
+          // THE-417 Phase 2: a DEDICATED seam, not the stderr line above.
+          //
+          // Warn-mode's whole job is to surface latent mismatches over real traffic, and until now
+          // its only output was one stderr line among every other internal error. Nobody greps
+          // that, so "let warn-mode run for a while" was not actually a runnable instruction — the
+          // same registered-but-never-emitting shape THE-585 found in three dead gauges.
+          //
+          // Deliberately NOT parsed back out of the `output_schema:` prefix above: a stringly-typed
+          // discriminator on a diagnostics message is exactly the kind of coupling that breaks
+          // silently when someone reworks the message.
+          try {
+            this.onOutputSchemaDrift?.(name, ctx.vaultId);
+          } catch {
+            /* observability is never load-bearing */
           }
           // THE-457: in strict mode (dev/CI) a schema-contract violation is a hard, typed error —
           // caught by the dispatch handler below and returned as internal_error — rather than
