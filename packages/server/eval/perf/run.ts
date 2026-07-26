@@ -27,6 +27,7 @@ import { type AggregatedReport, toMedianReport } from "./isolate";
 import { type Baseline, type PerfReport, toMarkdown } from "./report";
 import { runIsolatedSamples } from "./sample";
 import { SCENARIOS, type Scenario } from "./scenarios";
+import { detectUniformShift } from "./uniform-shift";
 
 /** Build the vault once, run every collector in a fixed order (lifecycle LAST — it closes the DB). */
 export async function runScenario(
@@ -115,6 +116,17 @@ function readCalibrationReference(): {
     };
   } catch {
     return { reference: {}, overrides: {} };
+  }
+}
+
+/** The committed baseline for `name`, or null on a first-ever recording. Absent is not an error:
+ *  the uniform-shift check has nothing to compare against and stands down rather than blocking
+ *  bootstrap of a new scenario. */
+function readBaselineIfPresent(name: Scenario["name"]): Baseline | null {
+  try {
+    return JSON.parse(readFileSync(`eval/perf/baseline.${name}.json`, "utf8")) as Baseline;
+  } catch {
+    return null;
   }
 }
 
@@ -369,6 +381,31 @@ async function main(): Promise<void> {
           `REFUSING to record baseline: host contention detected during isolated sampling (${contention.reason ?? "high variance"}). Re-run on a quiet host.\n`,
         );
         process.exit(1);
+      }
+      // THE-584 item 4: the probe-free comparability check. The calibration probes above can only
+      // catch a channel someone thought to measure; this reads the WORKLOAD instead, so it is blind
+      // to nothing. A uniform slowdown across warn metrics with every deterministic count unchanged
+      // is a slower host, not a slower build.
+      //
+      // Skipped when no baseline exists yet — there is nothing to compare a first recording against,
+      // and refusing one would make the harness impossible to bootstrap.
+      const previous = readBaselineIfPresent(name);
+      if (previous) {
+        const shift = detectUniformShift(medianReport, previous);
+        if (shift.suspect && !args.includes("--accept-uniform-shift")) {
+          process.stderr.write(
+            `REFUSING to record baseline: ${shift.reason}\n` +
+              `  moved: ${shift.movedWorse.join(", ")}\n` +
+              `If this host IS the new reference (a deliberate CI hardware change, or numbers that\n` +
+              `reproduce across runners while the old ones do not), re-run with --accept-uniform-shift.\n`,
+          );
+          process.exit(1);
+        }
+        if (shift.suspect) {
+          process.stdout.write(
+            `ACCEPTING a uniform ${shift.medianFactor.toFixed(2)}x shift across ${shift.movedWorse.length}/${shift.comparable} warn metrics (--accept-uniform-shift). This ratchets those thresholds; the diff is worth reading metric by metric.\n`,
+          );
+        }
       }
       writeBaseline(name, medianReport, "isolated-median", agg.n, contention);
       writeCalibrationReference(contention);
