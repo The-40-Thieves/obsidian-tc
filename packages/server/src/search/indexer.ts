@@ -71,6 +71,13 @@ export interface IndexStats {
   /** THE-499: chunks whose embedding was reused from an identical-body sibling this pass (dedup),
    *  aggregated instead of logged per-chunk. */
   chunks_dedup_reused: number;
+  /** THE-588: the LOSS side of dedup — a chunk was skipped for embedding (its body matched an
+   *  already-seen sibling) but that sibling had no stored vector to copy (e.g. the owner's note was
+   *  quarantined this pass, see notes_embed_failed). The chunk row is still written, but it carries
+   *  no dense/sparse/colbert vector this pass and stays FTS-only until the owner re-embeds — see
+   *  copyDedupVectors' `!src` bail. Unlike chunks_dedup_reused, a rise here is BAD: it is retrieval
+   *  coverage lost, not work avoided. */
+  chunks_dedup_unresolved: number;
   /** THE-507 (additive): embed requests the provider rejected for exceeding its context (HTTP
    *  400/413) and that were bisected + retried this pass. Already reported on stderr; surfaced here
    *  so the caller can emit it as a counter without the indexer taking a telemetry dependency. */
@@ -632,7 +639,7 @@ function copyDedupVectors(
     hasChunkColbert: boolean;
   },
   cache: DedupCache,
-): void {
+): { resolved: boolean } {
   // THE-488: memoize the owner's vectors by content_hash for this flush. The source is the same owner
   // chunk for every duplicate of a content_hash, so the JOINs run once per distinct content_hash, not
   // once per deduped chunk (a hot repeated JOIN inside the write txn on template-heavy vaults).
@@ -641,7 +648,9 @@ function copyDedupVectors(
     src = fetchDedupSource(db, args, args.hasChunkSparse, args.hasChunkColbert);
     cache.set(args.contentHash, src);
   }
-  if (!src) return; // no stored embedding to copy — chunk degrades to FTS-only (unchanged behaviour)
+  // THE-588: no stored embedding to copy — chunk degrades to FTS-only (unchanged behaviour). The
+  // caller counts this as an UNRESOLVED dedup skip, distinct from the reused-work counter.
+  if (!src) return { resolved: false };
 
   cachedPrepare(
     db,
@@ -670,6 +679,7 @@ function copyDedupVectors(
       db,
       "INSERT INTO chunk_colbert (chunk_id, vault_id, vectors) VALUES (?, ?, ?) ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, vectors = excluded.vectors",
     ).run(args.targetId, args.vaultId, src.colbert);
+  return { resolved: true };
 }
 
 // Apply a note's write plan (prune + upserts). Contains NO transaction control — the CALLER owns
@@ -688,7 +698,7 @@ function applyNoteWrites(
   /** THE-488: per-flush memo of dedup source vectors by content_hash, shared across the batch's notes
    *  so a duplicate's JOIN runs once per distinct content_hash. */
   dedupCache: DedupCache,
-): { upserted: number; deleted: number } {
+): { upserted: number; deleted: number; dedupUnresolved: number } {
   // THE-316: static-arity SQL on the per-note reconcile write path — cache the compiled statements
   // by SQL text (cachedPrepare) so a 100-note flush recompiles these five once for the process, not
   // once per note. The vec0 DELETE is prepared only when the extension loaded — the table may not
@@ -722,6 +732,7 @@ function applyNoteWrites(
     "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
   );
   let deleted = 0;
+  let dedupUnresolved = 0;
   for (const e of plan.existing) {
     if (plan.desiredIds.has(e.id)) continue;
     delEmb.run(e.id);
@@ -778,7 +789,7 @@ function applyNoteWrites(
       deactivateOld.run(d.id, provider.id); // THE-531: retire any superseded-model row for this chunk
       if (hasVec) upsertVec(db, d.id, vec, { vaultId, path: plan.path, model: provider.id });
     } else {
-      copyDedupVectors(
+      const { resolved } = copyDedupVectors(
         db,
         {
           targetId: d.id,
@@ -794,6 +805,7 @@ function applyNoteWrites(
         },
         dedupCache,
       );
+      if (!resolved) dedupUnresolved += 1;
     }
     // THE-406: BM25 matches on the same text the dense vector embeds (enriched when the flag is
     // on); bm25Chunks JOINs chunks for the raw display content, so search output is unchanged.
@@ -807,7 +819,7 @@ function applyNoteWrites(
     if (!d.skipEmbed && hasChunkColbert && cb && cb.length > 0)
       upsertChunkColbert(db, d.id, vaultId, cb);
   });
-  return { upserted: plan.toEmbed.length, deleted };
+  return { upserted: plan.toEmbed.length, deleted, dedupUnresolved };
 }
 
 // Notify the index hook of a committed plan's (re)embedded chunks. Call only AFTER the plan's
@@ -1175,6 +1187,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     notes_deleted: 0,
     notes_embed_failed: 0,
     chunks_dedup_reused: 0,
+    chunks_dedup_unresolved: 0,
     embed_batch_rejections: 0,
     model: args.provider.id,
     dimensions: args.provider.dimensions,
@@ -1241,6 +1254,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // THE-488: one dedup-source cache for the WHOLE flush batch — duplicates span notes/paths, so the
     // memo must outlive a single applyNoteWrites call to collapse the repeated JOINs.
     const dedupCache: DedupCache = new Map();
+    // THE-588: paths with at least one unresolved dedup skip this batch (owner had no stored vector
+    // to copy) — sampled into the stderr warning below, same shape as the failed/rejected warnings.
+    const unresolvedPaths: string[] = [];
     inWriteTransaction(
       args.db,
       "index_batch",
@@ -1260,11 +1276,21 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           );
           stats.chunks_upserted += r.upserted;
           stats.chunks_deleted += r.deleted;
+          stats.chunks_dedup_unresolved += r.dedupUnresolved;
+          if (r.dedupUnresolved > 0) unresolvedPaths.push(plan.path);
           if (r.upserted > 0 || r.deleted > 0) stats.notes_indexed += 1;
         }
       },
       args.sql,
     );
+    if (unresolvedPaths.length > 0) {
+      const sample = unresolvedPaths.slice(0, 3).join(", ");
+      process.stderr.write(
+        `[ingest] vault "${args.vaultId}": ${unresolvedPaths.length} note(s) had a dedup-skipped ` +
+          `chunk with no source vector to copy (${sample}${unresolvedPaths.length > 3 ? ", ..." : ""}) ` +
+          `— those chunks are FTS-only until the owner re-embeds successfully.\n`,
+      );
+    }
     // THE-486: a committed plan means this note's chunk embeddings changed this pass (toEmbed
     // non-empty and/or a prune) — computeNotePlan never returns a plan otherwise (see its
     // toEmbed.length === 0 && !willPrune early return). This is the kNN delta's change signal,

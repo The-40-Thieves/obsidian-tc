@@ -35,6 +35,8 @@ interface Metric {
 const INGEST_EVENT_METRICS: Record<string, string> = {
   ingest_secrets_skipped: "obsidian_tc_ingest_secrets_skipped_total",
   ingest_dedup_skipped: "obsidian_tc_ingest_dedup_skipped_total",
+  // THE-588: the unresolved (loss) side of dedup, alongside its reused sibling above.
+  ingest_dedup_unresolved: "obsidian_tc_ingest_dedup_unresolved_total",
   embed_batch_rejections: "obsidian_tc_embed_batch_rejections_total",
   index_write_failures: "obsidian_tc_index_write_failures_total",
 };

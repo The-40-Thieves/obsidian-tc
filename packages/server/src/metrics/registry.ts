@@ -102,6 +102,7 @@ export class MetricsRecorder {
   // lines the indexer already writes — these make the same events queryable instead of grep-able.
   private readonly ingestSecretsSkipped: Counter<string>;
   private readonly ingestDedupSkipped: Counter<string>;
+  private readonly ingestDedupUnresolved: Counter<string>;
   private readonly embedBatchRejections: Counter<string>;
   private readonly indexWriteFailures: Counter<string>;
   private readonly vecFallbacks: Counter<string>;
@@ -153,7 +154,17 @@ export class MetricsRecorder {
     });
     this.ingestDedupSkipped = new Counter({
       name: "obsidian_tc_ingest_dedup_skipped_total",
-      help: "Chunks whose embedding was reused from an identical-body sibling instead of recomputed, by vault. This is work AVOIDED, so a rise is good; a fall means the dedup path stopped matching.",
+      help: "Chunks whose embedding was reused from an identical-body sibling instead of recomputed, by vault. This is work AVOIDED, so a rise is good ONLY for the chunks it actually resolved — see obsidian_tc_ingest_dedup_unresolved_total for the subset that copied nothing; a fall in this counter means the dedup path stopped matching.",
+      labelNames: ["vault"],
+      registers,
+    });
+    // THE-588: the LOSS side of dedup, split out of the reused counter above. A dedup-skipped chunk
+    // whose owner had no stored vector to copy (e.g. quarantined this pass) is STORED but carries no
+    // dense/sparse/colbert vector — FTS-only until the owner re-embeds. Unlike its sibling, a rise
+    // here is BAD: it is retrieval coverage lost, not work avoided.
+    this.ingestDedupUnresolved = new Counter({
+      name: "obsidian_tc_ingest_dedup_unresolved_total",
+      help: "Chunks skipped for embedding by cross-path dedup whose source had no stored vector to copy, by vault. A rise is BAD — these chunks are FTS-only (no dense/sparse/colbert) until the owner note re-embeds successfully; it is the loss side of obsidian_tc_ingest_dedup_skipped_total, not work avoided.",
       labelNames: ["vault"],
       registers,
     });
@@ -459,6 +470,10 @@ export class MetricsRecorder {
   }
   incIngestDedupSkipped(vault: string, n: number): void {
     if (n > 0) this.ingestDedupSkipped.inc({ vault }, n);
+  }
+  /** THE-588: the unresolved (loss) side of dedup — see the counter's help text. */
+  incIngestDedupUnresolved(vault: string, n: number): void {
+    if (n > 0) this.ingestDedupUnresolved.inc({ vault }, n);
   }
   incEmbedBatchRejections(vault: string, n: number): void {
     if (n > 0) this.embedBatchRejections.inc({ vault }, n);

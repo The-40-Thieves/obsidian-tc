@@ -29,6 +29,7 @@ const IndexVaultOutput = z.object({
   notes_deleted: z.number(),
   notes_embed_failed: z.number(),
   chunks_dedup_reused: z.number(),
+  chunks_dedup_unresolved: z.number(),
   embed_batch_rejections: z.number(),
   model: z.string(),
   dimensions: z.number(),
