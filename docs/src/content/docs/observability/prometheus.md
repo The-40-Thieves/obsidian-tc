@@ -4,7 +4,7 @@ description: The metrics catalog and the optional, auth-gated /metrics scrape en
 ---
 
 <!-- BEGIN GENERATED: metrics-catalog -->
-obsidian-tc maintains a Prometheus catalog of **21 counters, 4 histograms, 16 gauges**. The recorder is always live so the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete even before a metric has live traffic to report.
+obsidian-tc maintains a Prometheus catalog of **22 counters, 4 histograms, 16 gauges**. The recorder is always live so the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete even before a metric has live traffic to report.
 
 ### Counters
 
@@ -19,7 +19,8 @@ obsidian-tc maintains a Prometheus catalog of **21 counters, 4 histograms, 16 ga
 | `obsidian_tc_idempotency_cache_skipped_total` | `tool`, `vault` | Idempotency results skipped over the byte cap, by vault and tool. |
 | `obsidian_tc_idempotency_hits_total` | `tool`, `vault` | Idempotency cache hits, by vault and tool. |
 | `obsidian_tc_index_write_failures_total` | `vault` | Notes skipped in a pass because the embed provider rejected them even at single-text size, by vault. Unlike the batch rejections above these are NOT retried within the pass, so the note is absent from the index until the next reconcile. |
-| `obsidian_tc_ingest_dedup_skipped_total` | `vault` | Chunks whose embedding was reused from an identical-body sibling instead of recomputed, by vault. This is work AVOIDED, so a rise is good; a fall means the dedup path stopped matching. |
+| `obsidian_tc_ingest_dedup_skipped_total` | `vault` | Chunks whose embedding was reused from an identical-body sibling instead of recomputed, by vault. This is work AVOIDED, so a rise is good ONLY for the chunks it actually resolved — see obsidian_tc_ingest_dedup_unresolved_total for the subset that copied nothing; a fall in this counter means the dedup path stopped matching. |
+| `obsidian_tc_ingest_dedup_unresolved_total` | `vault` | Chunks skipped for embedding by cross-path dedup whose source had no stored vector to copy, by vault. A rise is BAD — these chunks are FTS-only (no dense/sparse/colbert) until the owner note re-embeds successfully; it is the loss side of obsidian_tc_ingest_dedup_skipped_total, not work avoided. |
 | `obsidian_tc_ingest_secrets_skipped_total` | `vault` | Chunks the secret gate refused to index, by vault. Non-zero is expected on a vault containing credentials; a SUDDEN rise means content that used to index no longer does. |
 | `obsidian_tc_morgiana_emit_dropped_total` | `reason`, `vault` | MORGIANA events dropped, by vault and reason. |
 | `obsidian_tc_output_schema_drift_total` | `tool`, `vault` | Handler payloads that did not match their advertised outputSchema, by vault and tool. In production this is WARN-only — the payload still ships — so a non-zero value is the only signal that a tool's declared contract has drifted from what it returns. In dev/CI the same condition is a hard internal_error. Any non-zero count names a tool whose schema or handler is wrong; there is no benign case. |
