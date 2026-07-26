@@ -69,7 +69,26 @@ Each scenario:
 
 ## What this harness does NOT cover (THE-503 audit finding)
 
-The synthetic vault is built via `harness.ts`'s `buildVault()`, which calls `indexVault()` **without** the `densify` option. `indexVault`'s graph-densification pass (shared-tag co-occurrence + vec0 kNN neighbor edges — see `docs/plans/2026-07-13-graph-densification.md`, `src/search/derived-edges.ts`) is opt-in and off by default, so **this harness never exercises it at all**, in any scenario. A change to that subsystem's cost (e.g. THE-486's delta-only densification rewrite) is invisible to every metric this harness collects, not just under-tolerated — there is no code path connecting them. Multi-vault contention, concurrent indexing+retrieval, ACL-heavy over-fetch, sparse/ColBERT embedding scenarios, same-dimension model migration, scheduler-during-traffic, and failure injection (locked DB, slow provider, canceled shutdown) are also not yet covered — see the THE-503 ticket for the full target list and the implementation notes for what was prioritized this pass.
+~~Graph densification is not exercised at all.~~ **Closed by THE-581.** The `densify` scenario runs the pass (`densify: { tagEdges: true, knnEdges: true }`) and family 15 gates its cost — see "Densification (family 15)" below.
+
+Still not covered: multi-vault contention, concurrent indexing+retrieval, ACL-heavy over-fetch, sparse/ColBERT embedding scenarios, same-dimension model migration, scheduler-during-traffic, and failure injection (locked DB, slow provider, canceled shutdown) — see the THE-503 ticket for the full target list and the implementation notes for what was prioritized this pass.
+
+### Densification (family 15, THE-581)
+
+The `densify` scenario shares `small`'s corpus parameters EXACTLY (same seed, notes, dupGroups, linkFanout, paragraphs) and adds two things: deterministic frontmatter tags, and the `densify` option on `indexVault`. Sharing the corpus is what makes the comparison legible — any difference between the two scenarios is attributable to densification and nothing else. Tags live in frontmatter specifically because `parseNote` strips it before chunking, so chunk content, dedup groups, and embeddings stay byte-identical to `small`; only note-level tag metadata differs.
+
+| metric | class | direction | why |
+| -- | -- | -- | -- |
+| `densify.vec_knn_calls` | hard | higher-worse | The cost driver. THE-486's "100x fewer chunks" and THE-533's reverse-neighbour bound are both expressed in outer per-chunk vec0 KNN calls; a call count is deterministic, so it gates without tolerance guesswork. `higher-worse` rather than `exact` so a future improvement registers as a win instead of tripping an invariant. |
+| `densify.edges_similar_to` | hard | exact | The edge SET is correctness, not cost — building fewer edges is a different graph, not a faster one. |
+| `densify.edges_shared_tag` | hard | exact | Same. |
+| `densify.index_ms` | warn | higher-worse | Whole `indexVault` call with densification on, not densification alone (the indexer exposes no hook to time the pass by itself). The densification cost proper is this minus `small`'s index_ms. |
+
+The collector **throws** rather than emitting zeros if a densify scenario produced no KNN calls or no edges. That is deliberate: a `hard`/`exact` zero matching a baseline zero reports PASS forever, which is precisely the failure mode this family exists to end — a gate that measures nothing while looking green.
+
+**Demonstrated, not asserted.** Doubling the per-chunk `vecKnn` call in `computeKnnEdges` moved `densify.vec_knn_calls` 200 → 400 and the gate failed (`FAIL densify.vec_knn_calls: 400 vs baseline 200 (tol 0.15)`, exit 1); reverting returned it to 200 and exit 0.
+
+**No baseline is committed yet.** Recording one needs a quiet host (the harness correctly refuses on a loaded one — calibration CV 0.822 against a 0.2 threshold), so it goes through the CI baseline workflow the same way `small`'s did. Until then the scenario runs on demand and is not part of the CI-gated set.
 
 ## Gate Model: Hard vs. Warn
 
@@ -237,7 +256,7 @@ Now a baselined key with no sample is a violation of its own class (`reason: "mi
 
 **Large improvements are reported, never silently accepted.** An improvement never fails (blocking a good change would be worse than the bug), but one beyond 2× is listed as `STALE BASELINE`, because a baseline that no longer describes the system gets cited later in a go/no-go.
 
-**What the gate still cannot see.** Re-read the "What this harness does NOT cover" section above before trusting a null result. In particular, **graph densification is not exercised at all** — `buildVault()` calls `indexVault()` without `densify`, and no collector emits a densification metric. This, not a weak assertion, is why THE-486's 113× improvement passed CI without comment: there was never a number to compare. THE-533's added densification write cost is likewise invisible here. Closing that needs a densify-enabled scenario plus a collector, which is deliberate follow-up work, not a tolerance change.
+**What the gate still cannot see.** Re-read the "What this harness does NOT cover" section above before trusting a null result. Densification *was* the headline entry here — `buildVault()` called `indexVault()` without `densify` and no collector emitted a densification metric, which is why THE-486's 113× improvement passed CI without comment: there was never a number to compare, and no tolerance change could have produced one. THE-581 closed that with the `densify` scenario and family 15, so THE-533's write cost is now expressible as a gated number rather than a table in a PR body. Note the residual: the `densify` scenario has no committed baseline yet (it needs a quiet host), so until that lands the coverage exists but is not enforced in CI.
 
 ## Synthetic Labelled Set
 

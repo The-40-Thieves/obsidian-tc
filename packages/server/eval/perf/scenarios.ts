@@ -1,10 +1,16 @@
 export interface Scenario {
-  name: "small" | "medium" | "large" | "vault1k" | "vault100k";
+  name: "small" | "medium" | "large" | "vault1k" | "vault100k" | "densify";
   seed: number;
   notes: number; // number of source notes
   dupGroups: number; // notes reused verbatim from this many distinct bodies
   linkFanout: number; // outbound [[wikilinks]] per note (drives the graph)
   paragraphs: number; // paragraphs per note (roughly one chunk each)
+  /** THE-581: run the graph densification pass during indexVault. Densification is opt-in and OFF
+   *  by default, which is exactly why the harness never exercised it: `buildVault` called
+   *  indexVault with no `densify` option, so no scenario ever ran the pass and no collector could
+   *  see it. A `densify` AXIS rather than a change to the existing scenarios — `small`'s committed
+   *  baseline must keep meaning what it meant, so this is new coverage, not a redefinition. */
+  densify?: { tagEdges: boolean; knnEdges: boolean };
   // THE-503 Part 2 (scale scenarios): each note yields exactly 2 chunks (one body section, one
   // links section — see harness.ts), so notes*2 is the target chunk count. `expensive` scenarios
   // are NOT part of the default CI-gated set (only `small` has a committed baseline/CI gate
@@ -16,6 +22,22 @@ export interface Scenario {
 
 export const SCENARIOS: Record<Scenario["name"], Scenario> = {
   small: { name: "small", seed: 0x5eed, notes: 100, dupGroups: 20, linkFanout: 3, paragraphs: 2 }, // 200 chunks
+  // THE-581: `small`'s corpus shape EXACTLY, plus the densification pass. Sharing the corpus is
+  // deliberate — holding notes/dupGroups/linkFanout/paragraphs/seed identical to `small` means any
+  // difference between the two scenarios' shared metrics is attributable to densification and
+  // nothing else. Both edge kinds are on: they have different cost shapes (tag co-occurrence is
+  // a join over note tags; kNN is the per-chunk vec0 scan THE-486/THE-533 bound), and a scenario
+  // that enabled only one would leave the other in the same unmeasured state this ticket exists
+  // to end.
+  densify: {
+    name: "densify",
+    seed: 0x5eed,
+    notes: 100,
+    dupGroups: 20,
+    linkFanout: 3,
+    paragraphs: 2,
+    densify: { tagEdges: true, knnEdges: true },
+  }, // 200 chunks, densification ON
   // THE-503 Part 2: the "1K chunk vault" tier named explicitly in the ticket, sitting between
   // small (200 chunks, dev-fast) and medium (2000 chunks).
   vault1k: {

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { openDatabase } from "../../src/db/open";
 import { provisionCacheDb } from "../../src/db/provision";
-import type { Database } from "../../src/db/types";
+import type { Database, Statement } from "../../src/db/types";
 import { type EmbeddingProvider, fakeEmbeddingProvider } from "../../src/embeddings";
 import { type IndexStats, indexVault } from "../../src/search/indexer";
 import type { Scenario } from "./scenarios";
@@ -68,23 +68,49 @@ export function countingProvider(base: EmbeddingProvider): CountingProvider {
   return wrapped;
 }
 
+/** THE-581: a vec0 KNN query. Densification's cost is driven by how many OUTER per-chunk vecKnn
+ *  calls run (that is the unit THE-486's "100x fewer chunks" and THE-533's bound are both expressed
+ *  in), so the metric counts EXECUTIONS of this statement shape, not preparations — a cached
+ *  statement is prepared once and run per chunk. */
+const VEC_KNN_SQL = /FROM\s+vec_chunks\b[\s\S]*\bMATCH\b/i;
+
 /** Counts write-transaction starts (`exec("BEGIN")`) issued through this connection, for
  *  THE-503's `index.txn_count` metric: how many transactions indexVault's own batching (THE-500)
  *  actually used to write this vault, as a "fewer is better" figure rather than an exact-match
- *  invariant a legitimate batching improvement could never register on. */
+ *  invariant a legitimate batching improvement could never register on.
+ *
+ *  THE-581 adds `vecKnnCalls` on the same seam. Counting here rather than instrumenting
+ *  src/search/vec.ts keeps the production path free of measurement hooks: the harness already owns
+ *  this connection, and every vec0 KNN necessarily crosses it. */
 export interface CountingDatabase extends Database {
   writeTxnCount: number;
+  vecKnnCalls: number;
 }
 export function countingDatabase(base: Database): CountingDatabase {
+  // Wrap a prepared statement so each .all() on a vec0 KNN increments the counter. Only `all` is
+  // wrapped because a KNN is only ever read that way; run/get pass straight through.
+  const countIfKnn = (sql: string, stmt: Statement): Statement => {
+    if (!VEC_KNN_SQL.test(sql)) return stmt;
+    return {
+      run: (...p: unknown[]) => stmt.run(...p),
+      get: (...p: unknown[]) => stmt.get(...p),
+      all: (...p: unknown[]) => {
+        wrapped.vecKnnCalls += 1;
+        return stmt.all(...p);
+      },
+    };
+  };
   const wrapped: CountingDatabase = {
     writeTxnCount: 0,
+    vecKnnCalls: 0,
     exec(sql: string) {
       if (sql.trim().toUpperCase() === "BEGIN") wrapped.writeTxnCount += 1;
       base.exec(sql);
     },
-    prepare: (sql: string) => base.prepare(sql),
+    prepare: (sql: string) => countIfKnn(sql, base.prepare(sql)),
     prepareCached: base.prepareCached
-      ? (sql: string) => (base.prepareCached as NonNullable<Database["prepareCached"]>)(sql)
+      ? (sql: string) =>
+          countIfKnn(sql, (base.prepareCached as NonNullable<Database["prepareCached"]>)(sql))
       : undefined,
     loadExtension: base.loadExtension
       ? (path: string) => (base.loadExtension as NonNullable<Database["loadExtension"]>)(path)
@@ -103,7 +129,34 @@ export interface VaultCtx {
   chunkCount: number;
   /** Real write-transaction count indexVault used to build this vault (THE-503, family 7). */
   writeTxnCount: number;
+  /** THE-581: vec0 KNN executions during the build. Deterministic given the seeded corpus, and the
+   *  unit densification's cost is actually expressed in. Non-zero only for a densify scenario —
+   *  a plain index does no vector KNN. */
+  vecKnnCalls: number;
+  /** THE-581: the scenario that produced this vault, so a collector can tell whether densification
+   *  was supposed to run and refuse to report a silent skip as a clean measurement. */
+  scenario: Scenario;
+  /** THE-581: wall time of the indexVault call alone (excludes corpus generation, which `buildMs`
+   *  in run.ts includes). For a densify scenario this is the whole build WITH densification, not
+   *  densification in isolation — indexVault exposes no hook to time the pass by itself. Since
+   *  `densify` and `small` share a corpus by construction, the densification cost is the difference
+   *  between their index_ms, which is a cross-scenario read the gate does not do today. */
+  indexMs: number;
   cleanup: () => void;
+}
+
+/** THE-581: how many distinct topic tags the densify corpus spreads notes across. 7 over 100 notes
+ *  gives ~14 notes per topic — enough co-occurrence to build a real edge set, while staying under
+ *  the indexer's default maxTagFanout of 25 so the metric measures densification rather than the
+ *  fanout clamp. */
+const DENSIFY_TOPICS = 7;
+
+/** Deterministic frontmatter tags, or "" for scenarios without densification (which must keep
+ *  producing byte-identical files to before this ticket). Tags are a function of the note index
+ *  only — no PRNG draw — so the corpus stays seed-stable and the tag graph is reproducible. */
+function tagFrontmatter(sc: Scenario, n: number): string {
+  if (!sc.densify) return "";
+  return `---\ntags: [topic-${n % DENSIFY_TOPICS}, group-${n % sc.dupGroups}]\n---\n\n`;
 }
 
 /** Build + index a seeded synthetic vault on the REAL bun storage path. */
@@ -147,13 +200,21 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
     // random targets would make every note's chunk content distinct and no dedup would ever
     // fire. Isolating it keeps the `dupGroups` body sections byte-identical (and dedup-able)
     // while the per-note link section still varies.
-    writeFileSync(abs, `${body}\n\n## Links\n\n${links.join(" ")}\n`);
+    //
+    // THE-581: densify scenarios prepend FRONTMATTER tags. Frontmatter specifically, because
+    // parseNote (src/vault/tags.ts) strips it before the chunker sees the body — so the chunk
+    // content, the dedup groups, and the embeddings stay byte-identical to the untagged scenario,
+    // and only the note-level tag metadata differs. An untagged corpus would make tag
+    // co-occurrence produce zero edges, i.e. a scenario that "runs" densification while measuring
+    // nothing, which is the bug this ticket exists to close rather than reproduce.
+    writeFileSync(abs, `${tagFrontmatter(sc, n)}${body}\n\n## Links\n\n${links.join(" ")}\n`);
   }
 
   const rawDb = await openDatabase(":memory:");
   provisionCacheDb(rawDb); // schema setup — not counted; only indexVault's own write txns are.
   const db = countingDatabase(rawDb);
   const provider = countingProvider(fakeEmbeddingProvider({ dimensions: 32, model: "fake-perf" }));
+  const indexT0 = performance.now();
   const stats = await indexVault({
     db,
     provider,
@@ -161,7 +222,11 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
     root,
     isReadable: () => true,
     chunkContext: false,
+    // THE-581: the missing option. Densification is opt-in and off by default, so omitting this —
+    // as every scenario did before — meant the pass never ran and no metric could observe it.
+    ...(sc.densify ? { densify: sc.densify } : {}),
   });
+  const indexMs = performance.now() - indexT0;
 
   const chunkCount = (db.prepare("SELECT count(*) c FROM chunks").get() as { c: number }).c;
   return {
@@ -172,6 +237,9 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
     stats,
     chunkCount,
     writeTxnCount: db.writeTxnCount,
+    vecKnnCalls: db.vecKnnCalls,
+    scenario: sc,
+    indexMs,
     cleanup: () => {
       // Idempotent close: collectors (e.g. collectLifecycle, family 13) close `db` themselves to
       // time shutdown drain, and orchestration may call this cleanup afterward. A second
