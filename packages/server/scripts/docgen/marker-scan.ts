@@ -7,9 +7,9 @@
 //
 // This walks the doc surfaces docgen owns and returns every `<!-- BEGIN GENERATED: name -->`
 // marker actually present, so render.ts can fail when one has no matching target. Scoped to the
-// same surfaces as GENERATED_DOC_FILES (README.md, ARCHITECTURE.md, docs/wiki, docs/src/content) —
-// TREE.md's marker regions are a different generator (scripts/gen-tree-map.mjs / `bun run
-// map:check`, wired into ci-docgen.yml separately) and are out of scope here.
+// same surfaces as GENERATED_DOC_FILES (README.md, ARCHITECTURE.md, docs/wiki, docs/src/content,
+// docs/*.md) — TREE.md's marker regions are a different generator (scripts/gen-tree-map.mjs /
+// `bun run map:check`, wired into ci-docgen.yml separately) and are out of scope here.
 import { readdirSync, readFileSync } from "node:fs";
 
 const MARKER_RE = /<!-- BEGIN GENERATED: ([\w-]+) -->/g;
@@ -24,13 +24,33 @@ function walk(repoRoot: string, relDir: string): string[] {
   return entries.filter((e) => /\.mdx?$/i.test(e)).map((e) => `${relDir}/${e}`);
 }
 
-/** repo-relative doc surfaces docgen scans for marker pairs. */
-function candidateFiles(repoRoot: string): string[] {
+/** Top-level `*.md`/`*.mdx` files directly inside `relDir` — non-recursive, so it does not also
+ *  pick up files already covered by a nested `walk()` root. */
+function walkTopLevel(repoRoot: string, relDir: string): string[] {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = readdirSync(`${repoRoot}/${relDir}`, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isFile() && /\.mdx?$/i.test(e.name))
+    .map((e) => `${relDir}/${e.name}`);
+}
+
+/** repo-relative doc surfaces docgen scans for marker pairs. Exported so the case-(c)
+ *  hand-written-catalog scan (THE-595) shares the exact same surface rather than drifting from it
+ *  the way GENERATED_DOC_FILES/suggest-prose.ts once did (see targets.ts's header comment). */
+export function candidateFiles(repoRoot: string): string[] {
   return [
     "README.md",
     "ARCHITECTURE.md",
     ...walk(repoRoot, "docs/wiki"),
     ...walk(repoRoot, "docs/src/content"),
+    // THE-595: docs/*.md (the G2 design-doc surface) — top-level only, non-recursive, so this
+    // does NOT re-walk docs/wiki or docs/src (already covered above) and does NOT pick up
+    // TREE.md, which lives at the repo root and is gated separately by `map:check`.
+    ...walkTopLevel(repoRoot, "docs"),
   ];
 }
 

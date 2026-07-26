@@ -35,12 +35,12 @@ obsidian-tc maintains a Prometheus catalog of **22 counters, 4 histograms, 16 ga
 
 ### Histograms
 
-| Name | Labels | Help |
-|---|---|---|
-| `obsidian_tc_response_bytes` | `tool`, `vault` | Tool response size in bytes, by vault and tool. |
-| `obsidian_tc_retrieval_stage_duration_seconds` | `stage`, `vault` | Wall time per named graph-search stage, by vault and stage. |
-| `obsidian_tc_sql_lock_wait_seconds` | `txn`, `vault` | Seconds spent acquiring SQLite's write lock (BEGIN IMMEDIATE), by vault and transaction. Only writers contend under WAL, so a rising tail here is the direct evidence for splitting the shared database per vault. Failed acquisitions are observed too, and land just ABOVE busy_timeout (5s) rather than at it — count the 5..10s band to find transactions that waited out the timeout and then threw. |
-| `obsidian_tc_tool_duration_seconds` | `tool`, `vault` | Tool execution wall time in seconds, by vault and tool. |
+| Name | Labels | Buckets | Help |
+|---|---|---|---|
+| `obsidian_tc_response_bytes` | `tool`, `vault` | 1000, 10000, 100000, 1000000, 10000000 | Tool response size in bytes, by vault and tool. |
+| `obsidian_tc_retrieval_stage_duration_seconds` | `stage`, `vault` | 0.0005, 0.002, 0.01, 0.05, 0.25, 1 | Wall time per named graph-search stage, by vault and stage. |
+| `obsidian_tc_sql_lock_wait_seconds` | `txn`, `vault` | 0.001, 0.01, 0.1, 0.5, 1, 5, 10 | Seconds spent acquiring SQLite's write lock (BEGIN IMMEDIATE), by vault and transaction. Only writers contend under WAL, so a rising tail here is the direct evidence for splitting the shared database per vault. Failed acquisitions are observed too, and land just ABOVE busy_timeout (5s) rather than at it — count the 5..10s band to find transactions that waited out the timeout and then threw. |
+| `obsidian_tc_tool_duration_seconds` | `tool`, `vault` | 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10 | Tool execution wall time in seconds, by vault and tool. |
 
 ### Gauges
 

@@ -12,6 +12,7 @@ import { extractStats } from "./extract-stats";
 import { extractTools } from "./extract-tools";
 import { injectGenerated } from "./inject";
 import { findGeneratedMarkers } from "./marker-scan";
+import { findHandWrittenMetricTables } from "./metric-table-scan";
 import { renderBridgeCompat } from "./render-bridge-compat";
 import { renderConfig } from "./render-config";
 import { renderMetrics } from "./render-metrics";
@@ -77,6 +78,15 @@ const targets: Array<{ rel: string; file: string; marker: string; content: strin
     marker: "metrics-catalog",
     content: metricsMd,
   },
+  // THE-595: G2.4's design-doc catalog was a hand-typed enumeration that drifted 21 metrics
+  // behind the live registry, invisible to every gate above (docs/*.md was outside the marker
+  // scan entirely). Same content as prometheus.md's region — one source, two surfaces.
+  {
+    rel: "docs/G2.4-observability.md",
+    file: repo("docs/G2.4-observability.md"),
+    marker: "metrics-catalog",
+    content: metricsMd,
+  },
   // THE-470 hole 1: the server<->companion version-compatibility matrix, generated from
   // src/bridge/version.ts. This region previously had no renderer at all — only a vitest test
   // (bridge-compat-docs.test.ts) asserted it, which is why the bidirectional guard below exists.
@@ -135,6 +145,29 @@ if (orphaned.length > 0) {
       .join("\n")}\n` +
       "Add an extract-*.ts/render-*.ts pair and a target entry above, or delete the marker if " +
       "it is no longer meant to be generated.",
+  );
+}
+
+// THE-595 guard case (c): the two checks above are both marker-shaped — they say nothing about a
+// hand-written table that duplicates the metrics catalog with NO marker at all, which is exactly
+// how docs/G2.4-observability.md drifted 21 metrics behind reality, invisible to both checks
+// above. Same silent-empty-scan risk as the marker scan: a broken regex/glob reads as "nothing to
+// report", so the total-mentions floor must be non-zero too.
+const metricTableScan = findHandWrittenMetricTables(repoRoot);
+if (metricTableScan.totalMentions === 0) {
+  throw new Error(
+    "docgen: metric-table scan matched ZERO `obsidian_tc_*` mentions across the docs tree — the " +
+      "scan is broken (scripts/docgen/metric-table-scan.ts), not the docs. Refusing to report success.",
+  );
+}
+if (metricTableScan.violations.length > 0) {
+  throw new Error(
+    `docgen: hand-written table(s) duplicating the metrics catalog with no generated marker:\n${metricTableScan.violations
+      .map((v) => `  ${v.file} (${v.metrics.length} metrics: ${v.metrics.join(", ")})`)
+      .join("\n")}\n` +
+      "Convert the table to a generated marker region fed by render-metrics.ts (see the " +
+      "docs/G2.4-observability.md target above for an example), or shrink it below the " +
+      "hand-written-catalog threshold if it is a genuine one-off example.",
   );
 }
 
