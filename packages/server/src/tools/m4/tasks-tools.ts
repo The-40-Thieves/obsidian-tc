@@ -79,6 +79,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "list_tasks",
+      domain: "automation",
       description:
         "List tasks across the vault (or a root/paths subset) with typed status/priority/tag/due filters. Filesystem-only; needs no plugin.",
       inputSchema: z
@@ -145,6 +146,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "update_task",
+      domain: "automation",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Modify a task in place by line number (status, dates, priority, tags). Reopening a task completed more than 7 days ago requires confirmation.",
@@ -229,6 +231,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "tasks_filter",
+      domain: "automation",
       description:
         "Run a Tasks-plugin filter expression (its DSL) via the companion bridge, with optional grouping/sorting. Requires the Tasks plugin; if it is unavailable, use list_tasks for native status/priority/tag/due filtering.",
       inputSchema: z

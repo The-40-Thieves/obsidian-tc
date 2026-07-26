@@ -129,6 +129,7 @@ export function buildGraphAnalyticsTools(): ToolDefinition[] {
   return [
     defineTool({
       name: "graph_centrality",
+      domain: "links",
       description:
         "Structural importance of notes in the persisted link graph (THE-452). metric 'pagerank' answers 'what do many notes point at' (power iteration, damping 0.85); metric 'betweenness' answers the different question 'what sits between otherwise disconnected areas' — a bridge note can score high on betweenness with only two links. ANALYTICS ONLY: these scores are never used for retrieval ranking. Notes outside your read scope are excluded from the graph entirely, not just from the output.",
       inputSchema: z
@@ -171,6 +172,7 @@ export function buildGraphAnalyticsTools(): ToolDefinition[] {
 
     defineTool({
       name: "graph_communities",
+      domain: "links",
       description:
         "Community detection over the persisted link graph (Louvain, THE-452). Partitions notes into clusters that link to each other more than to the rest of the vault. Deterministic: the same vault and seed always yield the same partition. ALWAYS read `meaningful` — a modularity below 0.3 means the partition is not distinguishable from chance, and presenting those clusters as 'your vault's topics' would be inventing structure. ANALYTICS ONLY, never used for retrieval ranking.",
       inputSchema: z
@@ -208,6 +210,7 @@ export function buildGraphAnalyticsTools(): ToolDefinition[] {
 
     defineTool({
       name: "graph_path_between",
+      domain: "links",
       description:
         "Trace how one note connects to another through the persisted link graph (THE-452): the shortest chain of notes joining them, with the edge types behind each hop. Undirected by default, because a reader follows a backlink as readily as a link; directed:true answers the narrower 'can I reach B by following links out of A'. Returns connected:false when no chain exists within your read scope.",
       inputSchema: z

@@ -12,6 +12,7 @@ export function buildDatacoreTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "query_datacore",
+      domain: "search",
       description:
         "Run a Datacore query using its own query language (e.g. `@page and #tag`, `@task and $completed = false`) and return matching pages/blocks with their path, name, tags, types, and frontmatter fields. Datacore is Dataview's successor; use search_dql for classic Dataview DQL.",
       inputSchema: z

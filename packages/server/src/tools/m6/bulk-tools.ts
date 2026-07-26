@@ -234,6 +234,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "bulk_create_notes",
+      domain: "notes",
       pathAcl: (input) => input.items.map((item) => ({ op: "write" as const, path: item.path })),
       description:
         "Batch-create notes with per-item results. Each item creates/overwrites/upserts a note (content + optional frontmatter). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in).",
@@ -287,6 +288,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
 
     defineTool({
       name: "bulk_set_property",
+      domain: "metadata",
       pathAcl: (input) => input.paths.map((p) => ({ op: "write" as const, path: p })),
       description:
         "Set one frontmatter property across many notes, with per-item results (prev_value). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in).",
@@ -331,6 +333,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
 
     defineTool({
       name: "bulk_move_notes",
+      domain: "notes",
       pathAcl: (input) =>
         input.moves.flatMap((m) => [
           { op: "delete" as const, path: m.from },

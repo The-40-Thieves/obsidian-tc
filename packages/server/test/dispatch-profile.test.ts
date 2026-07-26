@@ -27,6 +27,7 @@ function noopRegistry(onProfile?: (p: DispatchProfile) => void): ToolRegistry {
   registry.register(
     defineTool({
       name: "noop",
+      domain: "admin",
       description: "test tool",
       inputSchema: z.object({}).strict(),
       requiredScopes: [],

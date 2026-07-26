@@ -130,6 +130,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "add_vault",
+      domain: "vault",
       description:
         "Register a new vault at runtime (no restart). Validates the path is an existing directory, adds it to the registry, and indexes it for search. Runtime-only — add it to the config file to persist across restarts.",
       inputSchema: z
@@ -169,6 +170,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
     }),
     defineTool({
       name: "list_vaults",
+      domain: "vault",
       description: "List configured vaults and their cache state.",
       inputSchema: z.object({}).strict(),
       outputSchema: ListVaultsOutput,
@@ -188,6 +190,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
     }),
     defineTool({
       name: "get_vault",
+      domain: "vault",
       description: "Inspect a single vault's configuration and cache state.",
       inputSchema: z.object({ vault: VaultId }).strict(),
       outputSchema: GetVaultOutput,
@@ -215,6 +218,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
     }),
     defineTool({
       name: "reload_vault",
+      domain: "vault",
       description: "Re-read a vault's configuration from disk (does not touch the cache).",
       inputSchema: z.object({ vault: VaultId }).strict(),
       outputSchema: ReloadVaultOutput,
@@ -235,6 +239,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
     }),
     defineTool({
       name: "reset_vault_cache",
+      domain: "vault",
       description:
         "Drop the SQLite cache for a vault (chunks, embeddings, idempotency keys; optionally the event log). Destructive — requires confirmation.",
       inputSchema: ResetInput,

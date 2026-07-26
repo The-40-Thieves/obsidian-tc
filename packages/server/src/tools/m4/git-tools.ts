@@ -29,6 +29,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "git_status",
+      domain: "git",
       description:
         "Working-tree status of the vault's git repo (changed/staged/conflicted), via the Obsidian Git companion bridge. Unavailable under a read whitelist (repo status enumerates every path).",
       inputSchema: z.object({ vault: VaultId }).strict(),
@@ -53,6 +54,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "git_diff",
+      domain: "git",
       pathAcl: (input) => (input.path ? [{ op: "read", path: input.path }] : []),
       description:
         "Unified diff for one vault file (working tree, or the staged copy with staged: true), via the Obsidian Git companion bridge.",
@@ -79,6 +81,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "git_log",
+      domain: "git",
       description:
         "Recent commits of the vault's git repo (hash/message/author/date), via the Obsidian Git companion bridge. Unavailable under a read whitelist (log messages enumerate paths).",
       inputSchema: z
@@ -106,6 +109,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "git_stage",
+      domain: "git",
       pathAcl: (input) => input.paths.map((p) => ({ op: "write" as const, path: p })),
       description:
         "Stage vault files for the next commit, via the Obsidian Git companion bridge. Write-family: the readOnly kill switch applies.",
@@ -130,6 +134,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "git_commit",
+      domain: "git",
       description:
         "Commit the staged changes of the vault's git repo. Always requires human confirmation (execute:git is a HITL-floor family) — a commit is irreversible-in-effect from the agent's side.",
       inputSchema: z.object({ vault: VaultId, message: z.string().min(3).max(2000) }).strict(),

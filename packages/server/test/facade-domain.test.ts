@@ -2,13 +2,26 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { domainOfTool } from "../src/mcp/facade";
+import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
+
+// THE-513: these fixtures are synthetic ToolDefinitions, not real registrations, so `domain` has
+// to be supplied by hand here rather than read off a real defineTool spec. Kept to exactly the
+// tools realReg() below registers.
+const TEST_DOMAINS: Record<string, string> = {
+  read_note: "notes",
+  write_note: "notes",
+  delete_note: "notes",
+  search_text: "search",
+  index_vault: "vault",
+  get_backlinks: "links",
+};
 
 function tool(name: string): ToolDefinition {
   return {
     name,
+    domain: TEST_DOMAINS[name],
     description: `${name.replace(/_/g, " ")} — does the thing.`,
     inputSchema: z.object({ x: z.string() }).strict(),
     requiredScopes: [],
@@ -93,6 +106,11 @@ describe("domain-verb facade (THE-275)", () => {
   });
 
   it("every representative capability maps to a real domain (no drift into 'other')", () => {
+    const byName = new Map(
+      buildFullRegistry()
+        .list()
+        .map((t) => [t.name, t.domain]),
+    );
     for (const n of [
       "read_note",
       "update_frontmatter",
@@ -109,6 +127,6 @@ describe("domain-verb facade (THE-275)", () => {
       "knowledge_get_critical",
       "inspect_acl",
     ])
-      expect(domainOfTool(n)).toBeDefined();
+      expect(byName.get(n), `${n} has no facade domain`).toBeDefined();
   });
 });

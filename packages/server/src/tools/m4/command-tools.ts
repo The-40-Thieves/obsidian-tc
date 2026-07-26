@@ -103,6 +103,7 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "list_commands",
+      domain: "automation",
       description:
         "Enumerate available Obsidian commands (optional substring filter). Uses the companion plugin, falling back to Local REST API's native /commands/ route when the companion is unreachable.",
       inputSchema: z
@@ -153,6 +154,7 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "execute_command",
+      domain: "automation",
       description:
         "Fire an Obsidian command by id. Deny-by-default and triple-gated: requires human confirmation (execute:command is a HITL floor), command execution must be enabled for the vault, and the id must be on the vault allowlist. Falls back to Local REST API's native /commands/{id}/ route when the companion is unreachable. Never silently runnable.",
       inputSchema: z

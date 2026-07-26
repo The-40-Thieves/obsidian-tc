@@ -27,6 +27,7 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "ocr_attachment",
+      domain: "attachments",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Run OCR on a single image or PDF attachment via the Text Extractor bridge. Returns extracted text (cached by the plugin per file+model).",
@@ -55,6 +56,7 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "ocr_bulk",
+      domain: "attachments",
       description:
         "OCR a batch of attachments via the Text Extractor bridge. Resolves and ACL-filters the candidate set server-side; requires confirmation past 20 files.",
       inputSchema: z

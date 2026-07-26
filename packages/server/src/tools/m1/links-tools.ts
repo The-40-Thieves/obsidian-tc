@@ -177,6 +177,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "get_outgoing_links",
+      domain: "links",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "List a note's outgoing links (code-block links excluded), each resolved to a target path.",
@@ -228,6 +229,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "get_backlinks",
+      domain: "links",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Find every note that links to the given note, with source line/column.",
       inputSchema: z
@@ -278,6 +280,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "find_orphans",
+      domain: "links",
       description:
         "Find notes that nothing else links to (optionally also requiring no outgoing links).",
       inputSchema: z
@@ -322,6 +325,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "find_unresolved_links",
+      domain: "links",
       description: "Find internal links that do not resolve to any note (dangling links).",
       inputSchema: ScanInput,
       outputSchema: FindUnresolvedLinksOutput,
@@ -359,6 +363,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "rewrite_link",
+      domain: "links",
       description:
         "Repoint every link to `from_target` at `to_target` across the vault. Defaults to dry_run; a real run requires confirmation.",
       inputSchema: RewriteInput,
@@ -417,6 +422,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "prune_hub_links",
+      domain: "links",
       // Reads the hub note (input.path); the write targets are the computed set of notes linking to
       // it, enforced handler-side (each edit calls enforcePathAcl write) — not input-derivable.
       pathAcl: (input) => [{ op: "read", path: input.path }],

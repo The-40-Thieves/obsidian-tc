@@ -77,6 +77,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "bundle_folder",
+      domain: "automation",
       description:
         "Aggregate all notes under a folder into a single markdown/XML bundle (Smart Context). ACL-filtered; file-count and byte budgeted with an explicit truncated flag.",
       inputSchema: z
@@ -116,6 +117,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "bundle_files",
+      domain: "automation",
       description:
         "Aggregate an explicit list of notes into a single markdown/XML bundle. ACL-filtered; byte budgeted; reports missing_paths for files that do not exist.",
       inputSchema: z

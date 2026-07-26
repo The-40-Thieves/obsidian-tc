@@ -27,6 +27,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "list_templates",
+      domain: "automation",
       description:
         "List available Templater templates with parsed metadata (user functions, parameters), via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),
@@ -54,6 +55,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "execute_template",
+      domain: "automation",
       pathAcl: (input) => [
         { op: "read", path: input.template },
         { op: "write", path: input.target },

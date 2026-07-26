@@ -1,173 +1,52 @@
-// THE-577: the facade domain map is a hand-maintained parallel catalog of the tool surface
-// (mcp/facade.ts DOMAINS), and nothing was enforcing that it tracked the registry. It fell 38 tools
-// behind — 146 registered, 108 mapped — and stayed silent, because domainTools() sweeps anything
-// unmapped into an "other" bucket. The surface stayed complete; discovery quality quietly rotted,
-// with whole families (git, kanban, tables, snapshots, work-memory) collapsed under
-// "Miscellaneous capabilities.".
+// THE-577 established this gate because the facade domain map (mcp/facade.ts DOMAINS) was a
+// hand-maintained parallel catalog of the tool surface, and nothing enforced that it tracked the
+// registry. It fell 38 tools behind — 146 registered, 108 mapped — and stayed silent, because
+// domainTools() swept anything unmapped into an "other" bucket.
 //
-// This gate closes that in BOTH directions, because each catches a different mistake:
-//   forward  — a tool registered without a domain (the surface grew past the map: what happened).
-//   backward — a domain member naming a tool that no longer exists (a rename or removal left a
-//              stale entry). domainOfTool() cannot see this, which is why domainMapEntries() exists.
+// THE-513 deleted that map: each tool now declares its own `domain` on its ToolDefinition, so the
+// forgot-to-add-it failure mode is a compile error, not a silent gap. This gate now closes what a
+// type error alone cannot:
+//   forward  — a registered tool whose `domain` is not one of the 13 known ids (a typo that still
+//              type-checks against a widened type, or a definition built outside defineTool's
+//              compile-time check).
+//   backward — a known domain id with zero members (a domain that lost its last tool, or a rename
+//              nobody re-pointed), which would otherwise ship as a dead "action" enum of nothing.
 //
-// Registry assembly mirrors tool-count.test.ts exactly: registration only builds tool definitions
-// (handlers close over deps), so cheap stubs suffice and no live backend is needed.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
-import { provisionCacheDb } from "../src/db/provision";
-import { domainMapEntries, domainOfTool } from "../src/mcp/facade";
-import { ToolRegistry } from "../src/mcp/registry";
-import { RateLimiter } from "../src/throttle";
-import { createHealthTool, createIndexStatusTool } from "../src/tools/admin/health";
-import { registerM1Tools } from "../src/tools/m1";
-import { registerM2Tools } from "../src/tools/m2";
-import { registerM3Tools } from "../src/tools/m3";
-import { registerM4Tools } from "../src/tools/m4";
-import { registerM5Tools } from "../src/tools/m5";
-import { registerM6Tools } from "../src/tools/m6";
-import { registerM7Tools } from "../src/tools/m7";
-import { registerM8Tools } from "../src/tools/m8";
-import { VaultRegistry } from "../src/vault/registry";
-import { openMemoryDb } from "./helpers";
-
-/** Imported, not mirrored. This used to be a second hand-kept literal "mirroring" tool-count.test.ts
- *  — the same drift class THE-580 removed from check-version-coherence.mjs, and one that gate does
- *  NOT cover (it parses only tool-count.test.ts). Used here as a floor, so the coverage assertions
- *  below cannot pass against an empty or partially-assembled registry. */
+// Registry assembly reuses buildFullRegistry() (scripts/docgen/build-registry.ts) rather than
+// re-assembling the M1-M8 registration recipe by hand — see output-schema-coverage.test.ts, which
+// found that recipe copied a third time with only one copy read by the version-coherence gate.
+import { describe, expect, it } from "vitest";
+import { buildFullRegistry } from "../scripts/docgen/build-registry";
+import { TOOL_DOMAINS } from "../src/mcp/registry";
 import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
 
-const NO_THROTTLE = {
-  read: { perMinute: 1e6, burst: 1e6 },
-  write: { perMinute: 1e6, burst: 1e6 },
-  bulk: { perMinute: 1e6, burst: 1e6 },
-  execute: { perMinute: 1e6, burst: 1e6 },
-  admin: { perMinute: 1e6, burst: 1e6 },
-};
+describe("THE-577/THE-513 facade domain coverage", () => {
+  it("maps every registered tool to a known domain, and leaves no known domain empty", () => {
+    const registered = buildFullRegistry().list();
 
-describe("THE-577 facade domain-map coverage", () => {
-  const root = mkdtempSync(join(tmpdir(), "obtc-domain-cov-"));
-  afterAll(() => rmSync(root, { recursive: true, force: true }));
-
-  it("maps every registered tool to a domain, and names no tool that does not exist", () => {
-    const db = openMemoryDb();
-    provisionCacheDb(db);
-    const vaultRegistry = new VaultRegistry([{ id: "t", name: "t", path: root }]);
-    const rateLimiter = new RateLimiter(NO_THROTTLE as never);
-    const registry = new ToolRegistry({ rateLimiter });
-    const noop = () => {};
-    // Stub backends: registration only builds tool definitions (handlers close over deps), so these
-    // are never dereferenced here, which keeps the count pure and fast. `any` is permitted in test
-    // files by the biome config.
-    const embeddingProvider: any = {
-      provider: "ollama",
-      model: "nomic-embed-text",
-      embed: async () => [],
-    };
-    const metadataIndex = { hasFts: false, ready: () => true };
-    const bridge: any = () => ({ client: undefined, timeoutMs: 1000 });
-
-    registry.register(
-      createHealthTool({
-        version: "test",
-        vaults: ["t"],
-        startedAt: 0,
-        nativeLoaded: false,
-        vecEnabled: false,
-        ftsEnabled: false,
-      }),
-    );
-    // THE-491: get_index_status is registered directly in cli.ts alongside server_health, not
-    // through a register*Tools domain function — mirror that here so the count stays exact.
-    registry.register(
-      createIndexStatusTool({
-        vecEnabled: false,
-        ftsEnabled: false,
-        getIndexHealth: () => ({ reconcile: "ok", reconcile_at: null, write_failures: 0 }),
-        getLastChunksUpserted: () => null,
-      }),
-    );
-    registerM1Tools(registry, {
-      vaultRegistry,
-      version: "test",
-      startedAt: 0,
-      embeddings: { provider: "ollama", model: "nomic-embed-text" },
-      metadataIndex,
-      reindex: noop,
-      deindex: noop,
-    });
-    registerM2Tools(registry, {
-      vaultRegistry,
-      embeddingProvider,
-      dataviewBridge: bridge,
-      regexTimeoutMs: 1000,
-      metadataIndex,
-    });
-    registerM3Tools(registry, { vaultRegistry, reindex: noop, templaterBridge: bridge });
-    registerM4Tools(registry, {
-      reindex: noop,
-      vaultRegistry,
-      capabilities: (() => ({})) as never,
-      bridgeFor: () => undefined,
-      timeouts: (() => ({})) as never,
-      commandPolicy: () => ({ enabled: false, allowlist: [] }),
-      mode: () => "headless",
-    });
-    registerM5Tools(registry, {
-      vaultRegistry,
-      activeSessions: {} as never,
-      reindex: noop,
-      plur: {} as never,
-      memoryFolder: () => "memory",
-      traceFolder: () => "workspace",
-    });
-    registerM6Tools(registry, {
-      vaultRegistry,
-      rateLimiter,
-      version: "test",
-      startedAt: 0,
-      authMode: "none",
-      throttle: {} as never,
-      observability: { otel: false, prometheus: false, morgiana: true },
-      embeddingsProvider: "ollama",
-      governorMaxResponseBytes: 1e6,
-      capabilities: (() => ({})) as never,
-      registeredTools: () => registry.list().length,
-      reindex: noop,
-      deindex: noop,
-    });
-    registerM7Tools(registry, {
-      vaultRegistry,
-      embeddingProvider,
-      reranker: {} as never,
-      roles: {} as never,
-    });
-    registerM8Tools(registry, {});
-
-    const registered = registry.list().map((t) => t.name);
     // Sanity floor: an empty or truncated registry would make both assertions below pass
     // vacuously. See feedback on green checks that cover nothing.
     expect(registered.length).toBe(REGISTERED_TOOL_COUNT);
 
-    // Forward: nothing may fall through to the "other" bucket.
-    const unmapped = registered.filter((name) => domainOfTool(name) === undefined).sort();
-    expect(
-      unmapped,
-      `${unmapped.length} registered tool(s) have no facade domain and would ship under "other". ` +
-        `Add each to a DOMAINS[].members list in mcp/facade.ts: ${unmapped.join(", ")}`,
-    ).toEqual([]);
+    const known = new Set<string>(TOOL_DOMAINS);
 
-    // Backward: the map may not name a tool that no longer exists.
-    const live = new Set(registered);
-    const stale = domainMapEntries()
-      .filter(([name]) => !live.has(name))
-      .map(([name, domain]) => `${name} (in "${domain}")`)
+    // Forward: every registered tool must declare one of the known domain ids.
+    const unmapped = registered
+      .filter((t) => !t.domain || !known.has(t.domain))
+      .map((t) => `${t.name} (domain: ${String(t.domain)})`)
       .sort();
     expect(
-      stale,
-      `${stale.length} facade domain member(s) name a tool that is not registered — a rename or ` +
-        `removal left the map stale: ${stale.join(", ")}`,
+      unmapped,
+      `${unmapped.length} registered tool(s) have no/unknown facade domain — declare "domain" as ` +
+        `one of ${[...known].join(", ")} on the tool's defineTool spec: ${unmapped.join(", ")}`,
     ).toEqual([]);
+
+    // Backward: every known domain id must have at least one member, or it is a dead entry.
+    const counts = new Map<string, number>();
+    for (const t of registered) if (t.domain) counts.set(t.domain, (counts.get(t.domain) ?? 0) + 1);
+    const empty = TOOL_DOMAINS.filter((d) => !counts.get(d)).sort();
+    expect(empty, `${empty.length} domain id(s) have zero members: ${empty.join(", ")}`).toEqual(
+      [],
+    );
   });
 });

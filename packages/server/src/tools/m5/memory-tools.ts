@@ -159,6 +159,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "create_entity",
+      domain: "knowledge",
       description:
         "Create a typed memory entity (optionally materialized as a vault .md note). SQLite is the source of truth.",
       inputSchema: z
@@ -217,6 +218,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "get_entity",
+      domain: "knowledge",
       description:
         "Read a memory entity by id, by type+name, or by unique name, with its observations and relations.",
       inputSchema: z
@@ -271,6 +273,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "add_observation",
+      domain: "knowledge",
       description:
         "Append a fact to a memory entity (re-materializing its note when materialized).",
       inputSchema: z
@@ -358,6 +361,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "link_entities",
+      domain: "knowledge",
       description:
         "Create a typed relation between two memory entities (idempotent; re-materializes the source's [[links]]).",
       inputSchema: z
@@ -407,6 +411,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "query_entity_graph",
+      domain: "knowledge",
       description:
         "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered).",
       inputSchema: z

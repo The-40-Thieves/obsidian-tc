@@ -16,6 +16,7 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "validate_dql",
+      domain: "automation",
       description:
         "Parse a Dataview DQL query without executing it. Returns the AST or a parse-error location.",
       inputSchema: z.object({ vault: VaultId, dql: z.string().min(1) }).strict(),
@@ -39,6 +40,7 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "eval_dataview_field",
+      domain: "automation",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Evaluate a Dataview field expression against a single note (useful for property derivation).",

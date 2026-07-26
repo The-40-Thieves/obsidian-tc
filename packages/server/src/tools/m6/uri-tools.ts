@@ -139,6 +139,7 @@ export function buildUriTools(): ToolDefinition[] {
   return [
     defineTool({
       name: "generate_uri",
+      domain: "automation",
       description:
         "Build an obsidian:// URI for a target (open/search/new/daily/command/hookmark/advanced). Pure string builder — touches no vault state, requires no scope. `vault_name` is the Obsidian DISPLAY NAME (not a vault id) and is used verbatim.",
       inputSchema: GenerateUriInput,

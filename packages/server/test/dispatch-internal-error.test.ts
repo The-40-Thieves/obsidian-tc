@@ -34,6 +34,7 @@ function registryWithThrower(
   registry.register(
     defineTool({
       name,
+      domain: "admin",
       description: "test tool",
       inputSchema: z.object({}).strict(),
       requiredScopes: [],

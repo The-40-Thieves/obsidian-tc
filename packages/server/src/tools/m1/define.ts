@@ -3,11 +3,14 @@
 // sound: dispatch validates rawInput against inputSchema before the handler
 // runs, so by the time the handler executes the input matches z.infer<S>.
 import type { z } from "zod";
-import type { CallerContext, ToolDefinition, ToolIcon } from "../../mcp/registry";
+import type { CallerContext, ToolDefinition, ToolDomain, ToolIcon } from "../../mcp/registry";
 import type { AclOp } from "../../vault/acl-path";
 
 export interface ToolSpec<S extends z.ZodTypeAny, O> {
   name: string;
+  /** THE-513: see ToolDefinition.domain — required here too so defineTool's cast to
+   *  ToolDefinition can never paper over a missing domain at a call site. */
+  domain: ToolDomain;
   description: string;
   inputSchema: S;
   /** Optional output schema (Zod object) advertised as the tool's `outputSchema` (THE-278). */

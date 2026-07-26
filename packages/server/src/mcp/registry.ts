@@ -79,8 +79,39 @@ export interface ToolIcon {
   sizes?: string[];
 }
 
+/** THE-513: the facade's domain-grouping ids — a closed set of 13, unchanged since the THE-577
+ *  backfill made the (now-removed) facade domain map complete. Declared here, not in mcp/facade.ts,
+ *  so `ToolDefinition.domain` can require one: domain membership is a fact about the capability
+ *  itself, not a second hand-maintained catalog naming ~150 tools by string. mcp/facade.ts groups
+ *  the caller-visible surface by this field; it no longer carries membership of its own. */
+export const TOOL_DOMAINS = [
+  "notes",
+  "metadata",
+  "links",
+  "search",
+  "vault",
+  "attachments",
+  "structured",
+  "workspace",
+  "automation",
+  "git",
+  "knowledge",
+  "docs",
+  "admin",
+] as const;
+
+export type ToolDomain = (typeof TOOL_DOMAINS)[number];
+
 export interface ToolDefinition<I = unknown, O = unknown> {
   name: string;
+  /** THE-513: which facade domain (see TOOL_DOMAINS) this capability groups under in "domain" mode.
+   *  Optional here (the sink type) so fixtures unrelated to the facade — dispatch/throttle/HITL
+   *  unit tests build bare ToolDefinition literals to exercise the pipeline — don't need to fabricate
+   *  one; `domainTools()` falls back to "other" for a tool with none. It is REQUIRED on `ToolSpec`
+   *  (m1/define.ts), which is what every real definition goes through, so a production tool cannot
+   *  ship without one — the failure mode that let the old hand-kept facade map fall 38 tools behind
+   *  in THE-577 is now a type error at the definition site, not a silent "other" bucket. */
+  domain?: ToolDomain;
   description: string;
   inputSchema: z.ZodType<I>;
   /** Optional output schema (MUST be a Zod OBJECT) advertised as the tool's `outputSchema`

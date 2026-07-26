@@ -80,6 +80,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "start_session",
+      domain: "knowledge",
       description:
         "Begin a workspace memory session: a SQLite row plus an append-only JSONL trace file.",
       inputSchema: z
@@ -134,6 +135,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "end_session",
+      domain: "knowledge",
       description:
         "Finalize a workspace session, appending a session_end record to its JSONL trace.",
       inputSchema: z
@@ -175,6 +177,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "get_session_traces",
+      domain: "knowledge",
       description:
         "Replay JSONL trace records for one session, or across a started-at date window, with optional tool filtering.",
       inputSchema: z
