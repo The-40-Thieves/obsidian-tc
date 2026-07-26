@@ -1,0 +1,13 @@
+{
+  "scenario": "densify",
+  "mode": "isolated-median",
+  "samples": 5,
+  "measuredAtSha": "36ca656f5981bc754746fb5c267314419b69921a",
+  "treeDirty": false,
+  "measuredAt": "2026-07-26T03:35:52.150Z",
+  "host": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpus": 4
+  }
+}
