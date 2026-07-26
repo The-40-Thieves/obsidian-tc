@@ -1388,6 +1388,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         onNotesPass: () => {
           indexHealth.notesReady = true;
         },
+        // THE-490/THE-591: indexing.streamingWalk. Off by default -> byte-identical to before.
+        walk: { streaming: config.indexing.streamingWalk },
       });
       recordIngestStatsFor(vaultId, s);
       return { notes_seen: s.notes_seen };
@@ -1488,6 +1490,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // paths would re-embed each other's chunks back and forth (the hash covers the enriched text).
     chunkContext: config.embeddings.chunkContext,
     densify: config.retrieval.densify,
+    // THE-490/THE-591: index_vault must walk with the same strategy as the boot reconcile
+    // (indexing.streamingWalk) — index OUTPUT is identical either way, this only changes memory.
+    streamingWalk: config.indexing.streamingWalk,
     // search_dql / search_vault(mode:dql) share the Dataview bridge; openBridge
     // applies the same degradation gate (plugin_missing / plugin_unreachable).
     dataviewBridge: (vaultId) => ({
@@ -1692,6 +1697,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         onNotesPass: () => {
           indexHealth.notesReady = true;
         },
+        // THE-490/THE-591: indexing.streamingWalk. Off by default -> byte-identical to before.
+        walk: { streaming: config.indexing.streamingWalk },
       }).then(
         // THE-390: a completed reconcile that had to SKIP notes (embed provider rejected a
         // chunk even at single-text size) still degrades health — precise, non-fatal, retried

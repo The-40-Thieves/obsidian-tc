@@ -631,6 +631,11 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "streamingWalk": {
+          "default": false,
+          "description": "Walk the vault lazily per-directory (walkVaultStream) instead of materializing the full sorted file list before indexing starts. Lower peak memory on large vaults; index output is unchanged either way.",
+          "type": "boolean"
         }
       }
     },
@@ -659,6 +664,11 @@
         "colbert": {
           "default": false,
           "description": "Rerank the fused top-K by bge-m3 ColBERT late-interaction maxSim. A no-op unless the provider emits the multi-vector heads.",
+          "type": "boolean"
+        },
+        "gatedRerank": {
+          "default": false,
+          "description": "Gate a cross-encoder rerank of the fused top-K onto hard queries only (weak top-1 seed, router silent). A no-op without a configured reranker (model-tier BGE or the gateway /rerank passthrough).",
           "type": "boolean"
         },
         "densify": {

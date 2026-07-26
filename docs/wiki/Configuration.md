@@ -283,6 +283,7 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `indexing.queueMax` | `number` | `1000` |  | Soft cap on distinct pending paths, surfaced as backpressure in server_health. Writes are never dropped when it is exceeded. |
+| `indexing.streamingWalk` | `boolean` | `false` |  | Walk the vault lazily per-directory (walkVaultStream) instead of materializing the full sorted file list before indexing starts. Lower peak memory on large vaults; index output is unchanged either way. |
 | `indexing.writeConcurrency` | `number` | `8` |  | Ceiling on concurrent index/embed calls across ALL vaults. |
 | `indexing.writeConcurrencyPerVault` | `number` | `4` |  | Ceiling on concurrent index/embed calls for a single vault. |
 
@@ -357,6 +358,7 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `retrieval.densify.llmEdges` | `boolean` | `false` |  | Build LLM-inferred semantic edges (semantically_similar_to) via the configured gateway. Batch-only, and it sends note content to the model — local by default. |
 | `retrieval.densify.maxTagFanout` | `number` | `25` |  | A tag applied to more notes than this is treated as a hub rather than a signal and emits no edges. |
 | `retrieval.densify.tagEdges` | `boolean` | `false` |  | Emit shared-frontmatter-tag co-occurrence edges (edge_type shared_tag). |
+| `retrieval.gatedRerank` | `boolean` | `false` |  | Gate a cross-encoder rerank of the fused top-K onto hard queries only (weak top-1 seed, router silent). A no-op without a configured reranker (model-tier BGE or the gateway /rerank passthrough). |
 | `retrieval.rrfK` | `number` | `10` |  | Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits. |
 | `retrieval.sparse` | `boolean` | `false` |  | Fuse a bge-m3 learned-sparse stream into RRF at serve time. A no-op unless the embeddings provider emits the multi-vector heads (bge-m3 or model-tier). |
 
