@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 255,
-    "dependencies": 1013,
+    "modules": 256,
+    "dependencies": 1016,
     "subsystemPairs": 64,
-    "crossSubsystemImports": 413
+    "crossSubsystemImports": 414
   },
   "subsystems": {
     "auth": 3,
@@ -23,7 +23,7 @@
     "graph": 1,
     "mcp": 6,
     "memory": 2,
-    "metrics": 2,
+    "metrics": 3,
     "model": 7,
     "morgiana": 1,
     "otel": 1,
@@ -156,6 +156,11 @@
       "weight": 2
     },
     {
+      "from": "metrics",
+      "to": "db",
+      "weight": 2
+    },
+    {
       "from": "model",
       "to": "search",
       "weight": 2
@@ -277,11 +282,6 @@
     },
     {
       "from": "memory",
-      "to": "db",
-      "weight": 1
-    },
-    {
-      "from": "metrics",
       "to": "db",
       "weight": 1
     },

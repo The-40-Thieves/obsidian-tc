@@ -193,7 +193,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**255 modules · 1013 dependencies · 64 distinct subsystem pairs · 413 cross-subsystem imports.**
+**256 modules · 1016 dependencies · 64 distinct subsystem pairs · 414 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -250,7 +250,7 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 188 | `tools` | 269 |
-| `db` | 67 | `search` | 46 |
+| `db` | 68 | `search` | 46 |
 | `mcp` | 59 | `experiential` | 16 |
 | `search` | 29 | `mcp` | 13 |
 | `embeddings` | 12 | `model` | 11 |

@@ -37,6 +37,10 @@ const GAUGES = [
   "obsidian_tc_capture_queue_depth",
   "obsidian_tc_elicit_tokens_pending",
   "obsidian_tc_idempotency_cache_bytes",
+  // THE-585 (#1): index-coordinator depth. Distinct from capture_queue_depth above — that one is
+  // the durable table, these are in-process write work.
+  "obsidian_tc_index_queue_depth",
+  "obsidian_tc_index_active",
   // THE-507: retrieval-cache effectiveness. Gauges rather than counters because the cache owns
   // the cumulative numbers and the recorder only reads them — a Counter would require the cache
   // to call INTO the recorder, inverting the one-way dependency the composition root maintains.
@@ -47,14 +51,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 16 counters, 3 histograms, 8 gauges", async () => {
+  it("registers the full catalog: 16 counters, 3 histograms, 10 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(27);
+    expect(new Set(declared).size).toBe(29);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {

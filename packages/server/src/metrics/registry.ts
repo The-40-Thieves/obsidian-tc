@@ -33,6 +33,13 @@ export interface GaugeSources {
    *  the cache owns the numbers and the recorder only reads them; a Counter would need the cache
    *  to call INTO the recorder, which would invert the dependency the composition root exists to
    *  keep one-way. */
+  /** THE-585 (#1): index-COORDINATOR depth — in-process write work waiting on the per-(vault,path)
+   *  serialization chain. Deliberately NOT the same thing as `captureQueueDepth`, which is the
+   *  durable capture_queue table; conflating them was called out in the ticket. Process-wide, so
+   *  the `vault` label carries a bounded subsystem name (see observeSqlLockWait's note). */
+  indexQueueDepth?: () => Array<{ vault: string; value: number }>;
+  /** In-flight index operations, genuinely per vault (the coordinator tracks them that way). */
+  indexActive?: () => Array<{ vault: string; value: number }>;
   queryCacheHits?: () => Array<{ vault: string; value: number }>;
   queryCacheMisses?: () => Array<{ vault: string; value: number }>;
   queryCacheEvictions?: () => Array<{ vault: string; value: number }>;
@@ -250,6 +257,20 @@ export class MetricsRecorder {
       "obsidian_tc_idempotency_cache_bytes",
       "Idempotency cache size in bytes, by vault.",
       sources.idempotencyCacheBytes,
+    );
+    // THE-585 (#1): the index coordinator's own depth. `queued` is the number of paths with work
+    // outstanding on the serialization chain; `active` is what is executing. A rising queue against
+    // a flat active count is the signal that write concurrency is the bottleneck — the other half
+    // of the THE-467/468 argument that obsidian_tc_sql_lock_wait_seconds started.
+    gauge(
+      "obsidian_tc_index_queue_depth",
+      "Paths with index work outstanding on the in-process coordinator chain, by subsystem. NOT the durable capture queue (see obsidian_tc_capture_queue_depth).",
+      sources.indexQueueDepth,
+    );
+    gauge(
+      "obsidian_tc_index_active",
+      "Index operations currently executing, by vault.",
+      sources.indexActive,
     );
     // THE-507: retrieval-cache effectiveness. The `vault` label holds the cache name
     // ("results"/"vectors") — see GaugeSources. Hit rate is hits/(hits+misses); a rising
