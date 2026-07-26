@@ -7,7 +7,7 @@
     "direction": "exact"
   },
   "index.chunks_per_s": {
-    "value": 1264.9587699338529,
+    "value": 2901.63221599843,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -28,7 +28,7 @@
     "direction": "exact"
   },
   "embed.texts_per_s": {
-    "value": 758.9752619603117,
+    "value": 1740.9793295990582,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -70,14 +70,14 @@
     "direction": "lower-worse"
   },
   "retrieval.ndcg_at10": {
-    "value": 0.80281468033933,
+    "value": 0.8414330514255118,
     "tol": 0.15,
     "mode": "abs",
     "class": "hard",
     "direction": "lower-worse"
   },
   "retrieval.ndcg_per_ms": {
-    "value": 0.039027263172567876,
+    "value": 0.08248942031170435,
     "tol": 0.5,
     "mode": "abs",
     "class": "warn",
@@ -112,14 +112,14 @@
     "direction": "exact"
   },
   "freshness.ms": {
-    "value": 47.5719610000001,
+    "value": 34.78254100000004,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "storage.bytes": {
-    "value": 1282048,
+    "value": 1306624,
     "tol": 0.15,
     "mode": "ratio",
     "class": "hard",
@@ -133,28 +133,28 @@
     "direction": "exact"
   },
   "storage.txn_ms": {
-    "value": 1.1456479999999374,
+    "value": 0.5207489999999666,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "storage.cpu_ms": {
-    "value": 1.349,
+    "value": 0.796,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "runtime.eventloop_p99_ms": {
-    "value": 145.358847,
+    "value": 37.355519,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "runtime.peak_rss_mb": {
-    "value": 157.296875,
+    "value": 157.41015625,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -168,14 +168,14 @@
     "direction": "exact"
   },
   "http.cold_ms": {
-    "value": 73.2016880000001,
-    "tol": 1.0,
+    "value": 14.266532000000097,
+    "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "http.warm_ms": {
-    "value": 20.24059800000009,
+    "value": 3.8291229999999814,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -189,7 +189,7 @@
     "direction": "exact"
   },
   "http.concurrent2_p99_ms": {
-    "value": 5.1952400000000125,
+    "value": 2.5754219999998895,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -203,7 +203,7 @@
     "direction": "exact"
   },
   "http.concurrent8_p99_ms": {
-    "value": 14.384951999999885,
+    "value": 5.925284999999803,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -217,7 +217,7 @@
     "direction": "exact"
   },
   "migration.ms": {
-    "value": 1.2907299999999395,
+    "value": 0.628977999999961,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -231,7 +231,7 @@
     "direction": "exact"
   },
   "shutdown.ms": {
-    "value": 0.19756100000017796,
+    "value": 0.13498600000002625,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",

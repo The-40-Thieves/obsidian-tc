@@ -1,0 +1,13 @@
+{
+  "scenario": "small",
+  "mode": "isolated-median",
+  "samples": 5,
+  "measuredAtSha": "8a99e39ae8759eef456779b926996c2c9a37ca63",
+  "treeDirty": true,
+  "measuredAt": "2026-07-26T00:52:25.375Z",
+  "host": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpus": 4
+  }
+}
