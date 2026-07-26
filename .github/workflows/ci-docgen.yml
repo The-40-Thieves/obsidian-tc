@@ -52,12 +52,10 @@ jobs:
         # a description-free schema is still valid JSON and would still pass a file-exists check
         # while being useless.
         #
-        # Runs from packages/shared because that is where `zod` is an actual dependency. Root
-        # resolution worked locally via workspace hoisting and failed on the runner, which is the
-        # kind of difference only CI finds. The script resolves every path from import.meta.url,
-        # so the working directory does not affect what it reads or writes.
-        working-directory: packages/shared
-        run: bun ../../scripts/gen-config-schema.ts --check
+        # The zod->JSON-Schema conversion lives in packages/shared, not in the script: a script
+        # under scripts/ resolves imports from its own directory upward, so it finds zod only when
+        # the workspace hoists it to the root — true locally, false on this runner.
+        run: bun scripts/gen-config-schema.ts --check
       - name: TREE.md dependency-graph drift gate (THE-470)
         # TREE.md carried a standing "hand-generated and will drift" warning, and it had — the
         # committed numbers were 232 modules / 785 dependencies against a real 246 / 978. The graph

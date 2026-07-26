@@ -1391,3 +1391,21 @@ export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
   }
 });
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
+
+/**
+ * Render this schema as JSON Schema, for editors to consume on obsidian-tc.config.json.
+ *
+ * Lives here rather than in the generator script because THIS is the module that owns the schema
+ * and can resolve `zod` — a script under scripts/ resolves imports from its own directory upward,
+ * so it finds zod only when the workspace happens to hoist it to the root. That worked locally and
+ * failed on the CI runner; putting the conversion where the dependency actually lives removes the
+ * difference instead of papering over it.
+ *
+ * `io: "input"` is deliberate and is NOT the default. A config FILE is an input — what a human
+ * writes before defaults and transforms apply. The default ("output") describes the post-parse
+ * shape, marking every defaulted key required, which is precisely wrong for validating a file
+ * someone is part-way through typing.
+ */
+export function configJsonSchema(): Record<string, unknown> {
+  return z.toJSONSchema(ServerConfigSchema, { io: "input" }) as Record<string, unknown>;
+}

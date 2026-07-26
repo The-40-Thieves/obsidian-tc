@@ -22,18 +22,15 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 
-const { ServerConfigSchema } = await import(
+// The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
+// resolves its imports from its own directory upward, so importing `zod` here only works when the
+// workspace happens to hoist it to the root — true locally, false on the CI runner. Importing the
+// shared module by absolute path works either way, and it is the module that owns the schema.
+const { configJsonSchema } = await import(
   join(ROOT, "packages", "shared", "src", "config.schema.ts")
 );
-// Resolve zod the same way the schema module does, rather than by hand-built path — the workspace
-// hoists it and guessing the location is how this breaks on someone else's install.
-const { z } = await import("zod");
 
-// io:"input" is the correct direction and not the default. A config FILE is an input: it is what a
-// human writes before defaults and transforms are applied. The default ("output") would describe
-// the post-parse shape — every defaulted key marked required, which is precisely wrong for an
-// editor validating a file someone is part-way through typing.
-const schema = z.toJSONSchema(ServerConfigSchema, { io: "input" });
+const schema = configJsonSchema();
 schema.$schema = "https://json-schema.org/draft/2020-12/schema";
 schema.title = "obsidian-tc server config";
 schema.description =
