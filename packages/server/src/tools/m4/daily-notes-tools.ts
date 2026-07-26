@@ -12,6 +12,7 @@ export function buildDailyNotesTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "resolve_daily_note",
+      domain: "workspace",
       description:
         "Resolve the daily note for a date (default today) via the core Daily Notes plugin's configured folder + format. Returns whether it exists and its path — no path guessing. Read-only; does not create.",
       inputSchema: z.object({ vault: VaultId, date: z.string().optional() }).strict(),

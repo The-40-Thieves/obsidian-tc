@@ -146,6 +146,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "work_search",
+      domain: "knowledge",
       description:
         "Search the experiential work-memory (agent_episodes) — what the agent actually did. MEMORY semantics with the THE-238 reader contract enforced: only evaluator-approved (eligible) episodes by default, tombstoned/expired rows never surface, results are partitioned to the calling principal, and a trust floor (default 0.3) excludes high-risk content. include_pending opts into not-yet-evaluated episodes (still trust-floored); any_caller crosses the agent partition and requires the admin:workspace scope (P1.7: the partition is an authorization boundary, not a free filter).",
       inputSchema: z
@@ -226,6 +227,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
 
     defineTool({
       name: "work_episodes",
+      domain: "knowledge",
       description:
         "List/inspect the raw experiential episode log (management surface, the first-party list/inspect verb). Shows pending and ineligible state for review; tombstoned rows stay hidden unless include_blocked. Partitioned to the calling principal unless any_caller, which requires the admin:workspace scope (P1.7).",
       inputSchema: z
@@ -290,6 +292,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
 
     defineTool({
       name: "work_forget",
+      domain: "knowledge",
       description:
         "Tombstone an experiential episode (the THE-238 control-1 blocklist, surfaced as the first-party forget verb). A forgotten episode never surfaces in work_search again; the append-only log row remains for forensics. Idempotent. P1.7: only your OWN episodes unless you hold admin:workspace — a foreign or unknown id is a silent no-op (forgotten:false), not an error.",
       inputSchema: z.object({ episode_id: z.string().min(1) }).strict(),
@@ -316,6 +319,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
 
     defineTool({
       name: "record_retrieval_feedback",
+      domain: "knowledge",
       description:
         "Stamp relevance feedback and/or the THE-230 outcome axis (-1|0|+1) onto the most recent retrieval event(s) for a chunk in the experiential log. feedback = 'was this the right chunk'; outcome = 'did acting on it lead somewhere good'. Feeds the ACT-R activation recompute. THE-568: gated on per-caller ownership — a non-elevated caller may only stamp retrievals it caused itself; also scoped to a session (the given session_id, else your active session), an unscoped cross-session stamp requires admin:workspace.",
       inputSchema: z
@@ -372,6 +376,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
     // rather than hidden behind a silent recompute.
     defineTool({
       name: "note_quality_report",
+      domain: "knowledge",
       description:
         "Read-only note-health report from the note_quality rollup (THE-537): which notes are duplicated, orphaned, stale by edit or by access, contradicted, or tombstoned — with the raw components behind each verdict. quality_score is NULL when there is no usage evidence yet, which means UNMEASURED, not bad. Populated by the offline `obsidian-tc note-quality` pass; computed_at tells you how fresh it is. Never used for ranking.",
       inputSchema: z

@@ -10,7 +10,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";
-import type { ToolDefinition } from "./registry";
+import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain } from "./registry";
 
 export type FacadeMode = "triad" | "domain" | "flat";
 
@@ -204,305 +204,82 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
 // the triad. Each domain tool takes { action, args }: `action` names one capability in that domain
 // and `args` is passed through. call routing is identical to call_capability (registry.dispatch, so
 // every gate + the target's own Layer-6 schema validation fire) — this is a BOUNDARY-ONLY grouping,
-// not a new dispatch path. The domain map is the one catalog that must track the tool surface; a
-// tool with no mapping still ships under an "other" domain, so nothing is ever hidden.
+// not a new dispatch path. Membership lives on the tool itself (`def.domain`, THE-513); a tool can
+// no longer be forgotten from a separate catalog, so nothing is ever hidden.
 //
-// THE-577: that fallback is a safety net, not a licence to drift. It kept the surface complete but
-// SILENT while the map fell 38 tools behind (146 registered, 108 mapped) — whole families, git and
-// kanban and tables and snapshots among them, collapsed into one "Miscellaneous capabilities."
-// bucket that reproduced exactly the tool-selection ambiguity domain mode exists to remove. The map
-// is now complete and `tool-facade-domain-coverage.test.ts` fails CI in BOTH directions: a tool
-// registered without a domain, or a domain naming a tool that no longer exists.
-interface DomainSpec {
-  domain: string;
-  title: string;
-  blurb: string;
-  members: readonly string[];
-}
-
-const DOMAINS: readonly DomainSpec[] = [
-  {
-    domain: "notes",
+// THE-577: before THE-513, membership lived in a hand-maintained DOMAINS map here, and nothing
+// enforced that it tracked the registry — it fell 38 tools behind (146 registered, 108 mapped)
+// silently, because domainTools() swept anything unmapped into an "other" bucket. Whole families
+// (git, kanban, tables, snapshots, work-memory) collapsed into one "Miscellaneous capabilities."
+// bucket that reproduced exactly the tool-selection ambiguity domain mode exists to remove. THE-513
+// deleted that map: a tool declares its own domain at its definition site (a compile error if it
+// doesn't), so the drift class the map enabled cannot recur. `tool-facade-domain-coverage.test.ts`
+// still fails CI in both directions: a tool whose declared domain is unknown, or a domain id with
+// zero members.
+//
+// Display metadata (title + blurb) for each domain id — the only per-domain catalog left, and it is
+// exactly the 13 ids in TOOL_DOMAINS (registry.ts), not a members list.
+const DOMAIN_META: Record<ToolDomain, { title: string; blurb: string }> = {
+  notes: {
     title: "Notes",
     blurb: "Read, write, move, copy, and delete vault notes, and restore them from snapshots.",
-    members: [
-      "read_note",
-      "read_notes",
-      "write_note",
-      "append_note",
-      "patch_note",
-      "copy_note",
-      "move_note",
-      "delete_note",
-      "note_exists",
-      "list_notes",
-      "bulk_create_notes",
-      "bulk_move_notes",
-      // Point-in-time snapshots are note versioning: same subject, same read/write:notes scopes.
-      "snapshot_note",
-      "read_snapshot",
-      "list_snapshots",
-      "restore_note",
-    ],
   },
-  {
-    domain: "metadata",
+  metadata: {
     title: "Metadata",
     blurb: "Frontmatter, properties, and tags.",
-    members: [
-      "read_frontmatter",
-      "update_frontmatter",
-      "read_property",
-      "find_notes_by_property",
-      "list_properties",
-      "add_tag",
-      "remove_tag",
-      "get_note_tags",
-      "find_notes_by_tag",
-      "list_tags",
-      "bulk_set_property",
-      // Metadata Menu's typed fields are metadata by another route.
-      "read_metadata_fields",
-    ],
   },
-  {
-    domain: "links",
+  links: {
     title: "Links",
     blurb: "Backlinks, outgoing links, orphans, link maintenance, and link-graph health.",
-    members: [
-      "get_backlinks",
-      "get_outgoing_links",
-      "find_unresolved_links",
-      "find_orphans",
-      "rewrite_link",
-      "prune_hub_links",
-      // Analytics OVER the link graph rather than edits to it — vault_health_score is explicitly a
-      // composite link-health score, so it belongs with the graph it scores.
-      "find_link_cycles",
-      "get_link_strength",
-      "suggest_links",
-      "vault_health_score",
-      // THE-452: structural analytics over the PERSISTED graph (vault_edges) rather than the
-      // filesystem walk the tools above use. Read-only; never wired into retrieval ranking.
-      "graph_centrality",
-      "graph_communities",
-      "graph_path_between",
-    ],
   },
-  {
-    domain: "search",
+  search: {
     title: "Search",
     blurb: "Full-text, regex, semantic, and query-language search.",
-    members: [
-      "search_text",
-      "search_regex",
-      "search_semantic",
-      "search_vault",
-      "search_dql",
-      "search_jsonlogic",
-      // Plugin-backed search surfaces: Omnisearch is ranked full-text, Datacore is a query
-      // language — siblings of search_dql rather than of the automation bridges.
-      "search_omnisearch",
-      "query_datacore",
-    ],
   },
-  {
-    domain: "vault",
+  vault: {
     title: "Vault",
     blurb: "Vault registry, runtime registration, and the search index.",
-    members: [
-      "get_vault",
-      "list_vaults",
-      "reload_vault",
-      "reset_vault_cache",
-      "index_vault",
-      // Both admin:vault, both mutate what the registry knows about a vault.
-      "add_vault",
-      "refresh_plugin_capabilities",
-    ],
   },
-  {
-    domain: "attachments",
+  attachments: {
     title: "Attachments",
     blurb: "Attachment files and OCR.",
-    members: [
-      "get_attachment",
-      "list_attachments",
-      "move_attachment",
-      "delete_attachment",
-      "ocr_attachment",
-      "ocr_bulk",
-    ],
   },
-  {
-    domain: "structured",
+  structured: {
     title: "Structured documents",
     blurb: "Bases, canvases, Excalidraw drawings, Kanban boards, and markdown tables.",
-    members: [
-      "create_base",
-      "read_base",
-      "update_base",
-      "query_base",
-      "create_canvas",
-      "read_canvas",
-      "update_canvas",
-      "query_canvas",
-      "create_excalidraw",
-      "read_excalidraw",
-      "update_excalidraw",
-      // Kanban boards and GFM tables are structure held INSIDE a note, read and edited as
-      // structure rather than as prose — the same contract as bases and canvases.
-      "read_kanban_board",
-      "list_kanban_boards",
-      "add_kanban_card",
-      "move_kanban_card",
-      "format_table",
-      "insert_table_row",
-      "insert_table_column",
-      "sort_table_by_column",
-    ],
   },
-  {
-    domain: "workspace",
+  workspace: {
     title: "Workspace",
     blurb: "Bookmarks, workspaces, and periodic notes.",
-    members: [
-      "add_bookmark",
-      "remove_bookmark",
-      "list_bookmarks",
-      "list_workspaces",
-      "open_workspace",
-      "save_workspace",
-      "create_periodic_note",
-      "get_periodic_note",
-      "list_periodic_notes",
-      "append_to_periodic_note",
-      "find_or_create_periodic_note",
-      // Daily Notes resolution is the periodic-note family's other entry point.
-      "resolve_daily_note",
-    ],
   },
-  {
-    domain: "automation",
+  automation: {
     title: "Automation",
     blurb: "Commands, templates, Dataview, MakeMD, QuickAdd, tasks, bundles, and URIs.",
-    members: [
-      "list_commands",
-      "execute_command",
-      "generate_uri",
-      "list_templates",
-      "execute_template",
-      "eval_dataview_field",
-      "validate_dql",
-      "makemd_list_spaces",
-      "makemd_query",
-      "list_quickadd_actions",
-      "trigger_quickadd",
-      "bundle_files",
-      "bundle_folder",
-      "list_tasks",
-      "tasks_filter",
-      "update_task",
-      // Remotely Save is a companion-plugin bridge whose verb is "kick off a run" — execution,
-      // like trigger_quickadd, not vault registry state.
-      "remotely_save_status",
-      "remotely_save_trigger",
-    ],
   },
-  {
-    // THE-577: the only genuinely new domain the 38-tool backfill needed. Version control is not
-    // notes, metadata or automation — it is its own subject with its own scope family
-    // (read:git / write:git / execute:git, the last a HITL gate), and it is what a caller looks
-    // for by name. Folding it into `automation` would have pushed that domain to 21 members and
-    // buried five verbs no one would think to look for there.
-    domain: "git",
+  git: {
     title: "Git",
     blurb: "Vault version control via the Obsidian Git companion bridge.",
-    members: ["git_status", "git_diff", "git_log", "git_stage", "git_commit"],
   },
-  {
-    domain: "knowledge",
+  knowledge: {
     title: "Knowledge",
     blurb:
       "Knowledge graph, entities, memory, work-memory, capture queue, sessions, and provenance.",
-    members: [
-      "knowledge_challenge",
-      "vault_graph_search",
-      "vault_context",
-      "query_entity_graph",
-      "create_entity",
-      "get_entity",
-      "link_entities",
-      "add_observation",
-      "plur_get",
-      "plur_recall",
-      "plur_recall_hybrid",
-      "plur_similarity_search",
-      "enqueue_capture",
-      "commit_capture",
-      "list_capture_queue",
-      "start_session",
-      "end_session",
-      "get_session_traces",
-      // The experiential work-memory plane (agent_episodes) and its feedback stamp. Grouped with
-      // the plur_* memory verbs already here rather than split into a second memory domain —
-      // whether `knowledge` should be broken up is a curation call for THE-508, not this gate.
-      "work_search",
-      "work_episodes",
-      "work_forget",
-      "record_retrieval_feedback",
-      // Recall/synthesis and session triage verbs.
-      "reflect",
-      "session_bootstrap",
-      // Knowledge-quality surfaces: unsourced claims, unresolved contradictions, and the
-      // THE-537 note-health rollup (duplicate / orphan / stale / contradicted / tombstoned).
-      "audit_provenance",
-      "list_contradictions",
-      "note_quality_report",
-    ],
   },
-  {
-    domain: "docs",
+  docs: {
     title: "External docs",
     blurb: "Search and triage the vendor and external-docs corpus.",
-    members: ["knowledge_search", "knowledge_get_critical"],
   },
-  {
-    domain: "admin",
+  admin: {
     title: "Admin",
     blurb: "Server config, ACL inspection, health, and metrics.",
-    // get_index_status sits here rather than under `vault` because it is registered directly in
-    // cli.ts alongside server_health (THE-491) and reports the same class of health signal.
-    members: [
-      "get_metrics",
-      "get_server_config",
-      "inspect_acl",
-      "server_health",
-      "get_index_status",
-    ],
   },
-];
+};
 
-const DOMAIN_OF = new Map<string, string>();
-for (const d of DOMAINS) for (const m of d.members) DOMAIN_OF.set(m, d.domain);
-const DOMAIN_NAMES = new Set<string>(DOMAINS.map((d) => d.domain));
-const SPEC_BY_DOMAIN = new Map<string, DomainSpec>(DOMAINS.map((d) => [d.domain, d]));
+const DOMAIN_NAMES = new Set<string>(TOOL_DOMAINS);
 
 /** True when `name` is a domain meta-tool (advertised only in "domain" mode). */
 export function isDomainTool(name: string): boolean {
   return DOMAIN_NAMES.has(name) || name === "other";
-}
-
-/** The domain a capability belongs to, or undefined if unmapped (would ship under "other"). */
-export function domainOfTool(name: string): string | undefined {
-  return DOMAIN_OF.get(name);
-}
-
-/** Every capability name the domain map claims, with its domain. Exported for THE-577's coverage
- *  gate, which must check the map in BOTH directions — `domainOfTool` only answers the forward
- *  question, so a member naming a renamed or deleted tool would otherwise go unnoticed. */
-export function domainMapEntries(): ReadonlyArray<readonly [name: string, domain: string]> {
-  return [...DOMAIN_OF.entries()];
 }
 
 function isReadOnly(def: ToolDefinition): boolean {
@@ -518,18 +295,18 @@ function isReadOnly(def: ToolDefinition): boolean {
 export function domainTools(tools: ToolDefinition[]): Tool[] {
   const groups = new Map<string, ToolDefinition[]>();
   for (const t of tools) {
-    const dom = DOMAIN_OF.get(t.name) ?? "other";
+    const dom = t.domain ?? "other";
     const arr = groups.get(dom);
     if (arr) arr.push(t);
     else groups.set(dom, [t]);
   }
-  const order = [...DOMAINS.map((d) => d.domain), "other"];
+  const order = [...TOOL_DOMAINS, "other"];
   const out: Tool[] = [];
   for (const dom of order) {
     const members = groups.get(dom);
     if (!members || members.length === 0) continue;
     members.sort((a, b) => a.name.localeCompare(b.name));
-    const spec = SPEC_BY_DOMAIN.get(dom);
+    const spec = DOMAIN_META[dom as ToolDomain];
     const actions = members.map((m) => m.name);
     const lines = members.map((m) => `- ${m.name}: ${summarize(m.description)}`).join("\n");
     out.push({

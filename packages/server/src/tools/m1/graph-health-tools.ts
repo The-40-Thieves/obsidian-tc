@@ -210,6 +210,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "vault_health_score",
+      domain: "links",
       description:
         "Composite vault link-health score (0-100) with a breakdown: orphan count, unresolved-link count, hub density, and cycle count over the readable note graph.",
       inputSchema: z
@@ -258,6 +259,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "find_link_cycles",
+      domain: "links",
       description:
         "Detect circular internal-link chains (a -> b -> ... -> a) in the readable note graph. Returns up to `limit` cycles as ordered path lists.",
       inputSchema: z
@@ -275,6 +277,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "get_link_strength",
+      domain: "links",
       pathAcl: (input) => [
         { op: "read", path: input.from },
         { op: "read", path: input.to },
@@ -318,6 +321,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "suggest_links",
+      domain: "links",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Suggest notes to link a given note to, from the link graph (co-citation with the note's inbound sources + 2-hop outbound neighbors), excluding notes it already links to. Graph-based (no embeddings).",
@@ -364,6 +368,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "audit_provenance",
+      domain: "knowledge",
       description:
         "Provenance audit: flag claim-bearing notes that lack a 'sources' frontmatter field (the evidence a note's claims rest on), and report coverage of sources/confidence/verified across the readable note set. Read-only. Excludes daily notes, templates, and index files by default; tune scope with include/exclude globs and the field name.",
       inputSchema: z

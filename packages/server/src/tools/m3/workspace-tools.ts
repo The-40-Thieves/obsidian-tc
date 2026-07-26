@@ -69,6 +69,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "list_workspaces",
+      domain: "workspace",
       pathAcl: () => [{ op: "read", path: WORKSPACES_PATH }],
       description:
         "List saved workspace names and the active workspace (.obsidian/workspaces.json).",
@@ -94,6 +95,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "open_workspace",
+      domain: "workspace",
       pathAcl: () => [{ op: "write", path: WORKSPACES_PATH }],
       description:
         "Mark a saved workspace active and return its stored layout. Fails if the workspace does not exist.",
@@ -127,6 +129,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
 
     defineTool({
       name: "save_workspace",
+      domain: "workspace",
       pathAcl: () => [{ op: "write", path: WORKSPACES_PATH }],
       description:
         "Save a workspace layout under a name (optionally making it active). Overwriting an existing workspace requires confirmation.",

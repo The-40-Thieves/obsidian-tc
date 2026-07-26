@@ -55,6 +55,7 @@ describe("execute:<plugin> scope + HITL floor through dispatch", () => {
   registry.register(
     defineTool({
       name: "__bridge_read_probe",
+      domain: "admin",
       description: "read-side bridge probe tool",
       inputSchema: z.object({}).strict(),
       requiredScopes: ["read:dataview"],
@@ -64,6 +65,7 @@ describe("execute:<plugin> scope + HITL floor through dispatch", () => {
   registry.register(
     defineTool({
       name: "__bridge_execute_probe",
+      domain: "admin",
       description: "execute-side bridge probe tool",
       inputSchema: z.object({}).strict(),
       requiredScopes: ["execute:templater"],

@@ -13,6 +13,7 @@ export function buildOmnisearchTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "search_omnisearch",
+      domain: "search",
       description:
         "Ranked full-text search over the vault via the Omnisearch plugin. Returns scored matches with per-note excerpts and matched words. Complements the built-in search domain with Omnisearch's own ranking.",
       inputSchema: z

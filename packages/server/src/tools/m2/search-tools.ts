@@ -311,6 +311,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "search_text",
+      domain: "search",
       description:
         "Literal text search across vault notes (BM25-ranked). Supports case_sensitive and whole_word; scoped to an optional root folder.",
       inputSchema: z
@@ -353,6 +354,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
 
     defineTool({
       name: "search_regex",
+      domain: "search",
       description:
         "Regular-expression search across vault notes. Each match returns line/col + the matched text; capped per file. Pattern length is bounded, patterns with nested quantifiers are rejected, and execution is time-budgeted (governor.regexTimeoutMs) to prevent catastrophic backtracking; flags may only be i, m, s, u.",
       inputSchema: z
@@ -393,6 +395,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
 
     defineTool({
       name: "search_semantic",
+      domain: "search",
       description:
         "Dense-vector retrieval over the chunk store (run index_vault first). Returns the top-k chunks by cosine similarity. verbosity=terse drops chunk content/metadata, returning path/score only.",
       inputSchema: z
@@ -425,6 +428,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
 
     defineTool({
       name: "search_jsonlogic",
+      domain: "search",
       description:
         "Filter notes with a JSONLogic expression over frontmatter + { path, content }. Returns matching note paths.",
       inputSchema: z
@@ -456,6 +460,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
 
     defineTool({
       name: "search_dql",
+      domain: "search",
       description:
         "Run a Dataview DQL query via the companion plugin bridge. Returns headers/rows and the matched note paths. Requires the Dataview bridge; reports plugin_missing when it is not configured.",
       inputSchema: z
@@ -481,6 +486,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
 
     defineTool({
       name: "search_vault",
+      domain: "search",
       description:
         "Unified search dispatch. mode=auto routes a string query text->semantic (fallback on zero hits) and an object query to jsonlogic; or force text/regex/semantic/jsonlogic/dql. Set verbosity=terse to compact each hit to path/score/snippet.",
       inputSchema: z

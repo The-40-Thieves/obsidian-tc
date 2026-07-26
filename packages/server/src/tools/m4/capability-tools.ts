@@ -65,6 +65,7 @@ export function buildCapabilityTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "refresh_plugin_capabilities",
+      domain: "vault",
       description:
         "Re-probe the companion plugin for a vault and atomically replace the cached capability snapshot, so installing/enabling a plugin or upgrading the companion takes effect WITHOUT a server restart. Returns what changed (companion state, plugin/version deltas), not a bare ok. Admin-scoped, no HITL.",
       inputSchema: z.object({ vault: VaultId }).strict(),

@@ -186,6 +186,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "read_frontmatter",
+      domain: "metadata",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Read a note's parsed YAML frontmatter (null when the note has none).",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
@@ -213,6 +214,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "read_property",
+      domain: "metadata",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Read a single frontmatter property. Set nested=true to address a dotted path (e.g. meta.author.name) through nested objects.",
@@ -251,6 +253,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "update_frontmatter",
+      domain: "metadata",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Mutate a note's frontmatter (set/remove/merge/replace). `replace` discards all existing metadata and requires confirmation. Optional prev_hash gives compare-and-swap. Set nested=true to address a dotted key path for set/remove (intermediate objects are created as needed).",
@@ -361,6 +364,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "list_properties",
+      domain: "metadata",
       description:
         "Aggregate frontmatter property keys across notes, with usage counts and value types.",
       inputSchema: ListPropsInput,
@@ -412,6 +416,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "find_notes_by_property",
+      domain: "metadata",
       description:
         "Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list). Set verbosity=terse to return path only (dropping the matched value). Set nested=true to match a dotted key path.",
       inputSchema: FindInput,

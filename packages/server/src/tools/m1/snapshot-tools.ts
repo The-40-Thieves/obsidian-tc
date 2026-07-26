@@ -67,6 +67,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "snapshot_note",
+      domain: "notes",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "Capture the current content of a note as a restorable point-in-time snapshot (retained per config.snapshots.retention). Returns the snapshot id and content hash.",
@@ -97,6 +98,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "list_snapshots",
+      domain: "notes",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
         "List a note's point-in-time snapshots, newest first (id, op, content_hash, size, created_at).",
@@ -120,6 +122,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "read_snapshot",
+      domain: "notes",
       description: "Read the full stored content of a single snapshot by id.",
       inputSchema: z.object({ vault: VaultId, snapshot_id: z.number().int().positive() }).strict(),
       outputSchema: ReadSnapshotOutput,
@@ -135,6 +138,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "restore_note",
+      domain: "notes",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Restore a note to a prior snapshot's content. Destructive — overwrites the current note (whose current state is itself snapshotted first when snapshots are enabled, so the restore is reversible) and requires confirmation.",

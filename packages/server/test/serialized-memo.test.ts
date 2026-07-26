@@ -45,6 +45,7 @@ describe("single-serialization memo (THE-294)", () => {
     registry.register(
       defineTool({
         name: "give",
+        domain: "admin",
         description: "test tool",
         inputSchema: z.object({}).strict(),
         requiredScopes: [],

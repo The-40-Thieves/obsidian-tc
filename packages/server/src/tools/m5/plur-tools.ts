@@ -25,6 +25,7 @@ export function buildPlurTools(deps: M5Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "plur_recall",
+      domain: "knowledge",
       description: "BM25 keyword recall over the global plur engram store (read-only proxy).",
       inputSchema: z
         .object({ query: z.string().min(1), k: K, scope: z.string().optional() })
@@ -44,6 +45,7 @@ export function buildPlurTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "plur_recall_hybrid",
+      domain: "knowledge",
       description:
         "Hybrid BM25 + embedding recall (RRF) over the global plur engram store. `bm25_weight` is forwarded to the plur backend and only shifts ranking when that backend implements weighted hybrid RRF; the bundled local CLI backend applies default RRF and ignores it (audit #15).",
       inputSchema: z
@@ -81,6 +83,7 @@ export function buildPlurTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "plur_similarity_search",
+      domain: "knowledge",
       description: "Cosine similarity search over plur engram embeddings (read-only proxy).",
       inputSchema: z
         .object({
@@ -110,6 +113,7 @@ export function buildPlurTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "plur_get",
+      domain: "knowledge",
       description: "Fetch a specific plur engram by id (read-only proxy).",
       inputSchema: z.object({ engram_id: z.string().min(1) }).strict(),
       outputSchema: PlurProxyOutput,

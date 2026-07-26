@@ -598,6 +598,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "vault_context",
+      domain: "knowledge",
       description:
         "Composite budgeted context in ONE call (the Honcho-style context() primitive): graph-reranked chunks packed to a token budget and grouped by note, recent synthesis patterns touching the query, open contradictions on the packed notes, and applicable past lessons (decision/lesson/postmortem chunks relevant to the query) — with source metadata and packing stats. include_work adds eligible work-memory episodes (the THE-229 reader contract; explicit opt-in, never default). Omit query for session bootstrap: the queued thread is read from the memory folder's _next-session.md signal note, so every session opens with its applicable lessons (push, not pull).",
       inputSchema: z
@@ -945,6 +946,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
 
     defineTool({
       name: "reflect",
+      domain: "knowledge",
       description:
         "The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes). Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `obsidian-tc reflect` CLI command.",
       inputSchema: z
@@ -1111,6 +1113,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
 
     defineTool({
       name: "vault_graph_search",
+      domain: "knowledge",
       description:
         "Cross-domain / multi-hop semantic search with wikilink graph expansion (GraphRAG). Seeds by vector similarity, expands through the links_to graph (vault_edges), and fuses by RRF. Run index_vault first so the edge graph is populated. Returns chunks tagged seed|expansion with hop + via_edge.",
       inputSchema: z
@@ -1257,6 +1260,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
 
     defineTool({
       name: "knowledge_search",
+      domain: "docs",
       description:
         "Semantic + keyword search over a vendor / external-docs corpus (a reserved read-only docs vault), with wikilink graph expansion and RRF fusion. The docs-scoped analogue of vault_graph_search: bind `vault` to the docs corpus id. Returns source-attributed chunks tagged seed|expansion. Gated on read:docs so it stays isolated from the private vault.",
       inputSchema: z
@@ -1328,6 +1332,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
 
     defineTool({
       name: "knowledge_get_critical",
+      domain: "docs",
       description:
         "List the critical-severity docs in a vendor / external-docs corpus: the breaking changes, security issues, and production gotchas to read before starting work. A tight metadata pre-filter over frontmatter severity == 'critical', not a search. Optionally narrow by `source` (the vendor or tool the doc is about). Gated on read:docs so it stays isolated from the private vault.",
       inputSchema: z
@@ -1387,6 +1392,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
 
     defineTool({
       name: "knowledge_challenge",
+      domain: "knowledge",
       description:
         "Red-team a proposal against your documented decision history. Retrieves decision-bearing chunks (02-projects, 04-writing/Published, 09-reference/system-reviews, 09-reference/syntheses) and asks the inference gateway to flag DIRECT_CONTRADICTION / PATTERN_REPEAT / REVERSAL / HIDDEN_DEPENDENCY. Requires the gateway; reports unavailable when it is not configured.",
       inputSchema: z
@@ -1486,6 +1492,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
     // set standalone rather than paying for a full context/challenge call to see them.
     defineTool({
       name: "list_contradictions",
+      domain: "knowledge",
       description:
         "List open contradictions (judge_verdict: 'contradiction' | 'tension') touching any of the given notes — the same detector output vault_context/reflect/knowledge_challenge surface indirectly, exposed directly for standalone inspection. Read-only.",
       inputSchema: z.object({ vault: VaultId, paths: z.array(VaultPath).min(1).max(200) }).strict(),

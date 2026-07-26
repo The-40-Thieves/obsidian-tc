@@ -28,6 +28,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "makemd_list_spaces",
+      domain: "automation",
       description:
         "Enumerate make.md spaces (its alternative to folders) via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),
@@ -55,6 +56,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "makemd_query",
+      domain: "automation",
       description:
         "Run a make.md query against a space (filter/sort/paginate) via the companion bridge.",
       inputSchema: z

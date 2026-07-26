@@ -18,6 +18,7 @@ export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "remotely_save_status",
+      domain: "automation",
       description:
         "Last sync state of the Remotely Save plugin (sync status + last successful sync time) — an independent backup-verification signal, via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),
@@ -38,6 +39,7 @@ export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "remotely_save_trigger",
+      domain: "automation",
       description:
         "Kick off a Remotely Save sync run (fire-and-poll: check remotely_save_status afterwards), via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),

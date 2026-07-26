@@ -136,6 +136,7 @@ export function createIndexStatusTool(opts: {
 }): ToolDefinition<Record<string, never>, IndexStatusInfo> {
   return {
     name: "get_index_status",
+    domain: "admin",
     description:
       "Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, and chunks_upserted from the last index_vault call. Read-only — self-diagnose before spending on an expensive search.",
     inputSchema: z.object({}).strict(),
@@ -178,6 +179,7 @@ export function createHealthTool(opts: {
 }): ToolDefinition<Record<string, never>, HealthInfo> {
   return {
     name: "server_health",
+    domain: "admin",
     description:
       "Liveness + build info. Round-trips the full transport -> auth -> acl -> audit path.",
     inputSchema: z.object({}).strict(),

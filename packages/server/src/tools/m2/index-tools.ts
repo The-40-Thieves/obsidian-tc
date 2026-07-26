@@ -39,6 +39,7 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "index_vault",
+      domain: "vault",
       description:
         "Chunk and embed the vault (or a folder) into the search index. Incremental: chunks whose content hash is unchanged are skipped; removed chunks are pruned.",
       inputSchema: z.object({ vault: VaultId, folder: VaultPath.optional() }).strict(),
