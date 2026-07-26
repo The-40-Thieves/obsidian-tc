@@ -30,6 +30,8 @@ export interface MetricDoc {
   type: "counter" | "gauge" | "histogram" | "summary";
   help: string;
   labels: string[];
+  /** Upper bucket bounds, histogram-only (THE-595). Undefined for every other type. */
+  buckets?: number[];
 }
 
 /** A typed error code from the ObsidianTcError taxonomy. */

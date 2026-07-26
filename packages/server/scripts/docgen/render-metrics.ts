@@ -14,19 +14,30 @@ function cell(v: string): string {
   return v.replace(/\r?\n/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").trim();
 }
 
+/** Bucket bounds as a plain comma list — derived from the live Histogram, so it can never repeat
+ *  the drift this catalog was written to fix (G2.4 used to hand-describe buckets in prose, e.g.
+ *  "Default (Prometheus client library defaults)", which said nothing when the default changed). */
+function buckets(b: number[] | undefined): string {
+  return b?.length ? b.map((n) => String(n)).join(", ") : "—";
+}
+
 function table(title: string, docs: MetricDoc[]): string[] {
   if (docs.length === 0) return [];
+  // THE-595: only histograms carry buckets — give that type its own column instead of padding
+  // every other table with a column that would always read "—".
+  const isHistogram = docs[0]?.type === "histogram";
+  const header = isHistogram ? "| Name | Labels | Buckets | Help |" : "| Name | Labels | Help |";
+  const sep = isHistogram ? "|---|---|---|---|" : "|---|---|---|";
   return [
     `### ${title}`,
     "",
-    "| Name | Labels | Help |",
-    "|---|---|---|",
-    ...docs.map(
-      (d) =>
-        `| \`${d.name}\` | ${
-          d.labels.length ? d.labels.map((l) => `\`${l}\``).join(", ") : "—"
-        } | ${cell(d.help)} |`,
-    ),
+    header,
+    sep,
+    ...docs.map((d) => {
+      const labels = d.labels.length ? d.labels.map((l) => `\`${l}\``).join(", ") : "—";
+      const bucketsCell = isHistogram ? ` ${cell(buckets(d.buckets))} |` : "";
+      return `| \`${d.name}\` | ${labels} |${bucketsCell} ${cell(d.help)} |`;
+    }),
     "",
   ];
 }

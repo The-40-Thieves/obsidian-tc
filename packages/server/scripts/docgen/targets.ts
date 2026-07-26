@@ -20,6 +20,8 @@ export const GENERATED_DOC_FILES = [
   "docs/src/content/docs/configuration/config-reference.md",
   // THE-470 hole 2: the metrics catalog table, generated from extract-metrics.ts.
   "docs/src/content/docs/observability/prometheus.md",
+  // THE-595: the same catalog, generated into the G2.4 design-commitment doc.
+  "docs/G2.4-observability.md",
   // Hand-authored narrative docs (THE-473) — only the marked region is generated.
   "README.md",
   "ARCHITECTURE.md",
