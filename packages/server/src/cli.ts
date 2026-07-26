@@ -1054,6 +1054,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // THE-457: a fail-open audit write that threw is already metered; also bump the health counter
     // so server_health shows the audit trail going lossy. Runs only at dispatch (after indexHealth
     // is initialized).
+    // THE-417 Phase 2: route drift to a counter so warn-mode has a readable output. The stderr
+    // line above stays — it carries the Zod issues a human needs to diagnose; this is the half a
+    // dashboard can alert on.
+    onOutputSchemaDrift: (tool, vaultId) => metrics.incOutputSchemaDrift(vaultId, tool),
     onAuditFailure: () => {
       indexHealth.auditWriteFailures++;
     },

@@ -103,6 +103,7 @@ export class MetricsRecorder {
   private readonly indexWriteFailures: Counter<string>;
   private readonly vecFallbacks: Counter<string>;
   private readonly sqlBusy: Counter<string>;
+  private readonly outputSchemaDrift: Counter<string>;
   private readonly retrievalStageCandidatesIn: Counter<string>;
   private readonly retrievalStageCandidatesOut: Counter<string>;
   private readonly toolDuration: Histogram<string>;
@@ -167,6 +168,17 @@ export class MetricsRecorder {
       name: "obsidian_tc_vec_fallback_total",
       help: "Searches that abandoned the vec0 KNN index for the exhaustive brute-force scan, by vault and reason. Results stay correct; the cost profile does not. reason=error is usually a dimension mismatch after an embedding-model change (the index no longer matches the query) and a persistent count means a real misconfiguration; reason=underfill means ACL-invisible chunks may be crowding out visible ones, so the over-fetch could not fill k visible hits.",
       labelNames: ["vault", "reason"],
+      registers,
+    });
+    // THE-417 Phase 2: the instrument that makes warn-mode runnable. Before this, a mismatch wrote
+    // one stderr line among every other internal error and nothing accumulated it, so "let
+    // warn-mode surface latent mismatches" had no way to be read. Labels are bounded exactly like
+    // obsidian_tc_tool_calls_total's — vault id and tool name, never the payload or the Zod issues,
+    // which would put note content into a label.
+    this.outputSchemaDrift = new Counter({
+      name: "obsidian_tc_output_schema_drift_total",
+      help: "Handler payloads that did not match their advertised outputSchema, by vault and tool. In production this is WARN-only — the payload still ships — so a non-zero value is the only signal that a tool's declared contract has drifted from what it returns. In dev/CI the same condition is a hard internal_error. Any non-zero count names a tool whose schema or handler is wrong; there is no benign case.",
+      labelNames: ["vault", "tool"],
       registers,
     });
     this.sqlBusy = new Counter({
@@ -437,6 +449,10 @@ export class MetricsRecorder {
    *  precedent the query-cache gauges set. */
   observeSqlLockWait(vault: string, txn: WriteTxnLabel, seconds: number): void {
     this.sqlLockWait.observe({ vault, txn }, seconds);
+  }
+  /** THE-417 Phase 2: one output-schema mismatch. */
+  incOutputSchemaDrift(vault: string, tool: string): void {
+    this.outputSchemaDrift.inc({ vault, tool });
   }
   incSqlBusy(vault: string, txn: WriteTxnLabel, reason: BusyReason): void {
     this.sqlBusy.inc({ vault, txn, reason });

@@ -25,6 +25,9 @@ const COUNTERS = [
   // THE-585 (#5): busy-class write-transaction failures. reason=snapshot is a bug report — see
   // the counter's help text and src/db/txn.ts.
   "obsidian_tc_sql_busy_total",
+  // THE-417 Phase 2: the readable half of warn-mode. Any non-zero value names a tool whose
+  // declared contract has drifted from what it returns; there is no benign case.
+  "obsidian_tc_output_schema_drift_total",
   // THE-585 (#6): the retrieval funnel. Their RATIO per stage is the signal — a stage sitting at
   // 1.0 pass-through has stopped filtering while still costing its latency.
   "obsidian_tc_retrieval_stage_candidates_in_total",
@@ -65,14 +68,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 18 counters, 4 histograms, 15 gauges", async () => {
+  it("registers the full catalog: 19 counters, 4 histograms, 15 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(37);
+    expect(new Set(declared).size).toBe(38);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
