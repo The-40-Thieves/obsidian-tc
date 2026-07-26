@@ -3,7 +3,13 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type ContentionOptions, type ContentionResult, detectContention } from "./contention";
+import {
+  type CalibrationReferenceVector,
+  type CalibrationVector,
+  type ChannelThresholdOverrides,
+  detectContentionVector,
+  type VectorContentionResult,
+} from "./contention";
 import {
   type AggregatedReport,
   aggregate,
@@ -21,7 +27,9 @@ import type { Scenario } from "./scenarios";
 
 export interface IsolatedRunResult {
   aggregate: AggregatedReport;
-  contention: ContentionResult;
+  /** THE-584: per-channel (CPU + I/O), not a single scalar. A recording is trustworthy only when
+   *  EVERY channel is quiet — CPU alone said "clean" on hosts that were 40-90% slow on I/O. */
+  contention: VectorContentionResult;
   hardInstabilities: HardInstability[];
 }
 
@@ -59,7 +67,15 @@ function spawnBunRun(scenario: Scenario["name"], outPath: string): void {
  */
 export function runIsolatedSamples(
   scenario: Scenario["name"],
-  opts?: { n?: number; spawn?: SpawnRun; contention?: ContentionOptions },
+  opts?: {
+    n?: number;
+    spawn?: SpawnRun;
+    /** Committed quiet-host medians, per channel (THE-584). */
+    reference?: CalibrationReferenceVector;
+    /** Per-channel THRESHOLD overrides; defaults come from CHANNEL_DEFAULTS. Cannot carry a
+     *  reference — that arrives via `reference` above, so an override can never delete it. */
+    overrides?: ChannelThresholdOverrides;
+  },
 ): IsolatedRunResult {
   const n = opts?.n ?? 5;
   if (n < 1) throw new Error("runIsolatedSamples(): n must be >= 1");
@@ -68,16 +84,16 @@ export function runIsolatedSamples(
   const dir = mkdtempSync(join(tmpdir(), "obtc-perf-isolate-"));
   try {
     const reports: PerfReport[] = [];
-    const calibrations: number[] = [];
+    const calibrations: CalibrationVector[] = [];
     for (let i = 0; i < n; i++) {
       const outPath = join(dir, `sample-${i}.json`);
       spawn(scenario, outPath);
       const report = JSON.parse(readFileSync(outPath, "utf8")) as PerfReport;
       reports.push(report);
-      calibrations.push(report.calibrationMs ?? 0);
+      calibrations.push({ cpuMs: report.calibrationMs ?? 0, ioMs: report.calibrationIoMs ?? 0 });
     }
     const agg = aggregate(reports);
-    const contention = detectContention(calibrations, opts?.contention);
+    const contention = detectContentionVector(calibrations, opts?.reference, opts?.overrides);
     const hardInstabilities = checkHardStability(agg);
     return { aggregate: agg, contention, hardInstabilities };
   } finally {

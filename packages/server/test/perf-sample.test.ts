@@ -4,11 +4,20 @@ import type { PerfReport } from "../eval/perf/report";
 import { runIsolatedSamples } from "../eval/perf/sample";
 
 /** Fake reports: same scenario, one hard-class count and one warn-class latency that varies
- *  slightly per "run" plus a distinct calibrationMs per run to drive contention detection. */
-function fakeReport(_i: number, latency: number, calibrationMs: number): PerfReport {
+ *  slightly per "run" plus a distinct calibration probe per run to drive contention detection.
+ *  BOTH channels are supplied (THE-584): an omitted channel is an all-zero series, which the
+ *  detector now treats as UNMEASURED rather than clean, so these fakes must look like real
+ *  reports or every case here would fail for the wrong reason. */
+function fakeReport(
+  _i: number,
+  latency: number,
+  calibrationMs: number,
+  calibrationIoMs = 40,
+): PerfReport {
   return {
     scenario: "small",
     calibrationMs,
+    calibrationIoMs,
     samples: [
       { key: "index.chunk_count", value: 200, unit: "count", class: "hard", direction: "exact" },
       {

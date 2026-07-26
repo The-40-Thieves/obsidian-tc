@@ -45,6 +45,11 @@ export interface PerfReport {
   // calling runScenario() directly (e.g. existing unit tests), present in every CLI-produced
   // report.
   calibrationMs?: number;
+  // THE-584: wall time (ms) of a fixed write+fsync loop, measured in the same place and for the
+  // same reason as calibrationMs. CPU and I/O are INDEPENDENT contention channels — two CI
+  // recordings were 40-90% slow on every I/O-shaped metric while the CPU probe read clean — so a
+  // recording is only trustworthy when both are quiet. Optional for the same reason as above.
+  calibrationIoMs?: number;
 }
 
 export function toMarkdown(report: PerfReport): string {

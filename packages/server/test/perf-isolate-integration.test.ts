@@ -6,6 +6,7 @@
 // assertion below would catch it, because a shared/corrupted vault would not reproduce identical
 // deterministic counts run to run.
 import { describe, expect, it } from "vitest";
+import { CALIBRATION_CHANNELS } from "../eval/perf/contention";
 import { checkHardStability } from "../eval/perf/isolate";
 import { runIsolatedSamples } from "../eval/perf/sample";
 
@@ -24,9 +25,16 @@ describe("runIsolatedSamples() end-to-end (real bun subprocesses)", () => {
     expect(chunkCount?.raw[0]).toBe(chunkCount?.raw[1]);
     expect(chunkCount?.cv).toBe(0);
 
-    // Every subprocess reported its own calibration probe -- contention detection has real
-    // (not injected) data to work with.
-    expect(result.contention.raw).toHaveLength(2);
-    expect(result.contention.raw.every((v) => v > 0)).toBe(true);
+    // Every subprocess reported its own calibration probe on EVERY channel (THE-584) -- contention
+    // detection has real (not injected) data to work with. A channel silently reporting 0 would
+    // make its absolute check trivially pass forever, which is exactly the blindness this fixes.
+    for (const channel of CALIBRATION_CHANNELS) {
+      const series = result.contention.channels[channel].raw;
+      expect(series, `${channel} series`).toHaveLength(2);
+      expect(
+        series.every((v: number) => v > 0),
+        `${channel} must be measured, not defaulted to 0`,
+      ).toBe(true);
+    }
   }, 60_000);
 });
