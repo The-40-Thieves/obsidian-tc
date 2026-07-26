@@ -1,3 +1,34 @@
+# Developer toolchain. Pinned to exact versions so two machines cannot silently disagree — a
+# floating minor means "whatever was current when you installed", which is the one thing a pin
+# exists to prevent.
+#
+# Each pin below matches something already authoritative elsewhere in the repo; none were chosen
+# freely. Change one of these and change its counterpart in the same commit.
 [tools]
-bun = "1.3"
-node = "26"
+# Matches BOTH .github/actions/setup-repo (bun-version default '1.3.14') and package.json's
+# `packageManager: "bun@1.3.14"`. This was `1.3`, so a developer installing today and one who
+# installed months ago could be on different patch releases of the runtime that executes every
+# test — with nothing reporting it.
+bun = "1.3.14"
+
+# Every package declares `engines.node: ">=24"`, so 24 is the floor, not the target. This pin is
+# the exact version currently in use here and is deliberately ABOVE the floor: you develop on a
+# newer runtime than the minimum you support.
+#
+# Worth knowing before changing it — CI does not agree with itself on Node:
+#   ci-server.yml / ci-native.yml   node-version: '24'   (the engines floor)
+#   ci-security.yml                 node-version: 22     (BELOW the declared floor)
+# Reconciling those is a CI change with real blast radius, not a pin, so it is deliberately not
+# done here. `perf:node-parity` is the job that actually executes under Node, so a dev/CI major
+# mismatch would surface there first.
+node = "26.5.0"
+
+# Both Python services declare `requires-python = ">=3.10"` (services/bge-m3-service,
+# services/docs-ingest), and ci-model-service.yml sets up `python-version: '3.11'`. 3.11 is what
+# the model service is actually built and tested against, so it is what a developer should get —
+# not whatever python3 the OS happens to ship (this machine defaults to 3.14, which no CI job
+# validates and which much of the ML wheel ecosystem still lags on).
+#
+# Pinned to the minor, matching CI's specificity exactly. A patch pin here would be MORE specific
+# than the thing it is meant to agree with, which just relocates the divergence.
+python = "3.11"
