@@ -1648,7 +1648,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 
   // stdio is the trusted local transport: the operator runs the binary against
   // their own vault, so calls are authenticated with full local scope.
-  const context = (): CallerContext => {
+  // THE-514: signal is the SDK's per-request extra.signal, threaded through so a caller that
+  // cancels a stdio call stops runDispatch at the next stage boundary.
+  const context = (signal?: AbortSignal): CallerContext => {
     const active = activeSessions.get("stdio");
     return {
       caller: "stdio",
@@ -1657,6 +1659,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       vaultId: firstVault.id,
       db,
       acl,
+      signal,
       ...(active && active.vaultId === firstVault.id ? { sessionId: active.sessionId } : {}),
     };
   };

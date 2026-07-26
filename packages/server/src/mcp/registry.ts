@@ -61,6 +61,14 @@ export interface CallerContext {
    *  invoke as `ctx.markEffectCommitted?.()`. */
   markEffectCommitted?: () => void;
   now?: () => number;
+  /** THE-514: the transport's per-request AbortSignal (MCP SDK `extra.signal`, an HTTP request's
+   *  abort, or a stdio caller's own cancellation), threaded in by the context factory. runDispatch
+   *  checks it at a few stage boundaries and immediately before the handler runs, so a cancelled
+   *  call stops promptly instead of running a handler nobody is waiting on. Absent for any caller
+   *  that does not supply one (every existing caller today) — every check is then a no-op, so
+   *  behavior is unchanged. Deliberately NOT observed by tool handlers in this change: honoring it
+   *  mid-handler is a per-tool behavior change left to a follow-up. */
+  signal?: AbortSignal;
 }
 
 /** MCP 2025-11-25 icon metadata (a structural subset of the SDK's Icon), surfaced in tools/list +
@@ -174,6 +182,15 @@ function extractIdempotencyKey(data: unknown): string | undefined {
     if (typeof nested === "string" && nested.length > 0) return nested;
   }
   return undefined;
+}
+
+/** THE-514: a stage-boundary cooperative-cancellation check. Throws the same modelled
+ *  `ObsidianTcError` the rest of dispatch throws (never a raw DOMException `AbortError`), so an
+ *  abort surfaces through the normal catch/audit/metrics path below rather than as an unhandled
+ *  rejection or an opaque `internal` error. A no-op when `signal` is absent or not yet aborted —
+ *  every existing caller (no signal) sees no behavior change. */
+function checkAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw err.aborted();
 }
 
 /** Coerce a SQLite result column (string | Buffer | Uint8Array) to a UTF-8 string. */
@@ -766,6 +783,9 @@ export class ToolRegistry {
     };
 
     try {
+      // THE-514: an already-cancelled call never even resolves the tool, let alone claims an
+      // idempotency slot or spends an elicit token.
+      checkAborted(ctx.signal);
       const def = this.tools.get(name);
       if (!def) throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
       // THE-219 dispatch guard: a disabled tool is removed from the surface entirely.
@@ -952,6 +972,12 @@ export class ToolRegistry {
         }
       }
 
+      // THE-514: a boundary mid-pipeline. If idemClaimed is true here, the claim was JUST taken
+      // above and the handler has not run — the catch below sees handlerReturned/effectCommitted
+      // both false and deletes the claim, so a cancelled call never strands a claim that blocks a
+      // legitimate retry.
+      checkAborted(ctx.signal);
+
       // Dispatch-wide rate-limit policy gate (THE-210, G2.4 §Rate limits). Per
       // (caller_hash, scope_class, vault); an unknown scope class is unlimited. Runs
       // BEFORE HITL so a throttled call never consumes the single-use elicit token (a
@@ -1081,6 +1107,9 @@ export class ToolRegistry {
               }
             }
           }
+          // THE-514: the last chance to bail before the handler — and any side effect — runs.
+          // idemClaimed's claim is still pre-effect here, so the catch below deletes it cleanly.
+          checkAborted(ctx.signal);
           const handlerStart = now();
           const r = await def.handler(parsed.data, ctx);
           handlerMs = Math.max(0, now() - handlerStart);

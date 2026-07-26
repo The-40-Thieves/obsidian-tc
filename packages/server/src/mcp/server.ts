@@ -51,8 +51,13 @@ export interface McpServerOptions {
    * Produces a fresh CallerContext for each tool call. The transport edge owns
    * auth: stdio supplies a trusted local context; HTTP supplies one derived
    * from the verified JWT. The db handle and vaultId are bound here as well.
+   *
+   * THE-514: an optional per-request AbortSignal (the SDK's `extra.signal`), threaded through so
+   * runDispatch can observe cancellation. Every call site below passes it; a factory that ignores
+   * the argument (every one before THE-514, and any test double) is unaffected — the parameter is
+   * optional and dispatch treats an absent signal as a no-op.
    */
-  context: () => CallerContext;
+  context: (signal?: AbortSignal) => CallerContext;
   /**
    * tools/list page size. Defaults to TOOLS_PAGE_SIZE (well above the tool surface, so the whole
    * surface fits one page); overridable only so tests can exercise the cursor-paging path.
@@ -140,13 +145,13 @@ export function createMcpServer(opts: McpServerOptions): Server {
 
   const facadeMode: FacadeMode = opts.facadeMode ?? "flat";
 
-  server.setRequestHandler(ListToolsRequestSchema, (req): ListToolsResult => {
+  server.setRequestHandler(ListToolsRequestSchema, (req, extra): ListToolsResult => {
     // THE-219 facade: in triad/domain mode advertise the three meta-tools instead of the full
     // surface. Every registered tool stays callable by name via call_capability, so nothing is
     // hidden; flat mode is the back-compat full-surface behavior.
     if (facadeMode === "triad") return { tools: triadTools() };
     if (facadeMode === "domain") {
-      const dctx = opts.context();
+      const dctx = opts.context(extra.signal);
       const dvisible = opts.registry.listVisible({
         grantedScopes: dctx.grantedScopes,
         readOnly: dctx.acl?.readOnly,
@@ -157,7 +162,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // advertised surface, so a caller never sees a tool it could not dispatch. A full grant
     // (stdio / auth-none) leaves the surface unchanged. Filter first, THEN page: the cursor is an
     // opaque offset into this caller's visible list (mirrors resources/list).
-    const ctx = opts.context();
+    const ctx = opts.context(extra.signal);
     const visible = opts.registry.listVisible({
       grantedScopes: ctx.grantedScopes,
       readOnly: ctx.acl?.readOnly,
@@ -208,13 +213,13 @@ export function createMcpServer(opts: McpServerOptions): Server {
     return formatData(result.data);
   };
 
-  server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {
+  server.setRequestHandler(CallToolRequestSchema, async (req, extra): Promise<CallToolResult> => {
     // Bridge the HITL elicit token from tool arguments into the caller context,
     // stripping it from the args so it never perturbs args_hash — the token is
     // bound to the hash of the call WITHOUT the token (see elicit.ts / hitl.ts).
     const rawArgs = (req.params.arguments ?? {}) as Record<string, unknown>;
     let args: Record<string, unknown> = rawArgs;
-    let ctx = opts.context();
+    let ctx = opts.context(extra.signal);
     if (typeof rawArgs.elicit_token === "string") {
       const { elicit_token, ...rest } = rawArgs;
       args = rest;
@@ -276,26 +281,32 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // unsupported rather than as a misleading empty/error surface.
   const { vaultRegistry } = opts;
   if (vaultRegistry) {
-    server.setRequestHandler(ListResourcesRequestSchema, (req): Promise<ListResourcesResult> => {
-      const ctx = opts.context();
-      return opts.registry.dispatchResource(
-        "resources/list",
-        ctx,
-        ["read:notes"],
-        { cursor: req.params?.cursor ?? null },
-        () => listResources(vaultRegistry, ctx, req.params?.cursor),
-      );
-    });
-    server.setRequestHandler(ReadResourceRequestSchema, (req): Promise<ReadResourceResult> => {
-      const ctx = opts.context();
-      return opts.registry.dispatchResource(
-        "resources/read",
-        ctx,
-        ["read:notes"],
-        { uri: req.params.uri },
-        () => readResource(vaultRegistry, ctx, req.params.uri),
-      );
-    });
+    server.setRequestHandler(
+      ListResourcesRequestSchema,
+      (req, extra): Promise<ListResourcesResult> => {
+        const ctx = opts.context(extra.signal);
+        return opts.registry.dispatchResource(
+          "resources/list",
+          ctx,
+          ["read:notes"],
+          { cursor: req.params?.cursor ?? null },
+          () => listResources(vaultRegistry, ctx, req.params?.cursor),
+        );
+      },
+    );
+    server.setRequestHandler(
+      ReadResourceRequestSchema,
+      (req, extra): Promise<ReadResourceResult> => {
+        const ctx = opts.context(extra.signal);
+        return opts.registry.dispatchResource(
+          "resources/read",
+          ctx,
+          ["read:notes"],
+          { uri: req.params.uri },
+          () => readResource(vaultRegistry, ctx, req.params.uri),
+        );
+      },
+    );
   }
 
   // Prompts: built-in, static templates (no vault access, so no authorization gate — like the
@@ -305,12 +316,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // is audited" hold for the prompt surface too. dispatchResource applies throttle + audit + metrics
   // but enforces no scope (authorization stays the handler's job), so passing [] preserves the
   // open-template semantics while closing the observability gap.
-  server.setRequestHandler(ListPromptsRequestSchema, (): Promise<ListPromptsResult> => {
-    const ctx = opts.context();
+  server.setRequestHandler(ListPromptsRequestSchema, (_req, extra): Promise<ListPromptsResult> => {
+    const ctx = opts.context(extra.signal);
     return opts.registry.dispatchResource("prompts/list", ctx, [], {}, () => listPrompts());
   });
-  server.setRequestHandler(GetPromptRequestSchema, (req): Promise<GetPromptResult> => {
-    const ctx = opts.context();
+  server.setRequestHandler(GetPromptRequestSchema, (req, extra): Promise<GetPromptResult> => {
+    const ctx = opts.context(extra.signal);
     return opts.registry.dispatchResource("prompts/get", ctx, [], { name: req.params.name }, () =>
       getPrompt(req.params.name, req.params.arguments),
     );
