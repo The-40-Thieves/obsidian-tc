@@ -22,6 +22,7 @@ import { type GatewayRoles, prompt } from "../../plane/gateway";
 import { bm25Chunks } from "../../search/chunk_fts";
 import { readGeneration } from "../../search/generation";
 import type { GraphSearchOptions, GraphSearchResult } from "../../search/graph_search";
+import type { StageMetric } from "../../search/graph_search_stages/instrumentation";
 import { multiQueryGraphSearch } from "../../search/multi_query";
 import {
   callerAclFingerprint,
@@ -79,6 +80,10 @@ export interface M7Deps {
    *  matching retrievalLog above. Wired from the composition root so this module never learns
    *  about the metrics recorder. */
   onVecFallback?: (vault: string, reason: "error" | "underfill") => void;
+  /** THE-585 (#6): one record per named retrieval stage (duration + candidate funnel), by vault.
+   *  The `onStageMetric` seam and its closed `StageName` union already existed (THE-465); this is
+   *  the missing half — nothing consumed it outside the perf collector. Absent -> inert. */
+  onStageMetric?: (vault: string, metric: StageMetric) => void;
   /** THE-187/193: cached_activation_score lookup for the graph bubble pass; absent -> inert
    *  (the config-gated dark default until the A/B passes the ship rule). */
   activationFor?: (chunkId: string) => number | null;
@@ -283,6 +288,12 @@ export function buildGraphSearchOptions(
           onVecFallback: (reason: "error" | "underfill") =>
             deps.onVecFallback?.(site.vaultId, reason),
         }
+      : {}),
+    // THE-585 (#6): same options-builder placement, same reason — a per-call-site wiring would
+    // cover some retrieval paths and silently miss others, which is the failure mode a funnel
+    // metric is least able to survive (a missing stage reads as a stage that never ran).
+    ...(deps.onStageMetric
+      ? { onStageMetric: (metric: StageMetric) => deps.onStageMetric?.(site.vaultId, metric) }
       : {}),
   };
 }

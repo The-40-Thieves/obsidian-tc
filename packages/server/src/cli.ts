@@ -71,6 +71,7 @@ import { runLlmDensify } from "./search/densify-runner";
 import { ensureNotesFts } from "./search/fts";
 import { readGeneration } from "./search/generation";
 import { graphSearch } from "./search/graph_search";
+import type { StageMetric } from "./search/graph_search_stages/instrumentation";
 import { IndexCoordinator } from "./search/index-coordinator";
 import {
   deindexNote,
@@ -925,6 +926,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // so the search layer keeps taking a plain callback and never imports metrics.
   const onVecFallback = (vault: string, reason: "error" | "underfill"): void =>
     metrics.incVecFallback(vault, reason);
+  // THE-585 (#6): retrieval stage duration + candidate funnel. Same seam shape as onVecFallback —
+  // a plain callback, so the retrieval layer still never imports the metrics recorder.
+  const onStageMetric = (vault: string, metric: StageMetric): void =>
+    metrics.observeRetrievalStage(vault, metric);
   // THE-585 (#5): bind a vault to the write-lock hooks. Same seam as onVecFallback — the db and
   // indexer layers take plain callbacks and never import metrics, so the composition root stays
   // the only module that knows a recorder exists. `vault` is a real vault id for the index paths;
@@ -1582,6 +1587,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // THE-585: vec0 -> brute-force degradation counter. Unconditional, unlike the config-gated
     // callbacks around it — a silent degradation is exactly the thing you want counted by default.
     onVecFallback,
+    onStageMetric,
     // THE-187/193: activation bubble lookup (dark unless experiential.activationRerank).
     ...(activationFor ? { activationFor } : {}),
     // THE-258: class router (dark unless retrieval.classRouter).

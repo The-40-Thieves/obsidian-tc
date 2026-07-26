@@ -18,6 +18,7 @@ import { Counter, Gauge, Histogram, Registry } from "prom-client";
 // Type-only: the label unions are DEFINED at the write-transaction seam that produces them, so a
 // new transaction site cannot add a Prometheus series without widening the union there first.
 import type { BusyReason, WriteTxnLabel } from "../db/txn";
+import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 
 /** Per-vault gauge sample sources, read lazily at scrape time (G2.4 gauges are per `vault`). */
 export interface GaugeSources {
@@ -60,6 +61,11 @@ const RESPONSE_BYTE_BUCKETS = [1_000, 10_000, 100_000, 1_000_000, 10_000_000];
 // would be indistinguishable from "waited a minute". The 5..10 band is where timeouts land.
 const SQL_LOCK_WAIT_BUCKETS = [0.001, 0.01, 0.1, 0.5, 1, 5, 10];
 
+// THE-585 (#6): retrieval stages are sub-millisecond to low-tens-of-ms individually, so the
+// default prom-client buckets (which start at 5ms) would put almost every stage in the first
+// bucket and report nothing useful. Log-spaced from 0.5ms.
+const RETRIEVAL_STAGE_BUCKETS = [0.0005, 0.002, 0.01, 0.05, 0.25, 1];
+
 export class MetricsRecorder {
   readonly registry: Registry;
 
@@ -81,9 +87,12 @@ export class MetricsRecorder {
   private readonly indexWriteFailures: Counter<string>;
   private readonly vecFallbacks: Counter<string>;
   private readonly sqlBusy: Counter<string>;
+  private readonly retrievalStageCandidatesIn: Counter<string>;
+  private readonly retrievalStageCandidatesOut: Counter<string>;
   private readonly toolDuration: Histogram<string>;
   private readonly responseBytes: Histogram<string>;
   private readonly sqlLockWait: Histogram<string>;
+  private readonly retrievalStageDuration: Histogram<string>;
 
   constructor(sources: GaugeSources = {}) {
     const registry = new Registry();
@@ -211,6 +220,32 @@ export class MetricsRecorder {
     // without those the histogram would have no denominator and "5% of index writes waited >100 ms"
     // could not be computed at all. The `txn` label is a closed union (see WriteTxnLabel) so an
     // operator can tell a reindex waiting on a live tool call from the reverse.
+    // THE-585 (#6). `stage` is the closed StageName union from THE-465's instrumentation, so the
+    // label set is bounded at 8 by construction — no cardinality work was needed.
+    //
+    // The two candidate counters are the point, more than the duration: their RATIO per stage is
+    // the retrieval funnel. `candidates_out / candidates_in` says which stage is actually filtering,
+    // and a stage whose ratio drifts to 1.0 has quietly stopped doing its job while still costing
+    // its latency. Neither number answers that alone.
+    this.retrievalStageDuration = new Histogram({
+      name: "obsidian_tc_retrieval_stage_duration_seconds",
+      help: "Wall time per named graph-search stage, by vault and stage.",
+      labelNames: ["vault", "stage"],
+      buckets: RETRIEVAL_STAGE_BUCKETS,
+      registers,
+    });
+    this.retrievalStageCandidatesIn = new Counter({
+      name: "obsidian_tc_retrieval_stage_candidates_in_total",
+      help: "Candidates entering each graph-search stage, by vault and stage. Divide the _out_ counter by this for the stage's pass-through ratio: a stage sitting at 1.0 is no longer filtering anything while still costing its latency.",
+      labelNames: ["vault", "stage"],
+      registers,
+    });
+    this.retrievalStageCandidatesOut = new Counter({
+      name: "obsidian_tc_retrieval_stage_candidates_out_total",
+      help: "Candidates leaving each graph-search stage, by vault and stage. See the _in_ counter.",
+      labelNames: ["vault", "stage"],
+      registers,
+    });
     this.sqlLockWait = new Histogram({
       name: "obsidian_tc_sql_lock_wait_seconds",
       help: "Seconds spent acquiring SQLite's write lock (BEGIN IMMEDIATE), by vault and transaction. Only writers contend under WAL, so a rising tail here is the direct evidence for splitting the shared database per vault. Failed acquisitions are observed too, and land just ABOVE busy_timeout (5s) rather than at it — count the 5..10s band to find transactions that waited out the timeout and then threw.",
@@ -346,6 +381,14 @@ export class MetricsRecorder {
   }
   incSqlBusy(vault: string, txn: WriteTxnLabel, reason: BusyReason): void {
     this.sqlBusy.inc({ vault, txn, reason });
+  }
+  /** THE-585 (#6): one completed retrieval stage. Takes the whole StageMetric rather than three
+   *  loose numbers so a caller cannot pair a duration with the wrong stage's counts. */
+  observeRetrievalStage(vault: string, metric: StageMetric): void {
+    const stage = metric.stage;
+    this.retrievalStageDuration.observe({ vault, stage }, metric.durationMs / 1000);
+    this.retrievalStageCandidatesIn.inc({ vault, stage }, metric.candidatesIn);
+    this.retrievalStageCandidatesOut.inc({ vault, stage }, metric.candidatesOut);
   }
   incAuditWriteFailed(vault: string, tool: string): void {
     this.auditWriteFailed.inc({ vault, tool });
