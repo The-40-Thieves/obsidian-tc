@@ -1,11 +1,17 @@
 // THE-466 slice 1: the one-shot CLI handlers (run_version, run_doctor, run_forget, etc.) live in
 // ./cli/commands/*, and shared dispatch plumbing (Cmd<K>, resolveOrUsageExit, experientialMigrations)
 // in ./cli/shared.ts. This file grew 37% (1483 -> 2027 lines) between when THE-466 was filed and
-// when it was picked up, unnoticed until a probe measured it — after this extraction it is dispatch
-// + run_serve only, at 1278 lines. biome.json's per-file `noExcessiveLinesPerFile` override (maxLines
-// 1300, scoped to this path) is the floor gate so a future regrowth trips `bun run lint` instead of
-// going unnoticed again. run_serve's own decomposition (its observability wiring) is THE-466 slice 2,
-// deliberately kept out of this change.
+// when it was picked up, unnoticed until a probe measured it — after slice 1 it was dispatch +
+// run_serve only, at 1278 lines. biome.json's per-file `noExcessiveLinesPerFile` override (scoped
+// to this path) is the floor gate so a future regrowth trips `bun run lint` instead of going
+// unnoticed again.
+//
+// THE-466 slice 2: run_serve's own observability wiring (MetricsRecorder, its gauge sources,
+// onVecFallback/onStageMetric/sqlHooksFor, the MORGIANA emitter — see THE-585's history of gauges
+// that were declared and never wired) moved to ./runtime/observability.ts, where it is unit
+// testable against a real recorder instead of buried inside a 1000+ line boot function. This file
+// is now 1231 lines (THE-590 landed alongside this slice, adding recordIngestStatsFor + its
+// onIndexVaultComplete wiring); the maxLines cap below is set just above that measured size.
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { version as VERSION } from "../package.json";
@@ -43,7 +49,6 @@ import { provisionExperientialDb } from "./db/experiential";
 import { registerMaintenanceSweep } from "./db/maintenance";
 import { openDatabase } from "./db/open";
 import { provisionCacheDb } from "./db/provision";
-import type { WriteTxnHooks } from "./db/txn";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
 import { makeActivationLookup, registerActivationRecompute } from "./experiential/activation";
@@ -53,22 +58,19 @@ import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { startMetricsEndpoint } from "./metrics/endpoint";
-import { databaseGaugeSources } from "./metrics/gauge-sources";
 import { recordIngestStats } from "./metrics/ingest-stats";
-import { MetricsRecorder } from "./metrics/registry";
 import { buildModelTierReranker } from "./model";
-import { MorgianaEmitter } from "./morgiana/emitter";
 import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
 import { auditJob } from "./plane/jobs/audit";
 import { checkContradictions, loadChunkForContradiction } from "./plane/jobs/contradiction";
 import { isoWeek, runSynthesis } from "./plane/jobs/synthesis";
 import { createPlurBackend } from "./plur/client";
+import { createObservability } from "./runtime/observability";
 import { JobQueue } from "./scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "./scheduler/job-runner";
 import { Scheduler } from "./scheduler/scheduler";
 import { ensureNotesFts } from "./search/fts";
-import type { StageMetric } from "./search/graph_search_stages/instrumentation";
 import { IndexCoordinator } from "./search/index-coordinator";
 import {
   deindexNote,
@@ -114,6 +116,15 @@ import { ActiveSessionTracker, appendTrace, getSession } from "./workspace/sessi
 // VERSION derives from packages/server/package.json (imported above): single source of
 // truth, bumped by the release pipeline. Matches MCP versioning guidance (extract from
 // package metadata, do not hardcode); resolveJsonModule is on, so bun inlines it at build.
+
+/** THE-466 slice 2: indexCoordinator/scheduler are constructed after the observability module, so
+ *  its gauge sources read them through a ref assigned later — read only lazily, at scrape time,
+ *  always after boot has finished. A plain thrown Error (never a non-null assertion, forbidden by
+ *  lint) documents the invariant if that ever stops being true. */
+function requireBoot<T>(value: T | undefined, what: string): T {
+  if (value === undefined) throw new Error(`${what} read before boot completed`);
+  return value;
+}
 
 async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   const config = resolveOrUsageExit(cmd.input);
@@ -172,102 +183,25 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     maxEntries: config.retrieval.cache.maxEntries,
     ttlMs: config.retrieval.cache.ttlSeconds * 1000,
   });
-  const cacheStat = (
-    pick: (s: ReturnType<(typeof retrievalCaches)["results"]["stats"]>) => number,
-  ): (() => Array<{ vault: string; value: number }>) => {
-    // The label is the CACHE NAME, not a vault: the cache is process-wide and keyed internally by
-    // vault, so there are no per-vault totals to report. Two bounded values, per the ticket's
-    // bounded-labels constraint.
-    return () => [
-      { vault: "results", value: pick(retrievalCaches.results.stats()) },
-      { vault: "vectors", value: pick(retrievalCaches.vectors.stats()) },
-    ];
-  };
-  // THE-585: three catalogued gauges had NO source wired here, so they registered a TYPE line and
-  // then emitted no series at all — permanently. Not a deliberate deferral like the idempotency
-  // replay counters (which have no subsystem yet): sessions, the capture queue, and elicit tokens
-  // have all been live for many releases, and each already has a dedicated partial index for
-  // exactly this predicate. The data was there the whole time; nothing read it.
-  /** Bounded subsystem name used in the `vault` label where a metric is process-wide rather than
-   *  per-vault — the precedent the query-cache gauges set ("results"/"vectors"). */
-  const SUBSYSTEM_COORDINATOR = "coordinator";
-  /** THE-585 (#11): set once, when the HTTP transport is constructed. Null until then, and null
-   *  forever on a stdio-only server — see the gauge source below. */
+  // THE-585 (#11): set once, when the HTTP transport is constructed, below. Null until then, and
+  // null forever on a stdio-only server — see observability.ts's httpConstructSeconds source.
   let httpConstructSeconds: number | null = null;
-  const metrics = new MetricsRecorder({
-    // The DB-backed sources live in metrics/gauge-sources.ts so they are TESTABLE. Three of them
-    // (sessions / capture queue / elicit tokens) were declared in GaugeSources and never wired,
-    // emitting nothing for many releases — the only construction site was here, inside boot, where
-    // no test could reach it. Extracting them is what keeps that fixed.
-    ...databaseGaugeSources(db),
-    // THE-585 (#1): index-coordinator depth. Read from the coordinator's own stats() rather than
-    // counted here, keeping the one-way dependency the composition root maintains.
-    indexQueueDepth: () => [
-      { vault: SUBSYSTEM_COORDINATOR, value: indexCoordinator.stats().queued },
-    ],
-    indexActive: () =>
-      Object.entries(indexCoordinator.stats().perVaultActive).map(([vault, value]) => ({
-        vault,
-        value,
-      })),
-    // THE-585 (#2): coalesced writes. Process-wide like the queue depth above, so the same bounded
-    // subsystem label.
-    indexCoalesced: () => [
-      { vault: SUBSYSTEM_COORDINATOR, value: indexCoordinator.stats().coalesced },
-    ],
-    // THE-585 (#9): scheduler health. `vault` carries the bounded JOB NAME — the jobs are
-    // registered in code at startup, so the label set is fixed by the build, not by traffic.
-    schedulerSkipped: () => scheduler.stats().map((j) => ({ vault: j.job, value: j.skipped })),
-    schedulerConsecutiveFailures: () =>
-      scheduler.stats().map((j) => ({ vault: j.job, value: j.consecutiveFailures })),
-    schedulerDeferred: () => scheduler.stats().map((j) => ({ vault: j.job, value: j.deferred })),
-    // THE-585 (#11): boot-time HTTP construction. Stays an empty series until the transport is
-    // actually started — a stdio-only server never constructs one, and reporting 0 there would
-    // claim a measurement that never happened.
-    httpConstructSeconds: () =>
-      httpConstructSeconds === null ? [] : [{ vault: "http", value: httpConstructSeconds }],
-    queryCacheHits: cacheStat((s) => s.hits),
-    queryCacheMisses: cacheStat((s) => s.misses),
-    queryCacheEvictions: cacheStat((s) => s.evictions),
-    queryCacheExpirations: cacheStat((s) => s.expirations),
-    // idempotencyCacheBytes (THE-197) moved into databaseGaugeSources above alongside the three it
-    // was the only wired sibling of — keeping one here too would be a second copy of the same SQL.
-  });
-  // THE-585 (#7, #8): vec0 -> brute-force degradation counter. Defined here, next to the recorder,
-  // so the search layer keeps taking a plain callback and never imports metrics.
-  const onVecFallback = (vault: string, reason: "error" | "underfill"): void =>
-    metrics.incVecFallback(vault, reason);
-  // THE-585 (#6): retrieval stage duration + candidate funnel. Same seam shape as onVecFallback —
-  // a plain callback, so the retrieval layer still never imports the metrics recorder.
-  const onStageMetric = (vault: string, metric: StageMetric): void =>
-    metrics.observeRetrievalStage(vault, metric);
-  // THE-585 (#5): bind a vault to the write-lock hooks. Same seam as onVecFallback — the db and
-  // indexer layers take plain callbacks and never import metrics, so the composition root stays
-  // the only module that knows a recorder exists. `vault` is a real vault id for the index paths;
-  // process-wide subsystems pass a bounded subsystem name instead (see observeSqlLockWait).
-  const sqlHooksFor = (vault: string): WriteTxnHooks => ({
-    onLockWait: (txn, seconds) => metrics.observeSqlLockWait(vault, txn, seconds),
-    onBusy: (txn, reason) => metrics.incSqlBusy(vault, txn, reason),
-  });
-  // MORGIANA CloudEvents spool (G2.4) — JSONL by default; a dropped event feeds
-  // morgiana_emit_dropped_total + the event_log and never blocks a tool call.
-  const morgiana = new MorgianaEmitter({
+  // indexCoordinator and scheduler are constructed further down (after the tool registry); the
+  // observability module reads them through these lazily-assigned refs so its gauge sources see
+  // the live objects at scrape time without the recorder having to be constructed after them.
+  let indexCoordinatorRef: IndexCoordinator | undefined;
+  let schedulerRef: Scheduler | undefined;
+  // THE-466 slice 2: MetricsRecorder + its gauge sources, onVecFallback/onStageMetric/sqlHooksFor,
+  // and the MORGIANA emitter all live in runtime/observability.ts now — see that file for the
+  // THE-585 history (three gauges that were declared and never wired) this extraction fixes.
+  const { metrics, onVecFallback, onStageMetric, sqlHooksFor, morgiana } = createObservability({
+    db,
     cacheDir: config.cacheDir,
-    spool: config.observability.morgiana.spool,
-    onDropped: (vaultId, reason) => {
-      metrics.incMorgianaDropped(vaultId, reason);
-      try {
-        writeEvent(db, {
-          ts: Date.now(),
-          vault_id: vaultId,
-          status: "skipped",
-          error_code: reason,
-          event_type: "morgiana_emit_dropped",
-        });
-      } catch {
-        /* event_log is best-effort */
-      }
-    },
+    morgianaSpool: config.observability.morgiana.spool,
+    retrievalCaches,
+    getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
+    getSchedulerStats: () => requireBoot(schedulerRef, "scheduler").stats(),
+    getHttpConstructSeconds: () => httpConstructSeconds,
   });
   // Shared rate limiter (G2.4 tiers) — the dispatch gate (THE-210) and get_metrics share it.
   const rateLimiter = new RateLimiter(config.throttle.tiers);
@@ -632,6 +566,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       },
     },
   );
+  // THE-466 slice 2: hand the live coordinator to the observability module's lazy gauge sources
+  // (indexQueueDepth / indexActive / indexCoalesced), constructed above before this existed.
+  indexCoordinatorRef = indexCoordinator;
   // indexReadableFor: per-vault ACL read-visibility filter shared by the boot reconcile, runtime
   // add_vault, AND the index-on-write hook below (THE-453). makeIndexReadable resolves each vault's
   // effective ACL (override ?? root), mirroring the dispatch aclResolver, so indexing never
@@ -1052,6 +989,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // but left disabled here (eventLoopDeferMs unset) to preserve today's cadence — enabling it is a
   // config-tuning follow-up.
   const scheduler = new Scheduler({ now: Date.now, db });
+  // THE-466 slice 2: hand the live scheduler to the observability module's lazy gauge sources
+  // (schedulerSkipped / schedulerConsecutiveFailures / schedulerDeferred).
+  schedulerRef = scheduler;
 
   // THE-292: periodic cache.db maintenance — purge expired idempotency/elicit rows, trim
   // event_log to its configured retention, PRAGMA optimize. Best-effort; expired rows remain

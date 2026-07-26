@@ -146,15 +146,24 @@ describe("THE-585 the previously-dead gauges reach the Prometheus exposition", (
   });
 
   // Behavioural tests above prove the SQL works and the recorder exposes it. Neither proves the
-  // composition root still CALLS it — delete the spread from cli.ts and every test above stays
-  // green while the gauges go silent again, which is precisely how they died the first time. A
-  // structural check is the only thing that sees that, so this is a deliberate source scan.
+  // composition root still CALLS it — delete the spread and every test above stays green while
+  // the gauges go silent again, which is precisely how they died the first time. A structural
+  // check is the only thing that sees that, so this is a deliberate source scan.
+  //
+  // THE-466 slice 2 moved the recorder's construction (and this spread) out of cli.ts into
+  // runtime/observability.ts; cli.ts now reaches it one level removed, through createObservability.
   it("the composition root still feeds the recorder from databaseGaugeSources", () => {
+    const observability = readFileSync(
+      new URL("../src/runtime/observability.ts", import.meta.url),
+      "utf8",
+    );
+    expect(observability).toContain("...databaseGaugeSources(deps.db)");
+    // The SQL must live in ONE place. A copy re-introduced here would be untestable again.
+    expect(observability).not.toContain("FROM workspace_sessions WHERE ended_at IS NULL");
+    expect(observability).not.toContain("FROM capture_queue WHERE committed_at IS NULL");
+
     const cli = readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8");
-    expect(cli).toContain("...databaseGaugeSources(db)");
-    // The SQL must live in ONE place. A copy re-introduced into cli.ts would be untestable again.
-    expect(cli).not.toContain("FROM workspace_sessions WHERE ended_at IS NULL");
-    expect(cli).not.toContain("FROM capture_queue WHERE committed_at IS NULL");
+    expect(cli).toContain("createObservability({");
   });
 
   it("an unwired source still registers the metric but emits nothing — the old behaviour", async () => {
