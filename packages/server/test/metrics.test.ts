@@ -25,18 +25,28 @@ const COUNTERS = [
   // THE-585 (#5): busy-class write-transaction failures. reason=snapshot is a bug report — see
   // the counter's help text and src/db/txn.ts.
   "obsidian_tc_sql_busy_total",
+  // THE-585 (#6): the retrieval funnel. Their RATIO per stage is the signal — a stage sitting at
+  // 1.0 pass-through has stopped filtering while still costing its latency.
+  "obsidian_tc_retrieval_stage_candidates_in_total",
+  "obsidian_tc_retrieval_stage_candidates_out_total",
 ];
 const HISTOGRAMS = [
   "obsidian_tc_tool_duration_seconds",
   "obsidian_tc_response_bytes",
   // THE-585 (#5): the writer-vs-writer contention signal THE-467/468 turns on.
   "obsidian_tc_sql_lock_wait_seconds",
+  // THE-585 (#6): `stage` is THE-465's closed 8-value StageName union, bounded by construction.
+  "obsidian_tc_retrieval_stage_duration_seconds",
 ];
 const GAUGES = [
   "obsidian_tc_active_sessions",
   "obsidian_tc_capture_queue_depth",
   "obsidian_tc_elicit_tokens_pending",
   "obsidian_tc_idempotency_cache_bytes",
+  // THE-585 (#1): index-coordinator depth. Distinct from capture_queue_depth above — that one is
+  // the durable table, these are in-process write work.
+  "obsidian_tc_index_queue_depth",
+  "obsidian_tc_index_active",
   // THE-507: retrieval-cache effectiveness. Gauges rather than counters because the cache owns
   // the cumulative numbers and the recorder only reads them — a Counter would require the cache
   // to call INTO the recorder, inverting the one-way dependency the composition root maintains.
@@ -47,14 +57,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 16 counters, 3 histograms, 8 gauges", async () => {
+  it("registers the full catalog: 18 counters, 4 histograms, 10 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(27);
+    expect(new Set(declared).size).toBe(32);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
@@ -91,6 +101,45 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     );
     expect(text).toContain(
       'obsidian_tc_sql_busy_total{vault="main",txn="index_deindex",reason="snapshot"} 1',
+    );
+  });
+
+  it("records the retrieval funnel and stage duration by bounded stage label (THE-585 #6)", async () => {
+    const r = new MetricsRecorder();
+    // A realistic funnel: expansion widens, diversity narrows.
+    r.observeRetrievalStage("main", {
+      stage: "graphExpansion",
+      candidatesIn: 30,
+      candidatesOut: 84,
+      durationMs: 12.5,
+    });
+    r.observeRetrievalStage("main", {
+      stage: "diversity",
+      candidatesIn: 84,
+      candidatesOut: 10,
+      durationMs: 0.4,
+    });
+    const text = await r.metrics();
+    expect(text).toContain(
+      'obsidian_tc_retrieval_stage_candidates_in_total{vault="main",stage="graphExpansion"} 30',
+    );
+    expect(text).toContain(
+      'obsidian_tc_retrieval_stage_candidates_out_total{vault="main",stage="graphExpansion"} 84',
+    );
+    // The funnel must stay per-stage: collapsing these would make "which stage filters" unanswerable.
+    expect(text).toContain(
+      'obsidian_tc_retrieval_stage_candidates_out_total{vault="main",stage="diversity"} 10',
+    );
+    // Durations are SECONDS in the exposition even though StageMetric carries milliseconds.
+    expect(text).toContain(
+      'obsidian_tc_retrieval_stage_duration_seconds_sum{vault="main",stage="diversity"} 0.0004',
+    );
+    // 12.5ms must not land in a sub-millisecond bucket — the whole reason for custom buckets.
+    expect(text).toContain(
+      'obsidian_tc_retrieval_stage_duration_seconds_bucket{le="0.002",vault="main",stage="graphExpansion"} 0',
+    );
+    expect(text).toContain(
+      'obsidian_tc_retrieval_stage_duration_seconds_bucket{le="0.05",vault="main",stage="graphExpansion"} 1',
     );
   });
 

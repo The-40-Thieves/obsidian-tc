@@ -53,6 +53,7 @@ import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { startMetricsEndpoint } from "./metrics/endpoint";
+import { databaseGaugeSources } from "./metrics/gauge-sources";
 import { MetricsRecorder } from "./metrics/registry";
 import { buildModelTierReranker } from "./model";
 import { MorgianaEmitter } from "./morgiana/emitter";
@@ -70,6 +71,7 @@ import { runLlmDensify } from "./search/densify-runner";
 import { ensureNotesFts } from "./search/fts";
 import { readGeneration } from "./search/generation";
 import { graphSearch } from "./search/graph_search";
+import type { StageMetric } from "./search/graph_search_stages/instrumentation";
 import { IndexCoordinator } from "./search/index-coordinator";
 import {
   deindexNote,
@@ -889,23 +891,45 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       { vault: "vectors", value: pick(retrievalCaches.vectors.stats()) },
     ];
   };
+  // THE-585: three catalogued gauges had NO source wired here, so they registered a TYPE line and
+  // then emitted no series at all — permanently. Not a deliberate deferral like the idempotency
+  // replay counters (which have no subsystem yet): sessions, the capture queue, and elicit tokens
+  // have all been live for many releases, and each already has a dedicated partial index for
+  // exactly this predicate. The data was there the whole time; nothing read it.
+  /** Bounded subsystem name used in the `vault` label where a metric is process-wide rather than
+   *  per-vault — the precedent the query-cache gauges set ("results"/"vectors"). */
+  const SUBSYSTEM_COORDINATOR = "coordinator";
   const metrics = new MetricsRecorder({
+    // The DB-backed sources live in metrics/gauge-sources.ts so they are TESTABLE. Three of them
+    // (sessions / capture queue / elicit tokens) were declared in GaugeSources and never wired,
+    // emitting nothing for many releases — the only construction site was here, inside boot, where
+    // no test could reach it. Extracting them is what keeps that fixed.
+    ...databaseGaugeSources(db),
+    // THE-585 (#1): index-coordinator depth. Read from the coordinator's own stats() rather than
+    // counted here, keeping the one-way dependency the composition root maintains.
+    indexQueueDepth: () => [
+      { vault: SUBSYSTEM_COORDINATOR, value: indexCoordinator.stats().queued },
+    ],
+    indexActive: () =>
+      Object.entries(indexCoordinator.stats().perVaultActive).map(([vault, value]) => ({
+        vault,
+        value,
+      })),
     queryCacheHits: cacheStat((s) => s.hits),
     queryCacheMisses: cacheStat((s) => s.misses),
     queryCacheEvictions: cacheStat((s) => s.evictions),
     queryCacheExpirations: cacheStat((s) => s.expirations),
-    // THE-197: live idempotency cache size per vault (unexpired, completed rows only).
-    idempotencyCacheBytes: () =>
-      db
-        .prepare(
-          "SELECT vault_id AS vault, COALESCE(SUM(result_size), 0) AS value FROM idempotency_keys WHERE completed_at IS NOT NULL AND expires_at > ? GROUP BY vault_id",
-        )
-        .all(Date.now()) as Array<{ vault: string; value: number }>,
+    // idempotencyCacheBytes (THE-197) moved into databaseGaugeSources above alongside the three it
+    // was the only wired sibling of — keeping one here too would be a second copy of the same SQL.
   });
   // THE-585 (#7, #8): vec0 -> brute-force degradation counter. Defined here, next to the recorder,
   // so the search layer keeps taking a plain callback and never imports metrics.
   const onVecFallback = (vault: string, reason: "error" | "underfill"): void =>
     metrics.incVecFallback(vault, reason);
+  // THE-585 (#6): retrieval stage duration + candidate funnel. Same seam shape as onVecFallback —
+  // a plain callback, so the retrieval layer still never imports the metrics recorder.
+  const onStageMetric = (vault: string, metric: StageMetric): void =>
+    metrics.observeRetrievalStage(vault, metric);
   // THE-585 (#5): bind a vault to the write-lock hooks. Same seam as onVecFallback — the db and
   // indexer layers take plain callbacks and never import metrics, so the composition root stays
   // the only module that knows a recorder exists. `vault` is a real vault id for the index paths;
@@ -1563,6 +1587,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // THE-585: vec0 -> brute-force degradation counter. Unconditional, unlike the config-gated
     // callbacks around it — a silent degradation is exactly the thing you want counted by default.
     onVecFallback,
+    onStageMetric,
     // THE-187/193: activation bubble lookup (dark unless experiential.activationRerank).
     ...(activationFor ? { activationFor } : {}),
     // THE-258: class router (dark unless retrieval.classRouter).
