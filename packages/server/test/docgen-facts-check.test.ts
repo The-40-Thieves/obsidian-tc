@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { factRules, scanFacts } from "../scripts/docgen/facts-check";
 
 // The REAL production patterns, bound to test values — so these cases validate the shipped regexes.
-const RULES = factRules(146, 250);
+const RULES = factRules(146, 250, 31);
 
 describe("scanFacts (THE-566 narrative fact gate)", () => {
   it("passes when narrative matches the current facts", () => {
@@ -95,5 +95,26 @@ describe("scanFacts (THE-566 narrative fact gate)", () => {
     const text = "143 typed tools and a 200-query golden set";
     const v = scanFacts(text, RULES);
     expect(v.map((x) => x.fact).sort()).toEqual(["goldenSetSize", "toolCount"]);
+  });
+
+  // THE-470 hole 3: domainCount was previously only an ANCHOR baked into the toolCount pattern —
+  // nothing ever asserted the "31" itself, so it could drift silently. These prove the new rule
+  // actually fires, per "a rule you have not watched fail is not a gate".
+  it("flags a stale domain count with the line number", () => {
+    const v = scanFacts("The surface is 146 tools across 32 domains.", RULES);
+    expect(v).toEqual([expect.objectContaining({ fact: "domainCount", found: 32, expected: 31 })]);
+  });
+
+  it("does NOT flag a milestone sub-count's domain number (anchored to the canonical tool count)", () => {
+    // "20 tools across 9 domains" pairs a DIFFERENT tool count with its own domain sub-count; the
+    // domainCount rule only fires when the canonical 146 anchors the phrase.
+    expect(scanFacts("Plugin bridges — 20 tools across 9 domains — merged", RULES)).toEqual([]);
+  });
+
+  it("passes when the domain count matches, even alongside a stale golden-set number", () => {
+    const v = scanFacts("146 tools across 31 domains, gated against an n=136 golden set", RULES);
+    expect(v).toEqual([
+      expect.objectContaining({ fact: "goldenSetSize", found: 136, expected: 250 }),
+    ]);
   });
 });

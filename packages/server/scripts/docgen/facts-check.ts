@@ -15,8 +15,11 @@
 //     surface, a dated measurement) are NOT current facts — mark that line `<!-- facts-check:ignore -->`
 //     (or the whole file `<!-- facts-check:ignore-file -->`) and the sweep skips it.
 //   * a fact is only ever asserted against the ONE authority the render pipeline already trusts:
-//     toolCount from the live registry (extractTools().length), goldenSetSize from
-//     docs/project-facts.json. No new source of truth, no third hardcoded 146.
+//     toolCount from the live registry (extractTools().length), goldenSetSize and domainCount
+//     (THE-470 hole 3) from docs/project-facts.json. No new source of truth, no third hardcoded
+//     146 — and no fourth hardcoded 31: the domain map (src/mcp/facade.ts) only covers 13
+//     tool-routing buckets, not the "31 domains" figure, which spans the G2.1 design-era domain
+//     list plus post-1.0 additions and so is curated exactly like goldenSetSize.
 //
 //   bun scripts/docgen/facts-check.ts            # report + exit 1 on drift
 import { readdirSync, readFileSync } from "node:fs";
@@ -107,17 +110,22 @@ const STANDALONE = "(?<![A-Za-z0-9.\\-])";
  * the exact production patterns are unit-testable. `currentFactRules()` resolves the values from
  * the render pipeline's own authorities and calls this.
  */
-export function factRules(toolCount: number, goldenSetSize: number): FactRule[] {
+export function factRules(
+  toolCount: number,
+  goldenSetSize: number,
+  domainCount: number,
+): FactRule[] {
   return [
     {
       name: "toolCount",
       value: toolCount,
       // "Full surface" phrasings only. Deliberately NOT bare "(\d+)-tool" (the legitimate "3-tool
-      // facade" is a different fact), and "tools across N domains" is anchored to the canonical 31
-      // so a milestone sub-count like "20 tools across 9 domains" is not mistaken for the surface.
+      // facade" is a different fact). "tools across N domains" is anchored to the CURRENT
+      // domainCount (not a hardcoded 31) so a milestone sub-count like "20 tools across 9 domains"
+      // is not mistaken for the surface, and the anchor tracks domainCount as it changes.
       patterns: [
         new RegExp(`${STANDALONE}(\\d+)\\s+governed\\s+capabilities`, "i"),
-        new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+across\\s+31\\s+domains`, "i"),
+        new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+across\\s+${domainCount}\\s+domains`, "i"),
         new RegExp(`${STANDALONE}(\\d+)[-\\s]tool\\s+surface`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+typed\\s+tools`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+tool\\s+impls?`, "i"), // "across the 141 tool impls"
@@ -132,6 +140,18 @@ export function factRules(toolCount: number, goldenSetSize: number): FactRule[] 
         new RegExp(`${STANDALONE}(\\d+)[-\\s]quer(?:y|ies)[-\\s]golden`, "i"),
       ],
     },
+    // THE-470 hole 3: "31 domains" was only ever an ANCHOR inside the toolCount pattern above (and
+    // in scripts/check-version-coherence.mjs) — never itself asserted, so it could drift to 32
+    // silently everywhere it appears. Anchored on the canonical toolCount, mirroring how the
+    // toolCount rule anchors on domainCount above, so a milestone line like "20 tools across 9
+    // domains" (a real, different, smaller sub-count) is not mistaken for the canonical figure.
+    {
+      name: "domainCount",
+      value: domainCount,
+      patterns: [
+        new RegExp(`${STANDALONE}${toolCount}\\s+tools\\s+across\\s+(\\d+)\\s+domains`, "i"),
+      ],
+    },
   ];
 }
 
@@ -141,8 +161,9 @@ export function currentFactRules(): FactRule[] {
     fileURLToPath(new URL(`../../../../${rel}`, import.meta.url));
   const facts = JSON.parse(readFileSync(repo("docs/project-facts.json"), "utf8")) as {
     goldenSetSize: number;
+    domainCount: number;
   };
-  return factRules(extractTools().length, facts.goldenSetSize);
+  return factRules(extractTools().length, facts.goldenSetSize, facts.domainCount);
 }
 
 /** Narrative surfaces to sweep. Generated regions inside them are stripped by scanFacts. */

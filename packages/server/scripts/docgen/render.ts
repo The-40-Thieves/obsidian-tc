@@ -7,16 +7,21 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { extractConfig } from "./extract-config";
+import { extractMetrics } from "./extract-metrics";
 import { extractStats } from "./extract-stats";
 import { extractTools } from "./extract-tools";
 import { injectGenerated } from "./inject";
+import { findGeneratedMarkers } from "./marker-scan";
+import { renderBridgeCompat } from "./render-bridge-compat";
 import { renderConfig } from "./render-config";
+import { renderMetrics } from "./render-metrics";
 import { renderStats } from "./render-stats";
 import { renderToolSummary, renderTools } from "./render-tools";
 import { GENERATED_DOC_FILES } from "./targets";
 
 const check = process.argv.includes("--check");
-const repo = (rel: string): string => fileURLToPath(new URL(`../../../../${rel}`, import.meta.url));
+const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url)).replace(/\/$/, "");
+const repo = (rel: string): string => `${repoRoot}/${rel}`;
 
 // Render each surface once; the same content fills every target that hosts it.
 const toolDocs = extractTools();
@@ -26,6 +31,7 @@ const toolsMd = renderTools(toolDocs);
 // was that these two files named none of the write tools, so the summary names them explicitly.
 const toolSummaryMd = renderToolSummary(toolDocs);
 const configMd = renderConfig(extractConfig());
+const metricsMd = renderMetrics(await extractMetrics());
 
 // Assert the render targets and the shared list stay in step: a target added here without a
 // corresponding entry in targets.ts would leave the prose watcher (THE-477) blind to it, which is
@@ -63,6 +69,23 @@ const targets: Array<{ rel: string; file: string; marker: string; content: strin
     marker: "config",
     content: configMd,
   },
+  // THE-470 hole 2: the metrics catalog table, generated from extract-metrics.ts so the counts and
+  // "no v1 source" caveats can never drift from what is actually registered/fed.
+  {
+    rel: "docs/src/content/docs/observability/prometheus.md",
+    file: repo("docs/src/content/docs/observability/prometheus.md"),
+    marker: "metrics-catalog",
+    content: metricsMd,
+  },
+  // THE-470 hole 1: the server<->companion version-compatibility matrix, generated from
+  // src/bridge/version.ts. This region previously had no renderer at all — only a vitest test
+  // (bridge-compat-docs.test.ts) asserted it, which is why the bidirectional guard below exists.
+  {
+    rel: "docs/wiki/Plugin-Bridges.md",
+    file: repo("docs/wiki/Plugin-Bridges.md"),
+    marker: "bridge-compat",
+    content: renderBridgeCompat(),
+  },
   // Hand-authored narrative docs (THE-473). Only the marked region is replaced; every byte of
   // surrounding prose is preserved, so positioning stays human-written.
   { rel: "README.md", file: repo("README.md"), marker: "tools-summary", content: toolSummaryMd },
@@ -87,6 +110,32 @@ for (const t of targets) {
         "Add it there so the prose watcher sees it too.",
     );
   }
+}
+
+// THE-470 hole 1: the check above is one-directional — it only fires when a TARGET forgets to
+// declare itself. It says nothing about a marker that exists in a doc with no target at all,
+// which is exactly how docs/wiki/Plugin-Bridges.md's `bridge-compat` region went unrendered:
+// nothing here noticed, because nothing here ever looked at what markers the docs tree actually
+// carries. This scan closes that gap in the other direction.
+const discoveredMarkers = findGeneratedMarkers(repoRoot);
+// A scan finding zero markers is a broken glob, not a clean docs tree — fail loudly rather than
+// pass vacuously (the same class of silent-empty-scan bug this repo has hit before).
+if (discoveredMarkers.length === 0) {
+  throw new Error(
+    "docgen: marker scan found ZERO <!-- BEGIN GENERATED --> markers across the docs tree — the " +
+      "scan is broken (scripts/docgen/marker-scan.ts), not the docs. Refusing to report success.",
+  );
+}
+const registeredMarkers = new Set<string>(targets.map((t) => `${t.rel}::${t.marker}`));
+const orphaned = discoveredMarkers.filter((d) => !registeredMarkers.has(`${d.file}::${d.marker}`));
+if (orphaned.length > 0) {
+  throw new Error(
+    `docgen: marker(s) with no registered renderer:\n${orphaned
+      .map((d) => `  ${d.file} (marker: ${d.marker})`)
+      .join("\n")}\n` +
+      "Add an extract-*.ts/render-*.ts pair and a target entry above, or delete the marker if " +
+      "it is no longer meant to be generated.",
+  );
 }
 
 let stale = 0;

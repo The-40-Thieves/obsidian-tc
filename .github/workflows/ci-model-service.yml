@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'services/bge-m3-service/**'
+      - 'services/docs-ingest/**'
       - '.github/workflows/ci-model-service.yml'
   push:
     branches: [main]
@@ -60,5 +61,38 @@ jobs:
         # Deliberately a structural comparison, NOT a recompile. Recompiling needs the network,
         # takes minutes, and churns on every upstream release — a gate people learn to ignore.
         run: python scripts/check_requirements_sync.py
+      - name: pytest
+        run: pytest -q
+
+  # THE-470 hole 4: services/docs-ingest/tests/ (test_router.py, test_writer.py) had no CI at all
+  # — this workflow's `paths` filter only ever named bge-m3-service, and it was the only workflow
+  # in the repo that installed Python or ran pytest. A SEPARATE job (not more steps on `test`
+  # above): job-level continue-on-error does not survive a failed STEP, so stacking this onto one
+  # job would silently skip whichever half runs second the day the other fails.
+  test-docs-ingest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/docs-ingest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: install package + test deps
+        # docs-ingest's live parse/extract backends (docling, langextract) are lazy-imported
+        # INSIDE the functions that need them (see pipeline.py), so the router/writer/pipeline
+        # unit tests need neither — installing the `test` extra alone is enough. Unlike
+        # bge-m3-service, docs-ingest has no hash-locked requirements-ci.txt yet; its own
+        # pyproject.toml pins by floor only (pydantic>=2.13, pytest>=8), which is the existing
+        # convention there. ruff isn't a project dependency (it's a dev tool, not something
+        # obsidian_tc_docs_ingest imports), so it needs its own install — pinned to the same
+        # version bge-m3-service's requirements-ci.txt locks, for one ruff version across the repo.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+          pip install ruff==0.15.22
+      - name: ruff
+        run: ruff check .
       - name: pytest
         run: pytest -q
