@@ -39,20 +39,29 @@ describe("/metrics endpoint (THE-211)", () => {
   });
 });
 
-// THE-507 (folding in THE-489): the four ingest events had no telemetry at all — only
+// THE-507 (folding in THE-489), extended THE-588: the ingest events had no telemetry at all — only
 // `[ingest]`/`[index]` stderr lines, which are grep-able but not queryable. They are emitted from an
 // indexing pass's AGGREGATE stats (one inc per pass carrying the pass's count), not per event, so
 // the indexer keeps its property of having zero telemetry-layer references.
-describe("THE-507 ingest work counters", () => {
-  it("exports all four counters with a bounded `vault` label and no per-path cardinality", async () => {
+//
+// NOTE for future additions: this test calls MetricsRecorder's inc* methods directly, which proves
+// only that the method and the Prometheus registration work — it does NOT prove the real ingest
+// pipeline (indexVault -> IndexStats -> recordIngestStats) actually feeds the counter. That gap is
+// exactly how three THE-585 gauges sat registered-but-unfed for releases. Do not use this file's
+// pattern as the ONLY test for a new ingest counter — pair it with one that drives a real indexVault
+// pass through recordIngestStats (see test/dedup-unresolved.test.ts).
+describe("THE-507/THE-588 ingest work counters", () => {
+  it("exports all five counters with a bounded `vault` label and no per-path cardinality", async () => {
     const rec = new MetricsRecorder();
     rec.incIngestSecretsSkipped("v1", 3);
     rec.incIngestDedupSkipped("v1", 2);
+    rec.incIngestDedupUnresolved("v1", 4);
     rec.incEmbedBatchRejections("v1", 1);
     rec.incIndexWriteFailures("v1", 5);
     const text = await rec.registry.metrics();
     expect(text).toMatch(/obsidian_tc_ingest_secrets_skipped_total\{vault="v1"\} 3/);
     expect(text).toMatch(/obsidian_tc_ingest_dedup_skipped_total\{vault="v1"\} 2/);
+    expect(text).toMatch(/obsidian_tc_ingest_dedup_unresolved_total\{vault="v1"\} 4/);
     expect(text).toMatch(/obsidian_tc_embed_batch_rejections_total\{vault="v1"\} 1/);
     expect(text).toMatch(/obsidian_tc_index_write_failures_total\{vault="v1"\} 5/);
     // The audit constraint: bounded labels ONLY — never paths, queries, chunk ids or caller ids.

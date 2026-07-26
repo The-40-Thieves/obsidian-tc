@@ -19,6 +19,8 @@ const COUNTERS = [
   // the "no unlisted obsidian_tc_* metric" gate — adding a metric without declaring it here fails.
   "obsidian_tc_ingest_secrets_skipped_total",
   "obsidian_tc_ingest_dedup_skipped_total",
+  // THE-588: the unresolved (loss) side of dedup, split out of the reused counter above.
+  "obsidian_tc_ingest_dedup_unresolved_total",
   "obsidian_tc_embed_batch_rejections_total",
   "obsidian_tc_index_write_failures_total",
   // THE-585 (#7, #8): vec0 -> brute-force degradation. Results stay correct; the cost profile
@@ -78,14 +80,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 21 counters, 4 histograms, 16 gauges", async () => {
+  it("registers the full catalog: 22 counters, 4 histograms, 16 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(41);
+    expect(new Set(declared).size).toBe(42);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
