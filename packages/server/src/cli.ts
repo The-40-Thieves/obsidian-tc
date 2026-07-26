@@ -10,7 +10,8 @@
 // onVecFallback/onStageMetric/sqlHooksFor, the MORGIANA emitter — see THE-585's history of gauges
 // that were declared and never wired) moved to ./runtime/observability.ts, where it is unit
 // testable against a real recorder instead of buried inside a 1000+ line boot function. This file
-// is now 1225 lines; the maxLines cap below is set just above that measured size.
+// is now 1231 lines (THE-590 landed alongside this slice, adding recordIngestStatsFor + its
+// onIndexVaultComplete wiring); the maxLines cap below is set just above that measured size.
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { version as VERSION } from "../package.json";
