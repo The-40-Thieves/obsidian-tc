@@ -154,7 +154,8 @@ export type WriteTxnLabel =
   | "index_deindex"
   | "index_notes_flush"
   | "index_generation"
-  | "job_claim";
+  | "job_claim"
+  | "memory_observation";
 
 /** Busy-class outcomes, split because they mean different things operationally: `busy` is
  *  contention that outlived `busy_timeout` (tune the timeout, or reduce writer overlap), while

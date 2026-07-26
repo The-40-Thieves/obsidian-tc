@@ -11,7 +11,7 @@
 // handler-side enforcePathAcl call instead, so the P1.4 rule-scope gate still applies here.
 import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { inTransaction } from "../../db/txn";
+import { inWriteTransaction } from "../../db/txn";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
   appendObservation,
@@ -259,7 +259,14 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         // transaction: either the observation lands AND the claim is durably marked, or neither
         // does and the claim stays in-flight for a legitimate re-run. Marking inside the
         // transaction is what avoids a false `indeterminate_outcome` when the append itself fails.
-        return inTransaction(ctx.db, () => {
+        // THE-587: inWriteTransaction (BEGIN IMMEDIATE), not inTransaction (deferred BEGIN).
+        // `appendObservation` READS the entity row (getEntityById, entities.ts:135) and then runs
+        // an UPDATE on it (:140) — both inside this transaction. Under a deferred BEGIN that read pins a
+        // snapshot, and if any other connection commits before the UPDATE, SQLite refuses the
+        // upgrade with SQLITE_BUSY_SNAPSHOT. That failure is NOT retryable by `busy_timeout`
+        // (measured: 0.2ms against a 5000ms timeout), so the configured timeout cannot rescue it.
+        // Taking the write lock up front removes the upgrade entirely.
+        return inWriteTransaction(ctx.db, "memory_observation", () => {
           ctx.markEffectCommitted?.();
           const r = appendObservation(ctx.db, existing.id, input.observation, now);
           if (!r) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
