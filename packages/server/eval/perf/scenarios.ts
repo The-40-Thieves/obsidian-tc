@@ -1,5 +1,5 @@
 export interface Scenario {
-  name: "small" | "medium" | "large" | "vault1k" | "vault100k" | "densify";
+  name: "small" | "medium" | "large" | "vault1k" | "vault100k" | "densify" | "colbert";
   seed: number;
   notes: number; // number of source notes
   dupGroups: number; // notes reused verbatim from this many distinct bodies
@@ -38,6 +38,23 @@ export const SCENARIOS: Record<Scenario["name"], Scenario> = {
     paragraphs: 2,
     densify: { tagEdges: true, knnEdges: true },
   }, // 200 chunks, densification ON
+  // THE-418: `small`'s corpus shape exactly, again — same reasoning as `densify` above. This is
+  // where the perf collector seeds every chunk with a ColBERT matrix and passes queryColbert, so
+  // the ColBERT late-interaction stage (colbertRerankResults / maxSim) is exercised and timed
+  // (retrieval.colbert_ms). It gets its OWN scenario rather than seeding into `small` because
+  // `small` (and `densify`) are CI-gated on storage.bytes — the ColBERT matrices are extra
+  // storage the gated vaults must never carry, or every future PR inherits a permanently inflated
+  // storage floor for a fixture change, not a real regression. Not CI-gated today (no committed
+  // baseline.colbert.json), same status as vault1k/medium/large until someone wires it into a
+  // workflow — run manually via `bun eval/perf/run.ts --scenario colbert ...`.
+  colbert: {
+    name: "colbert",
+    seed: 0x5eed,
+    notes: 100,
+    dupGroups: 20,
+    linkFanout: 3,
+    paragraphs: 2,
+  }, // 200 chunks, ColBERT-seeded
   // THE-503 Part 2: the "1K chunk vault" tier named explicitly in the ticket, sitting between
   // small (200 chunks, dev-fast) and medium (2000 chunks).
   vault1k: {

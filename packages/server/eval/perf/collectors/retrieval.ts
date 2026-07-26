@@ -16,6 +16,16 @@ function dcg(hits: boolean[]): number {
 // no perf coverage at all — every scenario called graphSearch with queryVec only, so
 // opts.queryColbert was always undefined and the stage hit its early return every time. Dim 32
 // matches this collector's existing queryVec dim (deterministicVector(q.query, 32) below).
+//
+// This is gated to the dedicated `colbert` scenario (scenarios.ts) rather than running on every
+// scenario: seeding chunk_colbert is a real, permanent write against the vault's db, and `small` /
+// `densify` are CI-gated on storage.bytes (collectors/storage.ts, PRAGMA page_count * page_size on
+// this SAME db). Seeding there inflated storage.bytes ~39% and failed the perf gate — the
+// measurement instrument mutating the thing another collector measures. Isolating it to its own
+// scenario is what the fix below buys: `small`/`densify` are byte-for-byte unaffected (no
+// chunk_colbert table, no extra rows), and the ColBERT stage still gets a real, non-zero, timed
+// measurement on `colbert` — closer to what THE-418 wants anyway (a dedicated scenario, not a
+// side effect bolted onto an unrelated one).
 const COLBERT_DIM = 32;
 // Bounds the per-chunk token matrix so seeding cost stays proportional to a chunk, not a whole
 // document: real bge-m3 output is one row per input token, and this corpus's chunks are ~1-2
@@ -53,10 +63,11 @@ function seedColbert(vault: VaultCtx): void {
 
 /** Families 8 (graph candidate counts per stage) + 9 (recall/nDCG per ms) + THE-418's ColBERT
  *  coverage (the "projection" stage duration, which wraps colbertRerankResults — see
- *  graph_search.ts). Deterministic vault -> deterministic counts + relevance; per-ms and
- *  colbert_ms are the warn-only latency figures. */
+ *  graph_search.ts) on the dedicated `colbert` scenario only. Deterministic vault -> deterministic
+ *  counts + relevance; per-ms and colbert_ms are the warn-only latency figures. */
 export async function collectRetrieval(vault: VaultCtx): Promise<MetricSample[]> {
-  seedColbert(vault);
+  const withColbert = vault.scenario.name === "colbert";
+  if (withColbert) seedColbert(vault);
   const stageCounts: Record<string, number> = { seed: 0, expand: 0, fused: 0 };
   let recallSum = 0;
   let ndcgSum = 0;
@@ -70,8 +81,10 @@ export async function collectRetrieval(vault: VaultCtx): Promise<MetricSample[]>
       queryVec: deterministicVector(q.query, 32),
       // THE-418: exercises colbertRerankResults's maxSim pool (bounded to
       // min(colbertPool ?? 40, results.length) in projection.ts — realistic given finalTopK below,
-      // not a pathologically inflated pool) instead of leaving it permanently a no-op.
-      queryColbert: colbertMatrixFor(q.query, COLBERT_QUERY_TOKENS),
+      // not a pathologically inflated pool) instead of leaving it permanently a no-op. Only on the
+      // `colbert` scenario (see seedColbert's caller above) -- everywhere else this stays
+      // `undefined`, exactly the pre-THE-418 shape, so `small`/`densify` are unaffected.
+      ...(withColbert ? { queryColbert: colbertMatrixFor(q.query, COLBERT_QUERY_TOKENS) } : {}),
       vaultId: vault.vaultId,
       finalTopK: 10,
       onStage: (stage, count) => {
@@ -141,16 +154,23 @@ export async function collectRetrieval(vault: VaultCtx): Promise<MetricSample[]>
       direction: "lower-worse",
     },
     // THE-418: mean "projection" stage duration (colbertRerankResults's maxSim pool, bounded to
-    // colbertPool ?? 40 results) across the labelled queries. Unbaselined deliberately — Cave's
-    // dev-host calibration CV (perf-baseline.yml) fails its own 0.2 threshold, so no trustworthy
-    // number can be recorded here; gate.ts walks the baseline, not the report, so an unbaselined
-    // key is reported but never gated. warn-class latency, like ndcg_per_ms above.
-    {
-      key: "retrieval.colbert_ms",
-      value: colbertMsAvg,
-      unit: "ms",
-      class: "warn",
-      direction: "higher-worse",
-    },
+    // colbertPool ?? 40 results) across the labelled queries, `colbert` scenario only. Emitted only
+    // when actually measured, not as a phantom zero for every other scenario — same convention as
+    // collectDensification (a zero that always matches a zero baseline is a gate on nothing).
+    // Unbaselined deliberately — Cave's dev-host calibration CV (perf-baseline.yml) fails its own
+    // 0.2 threshold, so no trustworthy number can be recorded here; gate.ts walks the baseline, not
+    // the report, so an unbaselined key is reported but never gated. warn-class latency, like
+    // ndcg_per_ms above.
+    ...(withColbert
+      ? [
+          {
+            key: "retrieval.colbert_ms",
+            value: colbertMsAvg,
+            unit: "ms" as const,
+            class: "warn" as const,
+            direction: "higher-worse" as const,
+          },
+        ]
+      : []),
   ];
 }
