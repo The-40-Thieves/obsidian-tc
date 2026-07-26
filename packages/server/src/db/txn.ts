@@ -41,10 +41,65 @@ export function inTransaction<T>(db: Database, fn: () => T): T {
   return out;
 }
 
+/**
+ * THE-573: the nested-safe counterpart to `inTransaction`.
+ *
+ * `inTransaction` is non-reentrant by construction — SQLite has no nested transactions — so a
+ * caller that might ALREADY be inside one had no helper at all and had to hand-roll a savepoint,
+ * which is precisely the duplication `inTransaction` exists to prevent.
+ *
+ * A SAVEPOINT works standalone too (it opens a transaction if none is active), so this is safe
+ * whether or not there is an outer transaction. On failure only the work since the savepoint is
+ * undone; an enclosing transaction is left intact and still commits.
+ *
+ * Names are unique per call because savepoints nest: reusing one name would make `ROLLBACK TO`
+ * unwind to the OUTERMOST savepoint of that name, silently discarding more than the caller asked.
+ *
+ * The rollback discipline matches `inTransaction`: the primary error always propagates, and a
+ * genuine `ROLLBACK TO` failure is attached as a non-enumerable `rollbackError` rather than thrown
+ * in its place.
+ */
+let savepointSeq = 0;
+export function inSavepoint<T>(db: Database, fn: () => T): T {
+  savepointSeq = (savepointSeq + 1) % Number.MAX_SAFE_INTEGER;
+  const name = `sp_${savepointSeq}`;
+  db.exec(`SAVEPOINT ${name}`);
+  let out: T;
+  try {
+    out = fn();
+  } catch (primary) {
+    try {
+      db.exec(`ROLLBACK TO ${name}`);
+      // RELEASE after ROLLBACK TO: the savepoint still exists after unwinding to it, and leaving it
+      // on the stack would make a later RELEASE of an OUTER savepoint also discard this one.
+      db.exec(`RELEASE ${name}`);
+    } catch (rollbackErr) {
+      attachRollbackError(primary, rollbackErr);
+    }
+    throw primary;
+  }
+  db.exec(`RELEASE ${name}`);
+  return out;
+}
+
 /** SQLite's message when it has ALREADY rolled the transaction back for us (the common case for an
  *  I/O-class error). Distinguishing this from a genuine rollback failure is the whole point: the
  *  first is benign and expected, the second means the connection may still be INSIDE a transaction. */
 const NO_ACTIVE_TXN = /no transaction is active|cannot rollback/i;
+
+/** Attach a genuine rollback failure to the primary error without replacing it. Non-enumerable so
+ *  it can never land in a JSON-serialized client response; read by the registry's diagnostics sink
+ *  (THE-573) so an abandoned transaction reaches an operator, not only the caller. */
+function attachRollbackError(primary: unknown, rollbackErr: unknown): void {
+  if (NO_ACTIVE_TXN.test((rollbackErr as Error)?.message ?? "")) return; // benign, expected
+  if (primary !== null && typeof primary === "object") {
+    Object.defineProperty(primary, "rollbackError", {
+      value: rollbackErr,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+}
 
 /**
  * Roll back, attaching — never throwing — any genuine failure onto `primary`.
@@ -63,13 +118,6 @@ function rollback(db: Database, primary: unknown): void {
   try {
     db.exec("ROLLBACK");
   } catch (rollbackErr) {
-    if (NO_ACTIVE_TXN.test((rollbackErr as Error)?.message ?? "")) return; // benign, expected
-    if (primary !== null && typeof primary === "object") {
-      Object.defineProperty(primary, "rollbackError", {
-        value: rollbackErr,
-        enumerable: false,
-        configurable: true,
-      });
-    }
+    attachRollbackError(primary, rollbackErr);
   }
 }
