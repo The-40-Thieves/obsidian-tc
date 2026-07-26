@@ -42,6 +42,21 @@ const UNAVAILABLE = {
     "experiential store is not open (enable experiential.logRetrievals, captureEpisodes, or activationRerank)",
 };
 
+/** THE-417: the degraded half of every m8 tool's output contract, declared once beside the value it
+ *  describes so the two cannot drift. Every tool here returns EITHER this shape or `available: true`
+ *  plus its own fields — a discriminated union on `available`, which is what makes these payloads
+ *  worth advertising a schema for at all: an agent can branch on one field instead of guessing.
+ *
+ *  THE-548 found three different "unavailable" shapes across the tool surface (m8's shared object,
+ *  m7's ad-hoc `available:false`, and M4 throwing `plugin_missing`). Declaring the contract is what
+ *  turns that from a thing you discover by reading handlers into a thing the registry checks. */
+const Unavailable = z.object({ available: z.literal(false), message: z.string() });
+
+/** `available: true` plus the tool's own fields. */
+function availableWith<T extends z.ZodRawShape>(shape: T) {
+  return z.union([Unavailable, z.object({ available: z.literal(true), ...shape })]);
+}
+
 interface EpisodeRow {
   id: string;
   ts: number;
@@ -249,6 +264,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       description:
         "Tombstone an experiential episode (the THE-238 control-1 blocklist, surfaced as the first-party forget verb). A forgotten episode never surfaces in work_search again; the append-only log row remains for forensics. Idempotent. P1.7: only your OWN episodes unless you hold admin:workspace — a foreign or unknown id is a silent no-op (forgotten:false), not an error.",
       inputSchema: z.object({ episode_id: z.string().min(1) }).strict(),
+      outputSchema: availableWith({ episode_id: z.string(), forgotten: z.boolean() }),
       requiredScopes: ["write:workspace"],
       tags: ["experiential"],
       handler: (input, ctx) => {
@@ -285,6 +301,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         .refine((v) => v.feedback !== undefined || v.outcome !== undefined, {
           message: "provide feedback and/or outcome",
         }),
+      outputSchema: availableWith({ chunk_id: z.string(), updated: z.number().int() }),
       requiredScopes: ["write:workspace"],
       tags: ["experiential"],
       handler: (input, ctx) => {
