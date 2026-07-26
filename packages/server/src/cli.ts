@@ -868,7 +868,31 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // observability.prometheus.enabled (default off / `:0`).
   // OTEL tracing (G2.4) — no-op unless observability.otel.endpoint is set.
   const otel = initOtel(config.observability, VERSION);
+  // THE-507: hoisted ABOVE the recorder so its stats can be a gauge source. Construction is
+  // unconditional now (it was inline under the retrieval-cache config branch), which is safe
+  // because an unused cache is two empty Maps — but it is still only THREADED to the tools when
+  // the feature is enabled, so behaviour is unchanged when it is off. What changes is that the
+  // metrics then read a cache nobody writes and report all-zero, which is the honest reading.
+  const retrievalCaches = createRetrievalCaches({
+    maxEntries: config.retrieval.cache.maxEntries,
+    ttlMs: config.retrieval.cache.ttlSeconds * 1000,
+  });
+  const cacheStat = (
+    pick: (s: ReturnType<(typeof retrievalCaches)["results"]["stats"]>) => number,
+  ): (() => Array<{ vault: string; value: number }>) => {
+    // The label is the CACHE NAME, not a vault: the cache is process-wide and keyed internally by
+    // vault, so there are no per-vault totals to report. Two bounded values, per the ticket's
+    // bounded-labels constraint.
+    return () => [
+      { vault: "results", value: pick(retrievalCaches.results.stats()) },
+      { vault: "vectors", value: pick(retrievalCaches.vectors.stats()) },
+    ];
+  };
   const metrics = new MetricsRecorder({
+    queryCacheHits: cacheStat((s) => s.hits),
+    queryCacheMisses: cacheStat((s) => s.misses),
+    queryCacheEvictions: cacheStat((s) => s.evictions),
+    queryCacheExpirations: cacheStat((s) => s.expirations),
     // THE-197: live idempotency cache size per vault (unexpired, completed rows only).
     idempotencyCacheBytes: () =>
       db
@@ -1531,10 +1555,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // caller's ACL fingerprint is part of every key rather than of the store's identity.
     ...(config.retrieval.cache.enabled
       ? {
-          retrievalCaches: createRetrievalCaches({
-            maxEntries: config.retrieval.cache.maxEntries,
-            ttlMs: config.retrieval.cache.ttlSeconds * 1000,
-          }),
+          // THE-507: constructed at the top of this function so the metrics recorder can read its
+          // stats; still threaded only under this branch, so the feature gate is unchanged.
+          retrievalCaches,
         }
       : {}),
   });
