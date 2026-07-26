@@ -154,7 +154,27 @@ Two mechanisms ensure results are byte-identical across runs:
    - Embedding calls always return the same vectors for the same text.
    - No network, no model inference, no variance.
 
-**Result:** Deterministic invariants (families 3, 4, 5, 7, 8, 9, 11, 13, 14 — counts, ratios, recall/nDCG, storage bytes, booleans) are **always identical** run-to-run. Latency figures (families 1, 2, 6, 10 and the `*_ms` sub-metrics) vary naturally and are gated warn-only. Family 12 (HTTP handshake) is deferred (THE-495) and not emitted.
+3. **Total ordering on ranked results (THE-582):** `vecKnn` and `semanticSearch` break exact distance/score ties by `chunk_id`, so equal-scoring candidates rank in a fixed order rather than in whatever order the vec0 scan or the table scan produced.
+   - Ties are the common case here, not a corner case: `dupGroups=20` over `notes=100` means five notes share a byte-identical body, embed to identical vectors, and tie exactly. In the `small` corpus the rank-10 distance spans the top-10 cut on 3 of 5 labelled queries, so the tie order decides top-10 **membership**.
+   - vec0 will not do this in SQL — it rejects a second sort key (`Only a single 'ORDER BY distance' clause is allowed on vec0 KNN queries`) — so the tiebreak is applied after the query returns, and is pinned by `bun-smoke/vec-tie-order.test.ts`.
+
+**Result:** Deterministic invariants (families 3, 4, 5, 7, 8, 9, 11, 13, 14 — counts, ratios, recall/nDCG, storage bytes, booleans) are identical **run-to-run on a given host**. Latency figures (families 1, 2, 6, 10 and the `*_ms` sub-metrics) vary naturally and are gated warn-only. Family 12 (HTTP handshake) is deferred (THE-495) and not emitted.
+
+### Run-to-run is not the same claim as host-to-host
+
+Read the sentence above precisely: it says *run-to-run*. Until THE-582 that distinction was not made, and the wording invited reading it as "identical everywhere" — the reading under which a legitimate cross-host difference looks like a regression.
+
+The difference was real. On commit `8a99e39`, same seeded corpus, same scenario:
+
+| metric | Cave (aarch64) | CI runner (x86_64) |
+| -- | -- | -- |
+| `retrieval.ndcg_at10` | 0.80281468033933 | 0.8414330514255118 |
+| `retrieval.recall_at10` | 0.96 | 0.96 |
+| `graph.candidates_{seed,expand,fused}` | 30 / 80 / 85 | 30 / 80 / 85 |
+
+Each host was internally perfect (`cv 0.000` across 5 fresh-subprocess samples) and they disagreed with each other. The shape identifies the cause: `recall_at10` is **set**-based and matched, `ndcg_at10` is **order**-based and did not, and the counts matched — the same documents in a different order. Mechanism 3 above is the fix; the metric should now be host-independent, which is what `bun-smoke/vec-tie-order.test.ts` asserts on the x86_64 runner.
+
+Genuinely host-independent, demonstrated by matching exactly across both architectures before the fix: `retrieval.recall_at10` and every count family. `retrieval.ndcg_at10` joined them only once ties were totally ordered — a metric that reads ORDER is only as host-independent as its tiebreak.
 
 ## Baseline and Regeneration
 
