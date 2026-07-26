@@ -540,6 +540,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "write_note",
       domain: "notes",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation.",
@@ -621,6 +623,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "append_note",
       domain: "notes",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description: "Append content to a note (optionally creating it), preserving existing bytes.",
       inputSchema: AppendInput,
@@ -689,6 +693,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "patch_note",
       domain: "notes",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved.',
@@ -759,6 +764,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "delete_note",
       domain: "notes",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "delete", path: input.path }],
       description:
         "Delete a note (to the vault's .trash mirror, or permanently). Destructive — requires confirmation.",
@@ -800,6 +806,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "move_note",
       domain: "notes",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       // Backlink rewrites in other notes are a deliberate integrity carve-out (like move_attachment,
       // N-3) and stay handler-enforced; the ACL-gated paths are the source (delete) + dest (write).
       pathAcl: (input) => [
@@ -894,6 +902,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "copy_note",
       domain: "notes",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       pathAcl: (input) => [
         { op: "read", path: input.from },
         { op: "write", path: input.to },

@@ -209,6 +209,8 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "create_canvas",
       domain: "structured",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Create a new .canvas with optional initial nodes/edges. Overwriting an existing canvas requires confirmation.",
@@ -249,6 +251,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "update_canvas",
       domain: "structured",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Patch a .canvas: add/remove/update nodes and edges by id. Unknown fields are preserved. Removing more than 10 nodes requires confirmation.",

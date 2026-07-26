@@ -81,6 +81,8 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
     defineTool({
       name: "start_session",
       domain: "knowledge",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       description:
         "Begin a workspace memory session: a SQLite row plus an append-only JSONL trace file.",
       inputSchema: z
@@ -136,6 +138,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
     defineTool({
       name: "end_session",
       domain: "knowledge",
+      vaultArg: "vault",
       description:
         "Finalize a workspace session, appending a session_end record to its JSONL trace.",
       inputSchema: z

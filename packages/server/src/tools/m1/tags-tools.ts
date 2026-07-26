@@ -209,6 +209,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "add_tag",
       domain: "metadata",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Add a tag to a note's frontmatter `tags` list or inline in the body (idempotent).",
@@ -272,6 +273,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "remove_tag",
       domain: "metadata",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Remove a tag from a note's frontmatter, its body, or both (exact, not hierarchical).",

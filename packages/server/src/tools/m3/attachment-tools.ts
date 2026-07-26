@@ -241,6 +241,8 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "move_attachment",
       domain: "attachments",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       // Reference rewrites in linking notes are the deliberate cross-ACL carve-out (N-3, THE-303),
       // enforced handler-side; the ACL-gated paths are the attachment source (delete) + dest (write).
       pathAcl: (input) => [
@@ -308,6 +310,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "delete_attachment",
       domain: "attachments",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "delete", path: input.path }],
       description:
         "Delete an attachment (to the vault's .trash mirror, or permanently). Destructive — requires confirmation. Reports notes that still reference it.",

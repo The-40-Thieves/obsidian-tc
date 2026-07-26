@@ -175,6 +175,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "add_bookmark",
       domain: "workspace",
+      vaultArg: "vault",
       pathAcl: () => [{ op: "write", path: BOOKMARKS_PATH }],
       description:
         "Add a bookmark (optionally into a named group, created if absent). A duplicate is a no-op unless allow_duplicate is set.",
@@ -235,6 +236,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "remove_bookmark",
       domain: "workspace",
+      vaultArg: "vault",
       pathAcl: () => [{ op: "delete", path: BOOKMARKS_PATH }],
       description:
         "Remove every bookmark matching the criteria (recursively, or within a named group). Returns the number removed.",

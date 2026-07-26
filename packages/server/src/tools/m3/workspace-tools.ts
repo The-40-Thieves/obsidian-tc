@@ -96,6 +96,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "open_workspace",
       domain: "workspace",
+      vaultArg: "vault",
       pathAcl: () => [{ op: "write", path: WORKSPACES_PATH }],
       description:
         "Mark a saved workspace active and return its stored layout. Fails if the workspace does not exist.",
@@ -130,6 +131,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "save_workspace",
       domain: "workspace",
+      vaultArg: "vault",
       pathAcl: () => [{ op: "write", path: WORKSPACES_PATH }],
       description:
         "Save a workspace layout under a name (optionally making it active). Overwriting an existing workspace requires confirmation.",

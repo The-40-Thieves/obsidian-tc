@@ -209,6 +209,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
     defineTool({
       name: "create_excalidraw",
       domain: "structured",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Create a new Excalidraw note via the companion plugin. Overwriting an existing drawing requires confirmation.",
@@ -251,6 +252,7 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
     defineTool({
       name: "update_excalidraw",
       domain: "structured",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Add, remove, or update elements in an existing Excalidraw note via the companion plugin.",

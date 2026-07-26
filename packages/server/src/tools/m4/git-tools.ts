@@ -110,6 +110,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
     defineTool({
       name: "git_stage",
       domain: "git",
+      vaultArg: "vault",
       pathAcl: (input) => input.paths.map((p) => ({ op: "write" as const, path: p })),
       description:
         "Stage vault files for the next commit, via the Obsidian Git companion bridge. Write-family: the readOnly kill switch applies.",
@@ -135,6 +136,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
     defineTool({
       name: "git_commit",
       domain: "git",
+      vaultArg: "vault",
       description:
         "Commit the staged changes of the vault's git repo. Always requires human confirmation (execute:git is a HITL-floor family) — a commit is irreversible-in-effect from the agent's side.",
       inputSchema: z.object({ vault: VaultId, message: z.string().min(3).max(2000) }).strict(),

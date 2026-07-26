@@ -40,6 +40,7 @@ export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
     defineTool({
       name: "remotely_save_trigger",
       domain: "automation",
+      vaultArg: "vault",
       description:
         "Kick off a Remotely Save sync run (fire-and-poll: check remotely_save_status afterwards), via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),

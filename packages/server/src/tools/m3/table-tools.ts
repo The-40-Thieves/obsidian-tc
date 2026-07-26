@@ -196,6 +196,7 @@ export function buildTableTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "format_table",
       domain: "structured",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Reformat a GFM markdown table in a note: realign columns to a uniform width, honoring the delimiter row's alignment. Addressed by 0-based table_index within the note.",
@@ -209,6 +210,7 @@ export function buildTableTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "insert_table_row",
       domain: "structured",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Insert a data row into a GFM table. `values` are cell strings (padded/truncated to the column count); `at` is the 0-based data-row position (default: append).",
@@ -233,6 +235,7 @@ export function buildTableTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "insert_table_column",
       domain: "structured",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Insert a column into a GFM table: a header plus per-row values (default empty) and an alignment. `at` is the 0-based column position (default: append).",
@@ -262,6 +265,7 @@ export function buildTableTools(deps: M3Deps): ToolDefinition[] {
     defineTool({
       name: "sort_table_by_column",
       domain: "structured",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
         "Sort a GFM table's data rows by a column (index or header name), ascending or descending, optionally numeric.",

@@ -90,6 +90,8 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
     defineTool({
       name: "enqueue_capture",
       domain: "knowledge",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
       description:
         "Stage content in the SQLite capture queue for later commit to the vault (no vault write at enqueue time).",
       inputSchema: z
@@ -181,6 +183,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
     defineTool({
       name: "commit_capture",
       domain: "knowledge",
+      vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.target_path }],
       description:
         "Write a queued capture to a vault path and mark it committed (or remove it from the queue). Refuses to overwrite an existing note.",
