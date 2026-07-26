@@ -61,6 +61,7 @@ export class MetricsRecorder {
   private readonly ingestDedupSkipped: Counter<string>;
   private readonly embedBatchRejections: Counter<string>;
   private readonly indexWriteFailures: Counter<string>;
+  private readonly vecFallbacks: Counter<string>;
   private readonly toolDuration: Histogram<string>;
   private readonly responseBytes: Histogram<string>;
 
@@ -115,6 +116,12 @@ export class MetricsRecorder {
       name: "obsidian_tc_index_write_failures_total",
       help: "Notes skipped in a pass because the embed provider rejected them even at single-text size, by vault. Unlike the batch rejections above these are NOT retried within the pass, so the note is absent from the index until the next reconcile.",
       labelNames: ["vault"],
+      registers,
+    });
+    this.vecFallbacks = new Counter({
+      name: "obsidian_tc_vec_fallback_total",
+      help: "Searches that abandoned the vec0 KNN index for the exhaustive brute-force scan, by vault and reason. Results stay correct; the cost profile does not. reason=error is usually a dimension mismatch after an embedding-model change (the index no longer matches the query) and a persistent count means a real misconfiguration; reason=underfill means ACL-invisible chunks may be crowding out visible ones, so the over-fetch could not fill k visible hits.",
+      labelNames: ["vault", "reason"],
       registers,
     });
     this.idempotencyHits = new Counter({
@@ -269,6 +276,11 @@ export class MetricsRecorder {
   }
   incIndexWriteFailures(vault: string, n: number): void {
     if (n > 0) this.indexWriteFailures.inc({ vault }, n);
+  }
+  /** THE-585 (#7, #8): one vec0 -> brute-force degradation. `reason` is a closed set of two, so the
+   *  label stays bounded per the ticket's cardinality constraint. */
+  incVecFallback(vault: string, reason: "error" | "underfill"): void {
+    this.vecFallbacks.inc({ vault, reason });
   }
   incAuditWriteFailed(vault: string, tool: string): void {
     this.auditWriteFailed.inc({ vault, tool });

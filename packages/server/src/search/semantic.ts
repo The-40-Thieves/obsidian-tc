@@ -34,6 +34,33 @@ export interface SemanticOptions {
    *  new-model query (is_active=1 + byteLength===dim*4 are both satisfied by the old vector). This
    *  makes the fallback agree with the vec0 path (THE-460). Omitted -> no filter (back-compat). */
   model?: string;
+  /** THE-585 (#7, #8): fired when the vec0 KNN path is abandoned for the brute-force scan, with
+   *  WHY. Both reasons are silent degradations today — the caller still gets correct results, at a
+   *  completely different cost profile, and nothing says so.
+   *
+   *  A callback rather than a metrics handle, matching graphSearch's `onStage` and indexVault's
+   *  `onNotesPass`: this module must not learn about the metrics recorder. The composition root
+   *  wires it, keeping the dependency one-way.
+   *
+   *  - "error"     — vec0 threw. Usually a dimension mismatch after an embedding-model change, i.e.
+   *                  the vector index no longer matches the query. Persistent = a real misconfig.
+   *  - "underfill" — vec0 returned, but the over-fetched candidates could not fill k VISIBLE hits
+   *                  while the index held at least `overFetch` chunks, so ACL-invisible chunks may
+   *                  be crowding out visible ones (THE-287). This is the ACL half of the pair.
+   *
+   *  Best-effort by contract: a throwing callback must never break a search. */
+  onFallback?: (reason: "error" | "underfill") => void;
+}
+
+/** Fire `onFallback` without letting it affect the search. The callback is observability; a
+ *  throwing metrics sink must never turn a correct (if slower) result into an error — the same
+ *  best-effort contract retrievalLog and the audit writer carry. */
+function notifyFallback(opts: SemanticOptions, reason: "error" | "underfill"): void {
+  try {
+    opts.onFallback?.(reason);
+  } catch {
+    /* observability is never load-bearing */
+  }
 }
 
 export interface MetaRow {
@@ -95,10 +122,14 @@ export function semanticSearch(
       // Trust vec0 only when it filled k, or the index returned fewer candidates than the cap (we
       // have then seen every chunk). Otherwise crowding is possible -> exhaustive fallback.
       vecHits = out.length >= k || candidates.length < overFetch ? out : null;
+      // THE-585 (#8): the ACL half. Reported only on the crowding branch, not on the "index is
+      // smaller than the over-fetch" branch — the latter is an exhaustive read, not a degradation.
+      if (vecHits === null) notifyFallback(opts, "underfill");
     } catch {
       // Any vec0 failure (e.g. a dimension mismatch after an embedding-model change) degrades to
       // the dimension-tolerant brute-force scan below.
       vecHits = null;
+      notifyFallback(opts, "error"); // THE-585 (#7)
     }
   }
   if (vecHits !== null) return vecHits;

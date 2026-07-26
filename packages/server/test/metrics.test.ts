@@ -19,6 +19,9 @@ const COUNTERS = [
   "obsidian_tc_ingest_dedup_skipped_total",
   "obsidian_tc_embed_batch_rejections_total",
   "obsidian_tc_index_write_failures_total",
+  // THE-585 (#7, #8): vec0 -> brute-force degradation. Results stay correct; the cost profile
+  // does not, and nothing reported it before.
+  "obsidian_tc_vec_fallback_total",
 ];
 const HISTOGRAMS = ["obsidian_tc_tool_duration_seconds", "obsidian_tc_response_bytes"];
 const GAUGES = [
@@ -36,14 +39,26 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 14 counters, 2 histograms, 8 gauges", async () => {
+  it("registers the full catalog: 15 counters, 2 histograms, 8 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(24);
+    expect(new Set(declared).size).toBe(25);
+  });
+
+  it("counts vec fallbacks separately by reason (THE-585)", async () => {
+    const r = new MetricsRecorder();
+    r.incVecFallback("main", "error");
+    r.incVecFallback("main", "error");
+    r.incVecFallback("main", "underfill");
+    const text = await r.metrics();
+    // Separate series per reason: "vec0 threw" and "ACL crowding" have different causes and
+    // different fixes, so collapsing them would report a number nobody can act on.
+    expect(text).toContain('obsidian_tc_vec_fallback_total{vault="main",reason="error"} 2');
+    expect(text).toContain('obsidian_tc_vec_fallback_total{vault="main",reason="underfill"} 1');
   });
 
   // THE-507: the gauge must reflect the CACHE's own counters, not a value the recorder invented.

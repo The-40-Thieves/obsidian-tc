@@ -204,6 +204,13 @@ export function createRetrievalCaches(opts: QueryCacheOptions): RetrievalCaches 
 //   onFusionWeights— observability only (THE-538 policy provenance), cannot change results. Note
 //                    it reports weights that are already a pure function of keyed inputs
 //                    (adaptiveRrf + query + vaultId), so nothing it observes is unkeyed.
+//   onVecFallback  — observability only (THE-585 vec0->brute-force counter), cannot change results.
+//                    Worth stating explicitly since this one reports a fact about HOW the search
+//                    ran rather than what it returned: both paths produce the same ranked hits, so
+//                    two calls differing only in their fallback sink must share a cache entry. A
+//                    consequence to be aware of rather than a defect: a cache HIT skips the search
+//                    entirely, so it also skips any fallback it would have taken — the counter
+//                    measures executed searches, not requested ones.
 //   reranker       — a bare `(query, docs, topN) => hits` function with no identity to hash. It is
 //                    built once per process from config, so swapping it mid-process is not a thing
 //                    that happens today; the key records only whether one is PRESENT, since absent
@@ -215,6 +222,7 @@ const FUNCTION_FIELDS = [
   "onStage",
   "onStageMetric",
   "onFusionWeights",
+  "onVecFallback",
 ] as const;
 
 /** Fields excluded from the key because they are derived from (query text, representation), both

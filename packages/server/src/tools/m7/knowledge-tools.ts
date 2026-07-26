@@ -75,6 +75,10 @@ export interface M7Deps {
   };
   /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging. */
   retrievalLog?: RetrievalLogger;
+  /** THE-585 (#7, #8): one vec0 -> brute-force degradation, by vault and reason. Absent -> inert,
+   *  matching retrievalLog above. Wired from the composition root so this module never learns
+   *  about the metrics recorder. */
+  onVecFallback?: (vault: string, reason: "error" | "underfill") => void;
   /** THE-187/193: cached_activation_score lookup for the graph bubble pass; absent -> inert
    *  (the config-gated dark default until the A/B passes the ship rule). */
   activationFor?: (chunkId: string) => number | null;
@@ -271,6 +275,15 @@ export function buildGraphSearchOptions(
     isReadable: site.isReadable,
     ...(site.onFusionWeights ? { onFusionWeights: site.onFusionWeights } : {}),
     ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
+    // THE-585: vec0 -> brute-force degradation signal, bound to this vault. Threaded through the
+    // options builder so EVERY graph-search site gets it — wiring it per call site is how a
+    // counter ends up covering some paths and silently missing others.
+    ...(deps.onVecFallback
+      ? {
+          onVecFallback: (reason: "error" | "underfill") =>
+            deps.onVecFallback?.(site.vaultId, reason),
+        }
+      : {}),
   };
 }
 

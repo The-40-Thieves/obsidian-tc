@@ -34,6 +34,8 @@ export function generateSeeds(input: SeedGenerationInput): SeedGenerationResult 
     returnContent: true,
     ...(isReadable ? { isReadable } : {}),
     ...(opts.model !== undefined ? { model: opts.model } : {}),
+    // THE-585: forward the vec0 -> brute-force degradation signal. Absent by default.
+    ...(opts.onVecFallback ? { onFallback: opts.onVecFallback } : {}),
   });
   const lexicalEnabled = opts.lexical?.enabled ?? true;
   const lexHits: LexicalHit[] = lexicalEnabled
