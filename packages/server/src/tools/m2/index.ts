@@ -45,6 +45,9 @@ export interface M2Deps {
   /** THE-491: fired with the completed stats after each index_vault call, so get_index_status
    *  can report chunks_upserted from the most recent run; absent -> not tracked. */
   onIndexVaultComplete?: (vaultId: string, stats: { chunks_upserted: number }) => void;
+  /** THE-490/THE-591: config.indexing.streamingWalk. Off/absent -> index_vault's walk is
+   *  byte-identical to before this flag existed (indexVault's default eager walkVault). */
+  streamingWalk?: boolean;
 }
 
 export function registerM2Tools(registry: ToolRegistry, deps: M2Deps): void {

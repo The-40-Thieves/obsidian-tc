@@ -22,6 +22,8 @@ export interface M2VaultOptions {
   vaultId?: string;
   /** THE-406: index_vault enriches embed/BM25 text with note title + heading breadcrumb. */
   chunkContext?: boolean;
+  /** THE-490/THE-591: config.indexing.streamingWalk, threaded to index_vault. */
+  streamingWalk?: boolean;
 }
 
 export interface M2Vault {
@@ -62,6 +64,7 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
     vaultRegistry,
     embeddingProvider: provider,
     chunkContext: opts.chunkContext,
+    streamingWalk: opts.streamingWalk,
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

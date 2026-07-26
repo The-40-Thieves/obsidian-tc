@@ -159,6 +159,30 @@ describe("ExperientialConfigSchema.activationRerank (THE-535)", () => {
   });
 });
 
+// THE-591: closes the same "built and dark" gap THE-535 (above) documents for
+// experiential.activationRerank — retrieval.gatedRerank and indexing.streamingWalk existed as
+// fully-implemented, fully-tested code paths with NO config key at all, reachable only from the
+// eval harness / direct indexVault callers in tests. These pin the schema half of the fix: the
+// key exists, parses off a minimal config, and defaults false (neither capability is proven to
+// win/safe-by-default yet — see the server-side wiring tests for the consumer half of the proof).
+describe("retrieval.gatedRerank / indexing.streamingWalk (THE-591)", () => {
+  it("both default to false on a minimal config", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.retrieval.gatedRerank).toBe(false);
+    expect(c.indexing.streamingWalk).toBe(false);
+  });
+
+  it("both are settable to true and round-trip through ServerConfigSchema", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      retrieval: { gatedRerank: true },
+      indexing: { streamingWalk: true },
+    });
+    expect(c.retrieval.gatedRerank).toBe(true);
+    expect(c.indexing.streamingWalk).toBe(true);
+  });
+});
+
 describe("ObsidianTcError", () => {
   it("marks throttled retryable and forbidden non-retryable", () => {
     expect(new ObsidianTcError("throttled", "x").retryable).toBe(true);

@@ -385,6 +385,18 @@ export const RetrievalConfigSchema = z.object({
     .describe(
       "Rerank the fused top-K by bge-m3 ColBERT late-interaction maxSim. A no-op unless the provider emits the multi-vector heads.",
     ),
+  /** THE-394/THE-591: gated cross-encoder rerank of the fused top-K (graph_rrf/convex). Reranks
+   *  ONLY hard queries (seed-strength router silent AND a weak top-1 seed) through the model-tier
+   *  BGE cross-encoder (bge-reranker-v2-m3) when configured, else the gateway /rerank passthrough.
+   *  Until this flag existed the gate (rerank_stage.ts) was only reachable from the eval harness's
+   *  `--gated-rerank` flag — OFF by default, and stays off pending a golden-set result (claim bar
+   *  80%): the cheap cross-encoder path has never been proven to beat plain RRF in production. */
+  gatedRerank: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Gate a cross-encoder rerank of the fused top-K onto hard queries only (weak top-1 seed, router silent). A no-op without a configured reranker (model-tier BGE or the gateway /rerank passthrough).",
+    ),
   /** Graph densification (graphify spec-donor port): derived edges added to vault_edges beyond the
    *  literal wikilink layer, to reach multi-hop targets whose bridge notes are not explicitly linked.
    *  All OFF by default and measured on the multi-hop golden set before any flip — the THE-135
@@ -816,6 +828,19 @@ export const IndexingConfigSchema = z
       .default(1000)
       .describe(
         "Soft cap on distinct pending paths, surfaced as backpressure in server_health. Writes are never dropped when it is exceeded.",
+      ),
+    /** THE-490/THE-591: indexVault's opt-in per-directory-sorted streaming walk
+     *  (walkVaultStream), vs the default eager walkVault that materializes the whole sorted
+     *  file list before any note is processed. Measured -43% peak RSS on a full reindex; index
+     *  OUTPUT is unchanged either way (test/index-stream-walk-equivalence.test.ts). Until this
+     *  flag existed, none of the three production callers (add_vault, the boot reconcile, the
+     *  index_vault tool) ever set it, so the flag was unreachable outside tests — OFF by default
+     *  and stays off until enabling it is a deliberate decision, not a de facto one. */
+    streamingWalk: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Walk the vault lazily per-directory (walkVaultStream) instead of materializing the full sorted file list before indexing starts. Lower peak memory on large vaults; index output is unchanged either way.",
       ),
   })
   .prefault({});

@@ -267,6 +267,9 @@ export interface M7Deps {
     /** THE-391/THE-536: adaptive per-stream RRF weighting. Absent/false -> static RRF, byte-
      *  identical to today. */
     adaptiveRrf?: { enabled?: boolean; gain?: number };
+    /** THE-394/THE-591: gated cross-encoder rerank (retrieval.gatedRerank). Absent/false ->
+     *  graphSearch's gatedRerank stage never fires, byte-identical to today. */
+    gatedRerank?: boolean;
   };
   /** Config-driven POST-FUSION ranking overlays (config.ranking); absent -> graphSearch defaults
    *  (metadata prior OFF). */
@@ -476,6 +479,7 @@ export function buildGraphSearchOptions(
     ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
     ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
     ...(deps.retrieval?.adaptiveRrf?.enabled ? { adaptiveRrf: deps.retrieval.adaptiveRrf } : {}),
+    ...(deps.retrieval?.gatedRerank ? { gatedRerank: { enabled: true } } : {}),
     ...(deps.ranking?.metadataPrior?.enabled ? { metadataPrior: deps.ranking.metadataPrior } : {}),
     ...(site.querySparse ? { querySparse: site.querySparse } : {}),
     ...(site.queryColbert ? { queryColbert: site.queryColbert } : {}),

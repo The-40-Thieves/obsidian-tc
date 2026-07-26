@@ -64,6 +64,8 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
           sub,
           isReadable: (rel) => readableRel(ctx.acl, rel),
           now: ctx.now,
+          // THE-490/THE-591: indexing.streamingWalk. Off/absent -> byte-identical to before.
+          walk: { streaming: deps.streamingWalk },
         });
         // THE-491: surfaced verbatim by get_index_status (last index_vault call this process).
         deps.onIndexVaultComplete?.(v.id, stats);
