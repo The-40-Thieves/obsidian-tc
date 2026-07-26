@@ -28,6 +28,7 @@
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "check:dev-dep-imports": "node scripts/check-dev-dep-imports.mjs",
     "check:nul": "node scripts/check-nul-bytes.mjs",
+    "check:perf-timing-scope": "node scripts/check-perf-timing-scope.mjs",
     "check:version": "node scripts/check-version-coherence.mjs",
     "config:schema": "bun scripts/gen-config-schema.ts",
     "config:schema:check": "bun scripts/gen-config-schema.ts --check",

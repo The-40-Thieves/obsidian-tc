@@ -13,11 +13,13 @@ function fakeReport(
   latency: number,
   calibrationMs: number,
   calibrationIoMs = 40,
+  ioScalingRho = 0.9,
 ): PerfReport {
   return {
     scenario: "small",
     calibrationMs,
     calibrationIoMs,
+    ioScalingRho,
     samples: [
       { key: "index.chunk_count", value: 200, unit: "count", class: "hard", direction: "exact" },
       {
@@ -102,5 +104,37 @@ describe("runIsolatedSamples() orchestration (fake spawn, no real subprocess)", 
 
   it("rejects n < 1", () => {
     expect(() => runIsolatedSamples("small", { n: 0 })).toThrow(/n must be/);
+  });
+
+  // THE-594: the calibrateIo() scaling calibration is gathered the same way as the CPU/IO
+  // contention channels above -- one real-timing observation per subprocess, judged on the
+  // MEDIAN. This is the wiring only (fake reports, no real timing): the statistic itself is
+  // proven to have power in test/perf-spearman.test.ts, and the actual gate on this value lives
+  // in run.ts's `main()`, not in sample.ts's aggregation.
+  it("aggregates ioScalingRho across samples as raw + median, tolerating a missing field", () => {
+    const rhos = [0.95, 0.6, 0.99]; // one below SPEARMAN_THRESHOLD (0.564 -- still counted as raw)
+    let calls = 0;
+    const result = runIsolatedSamples("small", {
+      n: 3,
+      spawn: (_scenario, outPath) => {
+        writeFileSync(outPath, JSON.stringify(fakeReport(calls, 10, 20, 40, rhos[calls])));
+        calls += 1;
+      },
+    });
+    expect(result.ioScalingRho.raw).toEqual(rhos);
+    expect(result.ioScalingRho.median).toBe(0.95);
+  });
+
+  it("treats a report with no ioScalingRho field as 0, never as a crash", () => {
+    const result = runIsolatedSamples("small", {
+      n: 2,
+      spawn: (_scenario, outPath) => {
+        const report = fakeReport(0, 10, 20);
+        delete (report as { ioScalingRho?: number }).ioScalingRho;
+        writeFileSync(outPath, JSON.stringify(report));
+      },
+    });
+    expect(result.ioScalingRho.raw).toEqual([0, 0]);
+    expect(result.ioScalingRho.median).toBe(0);
   });
 });

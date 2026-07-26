@@ -9,6 +9,17 @@
 // Freshness measures how long a note takes to become visible to search after being written:
 // write straight to disk (M2 has no write_note tool), reindex via index_vault, then confirm
 // search_text finds it.
+//
+// THE-594: there used to be a dedicated test/perf-collectors-dispatch.test.ts exercising this
+// collector directly (real vault, real ToolRegistry, 35 real dispatches). Its own assertions were
+// never magnitude-flaky (non-negative, defined, correct class/direction) -- what was flaky was the
+// vitest suite's default 5s test timeout: 816ms in isolation, but observed failing under host load
+// with no isolation and no widened budget (unlike perf-collectors-runtime.test.ts and
+// perf-run.test.ts, both of which needed 15s/20s overrides for the same reason). Rather than widen
+// this one too -- re-tuning a wall-clock budget rather than fixing the venue -- it was removed: this
+// exact collector already runs for real, every merge to main, gated by ci-server.yml's `perf` job
+// (freshness.visible is a HARD, exact-gated metric in eval/perf/baseline.small.json; the dispatch
+// overhead percentiles are warn-gated), so the behavior it proved was not lost, only de-duplicated.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";

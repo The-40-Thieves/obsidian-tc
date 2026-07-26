@@ -19,6 +19,7 @@ import {
   calibrate,
   calibrateIo,
   formatCalibrationVector,
+  measureIoScalingRho,
   type VectorContentionResult,
 } from "./contention";
 import { evaluate } from "./gate";
@@ -27,6 +28,7 @@ import { type AggregatedReport, toMedianReport } from "./isolate";
 import { type Baseline, type PerfReport, toMarkdown } from "./report";
 import { runIsolatedSamples } from "./sample";
 import { SCENARIOS, type Scenario } from "./scenarios";
+import { SPEARMAN_THRESHOLD } from "./spearman";
 import { detectUniformShift } from "./uniform-shift";
 
 /** Build the vault once, run every collector in a fixed order (lifecycle LAST — it closes the DB). */
@@ -352,6 +354,7 @@ async function main(): Promise<void> {
       aggregate: agg,
       contention,
       hardInstabilities,
+      ioScalingRho,
     } = runIsolatedSamples(name, { n, ...readCalibrationReference() });
     writeFileSync(out, JSON.stringify(agg, null, 2));
     printAggregateSummary(agg);
@@ -360,6 +363,10 @@ async function main(): Promise<void> {
     process.stdout.write(
       `\ncontention: ${contention.contended ? "DETECTED" : "clean"} [${formatCalibrationVector(contention)}]` +
         `${contention.reason ? ` — ${contention.reason}` : ""}\n`,
+    );
+    process.stdout.write(
+      `io-scaling calibration: median rho ${ioScalingRho.median.toFixed(3)} ` +
+        `[${ioScalingRho.raw.map((v) => v.toFixed(3)).join(", ")}]\n`,
     );
 
     // Correctness (hard-class agreement across isolated samples) is checked FIRST and always,
@@ -370,6 +377,20 @@ async function main(): Promise<void> {
         process.stderr.write(
           `HARD-UNSTABLE ${h.key}: varied across samples -> [${h.raw.join(", ")}]\n`,
         );
+      process.exit(1);
+    }
+
+    // THE-594: the calibrateIo() scaling calibration, relocated here from the unit suite (it
+    // flaked on macOS AND windows-latest even after a THE-584 recalibration -- see spearman.ts's
+    // module note). Checked unconditionally, like the hard-instability check above: this proves
+    // the I/O contention probe is measuring real work, which is a correctness invariant of the
+    // harness itself, not a tolerance question the baseline/gate system answers.
+    if (ioScalingRho.median <= SPEARMAN_THRESHOLD) {
+      process.stderr.write(
+        `FAIL calibrateIo() scaling check: median Spearman rho ${ioScalingRho.median.toFixed(3)} ` +
+          `across ${n} isolated samples does not exceed ${SPEARMAN_THRESHOLD} -- calibrateIo() may ` +
+          `not be measuring real work (THE-584/THE-594).\n`,
+      );
       process.exit(1);
     }
 
@@ -427,6 +448,7 @@ async function main(): Promise<void> {
   const report = await runScenario(name);
   report.calibrationMs = calibrate();
   report.calibrationIoMs = calibrateIo(); // THE-584: the second contention channel
+  report.ioScalingRho = measureIoScalingRho(); // THE-594: proves the I/O probe measures real work
   writeFileSync(out, JSON.stringify(report, null, 2));
   process.stdout.write(toMarkdown(report));
 

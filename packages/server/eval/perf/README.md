@@ -54,8 +54,21 @@ bun eval/perf/run.ts --scenario large --samples 5 --update-baseline
    Overridable with **`--accept-uniform-shift`**, which exists because PR #459 deliberately accepted exactly this shift — those numbers reproduced across runners while the old ones did not, so the new host *was* the reference. The override prints what it is accepting and how many thresholds it ratchets.
 6. **Hard-class metrics must agree EXACTLY across all N samples**, independent of the baseline comparison. `isolate.ts`'s `checkHardStability()` treats any disagreement as its own hard failure (`HARD-UNSTABLE`, exit 1) — a "deterministic" invariant that varies across identically-seeded runs means the determinism assumption itself broke (real nondeterminism or a corrupted run), which is a different and more serious problem than a tolerance violation.
 7. **CI concurrency**: the `perf` job in `ci-server.yml` carries its own (non-ref-scoped) `concurrency: group: perf-exclusive` so at most one `perf` job runs anywhere in the repo at a time.
+8. **The I/O calibration probe's own scaling check** (THE-594): `contention.ts`'s `measureIoScalingRho()` samples `calibrateIo()` at ten round-counts and asserts a Spearman rank correlation (`spearman.ts`) between round-count and measured duration exceeds a calibrated threshold — proof that the probe measures real work rather than a constant. Gated on the **median rho across the N isolated samples** (`run.ts`'s `main()`), exactly like the contention channels above, not on any single observation. This assertion used to live in `test/perf-contention-io.test.ts`; see "Timing assertions belong here, not in `test/`" below for why it moved.
 
 Recalibrating the quiet-host reference happens automatically as part of a successful (non-contended) `--update-baseline` run in isolated mode — it is committed and reviewed exactly like the metric baseline, for the same drift-safety reason (see "Baseline and Regeneration" below).
+
+## Timing assertions belong here, not in `test/` (THE-594)
+
+`packages/server/test/*.test.ts` runs on `ubuntu-latest`, `macos-latest` and `windows-latest`, on shared runners, with no isolation from whatever else vitest is running concurrently, and no host-contention detection. A wall-clock assertion placed there has to hold under all of that, every time, on three different OSes' scheduler and filesystem behavior. Twice on this exact metric (`calibrateIo()`'s scaling check, THE-584 → THE-594) a statistically-sound assertion was tuned, re-tuned, and still failed — first on macOS, then on `windows-latest` after the re-tune. The fix was never a better threshold; it was the wrong venue.
+
+**The rule going forward:** if an assertion compares two real elapsed-time measurements (`performance.now()`/`Date.now()` diffs, or a function like `calibrateIo()` that measures wall time), it does not belong in `packages/server/test/`. It belongs here, under `eval/perf/`, where:
+
+- `sample.ts` + `isolate.ts` already provide genuine subprocess isolation and gate on the **median of N samples**, never a single noisy observation;
+- `contention.ts` detects host contention on the CPU and I/O channels and refuses to trust a contended recording;
+- CI runs it on `ubuntu-latest` only, on a self-hosted-shaped runner, in its own `perf-exclusive` concurrency group — not fanned out across three OSes' worth of scheduler noise.
+
+What is safe to keep in `test/`: assertions on **shape** (keys present, defined, correct `unit`/`class`/`direction`), **non-negativity** (`toBeGreaterThanOrEqual(0)` on a real duration is not host-sensitive — contention makes things slower, never negative), **bounded ratios** whose bounds are definitional rather than performance-derived (e.g. a recall/dedup ratio between 0 and 1), and **pure computations over synthetic/fixed data** (no real timing at all — see `test/perf-spearman.test.ts`). `scripts/check-perf-timing-scope.mjs` (wired into `ci-server.yml`'s `lint` job) enforces the narrowest, highest-confidence slice of this: it forbids importing the real-timing primitives (`calibrateIo`, `calibrate`, `measureIoScalingRho`) from `packages/server/test/` outside a small, named allowlist, so a NEW magnitude comparison built on top of them cannot land back in the unit suite unnoticed. It is not a full static check for every way a wall-clock assertion could reappear (e.g. a brand-new `performance.now()` diff compared via a raw `toBeLessThan`) — that class is caught by review against this section, not by tooling.
 
 ## Scenarios
 
@@ -390,6 +403,11 @@ Harness self-tests verify:
   (`test/perf-sample.test.ts`), and a REAL end-to-end subprocess-isolation run
   (`test/perf-isolate-integration.test.ts` — actually spawns 2 fresh `bun` processes; slower by
   design, this is what proves isolation rather than asserting it).
+- THE-594: the Spearman rank-correlation statistic behind the I/O calibration probe's scaling
+  check is proven to have power — including rejecting a constant-duration stub — with no real
+  timing at all (`test/perf-spearman.test.ts`). The check itself (real `calibrateIo()`
+  measurements, gated on the median across N isolated samples) runs as part of this harness, not
+  the unit suite — see "Timing assertions belong here, not in `test/`" above.
 
 Run via:
 ```bash

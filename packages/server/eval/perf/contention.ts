@@ -2,6 +2,7 @@ import { closeSync, fsyncSync, mkdtempSync, openSync, rmSync, writeSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { SPEARMAN_SIZES, spearmanFor } from "./spearman";
 
 // THE-503: host-contention detection for the perf harness's isolation layer.
 //
@@ -99,6 +100,21 @@ export function calibrateIo(rounds = IO_CALIBRATION_ROUNDS, bytes = IO_CALIBRATI
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// THE-594: the I/O channel's own scaling calibration used to be a unit test — a strict two-point
+// `calibrateIo(24, ...) > calibrateIo(2, ...)` compare, then (after it flaked on macOS) a ten-point
+// Spearman rank correlation between round-count and duration. That version STILL flaked, on
+// windows-latest this time (perf-contention-io.test.ts:131, 13237ms) — a wall-clock assertion in
+// the unit suite has to hold on three OSes, on shared runners, under arbitrary concurrency, with no
+// isolation, and this one could not. Wrong venue, not wrong statistic: `measureIoScalingRho` moves
+// the SAME calibration (spearman.ts's carried-over logic) into the perf harness, where isolate.ts
+// already runs N genuinely fresh subprocess samples and gates on the median rather than a single
+// noisy observation (see run.ts's `main()`).
+export function measureIoScalingRho(): number {
+  const first = SPEARMAN_SIZES[0] as number;
+  calibrateIo(first, IO_CALIBRATION_BYTES); // warm-up: JIT + syscall paths, before any measurement
+  return spearmanFor((rounds) => calibrateIo(rounds, IO_CALIBRATION_BYTES), SPEARMAN_SIZES);
 }
 
 /** One calibration observation per channel. Recorded per isolated sample by run.ts. */
