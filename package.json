@@ -27,6 +27,7 @@
     "bundle": "bun scripts/bundle-mcpb.ts",
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "check:dev-dep-imports": "node scripts/check-dev-dep-imports.mjs",
+    "check:ingest-telemetry-wiring": "node scripts/check-ingest-telemetry-wiring.mjs",
     "check:nul": "node scripts/check-nul-bytes.mjs",
     "check:perf-timing-scope": "node scripts/check-perf-timing-scope.mjs",
     "check:version": "node scripts/check-version-coherence.mjs",
