@@ -28,7 +28,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { provisionCacheDb } from "../src/db/provision";
-import { inTransaction } from "../src/db/txn";
+import { inSavepoint, inTransaction } from "../src/db/txn";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { getEntityById, parseObservations } from "../src/memory/entities";
@@ -507,5 +507,149 @@ describe("inTransaction rollback semantics (THE-572)", () => {
       }),
     ).toThrow(primary);
     expect((primary as { rollbackError?: unknown }).rollbackError).toBeUndefined();
+  });
+});
+
+// ── THE-573: the three residuals Codex round-two documented rather than fixed ─────────────────
+
+describe("THE-573 #1: one CallerContext reused across CONCURRENT dispatches", () => {
+  // registry.ts installs markEffectCommitted by MUTATING the per-dispatch ctx. If one context were
+  // shared by two in-flight dispatches, the second would overwrite the first's callback — the outer
+  // handler would then mark the INNER claim, its own effectCommitted would stay false, and the catch
+  // would DELETE its claim, leaving a retry free to double-apply.
+  //
+  // Verified unreachable through the server (both context factories build a fresh object per MCP
+  // call, and no handler re-enters dispatch), so this is a library-API misuse rather than a live
+  // defect. The fix is therefore to make the misuse LOUD rather than to make sharing work: silently
+  // corrupting an idempotency claim is far worse than refusing the second dispatch.
+  it("detects the overwrite instead of silently corrupting the first claim", async () => {
+    const db = freshDb();
+    const reg = new ToolRegistry();
+    const shared = ctx(db);
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const eff = { n: 0 };
+    reg.register({
+      name: "slow_step",
+      description: "signals, then awaits so a second dispatch can overlap it",
+      inputSchema: z.object({ idempotency_key: z.string().optional() }),
+      requiredScopes: ["write:notes"],
+      handler: async (_i, c) => {
+        c.markEffectCommitted?.();
+        eff.n += 1;
+        // Only the FIRST call parks. If both awaited the same gate the test would deadlock on its
+        // own construction rather than on the behaviour under test.
+        if (eff.n === 1) await gate;
+        return { ok: true as const, data: { done: true } };
+      },
+    });
+
+    const first = reg.dispatch("slow_step", { idempotency_key: "A" }, shared);
+    // Second dispatch on the SAME context object while the first is still in flight.
+    const second = await reg.dispatch("slow_step", { idempotency_key: "B" }, shared);
+    expect(second.ok).toBe(false);
+
+    release?.();
+    const a = await first;
+    // The first claim is untouched by the overlap: it completed on its OWN key.
+    expect(a.ok).toBe(true);
+    expect(eff.n).toBe(1);
+    expect(idemState(db, "A")).toBe("completed");
+  });
+
+  it("SEQUENTIAL reuse of the same context object still works (the callback is cleaned up)", async () => {
+    // The detection must key on a LIVE overlapping dispatch, not on "this ctx was used before" —
+    // otherwise a caller reusing one context serially breaks for no reason.
+    const db = freshDb();
+    const reg = new ToolRegistry();
+    const shared = ctx(db);
+    reg.register({
+      name: "seq_step",
+      description: "ordinary keyed tool",
+      inputSchema: z.object({ idempotency_key: z.string().optional() }),
+      requiredScopes: ["write:notes"],
+      handler: (_i, c) => {
+        c.markEffectCommitted?.();
+        return { ok: true as const, data: { done: true } };
+      },
+    });
+    expect((await reg.dispatch("seq_step", { idempotency_key: "S1" }, shared)).ok).toBe(true);
+    expect((await reg.dispatch("seq_step", { idempotency_key: "S2" }, shared)).ok).toBe(true);
+    expect(idemState(db, "S1")).toBe("completed");
+    expect(idemState(db, "S2")).toBe("completed");
+  });
+});
+
+describe("THE-573 #3: inSavepoint (nested-safe) and rollback-failure reporting", () => {
+  it("an inner failure rolls back ONLY the inner work; the outer transaction still commits", () => {
+    // inTransaction is non-reentrant by construction — SQLite has no nested transactions, only
+    // SAVEPOINTs — so a handler already inside a transaction had no helper at all and had to
+    // hand-roll one, which is exactly what inTransaction exists to prevent.
+    const db = freshDb();
+    db.exec("CREATE TABLE t (v TEXT)");
+    inTransaction(db, () => {
+      db.prepare("INSERT INTO t (v) VALUES ('outer')").run();
+      expect(() =>
+        inSavepoint(db, () => {
+          db.prepare("INSERT INTO t (v) VALUES ('inner')").run();
+          throw new Error("inner blew up");
+        }),
+      ).toThrow(/inner blew up/);
+      return 0;
+    });
+    expect(db.prepare("SELECT v FROM t").all()).toEqual([{ v: "outer" }]);
+  });
+
+  it("a successful savepoint keeps its work when the outer transaction commits", () => {
+    const db = freshDb();
+    db.exec("CREATE TABLE t (v TEXT)");
+    inTransaction(db, () => {
+      db.prepare("INSERT INTO t (v) VALUES ('outer')").run();
+      inSavepoint(db, () => db.prepare("INSERT INTO t (v) VALUES ('inner')").run());
+      return 0;
+    });
+    expect(db.prepare("SELECT v FROM t ORDER BY v").all()).toEqual([
+      { v: "inner" },
+      { v: "outer" },
+    ]);
+  });
+
+  it("works standalone too (no outer transaction)", () => {
+    const db = freshDb();
+    db.exec("CREATE TABLE t (v TEXT)");
+    inSavepoint(db, () => db.prepare("INSERT INTO t (v) VALUES ('solo')").run());
+    expect(db.prepare("SELECT v FROM t").all()).toEqual([{ v: "solo" }]);
+  });
+
+  it("routes a GENUINE rollback failure to onInternalError, not only to the caller", async () => {
+    // An abandoned transaction is an operator-grade fault: the connection may still be INSIDE a
+    // transaction, so later reads can observe uncommitted rows. Attaching it to the thrown error
+    // (THE-572) reaches the caller; it must also reach the diagnostics sink, or it is invisible to
+    // anyone who logs only err.message.
+    const db = freshDb();
+    const realExec = db.exec.bind(db);
+    (db as { exec: (s: string) => void }).exec = (sql: string) => {
+      if (/^ROLLBACK/i.test(sql)) throw new Error("disk I/O error");
+      return realExec(sql);
+    };
+    const seen: Array<{ tool: string; err: unknown }> = [];
+    const reg = new ToolRegistry({ onInternalError: (tool, _v, err) => seen.push({ tool, err }) });
+    reg.register({
+      name: "rollback_fault",
+      description: "fails inside a transaction whose ROLLBACK then also fails",
+      inputSchema: z.object({}),
+      requiredScopes: ["write:notes"],
+      handler: (_i, c) =>
+        inTransaction(c.db, () => {
+          throw new Error("the real failure");
+        }),
+    });
+    const r = await reg.dispatch("rollback_fault", {}, ctx(db));
+    expect(r.ok).toBe(false);
+    const rollbackReport = seen.find((s) => s.tool.startsWith("txn_rollback:"));
+    expect(rollbackReport).toBeDefined();
+    expect((rollbackReport?.err as Error)?.message).toMatch(/disk I\/O/);
   });
 });

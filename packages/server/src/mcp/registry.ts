@@ -728,6 +728,10 @@ export class ToolRegistry {
     // ctx.markEffectCommitted() — i.e. BEFORE it returns. From that point the same rule as
     // handlerReturned applies: the catch must record indeterminate, never delete-and-re-run.
     let effectCommitted = false;
+    // THE-573 #1: the ctx we installed markEffectCommitted on, so the finally can remove it. Kept
+    // as its own handle rather than re-deriving from ctx, so cleanup only ever clears a callback
+    // THIS dispatch installed.
+    let installedMarker: { markEffectCommitted?: () => void } | undefined;
 
     const audit = (status: Status, durationMs: number, resultSize: number, code?: string) =>
       this.recordOutcome(ctx, name, hash, rawInput, status, durationMs, resultSize, code);
@@ -1023,10 +1027,30 @@ export class ToolRegistry {
       // where the #13 call site fires again — is harmless.
       if (idemClaimed && idemKey) {
         const claimedKey = idemKey;
-        (ctx as { markEffectCommitted?: () => void }).markEffectCommitted = () => {
+        const slot = ctx as { markEffectCommitted?: () => void };
+        // THE-573 #1: this callback is installed by MUTATING ctx, so two CONCURRENT dispatches
+        // sharing one CallerContext would have the second silently overwrite the first's callback.
+        // The outer handler would then mark the INNER claim, its own effectCommitted would stay
+        // false, and the catch would DELETE its claim — leaving a retry free to double-apply.
+        //
+        // Unreachable through the server (both context factories build a fresh object per MCP call,
+        // and no handler re-enters dispatch), so this is library-API misuse. Refuse it LOUDLY rather
+        // than make sharing work: silently corrupting an idempotency claim is far worse than a
+        // failed second dispatch, and a caller that hits this has a bug worth seeing.
+        //
+        // Keyed on a LIVE overlapping dispatch, not on "this ctx was used before" — the callback is
+        // removed in the finally below, so SEQUENTIAL reuse of one context is unaffected.
+        if (slot.markEffectCommitted !== undefined) {
+          throw new ObsidianTcError(
+            "internal",
+            "CallerContext is already in use by an in-flight dispatch; a context must not be shared across concurrent dispatches",
+          );
+        }
+        slot.markEffectCommitted = () => {
           this.markEffectCommitted(ctx.db, ctx.vaultId, claimedKey, now());
           effectCommitted = true;
         };
+        installedMarker = slot;
       }
 
       let handlerMs = 0;
@@ -1198,6 +1222,21 @@ export class ToolRegistry {
           }
         }
       }
+      // THE-573: an abandoned transaction is an operator-grade fault — the connection may still be
+      // INSIDE a transaction, so later reads can observe uncommitted rows and the next BEGIN either
+      // fails or silently joins it. inTransaction/inSavepoint attach it to the thrown error rather
+      // than replacing the error that explains the failure, which reaches the CALLER; reporting it
+      // separately here is what makes it reach an OPERATOR, who would otherwise only ever log
+      // err.message. Reported for typed errors too: the transaction is just as abandoned when the
+      // handler failed for an ordinary, well-typed reason.
+      const rollbackErr = (e as { rollbackError?: unknown } | null)?.rollbackError;
+      if (rollbackErr !== undefined) {
+        try {
+          this.onInternalError?.(`txn_rollback:${name}`, ctx.vaultId, rollbackErr);
+        } catch {
+          /* diagnostics sink must never mask the original failure */
+        }
+      }
       if (!(e instanceof ObsidianTcError)) {
         // THE-288: a non-typed throw is a server bug. Route the real error + stack to the
         // operator sink for diagnosis; the client response below stays the redacted `internal`.
@@ -1217,6 +1256,11 @@ export class ToolRegistry {
         m.observeToolCall(ctx.vaultId, name, callStatusForError(error.code), duration / 1000, 0);
       });
       return { ok: false, error: error.toJSON(), meta: { duration_ms: duration, result_size: 0 } };
+    } finally {
+      // THE-573 #1: remove the callback this dispatch installed. Without this, the "already in
+      // use" guard above would fire on the SECOND sequential use of one context — turning a
+      // legitimate pattern into an error while still not making concurrent sharing safe.
+      if (installedMarker !== undefined) installedMarker.markEffectCommitted = undefined;
     }
   }
 }
