@@ -4,6 +4,7 @@ import type { BridgeClient } from "../../bridge";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { RetrievalLogger } from "../../experiential/log";
 import type { ToolRegistry } from "../../mcp/registry";
+import type { IndexStats } from "../../search/indexer";
 import type { VaultRegistry } from "../../vault/registry";
 import { buildIndexTools } from "./index-tools";
 import { buildSearchTools } from "./search-tools";
@@ -43,8 +44,11 @@ export interface M2Deps {
    *  (tests, or experiential.logRetrievals=false). */
   retrievalLog?: RetrievalLogger;
   /** THE-491: fired with the completed stats after each index_vault call, so get_index_status
-   *  can report chunks_upserted from the most recent run; absent -> not tracked. */
-  onIndexVaultComplete?: (vaultId: string, stats: { chunks_upserted: number }) => void;
+   *  can report chunks_upserted from the most recent run; absent -> not tracked. THE-590 widened
+   *  this from `{ chunks_upserted: number }` to the full IndexStats so a production caller can
+   *  also thread the pass through recordIngestStats (metrics/ingest-stats.ts) — the MCP
+   *  index_vault path was the one caller that never fed the Prometheus counters / event_log. */
+  onIndexVaultComplete?: (vaultId: string, stats: IndexStats) => void;
   /** THE-490/THE-591: config.indexing.streamingWalk. Off/absent -> index_vault's walk is
    *  byte-identical to before this flag existed (indexVault's default eager walkVault). */
   streamingWalk?: boolean;
