@@ -47,6 +47,14 @@ const GAUGES = [
   // the durable table, these are in-process write work.
   "obsidian_tc_index_queue_depth",
   "obsidian_tc_index_active",
+  // THE-585 Group A (#2, #9, #11, #13). All five are gauges READ from the subsystem that already
+  // owns the number — a Counter would make the subsystem call into the recorder, inverting the
+  // composition root's one-way dependency.
+  "obsidian_tc_index_coalesced_total",
+  "obsidian_tc_scheduler_skipped_total",
+  "obsidian_tc_scheduler_consecutive_failures",
+  "obsidian_tc_http_construct_seconds",
+  "obsidian_tc_vec_fingerprint_active",
   // THE-507: retrieval-cache effectiveness. Gauges rather than counters because the cache owns
   // the cumulative numbers and the recorder only reads them — a Counter would require the cache
   // to call INTO the recorder, inverting the one-way dependency the composition root maintains.
@@ -57,14 +65,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 18 counters, 4 histograms, 10 gauges", async () => {
+  it("registers the full catalog: 18 counters, 4 histograms, 15 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(32);
+    expect(new Set(declared).size).toBe(37);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
@@ -141,6 +149,37 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     expect(text).toContain(
       'obsidian_tc_retrieval_stage_duration_seconds_bucket{le="0.05",vault="main",stage="graphExpansion"} 1',
     );
+  });
+
+  it("emits the Group A subsystem gauges from their own accessors (THE-585 #2/#9/#11/#13)", async () => {
+    const r = new MetricsRecorder({
+      indexCoalesced: () => [{ vault: "coordinator", value: 17 }],
+      schedulerSkipped: () => [
+        { vault: "reconcile", value: 3 },
+        { vault: "maintenance", value: 0 },
+      ],
+      schedulerConsecutiveFailures: () => [{ vault: "reconcile", value: 2 }],
+      httpConstructSeconds: () => [{ vault: "http", value: 0.0142 }],
+      vecFingerprint: () => [{ vault: "index", fingerprint: "ollama|bge-m3|1024|cosine|0|1|v3" }],
+    });
+    const text = await r.metrics();
+    expect(text).toContain('obsidian_tc_index_coalesced_total{vault="coordinator"} 17');
+    // A job at zero must still report a series — "no skips" and "job absent" are different facts.
+    expect(text).toContain('obsidian_tc_scheduler_skipped_total{vault="maintenance"} 0');
+    expect(text).toContain('obsidian_tc_scheduler_skipped_total{vault="reconcile"} 3');
+    expect(text).toContain('obsidian_tc_scheduler_consecutive_failures{vault="reconcile"} 2');
+    expect(text).toContain('obsidian_tc_http_construct_seconds{vault="http"} 0.0142');
+    // An INFO metric: the value is always 1 and carries nothing; the LABEL is the datum.
+    expect(text).toContain(
+      'obsidian_tc_vec_fingerprint_active{vault="index",fingerprint="ollama|bge-m3|1024|cosine|0|1|v3"} 1',
+    );
+  });
+
+  it("reports no http-construct series on a stdio-only server rather than a fake zero", async () => {
+    // Reporting 0 would claim the transport was constructed instantly. It was never constructed.
+    const text = await new MetricsRecorder({ httpConstructSeconds: () => [] }).metrics();
+    expect(text).toContain("# TYPE obsidian_tc_http_construct_seconds gauge");
+    expect(text).not.toMatch(/^obsidian_tc_http_construct_seconds\{/m);
   });
 
   it("counts vec fallbacks separately by reason (THE-585)", async () => {

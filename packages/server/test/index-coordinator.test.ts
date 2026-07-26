@@ -27,6 +27,31 @@ describe("IndexCoordinator (THE-455)", () => {
     await c.idle();
     // Only the final desired state is embedded — the intermediate writes are coalesced away.
     expect(applied).toEqual(["c"]);
+    // THE-585 (#2): and the writes NOT done are counted. Three submits, one applied, so two were
+    // superseded. Asserting the exact number rather than ">0" is what makes this a measurement —
+    // an off-by-one here would report coalescing savings that never happened.
+    expect(c.stats().coalesced).toBe(2);
+  });
+
+  it("counts nothing as coalesced when writes do not overlap (THE-585 #2)", async () => {
+    const c = new IndexCoordinator({ write: () => {}, delete: () => {} });
+    c.submitWrite("v", "a.md", "1");
+    await c.idle();
+    c.submitWrite("v", "b.md", "2");
+    await c.idle();
+    // Different paths, and each drained before the next arrived: nothing was ever superseded. A
+    // counter that ticked here would be counting submits, not savings.
+    expect(c.stats().coalesced).toBe(0);
+  });
+
+  it("counts coalescing separately per path (THE-585 #2)", async () => {
+    const c = new IndexCoordinator({ write: () => {}, delete: () => {} });
+    c.submitWrite("v", "a.md", "1");
+    c.submitWrite("v", "a.md", "2"); // supersedes
+    c.submitWrite("v", "b.md", "1");
+    c.submitWrite("v", "b.md", "2"); // supersedes
+    await c.idle();
+    expect(c.stats().coalesced).toBe(2);
   });
 
   it("a slow older write cannot commit after a newer one (the ordering bug)", async () => {

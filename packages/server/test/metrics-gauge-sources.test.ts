@@ -109,6 +109,30 @@ describe("THE-585 database gauge sources actually return data", () => {
   });
 });
 
+describe("THE-585 #13 active embedding fingerprint", () => {
+  it("reports the one fingerprint row under a bounded subsystem label, not per vault", async () => {
+    const db = await seededDb();
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS vec_index_fingerprint (id INTEGER PRIMARY KEY CHECK (id = 1), fingerprint TEXT NOT NULL)",
+    );
+    db.prepare("INSERT INTO vec_index_fingerprint (id, fingerprint) VALUES (1, ?)").run(
+      "ollama|bge-m3|1024|cosine|0|1|v3",
+    );
+    // The table is CHECK (id = 1): ONE row per database, shared by every vault in it. Labelling it
+    // per vault would copy one string across N series and imply a per-vault choice that cannot exist.
+    expect(databaseGaugeSources(db, () => NOW).vecFingerprint?.()).toEqual([
+      { vault: "index", fingerprint: "ollama|bge-m3|1024|cosine|0|1|v3" },
+    ]);
+  });
+
+  it("reports NOTHING when no embedding has ever been generated", async () => {
+    // A cache.db with no vec_index_fingerprint table has no fingerprint. An empty series is the
+    // honest report; a placeholder value would be a claim about a representation that does not exist.
+    const db = await seededDb();
+    expect(databaseGaugeSources(db, () => NOW).vecFingerprint?.()).toEqual([]);
+  });
+});
+
 describe("THE-585 the previously-dead gauges reach the Prometheus exposition", () => {
   it("emits real series, not just a registered TYPE line", async () => {
     const db = await seededDb();

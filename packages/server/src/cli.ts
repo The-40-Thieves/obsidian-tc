@@ -899,6 +899,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   /** Bounded subsystem name used in the `vault` label where a metric is process-wide rather than
    *  per-vault — the precedent the query-cache gauges set ("results"/"vectors"). */
   const SUBSYSTEM_COORDINATOR = "coordinator";
+  /** THE-585 (#11): set once, when the HTTP transport is constructed. Null until then, and null
+   *  forever on a stdio-only server — see the gauge source below. */
+  let httpConstructSeconds: number | null = null;
   const metrics = new MetricsRecorder({
     // The DB-backed sources live in metrics/gauge-sources.ts so they are TESTABLE. Three of them
     // (sessions / capture queue / elicit tokens) were declared in GaugeSources and never wired,
@@ -915,6 +918,21 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         vault,
         value,
       })),
+    // THE-585 (#2): coalesced writes. Process-wide like the queue depth above, so the same bounded
+    // subsystem label.
+    indexCoalesced: () => [
+      { vault: SUBSYSTEM_COORDINATOR, value: indexCoordinator.stats().coalesced },
+    ],
+    // THE-585 (#9): scheduler health. `vault` carries the bounded JOB NAME — the jobs are
+    // registered in code at startup, so the label set is fixed by the build, not by traffic.
+    schedulerSkipped: () => scheduler.stats().map((j) => ({ vault: j.job, value: j.skipped })),
+    schedulerConsecutiveFailures: () =>
+      scheduler.stats().map((j) => ({ vault: j.job, value: j.consecutiveFailures })),
+    // THE-585 (#11): boot-time HTTP construction. Stays an empty series until the transport is
+    // actually started — a stdio-only server never constructs one, and reporting 0 there would
+    // claim a measurement that never happened.
+    httpConstructSeconds: () =>
+      httpConstructSeconds === null ? [] : [{ vault: "http", value: httpConstructSeconds }],
     queryCacheHits: cacheStat((s) => s.hits),
     queryCacheMisses: cacheStat((s) => s.misses),
     queryCacheEvictions: cacheStat((s) => s.evictions),
@@ -1648,6 +1666,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   });
 
   if (config.transports.http.enabled) {
+    // THE-585 (#11): time the transport's construction + bind. The perf harness measures this as
+    // `http.cold_ms` on a synthetic vault; nothing reported it from a real process.
+    const httpT0 = performance.now();
     const http = await startHttp({
       name: "obsidian-tc",
       version: VERSION,
@@ -1667,6 +1688,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       // so a token refused at the edge stays invisible to /metrics.
       metrics,
     });
+    httpConstructSeconds = (performance.now() - httpT0) / 1000;
     process.stderr.write(
       `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,
     );

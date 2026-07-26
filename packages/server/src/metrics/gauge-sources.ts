@@ -59,7 +59,11 @@ export function databaseGaugeSources(
   now: () => number = Date.now,
 ): Pick<
   GaugeSources,
-  "activeSessions" | "captureQueueDepth" | "elicitTokensPending" | "idempotencyCacheBytes"
+  | "activeSessions"
+  | "captureQueueDepth"
+  | "elicitTokensPending"
+  | "idempotencyCacheBytes"
+  | "vecFingerprint"
 > {
   const rows = (sql: string, ...params: unknown[]): VaultValues =>
     db.prepare(sql).all(...params) as VaultValues;
@@ -68,5 +72,29 @@ export function databaseGaugeSources(
     captureQueueDepth: () => rows(CAPTURE_QUEUE_SQL),
     elicitTokensPending: () => rows(ELICIT_PENDING_SQL, now()),
     idempotencyCacheBytes: () => rows(IDEMPOTENCY_BYTES_SQL, now()),
+    vecFingerprint: () => activeVecFingerprint(db),
   };
+}
+
+/**
+ * THE-585 (#13): the representation the vector index was actually built under.
+ *
+ * `vault` carries the bounded subsystem name `"index"`, NOT a vault id — and that is a finding, not
+ * a shortcut. `vec_index_fingerprint` is declared `CHECK (id = 1)`: there is exactly ONE row per
+ * database, so every vault sharing a cache.db shares one fingerprint. Labelling it per vault would
+ * copy the same string across N series and imply a per-vault choice that does not exist.
+ *
+ * Returns [] when the table is absent — a cache.db that has never generated an embedding has no
+ * fingerprint, and an empty series is the honest report. Emitting a placeholder would be a claim.
+ */
+function activeVecFingerprint(db: Database): Array<{ vault: string; fingerprint: string }> {
+  try {
+    const row = db.prepare("SELECT fingerprint FROM vec_index_fingerprint WHERE id = 1").get() as
+      | { fingerprint?: string }
+      | undefined;
+    return row?.fingerprint ? [{ vault: "index", fingerprint: row.fingerprint }] : [];
+  } catch {
+    // Table not created yet (no embedding generated on this db). Not an error condition.
+    return [];
+  }
 }
