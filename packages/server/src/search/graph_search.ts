@@ -24,6 +24,20 @@ import { rerankWithScores } from "./rerank";
 export type { FusionMode, GraphSearchOptions, GraphSearchResult };
 export { clampMetadataBoost, seedZMargin };
 
+// THE-585 (#12): content bytes hydrated at the two boundaries that matter — how much duplicate
+// hydration candidateAssembly's dedup absorbs, and how much of what got hydrated the diversity/
+// gatedRerank top-K cut then discards. Byte length (Buffer.byteLength), not character count, so
+// this tracks actual wire/memory cost rather than a locale-dependent character count. Structural
+// over the element type so it works across Candidate[]/GraphSearchResult[] and the raw
+// pre-merge hit arrays (SemanticHit/LexicalHit/SparseHit) without a shared base type.
+function contentBytes(items: ReadonlyArray<{ content?: string | null }>): number {
+  let total = 0;
+  for (const item of items) {
+    if (item.content) total += Buffer.byteLength(item.content, "utf8");
+  }
+  return total;
+}
+
 /**
  * GraphRAG search — THE-233 W-RETRIEVAL port of knowledge-mcp-server vault_graph_search.
  * Vector seeds (semanticSearch — obsidian-tc has no chunk-level hybrid, and "don't
@@ -144,6 +158,10 @@ async function graphSearchCore(
   }
 
   // Stage: candidateAssembly (merge seed/expansion/lexical/sparse/temporal streams).
+  // THE-585 (#12): bytesIn is the pre-merge, pre-dedup total across the four streams that
+  // already carry content — a chunk hit by more than one stream is counted once per stream
+  // here, then once (deduped) in bytesOut. The gap between them is hydration wasted on the
+  // SAME chunk fetched via more than one path, before dedup ever runs.
   const {
     candidates,
     lexRankById,
@@ -167,6 +185,14 @@ async function graphSearchCore(
       }),
     (r) => r.candidates.length,
     onStageMetric,
+    {
+      in:
+        contentBytes(seeds) +
+        contentBytes(expansionChunks) +
+        contentBytes(lexHits) +
+        contentBytes(sparseHits),
+      out: (r) => contentBytes(r.candidates),
+    },
   );
   if (candidates.length === 0) return [];
 
@@ -207,13 +233,16 @@ async function graphSearchCore(
   );
 
   if (fusionMode === "graph_rrf" || isConvex) {
-    // Stage: diversity (note-collapse, cluster cap, MMR).
+    // Stage: diversity (note-collapse, cluster cap, MMR). THE-585 (#12): this is the top-K cut
+    // the ticket names — `fused` carries every hydrated candidate; `capped` is what survives.
+    // bytesIn - bytesOut here is content that was fetched and then thrown away unread.
     const capped = await runStage(
       "diversity",
       fused.length,
       () => applyDiversity({ db, opts, fused, finalTopK, scoreOfWithPrior }),
       (r) => r.length,
       onStageMetric,
+      { in: contentBytes(fused), out: (r) => contentBytes(r) },
     );
     // Stage: gatedRerank (THE-394 hard-query gate; falls through to plain projection).
     return runStage(
@@ -222,6 +251,7 @@ async function graphSearchCore(
       () => applyGatedRerank({ opts, capped, seeds, zMargin, routedToSeedsOnly, scoreOfWithPrior }),
       (r) => r.length,
       onStageMetric,
+      { in: contentBytes(capped), out: (r) => contentBytes(r) },
     );
   }
 

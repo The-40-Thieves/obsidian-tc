@@ -83,6 +83,35 @@ describe("Scheduler (THE-462)", () => {
     }
   });
 
+  // THE-585 (#9) — deferred ticks accumulate on JobState/stats(), distinct from skipped (a
+  // still-in-flight run) and consecutiveFailures (a run that threw). Drives the SAME budget-
+  // deferral branch as GATE 2 above through the injectable loopDelayMs seam, then asserts the
+  // stats() VALUE actually moved — a registered-but-unfed counter is the exact failure mode this
+  // item exists to close (see the three dead gauges PR #474 fixed).
+  it("budget deferral accumulates JobState.deferred, distinct from skipped/consecutiveFailures", async () => {
+    vi.useFakeTimers();
+    try {
+      let runs = 0;
+      let loop = 500; // p99 ms, above the 100ms threshold
+      const sched = new Scheduler({ eventLoopDeferMs: 100, loopDelayMs: () => loop });
+      sched.register({ name: "j", intervalMs: 1000, run: () => void runs++ });
+      sched.start();
+      expect(sched.stats()[0]).toMatchObject({ job: "j", deferred: 0 });
+      await vi.advanceTimersByTimeAsync(1000); // due, but deferred
+      expect(runs).toBe(0);
+      expect(sched.stats()[0]).toMatchObject({ job: "j", deferred: 1, skipped: 0 });
+      await vi.advanceTimersByTimeAsync(250); // recheck tick, still high -> deferred again
+      expect(sched.stats()[0]).toMatchObject({ job: "j", deferred: 2 });
+      loop = 10; // p99 drops below threshold
+      await vi.advanceTimersByTimeAsync(250); // a recheck tick now runs it
+      expect(runs).toBe(1);
+      expect(sched.stats()[0]).toMatchObject({ job: "j", deferred: 2, skipped: 0 }); // no more growth
+      await sched.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // GATE 3 (success) — durable last-success + failure reset.
   it("durable: persists last_success_at and next_run_at, failures = 0 on success", async () => {
     vi.useFakeTimers();
