@@ -150,6 +150,81 @@ const BulkMoveInput = z
   })
   .strict();
 
+// ── output schemas ──────────────────────────────────────────────────────────────
+
+// THE-417: ErrorJSON (@the-40-thieves/obsidian-tc-shared errors.ts), the shape every
+// ObsidianTcError.toJSON() produces. `code` stays z.string() rather than re-enumerating the ~40
+// entry ErrorCode union declared there — that union is additive and owned by the shared package;
+// mirroring it here would drift the first time a code is added without this file being touched.
+const ErrorJson = z.object({
+  code: z.string(),
+  message: z.string(),
+  retryable: z.boolean(),
+  details: z.record(z.string(), z.unknown()).optional(),
+  recovery: z.string().optional(),
+});
+
+/** runBulk's BulkReport, written from bulk_create_notes'/bulk_set_property's actual return
+ *  (`{ vault, ...report }`) rather than from BulkReport's own declaration — `results` here is
+ *  BulkItemOutcome narrowed to what THIS tool's identity()/perItem() callbacks actually put in it,
+ *  not the generic `Record<string, unknown> & { ok, error? }` runBulk types it as. */
+const BulkCreateResultItem = z.object({
+  path: z.string(),
+  ok: z.boolean(),
+  // Present only on success (out spread after ok:true); absent alongside `error` on failure.
+  mode_used: z.enum(["create", "overwrite"]).optional(),
+  content_hash: z.string().optional(),
+  error: ErrorJson.optional(),
+});
+
+const BulkCreateOutput = z.object({
+  vault: z.string(),
+  processed: z.number(),
+  succeeded: z.number(),
+  failed: z.number(),
+  results: z.array(BulkCreateResultItem),
+  duration_ms: z.number(),
+});
+
+const BulkSetPropertyResultItem = z.object({
+  path: z.string(),
+  ok: z.boolean(),
+  // `prev ?? null` is always assigned on success, so an explicit stored null is distinguished from
+  // "never had this key" via presence — absent only alongside `error` on failure.
+  prev_value: z.unknown().optional(),
+  error: ErrorJson.optional(),
+});
+
+const BulkSetPropertyOutput = z.object({
+  vault: z.string(),
+  processed: z.number(),
+  succeeded: z.number(),
+  failed: z.number(),
+  results: z.array(BulkSetPropertyResultItem),
+  duration_ms: z.number(),
+});
+
+/** bulk_move_notes does not use runBulk — it hand-rolls validation + an all-or-nothing rewrite
+ *  pass — and returns one of two shapes (dry_run:true preview / dry_run:false applied) that share
+ *  every field except which of backlinks_updated/error is present per row; TypeScript widens
+ *  `dry_run` itself to `boolean` across the two return statements, matching the ONE-object encoding
+ *  used elsewhere in this ticket rather than a two-arm union. */
+const BulkMoveResultItem = z.object({
+  from: z.string(),
+  to: z.string(),
+  ok: z.boolean(),
+  backlinks_updated: z.number().optional(),
+  error: ErrorJson.optional(),
+});
+
+const BulkMoveOutput = z.object({
+  vault: z.string(),
+  processed: z.number(),
+  dry_run: z.boolean(),
+  total_backlinks_updated: z.number(),
+  results: z.array(BulkMoveResultItem),
+});
+
 // ── tools ────────────────────────────────────────────────────────────────────
 
 export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
@@ -163,6 +238,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       description:
         "Batch-create notes with per-item results. Each item creates/overwrites/upserts a note (content + optional frontmatter). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in).",
       inputSchema: BulkCreateInput,
+      outputSchema: BulkCreateOutput,
       requiredScopes: ["write:notes", "bulk:notes"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -201,7 +277,11 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             };
           },
         );
-        return { vault: v.id, ...report };
+        // runBulk's declared return type is generic (BulkItemOutcome = Record<string, unknown> &
+        // {ok, error?}), erasing the concrete per-item shape this tool's own identity/perItem
+        // callbacks actually produce (path + mode_used/content_hash on success, path + error on
+        // failure) — the cast restates what is already true at runtime, matching BulkCreateOutput.
+        return { vault: v.id, ...report } as z.infer<typeof BulkCreateOutput>;
       },
     }),
 
@@ -211,6 +291,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       description:
         "Set one frontmatter property across many notes, with per-item results (prev_value). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in).",
       inputSchema: BulkSetPropertyInput,
+      outputSchema: BulkSetPropertyOutput,
       requiredScopes: ["write:notes", "bulk:notes"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -241,7 +322,10 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             return { prev_value: prev ?? null };
           },
         );
-        return { vault: v.id, ...report };
+        // Same runBulk generic-erasure cast as bulk_create_notes above — restates the concrete
+        // per-item shape (path + prev_value on success, path + error on failure) this tool's own
+        // callbacks actually produce.
+        return { vault: v.id, ...report } as z.infer<typeof BulkSetPropertyOutput>;
       },
     }),
 
@@ -255,6 +339,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       description:
         "Batch-move notes and rewrite backlinks across the whole link graph (rewrite phase is all-or-nothing). dry_run (default true) previews predicted backlink updates without touching disk. Set overwrite to clobber existing destinations (each is soft-deleted to .trash, recoverable). HITL-floored (bulk) and throttled.",
       inputSchema: BulkMoveInput,
+      outputSchema: BulkMoveOutput,
       requiredScopes: ["write:notes", "delete:notes", "bulk:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

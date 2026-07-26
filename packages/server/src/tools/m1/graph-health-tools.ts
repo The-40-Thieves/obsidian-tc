@@ -112,6 +112,76 @@ function intersectSize(a: Set<string> | undefined, b: Set<string> | undefined): 
   return n;
 }
 
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below. Every
+// tool here returns exactly one shape (no degradation/union arms), so these are plain objects.
+// ---------------------------------------------------------------------------------------------
+
+const VaultHealthScoreOutput = z.object({
+  vault: z.string(),
+  score: z.number(),
+  total_notes: z.number(),
+  total_links: z.number(),
+  metrics: z.object({
+    orphans: z.number(),
+    unresolved_links: z.number(),
+    hubs: z.number(),
+    cycles: z.number(),
+  }),
+  breakdown: z.object({
+    orphan_penalty: z.number(),
+    unresolved_penalty: z.number(),
+    cycle_penalty: z.number(),
+    hub_penalty: z.number(),
+  }),
+});
+
+const FindLinkCyclesOutput = z.object({
+  vault: z.string(),
+  total: z.number(),
+  cycles: z.array(z.array(z.string())),
+});
+
+const GetLinkStrengthOutput = z.object({
+  vault: z.string(),
+  from: z.string(),
+  to: z.string(),
+  direct: z.boolean(),
+  co_citation: z.number(),
+  shared_out_neighbors: z.number(),
+  distance: z.number().nullable(),
+  strength: z.number(),
+});
+
+const SuggestLinkRow = z.object({
+  path: z.string(),
+  score: z.number(),
+  co_citation: z.number(),
+  two_hop: z.number(),
+});
+
+const SuggestLinksOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  total: z.number(),
+  suggestions: z.array(SuggestLinkRow),
+});
+
+const AuditProvenanceOutput = z.object({
+  vault: z.string(),
+  field: z.string(),
+  scanned: z.number(),
+  with_provenance: z.number(),
+  missing_provenance: z.number(),
+  coverage: z.number(),
+  confidence_coverage: z.number(),
+  verified_coverage: z.number(),
+  // Keyed by top-level folder name — dynamic, hence z.record rather than a fixed shape.
+  by_folder: z.record(z.string(), z.object({ scanned: z.number(), missing: z.number() })),
+  missing: z.array(z.string()),
+  truncated: z.boolean(),
+});
+
 /** Undirected shortest-path hop count between two notes, or null if disconnected. */
 function undirectedDistance(g: Graph, from: string, to: string): number | null {
   if (from === to) return 0;
@@ -148,6 +218,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           hub_threshold: z.number().int().positive().max(10000).default(20),
         })
         .strict(),
+      outputSchema: VaultHealthScoreOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -192,6 +263,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       inputSchema: z
         .object({ vault: VaultId, limit: z.number().int().positive().max(1000).default(50) })
         .strict(),
+      outputSchema: FindLinkCyclesOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -210,6 +282,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Score the connection strength (0-1) between two notes from the link graph: direct edge, co-citation (shared inbound sources), shared outbound neighbors, and undirected graph distance.",
       inputSchema: z.object({ vault: VaultId, from: VaultPath, to: VaultPath }).strict(),
+      outputSchema: GetLinkStrengthOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -255,6 +328,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           limit: z.number().int().positive().max(200).default(20),
         })
         .strict(),
+      outputSchema: SuggestLinksOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -301,6 +375,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           limit: z.number().int().positive().max(2000).default(100),
         })
         .strict(),
+      outputSchema: AuditProvenanceOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

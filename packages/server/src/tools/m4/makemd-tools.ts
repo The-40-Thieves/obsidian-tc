@@ -9,6 +9,21 @@ import { filterBridgeItemsByAcl, readEnumerationUnrestricted } from "../../vault
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
+// THE-417: makemd_list_spaces proxies the companion's own JSON verbatim (arbitrary, passthrough).
+// makemd_query ACL-filters the plugin's rows (readEnumerationUnrestricted gates whether the
+// unfiltered `...result` siblings are also spread), but items/total are ALWAYS the ACL-filtered,
+// recomputed values overriding whatever raw items/total the plugin sent — both branches guarantee
+// vault/space_id/items/total; the passthrough covers the plugin's other, arbitrary sibling fields.
+const MakemdListSpacesOutput = z.object({ vault: z.string() }).passthrough();
+const MakemdQueryOutput = z
+  .object({
+    vault: z.string(),
+    space_id: z.string(),
+    items: z.array(z.unknown()),
+    total: z.number().int(),
+  })
+  .passthrough();
+
 export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -16,6 +31,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Enumerate make.md spaces (its alternative to folders) via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: MakemdListSpacesOutput,
       requiredScopes: ["read:makemd"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -56,6 +72,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
           cursor: z.string().optional(),
         })
         .strict(),
+      outputSchema: MakemdQueryOutput,
       requiredScopes: ["read:makemd"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

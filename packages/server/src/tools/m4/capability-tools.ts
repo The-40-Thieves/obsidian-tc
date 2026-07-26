@@ -22,6 +22,8 @@ export interface SnapshotChange {
   after: string;
 }
 
+const SnapshotChangeSchema = z.object({ field: z.string(), before: z.string(), after: z.string() });
+
 function pluginRepr(cap: { installed: boolean; version?: string } | undefined): string {
   if (!cap) return "absent";
   const state = cap.installed ? "installed" : "not-installed";
@@ -66,6 +68,13 @@ export function buildCapabilityTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Re-probe the companion plugin for a vault and atomically replace the cached capability snapshot, so installing/enabling a plugin or upgrading the companion takes effect WITHOUT a server restart. Returns what changed (companion state, plugin/version deltas), not a bare ok. Admin-scoped, no HITL.",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: z.object({
+        vault: z.string(),
+        changed: z.boolean(),
+        companion: z.enum(["reachable", "missing", "unreachable"]),
+        pluginCount: z.number().int(),
+        changes: z.array(SnapshotChangeSchema),
+      }),
       requiredScopes: ["admin:vault"],
       handler: async (input, _ctx) => {
         if (!deps.reprobe) {

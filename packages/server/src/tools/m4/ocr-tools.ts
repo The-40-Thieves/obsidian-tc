@@ -17,6 +17,12 @@ import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
 const DEFAULT_EXTS = [".pdf", ".png", ".jpg", ".jpeg", ".tiff"];
 
+// THE-417: both tools proxy the Text Extractor companion route's own JSON verbatim
+// (`{ vault, ...result }` / `{ vault, requested, ...result }`) — arbitrary plugin JSON, so
+// .passthrough() is the honest schema beyond the fields the handler itself guarantees.
+const OcrAttachmentOutput = z.object({ vault: z.string(), path: z.string() }).passthrough();
+const OcrBulkOutput = z.object({ vault: z.string(), requested: z.number().int() }).passthrough();
+
 export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -27,6 +33,7 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
       inputSchema: z
         .object({ vault: VaultId, path: VaultPath, force: z.boolean().default(false) })
         .strict(),
+      outputSchema: OcrAttachmentOutput,
       requiredScopes: ["read:ocr"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -60,6 +67,7 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
           max_concurrent: z.number().int().min(1).max(4).optional(),
         })
         .strict(),
+      outputSchema: OcrBulkOutput,
       requiredScopes: ["read:ocr"],
       // Bulk OCR is expensive: throttle at the bulk tier and floor it behind human
       // confirmation like every other bulk tool, without making this read-side tool

@@ -82,6 +82,65 @@ function removeByPath(obj: Record<string, unknown>, path: string[]): Record<stri
   return { ...obj, [head]: removeByPath(child as Record<string, unknown>, path.slice(1)) };
 }
 
+// ── output schemas (THE-417 Phase 1) ────────────────────────────────────────
+// Written from each handler's RETURN statements, not from the Frontmatter/ParsedNote
+// types the data is built from — parseNote/serializeNote round-trip through several
+// derived fields (has_frontmatter, content_hash) that do not exist on the source types.
+
+/** Frontmatter is `Record<string, unknown>` (vault/frontmatter.ts) — an arbitrary YAML
+ *  object, so its values are genuinely unknown at the schema layer. */
+const FrontmatterValue = z.record(z.string(), z.unknown());
+
+const ReadFrontmatterOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  frontmatter: FrontmatterValue.nullable(),
+  has_frontmatter: z.boolean(),
+  content_hash: z.string(),
+});
+
+const ReadPropertyOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  key: z.string(),
+  // null when not found; otherwise the stored value, which may itself legitimately be
+  // any JSON value including null — z.unknown() already covers both.
+  value: z.unknown(),
+  found: z.boolean(),
+  nested: z.boolean(),
+});
+
+const UpdateFrontmatterOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  operation: z.enum(["set", "remove", "merge", "replace"]),
+  created: z.boolean(),
+  // null when the write left no keys (e.g. `remove` emptying the object, or `replace`
+  // with an empty properties object) — serializeNote is handed null rather than {}.
+  frontmatter: FrontmatterValue.nullable(),
+  content_hash: z.string(),
+  // null on a create (no prior note, so there is no previous hash to report).
+  prev_hash: z.string().nullable(),
+});
+
+const ListPropertiesOutput = z.object({
+  vault: z.string(),
+  notes_scanned: z.number().int(),
+  properties: z.array(
+    z.object({ key: z.string(), count: z.number().int(), types: z.array(z.string()) }),
+  ),
+});
+
+const FindNotesByPropertyOutput = z.object({
+  vault: z.string(),
+  key: z.string(),
+  total: z.number().int(),
+  truncated: z.boolean(),
+  // verbosity="terse" maps matches to `{ path }` only, dropping `value` entirely rather
+  // than nulling it — a conditional omission, so `value` is .optional(), not .nullable().
+  matches: z.array(z.object({ path: z.string(), value: z.unknown().optional() })),
+});
+
 // ── schemas ──────────────────────────────────────────────────────────────────
 
 const UpdateInput = z
@@ -130,6 +189,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Read a note's parsed YAML frontmatter (null when the note has none).",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+      outputSchema: ReadFrontmatterOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -164,6 +224,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           nested: z.boolean().default(false),
         })
         .strict(),
+      outputSchema: ReadPropertyOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -194,6 +255,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Mutate a note's frontmatter (set/remove/merge/replace). `replace` discards all existing metadata and requires confirmation. Optional prev_hash gives compare-and-swap. Set nested=true to address a dotted key path for set/remove (intermediate objects are created as needed).",
       inputSchema: UpdateInput,
+      outputSchema: UpdateFrontmatterOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -302,6 +364,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Aggregate frontmatter property keys across notes, with usage counts and value types.",
       inputSchema: ListPropsInput,
+      outputSchema: ListPropertiesOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -352,6 +415,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list). Set verbosity=terse to return path only (dropping the matched value). Set nested=true to match a dotted key path.",
       inputSchema: FindInput,
+      outputSchema: FindNotesByPropertyOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

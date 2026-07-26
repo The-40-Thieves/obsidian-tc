@@ -77,6 +77,49 @@ function insertLine(col: Column): number {
     : col.headingLine + 1;
 }
 
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below.
+// ---------------------------------------------------------------------------------------------
+
+const ListKanbanBoardsOutput = z.object({
+  vault: z.string(),
+  total: z.number().int(),
+  boards: z.array(
+    z.object({ path: z.string(), columns: z.number().int(), cards: z.number().int() }),
+  ),
+});
+
+const ReadKanbanBoardOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  content_hash: z.string(),
+  columns: z.array(
+    z.object({
+      name: z.string(),
+      cards: z.array(z.object({ text: z.string(), checked: z.boolean() })),
+    }),
+  ),
+});
+
+const AddKanbanCardOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  column: z.string(),
+  added: z.string(),
+  content_hash: z.string(),
+  prev_hash: z.string(),
+});
+
+const MoveKanbanCardOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  moved: z.string(),
+  from: z.string(),
+  to: z.string(),
+  content_hash: z.string(),
+  prev_hash: z.string(),
+});
+
 export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -84,6 +127,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
       description:
         "List Kanban board notes in the vault (frontmatter kanban-plugin: board), with column and card counts.",
       inputSchema: z.object({ vault: VaultId, folder: VaultPath.optional() }).strict(),
+      outputSchema: ListKanbanBoardsOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -109,6 +153,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Parse a Kanban board note into its columns and cards (text + checked state).",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+      outputSchema: ReadKanbanBoardOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -152,6 +197,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
           prev_hash: z.string().optional(),
         })
         .strict(),
+      outputSchema: AddKanbanCardOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -209,6 +255,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
           prev_hash: z.string().optional(),
         })
         .strict(),
+      outputSchema: MoveKanbanCardOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

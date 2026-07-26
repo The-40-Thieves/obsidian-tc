@@ -27,6 +27,9 @@ export function buildOmnisearchTools(deps: M4Deps): ToolDefinition[] {
           limit: z.number().int().positive().max(100).default(100),
         })
         .strict(),
+      // The companion's /omnisearch/search response (scored matches + excerpts) is arbitrary
+      // plugin JSON passed through verbatim; only `vault` is structurally guaranteed.
+      outputSchema: z.object({ vault: z.string() }).passthrough(),
       requiredScopes: ["read:omnisearch"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);

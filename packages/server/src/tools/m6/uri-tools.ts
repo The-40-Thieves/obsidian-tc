@@ -132,6 +132,8 @@ const GenerateUriInput = z
   })
   .strict();
 
+const GenerateUriOutput = z.object({ uri: z.string() });
+
 /** Domain 27 tool factory. No deps — generate_uri is a pure utility. */
 export function buildUriTools(): ToolDefinition[] {
   return [
@@ -140,6 +142,7 @@ export function buildUriTools(): ToolDefinition[] {
       description:
         "Build an obsidian:// URI for a target (open/search/new/daily/command/hookmark/advanced). Pure string builder — touches no vault state, requires no scope. `vault_name` is the Obsidian DISPLAY NAME (not a vault id) and is used verbatim.",
       inputSchema: GenerateUriInput,
+      outputSchema: GenerateUriOutput,
       requiredScopes: [],
       handler: (input) => ({ uri: buildObsidianUri(input.action, input.params, input.vault_name) }),
     }),

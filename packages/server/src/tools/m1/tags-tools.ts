@@ -52,6 +52,52 @@ function omitKey(obj: Frontmatter, key: string): Frontmatter {
   return out;
 }
 
+// ── output schemas (THE-417 Phase 1) ────────────────────────────────────────
+// Written from each handler's RETURN statements, not from noteTags()'s NoteTags type —
+// the tools spread/rename that shape's fields alongside vault/path/hash bookkeeping.
+
+const ListTagsOutput = z.object({
+  vault: z.string(),
+  notes_scanned: z.number().int(),
+  tags: z.array(z.object({ tag: z.string(), count: z.number().int() })),
+});
+
+const GetNoteTagsOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  frontmatter: z.array(z.string()),
+  inline: z.array(z.string()),
+  all: z.array(z.string()),
+});
+
+const AddTagOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  tag: z.string(),
+  location: z.enum(["frontmatter", "inline"]),
+  added: z.boolean(),
+  content_hash: z.string(),
+  prev_hash: z.string(),
+});
+
+const RemoveTagOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  tag: z.string(),
+  location: z.enum(["frontmatter", "inline", "all"]),
+  removed: z.number().int(),
+  content_hash: z.string(),
+  prev_hash: z.string(),
+});
+
+const FindNotesByTagOutput = z.object({
+  vault: z.string(),
+  tag: z.string(),
+  total: z.number().int(),
+  truncated: z.boolean(),
+  matches: z.array(z.object({ path: z.string(), tags: z.array(z.string()) })),
+});
+
 // ── schemas ──────────────────────────────────────────────────────────────────
 
 const AddInput = z
@@ -99,6 +145,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       name: "list_tags",
       description: "Aggregate all tags (frontmatter + inline) across notes, with usage counts.",
       inputSchema: ListInput,
+      outputSchema: ListTagsOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -142,6 +189,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Get a note's tags, split into frontmatter, inline, and the combined set.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+      outputSchema: GetNoteTagsOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -162,6 +210,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Add a tag to a note's frontmatter `tags` list or inline in the body (idempotent).",
       inputSchema: AddInput,
+      outputSchema: AddTagOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -223,6 +272,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Remove a tag from a note's frontmatter, its body, or both (exact, not hierarchical).",
       inputSchema: RemoveInput,
+      outputSchema: RemoveTagOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -294,6 +344,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Find notes carrying a tag, hierarchically (a query for `project` matches `project` and `project/sub`).",
       inputSchema: FindInput,
+      outputSchema: FindNotesByTagOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

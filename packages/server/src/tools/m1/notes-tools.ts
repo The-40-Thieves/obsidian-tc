@@ -196,7 +196,135 @@ function updateBacklinks(
   return { notes, links, rewritten };
 }
 
-// ── schemas ──────────────────────────────────────────────────────────────────
+// ── output schemas ───────────────────────────────────────────────────────────
+// THE-417 Phase 1: written from each handler's RETURN STATEMENTS, not from the io/frontmatter
+// types the data is built from — parseNote/statNote/captureSnapshot etc. get renamed, derived, or
+// conditionally spread on the way out, so a schema copied from their interfaces would be wrong.
+// Conditional spreads (`...(cond ? { x } : {})`) are `.optional()`, never `.nullable()`.
+
+/** Mirrors vault/frontmatter.ts's ParsedNote.frontmatter: null when the note has no `---` block,
+ *  otherwise the parsed YAML mapping (shape genuinely unknown per key). */
+const FrontmatterOut = z.record(z.string(), z.unknown()).nullable();
+
+/** Mirrors vault/notes-io.ts's NoteStat; null when statNote's statSync throws (e.g. the file
+ *  vanished between the existence check and the stat — a race, not a validation failure). */
+const NoteStatOut = z.object({ size: z.number(), mtime: z.string(), ctime: z.string() }).nullable();
+
+const ReadNoteOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  content: z.string(),
+  frontmatter: FrontmatterOut,
+  body: z.string(),
+  has_frontmatter: z.boolean(),
+  content_hash: z.string(),
+  stat: NoteStatOut,
+});
+
+/** read_notes' per-note entry is hand-assembled in the loop below and is NARROWER than
+ *  ReadNoteOutput — no has_frontmatter, no stat. */
+const ReadNotesEntry = z.object({
+  path: z.string(),
+  content: z.string(),
+  frontmatter: FrontmatterOut,
+  body: z.string(),
+  content_hash: z.string(),
+});
+
+const ReadNotesError = z.object({ path: z.string(), code: z.string(), message: z.string() });
+
+const ReadNotesOutput = z.object({
+  vault: z.string(),
+  notes: z.array(ReadNotesEntry),
+  errors: z.array(ReadNotesError),
+});
+
+const ListNotesOutput = z.object({
+  vault: z.string(),
+  folder: z.string(),
+  notes: z.array(z.object({ path: z.string(), size: z.number(), mtime: z.number() })),
+  next_cursor: z.string().nullable(),
+  total_returned: z.number(),
+});
+
+const NoteExistsOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  exists: z.boolean(),
+  type: z.enum(["file", "folder"]).nullable(),
+});
+
+const WriteNoteOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  created: z.boolean(),
+  mode_used: z.enum(["create", "overwrite"]),
+  content_hash: z.string(),
+  prev_hash: z.string().nullable(),
+  bytes_written: z.number(),
+});
+
+const AppendNoteOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  created: z.boolean(),
+  content_hash: z.string(),
+  prev_hash: z.string().nullable(),
+  bytes_written: z.number(),
+});
+
+/** Mirrors the PatchAnchor input union verbatim — patch_note echoes the resolved anchor back. */
+const PatchAnchorOut = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("heading"), heading: z.string() }),
+  z.object({ type: z.literal("block"), block_id: z.string() }),
+  z.object({ type: z.literal("frontmatter") }),
+]);
+
+const PatchNoteOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  operation: z.enum(["append", "prepend", "replace"]),
+  anchor: PatchAnchorOut,
+  // Present only when anchor.type === "heading" (legacy target_heading echo) — omitted, not
+  // null, for the block/frontmatter arms.
+  target_heading: z.string().optional(),
+  content_hash: z.string(),
+  // Not nullable: reached only after readNote() on a note whose existence was already confirmed.
+  prev_hash: z.string(),
+});
+
+const DeleteNoteOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  deleted: z.literal(true),
+  permanent: z.boolean(),
+  trashed_to: z.string().nullable(),
+  // Not nullable: same reasoning as patch_note's prev_hash.
+  prev_hash: z.string(),
+});
+
+const MoveNoteOutput = z.object({
+  vault: z.string(),
+  from: z.string(),
+  to: z.string(),
+  moved: z.literal(true),
+  overwritten: z.boolean(),
+  trashed_dest_to: z.string().nullable(),
+  content_hash: z.string(),
+  backlinks_updated: z.object({ notes: z.number(), links: z.number() }),
+});
+
+const CopyNoteOutput = z.object({
+  vault: z.string(),
+  from: z.string(),
+  to: z.string(),
+  copied: z.literal(true),
+  overwritten: z.boolean(),
+  trashed_dest_to: z.string().nullable(),
+  content_hash: z.string(),
+});
+
+// ── input schemas ────────────────────────────────────────────────────────────
 
 const WriteMode = z.enum(["create", "overwrite", "upsert"]);
 
@@ -296,6 +424,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Read a note's raw content, parsed frontmatter, body, content hash, and stat.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+      outputSchema: ReadNoteOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -326,6 +455,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Batch-read notes. Returns successful notes and a per-path error list (partial).",
       inputSchema: z.object({ vault: VaultId, paths: z.array(VaultPath).min(1).max(100) }).strict(),
+      outputSchema: ReadNotesOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -361,6 +491,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       name: "list_notes",
       description: "List notes under a folder (read-ACL filtered), with cursor pagination.",
       inputSchema: ListInput,
+      outputSchema: ListNotesOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -390,6 +521,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Check whether a path exists in the vault and whether it is a file or folder.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+      outputSchema: NoteExistsOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -407,6 +539,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation.",
       inputSchema: WriteInput,
+      outputSchema: WriteNoteOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -485,6 +618,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description: "Append content to a note (optionally creating it), preserving existing bytes.",
       inputSchema: AppendInput,
+      outputSchema: AppendNoteOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -552,6 +686,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       description:
         'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved.',
       inputSchema: PatchInput,
+      outputSchema: PatchNoteOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -620,6 +755,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Delete a note (to the vault's .trash mirror, or permanently). Destructive — requires confirmation.",
       inputSchema: DeleteInput,
+      outputSchema: DeleteNoteOutput,
       requiredScopes: ["delete:notes"],
       destructive: true,
       handler: (input, ctx) => {
@@ -664,6 +800,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Move/rename a note and update backlinks. Crossing a folder boundary OR overwriting an existing destination requires confirmation; an overwritten destination is soft-deleted to .trash (recoverable).",
       inputSchema: MoveInput,
+      outputSchema: MoveNoteOutput,
       requiredScopes: ["write:notes", "delete:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -753,6 +890,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       ],
       description: "Copy a note to a new path (backlinks are not rewritten for copies).",
       inputSchema: CopyInput,
+      outputSchema: CopyNoteOutput,
       requiredScopes: ["write:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

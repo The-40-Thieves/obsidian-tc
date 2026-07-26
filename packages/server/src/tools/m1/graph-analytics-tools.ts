@@ -38,6 +38,59 @@ import { defineTool } from "./define";
  */
 const BETWEENNESS_MAX_NODES = 2000;
 
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below (see
+// graph/analytics.ts for the ScoredNode/Community/PathHop shapes these mirror).
+// ---------------------------------------------------------------------------------------------
+
+const ScoredNodeSchema = z.object({ path: z.string(), score: z.number() });
+
+/** graph_centrality: two arms. The betweenness-refusal arm is deliberately NARROWER (no
+ *  edges/results) rather than a union, per RULE 5 — `available` and `message` are absent
+ *  entirely on the normal arm (conditional spread, not null), and `edges`/`results` absent
+ *  entirely on the refusal arm. */
+const GraphCentralityOutput = z.object({
+  vault: z.string(),
+  metric: z.enum(["pagerank", "betweenness"]),
+  nodes: z.number(),
+  // Present only on the BETWEENNESS_MAX_NODES refusal arm, and always `false` there in practice —
+  // z.boolean() rather than z.literal(false) because the handler's plain `available: false` return
+  // widens to `boolean` under TS's control-flow inference across the two arms.
+  available: z.boolean().optional(),
+  message: z.string().optional(),
+  // Present only on the normal (non-refused) arm.
+  edges: z.number().optional(),
+  results: z.array(ScoredNodeSchema).optional(),
+});
+
+const CommunitySchema = z.object({ id: z.number(), paths: z.array(z.string()) });
+
+const GraphCommunitiesOutput = z.object({
+  vault: z.string(),
+  nodes: z.number(),
+  modularity: z.number(),
+  meaningful: z.boolean(),
+  // Set to the literal `undefined` in the handler when meaningful, which is why this is
+  // `.optional()` rather than nullable — the key is dropped, not nulled, on the wire.
+  note: z.string().optional(),
+  community_count: z.number(),
+  communities: z.array(CommunitySchema),
+});
+
+const PathHopSchema = z.object({ from: z.string(), to: z.string(), via: z.array(z.string()) });
+
+const GraphPathBetweenOutput = z.object({
+  vault: z.string(),
+  from: z.string(),
+  to: z.string(),
+  directed: z.boolean(),
+  connected: z.boolean(),
+  from_in_graph: z.boolean(),
+  to_in_graph: z.boolean(),
+  hops: z.array(PathHopSchema),
+  length: z.number().nullable(),
+});
+
 interface EdgeRow {
   source_path: string;
   target_path: string;
@@ -87,6 +140,7 @@ export function buildGraphAnalyticsTools(): ToolDefinition[] {
           limit: z.number().int().positive().max(200).default(25),
         })
         .strict(),
+      outputSchema: GraphCentralityOutput,
       requiredScopes: ["read:notes"],
       tags: ["links", "graph"],
       handler: (input, ctx) => {
@@ -128,6 +182,7 @@ export function buildGraphAnalyticsTools(): ToolDefinition[] {
           limit: z.number().int().positive().max(100).default(20),
         })
         .strict(),
+      outputSchema: GraphCommunitiesOutput,
       requiredScopes: ["read:notes"],
       tags: ["links", "graph"],
       handler: (input, ctx) => {
@@ -163,6 +218,7 @@ export function buildGraphAnalyticsTools(): ToolDefinition[] {
           directed: z.boolean().default(false),
         })
         .strict(),
+      outputSchema: GraphPathBetweenOutput,
       requiredScopes: ["read:notes"],
       tags: ["links", "graph"],
       handler: (input, ctx) => {

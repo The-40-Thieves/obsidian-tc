@@ -113,6 +113,63 @@ function scopeFamilyGranted(scopes: string[], op: string): boolean {
   });
 }
 
+// THE-417: written from get_server_config's return statement, not from ThrottleConfig's own
+// declaration site — `throttle_tiers` mirrors ThrottleConfig["tiers"] verbatim, but `limits` picks
+// three fields back out of the SAME config object under different names (max_operations_per_second
+// is t.tiers.bulk.burst, not a distinct config value).
+const TierLimits = z.object({ perMinute: z.number(), burst: z.number() });
+
+const GetServerConfigOutput = z.object({
+  version: z.string(),
+  auth_mode: z.enum(["none", "jwt"]),
+  read_only: z.boolean(),
+  embeddings_provider: z.string(),
+  vaults_summary: z.array(z.object({ id: z.string() })),
+  limits: z.object({
+    max_concurrent_writes_per_vault: z.number(),
+    max_operations_per_second: z.number(),
+    max_operations_per_minute: z.number(),
+  }),
+  throttle_tiers: z.object({
+    read: TierLimits,
+    write: TierLimits,
+    delete: TierLimits,
+    bulk: TierLimits,
+    execute: TierLimits,
+    admin: TierLimits,
+  }),
+  governor: z.object({ max_response_bytes: z.number() }),
+  observability: z.object({
+    otlp_enabled: z.boolean(),
+    prometheus_enabled: z.boolean(),
+    morgiana_enabled: z.boolean(),
+  }),
+  plugins_detected: z.record(z.string(), z.array(z.string())),
+});
+
+/** inspect_acl: five early returns that TypeScript widens to one shape (same pattern as m7/m8's
+ *  multi-arm tools) — `denied_by` is the only field that is ever absent (the success arm). `${op}
+ *  _paths` only ever fires for read/write/delete: execute is not path-scoped, so its only denial
+ *  path is the read_only kill switch checked before evaluatePathAcl runs. */
+const InspectAclOutput = z.object({
+  allowed: z.boolean(),
+  denied_by: z
+    .enum(["read_only", "read_paths", "write_paths", "delete_paths", "scope", "path_scope"])
+    .optional(),
+  kill_switch: z.boolean(),
+  matched_rule: z.string().nullable(),
+  effective_scopes: z.array(z.string()),
+});
+
+const MetricSchema = z.object({
+  name: z.string(),
+  type: z.enum(["counter", "gauge"]),
+  value: z.number(),
+  labels: z.record(z.string(), z.string()),
+});
+
+const GetMetricsOutput = z.object({ metrics: z.array(MetricSchema) });
+
 export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -120,6 +177,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       description:
         "Read the non-secret server config: auth mode, server-global read_only + embeddings provider, throttle limits, observability targets, and a per-vault summary (id) plus a detected-plugins map. Never returns secrets.",
       inputSchema: z.object({}).strict(),
+      outputSchema: GetServerConfigOutput,
       requiredScopes: ["admin:config"],
       handler: (_input, ctx) => {
         const t = deps.throttle;
@@ -166,6 +224,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       description:
         "Test whether a (vault, path, op, scopes) tuple would be permitted. Shares the live path evaluator (read-only kill switch + per-op whitelist) so it cannot drift from enforcement, then checks the op-family scope grant and the path-required rule-scopes (P1.4: a matching rule's scopes must all be held). Reports the matched path rule, the rule-based effective_scopes, and what denied it.",
       inputSchema: InspectAclInput,
+      outputSchema: InspectAclOutput,
       requiredScopes: ["admin:acl"],
       handler: (input, ctx) => {
         deps.vaultRegistry.resolve(input.vault); // vault_not_found if unknown
@@ -234,6 +293,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       description:
         "Snapshot Prometheus-style metrics as structured JSON: per-(vault,tool,status) invocation counters and rate-limit-hit counters aggregated from the local event_log + live limiter, plus uptime/registered-vault/registered-tool gauges. Optionally filter to one vault.",
       inputSchema: z.object({ vault: VaultId.optional() }).strict(),
+      outputSchema: GetMetricsOutput,
       requiredScopes: ["admin:metrics"],
       handler: (input, ctx) => {
         const now = (ctx.now ?? Date.now)();

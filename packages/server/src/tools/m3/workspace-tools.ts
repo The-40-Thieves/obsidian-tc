@@ -30,6 +30,41 @@ function workspacesOf(data: WorkspacesDoc): Record<string, unknown> {
   return w && typeof w === "object" && !Array.isArray(w) ? (w as Record<string, unknown>) : {};
 }
 
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below.
+//
+// `content_hash` is nullable ONLY on list_workspaces: readJsonFile returns hash:null for a
+// workspaces.json that does not exist yet, whereas open_workspace/save_workspace always write
+// (writeJsonFile always produces a hash). `layout` is a saved workspace's stored value —
+// Obsidian's own layout tree, arbitrary from this server's point of view — so z.unknown() is the
+// honest contract, matching WorkspacesDoc.workspaces's own Record<string, unknown> typing.
+// ---------------------------------------------------------------------------------------------
+
+const ListWorkspacesOutput = z.object({
+  vault: z.string(),
+  exists: z.boolean(),
+  workspaces: z.array(z.string()),
+  active: z.string().nullable(),
+  count: z.number().int(),
+  content_hash: z.string().nullable(),
+});
+
+const OpenWorkspaceOutput = z.object({
+  vault: z.string(),
+  active: z.string(),
+  layout: z.unknown(),
+  content_hash: z.string(),
+});
+
+const SaveWorkspaceOutput = z.object({
+  vault: z.string(),
+  name: z.string(),
+  created: z.boolean(),
+  active: z.string().nullable(),
+  count: z.number().int(),
+  content_hash: z.string(),
+});
+
 export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -38,6 +73,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
       description:
         "List saved workspace names and the active workspace (.obsidian/workspaces.json).",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: ListWorkspacesOutput,
       requiredScopes: ["read:workspaces"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -64,6 +100,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
       inputSchema: z
         .object({ vault: VaultId, name: z.string().min(1), prev_hash: z.string().optional() })
         .strict(),
+      outputSchema: OpenWorkspaceOutput,
       requiredScopes: ["write:workspaces"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -103,6 +140,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
           prev_hash: z.string().optional(),
         })
         .strict(),
+      outputSchema: SaveWorkspaceOutput,
       requiredScopes: ["write:workspaces"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

@@ -92,6 +92,13 @@ async function executeCommandNative(
   return { command_id: commandId, fired_at: new Date().toISOString(), source: "local-rest-api" };
 }
 
+// THE-417: both tools proxy either the companion's own JSON (arbitrary — the plugin is what
+// shapes it) or the LRA-native fallback shape ({ items/total/source } or { command_id/fired_at/
+// source }), so `vault` (+ `command_id` on execute) is all that is structurally guaranteed; the
+// rest is genuinely unknown plugin/native-route JSON, which .passthrough() states honestly.
+const ListCommandsOutput = z.object({ vault: z.string() }).passthrough();
+const ExecuteCommandOutput = z.object({ vault: z.string(), command_id: z.string() }).passthrough();
+
 export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -111,6 +118,7 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
           cursor: z.string().optional(),
         })
         .strict(),
+      outputSchema: ListCommandsOutput,
       requiredScopes: ["read:command"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -154,6 +162,7 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
           args: z.record(z.string(), z.unknown()).optional(),
         })
         .strict(),
+      outputSchema: ExecuteCommandOutput,
       requiredScopes: ["execute:command"],
       // Deny-by-default policy runs in precheck (D5): dispatch invokes it AFTER scope/ACL
       // and BEFORE the HITL elicit consumption, so a disabled / not-allowlisted command is

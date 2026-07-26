@@ -38,6 +38,16 @@ interface BundleResult {
   files: { path: string; bytes: number }[];
 }
 
+// THE-417: both tools spread buildBundle's BundleResult verbatim into their response, so this
+// mirrors that interface field for field rather than the input types the bundle was built from.
+const BundleResultSchema = z.object({
+  bundle: z.string(),
+  file_count: z.number().int(),
+  total_bytes: z.number().int(),
+  truncated: z.boolean(),
+  files: z.array(z.object({ path: z.string(), bytes: z.number().int() })),
+});
+
 // Concatenate (rel, content) entries under a byte budget. `preTruncated` carries a
 // file-count cap that already dropped entries upstream.
 function buildBundle(
@@ -80,6 +90,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
           format: z.enum(["markdown", "xml"]).default("markdown"),
         })
         .strict(),
+      outputSchema: BundleResultSchema.extend({ vault: z.string(), root: z.string() }),
       requiredScopes: ["read:context"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -116,6 +127,11 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
           format: z.enum(["markdown", "xml"]).default("markdown"),
         })
         .strict(),
+      // missing_paths is conditionally spread (only when non-empty) -> optional, not nullable.
+      outputSchema: BundleResultSchema.extend({
+        vault: z.string(),
+        missing_paths: z.array(z.string()).optional(),
+      }),
       requiredScopes: ["read:context"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

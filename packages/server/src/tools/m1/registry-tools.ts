@@ -49,6 +49,68 @@ function del(db: Database, sql: string, vaultId: string): number {
   return db.prepare(sql).run(vaultId).changes;
 }
 
+// ── output schemas (THE-417 Phase 1) ────────────────────────────────────────
+// Written from each handler's RETURN statements, not from VaultRegistry's Vault type —
+// these tools rename/derive fields (read_only, cache stats) that do not live on Vault.
+
+const AddVaultOutput = z.object({
+  id: z.string(),
+  name: z.string(),
+  path: z.string(),
+  indexed: z.boolean(),
+  // null when deps.indexVault is absent (tests); otherwise the indexer's own summary.
+  index: z.object({ notes_seen: z.number().int() }).nullable(),
+});
+
+const ListVaultsOutput = z.object({
+  vaults: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      kind: z.string(),
+      path: z.string(),
+      read_only: z.boolean(),
+      embeddings_provider: z.string(),
+      chunk_count: z.number().int(),
+      // Always the literal null today (no last-synced tracking wired yet) — encoded as
+      // z.null() rather than a nullable type, since that is the only value ever returned.
+      last_synced_at: z.null(),
+    }),
+  ),
+});
+
+const GetVaultOutput = z.object({
+  id: z.string(),
+  name: z.string(),
+  path: z.string(),
+  read_only: z.boolean(),
+  acl: z.object({
+    read_paths: z.array(z.string()).nullable(),
+    write_paths: z.array(z.string()).nullable(),
+    delete_paths: z.array(z.string()).nullable(),
+  }),
+  embeddings: z.object({ provider: z.string(), model: z.string() }),
+  cache: z.object({
+    chunk_count: z.number().int(),
+    last_synced_at: z.null(),
+    db_size_bytes: z.number().int(),
+  }),
+});
+
+const ReloadVaultOutput = z.object({ vault: z.string(), reloaded_at: z.string() });
+
+const ResetVaultCacheOutput = z.object({
+  vault: z.string(),
+  reset_at: z.string(),
+  rows_dropped: z.object({
+    chunks: z.number().int(),
+    vec_chunks: z.number().int(),
+    embeddings: z.number().int(),
+    idempotency_keys: z.number().int(),
+    event_log: z.number().int(),
+  }),
+});
+
 const ResetInput = z
   .object({
     vault: VaultId,
@@ -80,6 +142,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
           kind: z.enum(["private", "docs", "system"]).default("private"),
         })
         .strict(),
+      outputSchema: AddVaultOutput,
       requiredScopes: ["admin:vault"],
       handler: async (input) => {
         if (deps.vaultRegistry.has(input.vault_id))
@@ -108,6 +171,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
       name: "list_vaults",
       description: "List configured vaults and their cache state.",
       inputSchema: z.object({}).strict(),
+      outputSchema: ListVaultsOutput,
       requiredScopes: ["read:vault"],
       handler: (_input, ctx) => ({
         vaults: deps.vaultRegistry.list().map((v) => ({
@@ -126,6 +190,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
       name: "get_vault",
       description: "Inspect a single vault's configuration and cache state.",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: GetVaultOutput,
       requiredScopes: ["read:vault"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -152,6 +217,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
       name: "reload_vault",
       description: "Re-read a vault's configuration from disk (does not touch the cache).",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: ReloadVaultOutput,
       requiredScopes: ["admin:vault"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -172,6 +238,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Drop the SQLite cache for a vault (chunks, embeddings, idempotency keys; optionally the event log). Destructive — requires confirmation.",
       inputSchema: ResetInput,
+      outputSchema: ResetVaultCacheOutput,
       requiredScopes: ["admin:vault"],
       destructive: true,
       handler: (input, ctx) => {

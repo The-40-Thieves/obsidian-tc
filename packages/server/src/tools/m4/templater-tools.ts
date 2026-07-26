@@ -14,6 +14,15 @@ import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
+// THE-417: both tools proxy the Templater companion route's own JSON verbatim
+// (`{ vault, ...result }` / `{ vault, template, target, ...result }`) — arbitrary plugin JSON
+// (e.g. execute_template's created_at/content_hash/expanded_size are the plugin's own fields), so
+// .passthrough() is the honest schema beyond what the handler itself guarantees.
+const ListTemplatesOutput = z.object({ vault: z.string() }).passthrough();
+const ExecuteTemplateOutput = z
+  .object({ vault: z.string(), template: z.string(), target: z.string() })
+  .passthrough();
+
 export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -21,6 +30,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
       description:
         "List available Templater templates with parsed metadata (user functions, parameters), via the companion bridge.",
       inputSchema: z.object({ vault: VaultId }).strict(),
+      outputSchema: ListTemplatesOutput,
       requiredScopes: ["read:templater"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -59,6 +69,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           overwrite: z.boolean().default(false),
         })
         .strict(),
+      outputSchema: ExecuteTemplateOutput,
       requiredScopes: ["write:templater"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

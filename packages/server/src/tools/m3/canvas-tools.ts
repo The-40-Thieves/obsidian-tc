@@ -86,6 +86,93 @@ const QueryInput = z
   .merge(Pagination)
   .strict();
 
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below. Node/edge
+// shapes mirror formats/canvas.ts's projectNode/projectEdge field for field (conditional spreads
+// there are `.optional()`, never `.nullable()`), NOT the passthrough CanvasNode/CanvasEdge input
+// schemas, which allow arbitrary extra keys a projection deliberately drops.
+// ---------------------------------------------------------------------------------------------
+
+const CanvasNodeOutput = z.object({
+  id: z.string(),
+  type: CanvasNodeType,
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  color: z.string().optional(),
+  text: z.string().optional(),
+  file: z.string().optional(),
+  subpath: z.string().optional(),
+  url: z.string().optional(),
+  label: z.string().optional(),
+  background: z.string().optional(),
+  backgroundStyle: z.string().optional(),
+});
+
+const CanvasEdgeOutput = z.object({
+  id: z.string(),
+  fromNode: z.string(),
+  fromSide: z.enum(["top", "right", "bottom", "left"]).optional(),
+  toNode: z.string(),
+  toSide: z.enum(["top", "right", "bottom", "left"]).optional(),
+  fromEnd: z.enum(["none", "arrow"]).optional(),
+  toEnd: z.enum(["none", "arrow"]).optional(),
+  color: z.string().optional(),
+  label: z.string().optional(),
+});
+
+const ReadCanvasOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  nodes: z.array(CanvasNodeOutput),
+  edges: z.array(CanvasEdgeOutput),
+  node_count: z.number().int(),
+  edge_count: z.number().int(),
+  content_hash: z.string(),
+});
+
+const CreateCanvasOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  created: z.boolean(),
+  node_count: z.number().int(),
+  edge_count: z.number().int(),
+  content_hash: z.string(),
+});
+
+const UpdateCanvasOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  applied: z.object({
+    nodes_added: z.number().int(),
+    nodes_removed: z.number().int(),
+    nodes_updated: z.number().int(),
+    edges_added: z.number().int(),
+    edges_removed: z.number().int(),
+    edges_updated: z.number().int(),
+  }),
+  content_hash: z.string(),
+  prev_hash: z.string(),
+});
+
+const QueryCanvasOutput = z.object({
+  vault: z.string(),
+  total: z.number().int(),
+  items: z.array(
+    z.object({
+      canvas_path: z.string(),
+      node_id: z.string(),
+      type: z.string(),
+      // Present only when the node carried text or a file target (a group node has neither).
+      snippet: z.string().optional(),
+    }),
+  ),
+  canvases_scanned: z.number().int(),
+  errors: z.array(z.object({ path: z.string(), code: z.string() })),
+  next_cursor: z.string().optional(),
+});
+
 export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -93,6 +180,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description: "Parse a .canvas file into its nodes and edges (JSONCanvas spec).",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+      outputSchema: ReadCanvasOutput,
       requiredScopes: ["read:canvas"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -123,6 +211,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
       description:
         "Create a new .canvas with optional initial nodes/edges. Overwriting an existing canvas requires confirmation.",
       inputSchema: CreateInput,
+      outputSchema: CreateCanvasOutput,
       requiredScopes: ["write:canvas"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -161,6 +250,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
       description:
         "Patch a .canvas: add/remove/update nodes and edges by id. Unknown fields are preserved. Removing more than 10 nodes requires confirmation.",
       inputSchema: UpdateInput,
+      outputSchema: UpdateCanvasOutput,
       requiredScopes: ["write:canvas"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -269,6 +359,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
       description:
         "Find nodes matching criteria across one or more .canvas files (defaults to all canvases under the vault root).",
       inputSchema: QueryInput,
+      outputSchema: QueryCanvasOutput,
       requiredScopes: ["read:canvas"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

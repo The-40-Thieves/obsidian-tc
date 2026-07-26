@@ -42,6 +42,124 @@ function underRoot(rel: string, sub: string | undefined): boolean {
   return sub === undefined || rel === sub || rel.startsWith(`${sub}/`);
 }
 
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below (search_dql
+// throws plugin_missing rather than returning when the bridge is absent — RULE 4, no schema owed).
+// ---------------------------------------------------------------------------------------------
+
+/** search_text hits (TextHit). line/col are dropped by projectHits under verbosity=terse; score
+ *  and snippet are always present on a TextHit so they survive both verbosities. */
+const TextSearchHit = z.object({
+  path: z.string(),
+  score: z.number(),
+  snippet: z.string(),
+  line: z.number().optional(),
+  col: z.number().optional(),
+});
+
+/** search_regex hits (RegexHit). RegexHit never carries a score at all (unlike TextHit), so it is
+ *  omitted here rather than modeled as always-optional-and-absent. */
+const RegexSearchHit = z.object({
+  path: z.string(),
+  snippet: z.string(),
+  line: z.number().optional(),
+  col: z.number().optional(),
+  match: z.string().optional(),
+});
+
+/** search_semantic hits (SemanticHit). chunk_id/embedding_model are always present on a
+ *  SemanticHit but dropped by projectHits under verbosity=terse (which keeps only path/score/
+ *  snippet — and SemanticHit has no snippet field, so terse here is path+score only). */
+const SemanticSearchHit = z.object({
+  path: z.string(),
+  score: z.number(),
+  content: z.string().optional(),
+  chunk_id: z.string().optional(),
+  embedding_model: z.string().optional(),
+  // THE-450 freshness stamps; present only when the note's mtime was found in this batch.
+  age_days: z.number().optional(),
+  stale: z.boolean().optional(),
+});
+
+/** search_jsonlogic hits: {path, matched: true}. `matched` does not survive terse projection
+ *  either — projectHits keeps only path/score/snippet, and a jsonlogic hit has neither of the
+ *  latter two, so verbosity=terse here degrades to bare {path}. */
+const JsonLogicHit = z.object({
+  path: z.string(),
+  matched: z.literal(true).optional(),
+});
+
+/** Shared shape for the four verbs that page through util/paginate's Page<T> envelope. Factored
+ *  once so items/total/next_cursor can't drift between call sites the way TextHit/RegexHit/etc
+ *  almost did (THE-516 solved that for the pagination logic itself; this is the same discipline
+ *  applied to the schema). */
+function paginatedSearchOutput<M extends string, I extends z.ZodTypeAny>(modeUsed: M, item: I) {
+  return z.object({
+    vault: z.string(),
+    mode_used: z.literal(modeUsed),
+    items: z.array(item),
+    total: z.number(),
+    next_cursor: z.string().optional(),
+  });
+}
+
+const SearchTextOutput = paginatedSearchOutput("text", TextSearchHit);
+const SearchRegexOutput = paginatedSearchOutput("regex", RegexSearchHit);
+
+/** search_semantic does not paginate (no paginate() call in its handler) — items only. */
+const SearchSemanticOutput = z.object({
+  vault: z.string(),
+  mode_used: z.literal("semantic"),
+  items: z.array(SemanticSearchHit),
+});
+
+const SearchJsonLogicOutput = paginatedSearchOutput("jsonlogic", JsonLogicHit);
+
+/** search_dql: DqlResult spread onto {vault}. `rows` cell values are whatever the Dataview bridge
+ *  returns for the requested format (table/list/task/calendar) — genuinely dynamic. */
+const SearchDqlOutput = z.object({
+  vault: z.string(),
+  headers: z.array(z.string()).optional(),
+  rows: z.array(z.array(z.unknown())),
+  note_paths: z.array(z.string()),
+});
+
+/** search_vault: two arms, same widening reason as m7's ReflectOutput (TypeScript unifies the
+ *  handler's branch returns into one shape rather than preserving a clean union) — encoded as one
+ *  object with optional fields per RULE 5. The arms:
+ *    dql        { vault, mode_used: "dql", headers?, rows, note_paths }        — returns before
+ *                                                                                 pagination runs
+ *    paginated  { vault, mode_used, items, total, next_cursor?, _explain? }    — text/regex/
+ *                                                                                 semantic/jsonlogic
+ *  _explain is present only when input.explain is true (another conditional spread -> optional). */
+const SearchVaultOutput = z.object({
+  vault: z.string(),
+  // Always one of these five in practice — z.string() rather than z.enum(...) because the
+  // handler's two arms (dql vs. paginated) widen this to `string` under TS's control-flow
+  // inference across multiple return statements, the same widening rule 5 names for ReflectOutput.
+  mode_used: z.string(),
+  headers: z.array(z.string()).optional(),
+  rows: z.array(z.array(z.unknown())).optional(),
+  note_paths: z.array(z.string()).optional(),
+  // Same widening reason loosens the hit shape here to z.unknown(): the non-dql arm's items come
+  // from paginate(projectHits(...)), which loses its precise element type once this handler has
+  // more than one return statement for TS to unify. The real shape (UnifiedHit, full) is
+  // {path, score, mode_used, chunk_id?, snippet?, line?} — mode_used here is the HIT's own origin
+  // mode (text/regex/semantic/jsonlogic), distinct from this object's top-level mode_used (the
+  // router's chosen mode) — narrowed under verbosity=terse to just {path, score?, snippet?} like
+  // every other hit shape in this file.
+  items: z.array(z.unknown()).optional(),
+  total: z.number().optional(),
+  next_cursor: z.string().optional(),
+  _explain: z
+    .object({
+      modes_tried: z.array(z.string()),
+      chosen: z.string(),
+      reason: z.string(),
+    })
+    .optional(),
+});
+
 function jsonlogicMatches(
   root: string,
   sub: string | undefined,
@@ -206,6 +324,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           ...Verbosity,
         })
         .strict(),
+      outputSchema: SearchTextOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
@@ -251,6 +370,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           ...Verbosity,
         })
         .strict(),
+      outputSchema: SearchRegexOutput,
       requiredScopes: ["read:notes"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
@@ -286,6 +406,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           ...Verbosity,
         })
         .strict(),
+      outputSchema: SearchSemanticOutput,
       requiredScopes: ["read:notes"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
@@ -315,6 +436,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           ...Verbosity,
         })
         .strict(),
+      outputSchema: SearchJsonLogicOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
@@ -343,6 +465,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           format: z.enum(["table", "list", "task", "calendar"]).default("table"),
         })
         .strict(),
+      outputSchema: SearchDqlOutput,
       requiredScopes: ["read:notes", "read:dataview"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault);
@@ -371,6 +494,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           ...Verbosity,
         })
         .strict(),
+      outputSchema: SearchVaultOutput,
       requiredScopes: ["read:notes"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);

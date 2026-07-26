@@ -35,6 +35,42 @@ function splitTags(tags: string | null): string[] {
     : [];
 }
 
+// THE-417: written from each handler's return statement, not from CaptureRow — enqueue_capture and
+// commit_capture project only a few of the row's fields, and list_capture_queue derives
+// content_preview/tags rather than exposing the raw row.
+const EnqueueCaptureOutput = z.object({
+  capture_id: z.string(),
+  captured_at: z.number(),
+  vault: z.string(),
+});
+
+const CaptureQueueItem = z.object({
+  capture_id: z.string(),
+  title: z.string().nullable(),
+  content_preview: z.string(),
+  tags: z.array(z.string()),
+  source: z.string().nullable(),
+  captured_at: z.number(),
+  target_path_hint: z.string().nullable(),
+  committed_at: z.number().nullable(),
+  committed_path: z.string().nullable(),
+});
+
+const ListCaptureQueueOutput = z.object({
+  vault: z.string(),
+  items: z.array(CaptureQueueItem),
+  next_cursor: z.string().nullable(),
+  total_returned: z.number(),
+});
+
+const CommitCaptureOutput = z.object({
+  capture_id: z.string(),
+  target_path: z.string(),
+  committed_at: z.number(),
+  content_hash: z.string(),
+  removed_from_queue: z.boolean(),
+});
+
 /** Build a note's frontmatter for commit: capture-derived title/tags, then any
  *  caller overrides on top. Returns null when nothing would be written. */
 function commitFrontmatter(
@@ -66,6 +102,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
           idempotency_key: z.string().min(1).max(128).optional(),
         })
         .strict(),
+      outputSchema: EnqueueCaptureOutput,
       requiredScopes: ["write:capture"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -106,6 +143,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
         })
         .merge(Pagination)
         .strict(),
+      outputSchema: ListCaptureQueueOutput,
       requiredScopes: ["read:capture"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -152,6 +190,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
           delete_from_queue: z.boolean().default(true),
         })
         .strict(),
+      outputSchema: CommitCaptureOutput,
       requiredScopes: ["write:capture"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

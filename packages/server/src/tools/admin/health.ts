@@ -73,6 +73,61 @@ export interface IndexStatusInfo {
   chunks_upserted: number | null;
 }
 
+// THE-417: mirrors this file's own IndexStatusInfo/HealthInfo/IndexHealthSnapshot interfaces
+// verbatim — both tools already had a hand-written return type at the factory boundary, so the
+// schema is a direct transcription rather than something derived from a handler's return
+// statements.
+const IndexStatusOutput = z.object({
+  reconcile: z.enum(["pending", "ok", "degraded"]),
+  reconcile_at: z.number().nullable(),
+  write_failures: z.number(),
+  notes_ready: z.boolean(),
+  vec_enabled: z.boolean(),
+  fts_enabled: z.boolean(),
+  chunks_upserted: z.number().nullable(),
+});
+
+const IndexHealthSnapshotOutput = z.object({
+  reconcile: z.enum(["pending", "ok", "degraded"]),
+  reconcile_at: z.number().nullable(),
+  write_failures: z.number(),
+  notes_ready: z.boolean().optional(),
+  // authenticated-callers-only (may name paths); absent for an unauthenticated server_health call.
+  detail: z
+    .object({
+      reconcile_errors: z.array(z.object({ vault: z.string(), error: z.string() })),
+      last_write_error: z.string().optional(),
+      audit_write_failures: z.number().optional(),
+      index_queue_depth: z.number().optional(),
+      index_queue_active: z.number().optional(),
+      index_queue_backpressures: z.number().optional(),
+    })
+    .optional(),
+});
+
+const HealthInfoOutput = z.object({
+  status: z.literal("ok"),
+  name: z.literal("obsidian-tc"),
+  version: z.string(),
+  native_loaded: z.boolean(),
+  vec_enabled: z.boolean(),
+  fts_enabled: z.boolean(),
+  vault_count: z.number(),
+  // authenticated-callers-only (F3): vault ids are deployment-internal.
+  vaults: z.array(z.string()).optional(),
+  uptime_ms: z.number(),
+  index: IndexHealthSnapshotOutput.optional(),
+  job_queue: z
+    .object({
+      queued: z.number(),
+      running: z.number(),
+      retrying: z.number(),
+      failed: z.number(),
+      oldest_queued_age_ms: z.number().nullable(),
+    })
+    .optional(),
+});
+
 export function createIndexStatusTool(opts: {
   vecEnabled: boolean;
   ftsEnabled: boolean;
@@ -84,6 +139,7 @@ export function createIndexStatusTool(opts: {
     description:
       "Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, and chunks_upserted from the last index_vault call. Read-only — self-diagnose before spending on an expensive search.",
     inputSchema: z.object({}).strict(),
+    outputSchema: IndexStatusOutput,
     requiredScopes: [],
     handler: () => {
       const snap = opts.getIndexHealth();
@@ -125,6 +181,7 @@ export function createHealthTool(opts: {
     description:
       "Liveness + build info. Round-trips the full transport -> auth -> acl -> audit path.",
     inputSchema: z.object({}).strict(),
+    outputSchema: HealthInfoOutput,
     requiredScopes: [],
     // requiredScopes [] keeps this an unauthenticated liveness probe, but the vault-id list is
     // emitted only to authenticated callers (F3): ids are deployment-internal. The native/vec

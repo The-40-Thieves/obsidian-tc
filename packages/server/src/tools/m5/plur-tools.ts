@@ -14,6 +14,13 @@ import type { M5Deps } from "./shared";
 
 const K = z.number().int().positive().max(50).default(10);
 
+// THE-417: every tool here is a bare pass-through of `client.request<T>(...)`'s parsed JSON
+// `result`, forwarded to an EXTERNAL plur server this package does not own or control the schema
+// of. There is no local handler logic between the wire response and the tool return — modeling a
+// concrete shape here would assert a contract obsidian-tc has no authority to keep. z.unknown() is
+// the honest declaration: "this tool has an output, its shape is the plur backend's".
+const PlurProxyOutput = z.unknown();
+
 export function buildPlurTools(deps: M5Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -22,6 +29,7 @@ export function buildPlurTools(deps: M5Deps): ToolDefinition[] {
       inputSchema: z
         .object({ query: z.string().min(1), k: K, scope: z.string().optional() })
         .strict(),
+      outputSchema: PlurProxyOutput,
       requiredScopes: ["read:plur"],
       handler: async (input) => {
         const client = openPlur(deps.plur);
@@ -53,6 +61,7 @@ export function buildPlurTools(deps: M5Deps): ToolDefinition[] {
             ),
         })
         .strict(),
+      outputSchema: PlurProxyOutput,
       requiredScopes: ["read:plur"],
       handler: async (input) => {
         const client = openPlur(deps.plur);
@@ -81,6 +90,7 @@ export function buildPlurTools(deps: M5Deps): ToolDefinition[] {
           min_score: z.number().optional(),
         })
         .strict(),
+      outputSchema: PlurProxyOutput,
       requiredScopes: ["read:plur"],
       handler: async (input) => {
         const client = openPlur(deps.plur);
@@ -102,6 +112,7 @@ export function buildPlurTools(deps: M5Deps): ToolDefinition[] {
       name: "plur_get",
       description: "Fetch a specific plur engram by id (read-only proxy).",
       inputSchema: z.object({ engram_id: z.string().min(1) }).strict(),
+      outputSchema: PlurProxyOutput,
       requiredScopes: ["read:plur"],
       handler: async (input) => {
         const client = openPlur(deps.plur);
