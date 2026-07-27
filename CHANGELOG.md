@@ -6,7 +6,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-27
+
 ### Changed (breaking)
+
 
 - **`generate_uri`'s `vault` input is renamed `vault_name` (THE-589).** **Callers passing `vault`
   must rename it** — the tool's schema is `.strict()`, so the old key is now rejected with
@@ -24,38 +27,122 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   Renamed rather than exempting the tool from the guard, so no bypass is added to a
   security-relevant check. Unbound (trusted stdio) callers were never affected.
 
+  (THE-589, #476.)
+
 ### Added
 
-- **Query-product cache** (THE-497). Query encodings and whole graph-search results are cached in
-  process, keyed by the vault generation (THE-496) + the caller's ACL fingerprint + the query text
-  + a representation descriptor + the full retrieval option set. A hit is only ever the same caller
-  re-asking the same question of an unchanged vault under an unchanged configuration, and it skips
-  the embedding round-trip as well as the query, because the key carries the query TEXT rather than
-  the query VECTOR. Measured on the synthetic perf vault: 32.6 ms → ~0.3 ms on a hit (51.7× over a
-  500-call, 5-distinct-query workload), or 52.7 → 3.3 ms/call with a 15 ms embedding round-trip,
-  with byte-identical rankings. Off by default — `retrieval.cache.enabled`.
+#### Vault change detection
 
-  Two guarantees are pinned by tests rather than by review: an adversarial cross-principal test on a
-  real indexed vault (a restricted caller never receives a broad caller's `secret/**` results, and
-  really re-runs rather than being served a filtered replay), and a structural gate that parses
-  `GraphSearchOptions` from source and fails by name when a new retrieval option is neither keyed
-  nor explicitly reviewed as unkeyable.
+- **The server now watches each vault and reindexes notes changed outside it** (THE-649, #524).
+  `docs/SYNC.md` had described this since before it existed, in two places, on the primary
+  integration path — there was no watcher. Every sync tier that document describes delivers Markdown
+  by writing to disk, so this is a filesystem watch rather than the companion plugin's event stream.
+  Changes are read-ACL-gated identically to a `write_note`. Eligibility mirrors `walkVault` exactly,
+  and takes **two** guards: `lstat` rejects symlinks (as the walk does), `readNote` rejects hard
+  links (`nlink > 1`) — neither covers the other, and the first draft shipped a hard-link bypass.
+  **Not started on Windows**: Node's recursive `fs.watch` terminated the test process there, and
+  whether a long-lived server is affected is unverified. Configurable via `watch.enabled` /
+  `watch.debounceMs`.
+- **Periodic vault reconcile** (`maintenance.reconcileIntervalMinutes`, THE-458, #532). Off unless
+  set. Covers the watch's blind spots (Windows, `ENOSPC`, network mounts, `add_vault` vaults) and
+  refreshes derived graph edges, which single-note writes never densify.
 
-### Security
+#### Retention — four growth curves bounded
 
-- **`SECURITY.md`'s supported-version table corrected, and the gate hole that let it drift closed
-  (THE-562 P0.3b, which had regressed since being recorded as fixed).** The table advertised
-  `1.10.x` as supported and `< 1.10` as not, but the shipped package version has been `1.11.0`
-  since v1.11.0 tagged on 2026-07-24 — the public security policy was factually wrong about which
-  versions receive security fixes. The text fix alone would not have held: `SECURITY.md` appeared
-  in **no script and no workflow** — absent from `scripts/release.mjs`'s prose-bump list and from
-  `scripts/check-version-coherence.mjs`'s version anchors — so nothing could have caught the drift,
-  and nothing would catch the next one at v1.12.0. `check-version-coherence.mjs` now anchors on the
-  supported-version table row specifically (not a loose file-wide version match, which would pass
-  on any incidental version string elsewhere in the file) and fails if it disagrees with the
-  package's minor version; `release.mjs` now bumps that row automatically on a minor/major release
-  cut (a dedicated step, not the literal full-version string-replace used for other prose, because
-  the table tracks the minor as `X.Y.x`, not the full `x.y.z` release version).
+- **Session traces are pruned by age** (`observability.retention.tracesDays`, THE-610, #523). The
+  sweep's first filesystem arm. Orphans from a failed `start_session` age out on the same rule.
+- **Dead `agent_episodes` and aged `chunk_retrievals` are swept** (THE-610 arm 2, #528). Only
+  tombstoned or bi-temporally expired episodes — a live episode is never touched at any age.
+  `chunk_retrievals` defaults to a **year**, deliberately: `chunk_access_stats` is a view over it, so
+  pruning rewrites activation and note-quality signals.
+
+#### Observability
+
+- **W3C trace context over MCP `_meta`** (SEP-414, #525). A trace beginning in a host application now
+  continues through this server instead of starting a second, unrelated tree.
+- **Client software identity** (`client_name` / `client_version` on the session row, THE-627, #526),
+  read from per-request `_meta` rather than the `initialize` handshake — the shape that works under
+  both the current spec and `2026-07-28`. NULL, never a placeholder, when the client sends nothing.
+- **SQL write-lock wait, vec fallbacks, coalesced writes, scheduler health, HTTP construct time,
+  retrieval stage funnel, content-bytes, ingest counters, query-cache effectiveness, cold-start
+  `boot.*`** (THE-585 / THE-507 / THE-515: #472, #474, #475, #486, #463, #446, #461, #458). Includes
+  THE-585 items #1 (index-coordinator depth) and #6 (the retrieval stage funnel), and three gauges
+  that were catalogued and fed by nothing for many releases.
+- **The OTEL SDK no longer rides the tool registry's import graph** (THE-515, #489) — it loaded in
+  every process, `serve` or not.
+- **Budget deferral is reachable** (`scheduler.eventLoopDeferMs`, #530). It was built, tested and
+  unpassable, so `scheduler_deferred_total` read 0 for every release since it shipped.
+- **Config provenance** — every resolved value traceable to its source (THE-518, #437).
+- **Retrieval policy provenance** logged (THE-538, #434).
+
+#### Tool surface
+
+- **Every registered tool declares an `outputSchema`** — 150/150 (THE-417, #479, #480, #481, #482).
+- **Graph analytics**: centrality, communities, path tracing (THE-452, #436).
+- **Structured recovery hints on every error response** (THE-512, #427).
+- **Idempotency and `vaultArg` declared on the tool surface**; facade domain membership moved onto
+  tool definitions (THE-513, #492, #499).
+- **`AbortSignal` threaded through the dispatch pipeline** (THE-514, #490).
+- **Cross-surface dispatch parity gate** (#512).
+- **`note_quality` rollup, offline scorer and read-only report surface** (THE-537, #435).
+- **Multi-query fan-out** exposed on `vault_graph_search` and a `decompose_and_research` prompt
+  (THE-448, #450, #453) — **measured worse** (−0.047 nDCG@10, p=0.0004) and therefore opt-in.
+
+#### Retrieval and performance
+
+- **Query-product cache** keyed by vault generation + ACL fingerprint (THE-497, #432).
+- **Forward vector scope closes the delta-kNN discovery gap** (THE-533, #438).
+- **Densify directly instead of a full reindex per cell** (THE-532, #464).
+- **Perf harness**: SQLite lock contention (#531), notes/s + embed tokens/s + per-vault denominator
+  (#533), densification scenario (THE-581, #452), an I/O contention channel (THE-584, #473), a
+  baseline refusal when the workload shifts without a count change (#477), Node portability runs
+  (THE-494, #433), and a gate that notices what it was not handed (THE-534, #441). Baselines
+  re-recorded on the CI runner (#448, #456, #459). kNN sweep pre-registered (THE-532, #460).
+- **Synthetic multi-hop golden slice generator** (THE-652, #529), sized from the measured MDE.
+
+#### Developer experience
+
+- **JSON Schema published for `obsidian-tc.config.json`** (#465).
+- **Dependency graph emitted; the plugin package is scanned** (#469).
+- **Model service runtime Python deps locked** (#468).
+- **Live LangExtract extraction wired in docs-ingest** (THE-444, #487).
+- **`check-ticket-drift`** flags open tickets the code already cites (THE-540, #431).
+- **Test concurrency bounded to the host** — worker cap, cross-process lock, cgroup backstop (#517).
+
+### Fixed
+
+- **A judge failure is `unjudged`, not `no_conflict`** (THE-613, #522). A gateway outage was
+  byte-identical to a clean vault.
+- **`patch_note` replace no longer consumes an entire note** (THE-603, #510) — it had truncated a
+  912-line note to 30.
+- **`work_forget` writes the forget-log audit row** (THE-600, #511).
+- **`add_observation`'s read + render + append share one write lock** (THE-573, #484, #445).
+- **The one genuinely exposed deferred-`BEGIN` site converted**, not the nine listed (THE-587, #478).
+- **Exact KNN ties broken by `chunk_id`** so nDCG is host-independent (THE-582, #451).
+- **`vault_generation` bumped by derived-plane writers too** (THE-579, #442).
+- **Jobs-table growth bounded** — terminal retention sweep + id-only payload (THE-571, #444).
+- **Migration SQL embedded** so standalone binaries actually run (THE-578, #430).
+- **`treeDirty` read its own output**, so it was always true (THE-581, #455).
+- **Unresolved side of cross-path dedup counted** (THE-588, #491).
+- **`recordIngestStats` threaded through the MCP `index_vault` path** (THE-590, #502).
+- **Native I/O test asserts what the loaded implementation produces** (THE-608, #521).
+- **Docs no longer describe deleted config keys as working** (THE-598, #505); streaming walk and
+  `gatedRerank` given a config surface (THE-591, #495).
+- **`docgen:facts-check` has a non-empty floor** and the `ci-prose-suggest` firehose is removed
+  (THE-601, #527); metrics catalog generated and the marker scan widened (THE-595, #493);
+  bidirectional marker guard + docs-ingest CI (#488).
+- **Tool-count gate no longer passes while stale** (THE-580, #443); all 38 unmapped tools mapped to
+  facade domains and gated (THE-577, #426); G2.1's tool snapshot date-stamped (THE-596, #501).
+- **`TREE.md` / `dependency-graph.json` stop conflicting by construction** (#504).
+- **`packages/shared` TypeScript pin aligned with root** (THE-597, #500).
+- **The vacuous `not-to-dev-dep` rule replaced with a source-scan gate** (THE-593, #494).
+- **`SECURITY.md` supported-version table corrected and drift-gated** (THE-562 P0.3b, #483).
+- **Release fixes**: version derived from `package.json` rather than the ref name (#429), publish
+  straight to the release dist-tag (THE-574, #425), a partially-failed release made resumable
+  (THE-575, #424).
+- **THE-458 remainders closed** — reachable deferral, dead `registerPlaneScheduler` removed, size
+  caps on the two regressed files (#530). Control arm settled and asserted before measurement
+  (THE-532, #462). Default-surface decision recorded and the tool count de-duplicated (#476).
 
 ## [1.11.0] - 2026-07-24
 
