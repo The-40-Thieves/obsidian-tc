@@ -12,3 +12,20 @@
 *.woff binary
 *.woff2 binary
 bun.lock -text
+
+# Whole-file regenerations of the module graph (scripts/gen-tree-map.mjs / `just map`). Any two
+# PRs that add or move a module conflict here by construction — the leading "scale" line and the
+# full edge list are recomputed from EVERY tracked module, not just the ones a given PR touched.
+# `merge=regenerate` only NAMES the driver; its definition lives in this clone's local git config,
+# set by scripts/setup-git-merge-driver.mjs (runs automatically via `bun install`'s `prepare`
+# script) — see scripts/check-merge-driver.mjs for why a .gitattributes-only change here would be
+# silently vacuous. The driver (scripts/merge-drivers/defer-regeneration.mjs) does NOT re-run the
+# generator itself — see that file's header for why that's unsafe mid-merge — it just avoids
+# leaving conflict markers in machine-generated content; `just map-check` (CI's ci-docgen) is what
+# actually catches the resulting staleness and forces a `just map` + commit. docgen's own generated
+# marker regions (README.md, docs/wiki/*.md, etc.) are deliberately NOT listed here: they carry the
+# same shape of aggregate summary line, but are keyed to a much narrower, much less frequently
+# touched namespace (tools/config keys/metrics) and have not been a measured source of conflicts
+# the way this pair has.
+TREE.md merge=regenerate
+docs/dependency-graph.json merge=regenerate

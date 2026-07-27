@@ -37,6 +37,19 @@ map:
 map-check:
     node scripts/gen-tree-map.mjs --check
 
+# Asserts the "regenerate" merge driver for TREE.md / docs/dependency-graph.json (gitattr) is
+# actually configured in THIS clone's .git/config, not just named in .gitattributes — a
+# .gitattributes-only change is silently vacuous (see scripts/check-merge-driver.mjs). `bun
+# install` configures it automatically via the `prepare` script; run this on its own to confirm,
+# or after suspecting your git config drifted.
+#
+# Deliberately a LOCAL recipe, not CI, for the same reason ticket-drift above is: CI never runs
+# `git merge` against a conflicting branch, so this would either always fail (the Dockerfile's
+# `bun install --ignore-scripts` never configures it) or always trivially pass (a normal CI `bun
+# install` configures it every time) without proving anything about a developer's own machine.
+check-merge-driver:
+    node scripts/check-merge-driver.mjs
+
 # THE-540 backlog hygiene: which OPEN tickets does the code already cite? This repo names ticket ids
 # in comments, so the code routinely knows things the tracker does not — THE-426 sat open eight days
 # after shipping, with its own number in a comment. Reports candidates for review, never closures.
