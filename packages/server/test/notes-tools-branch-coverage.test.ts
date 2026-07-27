@@ -493,11 +493,20 @@ describe("list_notes: explicit folder argument and cursor-driven second page", (
 describe("read_notes: a non-ObsidianTcError failure reports internal_error, not a swallowed crash", () => {
   // openSync raises a plain EACCES Error (not an ObsidianTcError) for a permission-denied
   // file; the handler's catch must fall through to "internal_error" rather than mis-typing it.
-  // Skipped for root, which ignores file-mode permission bits entirely (chmod 000 wouldn't
-  // deny anything), which would make this test meaningless rather than false-negative.
-  const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+  // Skipped wherever chmod 000 does not actually deny a read, which would make this test
+  // meaningless rather than false-negative:
+  //   - root ignores file-mode permission bits entirely;
+  //   - Windows has no POSIX mode bits. Node maps chmod onto the read-only attribute at best and
+  //     never denies READ, so the "locked" file is read successfully and lands in `notes` instead
+  //     of `errors`. That is exactly how this failed on build-test (windows-latest) while passing
+  //     on ubuntu and macos — `process.getuid` is also undefined there, so the root guard alone
+  //     does not cover it.
+  // The branch stays covered: the coverage gate runs on Linux (see ci-server.yml's job name).
+  const cannotDenyRead =
+    process.platform === "win32" ||
+    (typeof process.getuid === "function" && process.getuid() === 0);
 
-  it.skipIf(isRoot)(
+  it.skipIf(cannotDenyRead)(
     "a permission-denied file surfaces as internal_error alongside normal successes",
     async () => {
       const v = makeTestVault({ files: { "ok.md": "fine", "locked.md": "secret" } });
