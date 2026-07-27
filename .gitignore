@@ -91,6 +91,9 @@ MERGE-PROGRESS.md
 # contents (folder taxonomy, note titles, and what the author writes about). It is private data, not
 # source. Keep it local; commit only multi-hop-golden-set.example.yaml.
 packages/server/eval/multi-hop-golden-set.yaml
+# THE-652: the SYNTHETIC slice generator writes a corpus beside its yaml. Synthetic, so this is
+# repo-bloat insurance rather than a leak guard — but 600+ generated notes should never land here.
+packages/server/eval/generated-slice/
 packages/server/eval/*-golden-set*.yaml
 !packages/server/eval/multi-hop-golden-set.example.yaml
 packages/server/eval/baseline.json
