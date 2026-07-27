@@ -86,6 +86,18 @@ jobs:
       - name: config-path existence (source scan)
         run: bun run check:config-paths
 
+      # DRY, as a detector rather than a principle. Every duplication that has cost time here was
+      # invisible to the test suite because the copies AGREED — DEFAULT_MEMORY_FOLDER three ways
+      # on a delete path, MAX_RESOURCE_BYTES vs a configurable maxResponseBytes, paginate<T> twice
+      # byte-identical. Neither of these gates can be satisfied by writing a better commit message.
+      - name: duplicate exported names (source scan)
+        run: bun run check:duplicate-exports
+
+      # Block-level copy-paste. Threshold 3% against 2.16% today — this catches a regression, it
+      # does not demand zero. Some duplication is cheaper than the coupling that would remove it.
+      - name: copy-paste detection
+        run: bun run check:duplication
+
   build-test:
     strategy:
       fail-fast: false
