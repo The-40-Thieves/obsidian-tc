@@ -41,6 +41,32 @@ cd packages/server && bun run docgen:render -- --check
 cd packages/server && bun run docgen:facts-check
 ```
 
+## Offload the full suite — don't run it locally
+
+This repo is developed on a 4-core host that also runs ~43 containers, Falco and a remote desktop.
+A local full-suite run costs the whole box; two at once have driven it to load 28, and THE-503
+measured an overlapping run reading throughput **51% low** while the gate still passed.
+
+Standard GitHub-hosted runners are **free and unmetered for public repositories**, and this repo is
+public. The suite that already runs on every PR can be triggered directly:
+
+```bash
+gh workflow run ci-server.yml --ref <branch>
+gh run watch $(gh run list -w ci-server.yml -L1 --json databaseId --jq '.[0].databaseId')
+```
+
+That runs `lint`, `build-test` on ubuntu/windows/macos, and `bun-smoke` on dedicated hardware —
+and catches the platform-specific failures a Linux-only local run cannot (a `chmod 000` test passed
+on ubuntu and macos and failed only on windows, because Windows has no POSIX mode bits).
+
+`perf` deliberately does **not** run on dispatch — it is gated on `github.event_name == 'push'`
+because it lives in the non-ref-scoped `perf-exclusive` group, and ad-hoc runs would cancel main's
+pending perf jobs.
+
+**Keep targeted vitest local.** A single test file is faster than a round trip and saturates
+nothing. What must run locally should go through `scripts/with-host-budget.sh` (or
+`bun run test:local`), which serialises via flock and caps at 2.5 cores.
+
 ## Never pipe a gate through `tail` or `head`
 
 ```bash

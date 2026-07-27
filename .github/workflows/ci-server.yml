@@ -19,6 +19,24 @@ on:
   pull_request:
   push:
     branches: [main]
+  # THE-517 follow-up: run the suite on demand, on a dedicated runner, without opening a PR.
+  #
+  # This repo is developed on a 4-core host that also runs ~43 containers, Falco and a remote
+  # desktop; a local full-suite run costs the whole box, and concurrent runs have driven it to
+  # load 28. Standard GitHub-hosted runners are FREE AND UNMETERED for public repositories, so
+  # the suite that already runs on every PR can be triggered directly instead:
+  #
+  #     gh workflow run ci-server.yml --ref <branch>
+  #     gh run watch $(gh run list -w ci-server.yml -L1 --json databaseId --jq '.[0].databaseId')
+  #
+  # Use this for a full-suite run mid-branch. Keep targeted vitest local — it is faster than a
+  # round trip and does not saturate anything.
+  #
+  # `perf` is unaffected: it is gated on `github.event_name == 'push'`, and a dispatch reports
+  # `workflow_dispatch`. That is deliberate — perf lives in the non-ref-scoped `perf-exclusive`
+  # concurrency group, so letting ad-hoc runs into it would cancel main's pending perf jobs
+  # (THE-592). `lint`, `build-test` (3 OS) and `bun-smoke` carry no event guard and do run.
+  workflow_dispatch:
 
 permissions:
   contents: read
