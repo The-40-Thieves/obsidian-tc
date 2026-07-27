@@ -65,9 +65,20 @@ function auditForgetEvent(
       event_type: "tool_invocation",
     };
     writeEvent(cacheDb, e);
-  } catch {
-    // Fail-open — mirrors recordOutcome's own try/catch (registry.ts:670). An audit write must
-    // never mask or abort a deletion the operator already committed to disk.
+  } catch (err) {
+    // Fail-open, but NOT silent. recordOutcome's own fail-open catch (registry.ts:670) is paired
+    // with a metric AND onAuditFailure (registry.ts:364-367, THE-457) specifically so an operator
+    // watching server_health sees the audit trail going lossy rather than reading a clean board.
+    // The CLI has no metrics sink and no operator watching a dashboard — it has an operator
+    // standing at the terminal instead, so the report goes there instead of a new sink: a stderr
+    // warning naming what happened AND what survived. Silence here would be a smaller instance of
+    // the exact defect this ticket exists to close — a destructive operation nobody can tell was
+    // unaudited.
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `warning: forget completed, but the audit_events row could not be written (${msg}).\n` +
+        `         The forget_log entry in experiential.db was written and is unaffected.\n`,
+    );
   }
 }
 

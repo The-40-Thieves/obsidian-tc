@@ -5,7 +5,7 @@
 // (unknown path / not-found id) never writes a spurious audit row.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { forgetEpisodeAudited, forgetNoteAudited } from "../src/cli/commands/forget";
 import { runMigrations } from "../src/db/migrate";
 import { provisionCacheDb } from "../src/db/provision";
@@ -148,5 +148,40 @@ describe("forgetEpisodeAudited (THE-605)", () => {
     expect(r.found).toBe(false);
     expect(eventLogRows(cache)).toHaveLength(0);
     expect(verifyForgetLog(edb).entries).toBe(0); // forget_log agrees: nothing happened
+  });
+});
+
+describe("auditForgetEvent fail-open reporting (THE-605 review)", () => {
+  // recordOutcome's own fail-open catch (mcp/registry.ts:670) is paired with a metric AND
+  // onAuditFailure (THE-457) so an operator watching server_health sees the audit trail going
+  // lossy. The CLI has no such sink — its equivalent is a stderr warning, since an operator is
+  // standing at the terminal. Force the write to throw (drop event_log out from under it) and
+  // assert: the forget still succeeds, forget_log is unaffected, and the operator is told.
+  it("a failed audit_events write still lets forget succeed, still writes forget_log, and warns on stderr", () => {
+    const edb = edb0();
+    const cache = cacheWithChunks("notes/target.md");
+    cache.exec("DROP TABLE event_log"); // forces writeEvent to throw inside auditForgetEvent
+
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const r = forgetNoteAudited(edb, cache, {
+        vaultId: "main",
+        relPath: "notes/target.md",
+        nowMs: NOW,
+        erase: true,
+      });
+      // (a) the forget itself still succeeds — an audit-write fault must not mask or abort it.
+      expect(r.chunk_ids).toEqual(["t1"]);
+      // (b) forget_log (THE-239) is unaffected by the audit_events failure.
+      expect(verifyForgetLog(edb)).toEqual({ ok: true, entries: 1 });
+      // (c) the operator is told, not left to discover a silent gap later.
+      const warnings = stderrSpy.mock.calls.map((c) => String(c[0]));
+      const warned = warnings.some(
+        (w) => /audit_events row could not be written/.test(w) && /forget_log entry/.test(w),
+      );
+      expect(warned).toBe(true);
+    } finally {
+      stderrSpy.mockRestore();
+    }
   });
 });
