@@ -412,8 +412,8 @@ describe("THE-602 graph-health-tools branch coverage", () => {
           expect(zeta).toBeDefined();
           expect(alpha?.score).toBe(zeta?.score);
           const ia = d.suggestions.indexOf(alpha as (typeof d.suggestions)[number]);
-          const iz = d.suggestions.indexOf(zeta as (typeof d.suggestions)[number]);
-          expect(ia).toBeLessThan(iz);
+          const idxZ = d.suggestions.indexOf(zeta as (typeof d.suggestions)[number]);
+          expect(ia).toBeLessThan(idxZ);
         }
       } finally {
         v.cleanup();

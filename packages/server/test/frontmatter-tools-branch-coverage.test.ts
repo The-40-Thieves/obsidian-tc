@@ -504,9 +504,9 @@ describe("list_properties: folder scoping, max_notes break, and sort tie-break",
           (p) => p.key,
         );
         const ia = keys.indexOf("alpha");
-        const iz = keys.indexOf("zeta");
+        const idxZ = keys.indexOf("zeta");
         expect(ia).toBeGreaterThanOrEqual(0);
-        expect(ia).toBeLessThan(iz);
+        expect(ia).toBeLessThan(idxZ);
       }
     } finally {
       v.cleanup();
