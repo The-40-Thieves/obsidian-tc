@@ -923,7 +923,7 @@
       "properties": {
         "maxResponseBytes": {
           "default": 1000000,
-          "description": "Ceiling on a single tool response in bytes, before it is truncated or refused.",
+          "description": "Ceiling on a single tool or resource response in bytes, before it is refused (THE-514: resources/read honors this too, not just tools).",
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
