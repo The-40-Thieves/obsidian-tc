@@ -308,7 +308,8 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `observability.prometheus.bind` | `string` | `"127.0.0.1"` |  | Bind address for the scrape endpoint. Loopback by default — /metrics is unauthenticated. |
 | `observability.prometheus.enabled` | `boolean` | `false` |  | Serve the Prometheus /metrics endpoint. |
 | `observability.prometheus.port` | `number` | `9464` |  | Port for the Prometheus scrape endpoint. |
-| `observability.retention.eventLogDays` | `number` | `30` |  | Days of event_log rows kept by the maintenance sweep. This is the ONLY retention that is enforced: trace files and the event spool are not pruned and grow without bound. |
+| `observability.retention.eventLogDays` | `number` | `30` |  | Days of event_log rows kept by the maintenance sweep. The morgiana event spool is still not pruned and grows without bound. |
+| `observability.retention.tracesDays` | `number` | `30` |  | Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (THE-572 writes the trace before the session row, so a failed attempt leaves a file with no row referencing it). |
 
 ### `plane`
 

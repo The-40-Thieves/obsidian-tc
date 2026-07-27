@@ -10,8 +10,10 @@
 // onVecFallback/onStageMetric/sqlHooksFor, the MORGIANA emitter — see THE-585's history of gauges
 // that were declared and never wired) moved to ./runtime/observability.ts, where it is unit
 // testable against a real recorder instead of buried inside a 1000+ line boot function. This file
-// is now 1231 lines (THE-590 landed alongside this slice, adding recordIngestStatsFor + its
-// onIndexVaultComplete wiring); the maxLines cap below is set just above that measured size.
+// onIndexVaultComplete wiring); the maxLines cap in biome.json sits just above the measured size.
+// THE-610 raised it (1245 -> see biome.json) to wire the sweep's filesystem arm: there was ZERO
+// headroom, and golfing under the old limit had already produced a duplicated DEFAULT_TRACE_FOLDER
+// literal. A cap only ever raised is not a gate — THE-466's next slice must ratchet it back DOWN.
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
@@ -112,7 +114,12 @@ import { connectStdio } from "./transports/stdio";
 import { resolveMode, type VaultMode } from "./vault/mode";
 import { contentHash, resolveVaultPath } from "./vault/paths";
 import { VaultRegistry } from "./vault/registry";
-import { ActiveSessionTracker, appendTrace, getSession } from "./workspace/sessions";
+import {
+  ActiveSessionTracker,
+  appendTrace,
+  getSession,
+  resolveTraceDirs,
+} from "./workspace/sessions";
 
 // VERSION derives from packages/server/package.json (imported above): single source of
 // truth, bumped by the release pipeline. Matches MCP versioning guidance (extract from
@@ -1008,11 +1015,12 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       eventLogDays: config.observability.retention.eventLogDays,
       jobsCompleteDays: config.maintenance.jobsCompleteRetentionDays,
       jobsFailedDays: config.maintenance.jobsFailedRetentionDays,
+      tracesDays: config.observability.retention.tracesDays,
+      traceDirs: resolveTraceDirs(config.vaults, DEFAULT_TRACE_FOLDER),
       onSweep: (counts) => {
-        // THE-571: `jobs` joins the total so a sweep that only pruned queue rows still reports a
-        // non-zero count rather than reading as a no-op pass.
-        const total =
-          counts.idempotency_keys + counts.elicit_tokens + counts.event_log + counts.jobs;
+        // THE-571/610: EVERY arm joins the total, so a sweep that pruned only one kind still
+        // reports non-zero rather than reading as a no-op — and a future arm is counted for free.
+        const total = Object.values(counts).reduce((a, b) => a + b, 0);
         morgiana.emit(firstVault.id, "tc.maintenance.sweep", {
           count: total,
           rows_dropped: { ...counts },

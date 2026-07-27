@@ -37,8 +37,17 @@ describe("cache.db maintenance sweep (THE-292)", () => {
       jobsCompleteDays: 7,
       jobsFailedDays: 30,
     });
-    // THE-571 added `jobs`; this db has none, so the terminal-row sweep reports 0.
-    expect(counts).toEqual({ idempotency_keys: 1, elicit_tokens: 1, event_log: 1, jobs: 0 });
+    // Deliberately an EXACT shape, not toMatchObject: a new sweep arm must be acknowledged here
+    // rather than added silently. THE-571 added `jobs`; THE-610 added `trace_files`. Both report 0
+    // here — this db has no terminal jobs, and no traceDirs were passed, so the filesystem arm is
+    // skipped entirely (its own coverage lives in maintenance-traces.test.ts).
+    expect(counts).toEqual({
+      idempotency_keys: 1,
+      elicit_tokens: 1,
+      event_log: 1,
+      jobs: 0,
+      trace_files: 0,
+    });
     expect(db.prepare("SELECT COUNT(*) AS n FROM idempotency_keys").get()).toMatchObject({
       n: 2,
     });
