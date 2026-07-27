@@ -1184,6 +1184,18 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   }
 }
 
+// THE-605 audit classification of every one-shot CLI command dispatched below (verified against
+// this exact switch, not re-derived from a grep): 7 are read-only/display (version, help, error,
+// plugin-install, config-show/-validate, config-explain, doctor) — nothing to audit. ~9 recompute
+// DERIVED state (cluster, activation-recompute, densify-llm, citation-infer, contribution-report,
+// note-quality, gaps, metrics, reflect) — real writes, but of RECOMPUTABLE state: a re-run
+// reproduces it, so an audit row would be noise (a rewritten cluster assignment is not a loss
+// event). `prefetch` dispatches properly through `registry.dispatch` and gets an audit row for
+// free. `forget` is the ONE command with true vault-destructive writes (writeNoteAtomic-adjacent
+// erase/unlink), and is the only one that writes `audit_events` directly (cli/commands/forget.ts,
+// `auditForgetEvent`) — see that file for the writer and the "why not runDispatch" reasoning. This
+// is a DECISION, not an oversight: do not add audit rows to the recompute commands above without
+// re-litigating the "recomputable state is not a loss event" premise this classification rests on.
 async function main(): Promise<void> {
   const cmd = parseCliArgs(process.argv.slice(2));
   switch (cmd.kind) {
