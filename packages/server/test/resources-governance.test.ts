@@ -1,3 +1,4 @@
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
@@ -65,5 +66,23 @@ describe("resources run under shared governance (THE-415)", () => {
     expect(text).toContain(
       'obsidian_tc_tool_calls_total{vault="main",tool="resources/list",status="error"} 1',
     );
+  });
+
+  // THE-514 item 1: dispatchResource's completion fan-out used to be a hand-copied REDUCED
+  // version of emitCompletion's — it relayed only tc.tool.call.completed and never the
+  // per-error-code signal, so an ACL-denied resource read never produced tc.acl.denied the way an
+  // ACL-denied TOOL call does. Now both go through the same relayCompletion method (registry.ts),
+  // so a resource read that fails with an ACL-shaped code gets the same fan-out a tool gets.
+  it("relays tc.acl.denied for a resource read denied with an ACL-shaped code (parity with tools)", async () => {
+    const events: Array<{ type: string; data: unknown }> = [];
+    const reg = new ToolRegistry({ emit: (_vaultId, type, data) => events.push({ type, data }) });
+    await expect(
+      reg.dispatchResource("resources/read", ctx(), ["read:notes"], { uri: "a.md" }, () => {
+        throw err.aclDenied("path denied by folder ACL");
+      }),
+    ).rejects.toThrow();
+    const types = events.map((e) => e.type);
+    expect(types).toContain("tc.tool.call.completed");
+    expect(types).toContain("tc.acl.denied");
   });
 });

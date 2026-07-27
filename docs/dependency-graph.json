@@ -3,9 +3,9 @@
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
     "modules": 278,
-    "dependencies": 1135,
+    "dependencies": 1136,
     "subsystemPairs": 81,
-    "crossSubsystemImports": 475
+    "crossSubsystemImports": 473
   },
   "subsystems": {
     "auth": 3,
@@ -147,11 +147,6 @@
       "weight": 3
     },
     {
-      "from": "cli",
-      "to": "tools",
-      "weight": 3
-    },
-    {
       "from": "metrics",
       "to": "db",
       "weight": 3
@@ -238,6 +233,16 @@
     },
     {
       "from": "tools",
+      "to": "plane",
+      "weight": 2
+    },
+    {
+      "from": "tools",
+      "to": "util",
+      "weight": 2
+    },
+    {
+      "from": "tools",
       "to": "plur",
       "weight": 2
     },
@@ -249,16 +254,6 @@
     {
       "from": "tools",
       "to": "memory",
-      "weight": 2
-    },
-    {
-      "from": "tools",
-      "to": "plane",
-      "weight": 2
-    },
-    {
-      "from": "tools",
-      "to": "util",
       "weight": 2
     },
     {
@@ -294,6 +289,11 @@
     {
       "from": "cli",
       "to": "mcp",
+      "weight": 1
+    },
+    {
+      "from": "cli",
+      "to": "tools",
       "weight": 1
     },
     {
@@ -408,17 +408,17 @@
     },
     {
       "from": "tools",
-      "to": "capture",
-      "weight": 1
-    },
-    {
-      "from": "tools",
       "to": "graph",
       "weight": 1
     },
     {
       "from": "tools",
       "to": "config",
+      "weight": 1
+    },
+    {
+      "from": "tools",
+      "to": "capture",
       "weight": 1
     },
     {

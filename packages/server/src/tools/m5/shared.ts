@@ -4,13 +4,20 @@
 // writes for materialization/JSONL/commit); only `plur` reaches an external service,
 // and it is GLOBAL (one client, no per-vault wiring) because the engram store is
 // global and the plur tools take no `vault` argument.
-import { type BootstrapConfig, BootstrapConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  type BootstrapConfig,
+  BootstrapConfigSchema,
+  DEFAULT_MEMORY_FOLDER,
+} from "@the-40-thieves/obsidian-tc-shared";
 import type { PlurClient } from "../../plur/client";
 import type { VaultRegistry } from "../../vault/registry";
 import type { ActiveSessionTracker } from "../../workspace/sessions";
 
-/** Default vault folder for materialized memory-entity notes. */
-export const DEFAULT_MEMORY_FOLDER = "memory";
+// THE-600: DEFAULT_MEMORY_FOLDER now lives in @the-40-thieves/obsidian-tc-shared (single source
+// of truth shared with VaultMemoryConfigSchema's own default) — re-exported here so every
+// existing consumer of tools/m5's public surface (this module's own re-export chain) is
+// unaffected. Do not redeclare it locally; that is exactly the duplication THE-600 closed.
+export { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 /** Default vault folder for workspace-session JSONL traces. */
 export const DEFAULT_TRACE_FOLDER = ".obsidian-tc/traces";
 

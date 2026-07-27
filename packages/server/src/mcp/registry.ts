@@ -455,30 +455,59 @@ export class ToolRegistry {
     };
   }
 
-  /** Per-call MORGIANA events: always tc.tool.call.completed, plus the specific signal if any. */
+  /**
+   * THE-514 item 1: the MORGIANA completion-event fan-out for a terminal call outcome — always
+   * tc.tool.call.completed, plus the specific signal for the error code (if any). This used to be
+   * two copies: emitCompletion's switch (below) for tool dispatch, and a REDUCED copy inside
+   * dispatchResource's `emit` closure that fired only tc.tool.call.completed and never the
+   * per-error-code signal — so a resource read denied by path ACL never relayed tc.acl.denied,
+   * a resource over MAX_RESOURCE_BYTES never relayed tc.governor.overflow, etc., for the exact
+   * codes tool dispatch already signals on. Deliberate decision: resources gain the richer
+   * behavior (relay through this shared method) rather than tools losing it, because this is
+   * strictly more information to the same MORGIANA consumer and changes no existing tool
+   * behavior — dispatchResource's caller-visible contract (throw/return) is untouched.
+   */
+  private relayCompletion(
+    vaultId: string,
+    name: string,
+    status: ToolCallStatus,
+    code: string | undefined,
+    data: Partial<MorgianaEventData>,
+  ): void {
+    this.relay(vaultId, "tc.tool.call.completed", data);
+    if (status === "ok") {
+      if (name === "reset_vault_cache") this.relay(vaultId, "tc.vault.cache_reset", data);
+      return;
+    }
+    switch (code) {
+      case "forbidden":
+      case "acl_denied":
+        this.relay(vaultId, "tc.acl.denied", data);
+        break;
+      case "overflow":
+        this.relay(vaultId, "tc.governor.overflow", data);
+        break;
+      case "elicit_required":
+        this.relay(vaultId, "tc.elicit.requested", data);
+        break;
+      case "throttled":
+        this.relay(vaultId, "tc.rate_limit.hit", data);
+        break;
+    }
+  }
+
+  /** Per-call MORGIANA events for a completed tool dispatch — see relayCompletion. */
   private emitCompletion(name: string, ctx: CallerContext, result: ToolResult): void {
     if (!this.emit) return;
     const data = this.morgianaData(name, ctx, result);
-    this.relay(ctx.vaultId, "tc.tool.call.completed", data);
-    if (result.ok) {
-      if (name === "reset_vault_cache") this.relay(ctx.vaultId, "tc.vault.cache_reset", data);
-      return;
-    }
-    switch (result.error.code) {
-      case "forbidden":
-      case "acl_denied":
-        this.relay(ctx.vaultId, "tc.acl.denied", data);
-        break;
-      case "overflow":
-        this.relay(ctx.vaultId, "tc.governor.overflow", data);
-        break;
-      case "elicit_required":
-        this.relay(ctx.vaultId, "tc.elicit.requested", data);
-        break;
-      case "throttled":
-        this.relay(ctx.vaultId, "tc.rate_limit.hit", data);
-        break;
-    }
+    const status: ToolCallStatus = result.ok ? "ok" : callStatusForError(result.error.code);
+    this.relayCompletion(
+      ctx.vaultId,
+      name,
+      status,
+      result.ok ? undefined : result.error.code,
+      data,
+    );
   }
 
   /** Try to atomically claim the in-flight idempotency slot for (vault, key). */
@@ -707,14 +736,16 @@ export class ToolRegistry {
     const hash = argsHash(name, (args ?? {}) as Record<string, unknown>);
     const scopeClass = scopeClassOf(requiredScopes as never);
 
+    // THE-514 item 1: status classification and the completion fan-out are now the exact
+    // functions tool dispatch uses (callStatusForError, relayCompletion) instead of a hand-copied
+    // reduced version — see relayCompletion's docstring for what that copy used to drop.
     const emit = (status: Status, durationMs: number, resultSize: number, code?: string) => {
       this.recordOutcome(ctx, name, hash, args, status, durationMs, resultSize, code);
-      const callStatus: ToolCallStatus =
-        status === "ok" ? "ok" : code === "forbidden" || code === "throttled" ? "denied" : "error";
+      const callStatus: ToolCallStatus = status === "ok" ? "ok" : callStatusForError(code ?? "");
       this.meter((m) =>
         m.observeToolCall(ctx.vaultId, name, callStatus, durationMs / 1000, resultSize),
       );
-      this.relay(ctx.vaultId, "tc.tool.call.completed", {
+      this.relayCompletion(ctx.vaultId, name, callStatus, code, {
         tool: name,
         caller_hash: callerHash(ctx.caller),
         scopes_required: requiredScopes,
@@ -728,15 +759,14 @@ export class ToolRegistry {
 
     // The same rate-limit policy gate dispatch applies (THE-210): per (caller_hash,
     // scope_class, vault); an unknown scope class is unlimited. A throttled check draws
-    // down no budget, so rejecting here costs the caller nothing.
+    // down no budget, so rejecting here costs the caller nothing. Unlike the old copy, this no
+    // longer relays tc.rate_limit.hit by hand — emit(..., "throttled") below now does that
+    // through relayCompletion's switch, the same path tool dispatch uses, so it fires exactly
+    // once instead of the old double-emit this refactor would otherwise have introduced.
     if (this.rateLimiter) {
       const d = this.rateLimiter.check(callerHash(ctx.caller), scopeClass, ctx.vaultId, now());
       if (!d.ok) {
         this.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
-        this.relay(ctx.vaultId, "tc.rate_limit.hit", {
-          tool: name,
-          caller_hash: callerHash(ctx.caller),
-        });
         emit("error", now() - start, 0, "throttled");
         throw err.throttled("rate limit exceeded", {
           scope_class: d.scopeClass,
@@ -874,6 +904,28 @@ export class ToolRegistry {
       // vault under the single global ACL, so without this a token reaches every vault. resources/read
       // already enforces the same invariant. Fires only when a `vault` arg is present, so the execute
       // family (no vault arg) and vault-omitting calls are unaffected; trusted stdio is unbound.
+      //
+      // THE-514 item 2 — AUTHORITATIVE NOTE on the one place this guard's condition differs from
+      // resources.ts's readResource (mcp/resources.ts:101, which points back here): this check is
+      // CONDITIONAL on `ctx.vaultBound === true`, so a trusted stdio caller (vaultBound left unset)
+      // may still name any configured vault. readResource's equivalent check is UNCONDITIONAL — it
+      // refuses `vaultId !== ctx.vaultId` regardless of vaultBound, so even a trusted stdio caller
+      // reading a resource is pinned to its own vault.
+      //
+      // Same concern (don't let a caller reach a vault it isn't bound to), two behaviours, and this
+      // is a DELIBERATE, EVALUATED divergence, not an oversight:
+      //   - Tools stay conditional because trusted stdio operators routinely address every
+      //     configured vault by name through the `vault` argument (prefetch, admin tools, multi-vault
+      //     workflows) — that is the documented meaning of "trusted": no HTTP token, no vaultBound.
+      //   - resources/read stays unconditional because listResources only ever emits URIs for
+      //     ctx.vaultId (mcp/resources.ts:70-83) — there is no legitimate reason for ANY caller,
+      //     trusted or not, to construct a foreign-vault resource URI by hand, so the narrower rule
+      //     costs a trusted caller nothing while closing off a hand-crafted URI as an attack surface.
+      // The divergence is currently in the SAFE direction (resources is the stricter of the two). If
+      // this is ever revisited, that is a security-semantics decision — evaluate it explicitly rather
+      // than "fixing" one side to match the other; see the parity gate in
+      // dispatch-parity.test.ts ("vault-binding: documented divergence, asserted as such"), which
+      // asserts this documented state rather than sameness.
       if (ctx.vaultBound === true) {
         const requested = vaultArgOf(def, parsed.data);
         if (requested !== undefined && requested !== ctx.vaultId)

@@ -14,6 +14,7 @@
 // onIndexVaultComplete wiring); the maxLines cap below is set just above that measured size.
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../package.json";
 import { FolderAcl, makeIndexReadable, makeReindexGate } from "./acl";
 import { writeEvent } from "./audit";
@@ -102,7 +103,7 @@ import {
   openBridge,
   registerM4Tools,
 } from "./tools/m4";
-import { DEFAULT_MEMORY_FOLDER, DEFAULT_TRACE_FOLDER, registerM5Tools } from "./tools/m5";
+import { DEFAULT_TRACE_FOLDER, registerM5Tools } from "./tools/m5";
 import { type M6Deps, registerM6Tools } from "./tools/m6";
 import { registerM7Tools } from "./tools/m7";
 import { registerM8Tools } from "./tools/m8";

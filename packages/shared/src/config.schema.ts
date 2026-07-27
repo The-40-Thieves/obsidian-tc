@@ -75,16 +75,25 @@ export const VaultCommandsConfigSchema = z.object({
     ),
 });
 
+// THE-600: the single source of truth for the memory-materialization folder default. Previously
+// duplicated three ways — this schema's own `.default("memory")` literal below, a same-valued
+// runtime constant in packages/server/src/tools/m5/shared.ts, and (until this fix) a THIRD copy
+// hand-duplicated into cli/commands/forget.ts to dodge the no-transport-imports-tool boundary.
+// Living here instead lets every consumer (the schema default, the M5 tool runtime default, and
+// the CLI's forget/prefetch commands) import ONE value with no cross-boundary import required —
+// this module is shared, not a tool.
+export const DEFAULT_MEMORY_FOLDER = "memory";
+
 // Per-vault memory-entity materialization config (M5 / THE-181, G2.1 Domain 22).
 // Optional + back-compat: a vault predating M5 validates unchanged (consumers read
-// `vault.memory?.folder ?? "memory"`). `folder` is where create_entity(materialize)
+// `vault.memory?.folder ?? DEFAULT_MEMORY_FOLDER`). `folder` is where create_entity(materialize)
 // writes the regenerable .md projection — a normal vault folder so the [[link]]
 // graph resolves in Obsidian. SQLite stays the source of truth.
 export const VaultMemoryConfigSchema = z.object({
   folder: z
     .string()
     .min(1)
-    .default("memory")
+    .default(DEFAULT_MEMORY_FOLDER)
     .describe(
       "Vault folder where create_entity(materialize) writes the regenerable .md projection. A normal folder so the [[link]] graph resolves in Obsidian; SQLite remains the source of truth.",
     ),

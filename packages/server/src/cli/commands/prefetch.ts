@@ -1,11 +1,11 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { openDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
 import { ToolRegistry } from "../../mcp/registry";
 import { readGeneration } from "../../search/generation";
 import { callerAclFingerprint, prewarmPathFor, writePrewarm } from "../../search/prefetch";
-import { DEFAULT_MEMORY_FOLDER } from "../../tools/m5";
 import { registerM7Tools } from "../../tools/m7";
 import { VaultRegistry } from "../../vault/registry";
 import { type Cmd, resolveOrUsageExit } from "../shared";

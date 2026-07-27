@@ -98,6 +98,11 @@ export function readResource(
   // Bind the read to the caller's own vault. ctx.acl is the caller's ACL for ctx.vaultId, so
   // resolving any other vault from the URI would apply the wrong ACL and leak a vault the
   // caller holds no token for. listResources only ever emits ctx.vaultId URIs; enforce it here.
+  //
+  // THE-514 item 2: this check is UNCONDITIONAL — unlike the tool-dispatch equivalent
+  // (mcp/registry.ts:901, `if (ctx.vaultBound === true)`), it fires for every caller including a
+  // trusted stdio one. See the AUTHORITATIVE NOTE at that line for why the two are deliberately
+  // different rather than merely inconsistent.
   if (vaultId !== ctx.vaultId)
     throw err.forbidden(`resource vault is not the caller's bound vault: ${vaultId}`, {
       uri,
