@@ -7,6 +7,7 @@ import { chmodSync } from "node:fs";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
+import { nativeVaultIo } from "../src/vault/notes-io";
 import { makeTestVault } from "./m1-helpers";
 
 function hashOf(r: ToolResult): string {
@@ -490,9 +491,7 @@ describe("list_notes: explicit folder argument and cursor-driven second page", (
   });
 });
 
-describe("read_notes: a non-ObsidianTcError failure reports internal_error, not a swallowed crash", () => {
-  // openSync raises a plain EACCES Error (not an ObsidianTcError) for a permission-denied
-  // file; the handler's catch must fall through to "internal_error" rather than mis-typing it.
+describe("read_notes: a permission-denied read is classified, not swallowed as a crash", () => {
   // Skipped wherever chmod 000 does not actually deny a read, which would make this test
   // meaningless rather than false-negative:
   //   - root ignores file-mode permission bits entirely;
@@ -501,13 +500,27 @@ describe("read_notes: a non-ObsidianTcError failure reports internal_error, not 
   //     of `errors`. That is exactly how this failed on build-test (windows-latest) while passing
   //     on ubuntu and macos — `process.getuid` is also undefined there, so the root guard alone
   //     does not cover it.
-  // The branch stays covered: the coverage gate runs on Linux (see ci-server.yml's job name).
   const cannotDenyRead =
     process.platform === "win32" ||
     (typeof process.getuid === "function" && process.getuid() === 0);
 
+  // THE-608: the EXPECTED CODE depends on which I/O implementation is loaded, and both are correct.
+  //   - JS path (nativeVaultIo === false): openSync raises a plain EACCES Error, not an
+  //     ObsidianTcError, so the handler's catch must fall through to "internal_error" rather than
+  //     mis-typing it. That is the branch this test was originally written for.
+  //   - Native path (nativeVaultIo === true): the THE-272 symlink-safe open refuses the path, and
+  //     mapNativeReadError (vault/notes-io.ts:67) DELIBERATELY reclassifies an exists-but-refused
+  //     path as acl_denied — failing closed, so a refusal is never reported as a generic crash.
+  //
+  // Asserting one code unconditionally pinned the JS branch and failed on any host with the native
+  // module built — which is what ships. CI's build-test has no native build step, so it exercises
+  // the JS path only; a developer with packages/native built exercises the other. Branching here
+  // means whichever implementation is loaded gets its own contract asserted rather than one of them
+  // silently going untested.
+  const expectedCode = nativeVaultIo ? "acl_denied" : "internal_error";
+
   it.skipIf(cannotDenyRead)(
-    "a permission-denied file surfaces as internal_error alongside normal successes",
+    `a permission-denied file surfaces as ${expectedCode} alongside normal successes`,
     async () => {
       const v = makeTestVault({ files: { "ok.md": "fine", "locked.md": "secret" } });
       try {
@@ -524,7 +537,7 @@ describe("read_notes: a non-ObsidianTcError failure reports internal_error, not 
           };
           expect(d.notes.map((n) => n.path)).toEqual(["ok.md"]);
           expect(d.errors).toEqual([
-            { path: "locked.md", code: "internal_error", message: expect.any(String) },
+            { path: "locked.md", code: expectedCode, message: expect.any(String) },
           ]);
         }
       } finally {
