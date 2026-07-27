@@ -106,7 +106,21 @@ export async function collectLock(): Promise<MetricSample[]> {
   } finally {
     holder.close?.();
     waiter.close?.();
-    rmSync(dir, { recursive: true, force: true });
+    // Best-effort, and that is load-bearing on Windows: `rmSync` here threw EBUSY on
+    // windows-latest even though both connections were already closed, because Windows will not
+    // unlink a file whose WAL/shm mapping the OS still holds momentarily after close. That threw
+    // out of the collector, exited the perf-sample subprocess 1, and failed the whole isolate
+    // integration test — a temp-directory cleanup taking down the measurement it was cleaning up
+    // after.
+    //
+    // A leaked temp dir under the OS temp root is harmless and gets swept by the runner; a
+    // cleanup that can fail the run is not. Deliberately NOT retried: the point is that this step
+    // must not be able to affect the outcome, and a retry loop is still a step that can fail.
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* Windows holds the mapping briefly after close; the temp dir is the OS's problem now. */
+    }
   }
 
   const waitMs = observedSeconds * 1000;
