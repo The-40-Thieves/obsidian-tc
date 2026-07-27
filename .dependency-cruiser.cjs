@@ -56,8 +56,21 @@ module.exports = {
       comment:
         "The dependency runs transports -> registry -> tools. A transport reaching a concrete " +
         "tool bypasses dispatch, and dispatch is where scope checks, HITL floors, idempotency and " +
-        "audit live. This rule is a security boundary, not a style preference.",
-      from: { path: "^packages/server/src/transports/" },
+        "audit live. This rule is a security boundary, not a style preference. THE-600: extended " +
+        "to packages/server/src/cli/commands/ — a CLI subcommand importing a tool module directly " +
+        "is the same bypass a transport would be, and is exactly how `forget`'s CLI/tool audit " +
+        "guarantees came to diverge (a subcommand reimplementing tool logic instead of dispatching " +
+        "it never gets the pipeline's scope/ACL/audit stages). `prefetch.ts` is exempted below: it " +
+        "builds its OWN ToolRegistry and calls registry.dispatch(...) (cli/commands/prefetch.ts), " +
+        "so its import of tools/m7 is registration, not a bypass — the one case verified legitimate " +
+        "when this rule was extended. Any OTHER cli/commands/ file this rule newly flags is a real " +
+        "finding, not a candidate for .dependency-cruiser-known-violations.json: that file is a " +
+        "baseline of PRE-EXISTING violations meant only to shrink, and adding a fresh one to it " +
+        "would silently defeat the rule this comment just explained.",
+      from: {
+        path: "^packages/server/src/(transports|cli/commands)/",
+        pathNot: ["^packages/server/src/cli/commands/prefetch\\.ts$"],
+      },
       to: { path: "^packages/server/src/tools/" },
     },
     {
