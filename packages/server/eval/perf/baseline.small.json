@@ -292,5 +292,40 @@
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
+  },
+  "index.notes_count": {
+    "value": 100,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "embed.tokens": {
+    "value": 2577,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "harness.vault_count": {
+    "value": 1,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "index.notes_per_s": {
+    "value": 533.79,
+    "tol": 0.25,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "lower-worse"
+  },
+  "embed.tokens_per_s": {
+    "value": 13755.74,
+    "tol": 0.25,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "lower-worse"
   }
 }

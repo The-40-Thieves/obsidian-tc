@@ -6,6 +6,7 @@ import { openDatabase } from "../../src/db/open";
 import { provisionCacheDb } from "../../src/db/provision";
 import type { Database, Statement } from "../../src/db/types";
 import { type EmbeddingProvider, fakeEmbeddingProvider } from "../../src/embeddings";
+import { estimateTokens } from "../../src/search/chunk";
 import { type IndexStats, indexVault } from "../../src/search/indexer";
 import type { Scenario } from "./scenarios";
 
@@ -50,6 +51,11 @@ function paragraph(rnd: () => number, n = 24): string {
 export interface CountingProvider extends EmbeddingProvider {
   calls: number;
   texts: number;
+  /** THE-458: estimated tokens actually sent to the provider, for `embed.tokens_per_s`. Uses
+   *  PRODUCTION's `estimateTokens` (search/chunk.ts) rather than a harness-local approximation —
+   *  a throughput number computed with a different estimator than the one that decides batching
+   *  would measure a quantity the server never acts on. */
+  tokens: number;
 }
 export function countingProvider(base: EmbeddingProvider): CountingProvider {
   const wrapped: CountingProvider = {
@@ -59,9 +65,11 @@ export function countingProvider(base: EmbeddingProvider): CountingProvider {
     dimensions: base.dimensions,
     calls: 0,
     texts: 0,
+    tokens: 0,
     embed(texts, opts) {
       wrapped.calls += 1;
       wrapped.texts += texts.length;
+      for (const t of texts) wrapped.tokens += estimateTokens(t);
       return base.embed(texts, opts);
     },
   };
