@@ -19,7 +19,6 @@ import { join } from "node:path";
 import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../package.json";
 import { FolderAcl, makeIndexReadable, makeReindexGate } from "./acl";
-import { writeEvent } from "./audit";
 import {
   type BridgeClient,
   buildVaultCapabilities,
@@ -49,7 +48,6 @@ import { run_reflect } from "./cli/commands/reflect";
 import { run_version } from "./cli/commands/version";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "./cli/shared";
 import { provisionExperientialDb } from "./db/experiential";
-import { registerMaintenanceSweep } from "./db/maintenance";
 import { openDatabase } from "./db/open";
 import { provisionCacheDb } from "./db/provision";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
@@ -69,6 +67,7 @@ import { auditJob } from "./plane/jobs/audit";
 import { checkContradictions, loadChunkForContradiction } from "./plane/jobs/contradiction";
 import { isoWeek, runSynthesis } from "./plane/jobs/synthesis";
 import { createPlurBackend } from "./plur/client";
+import { configureMaintenance } from "./runtime/maintenance-wiring";
 import { createObservability } from "./runtime/observability";
 import { JobQueue } from "./scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "./scheduler/job-runner";
@@ -114,12 +113,8 @@ import { connectStdio } from "./transports/stdio";
 import { resolveMode, type VaultMode } from "./vault/mode";
 import { contentHash, resolveVaultPath } from "./vault/paths";
 import { VaultRegistry } from "./vault/registry";
-import {
-  ActiveSessionTracker,
-  appendTrace,
-  getSession,
-  resolveTraceDirs,
-} from "./workspace/sessions";
+import { registerVaultWatch } from "./vault/watcher";
+import { ActiveSessionTracker, appendTrace, getSession } from "./workspace/sessions";
 
 // VERSION derives from packages/server/package.json (imported above): single source of
 // truth, bumped by the release pipeline. Matches MCP versioning guidance (extract from
@@ -593,6 +588,14 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   });
   const deindexHook = (vaultId: string, path: string): void =>
     indexCoordinator.submitDelete(vaultId, path);
+  // THE-649: make docs/SYNC.md's long-standing claim true — every sync tier it documents delivers
+  // notes by writing to disk, and nothing was watching. Feeds the SAME reindexHook the write path
+  // uses, so a watched change is read-ACL-gated identically to a write_note. Vaults registered later
+  // by add_vault are not watched; config.vaults is the boot set, matching resolveTraceDirs' scope.
+  const stopVaultWatch = registerVaultWatch(config.vaults, config.watch, {
+    onUpsert: reindexHook,
+    onDelete: deindexHook,
+  });
   registerM1Tools(registry, {
     vaultRegistry,
     version: VERSION,
@@ -1004,45 +1007,18 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // (schedulerSkipped / schedulerConsecutiveFailures / schedulerDeferred).
   schedulerRef = scheduler;
 
-  // THE-292: periodic cache.db maintenance — purge expired idempotency/elicit rows, trim
-  // event_log to its configured retention, PRAGMA optimize. Best-effort; expired rows remain
-  // lazily rejected on read regardless, so a failed sweep degrades disk reclamation, never
-  // correctness.
-  if (config.maintenance.enabled) {
-    registerMaintenanceSweep(scheduler, {
-      db,
-      intervalMs: config.maintenance.intervalMinutes * 60_000,
-      eventLogDays: config.observability.retention.eventLogDays,
-      jobsCompleteDays: config.maintenance.jobsCompleteRetentionDays,
-      jobsFailedDays: config.maintenance.jobsFailedRetentionDays,
-      tracesDays: config.observability.retention.tracesDays,
-      traceDirs: resolveTraceDirs(config.vaults, DEFAULT_TRACE_FOLDER),
-      onSweep: (counts) => {
-        // THE-571/610: EVERY arm joins the total, so a sweep that pruned only one kind still
-        // reports non-zero rather than reading as a no-op — and a future arm is counted for free.
-        const total = Object.values(counts).reduce((a, b) => a + b, 0);
-        morgiana.emit(firstVault.id, "tc.maintenance.sweep", {
-          count: total,
-          rows_dropped: { ...counts },
-        });
-        try {
-          writeEvent(db, {
-            ts: Date.now(),
-            status: "ok",
-            event_type: "sweep_run",
-            result_size: total,
-          });
-        } catch {
-          /* event_log is best-effort */
-        }
-      },
-      onError: (e) => {
-        process.stderr.write(
-          `[maintenance] sweep failed: ${e instanceof Error ? e.message : String(e)}\n`,
-        );
-      },
-    });
-  }
+  // THE-292: periodic cache.db maintenance. THE-466 slice 3 moved the wiring to
+  // ./runtime/maintenance-wiring.ts, where the sweep's reporting (which has drifted twice as arms
+  // were added) is unit-testable instead of buried in this boot function.
+  configureMaintenance(scheduler, {
+    db,
+    maintenance: config.maintenance,
+    retention: config.observability.retention,
+    vaults: config.vaults,
+    defaultTraceFolder: DEFAULT_TRACE_FOLDER,
+    morgiana,
+    eventVaultId: firstVault.id,
+  });
 
   // THE-296 / #14: ambient sleep-time consolidation (weekly synthesis + daily audit) is now durable
   // jobs — a transient gateway failure retries/dead-letters instead of vanishing (the old
@@ -1106,6 +1082,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   scheduler.start();
 
   const shutdown = async (): Promise<void> => {
+    // THE-649: stop watching BEFORE draining. A late filesystem event would otherwise enqueue new
+    // coordinator work while indexCoordinator.idle() below is waiting for the queue to empty.
+    stopVaultWatch();
     // THE-462: one bounded stop replaces the four stop functions — clears the timer, aborts the
     // in-flight run's AbortSignal, and awaits settle under the scheduler's deadline.
     await scheduler.stop();

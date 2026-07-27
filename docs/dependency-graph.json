@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 278,
-    "dependencies": 1142,
-    "subsystemPairs": 82,
-    "crossSubsystemImports": 475
+    "modules": 280,
+    "dependencies": 1151,
+    "subsystemPairs": 83,
+    "crossSubsystemImports": 480
   },
   "subsystems": {
     "auth": 3,
@@ -30,14 +30,14 @@
     "plane": 6,
     "plugin": 2,
     "plur": 2,
-    "runtime": 1,
+    "runtime": 2,
     "scheduler": 3,
     "schemas": 1,
     "search": 43,
     "tools": 59,
     "transports": 2,
     "util": 3,
-    "vault": 17,
+    "vault": 18,
     "workspace": 1
   },
   "edges": [
@@ -132,6 +132,11 @@
       "weight": 4
     },
     {
+      "from": "runtime",
+      "to": "db",
+      "weight": 4
+    },
+    {
       "from": "tools",
       "to": "experiential",
       "weight": 4
@@ -218,7 +223,12 @@
     },
     {
       "from": "runtime",
-      "to": "db",
+      "to": "morgiana",
+      "weight": 2
+    },
+    {
+      "from": "runtime",
+      "to": "scheduler",
       "weight": 2
     },
     {
@@ -388,12 +398,7 @@
     },
     {
       "from": "runtime",
-      "to": "morgiana",
-      "weight": 1
-    },
-    {
-      "from": "runtime",
-      "to": "scheduler",
+      "to": "workspace",
       "weight": 1
     },
     {

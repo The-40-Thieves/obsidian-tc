@@ -193,7 +193,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**278 modules · 1142 dependencies · 82 distinct subsystem pairs · 475 cross-subsystem imports.**
+**280 modules · 1151 dependencies · 83 distinct subsystem pairs · 480 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -211,14 +211,14 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 82 pairs.
+set is 83 pairs.
 
 ```mermaid
 flowchart LR
   tools[tools<br/>59 files]
   search[search<br/>43 files]
   cli[cli<br/>21 files]
-  vault[vault<br/>17 files]
+  vault[vault<br/>18 files]
   db[(db<br/>13 files)]
   experiential[experiential<br/>11 files]
   bridge[bridge<br/>8 files]
@@ -254,10 +254,10 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 190 | `tools` | 272 |
-| `db` | 90 | `search` | 46 |
+| `db` | 92 | `search` | 46 |
 | `mcp` | 60 | `cli` | 46 |
 | `search` | 41 | `experiential` | 16 |
-| `embeddings` | 15 | `mcp` | 13 |
+| `embeddings` | 15 | `runtime` | 14 |
 <!-- END GENERATED: tree-fan -->
 
 The shape is layered and largely acyclic at the subsystem level: the tool surface
