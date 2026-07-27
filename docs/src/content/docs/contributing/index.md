@@ -23,7 +23,7 @@ obsidian-tc is a Bun workspace monorepo:
 ## Toolchain
 
 - **Bun** 1.3.x for installs, builds, and the bun-smoke job.
-- **Vitest** for the server test suite (run under Node with `--experimental-sqlite`).
+- **Vitest** for the server test suite (runs under Node's stable `node:sqlite`).
 - **Biome** for lint/format (`bun run lint`).
 
 ## Build & test

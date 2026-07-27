@@ -49,7 +49,7 @@
     "migrations:embed:check": "node scripts/gen-embedded-migrations.mjs --check"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.4",
+    "@biomejs/biome": "^2.5.5",
     "dependency-cruiser": "18.1.0",
     "typescript": "^7.0.2"
   },
