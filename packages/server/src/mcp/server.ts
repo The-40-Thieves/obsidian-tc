@@ -15,6 +15,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
+import { extractTraceCarrier } from "../otel/propagation";
 import type { VaultRegistry } from "../vault/registry";
 import {
   describeCapability,
@@ -220,6 +221,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const rawArgs = (req.params.arguments ?? {}) as Record<string, unknown>;
     let args: Record<string, unknown> = rawArgs;
     let ctx = opts.context(extra.signal);
+    // SEP-414: lift W3C trace context out of `_meta` so dispatch's SERVER span is parented to the
+    // caller's span. Read from `_meta`, NOT from a transport header — this is the one place that
+    // works identically over stdio and Streamable HTTP, and it is where the 2026-07-28 spec puts it.
+    // Absent for every caller that sends none, in which case the span is a root exactly as before.
+    const traceCarrier = extractTraceCarrier(req.params._meta);
+    if (traceCarrier !== undefined) ctx = { ...ctx, traceCarrier };
     if (typeof rawArgs.elicit_token === "string") {
       const { elicit_token, ...rest } = rawArgs;
       args = rest;
