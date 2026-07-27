@@ -11,9 +11,6 @@ export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
     environment: "node",
-    // node:sqlite is experimental on Node 22; inject the flag into worker processes.
-    pool: "forks",
-    poolOptions: { forks: { execArgv: ["--experimental-sqlite"] } },
     coverage: {
       provider: "v8",
       reporter: ["text-summary"],
