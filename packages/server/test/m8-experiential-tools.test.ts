@@ -9,10 +9,29 @@ import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
+import { verifyForgetLog } from "../src/experiential/forget";
 import { createRetrievalLogger } from "../src/experiential/log";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM8Tools } from "../src/tools/m8";
 import { openMemoryDb } from "./helpers";
+
+interface ForgetLogRow {
+  seq: number;
+  kind: string;
+  target: string;
+  mode: string;
+  details: string | null;
+  prev_hash: string;
+  hash: string;
+}
+
+function forgetLogRows(db: Database): ForgetLogRow[] {
+  return db
+    .prepare(
+      "SELECT seq, kind, target, mode, details, prev_hash, hash FROM forget_log ORDER BY seq",
+    )
+    .all() as ForgetLogRow[];
+}
 
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
@@ -177,6 +196,65 @@ describe("M8 experiential tools (THE-229)", () => {
       await registry.dispatch("work_forget", { episode_id: "gone" }, ctx()),
     );
     expect(again.forgotten).toBe(false);
+  });
+
+  it("THE-600: work_forget appends exactly one chained forget_log row, recording the caller", async () => {
+    const db = edb0();
+    seed(db, { id: "gone", eligibility: "eligible", caller: "tester" });
+    const { registry, ctx } = harness(db);
+    const res = un<{ forgotten: boolean }>(
+      await registry.dispatch("work_forget", { episode_id: "gone" }, ctx()),
+    );
+    expect(res.forgotten).toBe(true);
+
+    const rows = forgetLogRows(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "episode", target: "gone", mode: "tombstone" });
+    expect(JSON.parse(rows[0]?.details ?? "{}")).toMatchObject({ actor: "tester" });
+    // hash-chained per THE-239: verifyForgetLog recomputes the chain from genesis and must agree.
+    expect(verifyForgetLog(db)).toEqual({ ok: true, entries: 1 });
+
+    // repeat call on the now-blocked episode is a silent no-op — NO additional row (idempotency;
+    // appending here would spam the chain and make replay indistinguishable from a real forget).
+    const again = un<{ forgotten: boolean }>(
+      await registry.dispatch("work_forget", { episode_id: "gone" }, ctx()),
+    );
+    expect(again.forgotten).toBe(false);
+    expect(forgetLogRows(db)).toHaveLength(1);
+  });
+
+  it("THE-600: a foreign or unknown episode id writes no forget_log row", async () => {
+    const db = edb0();
+    seed(db, { id: "theirs", eligibility: "eligible", caller: "someone-else" });
+    const { registry, ctx } = harness(db);
+
+    const foreign = un<{ forgotten: boolean }>(
+      await registry.dispatch("work_forget", { episode_id: "theirs" }, ctx()),
+    );
+    expect(foreign.forgotten).toBe(false);
+    expect(forgetLogRows(db)).toHaveLength(0);
+
+    const unknown = un<{ forgotten: boolean }>(
+      await registry.dispatch("work_forget", { episode_id: "does-not-exist" }, ctx()),
+    );
+    expect(unknown.forgotten).toBe(false);
+    expect(forgetLogRows(db)).toHaveLength(0);
+  });
+
+  it("THE-600: a failed forget_log append rolls back the tombstone (mirrors forgetEpisode's C1 atomicity)", async () => {
+    const db = edb0();
+    seed(db, { id: "gone", eligibility: "eligible", caller: "tester" });
+    const { registry, ctx } = harness(db);
+    db.exec("DROP TABLE forget_log"); // force appendForgetLog to throw mid-forget
+    // dispatch() never rejects — a thrown, non-typed error is caught and returned as ok:false
+    // (registry.ts's catch-all), not propagated. What matters for THE-600 is that the handler's
+    // own transaction rolled back rather than leaving a tombstone with no audit row.
+    const res = await registry.dispatch("work_forget", { episode_id: "gone" }, ctx());
+    expect(res.ok).toBe(false);
+    const row = db.prepare("SELECT blocked FROM agent_episodes WHERE id = 'gone'").get() as {
+      blocked: number;
+    };
+    expect(row.blocked).toBe(0); // tombstone rolled back — never blocked without an audit row
   });
 
   it("record_retrieval_feedback stamps the latest retrieval event(s) for a chunk", async () => {
