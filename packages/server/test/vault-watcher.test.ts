@@ -4,7 +4,15 @@
 // without touching a disk — that is where the security-relevant rules live. `startVaultWatch` is
 // tested against a REAL filesystem, because the whole feature is an assertion about what the OS
 // reports; a mocked fs.watch would only prove the test's own model of inotify.
-import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -218,6 +226,44 @@ describe("resolveWatchedPath — classification and the two alias guards", () =>
     expect(resolveWatchedPath(root, "one.md")).toEqual({ kind: "upsert", content: "body" });
     linkSync(join(root, "one.md"), join(root, "two.md"));
     expect(resolveWatchedPath(root, "two.md").kind).toBe("refused");
+  });
+});
+
+describe("the watch must not hold the event loop open", () => {
+  // A behavioural test cannot see this: vitest's own process stays alive regardless, so a watcher
+  // that pins the loop looks identical to one that does not. The failure mode is a HANG, not an
+  // assertion — it cost a 20-minute install-smoke timeout, because that lane runs
+  // `node dist/cli.js < /dev/null` and expects the server to reach stdio-ready and exit.
+  //
+  // So this is a source scan, with a non-empty floor so a moved file cannot make it pass vacuously.
+  const RAW = readFileSync(new URL("../src/vault/watcher.ts", import.meta.url), "utf8");
+  // Comments stripped before scanning. The first run of this gate failed on its OWN documentation —
+  // the comment explaining why `w.unref()` is wrong contains the literal `w.unref()`. A source scan
+  // that reads prose is measuring the wrong thing.
+  const SRC = RAW.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  it("reads its own source, comments stripped (floor — else every assertion below is vacuous)", () => {
+    expect(RAW.length).toBeGreaterThan(2000);
+    // The strip must not have eaten the code: both of these live in the watch() call itself.
+    expect(SRC).toContain("recursive: true");
+    expect(SRC).toContain("startVaultWatch");
+    // And it must actually have removed prose, or the "no w.unref" assertion proves nothing.
+    expect(SRC.length).toBeLessThan(RAW.length * 0.75);
+  });
+
+  it("passes persistent:false to watch(), which unref() cannot substitute for", () => {
+    // Measured (Linux 6.17, node 26): watch(dir, {recursive:true}) + w.unref() NEVER lets the
+    // process exit, even though unref is a real function on the returned FSWatcher — Node backs a
+    // recursive watch with a tree of internal per-directory watchers and unref'ing the parent does
+    // not propagate. {recursive:true, persistent:false} exits immediately.
+    expect(SRC).toMatch(/watch\(\s*t\.root,\s*\{\s*recursive:\s*true,\s*persistent:\s*false\s*\}/);
+  });
+
+  it("does not rely on unref() for the watcher (only for the debounce timer)", () => {
+    expect(SRC).not.toMatch(/\bw\.unref\b/);
+    // The debounce timer's unref IS correct and must stay — a pending flush should never be the
+    // reason a process lingers.
+    expect(SRC).toMatch(/timer\.unref/);
   });
 });
 

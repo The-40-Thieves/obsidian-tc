@@ -224,13 +224,23 @@ export function startVaultWatch(opts: VaultWatchOptions): () => void {
       if (!statSync(t.root).isDirectory()) {
         throw new Error(`vault root is not a directory: ${t.root}`);
       }
-      // `persistent: true` (the default) plus an explicit unref(), NOT `persistent: false`. Both
-      // are meant to keep the watcher from holding the event loop open, but they take different
-      // paths inside libuv, and the non-persistent recursive path on Windows crashed the whole
-      // vitest worker process outright — no exception, no failing assertion, just a dead worker
-      // with the file's 19 tests silently missing from the totals. unref() is the documented way to
-      // say "do not keep the process alive" and behaves identically on all three platforms.
-      const w = watch(t.root, { recursive: true }, (_event, filename) => {
+      // `persistent: false` is LOAD-BEARING and must not be swapped for `unref()`.
+      //
+      // They are not interchangeable for a RECURSIVE watcher. Measured directly (Linux 6.17, node
+      // 26): `watch(dir, {recursive: true})` followed by `w.unref()` never lets the process exit,
+      // even though `unref` is a real function on the returned FSWatcher — Node backs a recursive
+      // watch with a tree of internal per-directory watchers, and unref'ing the parent does not
+      // propagate to them. `{recursive: true, persistent: false}` exits immediately.
+      //
+      // Getting this wrong does not fail a test; it HANGS the process. It cost a 20-minute
+      // install-smoke timeout, because that lane runs `node dist/cli.js < /dev/null` and expects
+      // the server to reach stdio-ready and exit. See the source-scan assertion in
+      // vault-watcher.test.ts, which exists so this cannot be quietly undone.
+      //
+      // (The detour: this was briefly `unref()` because `persistent: false` on a recursive watch
+      // killed the vitest worker on Windows. That is moot now — registerVaultWatch does not start a
+      // watch on win32 at all.)
+      const w = watch(t.root, { recursive: true, persistent: false }, (_event, filename) => {
         // The event TYPE is deliberately ignored. Node reports a file creation as `rename` and Bun
         // reports the same creation as `change` (measured on Linux 6.17, node 26 / bun 1.3), so
         // branching on it would behave differently under the two runtimes this ships on. The lstat
@@ -246,7 +256,6 @@ export function startVaultWatch(opts: VaultWatchOptions): () => void {
         set.add(rel);
         schedule();
       });
-      w.unref?.();
       w.on("error", (e) => opts.onError?.(e, t.vaultId));
       closers.push(() => w.close());
     } catch (e) {
