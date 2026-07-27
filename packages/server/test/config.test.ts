@@ -161,7 +161,30 @@ describe("maintenance config (THE-292)", () => {
       // activation and note-quality signals rather than only reclaiming disk.
       episodesRetentionDays: 90,
       retrievalsRetentionDays: 365,
+      // THE-458 item 6: reconcileIntervalMinutes is ABSENT by default, not 0 — a healthy server
+      // with a working watcher does not need a periodic full vault walk, and 0 would parse as
+      // "set" while meaning "off".
     });
+    expect(c.maintenance.reconcileIntervalMinutes).toBeUndefined();
+  });
+
+  it("accepts a reconcile interval, which is the point of the key existing", () => {
+    const c = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      maintenance: { reconcileIntervalMinutes: 360 },
+    });
+    expect(c.maintenance.reconcileIntervalMinutes).toBe(360);
+  });
+
+  it("rejects a non-positive reconcile interval", () => {
+    for (const bad of [0, -5]) {
+      expect(
+        ServerConfigSchema.safeParse({
+          vaults: [{ id: "m", path: "/v" }],
+          maintenance: { reconcileIntervalMinutes: bad },
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it("partial override fills the rest from defaults", () => {
