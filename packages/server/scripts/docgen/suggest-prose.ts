@@ -4,6 +4,19 @@
 // writes a file, never commits, never opens a PR — generation (extractors/renderers) is trustworthy
 // because it's derived; prose is invented, so it stays human-gated.
 //
+// THE-601: this is a LOCAL tool. The `ci-prose-suggest` workflow that ran it on every push to main
+// was REMOVED — do not re-add it. It could not reach a model (no credential in a public repo's CI),
+// so every run was a dry-run dump of the assembled prompt, and it appended one to GitHub issue #353
+// per push: 30 comments, 657KB, and not one suggestion in any of them. The workflow's own header
+// claimed "one rolling issue rather than one per push, so this cannot become a notification
+// firehose" — the intent was right, but it APPENDED rather than edited in place, which is precisely
+// how it became one.
+//
+// The mechanizable half of what that workflow was gesturing at is now covered by gates that
+// actually fail: check-config-paths, facts-check (with a non-empty floor as of THE-601), and
+// check-version-coherence. What remains is judgement-prose, which a dry-run bot cannot assess.
+// If you want the model round-trip, run this command with DOCGEN_LLM_* set.
+//
 // Runs locally / on a tailnet-connected runner (the LiteLLM gateway is not reachable from cloud CI).
 // Configure via env; with no LLM configured it prints the assembled prompt (dry-run) so it is useful
 // and testable without a gateway:
