@@ -33,6 +33,11 @@ export interface M1Deps {
   indexVault?: (vaultId: string) => Promise<{ notes_seen: number }>;
   /** THE-252: when true, write_note (overwrite) + append_note to an existing note require prev_hash. */
   requireCas?: boolean;
+  /** THE-603: fires when captureSnapshot no-ops for a destructive write because
+   *  config.snapshots.enabled is false — the default "trusted-local" posture — so the caller sees
+   *  the gap instead of a silently inert safety net. Same plain-callback seam as onVecFallback:
+   *  the tool layer never imports the audit/metrics modules directly. Absent (tests) -> no signal. */
+  onSnapshotSkipped?: (vaultId: string, path: string, op: string) => void;
 }
 
 export function registerM1Tools(registry: ToolRegistry, deps: M1Deps): void {

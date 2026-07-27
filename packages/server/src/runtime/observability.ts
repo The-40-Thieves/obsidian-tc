@@ -59,6 +59,11 @@ export interface Observability {
    *  the only module that knows a recorder exists. */
   sqlHooksFor: (vault: string) => WriteTxnHooks;
   morgiana: MorgianaEmitter;
+  /** THE-603: captureSnapshot's no-op (config.snapshots.enabled false) is silent by design — the
+   *  M1 write handlers call it unconditionally and get back null with no signal. Same seam shape
+   *  as onVecFallback so notes-tools.ts never imports the audit module directly; best-effort like
+   *  MorgianaEmitter's onDropped below, since observability must never break dispatch. */
+  onSnapshotSkipped: (vaultId: string, path: string, op: string) => void;
 }
 
 /** Build the Prometheus recorder, its gauge sources, the metric-emitting callback seams, and the
@@ -157,5 +162,25 @@ export function createObservability(deps: ObservabilityDeps): Observability {
     },
   });
 
-  return { metrics, onVecFallback, onStageMetric, sqlHooksFor, morgiana };
+  // THE-603: make the snapshot-on-write no-op legible instead of silent. Fires only when a
+  // destructive patch_note replace ran with snapshots disabled (config.snapshots.enabled false,
+  // the default "trusted-local" posture) — never load-bearing, so a write_event failure here must
+  // not surface to the caller. `path` is accepted for callers/tests that want it, but event_log
+  // has no path column (see 20260519_001_initial.sql) — vault_id + tool_name is what it can carry.
+  const onSnapshotSkipped = (vaultId: string, _path: string, op: string): void => {
+    try {
+      writeEvent(deps.db, {
+        ts: Date.now(),
+        vault_id: vaultId,
+        tool_name: op,
+        status: "skipped",
+        error_code: "snapshots_disabled",
+        event_type: "snapshot_skipped",
+      });
+    } catch {
+      /* event_log is best-effort */
+    }
+  };
+
+  return { metrics, onVecFallback, onStageMetric, sqlHooksFor, morgiana, onSnapshotSkipped };
 }

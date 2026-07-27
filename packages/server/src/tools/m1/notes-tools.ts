@@ -54,6 +54,22 @@ function basenameNoExt(p: string): string {
 
 const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
 
+/** THE-603: what a patch* helper produced, plus the blast radius of a `replace` — the count and
+ *  byte size of lines the operation actually discarded (always 0 for append/prepend, which only
+ *  insert). `bodyLineCount` is the WHOLE body's line count (not just the targeted section), so a
+ *  caller can judge "removed most of the note" rather than just "removed a lot of lines". */
+interface PatchResult {
+  body: string;
+  removedLines: number;
+  removedBytes: number;
+  bodyLineCount: number;
+}
+
+function removedSpan(lines: string[], from: number, to: number, eol: string): [number, number] {
+  const removed = lines.slice(from, to);
+  return [removed.length, removed.length > 0 ? Buffer.byteLength(removed.join(eol), "utf8") : 0];
+}
+
 /** Insert/replace content relative to a heading section. Returns null if the
  *  heading is not found. The section spans the heading line to the next heading
  *  of the same or higher level (or EOF). `eol` preserves the note's line ending. */
@@ -63,7 +79,7 @@ function patchByHeading(
   target: string,
   content: string,
   eol: string,
-): string | null {
+): PatchResult | null {
   const lines = body.split(/\r?\n/);
   const want = target.trim().toLowerCase();
   let hi = -1;
@@ -87,10 +103,15 @@ function patchByHeading(
   }
   const ins = content.split(/\r?\n/);
   let next: string[];
+  let removedLines = 0;
+  let removedBytes = 0;
   if (op === "prepend") next = [...lines.slice(0, hi + 1), ...ins, ...lines.slice(hi + 1)];
   else if (op === "append") next = [...lines.slice(0, end), ...ins, ...lines.slice(end)];
-  else next = [...lines.slice(0, hi + 1), ...ins, ...lines.slice(end)];
-  return next.join(eol);
+  else {
+    [removedLines, removedBytes] = removedSpan(lines, hi + 1, end, eol);
+    next = [...lines.slice(0, hi + 1), ...ins, ...lines.slice(end)];
+  }
+  return { body: next.join(eol), removedLines, removedBytes, bodyLineCount: lines.length };
 }
 
 /** Escape a string for literal use inside a RegExp. */
@@ -107,7 +128,7 @@ function patchByBlock(
   blockId: string,
   content: string,
   eol: string,
-): string | null {
+): PatchResult | null {
   const lines = body.split(/\r?\n/);
   const re = new RegExp(`(?:^|\\s)\\^${escapeRegExp(blockId)}\\s*$`);
   let bi = -1;
@@ -126,10 +147,15 @@ function patchByBlock(
   }
   const ins = content.split(/\r?\n/);
   let next: string[];
+  let removedLines = 0;
+  let removedBytes = 0;
   if (op === "prepend") next = [...lines.slice(0, start), ...ins, ...lines.slice(start)];
   else if (op === "append") next = [...lines.slice(0, bi + 1), ...ins, ...lines.slice(bi + 1)];
-  else next = [...lines.slice(0, start), ...ins, ...lines.slice(bi + 1)];
-  return next.join(eol);
+  else {
+    [removedLines, removedBytes] = removedSpan(lines, start, bi + 1, eol);
+    next = [...lines.slice(0, start), ...ins, ...lines.slice(bi + 1)];
+  }
+  return { body: next.join(eol), removedLines, removedBytes, bodyLineCount: lines.length };
 }
 
 /** THE-198: insert/replace content in the body preamble — the region above the
@@ -139,7 +165,7 @@ function patchByPreamble(
   op: "append" | "prepend" | "replace",
   content: string,
   eol: string,
-): string {
+): PatchResult {
   const lines = body.split(/\r?\n/);
   let end = lines.length;
   for (let i = 0; i < lines.length; i++) {
@@ -150,10 +176,15 @@ function patchByPreamble(
   }
   const ins = content.split(/\r?\n/);
   let next: string[];
+  let removedLines = 0;
+  let removedBytes = 0;
   if (op === "prepend") next = [...ins, ...lines];
   else if (op === "append") next = [...lines.slice(0, end), ...ins, ...lines.slice(end)];
-  else next = [...ins, ...lines.slice(end)];
-  return next.join(eol);
+  else {
+    [removedLines, removedBytes] = removedSpan(lines, 0, end, eol);
+    next = [...ins, ...lines.slice(end)];
+  }
+  return { body: next.join(eol), removedLines, removedBytes, bodyLineCount: lines.length };
 }
 
 /** Rewrite links in every other note that pointed at the moved note. Runs after
@@ -291,6 +322,10 @@ const PatchNoteOutput = z.object({
   content_hash: z.string(),
   // Not nullable: reached only after readNote() on a note whose existence was already confirmed.
   prev_hash: z.string(),
+  // THE-603: the blast radius of this write. 0 for append/prepend, which only insert; a
+  // catastrophic replace and a two-line replace used to return structurally identical payloads.
+  lines_removed: z.number(),
+  bytes_removed: z.number(),
 });
 
 const DeleteNoteOutput = z.object({
@@ -368,6 +403,11 @@ const PatchInput = z
     anchor: PatchAnchor.optional(),
     content: z.string(),
     prev_hash: z.string().optional(),
+    // THE-603: required (set true) only when operation:"replace" on a heading anchor would discard
+    // more than 20 lines AND over half of the note's body — e.g. replacing a note's only H1, which
+    // has no same-or-higher-level heading to bound it and so consumes the entire document below
+    // it. Ignored for append/prepend and for block/frontmatter anchors, which cannot hit this.
+    confirm_replace: z.boolean().default(false),
   })
   .strict()
   .refine((i) => i.anchor !== undefined || i.target_heading !== undefined, {
@@ -696,7 +736,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
-        'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved.',
+        'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it off, so such a write has no built-in rollback unless the posture is "hardened".',
       inputSchema: PatchInput,
       outputSchema: PatchNoteOutput,
       requiredScopes: ["write:notes"],
@@ -722,9 +762,9 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           type: "heading" as const,
           heading: input.target_heading as string,
         };
-        let patchedBody: string | null;
+        let patched: PatchResult | null;
         if (anchor.type === "heading")
-          patchedBody = patchByHeading(
+          patched = patchByHeading(
             parsed.body,
             input.operation,
             anchor.heading,
@@ -732,20 +772,42 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
             eol,
           );
         else if (anchor.type === "block")
-          patchedBody = patchByBlock(
-            parsed.body,
-            input.operation,
-            anchor.block_id,
-            input.content,
-            eol,
-          );
-        else patchedBody = patchByPreamble(parsed.body, input.operation, input.content, eol);
-        if (patchedBody === null)
+          patched = patchByBlock(parsed.body, input.operation, anchor.block_id, input.content, eol);
+        else patched = patchByPreamble(parsed.body, input.operation, input.content, eol);
+        if (patched === null)
           throw err.invalidInput(
             anchor.type === "block" ? "block reference not found" : "target heading not found",
             { path: rel, anchor },
           );
-        const next = serializeNote(parsed.frontmatter, patchedBody, parsed.rawFrontmatter);
+
+        // THE-603: a replace on a heading anchor is the only shape that can consume the ENTIRE
+        // body with no terminator to bound it (a lone H1 has no same-or-higher heading below it —
+        // see patchByHeading's comment). Two conditions, deliberately: an absolute floor so small
+        // notes never trip this, AND a proportional floor so a normal section replace (which
+        // rarely removes half a note) is unaffected — only the cliff case, not the common one.
+        if (
+          anchor.type === "heading" &&
+          input.operation === "replace" &&
+          patched.removedLines > 20 &&
+          patched.removedLines > patched.bodyLineCount * 0.5 &&
+          !input.confirm_replace
+        )
+          throw err.invalidInput(
+            `replace would remove ${patched.removedLines} of ${patched.bodyLineCount} lines in the note body (heading "${anchor.heading}" has no lower-or-equal heading below it to bound the section). Set confirm_replace: true to proceed, or narrow the anchor to a subsection.`,
+            {
+              path: rel,
+              anchor,
+              lines_removed: patched.removedLines,
+              body_line_count: patched.bodyLineCount,
+            },
+          );
+
+        const next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter);
+        // THE-603: captureSnapshot silently no-ops when config.snapshots.enabled is false (the
+        // default "trusted-local" posture) — surface that gap for a destructive replace instead of
+        // letting the "safety net" call succeed while writing nothing.
+        if (input.operation === "replace" && !deps.snapshots?.enabled)
+          deps.onSnapshotSkipped?.(v.id, rel, "patch_note");
         captureSnapshot(ctx.db, deps.snapshots, v.id, rel, raw, "patch_note", ctx.now);
         writeNoteAtomic(abs, next, false);
         deps.reindex?.(v.id, rel, next);
@@ -757,6 +819,8 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           ...(anchor.type === "heading" ? { target_heading: anchor.heading } : {}),
           content_hash: contentHash(next),
           prev_hash: hash,
+          lines_removed: patched.removedLines,
+          bytes_removed: patched.removedBytes,
         };
       },
     }),

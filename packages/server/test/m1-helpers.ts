@@ -24,12 +24,15 @@ export interface TestVaultOptions {
   /** Index-coordinator hook. Unwired by default; a test that needs to fault the post-write step
    *  supplies a throwing one (THE-572). */
   reindex?: (vaultId: string, path: string, content: string) => void;
+  /** THE-603: legibility signal for a no-op snapshot capture. Unwired by default, like reindex. */
+  onSnapshotSkipped?: (vaultId: string, path: string, op: string) => void;
 }
 
 export interface EventRow {
   tool_name: string;
   status: string;
   error_code: string | null;
+  event_type: string | null;
 }
 
 export interface TestVault {
@@ -76,6 +79,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     snapshots: opts.snapshots,
     requireCas: opts.requireCas,
     ...(opts.reindex ? { reindex: opts.reindex } : {}),
+    ...(opts.onSnapshotSkipped ? { onSnapshotSkipped: opts.onSnapshotSkipped } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
@@ -102,7 +106,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     call: (name, input, over) => registry.dispatch(name, input, ctx(over)),
     events: () =>
       db
-        .prepare("SELECT tool_name, status, error_code FROM event_log ORDER BY id")
+        .prepare("SELECT tool_name, status, error_code, event_type FROM event_log ORDER BY id")
         .all() as EventRow[],
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
