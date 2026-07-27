@@ -24,6 +24,7 @@ import { callerHash, type RateLimiter } from "../throttle";
 import { CROSS_NOTE_REWRITE_TOOLS, runAudited } from "../vault/acl-audit";
 import { type AclOp, enforcePathAcl } from "../vault/acl-path";
 import type { TraceRecord } from "../workspace/sessions";
+import type { ClientInfo } from "./client-info";
 import { ALLOW_ALL, isDisabled, isListed, type VisibilityCaller } from "./visibility";
 
 /** #13: the idempotency claim's lifecycle states, as a union so `row.state === "..."`
@@ -76,6 +77,10 @@ export interface CallerContext {
    *  edge and starting a second, unrelated tree. Absent for any caller that sends none — the span
    *  is then a root exactly as before. */
   traceCarrier?: TraceCarrier;
+  /** THE-627: which client software made this call, lifted from the request's MCP `_meta`. Absent
+   *  for every caller that sends none — which is all of them under the current spec, so absent is
+   *  the normal value. Consumed by start_session to stamp the session row. */
+  clientInfo?: ClientInfo;
 }
 
 /**

@@ -66,9 +66,14 @@ export interface SessionRow {
   ended_at: number | null;
   trace_path: string;
   metadata_json: string | null;
+  /** THE-627: client software identity, from the MCP request's `_meta`. NULL when the client sent
+   *  none — which is every client under the current spec, so NULL is the normal value, not a gap. */
+  client_name: string | null;
+  client_version: string | null;
 }
 
-const SESSION_COLS = "id, vault_id, caller, started_at, ended_at, trace_path, metadata_json";
+const SESSION_COLS =
+  "id, vault_id, caller, started_at, ended_at, trace_path, metadata_json, client_name, client_version";
 
 export interface InsertSessionInput {
   id: string;
@@ -77,12 +82,18 @@ export interface InsertSessionInput {
   startedAt: number;
   tracePath: string;
   metadata?: unknown;
+  /** THE-627: observed by the server from the request, NOT caller-supplied like `metadata`. Written
+   *  once at session creation and never updated — first-write-wins is the rule, and it comes for
+   *  free because there is no update path. That matters because `_meta` is per-REQUEST under MCP
+   *  2026-07-28, so two calls sharing a sessionId could in principle disagree; the session is
+   *  identified by whoever opened it. */
+  clientInfo?: { name: string; version?: string };
 }
 
 export function insertSession(db: Database, input: InsertSessionInput): SessionRow {
   db.prepare(
-    `INSERT INTO workspace_sessions (id, vault_id, caller, started_at, ended_at, trace_path, metadata_json)
-     VALUES (?, ?, ?, ?, NULL, ?, ?)`,
+    `INSERT INTO workspace_sessions (id, vault_id, caller, started_at, ended_at, trace_path, metadata_json, client_name, client_version)
+     VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
   ).run(
     input.id,
     input.vaultId,
@@ -90,6 +101,10 @@ export function insertSession(db: Database, input: InsertSessionInput): SessionR
     input.startedAt,
     input.tracePath,
     input.metadata === undefined ? null : JSON.stringify(input.metadata),
+    // NULL, never a placeholder: a literal "unknown" would be indistinguishable from a client that
+    // genuinely reports that name — a failure encoded as a valid domain value (the THE-613 shape).
+    input.clientInfo?.name ?? null,
+    input.clientInfo?.version ?? null,
   );
   return getSession(db, input.id) as SessionRow;
 }

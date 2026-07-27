@@ -19,6 +19,8 @@ export const CACHE_MIGRATION_FILES = [
   "20260723_002_jobs.sql",
   "20260724_001_plane_vault_id.sql",
   "20260724_002_idempotency_state.sql",
+  // THE-627: client_name / client_version on workspace_sessions, read from MCP `_meta`.
+  "20260727_001_session_client_info.sql",
 ] as const;
 
 /**

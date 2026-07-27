@@ -17,6 +17,7 @@ import {
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { VaultRegistry } from "../vault/registry";
+import { extractClientInfo } from "./client-info";
 import {
   describeCapability,
   domainTools,
@@ -227,6 +228,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // Absent for every caller that sends none, in which case the span is a root exactly as before.
     const traceCarrier = extractTraceCarrier(req.params._meta);
     if (traceCarrier !== undefined) ctx = { ...ctx, traceCarrier };
+    // THE-627: same `_meta` bag, second reader — which client software is calling. Absent for every
+    // caller that sends none, in which case the session row records NULL rather than a placeholder.
+    const clientInfo = extractClientInfo(req.params._meta);
+    if (clientInfo !== undefined) ctx = { ...ctx, clientInfo };
     if (typeof rawArgs.elicit_token === "string") {
       const { elicit_token, ...rest } = rawArgs;
       args = rest;
