@@ -21,6 +21,13 @@ const PORTABLE = {
   "embed.call_count": "provider call count against the deterministic fake",
   "embed.texts_per_s": "embed throughput against the deterministic fake",
   "embed.dup_ratio": "duplicate-embedding ratio; a corpus property, not a storage one",
+  // THE-458. All five are corpus/provider properties measured before anything touches a vector
+  // index, so losing sqlite-vec cannot change them.
+  "index.notes_count": "deterministic note count over a seeded corpus; no vector path",
+  "index.notes_per_s": "note throughput; embedding is faked and storage-agnostic",
+  "embed.tokens": "estimateTokens over the same faked texts; pure string arithmetic",
+  "embed.tokens_per_s": "token throughput against the deterministic fake",
+  "harness.vault_count": "how many vaults the harness built; a harness fact, not a storage one",
   "freshness.visible": "write-to-search visibility via search_text — the LEXICAL/FTS path",
   "freshness.ms": "same lexical path; warn-class and never gated across runtimes",
 } as const;
@@ -42,7 +49,11 @@ const MUST_NOT_BE_PORTABLE = [
 /** The harness's own VaultCtx is expensive to build; collectIndexing only reads these fields. */
 const fakeVault = {
   chunkCount: 200,
-  provider: { texts: 120 },
+  // THE-458 widened what collectIndexing reads: notes come from stats, tokens from the provider.
+  // Both must be present here or the new metrics compute from `undefined` and the enumeration
+  // check passes against NaN — a green test over meaningless values.
+  stats: { notes_indexed: 100 },
+  provider: { texts: 120, tokens: 2577 },
 } as unknown as Parameters<typeof collectIndexing>[0];
 
 describe("THE-494 portable perf-metric set", () => {
