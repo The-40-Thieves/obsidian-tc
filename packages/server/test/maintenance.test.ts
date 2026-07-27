@@ -46,6 +46,11 @@ describe("cache.db maintenance sweep (THE-292)", () => {
       elicit_tokens: 1,
       event_log: 1,
       jobs: 0,
+      // THE-610 arm 2: no `edb` was passed, so both experiential arms skip entirely — which is the
+      // correct behaviour when the membrane is not open. Their own coverage is in
+      // maintenance-experiential.test.ts.
+      episodes: 0,
+      chunk_retrievals: 0,
       trace_files: 0,
     });
     expect(db.prepare("SELECT COUNT(*) AS n FROM idempotency_keys").get()).toMatchObject({

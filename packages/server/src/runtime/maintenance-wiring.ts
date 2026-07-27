@@ -25,12 +25,17 @@ export interface MaintenanceWiringDeps {
     intervalMinutes: number;
     jobsCompleteRetentionDays: number;
     jobsFailedRetentionDays: number;
+    episodesRetentionDays: number;
+    retrievalsRetentionDays: number;
   };
   /** config.observability.retention */
   retention: { eventLogDays: number; tracesDays: number };
   /** config.vaults — trace dirs are per-vault and resolved with containment checking (THE-610). */
   vaults: readonly { id: string; path: string; workspace?: { traceFolder: string } }[];
   defaultTraceFolder: string;
+  /** THE-610 arm 2: the experiential.db handle, when the membrane is open. Absent -> both
+   *  experiential arms skip and report 0, which is correct when there is nothing to sweep. */
+  edb?: Database;
   morgiana: MorgianaEmitter;
   /** Vault id the process-wide sweep event is attributed to (run_serve's first vault). */
   eventVaultId: string;
@@ -62,6 +67,13 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
     jobsFailedDays: deps.maintenance.jobsFailedRetentionDays,
     tracesDays: deps.retention.tracesDays,
     traceDirs: resolveTraceDirs(deps.vaults, deps.defaultTraceFolder),
+    ...(deps.edb !== undefined
+      ? {
+          edb: deps.edb,
+          episodesDays: deps.maintenance.episodesRetentionDays,
+          retrievalsDays: deps.maintenance.retrievalsRetentionDays,
+        }
+      : {}),
     ...(deps.now !== undefined ? { now: deps.now } : {}),
     onSweep: (counts) => {
       const total = sweepTotal(counts);

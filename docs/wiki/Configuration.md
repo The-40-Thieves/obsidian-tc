@@ -292,9 +292,11 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `maintenance.enabled` | `boolean` | `true` |  | Run the periodic cache.db maintenance sweep (expired idempotency and elicitation rows, event_log retention, PRAGMA optimize). |
+| `maintenance.episodesRetentionDays` | `number` | `90` |  | Days a DEAD agent_episodes row (a forget tombstone, or one whose valid_until has passed) is retained before the maintenance sweep prunes it. Live episodes are never pruned at any age. Keep this long enough to still answer 'was this forgotten?' after the fact. |
 | `maintenance.intervalMinutes` | `number` | `60` |  | Minutes between maintenance sweeps. |
 | `maintenance.jobsCompleteRetentionDays` | `number` | `7` |  | Days a COMPLETE job row is retained before the maintenance sweep prunes it. Must stay LONGER than the longest producer dedup window: enqueue() dedups against a terminal row unless replaceIfTerminal is set, so pruning one frees its idempotency key and lets that period run again (the weekly synthesis is the longest today). |
 | `maintenance.jobsFailedRetentionDays` | `number` | `30` |  | Days a FAILED (dead-lettered) job row is retained. Longer than the complete-row window because these exist to be read; bounded by age, so a burst of failures inside the window is still unbounded in count. |
+| `maintenance.retrievalsRetentionDays` | `number` | `365` |  | Days a chunk_retrievals row is retained. NOT purely disk hygiene: chunk_access_stats is a VIEW over this table, so pruning REWRITES access_count / last_accessed_at / citations / outcome_balance, which feed activation and note quality. A short window makes a long-tail note that was genuinely useful look never-accessed. The default is deliberately a year, far above the other retention windows, so no signal any current consumer reads is affected. |
 
 ### `observability`
 

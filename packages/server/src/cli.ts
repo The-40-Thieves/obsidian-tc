@@ -1016,6 +1016,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     retention: config.observability.retention,
     vaults: config.vaults,
     defaultTraceFolder: DEFAULT_TRACE_FOLDER,
+    // THE-610 arm 2: only when the membrane is actually open — cli.ts closes the handle otherwise.
+    ...(experientialOpen ? { edb: experientialDb } : {}),
     morgiana,
     eventVaultId: firstVault.id,
   });
