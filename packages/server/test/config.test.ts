@@ -41,11 +41,14 @@ describe("config schema", () => {
     expect(c.observability.morgiana.spool).toBe(true);
     expect(c.observability.morgiana.httpEndpoint).toBeUndefined();
     expect(c.observability.morgiana.httpHeaders).toEqual({});
-    // Retention prunes event_log and nothing else. morgianaEventsDays / tracesDays were declared and
-    // read by nothing — morgiana spools and trace files grew without bound whatever they were set to —
-    // so they are gone. This assertion is now exhaustive on purpose: it fails if a key is re-added
-    // without the code that honors it.
-    expect(c.observability.retention).toEqual({ eventLogDays: 30 });
+    // Exhaustive on purpose: this fails if a retention key is re-added WITHOUT the code that
+    // honors it. That is what it was written for, and it did its job — `tracesDays` was removed
+    // once for exactly that reason, and THE-610 could only put it back by also landing the sweep's
+    // filesystem arm (`sweepTraceFiles`, covered in maintenance-traces.test.ts).
+    //
+    // `morgianaEventsDays` stays absent: the morgiana spool still has no retention. Do not re-add
+    // it here before something prunes the spool.
+    expect(c.observability.retention).toEqual({ eventLogDays: 30, tracesDays: 30 });
   });
 
   it("accepts the full G2.4 observability shape and fills inner gaps", () => {

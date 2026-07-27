@@ -9,7 +9,7 @@
 // take an already-resolved absolute path.
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { Database } from "../db/types";
 
 /** Stable session id, e.g. "sess_9f2c…". 12 random bytes = 24 hex chars. */
@@ -21,6 +21,24 @@ export function genSessionId(): string {
 export function traceRelPath(traceFolder: string, sessionId: string): string {
   const f = traceFolder.replace(/\\/g, "/").replace(/\/+$/, "");
   return `${f}/${sessionId}.jsonl`;
+}
+
+/** THE-610: absolute trace directory per vault, for the maintenance sweep's filesystem arm.
+ *
+ *  Lives here rather than in the sweep because "where a vault's traces are" is this module's
+ *  concern, and it must stay consistent with `traceRelPath` above — the sweep deletes exactly the
+ *  files `appendTrace` creates. Note EVERY vault gets an entry, not only those with a `workspace`
+ *  block: `traceFolderFor` falls back to the same default and `registerM5Tools` is unconditional,
+ *  so a vault that never configured workspace still accumulates traces once the session tools are
+ *  called. Sweeping only configured vaults would miss exactly the case THE-610 exists for. */
+export function resolveTraceDirs(
+  vaults: readonly { id: string; path: string; workspace?: { traceFolder: string } }[],
+  defaultFolder: string,
+): Array<{ vaultId: string; dir: string }> {
+  return vaults.map((v) => ({
+    vaultId: v.id,
+    dir: join(v.path, v.workspace?.traceFolder ?? defaultFolder),
+  }));
 }
 
 export interface SessionRow {

@@ -1334,7 +1334,14 @@
           "properties": {
             "eventLogDays": {
               "default": 30,
-              "description": "Days of event_log rows kept by the maintenance sweep. This is the ONLY retention that is enforced: trace files and the event spool are not pruned and grow without bound.",
+              "description": "Days of event_log rows kept by the maintenance sweep. The morgiana event spool is still not pruned and grows without bound.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "tracesDays": {
+              "default": 30,
+              "description": "Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (THE-572 writes the trace before the session row, so a failed attempt leaves a file with no row referencing it).",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991

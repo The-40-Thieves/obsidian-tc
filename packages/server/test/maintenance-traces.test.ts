@@ -1,0 +1,91 @@
+// THE-610: the maintenance sweep's first FILESYSTEM arm. Every other sweep count is rows in
+// cache.db; this one deletes files inside a user's vault, so the tests are deliberately more
+// paranoid than the row-delete ones — what it REFUSES to touch matters as much as what it prunes.
+import { mkdirSync, mkdtempSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { sweepTraceFiles } from "../src/db/maintenance";
+
+const DAY = 86_400_000;
+const NOW = 1_800_000_000_000;
+
+/** A trace dir with files aged in days-before-NOW. */
+function makeDir(files: Record<string, number>): string {
+  const dir = mkdtempSync(join(tmpdir(), "tc-traces-"));
+  for (const [name, ageDays] of Object.entries(files)) {
+    const p = join(dir, name);
+    writeFileSync(p, '{"ts":1}\n', "utf8");
+    const t = (NOW - ageDays * DAY) / 1000;
+    utimesSync(p, t, t);
+  }
+  return dir;
+}
+
+describe("sweepTraceFiles (THE-610)", () => {
+  it("prunes traces older than the retention window and keeps newer ones", () => {
+    const dir = makeDir({ "sess_old.jsonl": 45, "sess_edge.jsonl": 31, "sess_new.jsonl": 2 });
+    const n = sweepTraceFiles([{ vaultId: "v1", dir }], { now: NOW, tracesDays: 30 });
+    // NON-EMPTY FLOOR: the whole point is watching it actually delete. A sweep that matches
+    // nothing reports success forever — see [[feedback-verify-checks-cover-their-domain]].
+    expect(n).toBe(2);
+    expect(readdirSync(dir).sort()).toEqual(["sess_new.jsonl"]);
+  });
+
+  it("dryRun counts what would go without deleting anything", () => {
+    const dir = makeDir({ "sess_a.jsonl": 90, "sess_b.jsonl": 90 });
+    const n = sweepTraceFiles([{ vaultId: "v1", dir }], {
+      now: NOW,
+      tracesDays: 30,
+      dryRun: true,
+    });
+    expect(n).toBe(2);
+    expect(readdirSync(dir)).toHaveLength(2); // still there
+    // and a real pass afterwards removes exactly what the dry run promised
+    expect(sweepTraceFiles([{ vaultId: "v1", dir }], { now: NOW, tracesDays: 30 })).toBe(2);
+    expect(readdirSync(dir)).toHaveLength(0);
+  });
+
+  it("touches only *.jsonl, and never recurses", () => {
+    const dir = makeDir({ "sess_a.jsonl": 90, "notes.md": 90, "cache.db": 90 });
+    const sub = join(dir, "nested");
+    mkdirSync(sub);
+    const deep = join(sub, "sess_deep.jsonl");
+    writeFileSync(deep, "{}\n", "utf8");
+    utimesSync(deep, (NOW - 90 * DAY) / 1000, (NOW - 90 * DAY) / 1000);
+
+    const n = sweepTraceFiles([{ vaultId: "v1", dir }], { now: NOW, tracesDays: 30 });
+    expect(n).toBe(1);
+    expect(readdirSync(dir).sort()).toEqual(["cache.db", "nested", "notes.md"]);
+    expect(readdirSync(sub)).toEqual(["sess_deep.jsonl"]); // a nested trace is NOT swept
+  });
+
+  it("a vault that has never started a session is a no-op, not an error", () => {
+    const dir = join(mkdtempSync(join(tmpdir(), "tc-traces-")), "never-created");
+    expect(sweepTraceFiles([{ vaultId: "v1", dir }], { now: NOW, tracesDays: 30 })).toBe(0);
+  });
+
+  it("sweeps every vault it is given", () => {
+    const a = makeDir({ "sess_a.jsonl": 90 });
+    const b = makeDir({ "sess_b.jsonl": 90, "sess_keep.jsonl": 1 });
+    const n = sweepTraceFiles(
+      [
+        { vaultId: "v1", dir: a },
+        { vaultId: "v2", dir: b },
+      ],
+      { now: NOW, tracesDays: 30 },
+    );
+    expect(n).toBe(2);
+    expect(readdirSync(a)).toHaveLength(0);
+    expect(readdirSync(b)).toEqual(["sess_keep.jsonl"]);
+  });
+
+  it("prunes an ORPHAN trace with no session row — the common case, not an anomaly", () => {
+    // THE-572 writes the trace file BEFORE the workspace_sessions row, so a failed start_session
+    // leaves a file nothing references. Age is the only rule that can reach it; a reachability
+    // join against the table would leave these behind forever.
+    const dir = makeDir({ "sess_orphaned_by_failed_start.jsonl": 60 });
+    expect(sweepTraceFiles([{ vaultId: "v1", dir }], { now: NOW, tracesDays: 30 })).toBe(1);
+    expect(readdirSync(dir)).toHaveLength(0);
+  });
+});

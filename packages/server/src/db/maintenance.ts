@@ -5,6 +5,8 @@
 // EXPIRED-ONLY for idempotency rows: reaping a crashed in-flight row here could cross-attach a
 // stale completion onto a fresh claim — the dispatch-path reclaim (idempotencyReclaimSeconds,
 // THE-293) owns that concern. No automatic VACUUM (disruptive under WAL).
+import { readdirSync, rmSync, statSync } from "node:fs";
+import { join } from "node:path";
 import type { Scheduler } from "../scheduler/scheduler";
 import { tableExists } from "./introspect";
 import type { Database } from "./types";
@@ -15,6 +17,63 @@ export interface SweepCounts {
   event_log: number;
   /** THE-571: terminal `jobs` rows pruned (complete + failed). */
   jobs: number;
+  /** THE-610: session trace files pruned. The sweep's first FILESYSTEM arm — every other count
+   *  here is rows in cache.db. */
+  trace_files: number;
+}
+
+/** A vault's absolute session-trace directory. Resolved by the caller because `traceFolder` is
+ *  vault-relative config and this module has no business reading the vault registry. */
+export interface TraceDir {
+  vaultId: string;
+  dir: string;
+}
+
+/**
+ * THE-610: prune session trace JSONL by AGE. The sweep's only filesystem arm.
+ *
+ * Age, not reachability. A trace whose session id has no `workspace_sessions` row is the COMMON
+ * case, not an anomaly: THE-572 deliberately writes the trace file before the session row so a
+ * failed attempt leaves a self-contained orphan rather than a duplicate. Reconciling against the
+ * table would therefore delete nothing extra while adding a cross-store join, and would still miss
+ * files from a vault whose db was reset. Age covers both.
+ *
+ * Deliberately narrow about what it will delete:
+ *   - only `*.jsonl` directly inside the configured folder, never a recursive walk;
+ *   - a missing/unreadable directory is a no-op, not an error — a vault that has never started a
+ *     session has no folder, which is normal;
+ *   - a per-file failure (permissions, a race with a concurrent write) skips that file and keeps
+ *     going, so one bad entry cannot stop the pass.
+ *
+ * `dryRun` counts what WOULD be deleted without unlinking. This is a delete pass over files inside
+ * a user's vault; being able to see the number first is the point.
+ */
+export function sweepTraceFiles(
+  dirs: readonly TraceDir[],
+  opts: { now: number; tracesDays: number; dryRun?: boolean },
+): number {
+  const cutoff = opts.now - opts.tracesDays * 86_400_000;
+  let pruned = 0;
+  for (const { dir } of dirs) {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue; // no folder yet, or unreadable -> nothing to prune here
+    }
+    for (const name of entries) {
+      if (!name.endsWith(".jsonl")) continue;
+      const file = join(dir, name);
+      try {
+        if (statSync(file).mtimeMs >= cutoff) continue;
+        if (!opts.dryRun) rmSync(file, { force: true });
+        pruned += 1;
+      } catch {
+        /* vanished or unreadable between readdir and unlink -> skip, keep sweeping */
+      }
+    }
+  }
+  return pruned;
 }
 
 /**
@@ -56,6 +115,12 @@ export function runMaintenanceSweep(
     eventLogDays: number;
     jobsCompleteDays: number;
     jobsFailedDays: number;
+    /** THE-610. Omitted (or empty) -> the filesystem arm is skipped and `trace_files` is 0. */
+    traceDirs?: readonly TraceDir[];
+    tracesDays?: number;
+    /** THE-610: count what would be pruned without deleting. Applies to the trace arm only —
+     *  the row deletes above predate it and are not made conditional here. */
+    dryRun?: boolean;
   },
 ): SweepCounts {
   const t = opts.now();
@@ -68,12 +133,26 @@ export function runMaintenanceSweep(
     completeDays: opts.jobsCompleteDays,
     failedDays: opts.jobsFailedDays,
   });
+  const traceFiles =
+    opts.traceDirs && opts.traceDirs.length > 0 && opts.tracesDays !== undefined
+      ? sweepTraceFiles(opts.traceDirs, {
+          now: t,
+          tracesDays: opts.tracesDays,
+          ...(opts.dryRun !== undefined ? { dryRun: opts.dryRun } : {}),
+        })
+      : 0;
   try {
     db.exec("PRAGMA optimize");
   } catch {
     /* optimize is advisory; a failure must not mask the delete counts */
   }
-  return { idempotency_keys: idem, elicit_tokens: elicit, event_log: events, jobs };
+  return {
+    idempotency_keys: idem,
+    elicit_tokens: elicit,
+    event_log: events,
+    jobs,
+    trace_files: traceFiles,
+  };
 }
 
 export interface MaintenanceDeps {
@@ -83,6 +162,9 @@ export interface MaintenanceDeps {
   /** THE-571: retention for terminal `jobs` rows. Must exceed the longest producer dedup window. */
   jobsCompleteDays: number;
   jobsFailedDays: number;
+  /** THE-610: per-vault absolute trace directories, resolved by the composition root. */
+  traceDirs?: readonly TraceDir[];
+  tracesDays?: number;
   now?: () => number;
   onSweep?: (counts: SweepCounts) => void;
   onError?: (e: unknown) => void;
@@ -102,6 +184,8 @@ export function registerMaintenanceSweep(scheduler: Scheduler, deps: Maintenance
         eventLogDays: deps.eventLogDays,
         jobsCompleteDays: deps.jobsCompleteDays,
         jobsFailedDays: deps.jobsFailedDays,
+        ...(deps.traceDirs !== undefined ? { traceDirs: deps.traceDirs } : {}),
+        ...(deps.tracesDays !== undefined ? { tracesDays: deps.tracesDays } : {}),
       });
       deps.onSweep?.(counts);
     },

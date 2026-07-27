@@ -1044,16 +1044,24 @@ export const ObservabilityConfigSchema = z.object({
     .describe("CloudEvents export stream."),
   retention: z
     .object({
-      // morgianaEventsDays / tracesDays were declared and read by nothing: the maintenance sweep prunes
-      // event_log and nothing else, so morgiana spools and trace files grow without bound whatever these
-      // were set to. Removed rather than left implying a retention policy that does not exist.
+      // morgianaEventsDays was declared and read by nothing and stays removed — the morgiana spool
+      // still has no retention. tracesDays was removed for the same reason and is RE-ADDED here by
+      // THE-610, which implemented the filesystem arm the original key was missing.
       eventLogDays: z
         .number()
         .int()
         .positive()
         .default(30)
         .describe(
-          "Days of event_log rows kept by the maintenance sweep. This is the ONLY retention that is enforced: trace files and the event spool are not pruned and grow without bound.",
+          "Days of event_log rows kept by the maintenance sweep. The morgiana event spool is still not pruned and grows without bound.",
+        ),
+      tracesDays: z
+        .number()
+        .int()
+        .positive()
+        .default(30)
+        .describe(
+          "Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (THE-572 writes the trace before the session row, so a failed attempt leaves a file with no row referencing it).",
         ),
     })
     .prefault({})
