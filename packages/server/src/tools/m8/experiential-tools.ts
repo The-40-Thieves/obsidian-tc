@@ -19,6 +19,7 @@
 import { err, grantsAll, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
+import { appendForgetLog } from "../../experiential/forget";
 import { readNoteQuality } from "../../experiential/note-quality";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
@@ -294,26 +295,51 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "work_forget",
       domain: "knowledge",
       description:
-        "Tombstone an experiential episode (the THE-238 control-1 blocklist, surfaced as the first-party forget verb). A forgotten episode never surfaces in work_search again; the append-only log row remains for forensics. Idempotent. P1.7: only your OWN episodes unless you hold admin:workspace — a foreign or unknown id is a silent no-op (forgotten:false), not an error.",
+        "Tombstone an experiential episode (the THE-238 control-1 blocklist, surfaced as the first-party forget verb). A forgotten episode never surfaces in work_search again; each successful forget appends a THE-239 hash-chained forget_log row for forensics. Idempotent: a repeat call, foreign, or unknown episode id is a silent no-op (forgotten:false) that appends NO additional log row. P1.7: only your OWN episodes unless you hold admin:workspace — a foreign or unknown id is a silent no-op, not an error.",
       inputSchema: z.object({ episode_id: z.string().min(1) }).strict(),
       outputSchema: availableWith({ episode_id: z.string(), forgotten: z.boolean() }),
       requiredScopes: ["write:workspace"],
       tags: ["experiential"],
       handler: (input, ctx) => {
         if (!deps.edb) return UNAVAILABLE;
-        // P1.7: forget only your OWN episodes unless you hold the elevated scope. The caller
-        // predicate is added to the UPDATE (not a pre-check) so a foreign/absent id is a silent
-        // no-op (forgotten:false) — no cross-principal existence oracle.
-        const res = canCrossPrincipal(ctx)
-          ? deps.edb
-              .prepare("UPDATE agent_episodes SET blocked = 1 WHERE id = ? AND blocked = 0")
-              .run(input.episode_id)
-          : deps.edb
-              .prepare(
-                "UPDATE agent_episodes SET blocked = 1 WHERE id = ? AND blocked = 0 AND caller IS ?",
-              )
-              .run(input.episode_id, ctx.caller ?? null);
-        return { available: true, episode_id: input.episode_id, forgotten: res.changes > 0 };
+        // THE-600: the tombstone and the THE-239 hash-chained forget_log append must be atomic —
+        // mirrors forgetEpisode()'s C1 guarantee (experiential/forget.ts) that a crash between the
+        // two never leaves a tombstone with no audit row.
+        let changes = 0;
+        deps.edb.exec("BEGIN");
+        try {
+          // P1.7: forget only your OWN episodes unless you hold the elevated scope. The caller
+          // predicate is added to the UPDATE (not a pre-check) so a foreign/absent id is a silent
+          // no-op (forgotten:false) — no cross-principal existence oracle.
+          const res = canCrossPrincipal(ctx)
+            ? deps.edb
+                .prepare("UPDATE agent_episodes SET blocked = 1 WHERE id = ? AND blocked = 0")
+                .run(input.episode_id)
+            : deps.edb
+                .prepare(
+                  "UPDATE agent_episodes SET blocked = 1 WHERE id = ? AND blocked = 0 AND caller IS ?",
+                )
+                .run(input.episode_id, ctx.caller ?? null);
+          changes = res.changes as number;
+          // Only append when a real transition happened. work_forget is documented idempotent — a
+          // repeat call, a foreign id, or an unknown id already yields changes === 0 via the
+          // predicate above, so logging unconditionally here would spam the hash chain and make a
+          // replayed no-op indistinguishable from a real forget.
+          if (changes > 0) {
+            appendForgetLog(deps.edb, {
+              ts: now(),
+              kind: "episode",
+              target: input.episode_id,
+              mode: "tombstone",
+              details: { actor: ctx.caller ?? null, source: "work_forget" },
+            });
+          }
+          deps.edb.exec("COMMIT");
+        } catch (e) {
+          deps.edb.exec("ROLLBACK");
+          throw e;
+        }
+        return { available: true, episode_id: input.episode_id, forgotten: changes > 0 };
       },
     }),
 
