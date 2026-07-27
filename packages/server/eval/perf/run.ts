@@ -8,6 +8,7 @@ import { collectDispatch } from "./collectors/dispatch";
 import { collectHttp, collectHttpConcurrency } from "./collectors/http";
 import { collectIndexing } from "./collectors/indexing";
 import { collectLifecycle } from "./collectors/lifecycle";
+import { collectLock } from "./collectors/lock";
 import { collectRetrieval } from "./collectors/retrieval";
 import { collectRuntime } from "./collectors/runtime";
 import { collectStorage } from "./collectors/storage";
@@ -62,6 +63,9 @@ export async function runScenario(
     ...(await collectRetrieval(vault)),
     ...(await collectDispatch(vault)),
     ...collectStorage(vault),
+    // THE-458: writer-vs-writer lock contention. Its own temp FILE db — the vault is :memory:,
+    // where every connection is a separate database and there is no lock to contend for.
+    ...(await collectLock()),
     ...(await collectRuntime(vault)),
     // THE-495 (family 12). Must precede lifecycle: the handshake needs a live db, and lifecycle
     // closes it as its shutdown-drain measurement.

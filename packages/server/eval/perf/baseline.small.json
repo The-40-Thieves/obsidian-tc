@@ -264,5 +264,33 @@
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
+  },
+  "storage.lock_wait_observed": {
+    "value": 1,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "storage.lock_busy_observed": {
+    "value": 1,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "storage.lock_wait_at_least_timeout": {
+    "value": 1,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "storage.lock_wait_ms": {
+    "value": 255.32,
+    "tol": 0.6,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "higher-worse"
   }
 }
