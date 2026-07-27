@@ -489,11 +489,11 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       // Deleted or re-embedded between enqueue and run — a normal race, not a failure. Returning
       // marks the job complete; THROWING here would dead-letter a job that did nothing wrong.
       if (!chunk) return;
-      await checkContradictions(
-        { db, roles, now: Date.now, model: embeddingProvider.id },
-        vaultId,
-        [chunk],
-      );
+      const jobCtx = { db, roles, now: Date.now, model: embeddingProvider.id };
+      const r = await checkContradictions(jobCtx, vaultId, [chunk]);
+      // THE-613: an unjudged pair is a FAILURE, not a clean result — the same contract the
+      // synthesis handler below states. Retry is safe (INSERT OR IGNORE on a content-derived id).
+      if (r.unjudged > 0) throw new Error(`contradiction: ${r.unjudged}/${r.checked} unjudged`);
     });
     // #14: the plane consolidation (weekly synthesis + daily audit) is now durable jobs too — see
     // the plane-enqueue scheduler below. runSynthesis/auditJob.run report failure via

@@ -71,13 +71,44 @@ describe("contradiction detector (judge seam + sqlite-vec neighbors)", () => {
     expect(row.vault_id).toBe("v1");
   });
 
-  it("does nothing when roles are disabled, and parseVerdict falls back safely", async () => {
+  it("does nothing when roles are disabled, and an unparseable reply is not a verdict", async () => {
     const db = baseDb();
     addChunk(db, "a", "A.md", [1, 0, 0]);
     const stats = await checkContradictions({ db, roles: null, now: () => 1 }, "v1", [
       { id: "a", path: "A.md", content: "alpha", embedding: [1, 0, 0] },
     ]);
     expect(stats.flagged).toBe(0);
-    expect(parseVerdict("not json").kind).toBe("no_conflict");
+    // Generative disabled is a DELIBERATE no-op and stays distinguishable from a failure:
+    // nothing was checked, so nothing could go unjudged.
+    expect(stats.checked).toBe(0);
+    expect(stats.unjudged).toBe(0);
+    // THE-613: this previously asserted `.kind === "no_conflict"` — i.e. that an unparseable reply
+    // was indistinguishable from the judge clearing the pair. That is the defect, so the assertion
+    // is inverted rather than adjusted.
+    expect(parseVerdict("not json")).toBeNull();
+    expect(parseVerdict('{"kind":"tension","rationale":"ok"}')?.kind).toBe("tension");
+  });
+
+  // THE-613 regression: a judge that always throws must NOT produce output identical to a healthy
+  // run over a vault with nothing to flag. This is the assertion the whole ticket exists for — if
+  // it ever passes with `unjudged: 0`, the silent-failure has come back.
+  it("a failing judge reports unjudged pairs rather than a clean vault", async () => {
+    const db = baseDb();
+    addChunk(db, "a", "A.md", [1, 0, 0]);
+    addChunk(db, "b", "B.md", [0.95, 0.312, 0]); // cosine ~0.95 -> in the judge band, same as above
+    const roles = {
+      judge: async () => {
+        throw new Error("gateway unreachable");
+      },
+    } as unknown as GatewayRoles;
+    const stats = await checkContradictions({ db, roles, now: () => 1 }, "v1", [
+      { id: "a", path: "A.md", content: "alpha", embedding: [1, 0, 0] },
+    ]);
+    expect(stats.checked).toBeGreaterThan(0);
+    expect(stats.unjudged).toBe(stats.checked);
+    expect(stats.flagged).toBe(0);
+    // and nothing was written — the failure must not fabricate rows either
+    const n = (db.prepare("SELECT COUNT(*) AS n FROM contradictions").get() as { n: number }).n;
+    expect(n).toBe(0);
   });
 });
