@@ -128,6 +128,9 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
             startedAt: now,
             tracePath,
             metadata: input.session_metadata,
+            // THE-627: server-observed client identity, kept separate from the caller-supplied
+            // `session_metadata` above so an observation and a declaration stay distinguishable.
+            ...(ctx.clientInfo ? { clientInfo: ctx.clientInfo } : {}),
           });
         });
         deps.activeSessions?.set(ctx.caller, id, v.id);
