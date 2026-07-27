@@ -179,3 +179,41 @@ describe("maintenance config (THE-292)", () => {
     });
   });
 });
+
+// THE-458 item 6: budget deferral was built, tested, and UNREACHABLE — cli.ts never passed
+// eventLoopDeferMs, so `scheduler_deferred_total` was pinned at 0 for every release since it
+// shipped. The metric's own description said so honestly, which is exactly what made it read as
+// "nothing to defer" rather than "no way to turn it on".
+describe("scheduler config (THE-458 item 6)", () => {
+  it("defaults to ABSENT, so cadence is unchanged for every existing deployment", () => {
+    // Absent, not 0: the Scheduler only creates the event-loop monitor when a threshold is set, so
+    // undefined is genuinely "off and costing nothing" rather than "on with a zero threshold".
+    const c = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }] });
+    expect(c.scheduler).toEqual({});
+    expect(c.scheduler.eventLoopDeferMs).toBeUndefined();
+  });
+
+  it("accepts a threshold, which is the whole point of the key existing", () => {
+    const c = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      scheduler: { eventLoopDeferMs: 250 },
+    });
+    expect(c.scheduler.eventLoopDeferMs).toBe(250);
+  });
+
+  it("rejects a non-positive threshold rather than silently disabling deferral", () => {
+    // 0 or negative would parse as "set" while behaving as "off" — a config value that lies.
+    for (const bad of [0, -1]) {
+      expect(
+        ServerConfigSchema.safeParse({
+          vaults: [{ id: "m", path: "/v" }],
+          scheduler: { eventLoopDeferMs: bad },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("a config predating THE-458 validates unchanged", () => {
+    expect(ServerConfigSchema.safeParse({ vaults: [{ id: "m", path: "/v" }] }).success).toBe(true);
+  });
+});

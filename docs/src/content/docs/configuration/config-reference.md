@@ -216,6 +216,12 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `retrieval.rrfK` | `number` | `10` |  | Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits. |
 | `retrieval.sparse` | `boolean` | `false` |  | Fuse a bge-m3 learned-sparse stream into RRF at serve time. A no-op unless the embeddings provider emits the multi-vector heads (bge-m3 or model-tier). |
 
+### `scheduler`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `scheduler.eventLoopDeferMs` | `number` | — |  | Event-loop delay p99 (ms) above which a DUE background tick is deferred rather than run. Deferred is not skipped: the tick runs on a later pass once the loop recovers, and obsidian_tc_scheduler_deferred_total counts it. Absent (the default) disables deferral entirely and the event-loop monitor is never even created, so there is no cost when off. Set it when background work is observably competing with request latency; a value near your acceptable p99 tail is the starting point. |
+
 ### `securityProfile`
 
 | Key | Type | Default | Required | Description |

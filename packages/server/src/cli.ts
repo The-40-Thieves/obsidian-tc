@@ -1000,9 +1000,17 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // a single tick loop. Each job keeps its exact run body and error/skip routing; the scheduler adds
   // shared single-flight and durable last-success/next-run (job_schedule in cache.db). Its clock is
   // Date.now for durable timestamps only. Budget deferral (event-loop-delay awareness) is available
-  // but left disabled here (eventLoopDeferMs unset) to preserve today's cadence — enabling it is a
-  // config-tuning follow-up.
-  const scheduler = new Scheduler({ now: Date.now, db });
+  // Budget deferral (event-loop-delay awareness) is now reachable from config
+  // (`scheduler.eventLoopDeferMs`, THE-458 item 6) and remains OFF unless an operator sets it.
+  const scheduler = new Scheduler({
+    now: Date.now,
+    db,
+    // THE-458 item 6: budget deferral was built, tested, and unreachable — this line is the whole
+    // fix. Absent by default, so cadence is unchanged; the monitor is not even created when unset.
+    ...(config.scheduler.eventLoopDeferMs !== undefined
+      ? { eventLoopDeferMs: config.scheduler.eventLoopDeferMs }
+      : {}),
+  });
   // THE-466 slice 2: hand the live scheduler to the observability module's lazy gauge sources
   // (schedulerSkipped / schedulerConsecutiveFailures / schedulerDeferred).
   schedulerRef = scheduler;
@@ -1024,7 +1032,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 
   // THE-296 / #14: ambient sleep-time consolidation (weekly synthesis + daily audit) is now durable
   // jobs — a transient gateway failure retries/dead-letters instead of vanishing (the old
-  // registerPlaneScheduler ran the plane in-process on a timer with no persistence). Registered only
+  // in-process plane timer ran with no persistence; its registerPlaneScheduler was deleted as dead
+  // code in THE-458 — nothing had referenced it since #14). Registered only
   // when BOTH the flag and the gateway roles are present: the generative jobs degrade without roles,
   // but scheduling them then is pure DB churn. Idempotency keys (per iso-week / per-day) keep a slow
   // run from piling up duplicate jobs; the job-queue-runner (registered above) executes them.
