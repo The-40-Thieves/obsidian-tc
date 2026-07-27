@@ -305,7 +305,7 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `watch.debounceMs` | `number` | `500` |  | Quiet period before a burst of filesystem events is flushed. One editor save emits several events and a sync pass emits one per file; this coalesces both into a single reindex per path. Raising it delays pickup, lowering it costs redundant reindex passes during a large sync. |
-| `watch.enabled` | `boolean` | `true` |  | Watch each vault root and reindex notes changed outside the server (sync clients, git pull, an editor on the host). Turn OFF for a vault on a filesystem with no usable change notification (some network mounts) or to cap inotify usage on a very large vault; index_vault then remains the only way changes are picked up. |
+| `watch.enabled` | `boolean` | `true` |  | Watch each vault root and reindex notes changed outside the server (sync clients, git pull, an editor on the host). Not active on Windows regardless of this setting: Node's recursive fs.watch terminated the test process there, and whether a long-lived server is affected the same way is unverified. Turn OFF for a vault on a filesystem with no usable change notification (some network mounts) or to cap inotify usage on a very large vault; index_vault then remains the only way changes are picked up. |
 
 ### `writes`
 

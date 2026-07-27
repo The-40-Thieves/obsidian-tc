@@ -89,6 +89,12 @@ usable change notification (some network mounts) or to cap inotify usage on a ve
 vault. If a vault root does not exist at startup, that vault is not watched and the reason is
 written to stderr; the other vaults are unaffected.
 
+> **Not active on Windows.** Node's recursive `fs.watch` terminated the test process outright
+> on Windows in CI, so the watch is not started there and the reason is written to stderr.
+> Whether a long-lived server is affected the same way is unverified — the watch is off rather
+> than the question being answered either way. On Windows, `index_vault` remains the way
+> external changes are picked up, which is the behaviour Windows deployments already had.
+
 `index_vault` remains available and is still the right call after a pass-based sync (a git
 pull, a completed `ob sync`) when you want the whole tree reconciled in one pass rather than
 file by file — and it is the only mechanism when the watch is off.

@@ -78,8 +78,29 @@ export function registerVaultWatch(
   vaults: readonly { id: string; path: string }[],
   cfg: { enabled: boolean; debounceMs: number },
   hooks: Pick<VaultWatchOptions, "onUpsert" | "onDelete">,
+  platform: string = process.platform,
 ): () => void {
   if (!cfg.enabled) return () => {};
+  // Not started on Windows, deliberately and conservatively.
+  //
+  // What was observed: Node's RECURSIVE fs.watch killed the vitest worker process outright on
+  // windows-latest, in two independent CI runs, under both `persistent: false` and an explicit
+  // unref() — no exception, no failing assertion, the process simply exited and that block's tests
+  // vanished from the totals. The same tests pass on ubuntu, ubuntu-arm and macos.
+  //
+  // What was NOT established: whether a long-lived server with one watcher per vault is affected the
+  // same way, rather than only a test process that creates and tears down many watchers. That is
+  // exactly why this is off here instead of the claim being made either way.
+  //
+  // The costs are asymmetric. Off on Windows = the pre-THE-649 behaviour, index_vault on demand,
+  // which is what Windows users have today — no regression. On, if the crash generalises = a server
+  // that dies. Enabling it is a one-line change once someone can verify a real Windows host.
+  if (platform === "win32") {
+    process.stderr.write(
+      "[watch] filesystem watch is not started on Windows; use index_vault to pick up external changes\n",
+    );
+    return () => {};
+  }
   return startVaultWatch({
     targets: vaults.map((v) => ({ vaultId: v.id, root: v.path })),
     debounceMs: cfg.debounceMs,

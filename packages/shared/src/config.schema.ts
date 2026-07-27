@@ -1134,7 +1134,7 @@ export const WatchConfigSchema = z
       .boolean()
       .default(true)
       .describe(
-        "Watch each vault root and reindex notes changed outside the server (sync clients, git pull, an editor on the host). Turn OFF for a vault on a filesystem with no usable change notification (some network mounts) or to cap inotify usage on a very large vault; index_vault then remains the only way changes are picked up.",
+        "Watch each vault root and reindex notes changed outside the server (sync clients, git pull, an editor on the host). Not active on Windows regardless of this setting: Node's recursive fs.watch terminated the test process there, and whether a long-lived server is affected the same way is unverified. Turn OFF for a vault on a filesystem with no usable change notification (some network mounts) or to cap inotify usage on a very large vault; index_vault then remains the only way changes are picked up.",
       ),
     debounceMs: z
       .number()

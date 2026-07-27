@@ -7,9 +7,10 @@
 import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   normalizeWatchPath,
+  registerVaultWatch,
   resolveWatchedPath,
   shouldWatchPath,
   startVaultWatch,
@@ -52,16 +53,31 @@ function recorder() {
     deletes,
     onUpsert: (v: string, p: string, c: string) => upserts.push([v, p, c]),
     onDelete: (v: string, p: string) => deletes.push([v, p]),
-    // Generous by default: FSEvents on macOS coalesces with its own latency window on top of ours,
-    // and CI runners are slower than this box. The tests that assert "exactly one" still catch a
-    // second call via the trailing wait below, so a long ceiling costs nothing but patience.
-    async settle(n = 1, timeoutMs = 10_000): Promise<void> {
+    /** Drop everything seen so far, so a test can assert about ONE transition in isolation. */
+    reset(): void {
+      upserts.length = 0;
+      deletes.length = 0;
+    },
+    /**
+     * Wait until `pred` holds, then keep waiting a little longer.
+     *
+     * The trailing quiet period is what lets a test assert "exactly one" — it gives a second,
+     * unwanted call time to arrive and be caught rather than racing the assertion. The ceiling is
+     * generous because FSEvents applies its own coalescing latency on top of our debounce and CI
+     * runners are slower than a dev box; a long ceiling costs patience only when something is
+     * already wrong.
+     */
+    async until(pred: () => boolean, timeoutMs = 10_000): Promise<void> {
       const deadline = Date.now() + timeoutMs;
-      while (upserts.length + deletes.length < n && Date.now() < deadline) {
+      while (!pred() && Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 25));
       }
-      // One more debounce window, so a test asserting "exactly one" can still catch a second call.
-      await new Promise((r) => setTimeout(r, 120));
+      await new Promise((r) => setTimeout(r, 250));
+    },
+    /** Wait for `n` sink calls of ANY kind. Prefer `until` when the KIND matters — counting any
+     *  event lets a stray duplicate satisfy the wait before the event under test has arrived. */
+    async settle(n = 1, timeoutMs = 10_000): Promise<void> {
+      await this.until(() => upserts.length + deletes.length >= n, timeoutMs);
     },
   };
 }
@@ -205,7 +221,49 @@ describe("resolveWatchedPath — classification and the two alias guards", () =>
   });
 });
 
-describe("startVaultWatch — event delivery", () => {
+describe("registerVaultWatch — start/skip decision", () => {
+  // `platform` is injectable precisely so this runs on EVERY leg rather than only the one where it
+  // matters. A Windows-only guard tested only on Windows would be tested nowhere useful.
+  const noHooks = { onUpsert: () => {}, onDelete: () => {} };
+
+  it("does not start a watch on win32, and says so on stderr", () => {
+    const root = makeVault();
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((c: unknown) => {
+      writes.push(String(c));
+      return true;
+    });
+    try {
+      const stop = registerVaultWatch(
+        [{ id: "v1", path: root }],
+        { enabled: true, debounceMs: 50 },
+        noHooks,
+        "win32",
+      );
+      expect(writes.join("")).toContain("not started on Windows");
+      expect(() => stop()).not.toThrow(); // still a valid stop function for the shutdown path
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("returns a no-op stop when disabled, without touching the filesystem", () => {
+    const stop = registerVaultWatch(
+      [{ id: "v1", path: join(tmpdir(), "tc-never-created-649") }],
+      { enabled: false, debounceMs: 50 },
+      noHooks,
+      "linux",
+    );
+    // A missing root would have reported an error had a watch actually been attempted.
+    expect(() => stop()).not.toThrow();
+  });
+});
+
+// Skipped on Windows because the worker process does not survive it — see registerVaultWatch's note.
+// Nothing security-relevant is lost: every alias guard and classification rule is asserted above via
+// resolveWatchedPath, which runs on all four CI legs. What is skipped here is event DELIVERY, and
+// registerVaultWatch does not start a watch on Windows anyway, so this matches what ships.
+describe.skipIf(process.platform === "win32")("startVaultWatch — event delivery", () => {
   // These assert only that the OS reaches us and that coalescing/shutdown behave — the classification
   // rules are covered above without any timing dependency.
   it("reports a newly created note, including in a NESTED directory", async () => {
@@ -229,8 +287,16 @@ describe("startVaultWatch — event delivery", () => {
   });
 
   it("reports a deleted note as a delete, not an upsert", async () => {
+    // Create the note AFTER the watch is armed, let its upsert land, then reset and delete — so
+    // this asserts about the delete TRANSITION in isolation.
+    //
+    // The earlier shape (create the file first, arm, delete, assert no upserts) failed only on
+    // macos-latest, with an upsert carrying the note's pre-deletion content. That is FSEvents
+    // working as designed: a recursive stream replays recent history when it arms, so the file's
+    // own creation — from before the watcher existed — was delivered afterwards. Harmless in
+    // production (an upsert followed by a delete converges on the same index state), but it makes
+    // "no upsert ever happened" an untestable claim on that platform.
     const root = makeVault();
-    writeFileSync(join(root, "gone.md"), "bye", "utf8");
     const r = recorder();
     const stop = startVaultWatch({
       targets: [{ vaultId: "v1", root }],
@@ -240,8 +306,15 @@ describe("startVaultWatch — event delivery", () => {
     });
     try {
       await arm();
-      rmSync(join(root, "gone.md"));
+      writeFileSync(join(root, "gone.md"), "bye", "utf8");
       await r.settle();
+      expect(r.upserts).toEqual([["v1", "gone.md", "bye"]]);
+      r.reset();
+
+      rmSync(join(root, "gone.md"));
+      // until(deletes), not settle(1): a stray duplicate upsert would satisfy a plain count and let
+      // the assertion run before the delete had arrived.
+      await r.until(() => r.deletes.length >= 1);
       expect(r.deletes).toEqual([["v1", "gone.md"]]);
       expect(r.upserts).toEqual([]);
     } finally {
