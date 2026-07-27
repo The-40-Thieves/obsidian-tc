@@ -68,9 +68,36 @@ No subscription, no CouchDB.
 
 ## Reindex
 
-The server watches `vaultPath` and reindexes changed files. For pass-based sync (a git pull,
-a completed `ob sync`), trigger a reindex explicitly so changes are picked up immediately
-rather than on the next watch tick — trigger it by calling the `index_vault` tool, which reindexes the changed files immediately.
+The server watches `vaultPath` recursively and reindexes notes that change underneath it,
+whoever wrote them. Events are coalesced over a short quiet period (`watch.debounceMs`,
+default 500 ms), so one editor save or one sync pass costs a single reindex per file rather
+than one per event.
+
+The watch admits exactly what `index_vault` walks and nothing more: `.md` files only, and no
+directory whose name begins with a dot (`.obsidian`, `.trash`, `.git`). Neither can be used to
+pull content in from outside `vaultPath` — a **symlink** is skipped by both, and a **hard
+link** is refused by both (a file with more than one name is not read, because a hard link is a
+second name for an inode that may live anywhere on the same filesystem and cannot be resolved
+away by `realpath`). A refused file is evicted from the index rather than indexed, and the
+refusal is written to stderr.
+
+Changes are read-ACL-gated the same way a `write_note` is; a path your ACL hides from reads is
+evicted from the index rather than added to it.
+
+Set `watch.enabled: false` to turn it off — worth doing for a vault on a filesystem with no
+usable change notification (some network mounts) or to cap inotify usage on a very large
+vault. If a vault root does not exist at startup, that vault is not watched and the reason is
+written to stderr; the other vaults are unaffected.
+
+> **Not active on Windows.** Node's recursive `fs.watch` terminated the test process outright
+> on Windows in CI, so the watch is not started there and the reason is written to stderr.
+> Whether a long-lived server is affected the same way is unverified — the watch is off rather
+> than the question being answered either way. On Windows, `index_vault` remains the way
+> external changes are picked up, which is the behaviour Windows deployments already had.
+
+`index_vault` remains available and is still the right call after a pass-based sync (a git
+pull, a completed `ob sync`) when you want the whole tree reconciled in one pass rather than
+file by file — and it is the only mechanism when the watch is off.
 
 ## What never syncs
 

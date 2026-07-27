@@ -128,6 +128,24 @@ describe("config schema", () => {
   });
 });
 
+describe("watch config (THE-649)", () => {
+  it("defaults ON — the setting that makes docs/SYNC.md's long-standing claim true", () => {
+    // Deliberately asserting the DEFAULT and not just the shape. SYNC.md described "the server
+    // watches vaultPath and reindexes changed files" for the whole life of the project while no
+    // watcher existed; shipping this off-by-default would have left the document still wrong.
+    const c = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }] });
+    expect(c.watch).toEqual({ enabled: true, debounceMs: 500 });
+  });
+
+  it("a config predating THE-649 validates unchanged, and an override fills the rest", () => {
+    const c = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      watch: { enabled: false },
+    });
+    expect(c.watch).toEqual({ enabled: false, debounceMs: 500 });
+  });
+});
+
 describe("maintenance config (THE-292)", () => {
   it("defaults: enabled hourly sweep; a pre-THE-292 config validates unchanged", () => {
     const c = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }] });

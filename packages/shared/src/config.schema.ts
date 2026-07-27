@@ -1123,6 +1123,30 @@ export const MaintenanceConfigSchema = z
   })
   .prefault({});
 
+// THE-649 — filesystem watch over each vault root. Fully defaulted, and defaulted ON: docs/SYNC.md
+// has described this behaviour ("the server watches vaultPath and reindexes changed files") since
+// before the watcher existed, so ON is the setting that makes the documented contract true rather
+// than a new opt-in feature. Every sync tier in that document delivers Markdown by writing to disk,
+// which is the only event this can observe.
+export const WatchConfigSchema = z
+  .object({
+    enabled: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Watch each vault root and reindex notes changed outside the server (sync clients, git pull, an editor on the host). Not active on Windows regardless of this setting: Node's recursive fs.watch terminated the test process there, and whether a long-lived server is affected the same way is unverified. Turn OFF for a vault on a filesystem with no usable change notification (some network mounts) or to cap inotify usage on a very large vault; index_vault then remains the only way changes are picked up.",
+      ),
+    debounceMs: z
+      .number()
+      .int()
+      .positive()
+      .default(500)
+      .describe(
+        "Quiet period before a burst of filesystem events is flushed. One editor save emits several events and a sync pass emits one per file; this coalesces both into a single reindex per path. Raising it delays pickup, lowering it costs redundant reindex passes during a large sync.",
+      ),
+  })
+  .prefault({});
+
 // THE-296 — ambient sleep-time consolidation (synthesis + audit jobs). Fully defaulted; only
 // meaningful when the inference gateway (roles) is configured — cli gates on both.
 export const PlaneConfigSchema = z
@@ -1363,6 +1387,7 @@ export const ServerConfigObject = z.object({
     "Metrics, traces and event export.",
   ),
   maintenance: MaintenanceConfigSchema.describe("Periodic cache.db maintenance sweep."),
+  watch: WatchConfigSchema.describe("Filesystem watch that reindexes notes changed outside."),
   snapshots: SnapshotsConfigSchema.describe("Point-in-time note snapshot policy."),
   plane: PlaneConfigSchema.describe("Ambient sleep-time consolidation jobs."),
   idempotencyTtlSeconds: z
