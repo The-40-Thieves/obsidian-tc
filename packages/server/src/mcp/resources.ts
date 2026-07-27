@@ -5,14 +5,18 @@ import { readableRel } from "../vault/acl-read-filter";
 import { readNote, statNote } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
 import type { VaultRegistry } from "../vault/registry";
-import type { CallerContext } from "./registry";
+import { assertScopesGranted, type CallerContext } from "./registry";
 
 /** Resource URI scheme. Deliberately distinct from the Obsidian app's `obsidian://` deep links. */
 export const RESOURCE_SCHEME = "obsidian-tc";
 const MIME_MARKDOWN = "text/markdown";
-// A single resource larger than this is rejected (use the read_note tool with a range), so
-// resources cannot bypass the dispatch governor's response ceiling.
-const MAX_RESOURCE_BYTES = 1_000_000;
+// THE-514 item 2: this used to be a second, fixed copy of registry.ts's configurable
+// `maxResponseBytes` (opts.maxResponseBytes ?? 1_000_000) — same value, but not wired to config,
+// so an operator who lowered maxResponseBytes got it enforced on tools only. readResource now
+// takes the registry's actual ceiling as a parameter; this constant survives only as the fallback
+// default for callers that pass none (matching registry.ts's own `?? 1_000_000`), so resources
+// truly cannot bypass the dispatch governor's response ceiling.
+const DEFAULT_MAX_RESOURCE_BYTES = 1_000_000;
 
 export function buildResourceUri(vaultId: string, relPath: string): string {
   // Percent-encode each path segment so names containing %, spaces, #, or ? round-trip through
@@ -87,22 +91,28 @@ export function listResources(
  * read-ACL, path containment, AND the P1.4 per-path rule-scopes (the same gates read_note applies —
  * this is the same content read on the same path, so it must honor an operator's rule-scope fence),
  * then a size ceiling.
+ *
+ * `maxResourceBytes` (THE-514 item 2): the caller passes the registry's actual configured
+ * `maxResponseBytes` here (see mcp/server.ts) so a lowered ceiling applies to resources too,
+ * not just tools. Defaults to `DEFAULT_MAX_RESOURCE_BYTES` for callers (tests, or a future
+ * caller with no registry in scope) that pass none — matching registry.ts's own default.
  */
 export function readResource(
   vaultRegistry: VaultRegistry,
   ctx: CallerContext,
   uri: string,
+  maxResourceBytes: number = DEFAULT_MAX_RESOURCE_BYTES,
 ): ReadResourceResult {
-  if (!canReadNotes(ctx)) throw err.forbidden("missing required scope: read:notes", { uri });
+  assertScopesGranted(ctx, ["read:notes"], "missing required scope: read:notes");
   const { vaultId, relPath } = parseResourceUri(uri);
   // Bind the read to the caller's own vault. ctx.acl is the caller's ACL for ctx.vaultId, so
   // resolving any other vault from the URI would apply the wrong ACL and leak a vault the
   // caller holds no token for. listResources only ever emits ctx.vaultId URIs; enforce it here.
   //
   // THE-514 item 2: this check is UNCONDITIONAL — unlike the tool-dispatch equivalent
-  // (mcp/registry.ts:901, `if (ctx.vaultBound === true)`), it fires for every caller including a
-  // trusted stdio one. See the AUTHORITATIVE NOTE at that line for why the two are deliberately
-  // different rather than merely inconsistent.
+  // (mcp/registry.ts, `if (ctx.vaultBound === true)` in the vault-binding guard), it fires for
+  // every caller including a trusted stdio one. See the AUTHORITATIVE NOTE at that guard for why
+  // the two are deliberately different rather than merely inconsistent.
   if (vaultId !== ctx.vaultId)
     throw err.forbidden(`resource vault is not the caller's bound vault: ${vaultId}`, {
       uri,
@@ -120,9 +130,9 @@ export function readResource(
   // force the full allocation just to be told it is too big. A null stat (missing file) falls
   // through to readNote, which throws the same not-found error as before.
   const stat = statNote(abs);
-  if (stat !== null && stat.size > MAX_RESOURCE_BYTES)
+  if (stat !== null && stat.size > maxResourceBytes)
     throw err.invalidInput(
-      `resource exceeds ${MAX_RESOURCE_BYTES} bytes; read it with the read_note tool instead`,
+      `resource exceeds ${maxResourceBytes} bytes; read it with the read_note tool instead`,
       { uri },
     );
   const { raw } = readNote(abs);

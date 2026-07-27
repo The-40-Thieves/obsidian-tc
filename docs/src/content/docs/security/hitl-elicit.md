@@ -25,4 +25,11 @@ the refusal is counted (`governor_truncations_total`) and emitted as
 `tc.governor.overflow`. This bounds memory and protects clients from
 pathologically large payloads.
 
+An MCP `resources/read` honors the same configured `governor.maxResponseBytes` ceiling
+(THE-514) — lowering it refuses an oversized resource too, not just an oversized tool
+response. A resource's rejection is a plain `invalid_input` error (checked via a cheap
+`stat()` before the file is read, rather than serializing the result first), so it does
+not increment `governor_truncations_total` or emit `tc.governor.overflow` — those stay
+specific to the tool-dispatch governor stage.
+
 See [Observability](/observability/prometheus/) for the counters these emit.

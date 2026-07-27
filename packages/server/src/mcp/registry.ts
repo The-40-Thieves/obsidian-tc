@@ -71,6 +71,26 @@ export interface CallerContext {
   signal?: AbortSignal;
 }
 
+/**
+ * THE-514 item 1: the scope-requirement check `runDispatch`'s own scope gate (below) and
+ * `resources.ts`'s readResource each wrote independently — `if (!grantsAll(...)) throw
+ * forbidden(...)`. Unlike the vault-binding guard (see the AUTHORITATIVE NOTE further down),
+ * this one had no semantic divergence to preserve: same primitive (`grantsAll`), same error code,
+ * same shape of `details`. It had already started to drift anyway — resources.ts's version omitted
+ * `details.required`, which the "forbidden" error's own documented recovery hint
+ * (`shared/src/errors.ts`) promises callers can read. One function now backs both call sites, so
+ * a future change to how a missing scope is reported cannot silently apply to only one surface.
+ */
+export function assertScopesGranted(
+  ctx: Pick<CallerContext, "grantedScopes">,
+  requiredScopes: string[],
+  message: string,
+): void {
+  if (!grantsAll(ctx.grantedScopes, requiredScopes)) {
+    throw err.forbidden(message, { required: requiredScopes });
+  }
+}
+
 /** MCP 2025-11-25 icon metadata (a structural subset of the SDK's Icon), surfaced in tools/list +
  *  describe_capability (THE-278). Optional plumbing; no tool populates it yet. */
 export interface ToolIcon {
@@ -368,7 +388,7 @@ function strictOutputSchemaDefault(): boolean {
 export class ToolRegistry {
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool registry; the handler input type is contravariant, so ToolDefinition<unknown, unknown> is not assignable from a specific ToolDefinition.
   private readonly tools = new Map<string, ToolDefinition<any, any>>();
-  private readonly maxResponseBytes: number;
+  private readonly _maxResponseBytes: number;
   private readonly verifyElicit?: VerifyElicit;
   private readonly metrics?: MetricsRecorder;
   private readonly tracer?: Tracer;
@@ -392,8 +412,16 @@ export class ToolRegistry {
   private readonly onEpisode?: RegistryOptions["onEpisode"];
   private readonly strictOutputSchema: boolean;
 
+  /** THE-514 item 2: read-only access to the configured ceiling, so mcp/server.ts can pass it to
+   *  resources.ts's readResource — the single source of truth this registry already enforces for
+   *  tools, now reaching the resources surface too instead of that surface holding its own fixed
+   *  copy of the same default. */
+  get maxResponseBytes(): number {
+    return this._maxResponseBytes;
+  }
+
   constructor(opts: RegistryOptions = {}) {
-    this.maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
+    this._maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
     this.verifyElicit = opts.verifyElicit;
     this.metrics = opts.metrics;
     this.tracer = opts.tracer;
@@ -894,10 +922,7 @@ export class ToolRegistry {
       if (def.requiredScopes.length > 0 && !ctx.authenticated)
         throw new ObsidianTcError("unauthorized", "authentication required for this tool");
 
-      if (!grantsAll(ctx.grantedScopes, def.requiredScopes))
-        throw new ObsidianTcError("forbidden", "missing required scope(s)", {
-          required: def.requiredScopes,
-        });
+      assertScopesGranted(ctx, def.requiredScopes, "missing required scope(s)");
 
       // Vault-binding guard (THE-267). A vault-bound caller (an HTTP token) may act only on its
       // own vault: the ~90 vault tools resolve a caller-supplied `vault` arg against ANY configured
@@ -906,11 +931,11 @@ export class ToolRegistry {
       // family (no vault arg) and vault-omitting calls are unaffected; trusted stdio is unbound.
       //
       // THE-514 item 2 — AUTHORITATIVE NOTE on the one place this guard's condition differs from
-      // resources.ts's readResource (mcp/resources.ts:101, which points back here): this check is
-      // CONDITIONAL on `ctx.vaultBound === true`, so a trusted stdio caller (vaultBound left unset)
-      // may still name any configured vault. readResource's equivalent check is UNCONDITIONAL — it
-      // refuses `vaultId !== ctx.vaultId` regardless of vaultBound, so even a trusted stdio caller
-      // reading a resource is pinned to its own vault.
+      // resources.ts's readResource (its `if (vaultId !== ctx.vaultId)` check, which points back
+      // here): this check is CONDITIONAL on `ctx.vaultBound === true`, so a trusted stdio caller
+      // (vaultBound left unset) may still name any configured vault. readResource's equivalent
+      // check is UNCONDITIONAL — it refuses `vaultId !== ctx.vaultId` regardless of vaultBound, so
+      // even a trusted stdio caller reading a resource is pinned to its own vault.
       //
       // Same concern (don't let a caller reach a vault it isn't bound to), two behaviours, and this
       // is a DELIBERATE, EVALUATED divergence, not an oversight:
@@ -918,7 +943,7 @@ export class ToolRegistry {
       //     configured vault by name through the `vault` argument (prefetch, admin tools, multi-vault
       //     workflows) — that is the documented meaning of "trusted": no HTTP token, no vaultBound.
       //   - resources/read stays unconditional because listResources only ever emits URIs for
-      //     ctx.vaultId (mcp/resources.ts:70-83) — there is no legitimate reason for ANY caller,
+      //     ctx.vaultId (mcp/resources.ts's listResources) — there is no legitimate reason for ANY caller,
       //     trusted or not, to construct a foreign-vault resource URI by hand, so the narrower rule
       //     costs a trusted caller nothing while closing off a hand-crafted URI as an attack surface.
       // The divergence is currently in the SAFE direction (resources is the stricter of the two). If
@@ -1027,14 +1052,14 @@ export class ToolRegistry {
               // no payload. Replay the SAME overflow error rather than re-executing or returning an
               // absent/oversized payload. A normal success always finalizes with size <= the budget,
               // so this never fires on a legitimate cached result.
-              if (row.result_size != null && row.result_size > this.maxResponseBytes) {
+              if (row.result_size != null && row.result_size > this._maxResponseBytes) {
                 // Hoist the narrowed size into a const so it stays `number` inside the meter closure
                 // (TS drops the `!= null` narrowing on a property access captured by a later-called fn).
                 const overSize = row.result_size;
                 const duration = Math.max(0, now() - start);
                 const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
                   result_size: overSize,
-                  limit: this.maxResponseBytes,
+                  limit: this._maxResponseBytes,
                 });
                 audit("error", duration, overSize, e.code);
                 this.meter((m) => {
@@ -1047,7 +1072,7 @@ export class ToolRegistry {
                   meta: {
                     duration_ms: duration,
                     result_size: overSize,
-                    overflow_bytes: overSize - this.maxResponseBytes,
+                    overflow_bytes: overSize - this._maxResponseBytes,
                   },
                 };
               }
@@ -1278,7 +1303,7 @@ export class ToolRegistry {
       const resultSize = Buffer.byteLength(json, "utf8");
       const duration = Math.max(0, now() - start);
 
-      if (resultSize > this.maxResponseBytes) {
+      if (resultSize > this._maxResponseBytes) {
         // Idempotency post-effect: the handler's side effect has ALREADY committed by here, and
         // markEffectCommitted (above) already durably marked the claim 'effect_committed' before we
         // got here. Do not delete the claim — that would let a retry with the same key re-execute the
@@ -1307,7 +1332,7 @@ export class ToolRegistry {
         }
         const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
           result_size: resultSize,
-          limit: this.maxResponseBytes,
+          limit: this._maxResponseBytes,
         });
         audit("error", duration, resultSize, e.code);
         this.meter((m) => {
@@ -1320,7 +1345,7 @@ export class ToolRegistry {
           meta: {
             duration_ms: duration,
             result_size: resultSize,
-            overflow_bytes: resultSize - this.maxResponseBytes,
+            overflow_bytes: resultSize - this._maxResponseBytes,
           },
         };
       }

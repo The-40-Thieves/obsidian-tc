@@ -149,6 +149,22 @@ describe("readResource", () => {
     const reg = tempVaultWith({ "big.md": "x".repeat(1_000_001) });
     expect(() => readResource(reg, ctx(["*"]), "obsidian-tc://main/big.md")).toThrow(/exceeds/);
   });
+  // THE-514 item 2: MAX_RESOURCE_BYTES used to be a second, fixed 1MB constant — agreeing with
+  // registry.ts's configurable default but not wired to it, so an operator who lowered
+  // governor.maxResponseBytes got it enforced on tools only. readResource now takes the
+  // registry's actual ceiling as its 4th argument (mcp/server.ts passes `registry.maxResponseBytes`);
+  // this asserts a caller-supplied ceiling BELOW the 1MB default is honored, not just the default.
+  it("honors a caller-supplied ceiling below the 1MB default", () => {
+    const reg = tempVaultWith({ "small.md": "x".repeat(100) });
+    expect(() => readResource(reg, ctx(["*"]), "obsidian-tc://main/small.md", 50)).toThrow(
+      /exceeds 50 bytes/,
+    );
+    // The identical content passes under a larger explicit ceiling.
+    const out = readResource(reg, ctx(["*"]), "obsidian-tc://main/small.md", 1000);
+    const c = out.contents[0];
+    if (!c || !("text" in c)) throw new Error("expected text contents");
+    expect(c.text).toBe("x".repeat(100));
+  });
 });
 
 describe("prompts", () => {

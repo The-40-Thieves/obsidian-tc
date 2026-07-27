@@ -234,7 +234,7 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 
 | Field | Default | What it does |
 | --- | --- | --- |
-| `governor.maxResponseBytes` | 1000000 | Response size ceiling — page with cursors rather than raising it. |
+| `governor.maxResponseBytes` | 1000000 | Response size ceiling for both tool calls and `resources/read` — page with cursors rather than raising it. |
 | `governor.regexTimeoutMs` | 2000 | Worker-time budget for one regex search (ReDoS guard; file I/O doesn't count). |
 | `writes.requireCas` | false | When true, `write_note` (overwrite) and `append_note` to an existing note **require** `prev_hash` and fail closed without it — no stale-hash clobbering. |
 | `snapshots.enabled` | false | Point-in-time snapshots: destructive writes capture prior state (content-addressed) so `restore_note` can roll back. |

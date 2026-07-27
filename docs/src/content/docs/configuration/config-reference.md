@@ -114,7 +114,7 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `governor.maxResponseBytes` | `number` | `1000000` |  | Ceiling on a single tool response in bytes, before it is truncated or refused. |
+| `governor.maxResponseBytes` | `number` | `1000000` |  | Ceiling on a single tool or resource response in bytes, before it is refused (THE-514: resources/read honors this too, not just tools). |
 | `governor.regexTimeoutMs` | `number` | `2000` |  | Worker-time budget in ms for one regex search. Only regex execution counts — file I/O does not — so a benign pattern over a large vault cannot false-positive the ReDoS guard. |
 
 ### `idempotencyReclaimSeconds`
