@@ -38,6 +38,8 @@ const baseDeps = (db: Database, morgiana: MorgianaEmitter) => ({
     intervalMinutes: 1,
     jobsCompleteRetentionDays: 7,
     jobsFailedRetentionDays: 30,
+    episodesRetentionDays: 90,
+    retrievalsRetentionDays: 365,
   },
   retention: { eventLogDays: 30, tracesDays: 30 },
   vaults: [] as { id: string; path: string }[],
@@ -52,11 +54,27 @@ describe("sweepTotal — every arm joins the total", () => {
     // The regression this guards: the total was widened by hand when THE-571 added `jobs` and again
     // when THE-610 added `trace_files`. Summing Object.values is what makes that automatic.
     expect(
-      sweepTotal({ idempotency_keys: 0, elicit_tokens: 0, event_log: 0, jobs: 0, trace_files: 3 }),
+      sweepTotal({
+        idempotency_keys: 0,
+        elicit_tokens: 0,
+        event_log: 0,
+        jobs: 0,
+        episodes: 0,
+        chunk_retrievals: 0,
+        trace_files: 3,
+      }),
     ).toBe(3);
     expect(
-      sweepTotal({ idempotency_keys: 1, elicit_tokens: 2, event_log: 4, jobs: 8, trace_files: 16 }),
-    ).toBe(31);
+      sweepTotal({
+        idempotency_keys: 1,
+        elicit_tokens: 2,
+        event_log: 4,
+        jobs: 8,
+        episodes: 32,
+        chunk_retrievals: 64,
+        trace_files: 16,
+      }),
+    ).toBe(127);
   });
 
   it("counts an arm that does not exist yet — the 'free for a future arm' claim", () => {
@@ -67,6 +85,8 @@ describe("sweepTotal — every arm joins the total", () => {
       elicit_tokens: 0,
       event_log: 0,
       jobs: 0,
+      episodes: 0,
+      chunk_retrievals: 0,
       trace_files: 0,
       some_future_arm: 5,
     } as unknown as SweepCounts;
@@ -75,7 +95,15 @@ describe("sweepTotal — every arm joins the total", () => {
 
   it("is zero for an all-zero sweep, so a no-op still reads as a no-op", () => {
     expect(
-      sweepTotal({ idempotency_keys: 0, elicit_tokens: 0, event_log: 0, jobs: 0, trace_files: 0 }),
+      sweepTotal({
+        idempotency_keys: 0,
+        elicit_tokens: 0,
+        event_log: 0,
+        jobs: 0,
+        episodes: 0,
+        chunk_retrievals: 0,
+        trace_files: 0,
+      }),
     ).toBe(0);
   });
 });

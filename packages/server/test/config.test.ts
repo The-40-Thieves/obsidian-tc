@@ -156,6 +156,11 @@ describe("maintenance config (THE-292)", () => {
       intervalMinutes: 60,
       jobsCompleteRetentionDays: 7,
       jobsFailedRetentionDays: 30,
+      // THE-610 arm 2. retrievalsRetentionDays is deliberately a YEAR, an order above every other
+      // window here: chunk_access_stats is a VIEW over chunk_retrievals, so pruning rewrites the
+      // activation and note-quality signals rather than only reclaiming disk.
+      episodesRetentionDays: 90,
+      retrievalsRetentionDays: 365,
     });
   });
 
@@ -169,6 +174,8 @@ describe("maintenance config (THE-292)", () => {
       intervalMinutes: 5,
       jobsCompleteRetentionDays: 7,
       jobsFailedRetentionDays: 30,
+      episodesRetentionDays: 90,
+      retrievalsRetentionDays: 365,
     });
   });
 });

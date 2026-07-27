@@ -1112,6 +1112,25 @@ export const MaintenanceConfigSchema = z
       .describe(
         "Days a COMPLETE job row is retained before the maintenance sweep prunes it. Must stay LONGER than the longest producer dedup window: enqueue() dedups against a terminal row unless replaceIfTerminal is set, so pruning one frees its idempotency key and lets that period run again (the weekly synthesis is the longest today).",
       ),
+    // THE-610 arm 2: the experiential store's two growth curves. Only DEAD episodes (forget
+    // tombstones and bi-temporally expired rows) are ever pruned — a live episode is work memory
+    // and age says nothing about whether it is finished with.
+    episodesRetentionDays: z
+      .number()
+      .int()
+      .positive()
+      .default(90)
+      .describe(
+        "Days a DEAD agent_episodes row (a forget tombstone, or one whose valid_until has passed) is retained before the maintenance sweep prunes it. Live episodes are never pruned at any age. Keep this long enough to still answer 'was this forgotten?' after the fact.",
+      ),
+    retrievalsRetentionDays: z
+      .number()
+      .int()
+      .positive()
+      .default(365)
+      .describe(
+        "Days a chunk_retrievals row is retained. NOT purely disk hygiene: chunk_access_stats is a VIEW over this table, so pruning REWRITES access_count / last_accessed_at / citations / outcome_balance, which feed activation and note quality. A short window makes a long-tail note that was genuinely useful look never-accessed. The default is deliberately a year, far above the other retention windows, so no signal any current consumer reads is affected.",
+      ),
     jobsFailedRetentionDays: z
       .number()
       .int()
