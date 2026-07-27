@@ -316,6 +316,7 @@ describe("THE-514 item 2 — vault-binding: documented divergence, asserted as s
           // difference here, which is exactly the documented divergence.
         },
         "obsidian-tc://other/secret.md",
+        1_000_000,
       ),
     ).toThrow(/bound vault/);
   });
@@ -352,6 +353,7 @@ describe("THE-514 item 1 — resources and tool-dispatch share one scope-authori
           db: openMemoryDb(),
         },
         "obsidian-tc://main/alpha.md",
+        1_000_000,
       );
     } catch (e) {
       resourceErr = e;

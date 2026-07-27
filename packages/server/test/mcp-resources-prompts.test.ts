@@ -15,6 +15,12 @@ import {
 } from "../src/mcp/resources";
 import { VaultRegistry } from "../src/vault/registry";
 
+// THE-514 item 2: readResource's maxResourceBytes is a REQUIRED parameter (mcp/server.ts's only
+// production caller always has a registry in scope, so there is no legitimate default). Tests not
+// specifically about the ceiling name this default explicitly rather than relying on a fallback
+// that no longer exists.
+const DEFAULT_TEST_CEILING = 1_000_000;
+
 function tempVault(): VaultRegistry {
   const dir = mkdtempSync(join(tmpdir(), "otc-res-"));
   writeFileSync(join(dir, "alpha.md"), "# Alpha\nhello");
@@ -99,7 +105,12 @@ describe("listResources", () => {
 
 describe("readResource", () => {
   it("reads a note's raw markdown", () => {
-    const out = readResource(tempVault(), ctx(["*"]), "obsidian-tc://main/alpha.md");
+    const out = readResource(
+      tempVault(),
+      ctx(["*"]),
+      "obsidian-tc://main/alpha.md",
+      DEFAULT_TEST_CEILING,
+    );
     const c = out.contents[0];
     expect(c?.uri).toBe("obsidian-tc://main/alpha.md");
     if (!c || !("text" in c)) throw new Error("expected text contents");
@@ -107,13 +118,18 @@ describe("readResource", () => {
   });
   it("rejects a path that escapes the vault root", () => {
     expect(() =>
-      readResource(tempVault(), ctx(["*"]), "obsidian-tc://main/../escape.md"),
+      readResource(
+        tempVault(),
+        ctx(["*"]),
+        "obsidian-tc://main/../escape.md",
+        DEFAULT_TEST_CEILING,
+      ),
     ).toThrow();
   });
   it("rejects without the read:notes scope", () => {
-    expect(() => readResource(tempVault(), ctx([]), "obsidian-tc://main/alpha.md")).toThrow(
-      /read:notes/,
-    );
+    expect(() =>
+      readResource(tempVault(), ctx([]), "obsidian-tc://main/alpha.md", DEFAULT_TEST_CEILING),
+    ).toThrow(/read:notes/);
   });
   it("P1.4: honors a path's rule-scopes (no bypass of the read_note path-scope gate)", () => {
     const reg = tempVaultWith({ "finance/secret.md": "# Secret\nnumbers" });
@@ -125,9 +141,16 @@ describe("readResource", () => {
     });
     const uri = buildResourceUri("main", "finance/secret.md");
     // Holds the baseline read:notes but NOT the path's read:finance -> denied, same as read_note.
-    expect(() => readResource(reg, ctx(["read:notes"], acl), uri)).toThrow(/scope/i);
+    expect(() => readResource(reg, ctx(["read:notes"], acl), uri, DEFAULT_TEST_CEILING)).toThrow(
+      /scope/i,
+    );
     // Holds the path scope -> the content is returned.
-    const out = readResource(reg, ctx(["read:notes", "read:finance"], acl), uri);
+    const out = readResource(
+      reg,
+      ctx(["read:notes", "read:finance"], acl),
+      uri,
+      DEFAULT_TEST_CEILING,
+    );
     const c = out.contents[0];
     if (!c || !("text" in c)) throw new Error("expected text contents");
     expect(c.text).toContain("Secret");
@@ -135,19 +158,31 @@ describe("readResource", () => {
   it("rejects a URI pointing at a vault the caller is not bound to", () => {
     // Caller bound to "main" (ctx.vaultId) must not read "other" even with full scope.
     expect(() =>
-      readResource(tempMultiVault(), ctx(["*"]), "obsidian-tc://other/secret.md"),
+      readResource(
+        tempMultiVault(),
+        ctx(["*"]),
+        "obsidian-tc://other/secret.md",
+        DEFAULT_TEST_CEILING,
+      ),
     ).toThrow(/bound vault/);
   });
   it("reads a note whose name needs percent-encoding", () => {
     const reg = tempVaultWith({ "50% done.md": "done" });
-    const out = readResource(reg, ctx(["*"]), buildResourceUri("main", "50% done.md"));
+    const out = readResource(
+      reg,
+      ctx(["*"]),
+      buildResourceUri("main", "50% done.md"),
+      DEFAULT_TEST_CEILING,
+    );
     const c = out.contents[0];
     if (!c || !("text" in c)) throw new Error("expected text contents");
     expect(c.text).toBe("done");
   });
   it("rejects a note exceeding the size ceiling (via stat, before loading it)", () => {
-    const reg = tempVaultWith({ "big.md": "x".repeat(1_000_001) });
-    expect(() => readResource(reg, ctx(["*"]), "obsidian-tc://main/big.md")).toThrow(/exceeds/);
+    const reg = tempVaultWith({ "big.md": "x".repeat(DEFAULT_TEST_CEILING + 1) });
+    expect(() =>
+      readResource(reg, ctx(["*"]), "obsidian-tc://main/big.md", DEFAULT_TEST_CEILING),
+    ).toThrow(/exceeds/);
   });
   // THE-514 item 2: MAX_RESOURCE_BYTES used to be a second, fixed 1MB constant — agreeing with
   // registry.ts's configurable default but not wired to it, so an operator who lowered
@@ -238,9 +273,9 @@ describe("Greptile review fixes", () => {
     expect(() => parseResourceUri("obsidian-tc://main/50% bad.md")).toThrow();
   });
   it("readResource rejects a URI for a vault other than the caller's bound vault", () => {
-    expect(() => readResource(tempVault(), ctx(["*"]), "obsidian-tc://main2/alpha.md")).toThrow(
-      /bound vault/,
-    );
+    expect(() =>
+      readResource(tempVault(), ctx(["*"]), "obsidian-tc://main2/alpha.md", DEFAULT_TEST_CEILING),
+    ).toThrow(/bound vault/);
   });
 });
 

@@ -10,13 +10,6 @@ import { assertScopesGranted, type CallerContext } from "./registry";
 /** Resource URI scheme. Deliberately distinct from the Obsidian app's `obsidian://` deep links. */
 export const RESOURCE_SCHEME = "obsidian-tc";
 const MIME_MARKDOWN = "text/markdown";
-// THE-514 item 2: this used to be a second, fixed copy of registry.ts's configurable
-// `maxResponseBytes` (opts.maxResponseBytes ?? 1_000_000) — same value, but not wired to config,
-// so an operator who lowered maxResponseBytes got it enforced on tools only. readResource now
-// takes the registry's actual ceiling as a parameter; this constant survives only as the fallback
-// default for callers that pass none (matching registry.ts's own `?? 1_000_000`), so resources
-// truly cannot bypass the dispatch governor's response ceiling.
-const DEFAULT_MAX_RESOURCE_BYTES = 1_000_000;
 
 export function buildResourceUri(vaultId: string, relPath: string): string {
   // Percent-encode each path segment so names containing %, spaces, #, or ? round-trip through
@@ -92,16 +85,19 @@ export function listResources(
  * this is the same content read on the same path, so it must honor an operator's rule-scope fence),
  * then a size ceiling.
  *
- * `maxResourceBytes` (THE-514 item 2): the caller passes the registry's actual configured
- * `maxResponseBytes` here (see mcp/server.ts) so a lowered ceiling applies to resources too,
- * not just tools. Defaults to `DEFAULT_MAX_RESOURCE_BYTES` for callers (tests, or a future
- * caller with no registry in scope) that pass none — matching registry.ts's own default.
+ * `maxResourceBytes` (THE-514 item 2): REQUIRED, deliberately — the caller passes the registry's
+ * actual configured `maxResponseBytes` here (see mcp/server.ts) so a lowered ceiling applies to
+ * resources too, not just tools. An optional parameter defaulting to some fixed literal would
+ * silently recreate the exact bug this fixes: a caller that forgets to pass it gets an
+ * unconfigured ceiling with no compile-time signal that config was ignored. There is exactly one
+ * production call site (mcp/server.ts) and it always has a registry in scope, so there is no
+ * legitimate caller this default would have served.
  */
 export function readResource(
   vaultRegistry: VaultRegistry,
   ctx: CallerContext,
   uri: string,
-  maxResourceBytes: number = DEFAULT_MAX_RESOURCE_BYTES,
+  maxResourceBytes: number,
 ): ReadResourceResult {
   assertScopesGranted(ctx, ["read:notes"], "missing required scope: read:notes");
   const { vaultId, relPath } = parseResourceUri(uri);
