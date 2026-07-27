@@ -5,24 +5,20 @@ name: ci-docgen
 # hand-edit of a generated page (docs/wiki). Makes regeneration mandatory, so the tool/config
 # reference can never drift from the code.
 on:
+  # THE-599: DELIBERATELY UNFILTERED. `drift-gate` is becoming a REQUIRED status check, and a
+  # required check whose workflow never fires leaves the PR blocked forever on "Expected --
+  # waiting for status to be reported" rather than reading as clean. A `paths:` filter and a
+  # required check cannot coexist.
+  #
+  # The filter had also been losing an arms race against its own purpose. It was widened twice --
+  # THE-595 added 'docs/*.md' because a PR hand-editing a G2 design doc (the exact class of change
+  # THE-595 exists to catch) would not trigger the gate; THE-598 hit the same wall on ci-server.
+  # Enumerating "every path that could move a documented fact" is not a closed set, and each miss
+  # is silent. Running always is both cheaper to reason about and strictly more correct.
+  #
+  # drift-gate is a single fast job (docgen:render --check + facts-check + schema/map/migration
+  # checks), so the cost of running it on every PR is small.
   pull_request:
-    paths:
-      - 'packages/server/**'
-      - 'packages/shared/**'
-      - 'docs/wiki/**'
-      - 'docs/src/content/**'
-      # THE-595: the G2 design docs (docs/*.md) are now in the marker/hand-written-table scan's
-      # scope too — without this, a PR that only hand-edits one of them (the exact class of change
-      # THE-595 exists to catch) would never trigger this gate at all.
-      - 'docs/*.md'
-      # TREE.md's graph sections are generated from the same source paths above; listing the file
-      # and its generator here catches a HAND-EDIT of a generated region, exactly as docs/wiki/**
-      # does for the docgen pages.
-      - 'TREE.md'
-      - 'scripts/gen-tree-map.mjs'
-      - '.dependency-cruiser.cjs'
-      - 'bun.lock'
-      - '.github/workflows/ci-docgen.yml'
   push:
     branches: [main]
 
