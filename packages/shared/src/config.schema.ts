@@ -1115,6 +1115,21 @@ export const MaintenanceConfigSchema = z
     // THE-610 arm 2: the experiential store's two growth curves. Only DEAD episodes (forget
     // tombstones and bi-temporally expired rows) are ever pruned — a live episode is work memory
     // and age says nothing about whether it is finished with.
+    // THE-458 item 6: a PERIODIC vault reconcile. Off unless set, because a server whose watcher
+    // is healthy does not need it — but two gaps opened when THE-649 made the watcher the primary
+    // change source, and this is the only thing that closes either short of a manual index_vault:
+    //   * the watcher is not started on Windows at all, can fail to arm (inotify ENOSPC), sees
+    //     nothing on some network mounts, and never covers vaults added later by add_vault;
+    //   * indexNote does NOT densify, so the watcher's single-note writes leave derived edges
+    //     stale until a full pass runs. This pass threads densify exactly as the boot one does.
+    reconcileIntervalMinutes: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        "Minutes between periodic full vault reconciles. ABSENT (the default) disables it: the boot reconcile and the filesystem watch already cover a healthy server. Set it when the watch cannot run — Windows (where it is never started), a network mount with no change notification, or a vault large enough to exhaust the inotify limit — and when derived graph edges should be refreshed, since single-note writes never densify. Costs a full vault walk per run; content-hash skip makes an unchanged vault cheap to re-walk but densification still runs.",
+      ),
     episodesRetentionDays: z
       .number()
       .int()

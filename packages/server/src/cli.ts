@@ -69,6 +69,7 @@ import { isoWeek, runSynthesis } from "./plane/jobs/synthesis";
 import { createPlurBackend } from "./plur/client";
 import { configureMaintenance } from "./runtime/maintenance-wiring";
 import { createObservability } from "./runtime/observability";
+import { applyReconcileOutcome } from "./runtime/reconcile-outcome";
 import { JobQueue } from "./scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "./scheduler/job-runner";
 import { Scheduler } from "./scheduler/scheduler";
@@ -923,75 +924,71 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     );
   }
 
-  // Boot-time reconcile (THE-255): re-sync the search index with files changed while the
-  // server was down. Incremental (content-hash skip) and best-effort — an embedding-backend
-  // or fs hiccup degrades the index, never startup. Backgrounded so it never blocks stdio.
-  void Promise.all(
-    config.vaults.map((v) =>
-      indexVault({
-        db,
-        provider: embeddingProvider,
-        embed: embedConfig,
-        chunkContext: config.embeddings.chunkContext,
-        densify: config.retrieval.densify,
-        vaultId: v.id,
-        root: vaultRegistry.resolve(v.id).root,
-        isReadable: indexReadableFor(v.id),
-        now: Date.now,
-        sql: sqlHooksFor(v.id),
-        onIndexed: makeOnIndexed(v.id),
-        // THE-291: metadata/FTS readiness is independent of embed success.
-        onNotesPass: () => {
-          indexHealth.notesReady = true;
-        },
-        // THE-490/THE-591: indexing.streamingWalk. Off by default -> byte-identical to before.
-        walk: { streaming: config.indexing.streamingWalk },
-      }).then(
-        // THE-390: a completed reconcile that had to SKIP notes (embed provider rejected a
-        // chunk even at single-text size) still degrades health — precise, non-fatal, retried
-        // next reconcile — instead of the old behavior of aborting the whole reindex.
-        (s) => {
-          // THE-507: the boot reconcile is the pass most worth counting — it is the one that
-          // processes the whole vault after downtime.
-          recordIngestStatsFor(v.id, s);
-          return {
-            vault: v.id,
-            error:
-              s.notes_embed_failed > 0
-                ? `${s.notes_embed_failed} note(s) skipped: embed provider rejected their chunks (HTTP 400)`
-                : (null as string | null),
-          };
-        },
-        (e) => ({ vault: v.id, error: e instanceof Error ? e.message : String(e) }),
+  // Reconcile (THE-255): re-sync the search index with the vault. Incremental (content-hash skip)
+  // and best-effort — an embedding-backend or fs hiccup degrades the index, never startup.
+  //
+  // THE-458 item 6: extracted from the inline boot block so the SAME pass can run on the scheduler.
+  // Both reasons to schedule it became true only when THE-649 made the watcher the primary change
+  // source: the watcher has blind spots (never started on Windows, can fail to arm on ENOSPC, sees
+  // nothing on some network mounts, never covers add_vault vaults), and its single-note writes never
+  // densify, so derived edges go stale between full passes. See maintenance.reconcileIntervalMinutes
+  // for the operator-facing version. Off unless that key is set.
+  const runReconcile = async (): Promise<void> => {
+    await Promise.all(
+      config.vaults.map((v) =>
+        indexVault({
+          db,
+          provider: embeddingProvider,
+          embed: embedConfig,
+          chunkContext: config.embeddings.chunkContext,
+          densify: config.retrieval.densify,
+          vaultId: v.id,
+          root: vaultRegistry.resolve(v.id).root,
+          isReadable: indexReadableFor(v.id),
+          now: Date.now,
+          sql: sqlHooksFor(v.id),
+          onIndexed: makeOnIndexed(v.id),
+          // THE-291: metadata/FTS readiness is independent of embed success.
+          onNotesPass: () => {
+            indexHealth.notesReady = true;
+          },
+          // THE-490/THE-591: indexing.streamingWalk. Off by default -> byte-identical to before.
+          walk: { streaming: config.indexing.streamingWalk },
+        }).then(
+          // THE-390: a completed reconcile that had to SKIP notes (embed provider rejected a
+          // chunk even at single-text size) still degrades health — precise, non-fatal, retried
+          // next reconcile — instead of the old behavior of aborting the whole reindex.
+          (s) => {
+            // THE-507: the boot reconcile is the pass most worth counting — it is the one that
+            // processes the whole vault after downtime.
+            recordIngestStatsFor(v.id, s);
+            return {
+              vault: v.id,
+              error:
+                s.notes_embed_failed > 0
+                  ? `${s.notes_embed_failed} note(s) skipped: embed provider rejected their chunks (HTTP 400)`
+                  : (null as string | null),
+            };
+          },
+          (e) => ({ vault: v.id, error: e instanceof Error ? e.message : String(e) }),
+        ),
       ),
-    ),
-  ).then(async (results) => {
-    // THE-288: record boot-reconcile health so server_health can surface index degradation
-    // instead of the swallowed best-effort failure (per-vault errors are authenticated-only).
-    const reconcileErrors = results
-      .filter((r) => r.error !== null)
-      .map((r) => ({ vault: r.vault, error: r.error as string }));
-    indexHealth.reconcile = reconcileErrors.length === 0 ? "ok" : "degraded";
-    indexHealth.reconcileAt = Date.now();
-    indexHealth.reconcileErrors = reconcileErrors;
-    // GH #171: a swallowed boot-reconcile failure presents as a permanent silent stall. Surface it
-    // on stderr (not only in-memory indexHealth) so a misconfigured/slow embed backend is diagnosable.
-    for (const { vault, error } of reconcileErrors) {
-      process.stderr.write(
-        `[index] boot reconcile degraded for vault "${vault}": ${error}. ` +
-          `The search index may be incomplete; check the embeddings backend ` +
-          `(raise embeddings.timeoutMs / lower embeddings.batchSize or embeddings.maxBatchTokens ` +
-          `for a slow or small-context local runner).\n`,
-      );
-    }
-    // #14: sweep jobs enqueued during the boot reconcile through the SAME durable runner as runtime
-    // writes, rather than waiting for the scheduler's next CONTRADICTION_DRAIN_MS tick. No-op without
-    // the gateway (jobHandlers stays empty -> drainOnce is a no-op). Fire-and-forget by design (boot
-    // does not block on it); the jobs are durable, so even a crash before this runs loses nothing —
-    // the next scheduler tick (or process restart) picks them up.
-    if (!roles) return;
-    await jobRunner.drainOnce(new AbortController().signal);
-  });
+    ).then(async (results) => {
+      applyReconcileOutcome(results, indexHealth, {
+        now: Date.now,
+        write: (m) => process.stderr.write(m),
+      });
+      // #14: sweep jobs enqueued during the reconcile through the SAME durable runner as runtime
+      // writes, rather than waiting for the scheduler's next CONTRADICTION_DRAIN_MS tick. No-op
+      // without the gateway. Fire-and-forget by design; the jobs are durable, so a crash before this
+      // runs loses nothing — the next tick or process restart picks them up.
+      if (!roles) return;
+      await jobRunner.drainOnce(new AbortController().signal);
+    });
+  };
+
+  // Boot pass: backgrounded so it never blocks stdio, exactly as before.
+  void runReconcile();
 
   morgiana.emit(firstVault.id, "tc.server.start");
 
@@ -999,9 +996,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // timers (maintenance sweep, plane consolidation, activation recompute, contradiction drain) into
   // a single tick loop. Each job keeps its exact run body and error/skip routing; the scheduler adds
   // shared single-flight and durable last-success/next-run (job_schedule in cache.db). Its clock is
-  // Date.now for durable timestamps only. Budget deferral (event-loop-delay awareness) is available
-  // Budget deferral (event-loop-delay awareness) is now reachable from config
-  // (`scheduler.eventLoopDeferMs`, THE-458 item 6) and remains OFF unless an operator sets it.
+  // Date.now for durable timestamps only. Budget deferral is reachable from config
+  // (`scheduler.eventLoopDeferMs`, THE-458 item 6) and stays OFF unless an operator sets it.
   const scheduler = new Scheduler({
     now: Date.now,
     db,
@@ -1087,6 +1083,17 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       name: "job-queue-runner",
       intervalMs: CONTRADICTION_DRAIN_MS,
       run: (signal) => jobRunner.drainOnce(signal),
+    });
+  }
+
+  // THE-458 item 6: the periodic reconcile. The scheduler's single-flight guard matters more here
+  // than for any other job — a reconcile walks the whole vault and can outlast its own interval, and
+  // overlapping passes would compete for the same write lock rather than finishing sooner.
+  if (config.maintenance.reconcileIntervalMinutes !== undefined) {
+    scheduler.register({
+      name: "vault-reconcile",
+      intervalMs: config.maintenance.reconcileIntervalMinutes * 60_000,
+      run: () => runReconcile(),
     });
   }
 
