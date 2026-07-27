@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openDatabase } from "../../db/open";
@@ -7,11 +8,13 @@ import { forgetEpisode, forgetNote, verifyForgetLog } from "../../experiential/f
 import { USAGE } from "../args";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
 
-// Mirrors tools/m5/shared.ts's DEFAULT_MEMORY_FOLDER. Kept as a local literal rather than
-// imported from tools/m5 so this CLI command doesn't cross the no-transport-imports-tool
-// boundary (THE-600 extended it to cli/commands/); it is a plain string constant, not dispatch
-// logic, so duplicating it costs nothing and keeps the rule meaningful for real bypasses.
-const DEFAULT_MEMORY_FOLDER = "memory";
+// THE-600: DEFAULT_MEMORY_FOLDER comes from @the-40-thieves/obsidian-tc-shared (the single
+// source of truth, shared with tools/m5 and VaultMemoryConfigSchema's own default) rather than
+// a local duplicate. This command's --erase path destroys note content, so a copy of this
+// constant that silently drifted from the tool surface's value would resolve a DIFFERENT folder
+// on a delete path — not a cosmetic divergence. Importing from `shared` also doesn't cross the
+// no-transport-imports-tool boundary (THE-600 extended it to cli/commands/): `shared` isn't a
+// tool module, so no exemption is needed here at all.
 
 export async function run_forget(cmd: Cmd<"forget">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
