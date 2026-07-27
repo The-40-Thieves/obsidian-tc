@@ -77,7 +77,18 @@ bun run lint > /tmp/lint.log 2>&1; echo "exit=$?"   # right
 A pipeline reports the *pipe's* exit code. This has masked both a failing suite and a failing lint
 in this repo. Redirect to a uniquely-named log and check `$?` separately.
 
-## Required status checks (25 on `main`)
+## Required status checks
+
+Don't trust a number written here — the set changes. Read it:
+
+```bash
+gh api repos/The-40-Thieves/obsidian-tc/branches/main/protection/required_status_checks \
+  --jq '.contexts[]' | sort
+```
+
+All four `build-test` legs are required, **including `ubuntu-24.04-arm`** — the repo ships an
+aarch64 binary and production runs Ampere, and `vec.ts` documents a measured retrieval divergence
+between aarch64 and x86_64 (nDCG@10 0.8028 vs 0.8414 on the same commit).
 
 Green locally is not the merge floor. Gate a merge on:
 

@@ -116,9 +116,10 @@ jobs:
         # ubuntu-24.04-arm is a free hosted runner for public repositories (no Works-on-Arm
         # application needed), so this costs nothing.
         #
-        # Deliberately NOT added to the required status checks yet — let it soak first. A new
-        # required context that turns out flaky blocks every PR, and this is the first ARM leg.
-        # Promote it once it has been green for a while.
+        # PROMOTED to a required status check 2026-07-27, after three green runs including the
+        # hardest case (a changed bun.lock resolving a new dependency on aarch64). It went in
+        # unrequired on purpose: a new required context that turns out flaky blocks every PR, and
+        # soaking first kept the option of learning something before committing to it.
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
