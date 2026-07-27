@@ -22,20 +22,27 @@ bun eval/compare.ts a.json b.json
 
 ## The ship rule (THE-399)
 
-**Status 2026-07-19 (THE-440/441 recalibration): the set is n=136, and the MDE is now MEASURED,
-not assumed.** Running `eval/run.ts` prints a `power ΔnDCG@10` line computed from the actual
-per-query paired-delta spread on the live golden set:
+**Status 2026-07-19 (THE-440/441 recalibration): the MDE is now MEASURED, not assumed.** The
+recalibration below ran against the golden set as it stood that day, **n=136**. Later the same
+day the set was expanded to **n=250** (the current size — see `docs/project-facts.json`), so
+"the set is n=136" is no longer true; the power numbers below are a historical measurement taken
+*at* n=136 and have not been re-measured at n=250. Running `eval/run.ts` prints a `power ΔnDCG@10`
+line computed from the actual per-query paired-delta spread on the golden set at the time of the
+run:
 
 ```
 power ΔnDCG@10  : σ_d 0.155  SE 0.0133  MDE@n=136 0.037 (α=0.05, power=0.8)  |  Δ=0.05→n≥76  Δ=0.03→n≥210  Δ=0.02→n≥472
 ```
 
 So the real σ_d is **0.155** (nomic enrichment tightened it below the old 0.20 assumption), the
-MDE at n=136 is **~0.037 nDCG**, and the golden-set sizes needed for smaller effects are
+MDE measured at n=136 was **~0.037 nDCG**, and the golden-set sizes needed for smaller effects are
 **Δ=0.05 → n≥76** (already cleared), **Δ=0.03 → n≥210**, **Δ=0.02 → n≥472**. Read a null result
 against this line: a non-significant arm with |Δ| well under 0.037 is *underpowered*, not
-*disproven*. Sub-0.03 gains (the THE-441 reranker regime) cannot be resolved at n=136 — grow the
-set to ~210 first or accept the result as directional only.
+*disproven*. Sub-0.03 gains (the THE-441 reranker regime) could not be resolved at n=136. The set
+has since grown to **n=250** (2026-07-19), which clears the n≥210 bar this table implies for
+Δ=0.03 — but the MDE itself has **not** been re-measured at n=250 (do not scale the 0.037 figure
+arithmetically); treat that as an open follow-up until `eval/run.ts` is re-run on the current set
+and a new power line is generated. Δ=0.02 still needs n≥472 and remains out of reach.
 
 The harness now computes the whole gate instead of leaving it to hand-arithmetic:
 - **`power ΔnDCG@10`** — measured σ_d, SE, MDE at n, and n-needed table (`describePower`).
