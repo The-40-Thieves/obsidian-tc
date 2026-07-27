@@ -2,8 +2,10 @@
 // build) so the contract is verifiable without a build, the same discipline that makes the gate
 // trustworthy. The CLI half (currentFactRules / file walk) is a thin wrapper and is exercised by
 // running `bun scripts/docgen/facts-check.ts` against the repo.
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { factRules, scanFacts } from "../scripts/docgen/facts-check";
+import { factRules, type ScanStats, scanFacts } from "../scripts/docgen/facts-check";
 
 // The REAL production patterns, bound to test values — so these cases validate the shipped regexes.
 const RULES = factRules(146, 250, 31);
@@ -129,5 +131,92 @@ describe("scanFacts (THE-566 narrative fact gate)", () => {
     expect(v).toEqual([
       expect.objectContaining({ fact: "goldenSetSize", found: 136, expected: 250 }),
     ]);
+  });
+});
+
+// THE-601: the gate could pass VACUOUSLY. It reports success by finding nothing, so "found no
+// drift" and "read no files" printed the same line — and every read in the script is wrapped in
+// `try { … } catch { continue }`, so a mis-resolved repoRoot does not throw, it silently scans zero
+// files and prints OK. `repoRoot` is a four-level relative climb from `import.meta.url`, and
+// `bun --compile` bakes that at build time — the mechanism behind two already-shipped broken
+// releases.
+//
+// Its siblings already refused this: render.ts throws on a zero-marker scan ("the scan is broken,
+// not the docs. Refusing to report success"), and gen-tree-map.mjs refuses an empty file list.
+describe("ScanStats — evidence the scan actually ran (THE-601)", () => {
+  const fresh = (): ScanStats => ({ linesScanned: 0, patternMatches: 0 });
+
+  it("counts narrative lines examined", () => {
+    const stats = fresh();
+    scanFacts("line one\nline two\nline three", RULES, stats);
+    expect(stats.linesScanned).toBe(3);
+  });
+
+  it("counts a CORRECT match, not just a violation — else the floor is unsatisfiable when clean", () => {
+    // The subtle part. In a healthy tree every match is a correct one, so counting only violations
+    // would make the floor impossible to meet exactly when the docs are right. A match is evidence
+    // the rule CAN fire, which is the property the floor is really asserting.
+    const stats = fresh();
+    const v = scanFacts("the 146-tool surface is governed", RULES, stats);
+    expect(v).toEqual([]); // 146 is the correct value for these RULES
+    expect(stats.patternMatches).toBe(1);
+  });
+
+  it("counts a violating match too", () => {
+    const stats = fresh();
+    expect(scanFacts("the 999-tool surface", RULES, stats)).toHaveLength(1);
+    expect(stats.patternMatches).toBe(1);
+  });
+
+  it("does NOT count lines inside generated regions or ignore-marked lines", () => {
+    // These are excluded from scanning, so counting them would let a corpus that is entirely
+    // generated satisfy a floor while no narrative was checked at all.
+    const stats = fresh();
+    scanFacts(
+      ["narrative", "<!-- BEGIN GENERATED: x -->", "generated", "<!-- END GENERATED: x -->"].join(
+        "\n",
+      ),
+      RULES,
+      stats,
+    );
+    expect(stats.linesScanned).toBe(1);
+  });
+
+  it("is optional — omitting it leaves every existing caller unchanged", () => {
+    expect(() => scanFacts("the 146-tool surface", RULES)).not.toThrow();
+  });
+});
+
+describe("facts-check CLI floor (THE-601)", () => {
+  const SCRIPT = fileURLToPath(new URL("../scripts/docgen/facts-check.ts", import.meta.url));
+  const CWD = fileURLToPath(new URL("..", import.meta.url));
+
+  it("passes on the real repo AND reports what it scanned", () => {
+    // The floor is only meaningful if the real run clears it with margin. This also pins the
+    // reporting: a bare "OK" is what made the vacuous pass invisible in the first place.
+    const r = spawnSync("bun", [SCRIPT], { cwd: CWD, encoding: "utf8" });
+    expect(r.status).toBe(0);
+    const out = `${r.stdout}${r.stderr}`;
+    expect(out).toMatch(/OK — no narrative drift/);
+    expect(out).toMatch(/\d+ files, \d+ lines, \d+ pattern matches/);
+    const files = Number(/(\d+) files/.exec(out)?.[1] ?? 0);
+    expect(files).toBeGreaterThan(20); // the floor itself — real runs must clear it, not sit on it
+  });
+
+  it("FAILS when the scan reads nothing, instead of reporting OK", () => {
+    // Watching it fail is the whole point (reference-source-scan-gates rule 3). A gate that has
+    // never been observed rejecting something proves nothing. Forcing an empty scan the way a baked
+    // import.meta.url would: run it against a root with no docs tree.
+    const r = spawnSync("bun", [SCRIPT], {
+      cwd: CWD,
+      encoding: "utf8",
+      env: { ...process.env, DOCGEN_FACTS_ROOT_OVERRIDE: "/nonexistent-the601-probe" },
+    });
+    expect(r.status).toBe(1);
+    const out = `${r.stdout}${r.stderr}`;
+    expect(out).toMatch(/scanned too little to report success/);
+    expect(out).toMatch(/read 0 narrative files/);
+    // The message must blame the GATE, not the docs — otherwise the next person edits a doc.
+    expect(out).toMatch(/This is the GATE being broken, not the docs/);
   });
 });
