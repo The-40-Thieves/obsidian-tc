@@ -26,6 +26,7 @@ import { ObsidianTcError, ServerConfigSchema } from "@the-40-thieves/obsidian-tc
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
+import { forgetEpisodeAudited } from "../src/cli/commands/forget";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -201,9 +202,15 @@ describe("cross-surface dispatch parity — audit row for a successful mutating 
 // ---------------------------------------------------------------------------------------------
 
 /** cli/commands/forget.ts's run_forget calls forgetEpisode directly with these exact semantics
- *  (no dispatch, no scope check, no audit_events row — that CLI gap is THE-600's tracked,
- *  out-of-scope remainder). Calling forgetEpisode here IS exercising the CLI surface: it is the
- *  whole of what the CLI command does for `--episode`, per cli/commands/forget.ts. */
+ *  (no dispatch, no scope check). This section is scoped to the THE-239 forget_log trail only —
+ *  calling forgetEpisode directly (rather than forgetEpisodeAudited) is deliberate here, so these
+ *  forget_log-focused assertions don't also depend on cache.db/event_log plumbing. THE-605 closed
+ *  the audit_events gap this comment used to describe as CLI-only and out of scope: see
+ *  forgetEpisodeAudited/forgetNoteAudited (cli/commands/forget.ts, what run_forget actually calls
+ *  today) and the "THE-605" section below, which pins the audit_events row those wrappers write
+ *  to the SAME shape as dispatch's. Calling forgetEpisode here IS still exercising the CLI's
+ *  forget_log semantics: it is the whole of what forgetEpisodeAudited does for `--episode`, minus
+ *  the audit_events side effect this file's THE-605 section covers separately. */
 function cliForget(edb: Database, id: string, nowMs: number) {
   return forgetEpisode(edb, id, { nowMs });
 }
@@ -446,5 +453,74 @@ describe("THE-514 item 2 — the same lowered maxResponseBytes refuses an oversi
         registry.maxResponseBytes,
       ),
     ).toThrow(/exceeds 50 bytes/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Section 6 — THE-605. `forget`'s new direct `audit_events` writer (`forgetEpisodeAudited` /
+// `forgetNoteAudited`, cli/commands/forget.ts) is a SECOND producer of the table dispatch's
+// `recordOutcome` writes (mcp/registry.ts:660) — exactly the duplication pattern THE-600/THE-514
+// both exist to reduce. The objection to a second producer is answered here, by a gate, not by
+// hoping: this pins the CLI's row to the SAME shape (same columns, same JS types) as a dispatch
+// row, so a refactor that silently drops or renames a column on one writer and not the other
+// fails HERE, not on a customer's audit trail. Per this file's own framing (top of file): this
+// asserts STRUCTURE, not sameness — tool_name/caller/args_hash legitimately differ between "an
+// agent called work_forget" and "an operator ran `obsidian-tc forget`".
+// ---------------------------------------------------------------------------------------------
+
+function eventLogRow(cacheDb: Database, toolName: string): Record<string, unknown> {
+  const row = cacheDb
+    .prepare(
+      "SELECT ts, vault_id, tool_name, caller, duration_ms, result_size, status, error_code, args_hash, event_type FROM event_log WHERE tool_name = ?",
+    )
+    .get(toolName) as Record<string, unknown> | undefined;
+  if (!row) throw new Error(`no event_log row for tool_name=${toolName}`);
+  return row;
+}
+
+describe("THE-605 — CLI forget's audit_events row matches dispatch's shape", () => {
+  it("forgetEpisodeAudited (CLI) writes the same column set and types as registry.dispatch's recordOutcome", async () => {
+    // Dispatch side: a real work_forget call through registry.dispatch (Section 1's own pattern).
+    const dispatchCache = openMemoryDb();
+    provisionCacheDb(dispatchCache);
+    const dispatchEdb = experientialDb();
+    seedEpisode(dispatchEdb, "ep-dispatch");
+    const registry = new ToolRegistry({});
+    registerM8Tools(registry, { edb: dispatchEdb, now: () => NOW });
+    const dispatchRes = await registry.dispatch(
+      "work_forget",
+      { episode_id: "ep-dispatch" },
+      {
+        caller: "tester",
+        authenticated: true,
+        grantedScopes: new Set(["write:workspace"]),
+        vaultId: "v1",
+        db: dispatchCache,
+      },
+    );
+    expect(dispatchRes.ok).toBe(true);
+    const dispatchRow = eventLogRow(dispatchCache, "work_forget");
+
+    // CLI side: the same kind of successful, content-destroying forget, via forgetEpisodeAudited —
+    // what run_forget actually calls today for `--episode` (cli/commands/forget.ts).
+    const cliCache = openMemoryDb();
+    provisionCacheDb(cliCache);
+    const cliEdb = experientialDb();
+    seedEpisode(cliEdb, "ep-cli");
+    const cliRes = forgetEpisodeAudited(cliEdb, cliCache, "v1", "ep-cli", { nowMs: NOW });
+    expect(cliRes.found).toBe(true);
+    const cliRow = eventLogRow(cliCache, "forget");
+
+    // Same columns present, order-independent.
+    expect(Object.keys(cliRow).sort()).toEqual(Object.keys(dispatchRow).sort());
+    // Same JS type per column — a writer that started emitting a number where the other emits a
+    // string (or vice versa) fails here even though both rows "have" the column.
+    for (const key of Object.keys(dispatchRow)) {
+      expect(typeof cliRow[key]).toBe(typeof dispatchRow[key]);
+    }
+    // Both are a "tool ran" event — audit_events answering "an operation ran" (THE-605), not one
+    // of event_log's other event_type shapes (sweep_run, snapshot_skipped, ...).
+    expect(dispatchRow.event_type).toBe("tool_invocation");
+    expect(cliRow.event_type).toBe("tool_invocation");
   });
 });

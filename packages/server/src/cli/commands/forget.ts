@@ -2,11 +2,125 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../../../package.json";
+import { type AuditEvent, writeEvent } from "../../audit";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openDatabase } from "../../db/open";
-import { forgetEpisode, forgetNote, verifyForgetLog } from "../../experiential/forget";
+import type { Database } from "../../db/types";
+import {
+  type EpisodeForgetResult,
+  forgetEpisode,
+  forgetNote,
+  type NoteForgetResult,
+  verifyForgetLog,
+} from "../../experiential/forget";
+import { argsHash } from "../../hash";
 import { USAGE } from "../args";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
+
+// THE-605: `forget --erase` destroys note/episode content with no `audit_events` (event_log)
+// row — the CLI's only vault-write path (of 18 `cli/commands/`, 7 are read-only/display, ~9
+// recompute RECOMPUTABLE derived state, `prefetch` dispatches properly through
+// `registry.dispatch`; `forget` is the one file with real vault-write calls). Its MCP sibling
+// `work_forget` gets an audit row for free via `registry.dispatch`'s `recordOutcome`
+// (mcp/registry.ts:603); the CLI path never goes through dispatch, so it never got one.
+//
+// Decision (owner, ticket THE-605): write `audit_events` directly via `writeEvent`, not by
+// routing through `runDispatch`. Doing the latter would require manufacturing an operator
+// `CallerContext` (which scopes? which ACL? `vaultBound` or not?) for a caller that dispatch was
+// never designed to authorize — an operator with shell access already outranks the ACL; the
+// thing actually missing is the RECORD, not the enforcement. The accepted cost is a second
+// `audit_events` producer (the duplication pattern THE-600/THE-514 both exist to reduce) —
+// bounded by pinning both writers to the same shape in dispatch-parity.test.ts (THE-605 item 4).
+//
+// This row is written EVERY TIME alongside `forget_log` (THE-239), not instead of it: they answer
+// different questions. `forget_log` is the tamper-evident hash-chained deletion ledger (per-vault
+// experiential.db); `audit_events` is "an operation ran" (per-machine cache.db, exposed the same
+// way every other tool invocation's audit row is). THE-600 established that having one is not
+// having the other.
+function auditForgetEvent(
+  cacheDb: Database,
+  vaultId: string,
+  kind: "episode" | "note",
+  target: string,
+  erase: boolean,
+  durationMs: number,
+  resultSize: number,
+): void {
+  try {
+    // Same 10 AuditEvent fields recordOutcome (mcp/registry.ts:660) produces — no new envelope.
+    // args_hash mirrors recordOutcome's own field literally: a hash of the identifying arguments,
+    // not the raw path. It is reconstructable the same way recordOutcome's is — recompute it from
+    // the paired forget_log row's (kind, target, mode) columns, which every audited call here
+    // always writes in the same operation.
+    const e: AuditEvent = {
+      ts: Date.now(),
+      vault_id: vaultId,
+      tool_name: "forget",
+      caller: "cli-operator",
+      duration_ms: durationMs,
+      result_size: resultSize,
+      status: "ok",
+      error_code: null,
+      args_hash: argsHash("forget", { kind, target, erase }),
+      event_type: "tool_invocation",
+    };
+    writeEvent(cacheDb, e);
+  } catch {
+    // Fail-open — mirrors recordOutcome's own try/catch (registry.ts:670). An audit write must
+    // never mask or abort a deletion the operator already committed to disk.
+  }
+}
+
+/** forgetEpisode + THE-605's audit_events row, gated on `found` — mirrors the `changes > 0`
+ *  discipline THE-600 established for `work_forget`: a repeat/foreign/unknown id is a no-op and
+ *  must not write a spurious audit row alongside the real ones. */
+export function forgetEpisodeAudited(
+  edb: Database,
+  cacheDb: Database,
+  vaultId: string,
+  id: string,
+  opts: { nowMs: number; erase?: boolean },
+): EpisodeForgetResult {
+  const t0 = Date.now();
+  const r = forgetEpisode(edb, id, opts);
+  if (r.found) {
+    auditForgetEvent(
+      cacheDb,
+      vaultId,
+      "episode",
+      id,
+      !!opts.erase,
+      Date.now() - t0,
+      Buffer.byteLength(JSON.stringify(r), "utf8"),
+    );
+  }
+  return r;
+}
+
+/** forgetNote + THE-605's audit_events row, gated on `chunk_ids.length > 0` — an unknown path
+ *  (never indexed) touches nothing and must not write a spurious audit row; chunk_ids is the
+ *  same "did this path exist to the system at all" signal forgetNote already computes, so no new
+ *  no-op concept is invented here. */
+export function forgetNoteAudited(
+  edb: Database,
+  cacheDb: Database,
+  opts: Parameters<typeof forgetNote>[2],
+): NoteForgetResult {
+  const t0 = Date.now();
+  const r = forgetNote(edb, cacheDb, opts);
+  if (r.chunk_ids.length > 0) {
+    auditForgetEvent(
+      cacheDb,
+      opts.vaultId,
+      "note",
+      opts.relPath,
+      !!opts.erase,
+      Date.now() - t0,
+      Buffer.byteLength(JSON.stringify(r), "utf8"),
+    );
+  }
+  return r;
+}
 
 // THE-600: DEFAULT_MEMORY_FOLDER comes from @the-40-thieves/obsidian-tc-shared (the single
 // source of truth, shared with tools/m5 and VaultMemoryConfigSchema's own default) rather than
@@ -42,7 +156,7 @@ export async function run_forget(cmd: Cmd<"forget">): Promise<void> {
     }
     const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
     if (cmd.episode) {
-      const r = forgetEpisode(edb, cmd.episode, {
+      const r = forgetEpisodeAudited(edb, cacheDb, vaultId, cmd.episode, {
         nowMs: Date.now(),
         ...(cmd.erase ? { erase: true } : {}),
       });
@@ -67,7 +181,7 @@ export async function run_forget(cmd: Cmd<"forget">): Promise<void> {
       process.exit(1);
     }
     const memFolder = vault?.memory?.folder ?? DEFAULT_MEMORY_FOLDER;
-    const r = forgetNote(edb, cacheDb, {
+    const r = forgetNoteAudited(edb, cacheDb, {
       vaultId,
       relPath: rel,
       nowMs: Date.now(),
