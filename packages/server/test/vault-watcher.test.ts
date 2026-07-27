@@ -8,7 +8,22 @@ import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { normalizeWatchPath, shouldWatchPath, startVaultWatch } from "../src/vault/watcher";
+import {
+  normalizeWatchPath,
+  resolveWatchedPath,
+  shouldWatchPath,
+  startVaultWatch,
+} from "../src/vault/watcher";
+
+/**
+ * Wait for the watcher to actually be armed before writing.
+ *
+ * Not padding: Linux inotify is live by the time watch() returns, but macOS backs a recursive watch
+ * with FSEvents, which arms asynchronously — a write issued immediately after watch() returns can
+ * land before the stream is listening and is then never reported. That is a real property of the
+ * platform, not flakiness, and it is why the multi-vault case failed only on macos-latest.
+ */
+const arm = (): Promise<void> => new Promise((r) => setTimeout(r, 400));
 
 function makeVault(): string {
   return mkdtempSync(join(tmpdir(), "tc-watch-"));
@@ -37,7 +52,10 @@ function recorder() {
     deletes,
     onUpsert: (v: string, p: string, c: string) => upserts.push([v, p, c]),
     onDelete: (v: string, p: string) => deletes.push([v, p]),
-    async settle(n = 1, timeoutMs = 4000): Promise<void> {
+    // Generous by default: FSEvents on macOS coalesces with its own latency window on top of ours,
+    // and CI runners are slower than this box. The tests that assert "exactly one" still catch a
+    // second call via the trailing wait below, so a long ceiling costs nothing but patience.
+    async settle(n = 1, timeoutMs = 10_000): Promise<void> {
       const deadline = Date.now() + timeoutMs;
       while (upserts.length + deletes.length < n && Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 25));
@@ -112,28 +130,85 @@ describe("normalizeWatchPath", () => {
   });
 });
 
-describe("startVaultWatch — real filesystem", () => {
-  it("reports a newly created note with its content", async () => {
+// Real filesystem, NO watcher. Every security-relevant guarantee of this module lives in
+// resolveWatchedPath and none of it involves fs.watch, so it is tested as the pure function it is —
+// deterministic on all three platforms. Asserting these THROUGH the OS watcher is what made a
+// correct symlink guard fail on macOS for pure timing reasons: FSEvents arms more slowly than
+// inotify, and a security assertion should never be able to fail for that reason.
+describe("resolveWatchedPath — classification and the two alias guards", () => {
+  it("reads an ordinary single-linked note", () => {
     const root = makeVault();
-    const r = recorder();
-    const stop = startVaultWatch({
-      targets: [{ vaultId: "v1", root }],
-      debounceMs: 50,
-      onUpsert: r.onUpsert,
-      onDelete: r.onDelete,
-    });
-    try {
-      writeFileSync(join(root, "hello.md"), "# hi", "utf8");
-      await r.settle();
-      expect(r.upserts).toEqual([["v1", "hello.md", "# hi"]]);
-    } finally {
-      stop();
-    }
+    writeFileSync(join(root, "a.md"), "hello", "utf8");
+    expect(resolveWatchedPath(root, "a.md")).toEqual({ kind: "upsert", content: "hello" });
   });
 
-  it("picks up a note created in a NESTED directory (recursive watch)", async () => {
-    // The recursive flag is the load-bearing part: a sync client writes whole folders, not one
-    // root-level file. Verified to work under both node and bun on Linux before relying on it.
+  it("reports a missing path as a delete", () => {
+    expect(resolveWatchedPath(makeVault(), "nope.md")).toEqual({ kind: "delete" });
+  });
+
+  it("reports a directory that took a note's name as a delete", () => {
+    const root = makeVault();
+    mkdirSync(join(root, "folder.md"));
+    expect(resolveWatchedPath(root, "folder.md")).toEqual({ kind: "delete" });
+  });
+
+  it.skipIf(!symlinkOk)("NEVER follows a symlink out of the vault", () => {
+    // walkVault classifies from readdir Dirents, whose isFile() is false for a symlink, so
+    // index_vault silently skips them and never reads the target. Using stat (which follows) would
+    // read the target through a symlink planted in the vault and index it via a path the full walk
+    // cannot reach. readNote alone would NOT catch this — its open() follows the link and its fstat
+    // then describes the target, which for an ordinary file passes every check.
+    const root = makeVault();
+    const outside = mkdtempSync(join(tmpdir(), "tc-outside-"));
+    writeFileSync(join(outside, "secret.txt"), "SENSITIVE-OUTSIDE-VAULT", "utf8");
+    symlinkSync(join(outside, "secret.txt"), join(root, "evil.md"));
+    const r = resolveWatchedPath(root, "evil.md");
+    expect(JSON.stringify(r)).not.toContain("SENSITIVE");
+    expect(r).toEqual({ kind: "delete" });
+  });
+
+  it("NEVER reads a HARD LINK to a file outside the vault", () => {
+    // The second alias, and the one lstat cannot see: a hard link IS a regular file (isFile() true,
+    // nlink 2), so it reads as an ordinary note. It is a second name for an inode that may live
+    // anywhere on the same filesystem, and realpath cannot dereference it — which is why notes-io's
+    // assertRegularSingleLink fstats the OPEN fd and refuses nlink > 1.
+    //
+    // This bypass shipped in the first draft, which called readFileSync directly and reproduced only
+    // walkVault's symlink test. Routing the read through readNote — the exact function indexVault
+    // uses — is what closed it.
+    //
+    // Deliberately NOT platform-guarded (acl-hardlink.test.ts creates hard links unguarded on every
+    // runner). It also covers BOTH implementations across the matrix: locally nativeVaultIo is true
+    // so this exercises the Rust guard at packages/native/src/lib.rs:252, while CI's build-test
+    // builds no native module and so exercises the JS fallback in notes-io.ts.
+    const root = makeVault();
+    const outside = mkdtempSync(join(tmpdir(), "tc-outside-"));
+    const secret = join(outside, "secret.md");
+    writeFileSync(secret, "TOP-SECRET-OUTSIDE-VAULT", "utf8");
+    linkSync(secret, join(root, "innocent.md"));
+    const r = resolveWatchedPath(root, "innocent.md");
+    expect(JSON.stringify(r)).not.toContain("TOP-SECRET");
+    // `refused`, not `delete`: the caller evicts either way, but a refusal is surfaced rather than
+    // passing for an ordinary delete.
+    expect(r.kind).toBe("refused");
+  });
+
+  it("still reads a note with a SECOND name inside the same vault — refusal is not blanket", () => {
+    // Pairs with the two alias tests: without it, an implementation that refused EVERY file would
+    // pass both. It also pins the deliberate strictness — an in-vault hard link is refused too,
+    // because nlink cannot tell you WHERE the other name is.
+    const root = makeVault();
+    writeFileSync(join(root, "one.md"), "body", "utf8");
+    expect(resolveWatchedPath(root, "one.md")).toEqual({ kind: "upsert", content: "body" });
+    linkSync(join(root, "one.md"), join(root, "two.md"));
+    expect(resolveWatchedPath(root, "two.md").kind).toBe("refused");
+  });
+});
+
+describe("startVaultWatch — event delivery", () => {
+  // These assert only that the OS reaches us and that coalescing/shutdown behave — the classification
+  // rules are covered above without any timing dependency.
+  it("reports a newly created note, including in a NESTED directory", async () => {
     const root = makeVault();
     mkdirSync(join(root, "Projects", "Deep"), { recursive: true });
     const r = recorder();
@@ -144,6 +219,7 @@ describe("startVaultWatch — real filesystem", () => {
       onDelete: r.onDelete,
     });
     try {
+      await arm();
       writeFileSync(join(root, "Projects", "Deep", "n.md"), "deep", "utf8");
       await r.settle();
       expect(r.upserts).toEqual([["v1", "Projects/Deep/n.md", "deep"]]);
@@ -163,101 +239,11 @@ describe("startVaultWatch — real filesystem", () => {
       onDelete: r.onDelete,
     });
     try {
+      await arm();
       rmSync(join(root, "gone.md"));
       await r.settle();
       expect(r.deletes).toEqual([["v1", "gone.md"]]);
       expect(r.upserts).toEqual([]);
-    } finally {
-      stop();
-    }
-  });
-
-  it.skipIf(!symlinkOk)(
-    "NEVER follows a symlink — it reports a delete instead of the target's content",
-    async () => {
-      // The security case. `walkVault` classifies from readdir Dirents, whose isFile() is false for a
-      // symlink, so index_vault silently skips them and never reads the target. A watcher using stat
-      // (which follows) would read /etc/passwd through a symlink planted in the vault and index it via
-      // a path the full walk cannot reach. lstat + isFile() is what keeps the two in agreement.
-      const root = makeVault();
-      const outside = mkdtempSync(join(tmpdir(), "tc-outside-"));
-      const secret = join(outside, "secret.txt");
-      writeFileSync(secret, "SENSITIVE-OUTSIDE-VAULT", "utf8");
-      const r = recorder();
-      const stop = startVaultWatch({
-        targets: [{ vaultId: "v1", root }],
-        debounceMs: 50,
-        onUpsert: r.onUpsert,
-        onDelete: r.onDelete,
-      });
-      try {
-        symlinkSync(secret, join(root, "evil.md"));
-        await r.settle();
-        // The strong assertion is about CONTENT: nothing from outside the vault reached a sink.
-        expect(JSON.stringify(r.upserts)).not.toContain("SENSITIVE");
-        expect(r.upserts).toEqual([]);
-        expect(r.deletes).toEqual([["v1", "evil.md"]]);
-      } finally {
-        stop();
-      }
-    },
-  );
-
-  it("NEVER indexes a HARD LINK to a file outside the vault", async () => {
-    // The second alias, and the one an lstat-based check cannot see: a hard link IS a regular file
-    // (isFile() true, nlink 2), so it reads as an ordinary note. It is a second name for an inode
-    // that may live anywhere on the same filesystem, and realpath cannot dereference it — which is
-    // why notes-io's assertRegularSingleLink fstats the OPEN fd and refuses nlink > 1.
-    //
-    // This bypass shipped in the first draft of this watcher, which called readFileSync directly and
-    // reproduced only walkVault's symlink test. Routing the read through readNote — the exact
-    // function indexVault uses — is what closed it.
-    const root = makeVault();
-    const outside = mkdtempSync(join(tmpdir(), "tc-outside-"));
-    const secret = join(outside, "secret.md");
-    writeFileSync(secret, "TOP-SECRET-OUTSIDE-VAULT", "utf8");
-    const errs: unknown[] = [];
-    const r = recorder();
-    const stop = startVaultWatch({
-      targets: [{ vaultId: "v1", root }],
-      debounceMs: 50,
-      onUpsert: r.onUpsert,
-      onDelete: r.onDelete,
-      onError: (e) => errs.push(e),
-    });
-    try {
-      linkSync(secret, join(root, "innocent.md"));
-      await r.settle();
-      expect(JSON.stringify(r.upserts)).not.toContain("TOP-SECRET");
-      expect(r.upserts).toEqual([]);
-      // Fails CLOSED: evicted, not indexed...
-      expect(r.deletes).toEqual([["v1", "innocent.md"]]);
-      // ...and the refusal is surfaced rather than passing for an ordinary delete.
-      expect(errs).toHaveLength(1);
-    } finally {
-      stop();
-    }
-  });
-
-  it("indexes an ordinary single-linked note — the refusal above is not just 'reads nothing'", async () => {
-    // Pairs with the two alias tests. Without it, an implementation that refused EVERY file would
-    // pass both of them: "did not leak" and "actually still works" are different claims.
-    const root = makeVault();
-    const r = recorder();
-    const errs: unknown[] = [];
-    const stop = startVaultWatch({
-      targets: [{ vaultId: "v1", root }],
-      debounceMs: 50,
-      onUpsert: r.onUpsert,
-      onDelete: r.onDelete,
-      onError: (e) => errs.push(e),
-    });
-    try {
-      writeFileSync(join(root, "ordinary.md"), "plain content", "utf8");
-      await r.settle();
-      expect(r.upserts).toEqual([["v1", "ordinary.md", "plain content"]]);
-      expect(r.deletes).toEqual([]);
-      expect(errs).toEqual([]);
     } finally {
       stop();
     }
@@ -274,6 +260,7 @@ describe("startVaultWatch — real filesystem", () => {
       onDelete: r.onDelete,
     });
     try {
+      await arm();
       writeFileSync(join(root, "notes.txt"), "x", "utf8");
       writeFileSync(join(root, ".obsidian-tc", "trace.md"), "x", "utf8");
       // Then a real note, to prove the watch was alive the whole time rather than simply broken —
@@ -297,12 +284,13 @@ describe("startVaultWatch — real filesystem", () => {
       onDelete: r.onDelete,
     });
     try {
+      await arm();
       for (const c of ["v1", "v2", "v3", "v4"]) {
         writeFileSync(join(root, "busy.md"), c, "utf8");
       }
       await r.settle();
       expect(r.upserts).toHaveLength(1);
-      // Reads at flush time, so an editor's several save events cost one reindex of the end state.
+      // Read at flush time, so an editor's several save events cost one reindex of the end state.
       expect(r.upserts[0]?.[2]).toBe("v4");
     } finally {
       stop();
@@ -323,6 +311,7 @@ describe("startVaultWatch — real filesystem", () => {
       onDelete: r.onDelete,
     });
     try {
+      await arm();
       writeFileSync(join(a, "in-a.md"), "A", "utf8");
       writeFileSync(join(b, "in-b.md"), "B", "utf8");
       await r.settle(2);
@@ -359,6 +348,7 @@ describe("startVaultWatch — real filesystem", () => {
     });
     try {
       expect(errs.map((e) => e[1])).toEqual(["missing"]);
+      await arm();
       writeFileSync(join(good, "still-works.md"), "ok", "utf8");
       await r.settle();
       expect(r.upserts).toEqual([["good", "still-works.md", "ok"]]);
@@ -379,7 +369,7 @@ describe("startVaultWatch — real filesystem", () => {
     stop();
     stop(); // shutdown may run twice on SIGINT-then-SIGTERM; a throw here would abort the drain
     writeFileSync(join(root, "after-stop.md"), "x", "utf8");
-    await r.settle(1, 500);
+    await r.settle(1, 600);
     expect(r.upserts).toEqual([]);
     expect(r.deletes).toEqual([]);
   });
@@ -391,14 +381,15 @@ describe("startVaultWatch — real filesystem", () => {
     const r = recorder();
     const stop = startVaultWatch({
       targets: [{ vaultId: "v1", root }],
-      debounceMs: 1000,
+      debounceMs: 2000,
       onUpsert: r.onUpsert,
       onDelete: r.onDelete,
     });
+    await arm();
     writeFileSync(join(root, "queued.md"), "x", "utf8");
-    await new Promise((res) => setTimeout(res, 150)); // event received, flush still pending
+    await new Promise((res) => setTimeout(res, 300)); // event received, flush still pending
     stop();
-    await new Promise((res) => setTimeout(res, 1200)); // past when the flush would have fired
+    await new Promise((res) => setTimeout(res, 2400)); // past when the flush would have fired
     expect(r.upserts).toEqual([]);
   });
 });

@@ -92,6 +92,60 @@ export function registerVaultWatch(
   });
 }
 
+/** What the filesystem says is at a watched path right now. */
+export type WatchResolution =
+  | { kind: "upsert"; content: string }
+  | { kind: "delete" }
+  | { kind: "refused"; error: unknown };
+
+/**
+ * Decide what a changed path means, and read it if it is an indexable note.
+ *
+ * Split out of flush() deliberately: every security-relevant guarantee of this module lives HERE,
+ * and none of it has anything to do with fs.watch. Testing these through the OS watcher made
+ * platform-independent rules depend on platform-specific event delivery — which is exactly how a
+ * correct symlink guard came to fail on macOS for timing reasons. As a pure function of (root, rel)
+ * it is deterministic on every platform.
+ *
+ * Reaching an indexable note takes BOTH guards, because they cover different aliases and neither
+ * covers the other:
+ *
+ *   lstat + isFile()  — SYMLINKS. `walkVault` classifies from readdir Dirents, whose isFile() is
+ *     false for a symlink, so index_vault silently skips them. readNote alone would NOT catch this:
+ *     its open() follows the symlink and its fstat then describes the TARGET, which for an ordinary
+ *     file passes every check. The walk protects the normal path, so the walk's test is what has to
+ *     be reproduced.
+ *   readNote()        — HARD LINKS. lstat alone would NOT catch these: a hard link IS a regular
+ *     file (isFile() true, nlink 2), so a second name for an inode outside the vault reads as an
+ *     ordinary note. readNote's assertRegularSingleLink fstats the OPEN fd and refuses nlink > 1 —
+ *     check-and-use on one object, so not a TOCTOU either. realpath cannot dereference a hard link,
+ *     so path canonicalization is no substitute.
+ *
+ * Calling readNote rather than readFileSync is the point: it is the exact function indexVault's own
+ * note pass uses, so the watch cannot drift away from the guarantees the full index walk has.
+ */
+export function resolveWatchedPath(root: string, rel: string): WatchResolution {
+  const abs = join(root, rel);
+  try {
+    // A symlink, or a directory that replaced a note. Either way there is no longer an indexable
+    // note at this path, so the index must not keep one.
+    if (!lstatSync(abs).isFile()) return { kind: "delete" };
+  } catch {
+    // Gone between the event and the flush — that IS the delete case, and it is also what a file
+    // removed twice looks like. submitDelete is idempotent, so re-reporting is safe.
+    return { kind: "delete" };
+  }
+  try {
+    return { kind: "upsert", content: readNote(abs).raw };
+  } catch (e) {
+    // readNote REFUSED the file (hard link, not a regular file) or it vanished mid-read. Either way
+    // the caller evicts; `refused` exists so a refusal can also be SURFACED, because dropping it
+    // silently would be indistinguishable from an ordinary delete.
+    if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return { kind: "delete" };
+    return { kind: "refused", error: e };
+  }
+}
+
 /**
  * Start watching every target. Returns a stop function.
  *
@@ -112,45 +166,14 @@ export function startVaultWatch(opts: VaultWatchOptions): () => void {
       const root = rootById.get(vaultId);
       if (root === undefined) continue;
       for (const rel of paths) {
-        const abs = join(root, rel);
-        // Reaching an indexable note takes BOTH guards, because they cover different aliases and
-        // neither covers the other:
-        //
-        //   lstat + isFile()  — SYMLINKS. `walkVault` classifies from readdir Dirents, whose
-        //     isFile() is false for a symlink, so index_vault silently skips them. readNote alone
-        //     would NOT catch this: its open() follows the symlink and its fstat then describes the
-        //     TARGET, which for an ordinary file passes every check. The walk is what protects the
-        //     normal path here, so the walk's test is what has to be reproduced.
-        //   readNote()        — HARD LINKS. lstat alone would NOT catch these: a hard link IS a
-        //     regular file (isFile() true, nlink 2), so a second name for an inode outside the
-        //     vault reads as an ordinary note. readNote's assertRegularSingleLink fstats the OPEN
-        //     fd and refuses nlink > 1 — check-and-use on one object, so it is not a TOCTOU either.
-        //
-        // Deliberately calling readNote rather than readFileSync: it is the exact function
-        // indexVault's own note pass uses (indexer.ts), so the watch cannot drift away from the
-        // guarantees the full index walk has.
-        try {
-          if (!lstatSync(abs).isFile()) {
-            // A symlink, or a directory that replaced a note. Either way there is no longer an
-            // indexable note at this path, so the index must not keep one.
-            opts.onDelete(vaultId, rel);
-            continue;
-          }
-        } catch {
-          // Gone between the event and the flush — that IS the delete case, and it is also what a
-          // file removed twice looks like. submitDelete is idempotent, so re-reporting is safe.
+        // All classification and every alias guard lives in resolveWatchedPath — see its docstring.
+        const r = resolveWatchedPath(root, rel);
+        if (r.kind === "upsert") opts.onUpsert(vaultId, rel, r.content);
+        else if (r.kind === "delete") opts.onDelete(vaultId, rel);
+        else {
+          // Fail closed: evict rather than index, and surface the refusal.
           opts.onDelete(vaultId, rel);
-          continue;
-        }
-        try {
-          opts.onUpsert(vaultId, rel, readNote(abs).raw);
-        } catch (e) {
-          // readNote REFUSED the file (hard link, not a regular file) or it vanished mid-read.
-          // Fail closed either way: evict rather than index. A refusal is also SURFACED — dropping
-          // it silently would be indistinguishable from an ordinary delete, and "the watch quietly
-          // stopped indexing one note" is precisely the kind of thing nobody notices.
-          opts.onDelete(vaultId, rel);
-          if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") opts.onError?.(e, vaultId);
+          opts.onError?.(r.error, vaultId);
         }
       }
     }
@@ -180,7 +203,13 @@ export function startVaultWatch(opts: VaultWatchOptions): () => void {
       if (!statSync(t.root).isDirectory()) {
         throw new Error(`vault root is not a directory: ${t.root}`);
       }
-      const w = watch(t.root, { recursive: true, persistent: false }, (_event, filename) => {
+      // `persistent: true` (the default) plus an explicit unref(), NOT `persistent: false`. Both
+      // are meant to keep the watcher from holding the event loop open, but they take different
+      // paths inside libuv, and the non-persistent recursive path on Windows crashed the whole
+      // vitest worker process outright — no exception, no failing assertion, just a dead worker
+      // with the file's 19 tests silently missing from the totals. unref() is the documented way to
+      // say "do not keep the process alive" and behaves identically on all three platforms.
+      const w = watch(t.root, { recursive: true }, (_event, filename) => {
         // The event TYPE is deliberately ignored. Node reports a file creation as `rename` and Bun
         // reports the same creation as `change` (measured on Linux 6.17, node 26 / bun 1.3), so
         // branching on it would behave differently under the two runtimes this ships on. The lstat
@@ -196,6 +225,7 @@ export function startVaultWatch(opts: VaultWatchOptions): () => void {
         set.add(rel);
         schedule();
       });
+      w.unref?.();
       w.on("error", (e) => opts.onError?.(e, t.vaultId));
       closers.push(() => w.close());
     } catch (e) {
