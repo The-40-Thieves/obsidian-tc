@@ -19,6 +19,7 @@ import { cachedPrepare, type Database } from "../db/types";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/attrs";
+import { type TraceCarrier, withTraceCarrier } from "../otel/propagation";
 import { callerHash, type RateLimiter } from "../throttle";
 import { CROSS_NOTE_REWRITE_TOOLS, runAudited } from "../vault/acl-audit";
 import { type AclOp, enforcePathAcl } from "../vault/acl-path";
@@ -69,6 +70,12 @@ export interface CallerContext {
    *  behavior is unchanged. Deliberately NOT observed by tool handlers in this change: honoring it
    *  mid-handler is a per-tool behavior change left to a follow-up. */
   signal?: AbortSignal;
+  /** SEP-414: W3C trace context lifted from the request's MCP `_meta`, set by the transport's
+   *  request handler. When present, dispatch's SERVER span is parented to the CALLER's span, so a
+   *  trace that starts in a host application continues through this server instead of ending at the
+   *  edge and starting a second, unrelated tree. Absent for any caller that sends none — the span
+   *  is then a root exactly as before. */
+  traceCarrier?: TraceCarrier;
 }
 
 /**
@@ -823,10 +830,11 @@ export class ToolRegistry {
       this.emitCompletion(name, ctx, result);
       return result;
     }
-    return tracer.startActiveSpan(
-      `obsidian_tc.${name}`,
-      { kind: SpanKind.SERVER },
-      async (span) => {
+    // SEP-414: parent the SERVER span to the caller's trace when they sent one. withTraceCarrier is
+    // a pass-through when they did not, so the no-carrier path is unchanged — and a malformed
+    // carrier degrades to a root span rather than losing one.
+    return withTraceCarrier(ctx.traceCarrier, () =>
+      tracer.startActiveSpan(`obsidian_tc.${name}`, { kind: SpanKind.SERVER }, async (span) => {
         try {
           span.setAttribute(SPAN_ATTR.vaultId, ctx.vaultId);
           span.setAttribute(SPAN_ATTR.tool, name);
@@ -843,7 +851,7 @@ export class ToolRegistry {
         } finally {
           span.end();
         }
-      },
+      }),
     );
   }
 
