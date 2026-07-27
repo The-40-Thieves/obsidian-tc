@@ -17,6 +17,59 @@ export function collectIndexing(vault: VaultCtx, buildMs: number): MetricSample[
       class: "hard",
       direction: "exact",
     },
+    // THE-458: the three perf gates the program named as missing. `notes_per_s` and `tokens_per_s`
+    // are throughput (warn — runner-variable, like chunks_per_s); their deterministic counterparts
+    // are gated hard, because a throughput number is only interpretable next to the count it
+    // divided. A silent drop in notes indexed would otherwise READ AS a throughput regression.
+    {
+      key: "index.notes_count",
+      portable: true,
+      value: vault.stats.notes_indexed,
+      unit: "count",
+      class: "hard",
+      direction: "exact",
+    },
+    {
+      key: "index.notes_per_s",
+      portable: true,
+      value: seconds > 0 ? vault.stats.notes_indexed / seconds : 0,
+      unit: "per_s",
+      class: "warn",
+      direction: "lower-worse",
+    },
+    {
+      // Estimated with PRODUCTION's estimateTokens (search/chunk.ts), not a harness-local
+      // approximation — the same function that decides embed batching, so this measures a
+      // quantity the server actually acts on.
+      key: "embed.tokens",
+      portable: true,
+      value: vault.provider.tokens,
+      unit: "count",
+      class: "hard",
+      direction: "exact",
+    },
+    {
+      key: "embed.tokens_per_s",
+      portable: true,
+      value: seconds > 0 ? vault.provider.tokens / seconds : 0,
+      unit: "per_s",
+      class: "warn",
+      direction: "lower-worse",
+    },
+    {
+      // The DENOMINATOR gate. Every storage/CPU figure in this harness is whole-process, and the
+      // harness builds exactly one vault — so `storage.bytes` is trivially "per vault" today and
+      // would silently stop being so the moment anyone adds a second. Emitting the count makes
+      // that assumption explicit and hard-gated, rather than implicit in the harness's shape.
+      // THE-458 lists "per-vault CPU/storage" as a missing gate; this is the honest form of it
+      // until the harness is genuinely multi-vault.
+      key: "harness.vault_count",
+      portable: true,
+      value: 1,
+      unit: "count",
+      class: "hard",
+      direction: "exact",
+    },
     {
       key: "index.chunks_per_s",
       portable: true,
