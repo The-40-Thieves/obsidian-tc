@@ -9,8 +9,9 @@
 // take an already-resolved absolute path.
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { Database } from "../db/types";
+import { resolveVaultPathChecked } from "../vault/paths";
 
 /** Stable session id, e.g. "sess_9f2c…". 12 random bytes = 24 hex chars. */
 export function genSessionId(): string {
@@ -30,15 +31,31 @@ export function traceRelPath(traceFolder: string, sessionId: string): string {
  *  files `appendTrace` creates. Note EVERY vault gets an entry, not only those with a `workspace`
  *  block: `traceFolderFor` falls back to the same default and `registerM5Tools` is unconditional,
  *  so a vault that never configured workspace still accumulates traces once the session tools are
- *  called. Sweeping only configured vaults would miss exactly the case THE-610 exists for. */
+ *  called. Sweeping only configured vaults would miss exactly the case THE-610 exists for.
+ *
+ *  CONTAINMENT IS NOT OPTIONAL HERE. This computes a directory the sweep will DELETE files from,
+ *  and `traceFolder` is only `z.string().min(1)` in the schema — nothing stops `..`. A bare
+ *  `join(vaultRoot, folder)` is not a containment check: `join("/v", "../../tmp/evil")` is
+ *  `/tmp/evil`. So this reuses the very primitive the WRITE path uses (`resolveVaultPathChecked`,
+ *  via `traceRelPath`'s own normalization), which rejects `..`, absolute paths and symlinked
+ *  ancestors. Any delete path must be at least as strict as the write path that created the files.
+ *
+ *  It THROWS rather than skipping. A `traceFolder` that escapes the vault already makes every
+ *  `start_session` fail at `resolveVaultPath`, so such a config is broken either way — refusing at
+ *  boot turns a latent per-call error into an immediate, legible one, and silently skipping the
+ *  vault would leave its traces growing forever, which is the bug this ticket exists to fix. */
 export function resolveTraceDirs(
   vaults: readonly { id: string; path: string; workspace?: { traceFolder: string } }[],
   defaultFolder: string,
 ): Array<{ vaultId: string; dir: string }> {
-  return vaults.map((v) => ({
-    vaultId: v.id,
-    dir: join(v.path, v.workspace?.traceFolder ?? defaultFolder),
-  }));
+  return vaults.map((v) => {
+    const folder = v.workspace?.traceFolder ?? defaultFolder;
+    // Normalize exactly as traceRelPath does before resolving. Without this a backslash in the
+    // folder makes the write path store under `a/b` while the sweep looks for the literal `a\b`
+    // on POSIX — a directory that never exists, so the sweep reports 0 forever while files pile up.
+    const rel = folder.replace(/\\/g, "/").replace(/\/+$/, "");
+    return { vaultId: v.id, dir: resolveVaultPathChecked(v.path, rel).abs };
+  });
 }
 
 export interface SessionRow {

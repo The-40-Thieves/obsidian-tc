@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { sweepTraceFiles } from "../src/db/maintenance";
+import { appendTrace, resolveTraceDirs, traceRelPath } from "../src/workspace/sessions";
 
 const DAY = 86_400_000;
 const NOW = 1_800_000_000_000;
@@ -87,5 +88,61 @@ describe("sweepTraceFiles (THE-610)", () => {
     const dir = makeDir({ "sess_orphaned_by_failed_start.jsonl": 60 });
     expect(sweepTraceFiles([{ vaultId: "v1", dir }], { now: NOW, tracesDays: 30 })).toBe(1);
     expect(readdirSync(dir)).toHaveLength(0);
+  });
+});
+
+// THE-610 containment. `resolveTraceDirs` computes a directory the sweep DELETES from, while
+// `traceFolder` is only `z.string().min(1)` in the schema. An adversarial review of the first cut
+// of this feature found it used a bare `path.join`, which is not a containment check —
+// join("/v", "../../tmp/evil") === "/tmp/evil". These tests pin the fix.
+describe("resolveTraceDirs containment (THE-610)", () => {
+  const root = mkdtempSync(join(tmpdir(), "tc-vault-"));
+
+  it("resolves a normal folder under the vault", () => {
+    const [d] = resolveTraceDirs([{ id: "v1", path: root }], ".obsidian-tc/traces");
+    expect(d?.dir).toBe(join(root, ".obsidian-tc/traces"));
+  });
+
+  it("REFUSES a traceFolder that escapes the vault", () => {
+    expect(() =>
+      resolveTraceDirs(
+        [{ id: "v1", path: root, workspace: { traceFolder: "../../../../tmp/evil" } }],
+        ".obsidian-tc/traces",
+      ),
+    ).toThrow();
+  });
+
+  it("REFUSES an absolute traceFolder", () => {
+    expect(() =>
+      resolveTraceDirs([{ id: "v1", path: root, workspace: { traceFolder: "/etc" } }], "x"),
+    ).toThrow();
+  });
+
+  it("normalizes separators the same way traceRelPath does, so write and sweep agree", () => {
+    // On POSIX `path.join` treats a backslash as a literal character. Without normalization the
+    // write path stores under `a/b` while the sweep looks for the literal `a\b` — a directory that
+    // never exists, so the sweep reports 0 forever while traces pile up.
+    const [d] = resolveTraceDirs(
+      [{ id: "v1", path: root, workspace: { traceFolder: "notes\\traces/" } }],
+      "x",
+    );
+    expect(d?.dir).toBe(join(root, "notes/traces"));
+    // and the write path derives its file from the SAME normalization
+    expect(traceRelPath("notes\\traces/", "sess_1")).toBe("notes/traces/sess_1.jsonl");
+  });
+
+  it("write path and sweep path agree end to end", () => {
+    const folder = "wk/traces";
+    const [d] = resolveTraceDirs(
+      [{ id: "v1", path: root, workspace: { traceFolder: folder } }],
+      "x",
+    );
+    const abs = join(root, traceRelPath(folder, "sess_roundtrip"));
+    appendTrace(abs, { ts: NOW - 90 * DAY });
+    utimesSync(abs, (NOW - 90 * DAY) / 1000, (NOW - 90 * DAY) / 1000);
+    // the sweep, given only the resolved dir, finds and prunes the file the writer created
+    expect(
+      sweepTraceFiles([{ vaultId: "v1", dir: d?.dir as string }], { now: NOW, tracesDays: 30 }),
+    ).toBe(1);
   });
 });
