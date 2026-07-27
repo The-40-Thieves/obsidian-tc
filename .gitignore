@@ -61,9 +61,22 @@ coverage/
 # is never accidentally committed.
 .obsidian-tc/
 
-# Agent tooling (local only — never committed)
+# Agent tooling. Local STATE stays out; SHARED config is committed.
+#
+# `.claude/` was blanket-ignored, which meant the project's Claude Code configuration could not
+# exist in the repo at all — every hook, skill and convention lived in one contributor's home
+# directory and did not travel. The four negations below are checked in deliberately; everything
+# else under .claude/ (settings.local.json, state/, caches) stays local, which is what this rule
+# was actually protecting.
+#
+# This does NOT affect the packed .mcpb: .mcpbignore excludes .claude/ independently, so THE-276's
+# fix (local state must never reach the distributable) holds regardless of what git tracks.
 .omc/
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/agents/
+!.claude/hooks/
+!.claude/skills/
 
 # graphify knowledge-graph build output (`/graphify`). Generated and rebuildable, multi-MB
 # (graph.json alone is ~7 MB), and machine-specific: the manifest and extraction cache key on
