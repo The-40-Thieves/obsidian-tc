@@ -90,6 +90,55 @@ describe("THE-374 snapshot + restore_note", () => {
     }
   });
 
+  it("THE-603: surfaces the snapshot no-op for restore_note's pre-restore capture when disabled", async () => {
+    const skipped: Array<{ vaultId: string; path: string; op: string }> = [];
+    const v = makeTestVault({
+      files: { "a.md": "V1" },
+      // snapshots omitted -> disabled; snapshot_note still works (hardcoded enabled:true), so a
+      // real snapshot row exists to restore from even though the auto-capture path is off.
+      onSnapshotSkipped: (vaultId, path, op) => skipped.push({ vaultId, path, op }),
+    });
+    try {
+      const snap = await v.call("snapshot_note", { vault: "test", path: "a.md" });
+      expect(snap.ok).toBe(true);
+      const snapId = snap.ok ? (snap.data as { snapshot_id: number }).snapshot_id : 0;
+      v.write("a.md", "V2");
+
+      const need = await v.call("restore_note", {
+        vault: "test",
+        path: "a.md",
+        snapshot_id: snapId,
+      });
+      expect(need.ok).toBe(false);
+      if (!need.ok) expect(need.error.code).toBe("elicit_required");
+      const token = issueElicitToken(v.db, {
+        vaultId: "test",
+        toolName: "restore_note",
+        argsHash: hashOf(need),
+        caller: "test",
+      });
+      const restored = await v.call(
+        "restore_note",
+        { vault: "test", path: "a.md", snapshot_id: snapId },
+        { elicitToken: token },
+      );
+      expect(restored.ok).toBe(true);
+      expect(v.read("a.md")).toBe("V1");
+
+      // the pre-restore capture of "V2" silently no-opped -> only the original manual snapshot
+      // exists; the restore itself has no undo.
+      const list = await v.call("list_snapshots", { vault: "test", path: "a.md" });
+      const ops = list.ok
+        ? (list.data as { snapshots: Array<{ op: string }> }).snapshots.map((s) => s.op)
+        : [];
+      expect(ops).toEqual(["manual"]);
+
+      expect(skipped).toEqual([{ vaultId: "test", path: "a.md", op: "restore_note" }]);
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("retention keeps the newest N and GCs orphan blobs", async () => {
     const v = makeTestVault({
       files: { "a.md": "s0" },

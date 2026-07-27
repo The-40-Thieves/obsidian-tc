@@ -831,7 +831,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: (input) => [{ op: "delete", path: input.path }],
       description:
-        "Delete a note (to the vault's .trash mirror, or permanently). Destructive — requires confirmation.",
+        "Delete a note (to the vault's .trash mirror, or permanently). Destructive — requires confirmation. restore_note reads its undo from a snapshot, which is captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it off, so a deleted note may have no restore_note path back even though it is confirmed destructive.",
       inputSchema: DeleteInput,
       outputSchema: DeleteNoteOutput,
       requiredScopes: ["delete:notes"],
@@ -851,6 +851,10 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
             expected: input.prev_hash,
             actual: hash,
           });
+        // THE-603: delete_note is unconditionally destructive (destructive:true, gated in
+        // dispatch) — the sharpest case for a silently inert snapshot no-op, since restore_note
+        // is the documented undo and a permanent delete leaves no other recovery path at all.
+        if (!deps.snapshots?.enabled) deps.onSnapshotSkipped?.(v.id, rel, "delete_note");
         captureSnapshot(ctx.db, deps.snapshots, v.id, rel, raw, "delete_note", ctx.now);
         let trashedTo: string | null = null;
         if (input.permanent) hardDelete(abs);

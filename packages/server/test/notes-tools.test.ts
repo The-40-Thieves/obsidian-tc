@@ -712,6 +712,30 @@ describe("THE-603 patch_note replace blast-radius guard", () => {
       v.cleanup();
     }
   });
+
+  it("surfaces the snapshot no-op for delete_note when snapshots are disabled", async () => {
+    const skipped: Array<{ vaultId: string; path: string; op: string }> = [];
+    const v = makeTestVault({
+      files: { "a.md": "hello" },
+      // snapshots omitted -> disabled, matching the default "trusted-local" posture.
+      onSnapshotSkipped: (vaultId, path, op) => skipped.push({ vaultId, path, op }),
+    });
+    try {
+      const need = await v.call("delete_note", { vault: "test", path: "a.md" });
+      expect(need.ok).toBe(false);
+      if (!need.ok) expect(need.error.code).toBe("elicit_required");
+      const token = mint(v, "delete_note", hashOf(need));
+      const ok = await v.call(
+        "delete_note",
+        { vault: "test", path: "a.md" },
+        { elicitToken: token },
+      );
+      expect(ok.ok).toBe(true);
+      expect(skipped).toEqual([{ vaultId: "test", path: "a.md", op: "delete_note" }]);
+    } finally {
+      v.cleanup();
+    }
+  });
 });
 
 describe("THE-252 writes.requireCas (config-gated strict CAS)", () => {
