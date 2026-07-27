@@ -6,6 +6,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **Enabling `observability.prometheus` no longer kills the MCP HTTP server under Bun (THE-659).**
+  With `prometheus.enabled: true`, every request to the MCP transport — any path, any method,
+  authenticated or not — returned Bun's placeholder page (`Welcome to Bun! To get started, return a
+  Response object.`) at **HTTP 200**, while the process logged `Expected a Response object, but
+  received 'Response (lightweight) { … nativeResponse: undefined }'`. The MCP plane was completely
+  dead and every status-code health check stayed green.
+
+  The `/metrics` endpoint served its app with `@hono/node-server` while THE-561 had already moved
+  the MCP transport to native `Bun.serve`. Starting the Node-compat server installs its HTTP
+  machinery process-wide, after which Hono's responses are the "lightweight" variant that
+  `Bun.serve` refuses. Both listeners now go through one `serveHono` helper
+  (`src/transports/serve.ts`), because the Bun-vs-Node choice is a **process**-wide decision rather
+  than a per-server one — mixing the two implementations is the defect. Guarded by
+  `bun-smoke/dual-http-servers.test.ts`, which starts both servers in one process and asserts on
+  response **bodies**; a test that starts only one server cannot see this failure, and one that
+  checks only status codes reads 200 either way.
+
 ## [1.12.0] - 2026-07-27
 
 ### Changed (breaking)

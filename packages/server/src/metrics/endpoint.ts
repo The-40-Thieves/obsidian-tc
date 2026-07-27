@@ -1,7 +1,8 @@
-import { serve } from "@hono/node-server";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { Hono } from "hono";
 import { verifyJwt } from "../auth/jwt";
+import type { ServerHandle } from "../transports/serve";
+import { serveHono } from "../transports/serve";
 import type { MetricsRecorder } from "./registry";
 
 type AuthConfig = ServerConfig["auth"];
@@ -18,10 +19,7 @@ export interface MetricsEndpointOptions {
   auth: AuthConfig;
 }
 
-export interface MetricsHandle {
-  port: number;
-  close: () => Promise<void>;
-}
+export type MetricsHandle = ServerHandle;
 
 /**
  * Build the Hono app that serves the Prometheus exposition at `GET /metrics`. On a loopback
@@ -54,9 +52,14 @@ export function createMetricsApp(opts: MetricsEndpointOptions): Hono {
 }
 
 /**
- * Serve the /metrics app on bind:port via @hono/node-server. Hardcoded refusal (G2.2
- * commitment 8): a non-loopback bind under `auth.mode: none` is rejected at startup with no
- * config override. Pass port 0 for an ephemeral port; the handle reports the actual port.
+ * Serve the /metrics app on bind:port. Hardcoded refusal (G2.2 commitment 8): a non-loopback bind
+ * under `auth.mode: none` is rejected at startup with no config override. Pass port 0 for an
+ * ephemeral port; the handle reports the actual port.
+ *
+ * THE-659: this MUST go through `serveHono`, not `@hono/node-server` directly. This endpoint is the
+ * process's SECOND listener, and starting a Node-compat server here made every response from the
+ * MCP transport's `Bun.serve` on :8765 unusable — turning `observability.prometheus.enabled: true`
+ * into a total outage of the MCP plane that still reported HTTP 200.
  */
 export function startMetricsEndpoint(opts: MetricsEndpointOptions): Promise<MetricsHandle> {
   if (!isLoopback(opts.bind) && opts.auth.mode === "none") {
@@ -64,13 +67,5 @@ export function startMetricsEndpoint(opts: MetricsEndpointOptions): Promise<Metr
       "metrics endpoint refuses a non-localhost bind with auth.mode 'none' (G2.2 commitment 8)",
     );
   }
-  const app = createMetricsApp(opts);
-  return new Promise((resolve) => {
-    const server = serve({ fetch: app.fetch, hostname: opts.bind, port: opts.port }, (info) => {
-      resolve({
-        port: info.port,
-        close: () => new Promise<void>((done) => server.close(() => done())),
-      });
-    });
-  });
+  return serveHono(createMetricsApp(opts), { host: opts.bind, port: opts.port });
 }

@@ -193,7 +193,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**283 modules · 1155 dependencies · 82 distinct subsystem pairs · 481 cross-subsystem imports.**
+**284 modules · 1158 dependencies · 83 distinct subsystem pairs · 482 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -211,7 +211,7 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 82 pairs.
+set is 83 pairs.
 
 ```mermaid
 flowchart LR
