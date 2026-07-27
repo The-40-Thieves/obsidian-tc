@@ -15,12 +15,14 @@
 // asserted explicitly, by name, with the reasoning inline (below) — not silently ignored, and not
 // treated as a gate failure.
 
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ObsidianTcError, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -314,7 +316,135 @@ describe("THE-514 item 2 — vault-binding: documented divergence, asserted as s
           // difference here, which is exactly the documented divergence.
         },
         "obsidian-tc://other/secret.md",
+        1_000_000,
       ),
     ).toThrow(/bound vault/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Section 4 — THE-514 item 1. Scope authorization (unlike vault binding) had NO semantic
+// divergence to preserve: resources.ts's readResource and registry.ts's own scope gate both did
+// `if (!grantsAll(...)) throw forbidden(...)`, just with resources.ts's copy missing
+// `details.required`. registry.ts's `assertScopesGranted` now backs both call sites, so a missing
+// scope produces the identical error shape (code + details.required) on either surface — proof
+// the two reach the same step, not just two copies that happen to agree today.
+// ---------------------------------------------------------------------------------------------
+
+function tempVaultRegistry(): VaultRegistry {
+  const dir = mkdtempSync(join(tmpdir(), "otc-parity-scope-"));
+  writeFileSync(join(dir, "alpha.md"), "hello");
+  return new VaultRegistry(
+    ServerConfigSchema.parse({ vaults: [{ id: "main", path: dir }] }).vaults,
+  );
+}
+
+describe("THE-514 item 1 — resources and tool-dispatch share one scope-authorization step", () => {
+  it("a missing scope produces the SAME forbidden shape (code + details.required) on both surfaces", async () => {
+    let resourceErr: unknown;
+    try {
+      readResource(
+        tempVaultRegistry(),
+        {
+          caller: "t",
+          authenticated: true,
+          grantedScopes: new Set<string>(),
+          vaultId: "main",
+          db: openMemoryDb(),
+        },
+        "obsidian-tc://main/alpha.md",
+        1_000_000,
+      );
+    } catch (e) {
+      resourceErr = e;
+    }
+    expect(resourceErr).toBeInstanceOf(ObsidianTcError);
+    const re = resourceErr as ObsidianTcError;
+    expect(re.code).toBe("forbidden");
+    expect(re.details).toMatchObject({ required: ["read:notes"] });
+
+    const registry = new ToolRegistry({});
+    registry.register({
+      name: "scope_parity_probe",
+      description: "THE-514 parity probe — requires read:notes like resources/read does",
+      inputSchema: z.object({}),
+      requiredScopes: ["read:notes"],
+      handler: () => ({ ok: true }),
+    });
+    const res = await registry.dispatch(
+      "scope_parity_probe",
+      {},
+      {
+        caller: "t",
+        authenticated: true,
+        grantedScopes: new Set<string>(),
+        vaultId: "main",
+        db: openMemoryDb(),
+      },
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("forbidden");
+      expect(res.error.details).toMatchObject({ required: ["read:notes"] });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Section 5 — THE-514 item 2. The byte-response ceiling (governor.maxResponseBytes) used to be a
+// SECOND fixed copy in resources.ts, agreeing with registry.ts's configurable default but not
+// wired to it. This asserts a single LOWERED ceiling now refuses an oversized response on BOTH
+// surfaces — the natural home per [[reference-source-scan-gates]]: "both surfaces honour the same
+// configured limit" is a genuine cross-surface invariant now, not just a tool one.
+// ---------------------------------------------------------------------------------------------
+
+describe("THE-514 item 2 — the same lowered maxResponseBytes refuses an oversized TOOL response and an oversized RESOURCE read", () => {
+  it("refuses an oversized tool response", async () => {
+    const registry = new ToolRegistry({ maxResponseBytes: 50 });
+    registry.register({
+      name: "oversized_echo_parity",
+      description: "returns a payload over the configured ceiling",
+      inputSchema: z.object({}),
+      requiredScopes: [],
+      handler: () => ({ text: "x".repeat(100) }),
+    });
+    const res = await registry.dispatch(
+      "oversized_echo_parity",
+      {},
+      {
+        caller: "t",
+        authenticated: true,
+        grantedScopes: new Set(["*"]),
+        vaultId: "main",
+        db: openMemoryDb(),
+      },
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("overflow");
+  });
+
+  it("the SAME registry's configured ceiling refuses an oversized resource read", () => {
+    const dir = mkdtempSync(join(tmpdir(), "otc-parity-ceiling-"));
+    writeFileSync(join(dir, "big.md"), "x".repeat(100));
+    const vaultRegistry = new VaultRegistry(
+      ServerConfigSchema.parse({ vaults: [{ id: "main", path: dir }] }).vaults,
+    );
+    const registry = new ToolRegistry({ maxResponseBytes: 50 });
+    expect(() =>
+      readResource(
+        vaultRegistry,
+        {
+          caller: "t",
+          authenticated: true,
+          grantedScopes: new Set(["*"]),
+          vaultId: "main",
+          db: openMemoryDb(),
+        },
+        "obsidian-tc://main/big.md",
+        // THE-514 item 2: this is exactly what mcp/server.ts now passes — the registry's OWN
+        // configured ceiling, not a hardcoded resources.ts constant.
+        registry.maxResponseBytes,
+      ),
+    ).toThrow(/exceeds 50 bytes/);
   });
 });

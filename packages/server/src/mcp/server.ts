@@ -303,7 +303,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
           ctx,
           ["read:notes"],
           { uri: req.params.uri },
-          () => readResource(vaultRegistry, ctx, req.params.uri),
+          // THE-514 item 2: pass the registry's configured maxResponseBytes so a lowered ceiling
+          // applies to resources too, not just tools — resources.ts no longer holds its own
+          // unconfigurable fixed copy of the default.
+          () => readResource(vaultRegistry, ctx, req.params.uri, opts.registry.maxResponseBytes),
         );
       },
     );

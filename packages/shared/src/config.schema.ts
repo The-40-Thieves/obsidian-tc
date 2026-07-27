@@ -900,7 +900,9 @@ export const GovernorConfigSchema = z.object({
     .int()
     .positive()
     .default(1_000_000)
-    .describe("Ceiling on a single tool response in bytes, before it is truncated or refused."),
+    .describe(
+      "Ceiling on a single tool or resource response in bytes, before it is refused (THE-514: resources/read honors this too, not just tools).",
+    ),
   // THE-293: worker-time budget (ms) for one search_regex / search_vault(mode:regex) call.
   // Only regex execution in the worker counts — file I/O does not — so a benign pattern on a
   // large vault cannot false-positive the ReDoS guard.
