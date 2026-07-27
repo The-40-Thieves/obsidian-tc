@@ -476,6 +476,268 @@ describe("THE-198 patch_note block + preamble anchors", () => {
   });
 });
 
+describe("THE-603 patch_note replace blast-radius guard", () => {
+  // Shapes the real incident: a single H1 with many H2 subsections below it. An H1 has no
+  // same-or-higher heading to terminate the section, so `replace` on it used to silently consume
+  // the entire body — 30 of 31 lines here, well past both the absolute (20) and proportional
+  // (50%) floors.
+  function incidentNote(): string {
+    const sections = Array.from({ length: 15 }, (_, i) => `## Section ${i}\ncontent ${i}`).join(
+      "\n",
+    );
+    return `# Project README\n${sections}`;
+  }
+
+  it("the exact incident: replace on the sole H1 without confirm_replace throws and leaves the file untouched", async () => {
+    const raw = incidentNote();
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "Project README",
+        content: "REPLACED",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.details).toMatchObject({ lines_removed: 30, body_line_count: 31 });
+      }
+      // the file on disk must be byte-for-byte unchanged, not just "the call threw"
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("the same replace succeeds with confirm_replace: true and reports what was actually removed", async () => {
+    const raw = incidentNote();
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "Project README",
+        content: "REPLACED",
+        confirm_replace: true,
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const d = r.data as { lines_removed: number; bytes_removed: number };
+        expect(d.lines_removed).toBe(30);
+        expect(d.bytes_removed).toBe(
+          Buffer.byteLength(raw.split("\n").slice(1).join("\n"), "utf8"),
+        );
+      }
+      expect(v.read("a.md")).toBe("# Project README\nREPLACED");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a normal small H2-section replace is unaffected (no confirmation needed)", async () => {
+    const raw = "# One\n## Two\nfoo\nbar\n## Three\nbaz\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "Two",
+        content: "NEW",
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { lines_removed: number }).lines_removed).toBe(2);
+      expect(v.read("a.md")).toContain("# One\n## Two\nNEW\n## Three");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("absolute floor: exactly 20 removed lines is unaffected, 21 trips the guard", async () => {
+    const under = `# One\n${Array.from({ length: 20 }, (_, i) => `line${i}`).join("\n")}`;
+    const vUnder = makeTestVault({ files: { "a.md": under } });
+    try {
+      const r = await vUnder.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "One",
+        content: "X",
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { lines_removed: number }).lines_removed).toBe(20);
+    } finally {
+      vUnder.cleanup();
+    }
+
+    const over = `# One\n${Array.from({ length: 21 }, (_, i) => `line${i}`).join("\n")}`;
+    const vOver = makeTestVault({ files: { "a.md": over } });
+    try {
+      const r = await vOver.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "One",
+        content: "X",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.details).toMatchObject({ lines_removed: 21 });
+      expect(vOver.read("a.md")).toBe(over);
+    } finally {
+      vOver.cleanup();
+    }
+  });
+
+  it("proportional floor: removing exactly half the body is unaffected, just over trips the guard", async () => {
+    // Both cases remove 25 lines (well past the absolute floor of 20); only the body's total
+    // length moves, to land exactly at, then just past, the 50% line.
+    const build = (endTailLines: number): string => {
+      const target = Array.from({ length: 25 }, (_, i) => `t${i}`).join("\n");
+      const tail = Array.from({ length: endTailLines }, (_, i) => `e${i}`).join("\n");
+      return `## Target\n${target}\n## End\n${tail}`;
+    };
+
+    // 25 removed of 50 body lines = exactly 50% -> not > 50% -> unaffected.
+    const atHalf = build(23);
+    const vAt = makeTestVault({ files: { "a.md": atHalf } });
+    try {
+      const r = await vAt.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "Target",
+        content: "X",
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { lines_removed: number }).lines_removed).toBe(25);
+    } finally {
+      vAt.cleanup();
+    }
+
+    // 25 removed of 49 body lines > 50% -> trips.
+    const overHalf = build(22);
+    const vOver = makeTestVault({ files: { "a.md": overHalf } });
+    try {
+      const r = await vOver.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "Target",
+        content: "X",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.details).toMatchObject({ lines_removed: 25, body_line_count: 49 });
+      expect(vOver.read("a.md")).toBe(overHalf);
+    } finally {
+      vOver.cleanup();
+    }
+  });
+
+  it("append/prepend on the same H1 are unaffected by the guard", async () => {
+    const raw = incidentNote();
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const app = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "Project README",
+        content: "TAIL",
+      });
+      expect(app.ok).toBe(true);
+      if (app.ok) expect((app.data as { lines_removed: number }).lines_removed).toBe(0);
+
+      const pre = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "prepend",
+        target_heading: "Project README",
+        content: "HEAD",
+      });
+      expect(pre.ok).toBe(true);
+      if (pre.ok) expect((pre.data as { lines_removed: number }).lines_removed).toBe(0);
+      expect(v.read("a.md")).toContain("# Project README\nHEAD\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("surfaces the snapshot no-op for a destructive replace when snapshots are disabled", async () => {
+    const raw = incidentNote();
+    const skipped: Array<{ vaultId: string; path: string; op: string }> = [];
+    const v = makeTestVault({
+      files: { "a.md": raw },
+      // snapshots omitted -> disabled, matching the default "trusted-local" posture.
+      onSnapshotSkipped: (vaultId, path, op) => skipped.push({ vaultId, path, op }),
+    });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "Project README",
+        content: "REPLACED",
+        confirm_replace: true,
+      });
+      expect(r.ok).toBe(true);
+      expect(skipped).toEqual([{ vaultId: "test", path: "a.md", op: "patch_note" }]);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("does not fire the snapshot-skip signal when snapshots are enabled", async () => {
+    const raw = incidentNote();
+    const skipped: Array<unknown> = [];
+    const v = makeTestVault({
+      files: { "a.md": raw },
+      snapshots: { enabled: true, retention: 5 },
+      onSnapshotSkipped: (...args) => skipped.push(args),
+    });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "Project README",
+        content: "REPLACED",
+        confirm_replace: true,
+      });
+      expect(r.ok).toBe(true);
+      expect(skipped).toEqual([]);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("surfaces the snapshot no-op for delete_note when snapshots are disabled", async () => {
+    const skipped: Array<{ vaultId: string; path: string; op: string }> = [];
+    const v = makeTestVault({
+      files: { "a.md": "hello" },
+      // snapshots omitted -> disabled, matching the default "trusted-local" posture.
+      onSnapshotSkipped: (vaultId, path, op) => skipped.push({ vaultId, path, op }),
+    });
+    try {
+      const need = await v.call("delete_note", { vault: "test", path: "a.md" });
+      expect(need.ok).toBe(false);
+      if (!need.ok) expect(need.error.code).toBe("elicit_required");
+      const token = mint(v, "delete_note", hashOf(need));
+      const ok = await v.call(
+        "delete_note",
+        { vault: "test", path: "a.md" },
+        { elicitToken: token },
+      );
+      expect(ok.ok).toBe(true);
+      expect(skipped).toEqual([{ vaultId: "test", path: "a.md", op: "delete_note" }]);
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
 describe("THE-252 writes.requireCas (config-gated strict CAS)", () => {
   it("requires prev_hash on overwrite + append-to-existing when enabled", async () => {
     const v = makeTestVault({ files: { "a.md": "old" }, requireCas: true });

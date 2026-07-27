@@ -187,8 +187,14 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
           path: rel,
           restored_from: input.snapshot_id,
         });
-        if (prevRaw !== null)
+        if (prevRaw !== null) {
+          // THE-603: unlike snapshot_note's hardcoded { enabled: true, ... } above, this call
+          // passes the REAL deps.snapshots config and can genuinely no-op — the tool's own
+          // description already says the restore is reversible "when snapshots are enabled";
+          // when they are not, this is the exact same silently-inert safety net as delete_note.
+          if (!deps.snapshots?.enabled) deps.onSnapshotSkipped?.(v.id, rel, "restore_note");
           captureSnapshot(ctx.db, deps.snapshots, v.id, rel, prevRaw, "restore_note", ctx.now);
+        }
         writeNoteAtomic(abs, snap.content, true);
         deps.reindex?.(v.id, rel, snap.content);
         return {

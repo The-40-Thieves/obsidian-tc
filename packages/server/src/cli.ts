@@ -194,15 +194,16 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // THE-466 slice 2: MetricsRecorder + its gauge sources, onVecFallback/onStageMetric/sqlHooksFor,
   // and the MORGIANA emitter all live in runtime/observability.ts now — see that file for the
   // THE-585 history (three gauges that were declared and never wired) this extraction fixes.
-  const { metrics, onVecFallback, onStageMetric, sqlHooksFor, morgiana } = createObservability({
-    db,
-    cacheDir: config.cacheDir,
-    morgianaSpool: config.observability.morgiana.spool,
-    retrievalCaches,
-    getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
-    getSchedulerStats: () => requireBoot(schedulerRef, "scheduler").stats(),
-    getHttpConstructSeconds: () => httpConstructSeconds,
-  });
+  const { metrics, onVecFallback, onStageMetric, sqlHooksFor, morgiana, onSnapshotSkipped } =
+    createObservability({
+      db,
+      cacheDir: config.cacheDir,
+      morgianaSpool: config.observability.morgiana.spool,
+      retrievalCaches,
+      getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
+      getSchedulerStats: () => requireBoot(schedulerRef, "scheduler").stats(),
+      getHttpConstructSeconds: () => httpConstructSeconds,
+    });
   // Shared rate limiter (G2.4 tiers) — the dispatch gate (THE-210) and get_metrics share it.
   const rateLimiter = new RateLimiter(config.throttle.tiers);
   const vaultRegistry = new VaultRegistry(config.vaults, process.env.OBSIDIAN_TC_DEFAULT_VAULT);
@@ -592,6 +593,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     configPath,
     // THE-374: config-gated snapshot-on-write policy (default off).
     snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
+    // THE-603: legibility signal when the above no-ops for a destructive write.
+    onSnapshotSkipped,
     // THE-291 (3B): metadata tools read the notes table once the boot notes pass commits.
     metadataIndex: { hasFts, ready: () => indexHealth.notesReady },
     requireCas: config.writes.requireCas,

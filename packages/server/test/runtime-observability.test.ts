@@ -161,6 +161,28 @@ describe("THE-466 slice 2: httpConstructSeconds keeps its stdio-only no-series b
   });
 });
 
+describe("THE-603: onSnapshotSkipped makes the snapshot no-op legible", () => {
+  it("writes a best-effort skipped event_log row, keyed by vault and tool", async () => {
+    const db = await seededDb();
+    const observability = createObservability(baseDeps(db));
+
+    observability.onSnapshotSkipped("main", "note.md", "patch_note");
+
+    const rows = db
+      .prepare("SELECT vault_id, tool_name, status, error_code, event_type FROM event_log")
+      .all();
+    expect(rows).toEqual([
+      {
+        vault_id: "main",
+        tool_name: "patch_note",
+        status: "skipped",
+        error_code: "snapshots_disabled",
+        event_type: "snapshot_skipped",
+      },
+    ]);
+  });
+});
+
 describe("THE-466 slice 2: the metric-emitting seams route to the SAME recorder", () => {
   it("onVecFallback/onStageMetric/sqlHooksFor observe on the recorder createObservability returned", async () => {
     const db = await seededDb();
