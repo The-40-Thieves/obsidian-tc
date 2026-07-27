@@ -6,7 +6,6 @@
 
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
-import type { Scheduler } from "../scheduler/scheduler";
 import type { GatewayRoles } from "./gateway";
 
 export interface JobContext {
@@ -65,48 +64,6 @@ export class SleepTimePlane {
     }
     return out;
   }
-}
-
-export interface PlaneSchedulerDeps {
-  db: Database;
-  roles: GatewayRoles | null;
-  intervalMs: number;
-  now?: () => number;
-  onRun?: (results: Record<string, JobResult>) => void;
-  onError?: (e: unknown) => void;
-  /** THE-457: called when a tick is skipped because the previous runAll is still in flight; the
-   *  argument is the running count of skipped ticks (an operator signal that runs exceed the
-   *  interval). */
-  onSkip?: (skipped: number) => void;
-}
-
-/**
- * THE-462: register plane consolidation as a job on a SHARED scheduler (the production path — one
- * timer for all background work). The run body (plane.runAll) is unchanged; the scheduler's
- * single-flight guard replaces the former inline running/skipped guard (THE-457) and drives the same
- * onSkip(skipped) signal — the plane's own idempotent job_runs recording is untouched. The scheduler
- * owns the unref'd timer; failures route to onError and never escape.
- */
-export function registerPlaneScheduler(
-  scheduler: Scheduler,
-  plane: SleepTimePlane,
-  deps: PlaneSchedulerDeps,
-): void {
-  scheduler.register({
-    name: "plane-consolidation",
-    intervalMs: deps.intervalMs,
-    run: async (signal) => {
-      const results = await plane.runAll({
-        db: deps.db,
-        roles: deps.roles,
-        now: deps.now ?? Date.now,
-        signal,
-      });
-      deps.onRun?.(results);
-    },
-    onSkip: (n) => deps.onSkip?.(n),
-    onError: (e) => deps.onError?.(e),
-  });
 }
 
 function recordRun(ctx: JobContext, job: string, startedAt: number, result: JobResult): void {

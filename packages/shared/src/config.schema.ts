@@ -1166,6 +1166,28 @@ export const WatchConfigSchema = z
   })
   .prefault({});
 
+// THE-458 item 6 — the shared background scheduler. One key today, and it exists because the
+// feature behind it was built, tested and then unreachable: `eventLoopDeferMs` gates budget
+// deferral (a due tick waits instead of piling onto a loop that is already behind), and cli.ts
+// simply never passed it. `scheduler_deferred_total` was therefore pinned at 0 for every release
+// since it shipped — the metric's own description says as much, honestly, which made it easy to
+// read as "nothing to defer" rather than "no way to turn it on".
+//
+// Still DEFAULTED OFF (absent), so cadence is unchanged for every existing deployment. The change
+// is that an operator can now reach it without editing source.
+export const SchedulerConfigSchema = z
+  .object({
+    eventLoopDeferMs: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        "Event-loop delay p99 (ms) above which a DUE background tick is deferred rather than run. Deferred is not skipped: the tick runs on a later pass once the loop recovers, and obsidian_tc_scheduler_deferred_total counts it. Absent (the default) disables deferral entirely and the event-loop monitor is never even created, so there is no cost when off. Set it when background work is observably competing with request latency; a value near your acceptable p99 tail is the starting point.",
+      ),
+  })
+  .prefault({});
+
 // THE-296 — ambient sleep-time consolidation (synthesis + audit jobs). Fully defaulted; only
 // meaningful when the inference gateway (roles) is configured — cli gates on both.
 export const PlaneConfigSchema = z
@@ -1406,6 +1428,7 @@ export const ServerConfigObject = z.object({
     "Metrics, traces and event export.",
   ),
   maintenance: MaintenanceConfigSchema.describe("Periodic cache.db maintenance sweep."),
+  scheduler: SchedulerConfigSchema.describe("Shared background scheduler tuning."),
   watch: WatchConfigSchema.describe("Filesystem watch that reindexes notes changed outside."),
   snapshots: SnapshotsConfigSchema.describe("Point-in-time note snapshot policy."),
   plane: PlaneConfigSchema.describe("Ambient sleep-time consolidation jobs."),

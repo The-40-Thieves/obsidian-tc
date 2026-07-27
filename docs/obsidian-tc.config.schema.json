@@ -1397,6 +1397,19 @@
         }
       }
     },
+    "scheduler": {
+      "description": "Shared background scheduler tuning.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "eventLoopDeferMs": {
+          "description": "Event-loop delay p99 (ms) above which a DUE background tick is deferred rather than run. Deferred is not skipped: the tick runs on a later pass once the loop recovers, and obsidian_tc_scheduler_deferred_total counts it. Absent (the default) disables deferral entirely and the event-loop monitor is never even created, so there is no cost when off. Set it when background work is observably competing with request latency; a value near your acceptable p99 tail is the starting point.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
     "watch": {
       "description": "Filesystem watch that reindexes notes changed outside.",
       "default": {},
