@@ -109,12 +109,10 @@ so any subset of this document is a valid config.
     }
   },
   "observability": {
-    "traceDetail": "standard",
-    "tracesSampleRate": 1.0,
     "otel":       { "headers": {} },
     "prometheus": { "enabled": false, "bind": "127.0.0.1", "port": 9464 },
     "morgiana":   { "spool": true, "httpHeaders": {} },
-    "retention":  { "morgianaEventsDays": 90, "tracesDays": 90, "eventLogDays": 30 }
+    "retention":  { "eventLogDays": 30 }
   },
   "maintenance": { "enabled": true, "intervalMinutes": 60 },
   "snapshots": { "enabled": false, "retention": 10 },
@@ -179,7 +177,7 @@ server never binds a routable address.
 
 | Field | Type / default | What it does |
 | --- | --- | --- |
-| `provider` | `ollama \| openai \| voyage \| cohere \| bge-m3`, `ollama` | `bge-m3` targets a vLLM pooling server (dense + learned-sparse + ColBERT heads). |
+| `provider` | `ollama \| openai \| voyage \| cohere \| bge-m3 \| model-tier`, `ollama` | `bge-m3` targets a vLLM pooling server (dense + learned-sparse + ColBERT heads); `model-tier` splits dense and multi-vector embedding across two separate services. |
 | `model` | string, `nomic-embed-text` | |
 | `dimensions` | int, 768 | The vec0 table is dimension-locked; changing it requires a fresh `cacheDir` (see [migration](/configuration/embedding-model-migration/)). |
 | `baseUrl` | url *(optional)* | Provider endpoint (e.g. `http://127.0.0.1:11434` for Ollama). |
@@ -274,12 +272,10 @@ returns `rate_limit` with `retry_after_ms`.
 
 | Field | Default | What it does |
 | --- | --- | --- |
-| `traceDetail` | `standard` | `verbose` adds per-layer detail to spans/traces. |
-| `tracesSampleRate` | 1.0 | 0–1. |
-| `otel.endpoint` | *(optional)* | OTLP export; unset = no-op. `otel.headers` for auth. |
+| `otel.endpoint` | *(optional)* | OTLP export; unset = no-op. `otel.headers` for auth. There is no sampling knob and no `traceDetail`/detail-level switch — every dispatch gets one root span, unconditionally, when tracing is enabled. |
 | `prometheus` | disabled, `127.0.0.1:9464` | `/metrics` scrape endpoint. |
 | `morgiana.spool` | true | CloudEvents JSONL spool; `httpEndpoint` (+`httpHeaders`) enables push. |
-| `retention` | 90/90/30 days | morgiana events / traces / event_log. |
+| `retention.eventLogDays` | 30 | The **only** enforced retention: `event_log` rows older than this are pruned by the maintenance sweep. Trace files and the morgiana spool are **not** pruned by config — they grow without bound regardless of any value set here. |
 
 ## Background schedulers
 

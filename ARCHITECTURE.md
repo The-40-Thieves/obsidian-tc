@@ -194,7 +194,7 @@ flowchart TB
 
 ### Per-layer specification
 
-**Layer 1: Transport (MCP SDK boundary).** The MCP TypeScript SDK parses JSON-RPC over STDIO or Streamable HTTP; malformed JSON-RPC is rejected at the protocol layer before dispatch. The `tools/call` handler strips a caller-supplied `elicit_token` out of the arguments into the caller context, so the token never perturbs the args hash — the token is bound to the hash of the call *without* it (`packages/server/src/mcp/server.ts`). There is no separate normalized request type: the dispatch entry point is `registry.dispatch(name, args, ctx)` with a per-request `CallerContext` (caller identity, granted scopes, `authenticated`, resolved vault + optional vault binding, elicit token, DB handle).
+**Layer 1: Transport (MCP SDK boundary).** The MCP TypeScript SDK parses JSON-RPC over STDIO or Streamable HTTP; malformed JSON-RPC is rejected at the protocol layer before dispatch. The `tools/call` handler strips a caller-supplied `elicit_token` out of the arguments into the caller context, so the token never perturbs the args hash — the token is bound to the hash of the call *without* it (`packages/server/src/mcp/server.ts`). There is no separate normalized request type: the dispatch entry point is `registry.dispatch(name, args, ctx)` with a per-request `CallerContext` (caller identity, granted scopes, `authenticated`, resolved vault + optional vault binding, elicit token, DB handle, per-vault ACL, workspace session id, the THE-572 effect-committed marker callback, a clock override, and the THE-514 per-request `AbortSignal`).
 
 **Layer 2: Auth (HTTP edge + dispatch).** Two modes: `none` (no token; the config refuses to validate if HTTP is bound to a non-loopback host) and `jwt`. In `jwt` mode the token's protected header routes verification (THE-297): **HS256 verifies only against the shared `jwtSecret`; RS256 / ES256 / EdDSA (the default `auth.algorithms` allowlist) verify only against a local JWKS** (`auth.jwks` inline or `auth.jwksFile`, loaded once at transport boot — no URL fetch), with `kid`-based key selection for rotation. Either side may be absent; tokens for the missing side reject. HS256-only deployments are unchanged, and `auth.mode: "jwt"` accepts a JWKS in place of `jwtSecret`. Optionally, obsidian-tc acts as an OAuth 2.0 resource server (RFC 9728 Protected Resource Metadata + `WWW-Authenticate` challenge) when `auth.resource` + `auth.authorizationServers` are configured; there is no in-repo authorization server (no token issuance / DCR / OIDC).
 
@@ -325,8 +325,12 @@ A hand-written `index.js` loader (replacing the napi-generated one) tries a loca
 **Calls (sync, CPU-bound):**
 
 ```typescript
-// packages/native/src/lib.rs → exposed as TS via napi-rs (shipped surface: 3 exports)
-export function cosineSimilarity(a: number[], b: number[]): number;   // f64 arrays; 0 for empty/mismatched length
+// packages/native/src/lib.rs → exposed as TS via napi-rs (shipped surface: 4 pure primitives,
+// plus 2 Unix-only filesystem helpers — see prose above)
+export function cosineSimilarity(a: number[], b: Float32Array | number[]): number;   // 0 for empty/mismatched length
+export function cosineBatch(                                          // one query vs N concatenated f32 docs
+  query: Float32Array, docsFlat: Float32Array, dim: number,
+): Float64Array;
 export function tokenize(text: string): string[];                     // Unicode lowercase alphanumeric terms
 export function bm25Score(                                            // one query term's BM25 contribution (k1=1.2, b=0.75)
   tf: number, docLen: number, avgDocLen: number, docFreq: number, docCount: number,
@@ -401,80 +405,19 @@ Recommendation surfaces in docs (G2.5).
 
 ### Schema (as shipped — `ServerConfigSchema`, exported from `@the-40-thieves/obsidian-tc-shared`)
 
-The shipped schema (`packages/shared/src/config.schema.ts`) is flatter than the G2.2 design sketch. Key reconciliations vs the original design: **auth is `none | jwt` only** (no `oauth` / DCR mode; `jwt` covers HS256 via `jwtSecret` and RS256/ES256/EdDSA via a local JWKS — THE-297); **ACL is a global block with an optional per-vault override** (`vaults[].acl`, THE-295 — the root block is the inherited default); **embeddings providers are ollama / openai / voyage / cohere** (no `custom`), configured globally; there is **no `sidecar` block** (the V2 ML scope was dropped); HITL is **hardcoded floors + per-scope**, not a per-vault `hitl_thresholds` table; and throttle / governor / observability / maintenance / plane are first-class top-level blocks.
+The shipped schema (`packages/shared/src/config.schema.ts`) is flatter than the G2.2 design sketch. Key reconciliations vs the original design: **auth is `none | jwt` only** (no `oauth` / DCR mode; `jwt` covers HS256 via `jwtSecret` and RS256/ES256/EdDSA via a local JWKS — THE-297); **ACL is a global block with an optional per-vault override** (`vaults[].acl`, THE-295 — the root block is the inherited default); **embeddings providers are ollama / openai / voyage / cohere / bge-m3 / model-tier** (no `custom`), configured globally; there is **no `sidecar` block** (the V2 ML scope was dropped); HITL is **hardcoded floors + per-scope**, not a per-vault `hitl_thresholds` table; and throttle / governor / observability / maintenance / plane / indexing / retrieval / ranking / experiential / snapshots are first-class top-level blocks.
 
-```typescript
-const ServerConfigSchema = z.object({
-  cacheDir: z.string().default(".obsidian-tc"),      // ONE shared cache.db lives here (top-level, not per-vault)
-  vaults: z.array(VaultConfig).min(1),       // VaultConfig: { id, name?, path, acl?, restApiUrl?, restApiKey?,
-                                             //   mode?, bridges?, plugins?, commands?, memory?, workspace? }
-                                             //   vaults[].acl (THE-295): same shape as the root acl block;
-                                             //   absent -> the root ACL is the inherited default
-  plur: PlurConfig.optional(),               // GLOBAL read proxy: { endpoint?, apiKey?, apiPrefix, timeoutMs }
-  auth: z.object({                           // none | jwt ONLY (no oauth mode)
-    mode: z.enum(["none", "jwt"]).default("none"),
-    jwtSecret: z.string().min(32).optional(),      // HS256 shared secret
-    tokenTtlSeconds: z.number().int().positive().default(86400),
-    jwks: z.record(z.string(), z.unknown()).optional(),   // THE-297: inline JWKS (asymmetric verification)
-    jwksFile: z.string().optional(),                      // THE-297: JWKS path, loaded once at boot (no URL fetch)
-    algorithms: z.array(z.string()).optional(),           // THE-297: asymmetric allowlist, default RS256/ES256/EdDSA
-    resource: z.string().url().optional(),                // THE-278: RFC 9728 Protected Resource Metadata (opt-in)
-    authorizationServers: z.array(z.string().url()).optional(),
-    resourceName: z.string().optional(),
-    scopesSupported: z.array(z.string()).optional(),
-  }),                                        // refine: mode "jwt" requires jwtSecret OR jwks OR jwksFile
-  acl: z.object({                            // GLOBAL default; overridable per vault via vaults[].acl
-    readOnly: z.boolean().default(false),          // kill switch
-    defaultScopes: z.array(z.string()).default([]),
-    rules: z.array(z.object({ glob: z.string(), scopes: z.array(z.string()) })).default([]),  // last-match-wins
-    readPaths: z.array(z.string()).optional(),     // per-op whitelist; OMITTED = unrestricted for that op kind
-    writePaths: z.array(z.string()).optional(),
-    deletePaths: z.array(z.string()).optional(),
-    strictReadDefault: z.boolean().default(false), // THE-268: undefined readPaths fails CLOSED on the request path
-  }).default({}),
-  embeddings: z.object({                     // GLOBAL: one provider per server
-    provider: z.enum(["ollama", "openai", "voyage", "cohere"]).default("ollama"),
-    model: z.string().default("nomic-embed-text"),
-    dimensions: z.number().int().positive().default(768),
-    baseUrl: z.string().url().optional(), apiKey: z.string().optional(),
-  }).default({}),
-  transports: z.object({
-    stdio: z.boolean().default(true),
-    http: z.object({
-      enabled: z.boolean().default(false),
-      host: z.string().default("127.0.0.1"),
-      port: z.number().int().min(1).max(65535).default(8765),
-      enableDnsRebindingProtection: z.boolean().default(true),  // THE-271
-      allowedHosts: z.array(z.string()).default([]),
-      allowedOrigins: z.array(z.string()).default([]),
-    }).default({}),
-  }).default({}),
-  governor: z.object({
-    maxResponseBytes: z.number().int().positive().default(1_000_000),
-    regexTimeoutMs: z.number().int().positive().default(2000),  // THE-293: regex worker-time budget
-  }).default({}),
-  toolVisibility: ToolVisibilityConfig.optional(),  // THE-219: allowed/hidden/disabled/…Tags/requireReadOnly
-  toolFacade: z.object({                            // THE-219/275: what tools/list advertises
-    mode: z.enum(["triad", "domain", "flat"]).default("triad"),
-  }).default({}),
-  throttle: ThrottleConfig,        // enabled + per-class tiers read/write/delete/bulk/execute/admin
-                                   //   + maxConcurrentWritesPerVault
-  observability: ObservabilityConfig,   // otel{} / prometheus{} / morgiana{} / retention{}
-  maintenance: z.object({                           // THE-292: periodic cache.db sweep
-    enabled: z.boolean().default(true),
-    intervalMinutes: z.number().int().positive().default(60),
-  }).default({}),
-  plane: z.object({                                 // THE-296: SleepTime consolidation scheduler
-    enabled: z.boolean().default(true),
-    intervalMinutes: z.number().int().positive().default(240),
-  }).default({}),
-  idempotencyTtlSeconds: z.number().int().positive().default(86400),
-  idempotencyReclaimSeconds: z.number().int().positive().default(60),  // THE-293: in-flight reclaim window
-  elicitTtlSeconds: z.number().int().positive().default(300),
-})
-// F2 fail-closed interlock (.superRefine): refuse the config when transports.http.enabled &&
-// auth.mode === "none" && host is non-loopback — never serve an unauthenticated routable host.
-```
+<!-- THE-598: a hand-mirrored copy of ServerConfigSchema lived here as a TypeScript code block. It
+     had rotted (17 of 25 top-level keys, missing both `indexing` and `retrieval` — the homes of
+     `indexing.streamingWalk` and `retrieval.gatedRerank`) and a second hand-kept copy is exactly
+     the kind of drift this ticket exists to close. It is deleted rather than repaired: repairing a
+     hand-mirror only resets the clock on the same rot. The schema already has a byte-accurate,
+     docgen-generated field-by-field reference — every key, type, default, and required flag — at
+     `docs/wiki/Configuration.md` (between the `BEGIN GENERATED: config` / `END GENERATED: config`
+     markers, rebuilt from the Zod schema on every `bun run docgen:render`). Read the schema itself
+     (`packages/shared/src/config.schema.ts`, ~25 top-level keys) for the authoritative shape. -->
+
+**Top-level blocks (25):** `securityProfile`, `cacheDir`, `vaults`, `plur`, `auth`, `acl`, `embeddings`, `indexing`, `retrieval`, `ranking`, `experiential`, `transports`, `governor`, `writes`, `toolVisibility`, `toolFacade`, `bootstrap`, `throttle`, `observability`, `maintenance`, `snapshots`, `plane`, `idempotencyTtlSeconds`, `idempotencyReclaimSeconds`, `elicitTtlSeconds`. The F2 fail-closed interlock (a `.superRefine` on the object above) refuses the config when `transports.http.enabled && auth.mode === "none"` and the host is non-loopback — never serve an unauthenticated routable host.
 
 ### Vault resolution algorithm
 
@@ -490,7 +433,7 @@ Cross-vault ops: **none shipped.** Every vault tool takes a single `vault` argum
 ### Per-vault isolation guarantees
 
 - **SQLite cache.** One **shared** `cache.db` for the whole server at `<config.cacheDir>/cache.db`; isolation is logical — rows are scoped by `vault_id` and queries filter on it (see component 10 for the exact table list and the `chunk_embeddings` / `vec_chunks` exceptions; `vault_edges` carries a per-vault `vault_id` since THE-310, and the vec0 KNN candidate join is vault-scoped in SQL since THE-287). Schema versioned via the `schema_migrations` table. **V2 note:** physically separate per-vault DB files are the planned V2 storage rewrite; do not describe them as current.
-- **JSONL traces.** Vault-relative under the per-vault `workspace.traceFolder` (default `.obsidian-tc/traces` inside the vault — a dot-folder, so it stays out of Obsidian's graph), path-safe via `resolveVaultPath` and ACL-checked via `enforcePathAcl`. Retention 90 days (`observability.retention.tracesDays`).
+- **JSONL traces.** Vault-relative under the per-vault `workspace.traceFolder` (default `.obsidian-tc/traces` inside the vault — a dot-folder, so it stays out of Obsidian's graph), path-safe via `resolveVaultPath` and ACL-checked via `enforcePathAcl`. **No retention is enforced** — `observability.retention` has only `eventLogDays`; trace files grow without bound (a `tracesDays` key was declared and read by nothing, and was removed from the schema rather than left implying a policy that does not exist).
 - **Embedding provider.** The `embeddings` block is **global** — one provider per server, not per-vault. (Per-vault providers were a design-era idea that did not ship.)
 - **ACL.** The root `acl` block is the inherited default; a `vaults[]` entry may carry its own `acl` override (THE-295), enforced at dispatch for the read-only kill switch and every handler-side path check. "Write vault A, read-only vault B" works in one process.
 - **`event_log` rows.** Isolated by their `vault_id` column in the shared `cache.db`, not by physical DB separation. No cross-vault analytics in V1 (admin tool `get_metrics` can filter to one vault or aggregate across all).
@@ -689,7 +632,7 @@ Handled by the MCP TypeScript SDK, not custom code: the initialize exchange (STD
 
 ### Server-advertised capabilities
 
-- **`tools`**: yes — the full registered tool surface (the 128-tool G2.1 set plus post-1.0 additive tools). What `tools/list` *advertises* is shaped by the `toolFacade` mode: `triad` (default — `find_capability` / `describe_capability` / `call_capability`, with `find_capability` scored by the in-process tokenizer + BM25), `domain` (~a dozen domain meta-tools), or `flat` (the full surface). Every tool stays callable by name in every mode, and `call_capability` routes through the same dispatch pipeline (all gates fire unchanged).
+- **`tools`**: yes — the full registered tool surface (the 150-tool G2.1 set plus post-1.0 additive tools). What `tools/list` *advertises* is shaped by the `toolFacade` mode: `triad` (default — `find_capability` / `describe_capability` / `call_capability`, with `find_capability` scored by the in-process tokenizer + BM25), `domain` (~a dozen domain meta-tools), or `flat` (the full surface). Every tool stays callable by name in every mode, and `call_capability` routes through the same dispatch pipeline (all gates fire unchanged).
 - **`resources`**: yes — vault notes are advertised as MCP resources (`resources/list` + `resources/read` over `obsidian-tc://<vault>/<path>` URIs) when a vault registry is present, enforcing the same read scope + folder ACL inline.
 - **`prompts`**: yes — a small set of built-in static prompt templates (`prompts/list` + `prompts/get`).
 - **`elicitation`**: **as shipped, HITL does NOT use MCP's `elicitation` capability.** It uses a custom token pattern: a destructive / HITL-floor call returns an `elicit_required` error carrying the `args_hash` to confirm against; a token minted out-of-band via the `issueElicitToken` API is resubmitted as an `elicit_token` argument (single-use, 5-min TTL, bound to the tool + args through the hash, consumed via an atomic `UPDATE`). This works with any MCP client regardless of elicitation support. Adopting the native `elicitation` primitive is a possible V1.x change.

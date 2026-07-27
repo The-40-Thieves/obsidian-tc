@@ -189,6 +189,10 @@ for (const p of [
   // or the release gate fails mid-cut with the version files already rewritten. roadmap.md was
   // anchored there but missing here, which blocked the 1.10.0 cut: two hardcoded lists, drifted.
   "docs/src/content/docs/roadmap.md",
+  // THE-598: docs/wiki/Home.md's "Shipped — **v1.10.0**" (and its ghcr tag) sat stale nine lines
+  // below a generated block already saying 1.11.0 — this file was in neither list. Added to both
+  // per the warning above.
+  "docs/wiki/Home.md",
 ]) {
   const target = inRepo(p);
   const before = readFileSync(target, "utf8");
