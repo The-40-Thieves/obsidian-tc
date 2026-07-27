@@ -16,12 +16,14 @@ obsidian-tc is **observable from day one**. The Observability layer is the last 
 
 ```json
 "observability": {
-  "otel": { "enabled": true, "endpoint": "http://localhost:4318" },
+  "otel": { "endpoint": "http://localhost:4318" },
   "prometheus": { "enabled": true },
-  "morgiana": { "endpoint": "", "token": "" },
-  "retention": { "tracesDays": 90, "eventLogDays": 30 }
+  "morgiana": { "httpEndpoint": "", "httpHeaders": {} },
+  "retention": { "eventLogDays": 30 }
 }
 ```
+
+`otel` has no `enabled` flag — tracing turns on when `endpoint` is set. `retention.eventLogDays` is the **only** enforced retention; trace files and the morgiana spool are not pruned by config.
 
 ## Prometheus endpoint
 
@@ -29,7 +31,7 @@ When HTTP transport is enabled, metrics are scrapeable at `GET /metrics`. The `g
 
 ## JSONL traces
 
-Per-vault, per-session: `<cacheDir>/traces/<YYYY-MM-DD>/<session_id>.jsonl`, rolled daily and retained 90 days. Sessions are opened with `start_session` and closed with `end_session`; `get_session_traces` replays events from a session or date window. Because each row carries `args_hash` (not raw args), traces are replayable without leaking note contents.
+Per-vault, per-session: `<cacheDir>/traces/<YYYY-MM-DD>/<session_id>.jsonl`, rolled daily. **Not pruned by any retention policy** — files accumulate without bound. Sessions are opened with `start_session` and closed with `end_session`; `get_session_traces` replays events from a session or date window. Because each row carries `args_hash` (not raw args), traces are replayable without leaking note contents.
 
 ## event_log
 

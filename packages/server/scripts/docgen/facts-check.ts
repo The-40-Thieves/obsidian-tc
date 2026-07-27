@@ -127,6 +127,13 @@ export function factRules(
         new RegExp(`${STANDALONE}(\\d+)\\s+governed\\s+capabilities`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+across\\s+${domainCount}\\s+domains`, "i"),
         new RegExp(`${STANDALONE}(\\d+)[-\\s]tool\\s+surface`, "i"),
+        // THE-598: "the 128-tool G2.1 set plus post-1.0 additive tools" (ARCHITECTURE.md) slipped
+        // through every gate — one noun away from the pattern above, which requires "tool" to be
+        // followed directly by "surface". Widened to also match an arbitrary noun between the
+        // count and a closing "surface"/"set" (e.g. "128-tool G2.1 set", "146-tool registered
+        // surface"), without touching the "-tool surface" pattern's own STANDALONE-anchored count
+        // group.
+        new RegExp(`${STANDALONE}(\\d+)-tool\\s+\\S+\\s+(?:surface|set)`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+typed\\s+tools`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+tool\\s+impls?`, "i"), // "across the 141 tool impls"
       ],
@@ -180,16 +187,30 @@ function narrativeFiles(repoRoot: string): string[] {
       .filter((e) => /\.(md|mdx)$/i.test(e) && !e.includes("node_modules"))
       .map((e) => `${relDir}/${e}`);
   };
+  // THE-598: top-level docs/*.md used to be three hand-picked names (WHY.md, QUICKSTART.md,
+  // G2.1-tools.md) — a fourth hardcoded list alongside narrativeFiles' own recursive walks below,
+  // and the reason docs/G2.4-observability.md (home of the worst config-key drift cluster) was in
+  // NEITHER this gate nor check-version-coherence.mjs. A non-recursive listing of docs/ itself
+  // covers every current and future top-level design doc without another name to remember; it
+  // deliberately does NOT recurse (docs/wiki and docs/src/content are already walked separately
+  // below, each with their own generated-region conventions).
+  const topLevelDocs = (): string[] => {
+    let entries: string[];
+    try {
+      entries = readdirSync(rooted("docs"), { withFileTypes: true })
+        .filter((e) => e.isFile() && /\.(md|mdx)$/i.test(e.name))
+        .map((e) => `docs/${e.name}`);
+    } catch {
+      return [];
+    }
+    return entries;
+  };
   return [
     "README.md",
     "ARCHITECTURE.md",
     "SECURITY.md",
     "packages/server/README.md",
-    // Top-level docs/ narrative surfaces (NOT under wiki/ or src/content/, so a directory walk
-    // misses them — the coverage gap that let "143 tools" survive here).
-    "docs/WHY.md",
-    "docs/QUICKSTART.md",
-    "docs/G2.1-tools.md",
+    ...topLevelDocs(),
     ...walk("docs/wiki"),
     ...walk("docs/src/content"),
   ];

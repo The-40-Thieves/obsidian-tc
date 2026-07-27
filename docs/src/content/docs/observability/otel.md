@@ -10,20 +10,20 @@ overhead and no dependency on a live collector.
 
 ## What gets traced
 
-When an OTLP/HTTP endpoint is configured, each tool dispatch is wrapped in a root
-span named `obsidian_tc.<tool>` (kind `SERVER`), with structured child spans for
-the phases of the call. Span attributes carry the tool name, vault id, scope
-class, and call status — **never** tool arguments, secrets, or tokens.
+When an OTLP/HTTP endpoint is configured, each tool dispatch is wrapped in a
+single root span named `obsidian_tc.<tool>` (kind `SERVER`). There is no
+child-span breakdown of the call's phases (auth/ACL/policy/impl/serialize) —
+that was scoped for a later release and never shipped; the root span's
+attributes carry the tool name, vault id, scope class, and call status —
+**never** tool arguments, secrets, or tokens.
 
-Error spans are always recorded so failures are visible even under sampling.
+Every call is traced when tracing is enabled — there is no sampling knob.
 
 ## Configuration
 
 ```json
 {
   "observability": {
-    "traceDetail": "verbose",
-    "tracesSampleRate": 1,
     "otel": {
       "endpoint": "http://localhost:4318",
       "headers": { "authorization": "Bearer <token>" }
@@ -32,8 +32,7 @@ Error spans are always recorded so failures are visible even under sampling.
 }
 ```
 
-`traceDetail` sets span granularity; leaving `otel.endpoint` unset disables tracing
-(no exporters, no throw).
+Leaving `otel.endpoint` unset disables tracing (no exporters, no throw).
 
 Tracing is exercised in tests with an in-memory exporter — unconfigured asserts
 zero exporters and no throw; configured asserts the span shape — so no live

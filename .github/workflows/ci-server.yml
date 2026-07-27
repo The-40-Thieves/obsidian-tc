@@ -8,6 +8,15 @@ on:
       - 'biome.json'
       - 'bun.lock'
       - '.github/workflows/ci-server.yml'
+      # THE-598: check:config-paths sweeps every narrative doc for a config path that no longer
+      # resolves in ServerConfigSchema. Without these, a docs-only PR that reintroduces a dead key
+      # (exactly the failure mode this gate exists to catch) would never trigger this workflow at
+      # all -- the gate would be wired in but effectively unreachable for its main scenario.
+      - 'docs/**'
+      - 'ARCHITECTURE.md'
+      - 'README.md'
+      - 'packages/server/README.md'
+      - 'scripts/check-config-paths.mjs'
   push:
     branches: [main]
 
@@ -50,6 +59,14 @@ jobs:
       # delegate to, and fails if any path's stats no longer reach a recordIngestStats*(...) call.
       - name: ingest telemetry wiring (source scan)
         run: bun run check:ingest-telemetry-wiring
+      # THE-598: every backticked dotted config path (`a.b.c`) in narrative docs must resolve in
+      # ServerConfigSchema. Ground truth is docs/wiki/Configuration.md's own generated reference
+      # table (kept fresh by the docgen drift gate), so this needs no schema re-parse of its own.
+      # Four keys (traceDetail/tracesSampleRate/tracesDays/morgianaEventsDays) were deleted from the
+      # schema as dead — the schema has no .strict(), so a config that still sets them validates
+      # cleanly and silently does nothing. This is the mechanized guard against that recurring.
+      - name: config-path existence (source scan)
+        run: bun run check:config-paths
 
   build-test:
     strategy:

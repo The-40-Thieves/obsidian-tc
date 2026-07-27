@@ -26,6 +26,7 @@
     "build": "bun run --filter='*' build",
     "bundle": "bun scripts/bundle-mcpb.ts",
     "check:boundaries": "node scripts/check-boundaries.mjs",
+    "check:config-paths": "node scripts/check-config-paths.mjs",
     "check:dev-dep-imports": "node scripts/check-dev-dep-imports.mjs",
     "check:ingest-telemetry-wiring": "node scripts/check-ingest-telemetry-wiring.mjs",
     "check:merge-driver": "node scripts/check-merge-driver.mjs",

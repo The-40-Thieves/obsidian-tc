@@ -33,7 +33,7 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 | `snapshots` | `{ "enabled": false, "retention": 10 }` | Point-in-time snapshots of destructive writes so `restore_note` can roll back |
 | `bootstrap` | `{ "domains": [], "deepPaths": [], "maxPaths": 10 }` | Session-bootstrap routing table (signals → context notes; deep-mode phrases) |
 | `throttle` | object | Per-class rate tiers (read 600/100 … admin 5/1) + max concurrent writes/vault (16) |
-| `observability` | object | `traceDetail` / `tracesSampleRate` / `otel` / `prometheus` / `morgiana` / `retention` |
+| `observability` | object | `otel` / `prometheus` / `morgiana` / `retention` (only `retention.eventLogDays` is enforced — trace files and the morgiana spool are not pruned) |
 | `toolFacade` | `{ "mode": "triad" }` | Advertised tool surface — `triad` (default) / `domain` / `flat` |
 | `toolVisibility` | object (optional) | Hide/disable tools from the advertised surface |
 | `plur` | object (optional) | plur read-proxy endpoint |
@@ -120,7 +120,7 @@ Asymmetric (RS256 / ES256 / EdDSA) via a JWKS — inline `jwks` or a `jwksFile` 
 }
 ```
 
-Providers: `ollama | openai | voyage | cohere | bge-m3` (the last targets a vLLM pooling server). `chunkContext` (default **true**) embeds each chunk with its note title + heading breadcrumb — measured **+0.223 nDCG**; the first reconcile after enabling re-embeds in full. Further knobs (local-runner robustness + model-specific behavior): `timeoutMs` (120000), `batchSize` (512), `maxBatchTokens` (2048 — keeps a batch inside a local runner's context), `concurrency` (4), `truncate` (false — Matryoshka/MRL truncation for wider models), `queryPrefix`/`documentPrefix` (`""` — instruct prefixes for models that require them; a document-prefix change needs a fresh `cacheDir`).
+Providers: `ollama | openai | voyage | cohere | bge-m3 | model-tier` (the last two target a vLLM/TEI pooling server; `model-tier` splits dense and multi-vector across two services). `chunkContext` (default **true**) embeds each chunk with its note title + heading breadcrumb — measured **+0.223 nDCG**; the first reconcile after enabling re-embeds in full. Further knobs (local-runner robustness + model-specific behavior): `timeoutMs` (120000), `batchSize` (512), `maxBatchTokens` (2048 — keeps a batch inside a local runner's context), `concurrency` (4), `truncate` (false — Matryoshka/MRL truncation for wider models), `queryPrefix`/`documentPrefix` (`""` — instruct prefixes for models that require them; a document-prefix change needs a fresh `cacheDir`).
 
 ## Transports
 

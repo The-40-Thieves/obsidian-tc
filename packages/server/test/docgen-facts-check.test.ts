@@ -52,9 +52,22 @@ describe("scanFacts (THE-566 narrative fact gate)", () => {
       "The complete G2.1 tool surface — 146 tools across 31 domains — is shipped.",
       "It inherits the G2.1 r2 tool surface from G1.",
       "the THE-135 query-time virtual-hop hit an 80% ceiling on the golden-set A/B",
-      "the 128-tool G2.1 set plus post-1.0 additive tools",
     ].join("\n");
     expect(scanFacts(text, RULES)).toEqual([]);
+  });
+
+  // THE-598: ARCHITECTURE.md:692's "the 128-tool G2.1 set plus post-1.0 additive tools" was one
+  // noun away from the "-tool surface" pattern above and slipped through both this gate AND
+  // check-version-coherence.mjs (anchored on the DIFFERENT phrase "(\d+)-tool G2.1 surface")
+  // simultaneously. This used to be in the "does NOT flag" test above, demonstrating the exact gap;
+  // the widened pattern now catches it.
+  it("flags a widened '<N>-tool <noun> surface/set' phrasing (THE-598)", () => {
+    const v = scanFacts("the 128-tool G2.1 set plus post-1.0 additive tools", RULES);
+    expect(v).toEqual([expect.objectContaining({ fact: "toolCount", found: 128, expected: 146 })]);
+  });
+
+  it("still does NOT flag the real G2.1 surface phrasing at the current count", () => {
+    expect(scanFacts("the 146-tool G2.1 surface plus post-1.0 additive tools", RULES)).toEqual([]);
   });
 
   it("does NOT flag a milestone sub-count (anchored to 'across 31 domains')", () => {
