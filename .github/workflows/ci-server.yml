@@ -1,22 +1,22 @@
 name: ci-server
 on:
+  # THE-599: DELIBERATELY UNFILTERED. This workflow owns `lint`, `build-test` and `bun-smoke`, and
+  # those are becoming REQUIRED status checks on main. A required check whose workflow never fires
+  # does NOT read as clean -- GitHub leaves the PR blocked forever on "Expected -- waiting for
+  # status to be reported". So a `paths:` filter here and a required check are mutually exclusive;
+  # a PR touching only packages/native/**, packages/plugin/** or services/** would deadlock.
+  #
+  # Every one of main's previously-required checks already came from an unfiltered workflow
+  # (ci-quality, ci-security, ci-version, dco). This brings ci-server into that same shape.
+  #
+  # The filter was ALSO already failing at its own job: THE-598 had to widen it with docs/**,
+  # ARCHITECTURE.md and README.md because check:config-paths -- a gate whose entire purpose is
+  # catching a dead config key in a docs-only PR -- could not be reached by a docs-only PR. That is
+  # the second time a path filter made a gate unreachable. Removing it closes the class.
+  #
+  # Cost: the build-test matrix now runs on every PR. `perf` is unaffected -- it is gated on
+  # `github.event_name == 'push'` (see the job) and still never runs on a PR.
   pull_request:
-    paths:
-      - 'packages/server/**'
-      - 'packages/shared/**'
-      - 'tsconfig.base.json'
-      - 'biome.json'
-      - 'bun.lock'
-      - '.github/workflows/ci-server.yml'
-      # THE-598: check:config-paths sweeps every narrative doc for a config path that no longer
-      # resolves in ServerConfigSchema. Without these, a docs-only PR that reintroduces a dead key
-      # (exactly the failure mode this gate exists to catch) would never trigger this workflow at
-      # all -- the gate would be wired in but effectively unreachable for its main scenario.
-      - 'docs/**'
-      - 'ARCHITECTURE.md'
-      - 'README.md'
-      - 'packages/server/README.md'
-      - 'scripts/check-config-paths.mjs'
   push:
     branches: [main]
 
