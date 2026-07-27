@@ -74,8 +74,14 @@ export type Verdict = z.infer<typeof verdictSchema>;
 
 const JUDGE_SYSTEM = `You judge whether two text fragments from the same knowledge base conflict. Reply ONLY with a single JSON object on one line: {"kind":"contradiction"|"tension"|"no_conflict","rationale":"<one sentence>"}. No prose before or after. contradiction = one fragment factually negates the other. tension = substantive disagreement on framing, emphasis, or recommendation. no_conflict = compatible, complementary, or unrelated.`;
 
-/** Parse a judge response into a Verdict, falling back to no_conflict on any error. */
-export function parseVerdict(text: string): Verdict {
+/** Parse a judge response into a Verdict, or NULL when it cannot be parsed.
+ *
+ *  THE-613: this used to fall back to `{ kind: "no_conflict", rationale: "judge_parse_error" }`.
+ *  That encodes a FAILURE as a legitimate domain value — "the judge cleared this pair" and "the
+ *  judge never answered" became the same object, and since Phase 3 skips every `no_conflict`, the
+ *  rationale was then discarded entirely. Returning null keeps the two distinguishable at the one
+ *  place that can still tell them apart. */
+export function parseVerdict(text: string): Verdict | null {
   try {
     const stripped = text
       .trim()
@@ -83,7 +89,7 @@ export function parseVerdict(text: string): Verdict {
       .replace(/\s*```$/i, "");
     return verdictSchema.parse(JSON.parse(stripped));
   } catch {
-    return { kind: "no_conflict", rationale: "judge_parse_error" };
+    return null;
   }
 }
 
@@ -91,6 +97,11 @@ export interface ContradictionStats {
   checked: number;
   flagged: number;
   skipped: number;
+  /** THE-613: pairs the judge could not rule on — call threw, or the reply did not parse.
+   *  NOT the same as a pair judged `no_conflict`. Without this a total gateway outage returned
+   *  `{ checked: N, flagged: 0, skipped: 0 }`, byte-identical to a healthy run over a vault with
+   *  no contradictions, and the caller had no way to tell "examined and clear" from "never asked". */
+  unjudged: number;
 }
 
 export async function checkContradictions(
@@ -98,7 +109,7 @@ export async function checkContradictions(
   vaultId: string,
   chunks: IndexedChunk[],
 ): Promise<ContradictionStats> {
-  const stats: ContradictionStats = { checked: 0, flagged: 0, skipped: 0 };
+  const stats: ContradictionStats = { checked: 0, flagged: 0, skipped: 0, unjudged: 0 };
   if (!ctx.roles) return stats; // generative disabled -> nothing to judge
   const insert = ctx.db.prepare(
     "INSERT OR IGNORE INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, cosine_similarity, judge_verdict, judge_rationale, judge_model, status, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
@@ -138,7 +149,12 @@ export async function checkContradictions(
   }
   // Phase 2 — judge all pairs under bounded concurrency (THE-277). The judge is the only network
   // call; running JUDGE_CONCURRENCY at a time turns a serial per-pair wait into a windowed one. A
-  // single pair's judge failure degrades to no_conflict so it never sinks the whole batch.
+  // single pair's judge failure yields a NULL verdict so it never sinks the whole batch — the other
+  // pairs are still judged and their verdicts still applied.
+  //
+  // THE-613: null, not `no_conflict`. Encoding the failure as a clean verdict made a gateway outage
+  // indistinguishable from a vault with nothing to flag, and Phase 3 then dropped the rationale on
+  // the floor. Null is counted as `unjudged` below and reaches the caller.
   const verdicts = await mapLimit(tasks, JUDGE_CONCURRENCY, async (t) => {
     try {
       const res = await roles.judge(
@@ -149,13 +165,19 @@ export async function checkContradictions(
       );
       return { verdict: parseVerdict(res.text), model: res.model };
     } catch {
-      return { verdict: { kind: "no_conflict", rationale: "judge_error" } as Verdict, model: "" };
+      return { verdict: null, model: "" };
     }
   });
   // Phase 3 — apply inserts serially (single-connection writes), in task order.
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i] as JudgeTask;
-    const { verdict, model } = verdicts[i] as { verdict: Verdict; model: string };
+    const { verdict, model } = verdicts[i] as { verdict: Verdict | null; model: string };
+    // THE-613: could-not-judge is counted, not silently treated as clear. Both still `continue` —
+    // an unjudged pair writes no row, exactly as before — but the COUNT now leaves the function.
+    if (verdict === null) {
+      stats.unjudged += 1;
+      continue;
+    }
     if (verdict.kind === "no_conflict") continue;
     const a = { id: t.chunk.id, path: t.chunk.path, sha: contentHash(t.chunk.content) };
     const b = { id: t.neighborId, path: t.neighborPath, sha: contentHash(t.neighborContent) };
