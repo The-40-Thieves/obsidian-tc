@@ -11,6 +11,16 @@
 #
 # or pass a path:  bun eval/run.ts <config.json> <path/to/golden.yaml>
 #
+# THE-652: there is now a GENERATOR for a synthetic slice meeting these criteria, so you no longer
+# have to mine a private vault to get a multi-hop set at all:
+#
+#     bun eval/gen-multi-hop-slice.ts --out eval/generated-slice
+#
+# It emits a linked corpus (seed -> bridge -> target, no direct edge) plus a golden yaml in the shape
+# below, sized at n=120 from the measured MDE, and refuses to emit anything that violates the
+# criteria. Deterministic from its seed, so the corpus stays out of the repo without the eval
+# becoming unrepeatable.
+#
 # Construction criteria (unchanged, and the part that is actually reusable):
 #   - multi-hop: cross-domain note pairs, no direct A->C edge, bridge degree 2-20
 #   - lexical:   each term appears in at most two notes vault-wide
