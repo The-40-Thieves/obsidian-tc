@@ -1,11 +1,6 @@
 import { readFileSync } from "node:fs";
-import { serve } from "@hono/node-server";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import {
-  isLoopbackHost,
-  normalizeHostForBind,
-  type ServerConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+import { isLoopbackHost, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
@@ -22,6 +17,7 @@ import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { VaultRegistry } from "../vault/registry";
+import { type ServerHandle, serveHono } from "./serve";
 
 type AuthConfig = ServerConfig["auth"];
 
@@ -293,67 +289,21 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
   return app;
 }
 
-export interface HttpHandle {
-  port: number;
-  close: () => Promise<void>;
-}
-
-/** Minimal shape of a `Bun.serve` server — only what startHttp uses. */
-interface BunServer {
-  port: number;
-  stop(closeActiveConnections?: boolean): void | Promise<void>;
-}
-interface BunGlobal {
-  serve(opts: {
-    port: number;
-    hostname: string;
-    fetch: (req: Request) => Response | Promise<Response>;
-  }): BunServer;
-}
+export type HttpHandle = ServerHandle;
 
 /**
  * Serve the HTTP app on host:port. Pass port 0 for an ephemeral port; the resolved handle
  * reports the actual port.
  *
- * THE-561: under Bun — the production runtime (see Dockerfile ENTRYPOINT) — @hono/node-server's
+ * The Bun-vs-Node choice lives in `serveHono` because it is a PROCESS-wide decision, not a
+ * per-server one — see THE-659 there. THE-561 is why Bun wins under Bun: @hono/node-server's
  * Node-compat `http.Server` drops ~25% of requests that arrive on a REUSED keep-alive connection
- * with ECONNRESET. A pooling client such as LiteLLM's httpx (the gateway) reuses connections by
- * default, so it hit this constantly; a fresh connection per call was 100% reliable. The identical
- * code is unaffected under Node (measured 40/40 on Node vs ~26/40 on Bun). Bun's native server
- * handles keep-alive correctly, so serve natively under Bun and keep @hono/node-server for Node
- * (tests run under Node via vitest). The in-handler fetch-to-node bridge is unchanged and works
- * under both. Regression harness: test/http-keepalive-reuse.bun.ts (Bun-only, by design).
+ * with ECONNRESET, which a pooling client such as LiteLLM's httpx hits constantly. The in-handler
+ * fetch-to-node bridge above is unchanged and works under both runtimes. Regression harnesses:
+ * test/http-keepalive-reuse.bun.ts and bun-smoke/dual-http-servers.test.ts (both Bun-only).
  */
 export function startHttp(
   opts: HttpAppOptions & { host: string; port: number },
 ): Promise<HttpHandle> {
-  const app = createHttpApp(opts);
-  const hostname = normalizeHostForBind(opts.host);
-
-  const bun = (globalThis as unknown as { Bun?: BunGlobal }).Bun;
-  if (bun) {
-    const server = bun.serve({ port: opts.port, hostname, fetch: app.fetch });
-    return Promise.resolve({
-      port: server.port,
-      // stop(true) closes active connections so close() resolves promptly (parity with the Node
-      // path's closeIdleConnections). Wrapped in Promise.resolve to tolerate both void and Promise.
-      close: () => Promise.resolve(server.stop(true)).then(() => undefined),
-    });
-  }
-
-  return new Promise((resolve) => {
-    const server = serve({ fetch: app.fetch, hostname, port: opts.port }, (info) => {
-      resolve({
-        port: info.port,
-        close: () =>
-          new Promise<void>((done) => {
-            server.close(() => done());
-            // THE-186: force idle keep-alive sockets shut so close() resolves promptly instead
-            // of waiting out Node's ~4s keep-alive drain (the standalone SSE GET the stateless
-            // server 405s leaves an idle socket behind; also tightens production shutdown).
-            (server as { closeIdleConnections?: () => void }).closeIdleConnections?.();
-          }),
-      });
-    });
-  });
+  return serveHono(createHttpApp(opts), { host: opts.host, port: opts.port });
 }
