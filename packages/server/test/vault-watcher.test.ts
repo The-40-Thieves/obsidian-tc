@@ -14,6 +14,20 @@ function makeVault(): string {
   return mkdtempSync(join(tmpdir(), "tc-watch-"));
 }
 
+// Creating a symlink needs a privilege Windows does not grant by default, so the symlink case is
+// capability-probed rather than platform-sniffed — the same probe acl-symlink-canonical.test.ts
+// uses. The HARD-link case below is deliberately NOT guarded: acl-hardlink.test.ts already creates
+// hard links unguarded on every runner, so gating that one would silently drop the coverage that
+// matters most on the platform where it still works.
+let symlinkOk = true;
+try {
+  const probe = mkdtempSync(join(tmpdir(), "tc-sl-probe-"));
+  symlinkSync(join(probe, "t"), join(probe, "l"), "dir");
+  rmSync(probe, { recursive: true, force: true });
+} catch {
+  symlinkOk = false; // Windows without the privilege to create symlinks
+}
+
 /** Collects sink calls, and resolves once `n` of them have arrived (or the deadline passes). */
 function recorder() {
   const upserts: Array<[string, string, string]> = [];
@@ -158,33 +172,36 @@ describe("startVaultWatch — real filesystem", () => {
     }
   });
 
-  it("NEVER follows a symlink — it reports a delete instead of the target's content", async () => {
-    // The security case. `walkVault` classifies from readdir Dirents, whose isFile() is false for a
-    // symlink, so index_vault silently skips them and never reads the target. A watcher using stat
-    // (which follows) would read /etc/passwd through a symlink planted in the vault and index it via
-    // a path the full walk cannot reach. lstat + isFile() is what keeps the two in agreement.
-    const root = makeVault();
-    const outside = mkdtempSync(join(tmpdir(), "tc-outside-"));
-    const secret = join(outside, "secret.txt");
-    writeFileSync(secret, "SENSITIVE-OUTSIDE-VAULT", "utf8");
-    const r = recorder();
-    const stop = startVaultWatch({
-      targets: [{ vaultId: "v1", root }],
-      debounceMs: 50,
-      onUpsert: r.onUpsert,
-      onDelete: r.onDelete,
-    });
-    try {
-      symlinkSync(secret, join(root, "evil.md"));
-      await r.settle();
-      // The strong assertion is about CONTENT: nothing from outside the vault reached a sink.
-      expect(JSON.stringify(r.upserts)).not.toContain("SENSITIVE");
-      expect(r.upserts).toEqual([]);
-      expect(r.deletes).toEqual([["v1", "evil.md"]]);
-    } finally {
-      stop();
-    }
-  });
+  it.skipIf(!symlinkOk)(
+    "NEVER follows a symlink — it reports a delete instead of the target's content",
+    async () => {
+      // The security case. `walkVault` classifies from readdir Dirents, whose isFile() is false for a
+      // symlink, so index_vault silently skips them and never reads the target. A watcher using stat
+      // (which follows) would read /etc/passwd through a symlink planted in the vault and index it via
+      // a path the full walk cannot reach. lstat + isFile() is what keeps the two in agreement.
+      const root = makeVault();
+      const outside = mkdtempSync(join(tmpdir(), "tc-outside-"));
+      const secret = join(outside, "secret.txt");
+      writeFileSync(secret, "SENSITIVE-OUTSIDE-VAULT", "utf8");
+      const r = recorder();
+      const stop = startVaultWatch({
+        targets: [{ vaultId: "v1", root }],
+        debounceMs: 50,
+        onUpsert: r.onUpsert,
+        onDelete: r.onDelete,
+      });
+      try {
+        symlinkSync(secret, join(root, "evil.md"));
+        await r.settle();
+        // The strong assertion is about CONTENT: nothing from outside the vault reached a sink.
+        expect(JSON.stringify(r.upserts)).not.toContain("SENSITIVE");
+        expect(r.upserts).toEqual([]);
+        expect(r.deletes).toEqual([["v1", "evil.md"]]);
+      } finally {
+        stop();
+      }
+    },
+  );
 
   it("NEVER indexes a HARD LINK to a file outside the vault", async () => {
     // The second alias, and the one an lstat-based check cannot see: a hard link IS a regular file
