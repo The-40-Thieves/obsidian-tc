@@ -40,6 +40,17 @@ bun run test        # per-workspace; server is vitest under Node, native is carg
 just                # list recipes (build, test, lint, format, bundle, map, release)
 ```
 
+**Don't run the full suite locally.** This box is 4 cores shared with ~43 containers; GitHub-hosted
+runners are free and unmetered for public repos, and cover three OSes:
+
+```bash
+gh workflow run ci-server.yml --ref <branch>     # lint + build-test (3 OS) + bun-smoke
+```
+
+Targeted vitest stays local. Anything heavy that must run here goes through
+`scripts/with-host-budget.sh` (or `bun run test:local` in `packages/server`) — it serialises
+concurrent runs with `flock` and caps CPU at 2.5 of 4 cores, leaving the rest for the services.
+
 Before opening a PR, use the **`gates`** skill — it enumerates gates from the workflows rather than
 from memory. Two scripts have confusingly adjacent names (`check:config-paths` ≠
 `config:schema:check`) and substituting one for the other has cost a CI round.

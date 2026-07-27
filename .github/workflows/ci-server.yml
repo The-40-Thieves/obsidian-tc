@@ -19,6 +19,24 @@ on:
   pull_request:
   push:
     branches: [main]
+  # THE-517 follow-up: run the suite on demand, on a dedicated runner, without opening a PR.
+  #
+  # This repo is developed on a 4-core host that also runs ~43 containers, Falco and a remote
+  # desktop; a local full-suite run costs the whole box, and concurrent runs have driven it to
+  # load 28. Standard GitHub-hosted runners are FREE AND UNMETERED for public repositories, so
+  # the suite that already runs on every PR can be triggered directly instead:
+  #
+  #     gh workflow run ci-server.yml --ref <branch>
+  #     gh run watch $(gh run list -w ci-server.yml -L1 --json databaseId --jq '.[0].databaseId')
+  #
+  # Use this for a full-suite run mid-branch. Keep targeted vitest local — it is faster than a
+  # round trip and does not saturate anything.
+  #
+  # `perf` is unaffected: it is gated on `github.event_name == 'push'`, and a dispatch reports
+  # `workflow_dispatch`. That is deliberate — perf lives in the non-ref-scoped `perf-exclusive`
+  # concurrency group, so letting ad-hoc runs into it would cancel main's pending perf jobs
+  # (THE-592). `lint`, `build-test` (3 OS) and `bun-smoke` carry no event guard and do run.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -72,7 +90,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # The matrix covers three OSes and, until now, one ISA. That gap is not theoretical here:
+        # this repo SHIPS aarch64-unknown-linux-gnu (publish.yml) and the maintainer's own
+        # deployment is an Ampere Neoverse-N1, so production runs an architecture CI never
+        # exercised. macos-latest is arm64 but Darwin — different libc, different SIMD paths.
+        #
+        # And the divergence is already measured, in this repo's own source. vec.ts:196-199:
+        # "the same commit produced retrieval.ndcg_at10 0.8028 on aarch64 and 0.8414 on x86_64
+        # while recall_at10 (set-based) and the candidate counts matched exactly" — exact-tie
+        # ordering in the vec0 KNN cut differs by ISA. THE-582 had to reconstruct that from two
+        # runs on different machines because no CI leg could show it.
+        #
+        # ubuntu-24.04-arm is a free hosted runner for public repositories (no Works-on-Arm
+        # application needed), so this costs nothing.
+        #
+        # Deliberately NOT added to the required status checks yet — let it soak first. A new
+        # required context that turns out flaky blocks every PR, and this is the first ARM leg.
+        # Promote it once it has been green for a while.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
