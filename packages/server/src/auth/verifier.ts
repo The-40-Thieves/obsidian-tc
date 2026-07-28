@@ -1,5 +1,11 @@
 import { decodeProtectedHeader } from "jose";
-import { type JwtIdentity, verifyJwt, verifyJwtJwks } from "./jwt";
+import {
+  createRemoteJwks,
+  type JwtIdentity,
+  verifyJwt,
+  verifyJwtJwks,
+  verifyJwtWithKeySet,
+} from "./jwt";
 
 /** Result of verifying a bearer token: caller identity + granted scopes. */
 export type VerifiedIdentity = JwtIdentity;
@@ -36,6 +42,12 @@ export interface TokenVerifierOptions {
   secret?: string;
   /** Local JWKS document (inline or file-loaded); absent -> asymmetric tokens are rejected. */
   jwks?: Record<string, unknown>;
+  /**
+   * THE-658: an authorization server's `jwks_uri`. Takes precedence over `jwks` when both are set —
+   * a remote set is the live one, and silently preferring a stale local copy is how a rotated-out
+   * key keeps verifying. Built once (jose caches internally), never per request.
+   */
+  jwksUri?: string;
   /** Asymmetric allowlist (default RS256/ES256/EdDSA). HS256 never verifies against the JWKS. */
   algorithms?: string[];
   maxAgeSeconds?: number;
@@ -53,6 +65,10 @@ export interface TokenVerifierOptions {
  * kid-based inside the JWKS. Either side may be absent; tokens for the missing side reject.
  */
 export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
+  // Built ONCE per verifier, not per call: jose caches the fetched key set and re-fetches only on an
+  // unknown `kid`, so rebuilding it per verification would make every token check an outbound HTTP
+  // request and defeat the cache entirely.
+  const remote = o.jwksUri === undefined ? undefined : createRemoteJwks(o.jwksUri);
   return {
     verify: async (token) => {
       const header = decodeProtectedHeader(token);
@@ -60,6 +76,14 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
         if (!o.secret) throw new Error("HS256 token but no jwtSecret configured");
         return verifyJwt(token, o.secret, {
           maxAgeSeconds: o.maxAgeSeconds,
+          audience: o.audience,
+          issuer: o.issuer,
+        });
+      }
+      if (remote !== undefined) {
+        return verifyJwtWithKeySet(token, remote, {
+          maxAgeSeconds: o.maxAgeSeconds,
+          algorithms: o.algorithms,
           audience: o.audience,
           issuer: o.issuer,
         });

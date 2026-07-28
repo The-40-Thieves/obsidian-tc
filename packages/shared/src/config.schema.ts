@@ -232,7 +232,26 @@ export const AuthConfigSchema = z
       .string()
       .optional()
       .describe(
-        "Path to a JWKS document, loaded once at transport boot. File or inline only — no URL fetch, so verification adds no network attack surface.",
+        "Path to a JWKS document, loaded once at transport boot. Adds no network dependency; prefer it over jwksUri when the keys are static.",
+      ),
+    // THE-658: fetch the JWKS from an authorization server's `jwks_uri`.
+    //
+    // THE-297 deliberately allowed inline/file ONLY, reasoning that a URL fetch adds network
+    // attack surface. That reasoning still holds and is why this is OPT-IN and unset by default —
+    // it is not a silent reversal. What it buys is the thing that made adopting a real
+    // authorization server a code change rather than a config change: with inline keys, every AS
+    // key rotation means an operator hand-copying a JWKS and redeploying, so rotation (the entire
+    // point of asymmetric verification) becomes a manual outage risk.
+    //
+    // The added surface is bounded: jose caches the fetched set and re-fetches only on an unknown
+    // `kid`, the URL is operator-configured (never derived from a request), and a fetch failure
+    // rejects the token rather than falling back to any other key source.
+    jwksUri: z
+      .string()
+      .url()
+      .optional()
+      .describe(
+        "URL of an authorization server's JWKS (its `jwks_uri`), fetched and cached for asymmetric verification. Opt-in: it adds a network dependency to token verification, which jwks/jwksFile do not. Use it when an external AS rotates keys.",
       ),
     algorithms: z
       .array(z.string())
@@ -287,9 +306,26 @@ export const AuthConfigSchema = z
       .optional()
       .describe("Scopes advertised as supported in the Protected Resource Metadata document."),
   })
-  .refine((c) => c.mode !== "jwt" || !!c.jwtSecret || !!c.jwks || !!c.jwksFile, {
-    message: "auth.mode 'jwt' requires jwtSecret (>=32 chars) or a JWKS (jwks / jwksFile)",
+  .refine((c) => c.mode !== "jwt" || !!c.jwtSecret || !!c.jwks || !!c.jwksFile || !!c.jwksUri, {
+    message:
+      "auth.mode 'jwt' requires jwtSecret (>=32 chars) or a JWKS (jwks / jwksFile / jwksUri)",
     path: ["jwtSecret"],
+  })
+  // THE-658: audience binding is a GATE, not a warning.
+  //
+  // It was previously enforced nowhere and merely warned when a JWKS was configured, so an HS256
+  // deployment — the common one — got nothing at all. With a shared secret and no `aud`, a token
+  // minted for ANY service sharing that secret is replayable here; that is the confused-deputy hole
+  // RFC 8707 and the MCP authorization spec both exist to close, and it was measured live on this
+  // deployment before `auth.audience` was set.
+  //
+  // `resource` satisfies it because the transport already defaults the bound audience to the PRM
+  // resource URI, so setting one is setting the other.
+  .refine((c) => c.mode !== "jwt" || !!c.audience || !!c.resource, {
+    message:
+      "auth.mode 'jwt' requires an audience: set auth.audience (or auth.resource, which it defaults to). " +
+      "Without it a token minted for another service sharing this secret is accepted here.",
+    path: ["audience"],
   });
 
 export const AclRuleSchema = z.object({

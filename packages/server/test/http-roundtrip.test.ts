@@ -45,9 +45,14 @@ async function signed(secret: string, claims: Record<string, unknown>): Promise<
   return new SignJWT(claims)
     .setProtectedHeader({ alg: "HS256" })
     .setSubject("alice")
+    .setAudience(AUD)
     .setExpirationTime("5m")
     .sign(new TextEncoder().encode(secret));
 }
+
+/** THE-658: auth.mode "jwt" now requires an audience — an aud-less token is replayable
+ *  against any service sharing the secret, which is the hole this closes. */
+const AUD = "http://obsidian-tc.test";
 
 describe("mcp streamable http transport", () => {
   it("round-trips a tool call over HTTP in auth mode none and audits it", async () => {
@@ -70,7 +75,7 @@ describe("mcp streamable http transport", () => {
 
   it("accepts a valid HS256 token and uses its scopes", async () => {
     const secret = "s".repeat(40);
-    const { handle, url } = await boot(authOf({ mode: "jwt", jwtSecret: secret }));
+    const { handle, url } = await boot(authOf({ mode: "jwt", jwtSecret: secret, audience: AUD }));
     const token = await signed(secret, { scope: "*" });
     const client = new Client({ name: "test", version: "0.0.0" });
     await client.connect(
@@ -87,14 +92,18 @@ describe("mcp streamable http transport", () => {
   }, 20_000);
 
   it("rejects a request with no token in jwt mode", async () => {
-    const { handle, url } = await boot(authOf({ mode: "jwt", jwtSecret: "s".repeat(40) }));
+    const { handle, url } = await boot(
+      authOf({ mode: "jwt", jwtSecret: "s".repeat(40), audience: AUD }),
+    );
     const client = new Client({ name: "test", version: "0.0.0" });
     await expect(client.connect(new StreamableHTTPClientTransport(url))).rejects.toThrow();
     await handle.close();
   }, 20_000);
 
   it("rejects a token signed with the wrong secret", async () => {
-    const { handle, url } = await boot(authOf({ mode: "jwt", jwtSecret: "s".repeat(40) }));
+    const { handle, url } = await boot(
+      authOf({ mode: "jwt", jwtSecret: "s".repeat(40), audience: AUD }),
+    );
     const token = await signed("w".repeat(40), { scope: "*" });
     const client = new Client({ name: "test", version: "0.0.0" });
     await expect(

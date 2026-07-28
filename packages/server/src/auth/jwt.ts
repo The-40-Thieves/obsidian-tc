@@ -1,4 +1,4 @@
-import { createLocalJWKSet, decodeJwt, jwtVerify } from "jose";
+import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, jwtVerify } from "jose";
 
 /**
  * THE-520: why a token was refused. Every value is OPERATOR-facing — it belongs in logs and the
@@ -181,4 +181,49 @@ function extractScopes(payload: Record<string, unknown>): Set<string> {
     return new Set(payload.scope.split(/\s+/).filter(Boolean));
   }
   return new Set();
+}
+
+/**
+ * THE-658: a JWKS resolver backed by an authorization server's `jwks_uri`.
+ *
+ * Built ONCE per server (jose caches the fetched set internally and re-fetches only when it sees an
+ * unknown `kid`), so this is not a fetch per request. Rebuilding it per verification would turn
+ * every token check into an outbound HTTP call and defeat the cache.
+ *
+ * A fetch failure REJECTS the token. There is deliberately no fallback to the inline/file set: a
+ * key source that silently degrades to a different key source is how a rotated-out key keeps
+ * working, and the alg-routing guarantee (asymmetric verifies only against the JWKS) depends on
+ * there being exactly one asymmetric source in play.
+ */
+export function createRemoteJwks(uri: string): ReturnType<typeof createRemoteJWKSet> {
+  return createRemoteJWKSet(new URL(uri));
+}
+
+/**
+ * Verify an asymmetric JWT against a PRE-BUILT key resolver (remote or local).
+ *
+ * Split from verifyJwtJwks, which takes a raw document and builds a local set per call — fine for a
+ * static document, wrong for a remote one.
+ */
+export async function verifyJwtWithKeySet(
+  token: string,
+  keySet: Parameters<typeof jwtVerify>[1],
+  opts: {
+    maxAgeSeconds?: number;
+    algorithms?: string[];
+    audience?: string | string[];
+    issuer?: string;
+  } = {},
+): Promise<JwtIdentity> {
+  try {
+    const { payload } = await jwtVerify(token, keySet, {
+      algorithms: opts.algorithms ?? DEFAULT_ASYMMETRIC_ALGS,
+      requiredClaims: ["exp"],
+      ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
+      ...(opts.issuer !== undefined ? { issuer: opts.issuer } : {}),
+    });
+    return identityFrom(payload, opts.maxAgeSeconds);
+  } catch (e) {
+    throw classify(e, token);
+  }
 }
