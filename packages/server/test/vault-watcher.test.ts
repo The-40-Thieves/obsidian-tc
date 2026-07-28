@@ -90,6 +90,28 @@ function recorder() {
   };
 }
 
+/**
+ * Collapse IDENTICAL deliveries, and nothing else (THE-660).
+ *
+ * macOS can deliver the same change twice — its recursive stream replays recent history when it
+ * arms, and coalescing is best-effort — so "this fired exactly once" is a claim about FSEvents, not
+ * about our code. It flaked `build-test (macos-latest)` on a PR that touched only a workflow file:
+ * one write, two upserts, `expected [ [ 'v1', …(2) ], [ 'v1', …(2) ] ] to deeply equal [ Array(1) ]`.
+ *
+ * Deduping by value keeps every claim that IS ours. A duplicate is harmless in production because
+ * upserts are idempotent — the index converges on the same state either way — but an upsert for an
+ * unexpected path, vault, or content is a distinct tuple and still fails. That is the difference
+ * between tolerating the platform and weakening the test: the `.md`-only filter below still catches
+ * a stray `.txt`, and the multi-vault case still catches a note attributed to the wrong vault.
+ */
+function uniqueUpserts(
+  rows: ReadonlyArray<[string, string, string]>,
+): Array<[string, string, string]> {
+  const seen = new Map<string, [string, string, string]>();
+  for (const row of rows) seen.set(JSON.stringify(row), row);
+  return [...seen.values()];
+}
+
 describe("shouldWatchPath — eligibility policy (mirrors walkVault)", () => {
   it("accepts markdown at the root and nested", () => {
     expect(shouldWatchPath("a.md")).toBe(true);
@@ -326,7 +348,7 @@ describe.skipIf(process.platform === "win32")("startVaultWatch — event deliver
       await arm();
       writeFileSync(join(root, "Projects", "Deep", "n.md"), "deep", "utf8");
       await r.settle();
-      expect(r.upserts).toEqual([["v1", "Projects/Deep/n.md", "deep"]]);
+      expect(uniqueUpserts(r.upserts)).toEqual([["v1", "Projects/Deep/n.md", "deep"]]);
     } finally {
       stop();
     }
@@ -354,7 +376,7 @@ describe.skipIf(process.platform === "win32")("startVaultWatch — event deliver
       await arm();
       writeFileSync(join(root, "gone.md"), "bye", "utf8");
       await r.settle();
-      expect(r.upserts).toEqual([["v1", "gone.md", "bye"]]);
+      expect(uniqueUpserts(r.upserts)).toEqual([["v1", "gone.md", "bye"]]);
       r.reset();
 
       rmSync(join(root, "gone.md"));
@@ -386,7 +408,7 @@ describe.skipIf(process.platform === "win32")("startVaultWatch — event deliver
       // "nothing fired" is otherwise indistinguishable from a watcher that never started.
       writeFileSync(join(root, "real.md"), "real", "utf8");
       await r.settle();
-      expect(r.upserts).toEqual([["v1", "real.md", "real"]]);
+      expect(uniqueUpserts(r.upserts)).toEqual([["v1", "real.md", "real"]]);
       expect(r.deletes).toEqual([]);
     } finally {
       stop();
@@ -434,7 +456,7 @@ describe.skipIf(process.platform === "win32")("startVaultWatch — event deliver
       writeFileSync(join(a, "in-a.md"), "A", "utf8");
       writeFileSync(join(b, "in-b.md"), "B", "utf8");
       await r.settle(2);
-      expect([...r.upserts].sort()).toEqual([
+      expect(uniqueUpserts(r.upserts).sort()).toEqual([
         ["va", "in-a.md", "A"],
         ["vb", "in-b.md", "B"],
       ]);
@@ -470,7 +492,7 @@ describe.skipIf(process.platform === "win32")("startVaultWatch — event deliver
       await arm();
       writeFileSync(join(good, "still-works.md"), "ok", "utf8");
       await r.settle();
-      expect(r.upserts).toEqual([["good", "still-works.md", "ok"]]);
+      expect(uniqueUpserts(r.upserts)).toEqual([["good", "still-works.md", "ok"]]);
     } finally {
       stop();
     }
