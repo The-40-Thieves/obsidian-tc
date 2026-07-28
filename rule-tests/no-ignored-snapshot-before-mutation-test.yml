@@ -1,0 +1,17 @@
+id: no-ignored-snapshot-before-mutation
+valid:
+  - |
+    const snapshotId = captureSnapshot(db, snapshots, vaultId, rel, raw, op);
+    if (snapshotId === null) throw new Error("rollback unavailable");
+    writeNoteAtomic(abs, next, false);
+  - |
+    captureSnapshot(db, snapshots, vaultId, rel, raw, op);
+    return { snapshotCaptured: true };
+  - |
+    if (!snapshots?.enabled) deps.onSnapshotSkipped?.(vaultId, rel, op);
+    captureSnapshot(db, snapshots, vaultId, rel, raw, op);
+    hardDelete(abs);
+invalid:
+  - |
+    captureSnapshot(db, snapshots, vaultId, rel, raw, op);
+    writeNoteAtomic(abs, next, false);

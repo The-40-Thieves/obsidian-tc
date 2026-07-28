@@ -1,10 +1,17 @@
 # obsidian-tc — structural map
 
 Generated 2026-07-23 against `f1360b8`. Every path below was verified against the
-filesystem, not inferred. Counts come from `find` / `wc -l` / `tokei`, excluding
-`node_modules`, `dist`, and `target`.
+filesystem, not inferred. Counts in the hand-written sections come from
+`find` / `wc -l` / `tokei`, excluding `node_modules`, `dist`, and `target`. The generated
+regions state their own method.
 
-**Scale:** 773 files, 124,033 lines total, 93,787 lines of code.
+<!-- BEGIN GENERATED: tree-headline-scale -->
+**Scale:** 857 tracked code files · 129,463 lines.
+
+TypeScript 122,162 · JavaScript 3,840 · Python 1,526 · SQL 953 · Rust 668 · Shell 314.
+
+Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
+<!-- END GENERATED: tree-headline-scale -->
 
 > §7's dependency-graph sections (scale, subsystem diagram, fan-in/out) are **generated** from the
 > real module graph — run `just map`, and `just map-check` gates them in ci-docgen. Everything

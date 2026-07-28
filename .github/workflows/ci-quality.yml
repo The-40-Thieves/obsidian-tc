@@ -13,6 +13,19 @@ name: ci-quality
 #     Astro content collection (/tools/, /roadmap/) which resolve against the BUILT site, not the
 #     source tree. Excluding docs/src takes it to 0 while still covering the wiki, plans and guides.
 #
+#   hadolint, unconfigured: 0 findings on the repo's single Dockerfile. Verified it is not a no-op
+#     by seeding `FROM ubuntu:latest` + a bare `apt-get install` and confirming exit 1 (DL3007,
+#     DL3015) — an empty scan and a clean scan are indistinguishable without that check.
+#
+# Deliberately NOT here: taplo and shfmt. Both are pure formatters over hand-authored config, and
+# neither can reach zero on this repo without churn that makes the files worse. taplo leaves 4 of 8
+# TOML files failing under EVERY combination of array_auto_collapse/align_comments/indent_string:
+# what it wants is to re-align the trailing comments in _typos.toml and packages/native/deny.toml
+# out to column ~66, and to re-indent pyproject arrays 4->2. shfmt rewrites all 5 shell scripts
+# (193 diff lines even at `-i 2 -ci`), splitting one-line guard clauses and de-aligning the columnar
+# `case` arms in services/qwen-tei/run.sh. shellcheck already gates those files for correctness;
+# these two would only gate style, at the cost of reformatting deliberate layout.
+#
 # Deliberately NOT here: knip. Its one high-value output (dead files) is zero once entry points are
 # declared, and everything it reports after that is invisible-to-static-analysis by design — the
 # native package is required via ["@the-40-thieves","obsidian-tc-native"].join("/") so bundlers
@@ -70,3 +83,97 @@ jobs:
         # PR, and a network-dependent gate that fails on someone else's outage trains people to
         # ignore it. This checks that links WITHIN the repo resolve, which is fully deterministic.
         run: lychee --offline --no-progress --exclude-path docs/src 'docs/**/*.md' '*.md'
+
+  ast-grep:
+    name: ast-grep (structural invariants)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: install ast-grep 0.45.0 (pinned binary + checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/sg-bin"
+          curl -sSL --fail -o "$RUNNER_TEMP/sg.zip" \
+            https://github.com/ast-grep/ast-grep/releases/download/0.45.0/app-x86_64-unknown-linux-gnu.zip
+          echo "78931ae35ebac33d9a72b3aecea3e3d62d6e5b0b718ac8bbedfbe69d68421e41  $RUNNER_TEMP/sg.zip" | sha256sum -c -
+          unzip -q -o "$RUNNER_TEMP/sg.zip" -d "$RUNNER_TEMP/sg-bin" ast-grep
+          chmod +x "$RUNNER_TEMP/sg-bin/ast-grep"
+          echo "$RUNNER_TEMP/sg-bin" >> "$GITHUB_PATH"
+
+      # BOTH steps are required, and the order matters.
+      #
+      # `ast-grep scan` alone would be a gate that has never been watched failing: every rule in
+      # rules/ currently matches ZERO on this repo, because each encodes a defect that has already
+      # been fixed. A rule that matches nothing is indistinguishable from a rule that CANNOT match
+      # — four LLM-authored candidates were rejected during this work for exactly that, matching
+      # zero on a fixture containing their target verbatim.
+      #
+      # `ast-grep test` is what closes that hole permanently. Each rule ships `valid:` and
+      # `invalid:` samples in rule-tests/, so the suite proves on every run that the rule still
+      # fires on the bad pattern AND still ignores the good one. If a rule silently rots into a
+      # no-op, this step goes red while `scan` stays green.
+      - name: ast-grep test (rules still fire on their own fixtures)
+        # FLOORED on the rule count, and that floor is not theoretical. `ast-grep test` matches a
+        # test file to a rule BY ID: rename a rule's id without renaming rule-tests/<id>-test.yml
+        # and the test is silently DROPPED, with the suite still reporting "ok". Measured while
+        # writing this — mutating a rule id took the run from "4 passed" to "3 passed; 0 failed",
+        # exit 0. Only the count moved, and nothing was red.
+        #
+        # A pattern-only break IS caught properly (verified: "FAIL ..M", exit 4). This guard covers
+        # the other half — a rule that stops being tested at all.
+        run: |
+          set -euo pipefail
+          rules=$(find rules -name '*.yml' -type f | wc -l)
+          echo "rules on disk: $rules"
+          if [ "$rules" -lt 1 ]; then
+            echo "::error::no rules found — the suite would pass over nothing." >&2
+            exit 1
+          fi
+          ast-grep test | tee /tmp/sgtest.out
+          passed=$(grep -oE '[0-9]+ passed' /tmp/sgtest.out | tail -1 | cut -d' ' -f1)
+          echo "rules tested: ${passed:-0}"
+          if [ "${passed:-0}" -ne "$rules" ]; then
+            echo "::error::$rules rule(s) on disk but ${passed:-0} tested — a rule id and its rule-tests/<id>-test.yml have drifted apart." >&2
+            exit 1
+          fi
+      - name: ast-grep scan (repo is clean of the encoded defects)
+        # `--error` with no value promotes EVERY rule to error severity. Without it a rule whose
+        # severity is `warning` prints its finding and still exits 0 — a gate that only looks like
+        # one. The flag requires `=` when naming specific rules (`--error=RULE_ID`); bare `--error`
+        # applies to all, which is what is wanted here.
+        run: ast-grep scan --error
+
+  hadolint:
+    name: hadolint (Dockerfile style + correctness)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: install hadolint v2.14.0 (pinned binary + checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/hadolint-bin"
+          curl -sSL --fail -o "$RUNNER_TEMP/hadolint-bin/hadolint" \
+            https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-Linux-x86_64
+          echo "6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47  $RUNNER_TEMP/hadolint-bin/hadolint" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/hadolint-bin/hadolint"
+          echo "$RUNNER_TEMP/hadolint-bin" >> "$GITHUB_PATH"
+      - name: hadolint
+        # FLOORED on purpose. `hadolint` over a glob that matches nothing exits 0, which is
+        # indistinguishable from a clean scan — the failure mode this repo keeps re-finding in
+        # source-scan gates. Asserting the file count first means a Dockerfile rename that slips
+        # past the pattern fails the job instead of silently disabling it.
+        #
+        # -print0/xargs -0 rather than word-splitting the find output: a path with a space would
+        # otherwise be passed as two filenames and hadolint would error on both.
+        #
+        # node_modules is excluded because vendored packages ship their own Dockerfiles
+        # (docs/node_modules/yaml-language-server/Dockerfile) that this repo neither owns nor builds.
+        run: |
+          set -euo pipefail
+          find . -name 'Dockerfile*' -not -path '*/node_modules/*' -not -path './.git/*' -print0 \
+            > /tmp/dockerfiles.z
+          count=$(tr -cd '\0' < /tmp/dockerfiles.z | wc -c)
+          echo "Dockerfiles found: $count"
+          if [ "$count" -lt 1 ]; then
+            echo "::error::hadolint matched 0 Dockerfiles — the gate is scanning nothing." >&2
+            exit 1
+          fi
+          xargs -0 hadolint < /tmp/dockerfiles.z

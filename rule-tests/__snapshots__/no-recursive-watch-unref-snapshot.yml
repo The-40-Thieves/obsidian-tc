@@ -1,0 +1,22 @@
+id: no-recursive-watch-unref
+snapshots:
+  ? |
+    const watcher = watch(root, { recursive: true }, onChange);
+    watcher.unref();
+  : labels:
+    - source: 'const watcher = watch(root, { recursive: true }, onChange);'
+      style: primary
+      start: 0
+      end: 59
+    - source: watcher.unref()
+      style: secondary
+      start: 60
+      end: 75
+    - source: watcher.unref();
+      style: secondary
+      start: 60
+      end: 76
+    - source: 'recursive: true'
+      style: secondary
+      start: 30
+      end: 45

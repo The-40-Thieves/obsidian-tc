@@ -1,0 +1,36 @@
+id: no-ignored-snapshot-before-mutation
+language: typescript
+severity: warning
+message: captureSnapshot may return null, but this mutation ignores whether rollback exists.
+note: >-
+  snapshots are disabled in the default trusted-local posture. Before a destructive mutation,
+  inspect captureSnapshot's number|null result and either reject the operation, provide another
+  recovery mechanism, or make the no-rollback posture explicit at the governed boundary.
+files:
+  - packages/server/src/tools/**/*.ts
+  - packages/server/src/vault/persist-note.ts
+rule:
+  all:
+    - kind: expression_statement
+    - has:
+        pattern: captureSnapshot($$$ARGS)
+    - not:
+        follows:
+          stopBy: end
+          any:
+            - pattern: $DEPS.onSnapshotSkipped?.($$$SKIP_ARGS)
+            - has:
+                stopBy: end
+                pattern: $DEPS.onSnapshotSkipped?.($$$SKIP_ARGS)
+    - precedes:
+        stopBy: end
+        any:
+          - pattern: writeNoteAtomic($$$MUTATE_ARGS)
+          - pattern: hardDelete($$$MUTATE_ARGS)
+          - pattern: renameNoteAtomic($$$MUTATE_ARGS)
+          - has:
+              stopBy: end
+              any:
+                - pattern: writeNoteAtomic($$$MUTATE_ARGS)
+                - pattern: hardDelete($$$MUTATE_ARGS)
+                - pattern: renameNoteAtomic($$$MUTATE_ARGS)

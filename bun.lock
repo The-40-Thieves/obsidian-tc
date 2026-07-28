@@ -13,25 +13,26 @@
     },
     "packages/native": {
       "name": "@the-40-thieves/obsidian-tc-native",
-      "version": "1.12.1",
+      "version": "1.13.1",
       "devDependencies": {
         "@napi-rs/cli": "^3.7.2",
       },
     },
     "packages/plugin": {
       "name": "@the-40-thieves/obsidian-tc-plugin",
-      "version": "1.12.1",
+      "version": "1.13.1",
       "devDependencies": {
         "@types/node": "^24.0.0",
         "builtin-modules": "^4.0.0",
         "esbuild": "^0.28.1",
         "obsidian": "^1.13.1",
         "tslib": "^2.8.1",
+        "vitest": "^4.1.10",
       },
     },
     "packages/server": {
       "name": "obsidian-tc",
-      "version": "1.12.1",
+      "version": "1.13.1",
       "bin": {
         "obsidian-tc": "./dist/cli.js",
       },
@@ -65,7 +66,7 @@
     },
     "packages/shared": {
       "name": "@the-40-thieves/obsidian-tc-shared",
-      "version": "1.12.1",
+      "version": "1.13.1",
       "dependencies": {
         "zod": "^4.0.0",
       },

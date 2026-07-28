@@ -1,0 +1,45 @@
+# checkov — SECURITY POLICY over the Dockerfile and the GitHub Actions workflows.
+#
+# This is the policy layer that hadolint and actionlint do not provide. Those two cover STYLE and
+# CORRECTNESS (is this valid, is it idiomatic); checkov asks whether the configuration is allowed.
+# All three run: hadolint in ci-quality, actionlint and this job in ci-security.
+#
+# Baseline at wiring time, unconfigured:
+#   Dockerfile           58 passed, 1 failed   (CKV_DOCKER_2)
+#   github_actions      938 passed, 2 failed   (CKV_GHA_7 x2)
+#
+# Every skip below is a rule that conflicts with a DELIBERATE decision in this repo, and each is
+# recorded with the reason rather than silently suppressed. If a skip ever stops being true, delete
+# it — a stale skip is worse than no gate, because it reads as "checked and fine".
+
+skip-check:
+  # CKV_DOCKER_2 — "Ensure that HEALTHCHECK instructions have been added to container images".
+  #
+  # As built, this image has nothing a HEALTHCHECK could probe. Verified rather than assumed:
+  #   - the Dockerfile declares no EXPOSE and no port, and its ENTRYPOINT is
+  #     `bun /app/packages/server/dist/cli.js` with no transport flag;
+  #   - `health` in this project is an MCP TOOL (packages/server/src/tools/admin/health.ts)
+  #     answered over JSON-RPC, not an HTTP route — there is no /health path in
+  #     packages/server/src/transports/.
+  # A HEALTHCHECK that cannot succeed is worse than none: it marks a correctly-running container
+  # unhealthy, and under an orchestrator with restart-on-unhealthy it turns a working deploy into
+  # a crash loop. THE-561 is this repo's own instance of the inverse failure — a probe that called
+  # a dead server healthy (see transports/serve.ts).
+  #
+  # If the image ever gains an HTTP listener by default, delete this skip and add a real
+  # HEALTHCHECK against it rather than re-suppressing the rule.
+  - CKV_DOCKER_2
+
+  # CKV_GHA_7 — "workflow_dispatch inputs MUST be empty".
+  #
+  # This is a reproducible-build/SLSA-provenance rule: it assumes any human-supplied input can
+  # steer the build output. Two workflows here legitimately take inputs, and neither produces a
+  # published artifact from them:
+  #   perf-baseline.yml  — benchmark parameters for a manually-triggered measurement run
+  #   release-image.yml  — the tag to (re)build an already-released image from
+  # Both are operator tools, deliberately parameterised, and both are manual-dispatch only.
+  #
+  # NOTE this is a global skip, so a NEW workflow adding dispatch inputs also passes. That is the
+  # accepted trade: the alternative is per-file suppression comments inside workflows that
+  # actionlint and the workflow-injection gate also parse.
+  - CKV_GHA_7

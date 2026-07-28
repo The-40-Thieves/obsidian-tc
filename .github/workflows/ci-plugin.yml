@@ -35,6 +35,19 @@ jobs:
       - name: typecheck plugin
         run: bun run typecheck
         working-directory: packages/plugin
+      - name: test plugin
+        # This package had ZERO tests until now, because src/routes.ts imports `obsidian` — a
+        # package that only functions inside the Obsidian runtime — so any test importing it died
+        # at module load. vitest.config.ts aliases that import to a stub, which is what makes the
+        # package testable; see packages/plugin/test/__mocks__/obsidian.ts.
+        #
+        # The header above is still true — CI cannot exercise a running Obsidian — and these tests
+        # do not pretend to. They cover the parts that are pure given an App: the route table's
+        # shape, request parsing, and the safeHandler invariant that every one of the 28 handlers
+        # answers rather than hanging the bridge. Removing the wrap at routes.ts:952 fails 28 of
+        # them, which is how that assertion was verified.
+        run: bun run test
+        working-directory: packages/plugin
       - name: build plugin
         run: bun run build
         working-directory: packages/plugin

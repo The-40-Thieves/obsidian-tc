@@ -1,0 +1,79 @@
+id: no-raw-vault-delete-path
+language: typescript
+severity: error
+message: A vault delete path was built with join/resolve instead of resolveVaultPath.
+note: >-
+  Delete must use the same containment and symlink checks as write. Resolve caller-controlled
+  vault-relative paths with resolveVaultPath (or resolveVaultPathChecked) before passing them to
+  rm, unlink, or rmdir. This rule follows only a direct initializer-to-sink binding; it is not a
+  general taint analysis.
+files:
+  - packages/server/src/**/*.ts
+ignores:
+  - packages/server/src/vault/paths.ts
+rule:
+  any:
+    - pattern: rm($RAW, $$$REST)
+    - pattern: rmSync($RAW, $$$REST)
+    - pattern: unlink($RAW, $$$REST)
+    - pattern: unlinkSync($RAW, $$$REST)
+    - pattern: rmdir($RAW, $$$REST)
+    - pattern: rmdirSync($RAW, $$$REST)
+    - pattern: fs.rm($RAW, $$$REST)
+    - pattern: fs.rmSync($RAW, $$$REST)
+    - pattern: fs.unlink($RAW, $$$REST)
+    - pattern: fs.unlinkSync($RAW, $$$REST)
+    - pattern: fs.rmdir($RAW, $$$REST)
+    - pattern: fs.rmdirSync($RAW, $$$REST)
+    - pattern: fs.promises.rm($RAW, $$$REST)
+    - pattern: fs.promises.unlink($RAW, $$$REST)
+    - pattern: fs.promises.rmdir($RAW, $$$REST)
+    - all:
+        - any:
+            - pattern: const $PATH = $RAW
+            - pattern: let $PATH = $RAW
+        - precedes:
+            stopBy: end
+            any:
+              - pattern: rm($PATH, $$$REST)
+              - pattern: rmSync($PATH, $$$REST)
+              - pattern: unlink($PATH, $$$REST)
+              - pattern: unlinkSync($PATH, $$$REST)
+              - pattern: rmdir($PATH, $$$REST)
+              - pattern: rmdirSync($PATH, $$$REST)
+              - pattern: fs.rm($PATH, $$$REST)
+              - pattern: fs.rmSync($PATH, $$$REST)
+              - pattern: fs.unlink($PATH, $$$REST)
+              - pattern: fs.unlinkSync($PATH, $$$REST)
+              - pattern: fs.rmdir($PATH, $$$REST)
+              - pattern: fs.rmdirSync($PATH, $$$REST)
+              - pattern: fs.promises.rm($PATH, $$$REST)
+              - pattern: fs.promises.unlink($PATH, $$$REST)
+              - pattern: fs.promises.rmdir($PATH, $$$REST)
+              - has:
+                  stopBy: end
+                  any:
+                    - pattern: rm($PATH, $$$REST)
+                    - pattern: rmSync($PATH, $$$REST)
+                    - pattern: unlink($PATH, $$$REST)
+                    - pattern: unlinkSync($PATH, $$$REST)
+                    - pattern: rmdir($PATH, $$$REST)
+                    - pattern: rmdirSync($PATH, $$$REST)
+                    - pattern: fs.rm($PATH, $$$REST)
+                    - pattern: fs.rmSync($PATH, $$$REST)
+                    - pattern: fs.unlink($PATH, $$$REST)
+                    - pattern: fs.unlinkSync($PATH, $$$REST)
+                    - pattern: fs.rmdir($PATH, $$$REST)
+                    - pattern: fs.rmdirSync($PATH, $$$REST)
+                    - pattern: fs.promises.rm($PATH, $$$REST)
+                    - pattern: fs.promises.unlink($PATH, $$$REST)
+                    - pattern: fs.promises.rmdir($PATH, $$$REST)
+constraints:
+  RAW:
+    all:
+      - any:
+          - pattern: join($ROOT, $$$PARTS)
+          - pattern: resolve($ROOT, $$$PARTS)
+          - pattern: path.join($ROOT, $$$PARTS)
+          - pattern: path.resolve($ROOT, $$$PARTS)
+      - regex: '^(path\.)?(join|resolve)\(\s*(root|vaultRoot|vault\.root|v\.root|params\.root|input\.root)\s*,'

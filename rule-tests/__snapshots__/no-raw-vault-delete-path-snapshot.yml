@@ -1,0 +1,25 @@
+id: no-raw-vault-delete-path
+snapshots:
+  ? |
+    const abs = path.join(v.root, input.path);
+    await fs.rm(abs, { force: true });
+  : labels:
+    - source: const abs = path.join(v.root, input.path);
+      style: primary
+      start: 0
+      end: 42
+    - source: 'fs.rm(abs, { force: true })'
+      style: secondary
+      start: 49
+      end: 76
+    - source: 'await fs.rm(abs, { force: true });'
+      style: secondary
+      start: 43
+      end: 77
+  ? |
+    rmSync(resolve(vaultRoot, rel), { force: true });
+  : labels:
+    - source: 'rmSync(resolve(vaultRoot, rel), { force: true })'
+      style: primary
+      start: 0
+      end: 48

@@ -1,0 +1,13 @@
+id: no-recursive-watch-unref
+valid:
+  - |
+    const watcher = watch(root, { recursive: true, persistent: false }, onChange);
+    watcher.on("error", onError);
+  - |
+    const watcher = watch(root, { recursive: false }, onChange);
+    watcher.unref();
+invalid:
+  - |
+    const watcher = watch(root, { recursive: true }, onChange);
+    watcher.unref();
+
