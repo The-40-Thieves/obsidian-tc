@@ -6,9 +6,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-07-28
+
 ### Added
 
-- **MCP SDK v2 + the 2026-07-28 protocol revision, alongside 2025-11-25 (THE-583).** The server now
+- **MCP SDK v2 + the 2026-07-28 protocol revision, alongside 2025-11-25 (THE-583, #543).** The server now
   speaks **both** protocol eras from one endpoint. A 2026-07-28 client can call tools with no
   `initialize` handshake at all (SEP-2575 removed it); a 2025-11-25 client is unaffected and still
   negotiates exactly as before.
@@ -29,7 +31,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `test/mcp-protocol-eras.test.ts` pins both eras plus a floor asserting an unadvertised revision is
   still refused.
 
-- **Foundation for the MCP Tasks extension over the durable queue (THE-583).** Tasks left the core
+- **Foundation for the MCP Tasks extension over the durable queue (THE-583, #548).** Tasks left the core
   protocol in 2026-07-28 and was redesigned around polling (`tasks/get`, `tasks/cancel`;
   `tasks/list` removed). The SDK ships **no runtime** for it, so this is an implementation of the
   extension rather than an adoption — verified first that extension methods do route through
@@ -54,7 +56,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   A foreign task id and a missing one answer identically, so the surface cannot be used to enumerate
   another caller's ids, and cancelling someone else's work — a write, not a read — is refused.
 
-- **Logging, Roots and Sampling wired (THE-583, SEP-2577 deprecation window).** The 2026-07-28
+- **Logging, Roots and Sampling wired (THE-583, SEP-2577 deprecation window, #546, #550).** The 2026-07-28
   revision deprecated these three server→client features but did not remove them, and the SDK still
   implements all three — so a client mid-migration can still use them.
 
@@ -75,7 +77,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   fixed at `info` rather than settable; a handler was written, measured as dead, and removed instead
   of being left in place looking implemented.
 
-- **HITL confirmation now uses the 2026-07-28 multi-round-trip shape (THE-583, SEP-2260/2322).** A
+- **HITL confirmation now uses the 2026-07-28 multi-round-trip shape (THE-583, SEP-2260/2322, #546).** A
   destructive call from a modern client is answered with `inputRequired` carrying an opaque,
   HMAC-signed `requestState`; the client re-issues the same call echoing it back and the server
   verifies it before any handler runs. Previously this was an `elicit_required` error plus a bespoke
@@ -96,7 +98,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   for the old semantics; restoring one-time use means a consumed-nonce table and does not require a
   wire change.
 
-- **Adopt SDK helpers over hand-rolled equivalents (THE-583).** Three duplicated implementations now
+- **Adopt SDK helpers over hand-rolled equivalents (THE-583, #544).** Three duplicated implementations now
   defer to the SDK, removing second copies of wire constants and validation logic:
 
   * **`_meta` key constants** — `client-info.ts` and `otel/propagation.ts` had hand-typed literals
@@ -116,7 +118,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   acceptance, using `node:http` because Node's `fetch` silently drops a custom `Host` header, which
   had made the first draft of those tests pass against loopback while appearing to test rebinding.
 
-- **Full 2026-07-28 conformance: `server/discover`, SEP-2243 routing headers, SEP-2549 cache hints
+- **Full 2026-07-28 conformance (#544): `server/discover`, SEP-2243 routing headers, SEP-2549 cache hints
   (THE-583).** The `/mcp` route is now served by the SDK's `createMcpHandler`, which classifies the
   protocol era per request and serves both from one endpoint.
 
@@ -134,7 +136,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   Response out, so the route no longer round-trips through Node req/res. THE-561's keep-alive
   harness still passes 40/40.
 
-- **`obsidian-tc token mint` — reproducible, auditable bearer tokens (THE-658).** There was no mint
+- **`obsidian-tc token mint` — reproducible, auditable bearer tokens (THE-658, #539).** There was no mint
   tooling at all, so every token this project runs on came from a Python one-liner in someone's
   shell history — which is how the live tokens ended up with no `aud` claim.
 
@@ -155,6 +157,69 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `auth.tokenTtlSeconds`**, which caps a token's *age* rather than its remaining life — a year-long
   `exp` under a 24h cap dies after a day while still looking valid, which previously took the MCP
   plane down for five days.
+
+- **The MCP Tasks extension, complete (THE-583, #549, #552).** A long-running tool can now run as a
+  background task and the client collects the answer later. Task creation is **server-directed**, as
+  the revision specifies: a client declares `io.modelcontextprotocol/tasks` in its per-request
+  capabilities and the server decides per call — there is no per-request flag (`params.task` was
+  2025-11-25 vocabulary). Only tools marked `taskAugmentable` defer; everything else still answers
+  synchronously, because a handle is worse than an answer for anything fast. Today that is
+  `index_vault`.
+
+  `tasks/get` returns the real result on a completed task and the JSON-RPC error on a failed one —
+  deferred retrieval is the point of the extension, and the runner previously discarded what it
+  produced. `tasks/update` and `tasks/cancel` acknowledge per the extension schema.
+
+  `notifications/tasks` pushes task state to a subscribed client instead of making it poll. Polling
+  remains the default and is fully supported.
+
+  **Isolation:** a task is visible, cancellable and announced only to the caller and vault that
+  created it. Internal maintenance work (reconcile, contradiction, synthesis, audit) carries no
+  owner and is invisible over MCP by construction. A background task carries exactly the scopes its
+  caller held at enqueue — it can never do more than that caller could have done synchronously.
+
+- **`subscriptions/listen` (THE-583, SEP-2575, #551).** The single long-lived stream that replaces
+  the removed HTTP GET endpoint and `resources/subscribe`/`unsubscribe`. Clients opt into
+  `toolsListChanged`, `promptsListChanged`, `resourcesListChanged` or per-URI resource updates.
+
+  Serving it required making the MCP handler persistent. It was built per request, which was correct
+  for isolation but closed any stream the instant its creating request returned. The isolation is
+  preserved by a different mechanism rather than dropped: the SDK invokes its factory once per HTTP
+  request and hands it that request's pass-through `authInfo`, so a caller context is still built
+  per request from that request's identity. Asserted by a test driving two tokens through the same
+  handler, interleaved and concurrent.
+
+- **`resources/templates/list` (THE-583, #554).** Previously unimplemented, so a client probing the
+  resource surface saw the method as unsupported rather than seeing that we publish no templates.
+  Now answers an empty list with a cache hint. Resources here are concrete vault notes enumerated by
+  `resources/list`; there is no URI template to expand.
+
+- **A 2026-07-28 conformance suite (THE-583, #554).** Pins the revision on the wire per changelog
+  item, including the **removals** — `ping`, `logging/setLevel` and `initialize` are refused, since a
+  deleted method still being answered is a conformance failure no feature test would notice.
+
+### Fixed
+
+- **Per-request log level (THE-583, SEP-2575, #549).** The revision made verbosity a per-request
+  `_meta` field and requires that a server **MUST NOT** emit `notifications/message` for a request
+  that did not carry one. Logging went through a session-keyed path that a stateless server never
+  populates, so the byte-governor truncation notice reached clients that never asked for logging.
+
+- **`resources/read` misses answer `-32602` (THE-583, #550).** They answered `-32603`, reporting a
+  client mistake as a server fault on the one method the revision names for this code.
+
+- **`forget` audit parity, including on a no-op (THE-609, #542).** `audit_events` now mirrors
+  `forget_log` in every case, so a forget that matched nothing is still auditable.
+
+### Changed
+
+- **Protocol surface built for downstream clients, not just this deployment (THE-583, #550).**
+  `x-mcp-header` (SEP-2243) is verified end to end so a tool author can declare header-carrying
+  parameters; Roots and Sampling are reachable from every tool's context for their deprecation
+  window rather than being removed as unused.
+
+- **Request bodies are parsed once, not twice (THE-583, #553).** The body parsed for the Tasks
+  extension checks is now handed to the SDK instead of being re-parsed on every MCP request.
 
 ## [1.12.1] - 2026-07-28
 
