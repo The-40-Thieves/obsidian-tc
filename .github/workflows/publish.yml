@@ -191,8 +191,16 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
       - run: bun install --frozen-lockfile
+      # `pattern` is load-bearing: with no filter this downloads EVERY artifact in the run, and
+      # docker/build-push-action auto-uploads a build record (`<owner>~<repo>~XXXXXX.dockerbuild`)
+      # that cannot be downloaded here — v1.12.1's publish died on it with
+      # "Unable to download artifact(s): ... failed after 5 retries", twice, after all 20+ build
+      # jobs had passed. This job consumes only the napi `.node` artifacts; the binaries, mcpb and
+      # plugin bundles are draft-release's business. Filtering by what we NEED also stops any
+      # future job's artifacts from breaking the publish the same way.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
+          pattern: native-*
           path: packages/native/artifacts
       # napi artifacts only *fills* per-platform dirs; it does not create them.
       # create-npm-dirs generates npm/<triple>/ (scoped @the-40-thieves/obsidian-tc-native-<triple>)
