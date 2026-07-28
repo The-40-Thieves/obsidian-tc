@@ -9,6 +9,16 @@ export type CliCommand =
   | { kind: "config-validate"; configPath?: string }
   | { kind: "config-explain"; configPath?: string; json?: boolean; source?: string }
   | { kind: "doctor"; configPath?: string; json?: boolean; token?: string }
+  | {
+      kind: "token-mint";
+      configPath?: string;
+      sub?: string;
+      aud?: string;
+      vault?: string;
+      scopes?: string;
+      ttl?: number;
+      json?: boolean;
+    }
   | { kind: "version" }
   | { kind: "help" }
   | { kind: "plugin-install"; vaultPath: string }
@@ -91,6 +101,10 @@ Usage:
                                           Knowledge-gap detector / threshold calibration (THE-48)
   obsidian-tc forget [path] (--episode <id> | --note <rel-path>) [--erase] [--vault id]
   obsidian-tc forget [path] --verify      Dependency-aware deletion + hash-chained audit (THE-239)
+  obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--json]
+                                          Mint an HS256 bearer token from the config's auth block.
+                                          Refuses to mint without an aud when the config binds one,
+                                          or a --ttl above auth.tokenTtlSeconds (THE-658)
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 
@@ -129,6 +143,43 @@ export function parseCliArgs(argv: string[]): CliCommand {
     if (first === "help" || first === "--help" || first === "-h") return { kind: "help" };
     if (first === "serve") {
       return { kind: "serve", input: flagValue(rest, "--config") ?? positional(rest) };
+    }
+    // THE-658: `token mint`. Parsed like `config <sub>` — a two-word command with the config path
+    // as a positional after the subcommand. Every value-taking flag is stripped before the
+    // positional scan so a flag's VALUE can never be mistaken for the config path (the same trap
+    // `doctor --token` documents above).
+    if (first === "token") {
+      const sub = rest[0];
+      if (sub !== "mint") throw new CliError(`unknown token subcommand: ${sub ?? "(none)"}`);
+      const args = rest.slice(1);
+      const valueFlags = ["--sub", "--aud", "--vault", "--scopes", "--ttl", "--config"];
+      const scan = args.filter((a, i) => {
+        if (a === "--json" || valueFlags.includes(a)) return false;
+        const prev = args[i - 1];
+        return !(i > 0 && prev !== undefined && valueFlags.includes(prev));
+      });
+      const ttlRaw = flagValue(args, "--ttl");
+      const ttl = ttlRaw === undefined ? undefined : Number(ttlRaw);
+      if (ttl !== undefined && !Number.isFinite(ttl)) {
+        throw new CliError(`--ttl must be a number of seconds, got: ${ttlRaw}`);
+      }
+      // Required, and enforced HERE so it exits 2 like every other usage error — `planMint` keeps
+      // its own check because it is the unit under test and must refuse on its own terms.
+      if (flagValue(args, "--sub") === undefined) {
+        throw new CliError("token mint requires --sub (the caller identity)");
+      }
+      const configPath = flagValue(args, "--config") ?? positional(scan);
+      return {
+        kind: "token-mint",
+        ...(configPath !== undefined ? { configPath } : {}),
+        ...(flagValue(args, "--sub") !== undefined ? { sub: flagValue(args, "--sub") } : {}),
+        ...(flagValue(args, "--aud") !== undefined ? { aud: flagValue(args, "--aud") } : {}),
+        ...(flagValue(args, "--vault") !== undefined ? { vault: flagValue(args, "--vault") } : {}),
+        // `--scopes ""` is meaningful (mint with none), so presence is tested, not truthiness.
+        ...(args.includes("--scopes") ? { scopes: args[args.indexOf("--scopes") + 1] ?? "" } : {}),
+        ...(ttl !== undefined ? { ttl } : {}),
+        json: args.includes("--json"),
+      };
     }
     if (first === "config") {
       const sub = rest[0];

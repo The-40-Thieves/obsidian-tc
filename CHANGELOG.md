@@ -6,6 +6,30 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`obsidian-tc token mint` — reproducible, auditable bearer tokens (THE-658).** There was no mint
+  tooling at all, so every token this project runs on came from a Python one-liner in someone's
+  shell history — which is how the live tokens ended up with no `aud` claim.
+
+  ```
+  obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>]
+                                [--scopes a,b] [--ttl <sec>] [--json]
+  ```
+
+  It reads the config's own auth block, so a minted token matches what that server will actually
+  verify: `aud` defaults to `auth.audience` (falling back to `auth.resource`, which is what
+  `createHttpApp` binds to when PRM is configured), and `--ttl` defaults to `auth.tokenTtlSeconds`.
+  The bare token goes to stdout so it composes — `TOKEN=$(obsidian-tc token mint …)` — with the
+  human-readable summary on stderr. The signing secret is never echoed.
+
+  Two refusals, each encoding a failure already paid for: it will not mint **without an `aud`** when
+  the config binds one (jose rejects such a token as `missing_claim` on first use, and THE-456 makes
+  an audience mandatory for a non-loopback `jwt` bind), and it will not mint a **`--ttl` above
+  `auth.tokenTtlSeconds`**, which caps a token's *age* rather than its remaining life — a year-long
+  `exp` under a 24h cap dies after a day while still looking valid, which previously took the MCP
+  plane down for five days.
+
 ## [1.12.1] - 2026-07-28
 
 ### Fixed

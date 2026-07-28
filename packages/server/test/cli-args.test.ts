@@ -173,6 +173,45 @@ describe("parseCliArgs — flag validation", () => {
   });
 });
 
+describe("parseCliArgs — token mint (THE-658)", () => {
+  const parse = (args: string[]) => parseCliArgs(["token", "mint", ...args]);
+
+  it("keeps a flag's VALUE from being mistaken for the config path", () => {
+    // The trap `doctor --token` documents: an unfiltered positional scan takes the first non-dash
+    // token, which for `--sub alice /etc/cfg.json` is "alice". Minting against a config path of
+    // "alice" would fail confusingly instead of reading the intended file.
+    const cmd = parse(["--sub", "alice", "/etc/cfg.json"]);
+    expect(cmd).toMatchObject({ kind: "token-mint", sub: "alice", configPath: "/etc/cfg.json" });
+  });
+
+  it("treats a missing --sub as a USAGE error, so it exits 2 like other parse failures", () => {
+    expect(parse(["/etc/cfg.json"]).kind).toBe("error");
+  });
+
+  it("rejects an unknown token subcommand rather than silently minting", () => {
+    expect(parseCliArgs(["token", "frobnicate"]).kind).toBe("error");
+    expect(parseCliArgs(["token"]).kind).toBe("error");
+  });
+
+  it("rejects a non-numeric --ttl at parse time", () => {
+    expect(parse(["--sub", "a", "--ttl", "soon"]).kind).toBe("error");
+  });
+
+  it("preserves an EMPTY --scopes, which means no scopes rather than all of them", () => {
+    // `flagValue` refuses a value starting with "-", and "" is falsy, so the obvious readings of
+    // this flag both lose the distinction. Getting it wrong hands a scrape credential full access.
+    expect(parse(["--sub", "a", "--scopes", ""])).toMatchObject({ scopes: "" });
+    expect(parse(["--sub", "a"]).kind).toBe("token-mint");
+    expect(parse(["--sub", "a"])).not.toHaveProperty("scopes");
+  });
+
+  it("carries the remaining flags through", () => {
+    expect(
+      parse(["--sub", "a", "--aud", "http://x", "--vault", "main", "--ttl", "3600", "--json"]),
+    ).toMatchObject({ aud: "http://x", vault: "main", ttl: 3600, json: true });
+  });
+});
+
 describe("redactConfig — generic key-suffix fields", () => {
   it("masks any *key/*secret/*token field, including signing/private keys", () => {
     const json = JSON.stringify(
