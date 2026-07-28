@@ -16,6 +16,7 @@ import { findGeneratedMarkers } from "./marker-scan";
 import { findHandWrittenMetricTables } from "./metric-table-scan";
 import { renderBridgeCompat } from "./render-bridge-compat";
 import { renderConfig } from "./render-config";
+import { renderConfigExample } from "./render-config-example";
 import { renderErrors } from "./render-errors";
 import { renderMetrics } from "./render-metrics";
 import { renderStats } from "./render-stats";
@@ -98,6 +99,16 @@ const targets: Array<{ rel: string; file: string; marker: string; content: strin
     file: repo("docs/wiki/Plugin-Bridges.md"),
     marker: "bridge-compat",
     content: renderBridgeCompat(),
+  },
+  // THE-470 item 3: the "all defaults shown" block in config-yaml.md. It was hand-maintained on
+  // a page titled "the complete option surface", and FIVE entire defaulted blocks had gone missing
+  // from it (indexing, ranking.metadataPrior, retrieval.cache, retrieval.adaptiveRrf, maintenance
+  // retention) — the THE-598 dead-config-key failure mode, caused by hand maintenance.
+  {
+    rel: "docs/src/content/docs/configuration/config-yaml.md",
+    file: repo("docs/src/content/docs/configuration/config-yaml.md"),
+    marker: "config-example",
+    content: renderConfigExample(),
   },
   // THE-470: the error catalog. extract-errors.ts has worked and been tested since THE-471, but
   // its only consumer was build-model.ts — which prints JSON to stdout, is committed nowhere, and
