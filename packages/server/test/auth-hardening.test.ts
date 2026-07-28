@@ -11,31 +11,37 @@ import { wwwAuthenticateChallenge } from "../src/auth/protected-resource";
 const vaults = [{ id: "v1", path: "/tmp/v1" }];
 const parse = (auth: Record<string, unknown>) => ServerConfigSchema.safeParse({ vaults, auth });
 
-describe("audience binding is a GATE, not a warning", () => {
-  it("REFUSES auth.mode 'jwt' with no audience and no resource", () => {
-    // Previously this parsed fine and only warned, and only when a JWKS was configured — so the
-    // common HS256 deployment got nothing at all.
-    const r = parse({ mode: "jwt", jwtSecret: "s".repeat(40) });
+describe("audience binding — THE-456's gate, extended to jwksUri", () => {
+  // I initially added a BLANKET "jwt always requires an audience" rule. It was wrong, and CI caught
+  // it on all four runners. THE-456 already implements this as hard config errors, and its
+  // conditions are better than a blanket rule: a JWKS or a non-loopback bind or a set issuer all
+  // REQUIRE an audience, while HS256 on a loopback bind stays audience-optional on purpose — a
+  // self-issued secret unique to a local server has no other service to be replayed from.
+  //
+  // The real gap was narrower: `hasJwks` did not include `jwksUri`, so the most external key source
+  // of the three would have been exempt.
+  it("REQUIRES an audience with jwksUri — the most external key source", () => {
+    const r = parse({ mode: "jwt", jwksUri: "https://as.example/jwks.json" });
     expect(r.success).toBe(false);
-    if (!r.success) {
-      expect(JSON.stringify(r.error.issues)).toMatch(/audience/);
-    }
+    if (!r.success) expect(JSON.stringify(r.error.issues)).toMatch(/audience/);
   });
 
-  it("accepts an explicit audience", () => {
-    expect(parse({ mode: "jwt", jwtSecret: "s".repeat(40), audience: "http://x" }).success).toBe(
-      true,
-    );
+  it("accepts jwksUri once an audience is bound", () => {
+    expect(
+      parse({ mode: "jwt", jwksUri: "https://as.example/jwks.json", audience: "http://x" }).success,
+    ).toBe(true);
   });
 
-  it("accepts `resource` alone, since the transport defaults the audience to it", () => {
-    expect(parse({ mode: "jwt", jwtSecret: "s".repeat(40), resource: "http://x" }).success).toBe(
-      true,
-    );
+  it("accepts `resource` in place of `audience`, as the verifier defaults to it", () => {
+    expect(
+      parse({ mode: "jwt", jwksUri: "https://as.example/jwks.json", resource: "http://x" }).success,
+    ).toBe(true);
   });
 
-  it("leaves mode 'none' alone — there is no token to bind", () => {
-    expect(parse({ mode: "none" }).success).toBe(true);
+  it("still allows audience-optional HS256 on a loopback bind (THE-456's carve-out)", () => {
+    // Deliberately preserved. Removing it breaks the auto-generated-secret local path for no
+    // security gain — there is no second service sharing that secret.
+    expect(parse({ mode: "jwt", jwtSecret: "s".repeat(40) }).success).toBe(true);
   });
 });
 

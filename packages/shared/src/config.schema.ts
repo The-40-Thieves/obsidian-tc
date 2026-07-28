@@ -310,24 +310,7 @@ export const AuthConfigSchema = z
     message:
       "auth.mode 'jwt' requires jwtSecret (>=32 chars) or a JWKS (jwks / jwksFile / jwksUri)",
     path: ["jwtSecret"],
-  })
-  // THE-658: audience binding is a GATE, not a warning.
-  //
-  // It was previously enforced nowhere and merely warned when a JWKS was configured, so an HS256
-  // deployment — the common one — got nothing at all. With a shared secret and no `aud`, a token
-  // minted for ANY service sharing that secret is replayable here; that is the confused-deputy hole
-  // RFC 8707 and the MCP authorization spec both exist to close, and it was measured live on this
-  // deployment before `auth.audience` was set.
-  //
-  // `resource` satisfies it because the transport already defaults the bound audience to the PRM
-  // resource URI, so setting one is setting the other.
-  .refine((c) => c.mode !== "jwt" || !!c.audience || !!c.resource, {
-    message:
-      "auth.mode 'jwt' requires an audience: set auth.audience (or auth.resource, which it defaults to). " +
-      "Without it a token minted for another service sharing this secret is accepted here.",
-    path: ["audience"],
   });
-
 export const AclRuleSchema = z.object({
   glob: z.string().min(1).describe("Glob matched against the vault-relative note path."),
   scopes: z
@@ -1530,7 +1513,10 @@ export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
   // explicit `audience` OR a `resource` satisfies the binding. HS256 on a loopback bind stays
   // audience-optional (self-issued, local); a JWKS (external issuer) is never audience-optional.
   if (cfg.auth.mode === "jwt") {
-    const hasJwks = Boolean(cfg.auth.jwks || cfg.auth.jwksFile);
+    // THE-658: jwksUri counts. It is the MOST external of the three key sources — keys fetched
+    // from an authorization server at runtime — so leaving it out would have exempted exactly the
+    // configuration that most needs an audience bound.
+    const hasJwks = Boolean(cfg.auth.jwks || cfg.auth.jwksFile || cfg.auth.jwksUri);
     const boundAudience = cfg.auth.audience ?? cfg.auth.resource;
     const remote = http.enabled && !isLoopbackHost(http.host);
     if (hasJwks && boundAudience === undefined) {
@@ -1538,7 +1524,7 @@ export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
         code: z.ZodIssueCode.custom,
         path: ["auth", "audience"],
         message:
-          "auth.mode 'jwt' with a JWKS (jwks/jwksFile) requires auth.audience (or auth.resource): a JWKS trusts an external issuer, so without an audience a token that issuer minted for another service is accepted here (confused deputy). (THE-456)",
+          "auth.mode 'jwt' with a JWKS (jwks/jwksFile/jwksUri) requires auth.audience (or auth.resource): a JWKS trusts an external issuer, so without an audience a token that issuer minted for another service is accepted here (confused deputy). (THE-456)",
       });
     }
     if (remote && boundAudience === undefined) {
