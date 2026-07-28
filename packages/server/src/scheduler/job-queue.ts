@@ -176,6 +176,9 @@ const DEFAULT_MAX_BACKOFF_MS = 5 * 60_000;
 const CLAIM_SCAN_LIMIT = 50;
 
 export class JobQueue {
+  /** THE-583: `notifications/tasks` subscribers. Empty in every deployment that never opens one. */
+  private readonly taskListeners = new Set<(job: Job) => void>();
+
   private readonly db: Database;
   private readonly now: () => number;
   private readonly leaseMsValue: number;
@@ -360,10 +363,43 @@ export class JobQueue {
    * and a lease lost between here and `complete()` means the write simply does not become visible
    * (the job is not `complete`, so the projection never surfaces the outcome).
    */
+  /**
+   * THE-583: observe state changes on CALLER-OWNED jobs, for `notifications/tasks`.
+   *
+   * Only owned jobs are announced. Internal maintenance work (`vault_id IS NULL`) is invisible over
+   * MCP by construction, and a change feed that leaked it would undo that in the one place nobody
+   * would think to re-check — the same reasoning as findOwnedJob, applied to the push side.
+   *
+   * Returns an unsubscribe. Listeners are called AFTER the write commits, so a listener that reads
+   * the job back sees the state it is being told about rather than the one before it.
+   */
+  onTaskChange(listener: (job: Job) => void): () => void {
+    this.taskListeners.add(listener);
+    return () => {
+      this.taskListeners.delete(listener);
+    };
+  }
+
+  /** Announce a change, if the job is caller-owned. Never throws into the caller's write path. */
+  private announce(id: string): void {
+    if (this.taskListeners.size === 0) return;
+    const job = this.get(id);
+    // NULL vaultId = internal work: never announced, whoever is listening.
+    if (job === null || job.vaultId == null) return;
+    for (const listener of [...this.taskListeners]) {
+      try {
+        listener(job);
+      } catch {
+        /* a subscriber must never break the queue write that triggered it */
+      }
+    }
+  }
+
   recordOutcome(id: string, outcome: JobOutcome): void {
     this.db
       .prepare("UPDATE jobs SET outcome = ?, updated_at = ? WHERE id = ?")
       .run(JSON.stringify(outcome), this.now(), id);
+    this.announce(id);
   }
 
   complete(id: string, leaseOwner: string): boolean {
@@ -373,6 +409,7 @@ export class JobQueue {
         "UPDATE jobs SET state = 'complete', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ? AND lease_owner = ? AND state = 'running'",
       )
       .run(t, id, leaseOwner);
+    if (updated.changes === 1) this.announce(id);
     return updated.changes === 1;
   }
 
@@ -398,6 +435,7 @@ export class JobQueue {
           ? [message, t, id, leaseOwner]
           : [t + this.backoff(row.attempt), message, t, id, leaseOwner]),
       );
+    this.announce(id);
     return updated.changes === 1;
   }
 
@@ -410,6 +448,7 @@ export class JobQueue {
     const updated = this.db
       .prepare("UPDATE jobs SET cancel_requested = 1, updated_at = ? WHERE id = ?")
       .run(t, id);
+    this.announce(id);
     return updated.changes === 1;
   }
 
