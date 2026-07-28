@@ -29,6 +29,27 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `test/mcp-protocol-eras.test.ts` pins both eras plus a floor asserting an unadvertised revision is
   still refused.
 
+- **Logging, Roots and Sampling wired (THE-583, SEP-2577 deprecation window).** The 2026-07-28
+  revision deprecated these three server→client features but did not remove them, and the SDK still
+  implements all three — so a client mid-migration can still use them.
+
+  The server now advertises the `logging` capability and emits `notifications/message`. The first
+  real use: when the byte governor **truncates** a response, the client is told. That was previously
+  visible only in `meta` and server-side metrics, so a caller could act on a shortened result
+  believing it complete.
+
+  `roots` and `sampling` are consulted per connection and gated on the client having advertised
+  them — calling either against a client that did not is a protocol error, not a soft miss.
+  Sampling is deliberately **not** a fallback for the LiteLLM gateway: the gateway is chosen,
+  configured and budgeted by the operator, while the client's model is whatever the caller happens
+  to be running, so substituting one for the other would move inference and its data exposure to a
+  party the operator never selected.
+
+  **`logging/setLevel` is not routable in SDK v2** — it is absent from both the 2025 and 2026 wire
+  registries and a handler registered for it answers `-32601`. The verbosity floor is therefore
+  fixed at `info` rather than settable; a handler was written, measured as dead, and removed instead
+  of being left in place looking implemented.
+
 - **HITL confirmation now uses the 2026-07-28 multi-round-trip shape (THE-583, SEP-2260/2322).** A
   destructive call from a modern client is answered with `inputRequired` carrying an opaque,
   HMAC-signed `requestState`; the client re-issues the same call echoing it back and the server

@@ -2,8 +2,8 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 286,
-    "dependencies": 1167,
+    "modules": 287,
+    "dependencies": 1168,
     "subsystemPairs": 83,
     "crossSubsystemImports": 482
   },
@@ -21,7 +21,7 @@
     "formats": 6,
     "gateway": 2,
     "graph": 1,
-    "mcp": 7,
+    "mcp": 8,
     "memory": 2,
     "metrics": 4,
     "model": 7,

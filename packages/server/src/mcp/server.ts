@@ -14,6 +14,7 @@ import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { VaultRegistry } from "../vault/registry";
+import { emitLog, type LogLevel } from "./client-features";
 import { extractClientInfo } from "./client-info";
 import {
   describeCapability,
@@ -203,7 +204,15 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // handlers serve an empty list / throw, so declaring the capability would mislead a client
     // that inspects capabilities to enumerate resources or subscribe to change notifications.
     {
-      capabilities: { tools: {}, prompts: {}, ...(opts.vaultRegistry ? { resources: {} } : {}) },
+      // THE-583: `logging` is advertised because the SDK still implements it and SEP-2577 gave it
+      // a >=12-month window — a client mid-migration can still ask for it. roots/sampling are
+      // CLIENT capabilities, so they are never declared here; they are consulted per connection.
+      capabilities: {
+        tools: {},
+        prompts: {},
+        logging: {},
+        ...(opts.vaultRegistry ? { resources: {} } : {}),
+      },
       // THE-583: serve BOTH protocol eras from one server. The SDK ships a frozen 2025-11-25 wire
       // codec alongside the 2026-07-28 one and picks per connection, but the shipped
       // SUPPORTED_PROTOCOL_VERSIONS list is 2025-era ONLY — an unmodified v2 server answers a
@@ -243,6 +252,19 @@ export function createMcpServer(opts: McpServerOptions): Server {
   ): T => (isModern ? { ...result, ...hint } : result);
 
   const facadeMode: FacadeMode = opts.facadeMode ?? "flat";
+
+  // THE-583: the verbosity floor for server->client log notifications.
+  //
+  // FIXED at `info`, and deliberately not settable. `logging/setLevel` is NOT a routable method in
+  // SDK v2 — it is absent from both the 2025 and 2026 wire registries, and a handler registered for
+  // it answers -32601 (measured). The SDK owns that method internally when the capability is
+  // declared. Registering our own was dead code that read as a feature, so it is gone rather than
+  // left in place looking implemented.
+  //
+  // Two further reasons a fixed floor is the honest choice here: this server is rebuilt per request
+  // under Streamable HTTP, so a level could not persist between calls anyway; and `debug` on a
+  // per-request server would emit for every dispatch with nothing to suppress it.
+  const logLevel: LogLevel = "info";
 
   // SEP-2575: `server/discover` REPLACES the initialize/initialized handshake, which the
   // 2026-07-28 revision removed outright, and the spec makes it mandatory.
@@ -395,6 +417,22 @@ export function createMcpServer(opts: McpServerOptions): Server {
         }
       }
       return errorToResult(result.error);
+    }
+    // THE-583: tell the client when the byte governor TRUNCATED its answer. This was previously
+    // visible only in `meta` (and in server-side metrics), so a caller could act on a silently
+    // shortened result believing it complete — the failure mode the governor exists to bound, moved
+    // one layer up. Fire-and-forget: a log line must never fail the call it describes.
+    const overflow = result.meta.overflow_bytes;
+    if (typeof overflow === "number" && overflow > 0) {
+      void emitLog(server, logLevel, {
+        level: "warning",
+        logger: "obsidian-tc/governor",
+        data: {
+          tool: name,
+          overflow_bytes: overflow,
+          message: "response truncated by byte ceiling",
+        },
+      });
     }
     return formatData(result.data);
   };
