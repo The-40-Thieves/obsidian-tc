@@ -900,6 +900,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       host: config.transports.http.host,
       port: config.transports.http.port,
       facadeMode: config.toolFacade.mode,
+      jobQueue,
       enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
       allowedHosts: config.transports.http.allowedHosts,
       allowedOrigins: config.transports.http.allowedOrigins,

@@ -45,8 +45,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   paths and error text. A foreign task id and a missing one now answer identically, so the lookup
   cannot be used to enumerate another caller's ids.
 
-  Ships the status projection and the ownership filter with tests. The wire handlers are the next
-  increment.
+  `tasks/get` and `tasks/cancel` are served on modern connections. They are answered **in front of**
+  the SDK handler, not through it: `createMcpHandler` validates an inbound method against the spec
+  registry and answers `-32601` for anything unrecognised, extension methods included — a handler
+  registered on the `Server` for `tasks/get` is never consulted. (A raw transport *does* route it,
+  which is what made the difference easy to miss.)
+
+  A foreign task id and a missing one answer identically, so the surface cannot be used to enumerate
+  another caller's ids, and cancelling someone else's work — a write, not a read — is refused.
 
 - **Logging, Roots and Sampling wired (THE-583, SEP-2577 deprecation window).** The 2026-07-28
   revision deprecated these three server→client features but did not remove them, and the SDK still

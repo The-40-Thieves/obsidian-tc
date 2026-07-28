@@ -100,3 +100,60 @@ export function findOwnedJob(queue: JobQueue, id: string, owner: McpTaskOwner): 
   if ((owned.caller ?? null) !== owner.caller) return null;
   return job;
 }
+
+/** The revision the extension is defined against. Tasks does not exist in 2025-11-25. */
+export const MODERN_PROTOCOL_VERSION = "2026-07-28";
+
+/** JSON-RPC error codes this surface uses, matching the codes the SDK emits for the same shapes. */
+const METHOD_NOT_FOUND = -32601;
+const INVALID_PARAMS = -32602;
+
+/**
+ * Answer a Tasks-extension request, or return `undefined` if the body is not one.
+ *
+ * Lives outside the SDK's request pipeline by necessity: `createMcpHandler` validates the inbound
+ * method against the spec registry and answers -32601 for anything unrecognised, extension methods
+ * included — a handler registered on the Server for `tasks/get` is never consulted. So the
+ * extension is served in FRONT of the handler, and this function is the whole of it.
+ *
+ * `undefined` means "not mine": the caller delegates to the SDK handler unchanged, so a body that
+ * merely looks task-shaped can never shadow a core method.
+ */
+export async function serveTaskExtension(
+  body: unknown,
+  queue: JobQueue,
+  owner: McpTaskOwner,
+): Promise<Record<string, unknown> | undefined> {
+  if (body === null || typeof body !== "object") return undefined;
+  const req = body as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown };
+  if (req.jsonrpc !== "2.0" || typeof req.method !== "string") return undefined;
+  if (req.method !== "tasks/get" && req.method !== "tasks/cancel") return undefined;
+
+  const id = (req.id as string | number | null) ?? null;
+  const fail = (code: number, message: string) => ({
+    jsonrpc: "2.0",
+    id,
+    error: { code, message },
+  });
+
+  // `tasks/list` was REMOVED in this revision; anything else under tasks/ is simply not a method we
+  // implement, and saying so is better than a generic parse failure.
+  const taskId = (req.params as { taskId?: unknown } | undefined)?.taskId;
+  if (typeof taskId !== "string" || taskId.length === 0) {
+    return fail(INVALID_PARAMS, "taskId is required");
+  }
+
+  const job = findOwnedJob(queue, taskId, owner);
+  // Deliberately the same answer for "does not exist" and "not yours" — see findOwnedJob. A
+  // distinct code here would undo the property that function exists to provide.
+  if (job === null) return fail(METHOD_NOT_FOUND, "unknown task");
+
+  if (req.method === "tasks/cancel") {
+    // A REQUEST the runner honours at its next checkpoint; the task keeps reading `working` until
+    // it actually stops, which is what the projection encodes.
+    queue.requestCancel(job.id);
+    const after = queue.get(job.id) ?? job;
+    return { jsonrpc: "2.0", id, result: toMcpTask(after) };
+  }
+  return { jsonrpc: "2.0", id, result: toMcpTask(job) };
+}
