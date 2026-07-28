@@ -13,6 +13,19 @@ name: ci-quality
 #     Astro content collection (/tools/, /roadmap/) which resolve against the BUILT site, not the
 #     source tree. Excluding docs/src takes it to 0 while still covering the wiki, plans and guides.
 #
+#   hadolint, unconfigured: 0 findings on the repo's single Dockerfile. Verified it is not a no-op
+#     by seeding `FROM ubuntu:latest` + a bare `apt-get install` and confirming exit 1 (DL3007,
+#     DL3015) — an empty scan and a clean scan are indistinguishable without that check.
+#
+# Deliberately NOT here: taplo and shfmt. Both are pure formatters over hand-authored config, and
+# neither can reach zero on this repo without churn that makes the files worse. taplo leaves 4 of 8
+# TOML files failing under EVERY combination of array_auto_collapse/align_comments/indent_string:
+# what it wants is to re-align the trailing comments in _typos.toml and packages/native/deny.toml
+# out to column ~66, and to re-indent pyproject arrays 4->2. shfmt rewrites all 5 shell scripts
+# (193 diff lines even at `-i 2 -ci`), splitting one-line guard clauses and de-aligning the columnar
+# `case` arms in services/qwen-tei/run.sh. shellcheck already gates those files for correctness;
+# these two would only gate style, at the cost of reformatting deliberate layout.
+#
 # Deliberately NOT here: knip. Its one high-value output (dead files) is zero once entry points are
 # declared, and everything it reports after that is invisible-to-static-analysis by design — the
 # native package is required via ["@the-40-thieves","obsidian-tc-native"].join("/") so bundlers
@@ -70,3 +83,39 @@ jobs:
         # PR, and a network-dependent gate that fails on someone else's outage trains people to
         # ignore it. This checks that links WITHIN the repo resolve, which is fully deterministic.
         run: lychee --offline --no-progress --exclude-path docs/src 'docs/**/*.md' '*.md'
+
+  hadolint:
+    name: hadolint (Dockerfile style + correctness)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: install hadolint v2.14.0 (pinned binary + checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/hadolint-bin"
+          curl -sSL --fail -o "$RUNNER_TEMP/hadolint-bin/hadolint" \
+            https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-Linux-x86_64
+          echo "6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47  $RUNNER_TEMP/hadolint-bin/hadolint" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/hadolint-bin/hadolint"
+          echo "$RUNNER_TEMP/hadolint-bin" >> "$GITHUB_PATH"
+      - name: hadolint
+        # FLOORED on purpose. `hadolint` over a glob that matches nothing exits 0, which is
+        # indistinguishable from a clean scan — the failure mode this repo keeps re-finding in
+        # source-scan gates. Asserting the file count first means a Dockerfile rename that slips
+        # past the pattern fails the job instead of silently disabling it.
+        #
+        # -print0/xargs -0 rather than word-splitting the find output: a path with a space would
+        # otherwise be passed as two filenames and hadolint would error on both.
+        #
+        # node_modules is excluded because vendored packages ship their own Dockerfiles
+        # (docs/node_modules/yaml-language-server/Dockerfile) that this repo neither owns nor builds.
+        run: |
+          set -euo pipefail
+          find . -name 'Dockerfile*' -not -path '*/node_modules/*' -not -path './.git/*' -print0 \
+            > /tmp/dockerfiles.z
+          count=$(tr -cd '\0' < /tmp/dockerfiles.z | wc -c)
+          echo "Dockerfiles found: $count"
+          if [ "$count" -lt 1 ]; then
+            echo "::error::hadolint matched 0 Dockerfiles — the gate is scanning nothing." >&2
+            exit 1
+          fi
+          xargs -0 hadolint < /tmp/dockerfiles.z

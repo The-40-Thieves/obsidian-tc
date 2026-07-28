@@ -121,6 +121,70 @@ jobs:
             ghcr.io/gitleaks/gitleaks@sha256:b109bc5f8f76a38196a3e413704fc5b9e3c32360bce4e4b603bd6f45b3721dbb \
             detect --no-git --source /repo --config /repo/.gitleaks.toml --no-banner --redact --exit-code 1
 
+  trufflehog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: install trufflehog v3.96.0 (pinned binary + checksum)
+        run: |
+          mkdir -p "$RUNNER_TEMP/th-bin"
+          curl -sSL --fail -o "$RUNNER_TEMP/th.tar.gz" \
+            https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/trufflehog_3.96.0_linux_amd64.tar.gz
+          echo "7105f1cd6577f058a9e39d0578f1a99c8a1e481e4d3512cd8a09acfe22a0fdc0  $RUNNER_TEMP/th.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/th.tar.gz" -C "$RUNNER_TEMP/th-bin" trufflehog
+          echo "$RUNNER_TEMP/th-bin" >> "$GITHUB_PATH"
+      - name: trufflehog (VERIFIED secrets only)
+        # Complements gitleaks rather than duplicating it. gitleaks answers "does this look like a
+        # credential" from patterns; trufflehog --only-verified answers "is this credential LIVE"
+        # by calling the issuing provider. A repo full of secret-shaped test fixtures — which this
+        # one deliberately is, see .gitleaks.toml's allowlist — makes the second question the
+        # useful one, because it cannot be tripped by a fixture.
+        #
+        # Baseline on this repo at wiring time: 134152 chunks / 1.35 GB scanned,
+        # verified_secrets=0, unverified_secrets=0.
+        #
+        # HONEST LIMITATION: verification is a network call, so this gate FAILS OPEN. If a
+        # provider's endpoint is unreachable, a live credential degrades to "unverified" and this
+        # job stays green. That is the deliberate trade — a network-dependent gate that fails
+        # CLOSED on someone else's outage trains people to ignore it (same reasoning as lychee
+        # --offline in ci-quality). gitleaks is the fail-closed half of the pair and runs on every
+        # PR regardless, so a plaintext credential is still caught with no network at all.
+        #
+        # --no-update: the binary is checksum-pinned above; letting it self-update at runtime would
+        #   silently replace the thing that was verified.
+        # --fail: trufflehog exits 0 WITH FINDINGS unless this is passed. Verified at wiring time
+        #   against a seeded RSA private key: exit 183, Detector Type: PrivateKey. Without it this
+        #   job is green no matter what it finds.
+        # --fail-on-scan-errors: narrows the fail-open window above. A scan that errors part-way
+        #   otherwise reports "0 verified" — identical output to a clean repo.
+        run: trufflehog filesystem . --only-verified --no-update --fail --fail-on-scan-errors
+
+  checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - name: install checkov 3.2.395 (version-pinned)
+        # Pinned, not floating: checkov ships new CHECKS in minor releases, so "latest" means an
+        # unrelated PR turns red the week a rule is added. The same reasoning pins it in the host
+        # mise config. Bump deliberately, and re-run the baseline when doing so.
+        run: pip install --disable-pip-version-check checkov==3.2.395
+      - name: checkov (Dockerfile + GitHub Actions policy)
+        # Exceptions live in .checkov.yml with their reasons, matching how _typos.toml and
+        # .gitleaks.toml carry this repo's other scanner exceptions. Two rules are skipped there;
+        # 996 checks still run (58 Dockerfile + 938 workflows at wiring time).
+        #
+        # --framework is explicit so the run cannot silently widen: checkov auto-detects ~30
+        # frameworks, and a future terraform/ or helm/ directory appearing in the repo would
+        # otherwise start gating this job on rules nobody reviewed.
+        run: |
+          set -euo pipefail
+          checkov --config-file .checkov.yml --quiet --compact \
+            --framework dockerfile --framework github_actions \
+            -f Dockerfile -d .github/workflows
+
   cargo-audit:
     runs-on: ubuntu-latest
     continue-on-error: true
