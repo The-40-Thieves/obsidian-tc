@@ -6,6 +6,7 @@ import {
   type ListResourcesResult,
   type ListToolsResult,
   type ReadResourceResult,
+  ResourceNotFoundError,
   Server,
   SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
@@ -15,7 +16,13 @@ import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
-import { emitLog, type RequestLog } from "./client-features";
+import {
+  clientRoots,
+  clientSupportsSampling,
+  emitLog,
+  type RequestLog,
+  sampleViaClient,
+} from "./client-features";
 import { extractClientInfo } from "./client-info";
 import {
   describeCapability,
@@ -147,6 +154,38 @@ function clientSupportsFormElicitation(caps: unknown): boolean {
   if (caps === null || typeof caps !== "object") return false;
   const elicitation = (caps as Record<string, unknown>).elicitation;
   return elicitation !== null && typeof elicitation === "object" && "form" in elicitation;
+}
+
+/**
+ * Map a domain error out of `resources/read` onto the code the spec requires.
+ *
+ * A `resources/read` miss MUST answer `-32602` (Invalid Params) — the 2026-07-28 revision moved it
+ * off the old `-32002`, and the SDK never emits `-32002` at all. Our resource path throws the shared
+ * domain errors (`note_not_found`, `invalid_input`, `path_invalid`), which the SDK cannot recognise
+ * and therefore reports as `-32603` Internal Error: a CLIENT mistake, reported as a server fault,
+ * on the one method the spec calls out by name.
+ *
+ * Only the caller-fault codes are remapped. An ACL denial or a genuine internal failure is not an
+ * invalid parameter, and flattening those into `-32602` would tell a client its request was
+ * malformed when the request was fine and the answer was "no".
+ */
+const RESOURCE_CALLER_FAULTS = new Set([
+  "note_not_found",
+  "invalid_input",
+  "path_invalid",
+  "path_ambiguous",
+]);
+
+function asResourceProtocolError(e: unknown, uri: string): Error {
+  const code = (e as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && RESOURCE_CALLER_FAULTS.has(code)) {
+    return new ResourceNotFoundError(
+      uri,
+      (e as { message?: string }).message ?? `not found: ${uri}`,
+    );
+  }
+  // Anything else is rethrown untouched, so a genuine internal failure keeps reporting as one.
+  return e instanceof Error ? e : new Error(String(e));
 }
 
 function asStructured(data: unknown): Record<string, unknown> | undefined {
@@ -287,26 +326,13 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // SEP-2575: `server/discover` REPLACES the initialize/initialized handshake, which the
   // 2026-07-28 revision removed outright, and the spec makes it mandatory.
   //
-  // ⚠ THIS HANDLER IS NOT YET REACHABLE, and saying so here is the point — a registered handler
-  // that never runs is indistinguishable from conformance from the outside.
-  //
-  // The SDK routes a request through the wire registry of the era the CONNECTION was classified
-  // as, and `server/discover` exists only in the 2026 registry. In our stateless per-request
-  // wiring there is no handshake, so `Protocol.getNegotiatedProtocolVersion()` is `undefined` on
-  // every request — including one carrying `MCP-Protocol-Version: 2026-07-28` — and the connection
-  // falls back to the 2025 registry, which answers `-32601 Method not found` before this handler
-  // is consulted. Verified: the same -32601 comes back from the low-level `Server` AND from
-  // `McpServer`, under both the Node and WebStandard transports, so it is not a transport bug and
-  // not something a different handler shape fixes.
-  //
-  // Kept, rather than deleted, because it is correct and complete for the moment era classification
-  // reaches Protocol; `test/mcp-protocol-eras.test.ts` pins the CURRENT -32601 so that when the
-  // wiring is fixed the test fails loudly instead of the gap going unnoticed. Tracked separately.
-  //
-  // The response is deliberately caller-independent: a client calls this before establishing
-  // anything, so it must not depend on scopes or ACL, and it is safely PUBLIC. Capabilities mirror
-  // the constructor's rather than being restated — a discover document that disagreed with the
-  // server's real capabilities would be worse than none.
+  // SEP-2575: `server/discover` REPLACES the removed initialize/initialized handshake, and the spec
+  // makes it mandatory. It IS reachable — an earlier revision of this comment warned that it was
+  // not, which was true when hand-wiring a Server + transport (the SDK routes through the wire
+  // registry of the era the CONNECTION was classified as, and stateless serving left that
+  // undefined). Serving through `createMcpHandler` classifies the era per request, which is what
+  // makes it route. Asserted end to end by mcp-protocol-eras.test.ts rather than left to a comment
+  // that cannot notice when it stops being true.
   server.setRequestHandler("server/discover", () =>
     withCacheHint(
       {
@@ -480,6 +506,16 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // SEP-2575: this request's log sink. The SDK suppresses the notification when the request
     // carried no `io.modelcontextprotocol/logLevel`, which is the MUST NOT we would otherwise break.
     const log = (extra.mcpReq as { log?: RequestLog }).log;
+    // SEP-2577: bind the deprecated-but-live client features onto the context, so every tool can
+    // reach them. Gated on the client having advertised each one — calling either against a client
+    // that did not is a protocol error, not a soft failure.
+    ctx = {
+      ...ctx,
+      roots: () => clientRoots(server),
+      ...(clientSupportsSampling(server)
+        ? { sample: (p: Parameters<typeof sampleViaClient>[1]) => sampleViaClient(server, p) }
+        : {}),
+    };
     // THE-583: a verified 2026-07-28 request-state, when the client echoed one. The transport has
     // already checked its HMAC and TTL; dispatch still checks that it authorizes this exact call.
     const echoed = (
@@ -597,7 +633,19 @@ export function createMcpServer(opts: McpServerOptions): Server {
           // THE-514 item 2: pass the registry's configured maxResponseBytes so a lowered ceiling
           // applies to resources too, not just tools — resources.ts no longer holds its own
           // unconfigurable fixed copy of the default.
-          () => readResource(vaultRegistry, ctx, req.params.uri, opts.registry.maxResponseBytes),
+          () => {
+            // Synchronous, so a try/catch rather than .catch — the miss must surface as -32602.
+            try {
+              return readResource(
+                vaultRegistry,
+                ctx,
+                req.params.uri,
+                opts.registry.maxResponseBytes,
+              );
+            } catch (e) {
+              throw asResourceProtocolError(e, req.params.uri);
+            }
+          },
         )
         .then((r) => withCacheHint(r, CACHE_PRIVATE));
     });

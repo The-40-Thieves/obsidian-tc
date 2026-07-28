@@ -48,6 +48,25 @@ export interface CallerContext {
    *  gate still binds it to this call. Absent for 2025 callers, who use `elicitToken`. */
   elicitState?: ElicitRequestState;
   acl?: FolderAcl;
+  /**
+   * SEP-2577 client features. Deprecated by the 2026-07-28 revision but functional for at least a
+   * twelve-month window, so a client mid-migration still uses them.
+   *
+   * Surfaced HERE, on the context every tool receives, rather than consumed by any tool we happen to
+   * ship. This is a public server: the useful thing is that a downstream tool author can reach the
+   * calling client's roots and model at all. Both are `undefined` when the client did not advertise
+   * the capability — an absent optional feature is a normal state, not an error.
+   *
+   * `roots` is ADVISORY. Vaults come from config; a client naming a root does not grant access to
+   * it, which is exactly what makes consuming it safe.
+   */
+  roots?: () => Promise<Array<{ uri: string; name?: string }> | undefined>;
+  /** Ask the CLIENT's model for a completion. Undefined unless the client advertised `sampling`. */
+  sample?: (params: {
+    messages: unknown[];
+    maxTokens: number;
+    systemPrompt?: string;
+  }) => Promise<unknown | undefined>;
   /** THE-209: active workspace session for this caller. When set (by the transport context
    *  factory), each dispatch appends a tool_invocation record to that session's JSONL trace. */
   sessionId?: string;
