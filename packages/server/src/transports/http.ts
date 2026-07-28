@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
-import { createMcpHandler } from "@modelcontextprotocol/server";
-import { isLoopbackHost, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  createMcpHandler,
+  localhostAllowedHostnames,
+  validateHostHeader,
+  validateOriginHeader,
+} from "@modelcontextprotocol/server";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
@@ -188,23 +193,37 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
     // auth so a cross-origin request never reaches the pipeline.
     if (opts.enableDnsRebindingProtection !== false) {
       const rawHost = c.req.header("host") ?? "";
-      const hostname = rawHost.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
-      const hostAllowed =
-        isLoopbackHost(hostname) ||
-        hostname === "localhost" ||
-        (opts.allowedHosts ?? []).includes(rawHost) ||
-        (opts.allowedHosts ?? []).includes(hostname);
-      if (!hostAllowed)
+      // THE-583: validation is the SDK's (`validateHostHeader` / `validateOriginHeader`), which
+      // parses IPv6 brackets and ports properly rather than by regex.
+      //
+      // The allowlist is normalized first, and that is NOT incidental. The SDK matches on the
+      // HOSTNAME; our config schema documents `allowedHosts` as "Host header VALUES", so an
+      // operator may legitimately have written `example.com:8765`. Passing that straight to the
+      // SDK matches nothing — every request 403s, which is an outage rather than a warning.
+      // Feeding both forms keeps the documented contract while gaining the better parser.
+      const hostnameOf = (v: string) => v.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+      const bothForms = (vs: readonly string[]) => vs.flatMap((v) => [v, hostnameOf(v)]);
+
+      const allowedHostnames = [
+        ...localhostAllowedHostnames(),
+        ...bothForms(opts.allowedHosts ?? []),
+      ];
+      if (!validateHostHeader(rawHost, allowedHostnames).ok)
         return c.json(
           { jsonrpc: "2.0", error: { code: -32000, message: "host not allowed" }, id: null },
           403,
         );
+
       const origin = c.req.header("origin");
       if (origin) {
-        const allowed = new Set(opts.allowedOrigins ?? []);
-        allowed.add(`http://${rawHost}`);
-        allowed.add(`https://${rawHost}`);
-        if (!allowed.has(origin))
+        // Same-origin stays allowed: the request's own Host is the origin a browser would send.
+        const allowedOriginHosts = [
+          hostnameOf(rawHost),
+          ...bothForms(opts.allowedOrigins ?? []).map((o) =>
+            hostnameOf(o.replace(/^\w+:\/\//, "")),
+          ),
+        ];
+        if (!validateOriginHeader(origin, allowedOriginHosts).ok)
           return c.json(
             { jsonrpc: "2.0", error: { code: -32000, message: "origin not allowed" }, id: null },
             403,

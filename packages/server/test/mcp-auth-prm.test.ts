@@ -85,8 +85,15 @@ describe("THE-278 Protected Resource Metadata (RFC 9728)", () => {
     );
     const r1 = await fetch(`${withPrm.base}/mcp`, POST);
     expect(r1.status).toBe(401);
+    // THE-583/SEP-2351: RFC 9728 §3.1 INSERTS the resource's path after the well-known suffix, so a
+    // resource of `https://mcp.example.com/mcp` advertises
+    // `/.well-known/oauth-protected-resource/mcp`. This previously asserted the path-DROPPED form,
+    // which is what our hand-rolled `new URL("/.well-known/…", resource)` produced — a URL that
+    // silently collapses two distinct resources on the same host onto one metadata document. The
+    // transport already registers both routes, so nothing 404s either way; the difference is
+    // whether the advertised URL identifies the right resource.
     expect(r1.headers.get("www-authenticate") ?? "").toContain(
-      'resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource"',
+      'resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"',
     );
     await withPrm.handle.close();
 
