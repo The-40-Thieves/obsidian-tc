@@ -1,0 +1,15 @@
+id: no-raw-vault-delete-path
+valid:
+  - |
+    const abs = resolveVaultPath(v.root, input.path);
+    rmSync(abs, { force: true });
+  - |
+    const tmp = join(cacheDir, "query.tmp");
+    rmSync(tmp, { force: true });
+invalid:
+  - |
+    const abs = path.join(v.root, input.path);
+    await fs.rm(abs, { force: true });
+  - |
+    rmSync(resolve(vaultRoot, rel), { force: true });
+

@@ -1,0 +1,41 @@
+id: no-recursive-watch-unref
+language: typescript
+severity: error
+message: A recursive fs.watch must use persistent:false; unref() does not release its child watchers.
+note: >-
+  On Node, recursive fs.watch creates internal per-directory watchers. Calling unref() only on the
+  returned parent watcher can keep the process alive forever. Pass { recursive: true,
+  persistent: false } to watch() and close the watcher during shutdown.
+files:
+  - packages/server/src/**/*.ts
+rule:
+  all:
+    - any:
+        - pattern: const $WATCHER = watch($DIR, $OPTS, $$$REST)
+        - pattern: let $WATCHER = watch($DIR, $OPTS, $$$REST)
+        - pattern: const $WATCHER = fs.watch($DIR, $OPTS, $$$REST)
+        - pattern: let $WATCHER = fs.watch($DIR, $OPTS, $$$REST)
+    - precedes:
+        stopBy: end
+        any:
+          - pattern: $WATCHER.unref()
+          - has:
+              stopBy: end
+              pattern: $WATCHER.unref()
+constraints:
+  OPTS:
+    kind: object
+    all:
+      - has:
+          stopBy: end
+          kind: pair
+          pattern:
+            context: '{ recursive: true }'
+            selector: pair
+      - not:
+          has:
+            stopBy: end
+            kind: pair
+            pattern:
+              context: '{ persistent: false }'
+              selector: pair

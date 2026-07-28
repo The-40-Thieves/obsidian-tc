@@ -1,0 +1,35 @@
+id: no-compiled-runtime-asset-read
+language: typescript
+severity: error
+message: Runtime asset reads relative to import.meta.url break Bun standalone binaries.
+note: >-
+  bun build --compile freezes import.meta.url to the build-machine path and does not embed
+  .sql/.json files. Put the asset in generated TypeScript (migrations-embedded.ts is the model)
+  or use an explicitly supported Bun embedding mechanism whose compiled artifact is smoke-tested.
+files:
+  - packages/server/src/**/*.ts
+rule:
+  any:
+    - all:
+        - pattern: new URL($ASSET, import.meta.url)
+        - regex: '\.(sql|json)["'']'
+        - inside:
+            stopBy: end
+            any:
+              - pattern: readFileSync($ARG, $$$REST)
+              - pattern: fs.readFileSync($ARG, $$$REST)
+    - all:
+        - any:
+            - pattern: const $BASE = new URL($DIR, import.meta.url)
+            - pattern: let $BASE = new URL($DIR, import.meta.url)
+        - regex: 'migrations?[/\\]["'']'
+        - precedes:
+            stopBy: end
+            any:
+              - pattern: readFileSync(fileURLToPath(new URL($ASSET, $BASE)), $$$REST)
+              - pattern: fs.readFileSync(fileURLToPath(new URL($ASSET, $BASE)), $$$REST)
+              - has:
+                  stopBy: end
+                  any:
+                    - pattern: readFileSync(fileURLToPath(new URL($ASSET, $BASE)), $$$REST)
+                    - pattern: fs.readFileSync(fileURLToPath(new URL($ASSET, $BASE)), $$$REST)

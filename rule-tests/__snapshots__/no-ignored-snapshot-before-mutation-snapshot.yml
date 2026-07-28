@@ -1,0 +1,22 @@
+id: no-ignored-snapshot-before-mutation
+snapshots:
+  ? |
+    captureSnapshot(db, snapshots, vaultId, rel, raw, op);
+    writeNoteAtomic(abs, next, false);
+  : labels:
+    - source: captureSnapshot(db, snapshots, vaultId, rel, raw, op);
+      style: primary
+      start: 0
+      end: 54
+    - source: captureSnapshot(db, snapshots, vaultId, rel, raw, op)
+      style: secondary
+      start: 0
+      end: 53
+    - source: writeNoteAtomic(abs, next, false)
+      style: secondary
+      start: 55
+      end: 88
+    - source: writeNoteAtomic(abs, next, false);
+      style: secondary
+      start: 55
+      end: 89

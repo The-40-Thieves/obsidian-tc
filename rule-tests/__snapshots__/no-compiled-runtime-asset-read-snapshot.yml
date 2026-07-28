@@ -1,0 +1,39 @@
+id: no-compiled-runtime-asset-read
+snapshots:
+  ? |
+    const MIGRATIONS_DIR = new URL("../migrations/", import.meta.url);
+    const sql = (file: string) =>
+      readFileSync(fileURLToPath(new URL(file, MIGRATIONS_DIR)), "utf8");
+  : labels:
+    - source: const MIGRATIONS_DIR = new URL("../migrations/", import.meta.url);
+      style: primary
+      start: 0
+      end: 66
+    - source: readFileSync(fileURLToPath(new URL(file, MIGRATIONS_DIR)), "utf8")
+      style: secondary
+      start: 99
+      end: 165
+    - source: |-
+        const sql = (file: string) =>
+          readFileSync(fileURLToPath(new URL(file, MIGRATIONS_DIR)), "utf8");
+      style: secondary
+      start: 67
+      end: 166
+  ? |
+    const sql = readFileSync(
+      fileURLToPath(new URL("../migrations/20260728_001_jobs.sql", import.meta.url)),
+      "utf8",
+    );
+  : labels:
+    - source: new URL("../migrations/20260728_001_jobs.sql", import.meta.url)
+      style: primary
+      start: 42
+      end: 105
+    - source: |-
+        readFileSync(
+          fileURLToPath(new URL("../migrations/20260728_001_jobs.sql", import.meta.url)),
+          "utf8",
+        )
+      style: secondary
+      start: 12
+      end: 119

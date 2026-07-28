@@ -1,0 +1,18 @@
+id: no-compiled-runtime-asset-read
+valid:
+  - |
+    import { embeddedSql } from "./migrations-embedded";
+    const sql = embeddedSql("20260728_001_jobs.sql");
+  - |
+    const source = readFileSync(new URL("./worker.ts", import.meta.url), "utf8");
+invalid:
+  - |
+    const sql = readFileSync(
+      fileURLToPath(new URL("../migrations/20260728_001_jobs.sql", import.meta.url)),
+      "utf8",
+    );
+  - |
+    const MIGRATIONS_DIR = new URL("../migrations/", import.meta.url);
+    const sql = (file: string) =>
+      readFileSync(fileURLToPath(new URL(file, MIGRATIONS_DIR)), "utf8");
+
