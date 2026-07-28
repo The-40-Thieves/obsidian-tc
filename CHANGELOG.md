@@ -6,9 +6,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-07-28
+
 ### Fixed
 
-- **Enabling `observability.prometheus` no longer kills the MCP HTTP server under Bun (THE-659).**
+- **Enabling `observability.prometheus` no longer kills the MCP HTTP server under Bun (THE-659,
+  #535).**
   With `prometheus.enabled: true`, every request to the MCP transport — any path, any method,
   authenticated or not — returned Bun's placeholder page (`Welcome to Bun! To get started, return a
   Response object.`) at **HTTP 200**, while the process logged `Expected a Response object, but
