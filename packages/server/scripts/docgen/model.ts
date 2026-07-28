@@ -40,6 +40,13 @@ export interface ErrorDoc {
   description?: string;
   /** HTTP-ish status class the dispatch layer maps this to, when applicable. */
   statusClass?: string;
+  /**
+   * What to do about it (THE-512), read from `recoveryFor(code)`. Distinct from `description`,
+   * which says what went wrong. Undefined where the taxonomy declares `null` — a considered
+   * "no hint helps" rather than a gap, since `RECOVERY` is `Record<ErrorCode, …>` and adding a
+   * code fails to compile until it declares one.
+   */
+  recovery?: string;
 }
 
 /** The whole model. Extractors fill the slices they own; absent slices are empty arrays. */
