@@ -182,6 +182,80 @@ const fanTable = [
   }),
 ].join("\n");
 
+// ── headline scale ───────────────────────────────────────────────────────────
+// This describes THE WHOLE CODEBASE, not the TypeScript subset the module graph above is built
+// from. TREE.md is the structural map of the repo, and a headline scoped to
+// packages/{server,shared,plugin}/src would silently omit the Rust native addon, both Python
+// services, the SQL migrations and the shell scripts — a third of the languages here.
+//
+// Counted from `git ls-files`, NOT by walking the working tree. tokei/cloc over the tree also count
+// build leftovers and gitignored caches (graphify-out/ is one on this box), so the headline would
+// depend on what happened to be on disk when someone last ran it. git cannot drift that way.
+//
+// Files and lines only — no "lines of code". Separating comment from code needs a real parser per
+// language, and this repo runs ~20% comments in TypeScript; a hand-rolled approximation would be
+// wrong by thousands of lines in the direction nobody re-checks. The previous hand-written headline
+// claimed a LOC figure and was off by 2,446 after 177 commits, in the opposite direction to its own
+// total-lines figure.
+const CODE_EXTENSIONS = ["ts", "tsx", "js", "mjs", "cjs", "rs", "py", "sql", "sh"];
+const codeFiles = run("git", ["ls-files", ...CODE_EXTENSIONS.map((e) => `*.${e}`)])
+  .split("\n")
+  .map((l) => l.trim())
+  .filter(Boolean);
+
+if (codeFiles.length === 0) {
+  console.error("gen-tree-map: git ls-files matched no code files — refusing to emit a zero scale");
+  process.exit(1);
+}
+
+const countLines = (f) => {
+  const text = readFileSync(f, "utf8");
+  if (text === "") return 0;
+  // A trailing newline terminates the last line, it does not start a new one.
+  return text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
+};
+
+const byLanguage = new Map();
+let totalCodeLines = 0;
+for (const f of codeFiles) {
+  const ext = f.slice(f.lastIndexOf(".") + 1);
+  const lines = countLines(f);
+  totalCodeLines += lines;
+  const prev = byLanguage.get(ext) ?? { files: 0, lines: 0 };
+  byLanguage.set(ext, { files: prev.files + 1, lines: prev.lines + lines });
+}
+
+const LANGUAGE_NAMES = {
+  ts: "TypeScript",
+  tsx: "TypeScript",
+  js: "JavaScript",
+  mjs: "JavaScript",
+  cjs: "JavaScript",
+  rs: "Rust",
+  py: "Python",
+  sql: "SQL",
+  sh: "Shell",
+};
+// Fold the extension buckets into language buckets (ts+tsx, js+mjs+cjs) so the reader sees
+// languages, not file suffixes.
+const perLanguage = new Map();
+for (const [ext, v] of byLanguage) {
+  const name = LANGUAGE_NAMES[ext] ?? ext;
+  const prev = perLanguage.get(name) ?? { files: 0, lines: 0 };
+  perLanguage.set(name, { files: prev.files + v.files, lines: prev.lines + v.lines });
+}
+const num = (n) => n.toLocaleString("en-US");
+const breakdown = [...perLanguage.entries()]
+  .sort(([, a], [, b]) => b.lines - a.lines)
+  .map(([name, v]) => `${name} ${num(v.lines)}`)
+  .join(" · ");
+
+const headlineScale = `**Scale:** ${num(codeFiles.length)} tracked code files · ${num(totalCodeLines)} lines.
+
+${breakdown}.
+
+Counted from \`git ls-files\` over ${CODE_EXTENSIONS.map((e) => `\`.${e}\``).join(", ")} — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.`;
+
 // ── inject ───────────────────────────────────────────────────────────────────
 const markers = (name) => ({
   begin: `<!-- BEGIN GENERATED: ${name} -->`,
@@ -198,8 +272,63 @@ function inject(source, name, content) {
   return `${source.slice(0, b + begin.length)}\n${content.trim()}\n${source.slice(e)}`;
 }
 
+/**
+ * One-time bootstrap for the headline Scale line (THE-470).
+ *
+ * That line was hand-written and restated a machine-derivable fact, which is the drift this repo
+ * keeps re-finding — `.claude/hooks/remind-regenerate.sh` says so in as many words. Measured
+ * 2026-07-28: the committed headline was generated against f1360b8, 177 commits back, and had
+ * drifted in BOTH directions at once (files 773 -> 767, total lines 124,033 -> 121,784, but LOC
+ * 93,787 -> 96,233). You could not have guessed the sign, let alone the size.
+ *
+ * TREE.md cannot be hand-edited — a PreToolUse hook blocks it and the file is a generated
+ * artifact — so the marker pair this generator needs has to be introduced BY the generator. This
+ * does that once: it replaces the legacy `**Scale:** ...` line with a marked region. After the
+ * first run the markers exist and `inject` takes over; this becomes a no-op.
+ *
+ * Deliberately narrow. It anchors on one exact pattern, rewrites nothing else, and REFUSES rather
+ * than guesses if neither the markers nor the legacy line is present — a generator that relocates
+ * prose it does not understand is worse than a stale number.
+ */
+function ensureHeadlineRegion(source) {
+  let next = source;
+
+  // Applied unconditionally, NOT inside the marker-bootstrap branch below. The bootstrap runs
+  // exactly once (the markers exist forever after), so anything gated behind it can never be
+  // re-applied — and this correction was written after the markers already existed, so gating it
+  // would have made it dead code that silently never ran.
+  //
+  // The intro paragraph asserted a methodology for ALL counts in the file. That became false the
+  // moment the headline started coming from `git ls-files`, and a stale claim sitting directly
+  // above a generated block that contradicts it is worse than no claim. Narrow it to the
+  // hand-written sections, which it still describes accurately. Whitespace-tolerant because the
+  // sentence is hard-wrapped across three lines; idempotent because the regex cannot match its own
+  // replacement.
+  const staleMethod =
+    /Counts\s+come\s+from\s+`find`\s+\/\s+`wc -l`\s+\/\s+`tokei`,\s+excluding\s+`node_modules`,\s+`dist`,\s+and\s+`target`\./;
+  next = next.replace(
+    staleMethod,
+    "Counts in the hand-written sections come from\n" +
+      "`find` / `wc -l` / `tokei`, excluding `node_modules`, `dist`, and `target`. The generated\n" +
+      "regions state their own method.",
+  );
+
+  const { begin, end } = markers("tree-headline-scale");
+  if (next.includes(begin) && next.includes(end)) return next;
+
+  const legacy = /^\*\*Scale:\*\*.*$/m;
+  if (!legacy.test(next)) {
+    throw new Error(
+      "gen-tree-map: no tree-headline-scale markers AND no legacy '**Scale:** ...' line to " +
+        "replace. Refusing to guess where the headline belongs — add the marker pair by hand.",
+    );
+  }
+  return next.replace(legacy, `${begin}\n${end}`);
+}
+
 const before = readFileSync("TREE.md", "utf8");
-let after = before;
+let after = ensureHeadlineRegion(before);
+after = inject(after, "tree-headline-scale", headlineScale);
 after = inject(after, "tree-scale", scale);
 after = inject(after, "tree-subsystem-graph", graphBlock);
 after = inject(after, "tree-fan", fanTable);
