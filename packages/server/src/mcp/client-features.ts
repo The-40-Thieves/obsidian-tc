@@ -49,24 +49,42 @@ function declares(caps: unknown, key: string): boolean {
 }
 
 /**
- * Emit a `notifications/message` to the connected client, if it asked for logging at this level.
+ * The SDK's PER-REQUEST log sink (`extra.mcpReq.log`), threaded from the handler that owns `extra`.
  *
- * Never throws. A log line is diagnostic output, and a transport that has already gone away (the
- * common case: the client hung up mid-call) must not turn into a failed tool call — that would make
- * observability the thing that breaks the request it was observing.
+ * Undefined for any caller constructing a server directly (stdio, tests): logging is an optional
+ * client-facing feature, and its absence is a normal state rather than an error.
+ */
+export type RequestLog = (level: LogLevel, data: unknown, logger?: string) => Promise<void>;
+
+/**
+ * Emit a `notifications/message` for THIS request, if the client asked for logging on it.
+ *
+ * The gate is the whole reason this is a per-request sink. SEP-2575 removed `logging/setLevel` and
+ * made verbosity a per-request `_meta` field, then made the consequence normative: a server
+ * **MUST NOT** emit `notifications/message` for a request that did not carry
+ * `io.modelcontextprotocol/logLevel`.
+ *
+ * That check lives in the SDK's `mcpReq.log`, which reads the request envelope and returns silently
+ * when the field is absent. It is NOT in `server.sendLoggingMessage` — that path is deprecated and
+ * filters against a SESSION-keyed level, which a stateless server never populates, so it emits to
+ * clients that never asked. Using it here was a MUST NOT violation that looked correct: the
+ * notification went out, nothing threw, and the level filter appeared to be doing the work.
+ *
+ * No `minimum` parameter any more, deliberately. The threshold is the CLIENT's, carried on the
+ * request; a server-side floor would only re-filter what the SDK already filtered — against the
+ * wrong number.
+ *
+ * Never throws. A transport that has already gone away (the client hung up mid-call) must not turn
+ * into a failed tool call — that would make observability the thing that breaks the request it was
+ * observing.
  */
 export async function emitLog(
-  server: Server,
-  minimum: LogLevel,
+  log: RequestLog | undefined,
   message: { level: LogLevel; logger: string; data: unknown },
 ): Promise<void> {
-  if (!meetsLevel(message.level, minimum)) return;
+  if (log === undefined) return;
   try {
-    await (
-      server as unknown as {
-        sendLoggingMessage: (m: unknown) => Promise<void>;
-      }
-    ).sendLoggingMessage(message);
+    await log(message.level, message.data, message.logger);
   } catch {
     /* the client is gone, or never enabled logging — diagnostics must not fail the call */
   }

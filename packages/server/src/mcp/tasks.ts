@@ -31,10 +31,20 @@ export interface McpTask {
   status: McpTaskStatus;
   createdAt: string;
   lastUpdatedAt: string;
+  /**
+   * TTL from creation in ms, or null for unlimited. REQUIRED and nullable in the extension schema,
+   * so it is not optional here. Null is the honest value: the queue's rows are durable and are not
+   * reaped on a clock, so a task does not expire out from under a client that stops polling.
+   */
+  ttlMs: number | null;
   /** Poll hint, in ms. Only meaningful while the task is still working. */
-  pollInterval?: number;
+  pollIntervalMs?: number;
   /** Human-readable detail. Carries the failure reason on a failed task, and nothing otherwise. */
   statusMessage?: string;
+  /** `CompletedTask.result` — the CallToolResult the synchronous call would have returned. */
+  result?: Record<string, unknown>;
+  /** `FailedTask.error` — the JSON-RPC error that ended the task. */
+  error?: { code: number; message: string };
 }
 
 /** How often a client should poll a still-working task. Matches the queue's own lease cadence. */
@@ -70,10 +80,21 @@ export function toMcpTask(job: Job): McpTask {
     status,
     createdAt: new Date(job.createdAt).toISOString(),
     lastUpdatedAt: new Date(job.updatedAt).toISOString(),
-    ...(status === "working" ? { pollInterval: POLL_INTERVAL_MS } : {}),
+    ttlMs: null,
+    ...(status === "working" ? { pollIntervalMs: POLL_INTERVAL_MS } : {}),
     // Only on failure. A completed task has nothing to explain, and echoing `last_error` on a
     // cancelled task would surface the runner's abort text as though it were a fault.
     ...(status === "failed" && job.lastError ? { statusMessage: job.lastError } : {}),
+    // THE-583: the DetailedTask variants. `CompletedTask.result` carries what the original request
+    // would have returned synchronously; `FailedTask.error` carries the JSON-RPC error. Deferred
+    // retrieval is the point of the extension — a `completed` task with no result is a client that
+    // polled to success and still cannot get its answer.
+    //
+    // Gated on BOTH the status and the tag, so a mismatch (a `failed` row carrying an ok envelope,
+    // reachable only if the two writes interleaved oddly) emits neither field rather than the wrong
+    // one under the right name.
+    ...(status === "completed" && job.outcome?.ok === true ? { result: job.outcome.result } : {}),
+    ...(status === "failed" && job.outcome?.ok === false ? { error: job.outcome.error } : {}),
   };
 }
 
@@ -127,7 +148,13 @@ export async function serveTaskExtension(
   if (body === null || typeof body !== "object") return undefined;
   const req = body as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown };
   if (req.jsonrpc !== "2.0" || typeof req.method !== "string") return undefined;
-  if (req.method !== "tasks/get" && req.method !== "tasks/cancel") return undefined;
+  if (
+    req.method !== "tasks/get" &&
+    req.method !== "tasks/cancel" &&
+    req.method !== "tasks/update"
+  ) {
+    return undefined;
+  }
 
   const id = (req.id as string | number | null) ?? null;
   const fail = (code: number, message: string) => ({
@@ -149,12 +176,31 @@ export async function serveTaskExtension(
   if (job === null) return fail(METHOD_NOT_FOUND, "unknown task");
 
   if (req.method === "tasks/cancel") {
-    // A REQUEST the runner honours at its next checkpoint; the task keeps reading `working` until
-    // it actually stops, which is what the projection encodes.
+    // A REQUEST the runner honours at its next checkpoint. The extension schema types
+    // `CancelTaskResult = Result` — "an empty acknowledgement. Cancellation is cooperative and
+    // eventually consistent." Returning the projected task here instead would read as a REPORT of
+    // the outcome, which is the one thing cancellation cannot give you: the work may still be
+    // running, and may still reach a non-`cancelled` terminal state.
     queue.requestCancel(job.id);
-    const after = queue.get(job.id) ?? job;
-    return { jsonrpc: "2.0", id, result: toMcpTask(after) };
+    return { jsonrpc: "2.0", id, result: {} };
   }
+
+  if (req.method === "tasks/update") {
+    // Input responses for a task that is waiting on the client. `inputResponses` is REQUIRED by the
+    // schema, so its absence is a malformed call rather than an empty update.
+    const responses = (req.params as { inputResponses?: unknown } | undefined)?.inputResponses;
+    if (responses === null || typeof responses !== "object" || Array.isArray(responses)) {
+      return fail(INVALID_PARAMS, "inputResponses is required");
+    }
+    // Every key is unknown here, and that is a property of this server rather than a stub. Nothing
+    // in the queue can ask its caller a question mid-run, so no task ever reaches `input_required`
+    // and no `inputRequests` are ever outstanding to be keyed against. The spec's instruction for
+    // exactly this case is to ignore responses for unknown or already-satisfied keys and
+    // acknowledge — which is what an empty `UpdateTaskResult` is. Answering an error instead would
+    // be wrong twice: it is not a client mistake, and it would make a conformant client retry.
+    return { jsonrpc: "2.0", id, result: {} };
+  }
+
   return { jsonrpc: "2.0", id, result: toMcpTask(job) };
 }
 
@@ -184,50 +230,39 @@ export interface TaskCallPayload {
 /** The job type a task-augmented tool call is enqueued as. */
 export const TASK_CALL_JOB_TYPE = "mcp_tool_call";
 
+/** The extension identifier, as it appears in both client and server capabilities. */
+export const TASKS_EXTENSION = "io.modelcontextprotocol/tasks";
+
 /**
- * Was this request asking to run as a task?
+ * Did the client declare the Tasks extension?
  *
- * NOT `isTaskAugmentedRequestParams`: that helper returns TRUE for `{}` — it validates the shape of
- * an optional field rather than testing for its presence, so using it would turn every ordinary
- * tool call into a background job. Presence is the signal.
+ * THIS IS THE TRIGGER, and it replaces the `params.task` flag an earlier pass used. Task creation in
+ * 2026-07-28 is SERVER-DIRECTED: "the client signals support by including the extension in its
+ * per-request capabilities, and the server decides on a per-request basis whether to materialize a
+ * task." There is no per-request opt-in field to read — `TaskAugmentedRequestParams.task` is the
+ * 2025-11-25 vocabulary, which is exactly why the SDK marks every symbol around it `@deprecated`.
+ *
+ * The spec is explicit about the direction of this check: "Never return a task to a client that did
+ * not declare support." A client that cannot poll `tasks/get` has no way to ever collect the answer,
+ * so handing it a handle instead of a result loses the work.
+ *
+ * Read from the SDK's capability accessor rather than off the wire: it consumes the SEP-2575 `_meta`
+ * envelope keys before a handler runs.
  */
-export function requestsTask(params: unknown): boolean {
-  return (
-    params !== null &&
-    typeof params === "object" &&
-    (params as Record<string, unknown>).task !== undefined
-  );
+export function clientSupportsTasks(caps: unknown): boolean {
+  if (caps === null || typeof caps !== "object") return false;
+  const extensions = (caps as { extensions?: unknown }).extensions;
+  if (extensions === null || typeof extensions !== "object") return false;
+  const entry = (extensions as Record<string, unknown>)[TASKS_EXTENSION];
+  return entry !== null && typeof entry === "object";
 }
 
 /**
- * Why the client's `task` is unusable, or `null` if it is well-formed.
+ * The `CreateTaskResult` a server returns in lieu of the ordinary result.
  *
- * A SEPARATE question from `requestsTask`, and the split is the point: one asks whether the client
- * asked, the other whether the ask makes sense. Conflating them in either direction is a bug —
- * answering "did they ask?" with a validator defers every ordinary call (an absent `task` is
- * perfectly valid), and skipping validation entirely turns `task: "garbage"` into a background job.
- *
- * Deliberately NOT the SDK's `isTaskAugmentedRequestParams`. That helper is `@deprecated` and,
- * by its own doc, "recognizes 2025-11-25 task wire vocabulary" — the revision this one redesigned.
- * Validating a 2026-07-28 request against it is wrong in both directions: it can reject a field the
- * new revision added and accept one it removed. What IS revision-stable is its enforcement surface,
- * reproduced here: the spec's schema is a LOOSE object, so unknown keys are tolerated (a field added
- * later must not become a hard rejection) and only the known numeric fields are checked.
- *
- * Non-finite is rejected where the SDK's `z.number()` would accept `Infinity`: a task told to live
- * for infinite milliseconds is not a request we can honour, and saying so beats guessing.
+ * `CreateTaskResult = Result & Task` (flat) with `resultType` set to "task" — the discriminator a
+ * client switches on to tell a handle apart from an answer.
  */
-export function invalidTaskParams(params: unknown): string | null {
-  const task = (params as { task?: unknown } | null | undefined)?.task;
-  // `typeof null === "object"` and `typeof [] === "object"`; neither is a params object.
-  if (task === null || typeof task !== "object" || Array.isArray(task)) {
-    return "task must be an object";
-  }
-  for (const key of ["ttl", "pollInterval"] as const) {
-    const value = (task as Record<string, unknown>)[key];
-    if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value))) {
-      return `task.${key} must be a finite number`;
-    }
-  }
-  return null;
+export function toCreateTaskResult(job: Job): Record<string, unknown> {
+  return { resultType: "task", ...toMcpTask(job) };
 }

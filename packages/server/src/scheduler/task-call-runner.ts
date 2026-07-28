@@ -17,12 +17,18 @@ import type { FolderAcl } from "../acl";
 import type { Database } from "../db/types";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import type { TaskCallPayload } from "../mcp/tasks";
+import type { JobQueue } from "./job-queue";
 
 export interface TaskCallDeps {
   registry: ToolRegistry;
   db: Database;
   acl: FolderAcl;
+  /** Where the outcome is persisted, so `tasks/get` can hand it back. */
+  queue: JobQueue;
 }
+
+/** JSON-RPC internal error — a tool that refused is a server-side outcome, not a malformed call. */
+const INTERNAL_ERROR = -32603;
 
 /** Is this a payload we can run? Rejects a malformed one rather than defaulting any field. */
 function isTaskCallPayload(v: unknown): v is TaskCallPayload {
@@ -46,6 +52,7 @@ function isTaskCallPayload(v: unknown): v is TaskCallPayload {
  * the message. Returning normally marks the task `completed`.
  */
 export async function runTaskCall(
+  jobId: string,
   payload: unknown,
   deps: TaskCallDeps,
   signal?: AbortSignal,
@@ -69,10 +76,26 @@ export async function runTaskCall(
 
   const result = await deps.registry.dispatch(payload.tool, payload.args, ctx);
   if (!result.ok) {
-    // Surface the tool's own error text. The task reads `failed` with this as its statusMessage,
-    // which is the only channel the caller has — they are not holding the response any more.
+    // Recorded BEFORE the throw. `runJob` turns the throw into the terminal `failed` state, and a
+    // client polling that state must find `error` already there — recording afterwards is not an
+    // option, because after the throw this function no longer runs.
+    deps.queue.recordOutcome(jobId, {
+      ok: false,
+      error: { code: INTERNAL_ERROR, message: `${result.error.code}: ${result.error.message}` },
+    });
+    // The throw still matters: it is what drives the queue's retry/terminal policy. Returning
+    // normally here would mark a failed call `completed`.
     throw new Error(`${result.error.code}: ${result.error.message}`);
   }
+  // Written before `runJob` calls complete(), so `completed` never precedes its own result.
+  deps.queue.recordOutcome(jobId, { ok: true, result: asRecord(result.data) });
+}
+
+/** A CallToolResult is an object; anything else is wrapped so the stored shape stays uniform. */
+function asRecord(data: unknown): Record<string, unknown> {
+  return data !== null && typeof data === "object" && !Array.isArray(data)
+    ? (data as Record<string, unknown>)
+    : { value: data };
 }
 
 /**
@@ -83,6 +106,8 @@ export async function runTaskCall(
  * thousand-line startup sequence.
  */
 export function makeTaskCallHandler(deps: TaskCallDeps) {
-  return async (job: { payload: unknown }, runCtx: { signal: AbortSignal }): Promise<void> =>
-    runTaskCall(job.payload, deps, runCtx.signal);
+  return async (
+    job: { id: string; payload: unknown },
+    runCtx: { signal: AbortSignal },
+  ): Promise<void> => runTaskCall(job.id, job.payload, deps, runCtx.signal);
 }

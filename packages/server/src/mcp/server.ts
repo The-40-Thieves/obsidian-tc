@@ -15,7 +15,7 @@ import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
-import { emitLog, type LogLevel } from "./client-features";
+import { emitLog, type RequestLog } from "./client-features";
 import { extractClientInfo } from "./client-info";
 import {
   describeCapability,
@@ -32,11 +32,11 @@ import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
 import { listResources, readResource } from "./resources";
 import {
-  invalidTaskParams,
-  requestsTask,
+  clientSupportsTasks,
   TASK_CALL_JOB_TYPE,
+  TASKS_EXTENSION,
   type TaskCallPayload,
-  toMcpTask,
+  toCreateTaskResult,
 } from "./tasks";
 
 /**
@@ -228,6 +228,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
         prompts: {},
         logging: {},
         ...(opts.vaultRegistry ? { resources: {} } : {}),
+        // THE-583: advertise the Tasks extension, but only when there is a queue to back it. The
+        // client checks this before it is willing to receive a handle, so advertising it without a
+        // substrate would invite a task we cannot create. `extensions` is the SEP-2575 field.
+        ...(opts.jobQueue ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
       },
       // THE-583: serve BOTH protocol eras from one server. The SDK ships a frozen 2025-11-25 wire
       // codec alongside the 2026-07-28 one and picks per connection, but the shipped
@@ -277,10 +281,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // declared. Registering our own was dead code that read as a feature, so it is gone rather than
   // left in place looking implemented.
   //
-  // Two further reasons a fixed floor is the honest choice here: this server is rebuilt per request
-  // under Streamable HTTP, so a level could not persist between calls anyway; and `debug` on a
-  // per-request server would emit for every dispatch with nothing to suppress it.
-  const logLevel: LogLevel = "info";
+  // SEP-2575 made verbosity a PER-REQUEST `_meta` field, so there is no server-side floor to set:
+  // the threshold is the client's, carried on the request, and the SDK's `mcpReq.log` applies it.
 
   // SEP-2575: `server/discover` REPLACES the initialize/initialized handshake, which the
   // 2026-07-28 revision removed outright, and the spec makes it mandatory.
@@ -385,6 +387,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
     ctx: CallerContext,
     /** Whether the caller advertised form elicitation — decided once per request by the handler. */
     canElicit = false,
+    /** This request's log sink (`extra.mcpReq.log`); absent for stdio/direct construction. */
+    log?: RequestLog,
   ): Promise<CallToolResult> => {
     const result = await opts.registry.dispatch(name, args, ctx);
     if (!result.ok) {
@@ -440,7 +444,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // one layer up. Fire-and-forget: a log line must never fail the call it describes.
     const overflow = result.meta.overflow_bytes;
     if (typeof overflow === "number" && overflow > 0) {
-      void emitLog(server, logLevel, {
+      void emitLog(log, {
         level: "warning",
         logger: "obsidian-tc/governor",
         data: {
@@ -473,6 +477,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // The SDK consumes the SEP-2575 envelope keys before a handler sees `params._meta`, so client
     // capabilities are read from its own accessor rather than re-parsed off the wire.
     const canElicit = clientSupportsFormElicitation(server.getClientCapabilities());
+    // SEP-2575: this request's log sink. The SDK suppresses the notification when the request
+    // carried no `io.modelcontextprotocol/logLevel`, which is the MUST NOT we would otherwise break.
+    const log = (extra.mcpReq as { log?: RequestLog }).log;
     // THE-583: a verified 2026-07-28 request-state, when the client echoed one. The transport has
     // already checked its HMAC and TTL; dispatch still checks that it authorizes this exact call.
     const echoed = (
@@ -492,18 +499,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     //
     // The caller's scopes are snapshotted INTO the job. The runner gets exactly these and nothing
     // else, so a task can never do more than the caller could have done synchronously.
-    if (opts.jobQueue && requestsTask(req.params)) {
-      // Validated the moment the client ASKS, before asking whether the tool would honour it. A
-      // malformed `task` is a client bug either way, and silently running the call synchronously
-      // would leave that client with no way to tell a rejected `task` from an ignored one.
-      const malformed = invalidTaskParams(req.params);
-      if (malformed !== null)
-        return {
-          content: [
-            { type: "text", text: JSON.stringify({ code: "invalid_params", message: malformed }) },
-          ],
-          isError: true,
-        };
+    if (opts.jobQueue && clientSupportsTasks(server.getClientCapabilities())) {
       const def = opts.registry.list().find((d) => d.name === req.params.name);
       if (def?.taskAugmentable) {
         const job = opts.jobQueue.enqueue(TASK_CALL_JOB_TYPE, {
@@ -517,11 +513,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
             vaultBound: ctx.vaultBound === true,
           } satisfies TaskCallPayload,
         });
-        // The handle IS the result: the client polls `tasks/get` from here.
-        return {
-          content: [{ type: "text", text: `task ${job.id} accepted` }],
-          structuredContent: toMcpTask(job) as unknown as Record<string, unknown>,
-        };
+        // The handle IS the result: `resultType: "task"` is the discriminator the client switches on
+        // to tell it apart from an answer, and it polls `tasks/get` from here.
+        return toCreateTaskResult(job) as unknown as CallToolResult;
       }
     }
     // THE-275 domain-verb facade: a domain meta-tool ("notes", "search", ...) carries {action, args};
@@ -530,7 +524,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     if (facadeMode === "domain" && isDomainTool(req.params.name)) {
       const action = typeof args.action === "string" ? args.action : "";
       const actionArgs = (args.args ?? {}) as Record<string, unknown>;
-      return dispatchToResult(action, actionArgs, ctx, canElicit);
+      return dispatchToResult(action, actionArgs, ctx, canElicit, log);
     }
     // THE-219 facade interception (boundary-only): find/describe are pure metadata over the
     // caller-visible catalog; call_capability routes the named TARGET through registry.dispatch so
@@ -565,9 +559,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
       }
       const target = typeof args.name === "string" ? args.name : "";
       const targetArgs = (args.args ?? {}) as Record<string, unknown>;
-      return dispatchToResult(target, targetArgs, ctx, canElicit);
+      return dispatchToResult(target, targetArgs, ctx, canElicit, log);
     }
-    return dispatchToResult(req.params.name, args, ctx, canElicit);
+    return dispatchToResult(req.params.name, args, ctx, canElicit, log);
   });
 
   // Resources: vault notes. resources.ts owns AUTHORIZATION (read:notes scope, vault binding,

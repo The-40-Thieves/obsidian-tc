@@ -1,0 +1,26 @@
+-- 20260728_002_jobs_outcome.sql
+-- THE-583: persist a task-augmented call's OUTCOME, so `tasks/get` can return it.
+--
+-- Deferred result retrieval is the entire point of the Tasks extension: the client is handed a
+-- handle instead of an answer, and the answer has to be somewhere when it polls back. The ext-tasks
+-- schema makes that explicit — `CompletedTask.result` carries "the result type of the original
+-- request" (a CallToolResult here) and `FailedTask.error` carries the JSON-RPC error.
+--
+-- Until now the runner DISCARDED it. `runJob`'s handler signature returns void, so a task could
+-- reach `completed` carrying nothing at all — a client would poll, see success, and have no way to
+-- obtain what it asked for. That reads as a working feature right up to the moment someone tries to
+-- use the result.
+--
+-- ONE column holding a tagged envelope rather than two columns:
+--
+--   {"ok":true,  "result":{...}}                    -> CompletedTask.result
+--   {"ok":false, "error":{"code":N,"message":"…"}}  -> FailedTask.error
+--
+-- Two nullable columns would admit a row that is both and a row that is neither, and nothing would
+-- reject either state. The tag makes the two cases exclusive by construction, and NULL keeps its
+-- single meaning: no outcome recorded yet (still working, or an internal job that never has one).
+--
+-- Deliberately NOT reusing `last_error`: that column is operator-facing free text for retry
+-- diagnostics, and a client-facing JSON-RPC error object is a different contract with a different
+-- audience. Overloading it would put retry noise on the wire under a field the spec defines.
+ALTER TABLE jobs ADD COLUMN outcome TEXT;

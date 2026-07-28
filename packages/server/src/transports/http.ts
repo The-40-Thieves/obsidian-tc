@@ -314,6 +314,9 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
           // The SDK's own classification, not a header we re-interpret.
           era: mcpCtx.era,
           elicitCodec,
+          // THE-583: without this the augmentation branch in `tools/call` is unreachable — the only
+          // transport that serves Tasks never handed the server the queue that backs it.
+          jobQueue: opts.jobQueue,
         }),
       { legacy: "stateless" },
     );

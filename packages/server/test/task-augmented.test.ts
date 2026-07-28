@@ -11,80 +11,81 @@
 //    would read `completed`, and a caller would have performed an operation they had no scope for.
 //    The scope snapshot is the only thing standing between "deferred execution" and "privilege
 //    escalation primitive", so it gets tested directly.
-import { isTaskAugmentedRequestParams } from "@modelcontextprotocol/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
-import { invalidTaskParams, requestsTask, type TaskCallPayload } from "../src/mcp/tasks";
+import {
+  clientSupportsTasks,
+  TASKS_EXTENSION,
+  type TaskCallPayload,
+  toCreateTaskResult,
+  toMcpTask,
+} from "../src/mcp/tasks";
+import { type Job, JobQueue } from "../src/scheduler/job-queue";
 import { runTaskCall } from "../src/scheduler/task-call-runner";
 import { openMemoryDb } from "./helpers";
 
-/** The deprecated 2025-11-25 validator, for the overlap check below. */
-const SDK_VALIDATOR = isTaskAugmentedRequestParams as (v: unknown) => boolean;
-
-describe("requestsTask — presence, not shape", () => {
-  it("is true only when `task` is actually present", () => {
-    expect(requestsTask({ task: {} })).toBe(true);
-    expect(requestsTask({ task: { ttl: 60_000 } })).toBe(true);
-    expect(requestsTask({})).toBe(false);
-    expect(requestsTask({ name: "x", arguments: {} })).toBe(false);
-    expect(requestsTask(undefined)).toBe(false);
-    expect(requestsTask(null)).toBe(false);
+describe("clientSupportsTasks — the trigger is the CAPABILITY, not a request flag", () => {
+  // This replaced a `params.task` check, and the reason is worth keeping. Task creation in
+  // 2026-07-28 is server-directed: "the client signals support by including the extension in its
+  // per-request capabilities, and the server decides on a per-request basis whether to materialize
+  // a task." `TaskAugmentedRequestParams.task` is 2025-11-25 vocabulary — which is precisely why
+  // every SDK symbol around it carries `@deprecated`.
+  it("is true when the client declared the extension", () => {
+    expect(clientSupportsTasks({ extensions: { [TASKS_EXTENSION]: {} } })).toBe(true);
   });
 
-  it("does NOT use the SDK's isTaskAugmentedRequestParams, which is true for {}", () => {
-    // Pinned because the confusion is one import away: that helper validates the SHAPE of an
-    // optional field, so an ABSENT `task` is perfectly valid to it. Using it for this decision
-    // would turn every ordinary tool call into a background job.
-    expect(SDK_VALIDATOR({})).toBe(true);
-    expect(SDK_VALIDATOR({ name: "search", arguments: {} })).toBe(true);
-    expect(requestsTask({})).toBe(false);
+  it("is FALSE when the client declared no extensions — never hand such a client a handle", () => {
+    // The spec's own direction: "Never return a task to a client that did not declare support."
+    // A client that cannot poll `tasks/get` has no way to collect the answer, so a handle loses the
+    // work outright. This is the case that must fail closed.
+    expect(clientSupportsTasks({})).toBe(false);
+    expect(clientSupportsTasks({ extensions: {} })).toBe(false);
+    expect(clientSupportsTasks(undefined)).toBe(false);
+    expect(clientSupportsTasks(null)).toBe(false);
+  });
+
+  it("is false when the client declared some OTHER extension", () => {
+    expect(clientSupportsTasks({ extensions: { "io.example/other": {} } })).toBe(false);
+  });
+
+  it("ignores a `task` request flag entirely — that trigger is gone", () => {
+    expect(clientSupportsTasks({ task: {} })).toBe(false);
   });
 });
 
-describe("invalidTaskParams — the shape check the presence test cannot do", () => {
-  it("accepts a well-formed ask", () => {
-    expect(invalidTaskParams({ task: {} })).toBeNull();
-    expect(invalidTaskParams({ task: { ttl: 60_000 } })).toBeNull();
-    expect(invalidTaskParams({ task: { ttl: 60_000, pollInterval: 2_000 } })).toBeNull();
-  });
-
-  it("tolerates an unknown key, because the spec's own schema is a LOOSE object", () => {
-    // A field added in a later revision must not become a hard rejection.
-    expect(invalidTaskParams({ task: { somethingAddedLater: true } })).toBeNull();
-  });
-
-  it("rejects a `task` that is not an object", () => {
-    // The hole a presence-only check leaves: each of these passes `requestsTask`.
-    for (const bad of ["garbage", null, 42, true, [] as unknown]) {
-      expect(requestsTask({ task: bad })).toBe(true);
-      expect(invalidTaskParams({ task: bad })).toBe("task must be an object");
-    }
-  });
-
-  it("rejects a non-numeric or non-finite ttl / pollInterval", () => {
-    expect(invalidTaskParams({ task: { ttl: "abc" } })).toMatch(/ttl/);
-    expect(invalidTaskParams({ task: { pollInterval: null } })).toMatch(/pollInterval/);
-    // Stricter than the SDK's `z.number()`, which accepts these: a task told to live for infinite
-    // milliseconds is not a request we can honour, and saying so beats guessing.
-    expect(invalidTaskParams({ task: { ttl: Number.POSITIVE_INFINITY } })).toMatch(/ttl/);
-    expect(invalidTaskParams({ task: { ttl: Number.NaN } })).toMatch(/ttl/);
-  });
-
-  it("agrees with the SDK validator everywhere the two revisions overlap", () => {
-    // Not a claim that the deprecated 2025 helper is authoritative — it is the reason we do not use
-    // it. But where the vocabularies DO overlap, disagreeing would mean one of us has it wrong.
-    for (const params of [
-      { task: {} },
-      { task: { ttl: 60_000 } },
-      { task: { ttl: "abc" } },
-      { task: "garbage" },
-      { task: null },
-    ]) {
-      expect(invalidTaskParams(params) === null).toBe(SDK_VALIDATOR(params));
-    }
+describe("toCreateTaskResult", () => {
+  it('carries resultType "task", the discriminator a client switches on', () => {
+    // Without it a client cannot tell a handle from an answer, and would treat the task envelope as
+    // the tool's own output.
+    const job = {
+      id: "j1",
+      type: "t",
+      class: "t",
+      state: "queued" as const,
+      attempt: 0,
+      maxAttempts: 5,
+      nextAttemptAt: null,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      cancelRequested: false,
+      checkpoint: undefined,
+      payload: undefined,
+      idempotencyKey: null,
+      lastError: null,
+      createdAt: 1,
+      updatedAt: 1,
+      vaultId: "main",
+      caller: "agent-1",
+      outcome: null,
+    };
+    const r = toCreateTaskResult(job);
+    expect(r.resultType).toBe("task");
+    expect(r.taskId).toBe("j1");
+    expect(r.status).toBe("working");
+    expect(r).toHaveProperty("ttlMs");
   });
 });
 
@@ -103,12 +104,14 @@ function harness() {
       return { ran: true };
     },
   } as any);
+  const queue = new JobQueue(db);
   const deps = {
     registry,
     db,
     acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+    queue,
   };
-  return { deps, seen };
+  return { deps, seen, queue };
 }
 
 const payload = (over: Partial<TaskCallPayload> = {}): TaskCallPayload => ({
@@ -124,7 +127,7 @@ const payload = (over: Partial<TaskCallPayload> = {}): TaskCallPayload => ({
 describe("runTaskCall — a task carries exactly its caller's authority", () => {
   it("runs the tool when the snapshotted scopes allow it", async () => {
     const { deps, seen } = harness();
-    await expect(runTaskCall(payload(), deps)).resolves.toBeUndefined();
+    await expect(runTaskCall("j1", payload(), deps)).resolves.toBeUndefined();
     expect(seen).toHaveLength(1);
   });
 
@@ -132,19 +135,19 @@ describe("runTaskCall — a task carries exactly its caller's authority", () => 
     // The escalation case. A runner that built its context from server config instead would sail
     // through this, the task would read `completed`, and nobody would be told.
     const { deps, seen } = harness();
-    await expect(runTaskCall(payload({ scopes: ["read:notes"] }), deps)).rejects.toThrow();
+    await expect(runTaskCall("j1", payload({ scopes: ["read:notes"] }), deps)).rejects.toThrow();
     expect(seen).toHaveLength(0);
   });
 
   it("refuses with NO scopes at all", async () => {
     const { deps, seen } = harness();
-    await expect(runTaskCall(payload({ scopes: [] }), deps)).rejects.toThrow();
+    await expect(runTaskCall("j1", payload({ scopes: [] }), deps)).rejects.toThrow();
     expect(seen).toHaveLength(0);
   });
 
   it("hands the tool exactly the snapshotted scope set, not a superset", async () => {
     const { deps, seen } = harness();
-    await runTaskCall(payload({ scopes: ["write:notes"] }), deps);
+    await runTaskCall("j1", payload({ scopes: ["write:notes"] }), deps);
     expect([...(seen[0]?.grantedScopes ?? [])]).toEqual(["write:notes"]);
   });
 
@@ -152,14 +155,14 @@ describe("runTaskCall — a task carries exactly its caller's authority", () => 
     // THE-267: a vault-bound caller must not reach another vault. Dropping this in the runner
     // would silently unbind every deferred call.
     const { deps, seen } = harness();
-    await runTaskCall(payload({ vaultBound: true }), deps);
+    await runTaskCall("j1", payload({ vaultBound: true }), deps);
     expect(seen[0]?.vaultBound).toBe(true);
     expect(seen[0]?.vaultId).toBe("main");
   });
 
   it("preserves the caller identity for audit", async () => {
     const { deps, seen } = harness();
-    await runTaskCall(payload({ caller: "agent-7" }), deps);
+    await runTaskCall("j1", payload({ caller: "agent-7" }), deps);
     expect(seen[0]?.caller).toBe("agent-7");
   });
 
@@ -167,13 +170,13 @@ describe("runTaskCall — a task carries exactly its caller's authority", () => 
     // Defaulting here is how a job with no scopes would become a job with the server's.
     const { deps } = harness();
     for (const bad of [null, {}, { tool: "x" }, { tool: "x", vaultId: "main", scopes: "nope" }]) {
-      await expect(runTaskCall(bad, deps)).rejects.toThrow(/malformed/);
+      await expect(runTaskCall("j1", bad, deps)).rejects.toThrow(/malformed/);
     }
   });
 
   it("surfaces the tool's own error text, since the caller no longer holds the response", async () => {
     const { deps } = harness();
-    await expect(runTaskCall(payload({ tool: "no_such_tool" }), deps)).rejects.toThrow(
+    await expect(runTaskCall("j1", payload({ tool: "no_such_tool" }), deps)).rejects.toThrow(
       /no_such_tool|not_found|unknown/i,
     );
   });
@@ -200,5 +203,48 @@ describe("the augmentable set is deliberate", () => {
       .filter((d) => d.taskAugmentable)
       .map((d) => d.name);
     expect(augmentable).toEqual(["index_vault"]);
+  });
+});
+
+describe("deferred result retrieval — the point of the extension", () => {
+  it("records the tool's result, and a completed task carries it", async () => {
+    // Without this the runner discarded the result entirely: a client would poll to `completed` and
+    // still have no way to obtain what it asked for. That reads as a working feature right up to
+    // the moment someone tries to use the answer.
+    const { deps, queue } = harness();
+    const job = queue.enqueue("mcp_tool_call", { owner: { vaultId: "main", caller: "agent-1" } });
+    await runTaskCall(job.id, payload(), deps);
+
+    const stored = queue.get(job.id);
+    expect(stored?.outcome).toEqual({ ok: true, result: { ran: true } });
+    // The projection only surfaces it on a COMPLETED task — a working one has no result yet.
+    expect(toMcpTask({ ...(stored as Job), state: "complete" }).result).toEqual({ ran: true });
+    expect(toMcpTask(stored as Job).result).toBeUndefined();
+  });
+
+  it("records a JSON-RPC error on failure, and a failed task carries it", async () => {
+    const { deps, queue } = harness();
+    const job = queue.enqueue("mcp_tool_call", { owner: { vaultId: "main", caller: "agent-1" } });
+    // Recorded BEFORE the throw — after it, this code does not run, and `runJob` turns the throw
+    // into the terminal `failed` state a client will poll.
+    await expect(runTaskCall(job.id, payload({ scopes: [] }), deps)).rejects.toThrow();
+
+    const stored = queue.get(job.id);
+    expect(stored?.outcome?.ok).toBe(false);
+    const failed = toMcpTask({ ...(stored as Job), state: "failed" });
+    expect(failed.error?.code).toBe(-32603);
+    expect(typeof failed.error?.message).toBe("string");
+  });
+
+  it("does not surface an outcome under the WRONG status field", async () => {
+    // A `failed` row carrying an ok envelope must emit neither field rather than the wrong one
+    // under the right name.
+    const { deps, queue } = harness();
+    const job = queue.enqueue("mcp_tool_call", { owner: { vaultId: "main", caller: "agent-1" } });
+    await runTaskCall(job.id, payload(), deps);
+    const stored = queue.get(job.id);
+    const mismatched = toMcpTask({ ...(stored as Job), state: "failed" });
+    expect(mismatched.error).toBeUndefined();
+    expect(mismatched.result).toBeUndefined();
   });
 });

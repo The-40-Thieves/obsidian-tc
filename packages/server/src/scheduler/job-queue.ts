@@ -20,6 +20,37 @@ import type { Database } from "../db/types";
 
 export type JobState = "queued" | "running" | "retrying" | "complete" | "failed";
 
+/**
+ * THE-583: what a task-augmented call produced, as a TAGGED union.
+ *
+ * Exclusive by construction: a row cannot be both a success and a failure, and cannot be neither
+ * while claiming an outcome. Two nullable columns would admit both of those states with nothing to
+ * reject them. NULL on the row (not a `JobOutcome`) is the third, meaningful case: no outcome yet.
+ */
+export type JobOutcome =
+  | { ok: true; result: Record<string, unknown> }
+  | { ok: false; error: { code: number; message: string } };
+
+/**
+ * Read an outcome envelope back off the row.
+ *
+ * Returns null on anything unreadable rather than throwing. A malformed envelope must not make the
+ * whole job unreadable — `tasks/get` would start answering "unknown task" for a job that plainly
+ * exists, which is a far worse failure than a missing result field.
+ */
+function parseOutcome(raw: string | null | undefined): JobOutcome | null {
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  try {
+    const v = JSON.parse(raw) as JobOutcome;
+    if (v !== null && typeof v === "object" && typeof (v as { ok?: unknown }).ok === "boolean") {
+      return v;
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
 export interface Job {
   id: string;
   type: string;
@@ -42,6 +73,11 @@ export interface Job {
   vaultId: string | null;
   /** THE-583: the principal that asked for it; NULL alongside `vaultId` for internal work. */
   caller: string | null;
+  /**
+   * THE-583: the tagged outcome envelope for a task-augmented call, or NULL when none was recorded
+   * (still working, or internal work that never has one). See 20260728_002_jobs_outcome.sql.
+   */
+  outcome: JobOutcome | null;
 }
 
 interface JobRow {
@@ -63,6 +99,7 @@ interface JobRow {
   updated_at: number;
   vault_id: string | null;
   caller: string | null;
+  outcome: string | null;
 }
 
 function fromRow(row: JobRow): Job {
@@ -85,6 +122,7 @@ function fromRow(row: JobRow): Job {
     updatedAt: row.updated_at,
     vaultId: row.vault_id ?? null,
     caller: row.caller ?? null,
+    outcome: parseOutcome(row.outcome),
   };
 }
 
@@ -309,6 +347,23 @@ export class JobQueue {
       )
       .run(JSON.stringify(data), t, id, leaseOwner);
     return updated.changes === 1;
+  }
+
+  /**
+   * THE-583: persist the outcome of a task-augmented call.
+   *
+   * Written BEFORE `complete()`, deliberately. A client that polls `tasks/get` and sees `completed`
+   * must find the result there — completing first opens a window where the task reports success and
+   * the answer it is reporting success for does not exist yet.
+   *
+   * Not lease-guarded, unlike complete()/fail(): this is the runner recording what it just produced,
+   * and a lease lost between here and `complete()` means the write simply does not become visible
+   * (the job is not `complete`, so the projection never surfaces the outcome).
+   */
+  recordOutcome(id: string, outcome: JobOutcome): void {
+    this.db
+      .prepare("UPDATE jobs SET outcome = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(outcome), this.now(), id);
   }
 
   complete(id: string, leaseOwner: string): boolean {
