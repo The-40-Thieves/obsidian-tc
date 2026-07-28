@@ -6,6 +6,38 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-07-28
+
+### Added
+
+- **`auth.jwksUri` — a key source that can rotate (THE-658, #556).** Fetches an authorization
+  server's JWKS from its `jwks_uri` for asymmetric verification, cached by jose and re-fetched only
+  on an unknown `kid`.
+
+  **Opt-in and unset by default.** THE-297 deliberately allowed inline/file JWKS only, reasoning
+  that a URL fetch adds network attack surface — that reasoning still holds, so this is not a silent
+  reversal. What it buys is the thing that made adopting an authorization server a *code* change
+  rather than a *config* change: with static keys, every AS key rotation means an operator
+  hand-copying a JWKS and redeploying, so rotation — the entire point of asymmetric verification —
+  becomes a manual outage risk.
+
+  A fetch failure **rejects** the token; there is no fallback to the inline/file set, because a key
+  source that silently degrades to another key source is how a rotated-out key keeps working.
+
+- **`scope` in the `WWW-Authenticate` challenge (THE-658, #556).** A 2026-07-28 **SHOULD**, emitted
+  when `auth.scopesSupported` is configured. A general-purpose MCP client has no domain knowledge to
+  pick scopes with, and its documented fallback when `scope` is absent is to request *every* scope in
+  `scopes_supported` — so omitting it does not fail closed, it pushes clients to over-ask.
+
+### Fixed
+
+- **`jwksUri` is covered by the audience-binding gate (THE-658, #556).** THE-456 requires an audience
+  whenever a JWKS, a non-loopback bind, or an issuer is configured, and its check tested only
+  `jwks`/`jwksFile`. A remote JWKS is the *most* external key source of the three — keys fetched from
+  an authorization server at runtime — so it would have been the one configuration exempt from
+  binding. Audience-optional HS256 on a loopback bind is unchanged and deliberate: a self-issued
+  secret unique to a local server has no second service to be replayed from.
+
 ## [1.13.0] - 2026-07-28
 
 ### Added
