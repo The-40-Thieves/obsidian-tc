@@ -7,13 +7,15 @@
   "scripts": {
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "builtin-modules": "^4.0.0",
     "esbuild": "^0.28.1",
     "obsidian": "^1.13.1",
-    "tslib": "^2.8.1"
+    "tslib": "^2.8.1",
+    "vitest": "^4.1.10"
   }
 }
