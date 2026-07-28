@@ -194,23 +194,45 @@ Before starting work on a non-trivial issue, comment that you are picking it up.
 
 ## Branch Protection and Required Checks
 
-`main` is protected. A pull request cannot merge until **19 required checks** report success:
+`main` is protected. A pull request cannot merge until every required check reports success.
 
-| group | checks |
+**Read the live list rather than trusting a copy of it** — this file has been wrong before, and a
+number in prose is exactly what goes stale:
+
+```bash
+gh api repos/The-40-Thieves/obsidian-tc/branches/main/protection/required_status_checks \
+  --jq '.contexts[]' | sort
+```
+
+The policy that set governs, which is stabler than the set itself:
+
+| group | what is required |
 | -- | -- |
-| CodeQL (default setup, all six languages) | `CodeQL`, `Analyze (actions)`, `Analyze (javascript-typescript)`, `Analyze (python)`, `Analyze (rust)` |
-| supply chain | `Socket Security: Project Report`, `Socket Security: Pull Request Alerts`, `cargo-deny` |
+| tests | the **whole `build-test` matrix** — ubuntu, ubuntu-24.04-arm, macos, windows — plus `bun-smoke` |
+| static analysis | `lint`, `typecheck`, `drift-gate` |
+| CodeQL (default setup, all languages) | `CodeQL` and every `Analyze (…)` leg |
+| supply chain | both `Socket Security` checks, `cargo-deny` |
 | secrets / leaks | `gitleaks`, `vault leak (structural)` |
 | workflow safety | `actionlint (…)`, `no untrusted context in shell steps` |
-| source hygiene | `typecheck`, `no NUL bytes in tracked text`, `typos (source + docs spelling)`, `lychee (internal link rot)`, `config threading`, `version-coherence`, `dco-check` |
+| source hygiene | `no NUL bytes in tracked text`, `typos (source + docs spelling)`, `lychee (internal link rot)`, `config threading`, `version-coherence`, `dco-check` |
 
-### Why the test suite is not on that list
+`ubuntu-24.04-arm` is required deliberately, not for symmetry: the repo ships an aarch64 binary,
+production runs Ampere, and `vec.ts` documents a measured retrieval divergence between aarch64 and
+x86_64 on the same commit.
 
-It cannot be, as the workflows are written today. `build-test`, `test`, `lint`, `bun-smoke`, `perf` and `drift-gate` are **path-filtered** — they only run when the paths they cover change. GitHub treats a required check that never reports as *"Expected — waiting for status"* and blocks the pull request **forever**, so requiring a path-filtered check would deadlock every docs-only PR.
+### The test suite IS required — and how that became possible
 
-The required set was therefore derived empirically: the intersection of checks that reported on five pull requests with deliberately different footprints (`packages/**`, `.github/**`, `services/**`, `scripts/**`, and a single root file). Those five ranged from 26 to 37 checks; 24 were common to all, and the list above is what remains after removing the advisory ones.
+It was not always. `build-test`, `lint`, `bun-smoke` and `drift-gate` used to be **path-filtered**,
+and GitHub treats a required check that never reports as *"Expected — waiting for status"*, blocking
+the pull request forever — so requiring one would have deadlocked every docs-only PR.
 
-To make the test suite requireable, a path-filtered workflow needs an always-running job that short-circuits to success when its paths are untouched. That is real work and has not been done.
+THE-599 removed the `paths:` filters from `ci-server.yml` and `ci-docgen.yml` precisely so these
+could be required. That is why the repo's `CLAUDE.md` calls both workflows *"deliberately
+unfiltered"* and warns never to re-add a filter: doing so would silently un-require the test suite
+by making its checks path-conditional again.
+
+The umbrella-job workaround this section used to describe — an always-running job that
+short-circuits to success when its paths are untouched — is **no longer necessary**. Do not build it.
 
 ### Deliberately not required
 

@@ -232,6 +232,12 @@ function narrativeFiles(repoRoot: string): string[] {
     "README.md",
     "ARCHITECTURE.md",
     "SECURITY.md",
+    // THE-623: CONTRIBUTING.md was outside every prose gate, and drifted — it claimed 19 required
+    // checks (live: 26) and that the test suite COULD NOT be required, a year after THE-599 made it
+    // required. An external reviewer read it, reasoned correctly from it, and recommended rebuilding
+    // a workaround that no longer had a problem to solve. It carries no anchored fact today; it is
+    // listed so that the next tool-count or golden-set number written here is caught the same day.
+    "CONTRIBUTING.md",
     "packages/server/README.md",
     ...topLevelDocs(),
     ...walk("docs/wiki"),
