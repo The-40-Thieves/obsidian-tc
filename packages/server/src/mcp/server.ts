@@ -35,6 +35,29 @@ import { listResources, readResource } from "./resources";
  */
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 
+/**
+ * SEP-2549 cache hints. The SDK's cacheable set is a CLOSED list — `tools/list`, `prompts/list`,
+ * `resources/list`, `resources/templates/list`, `resources/read`, `server/discover` — and no other
+ * result ever carries these fields.
+ *
+ * `cacheScope` is a SECURITY decision here, not a performance one. `public` invites a SHARED cache
+ * to reuse one caller's response for another, so it is only ever correct for a response that does
+ * not depend on who asked:
+ *
+ *   * `tools/list` is filtered by `grantedScopes` (registry.listVisible) in BOTH flat and domain
+ *     mode — a scope-limited caller sees fewer tools. PRIVATE.
+ *   * `resources/list` / `resources/read` are folder-ACL filtered (`readableRel`) and gated on
+ *     `read:notes`. PRIVATE.
+ *   * `prompts/list` returns the built-in templates with no filtering and no required scope, so it
+ *     is identical for every caller. PUBLIC — asserted by test, because if prompts ever become
+ *     vault-derived or caller-scoped this becomes a cross-caller leak.
+ *
+ * TTLs are deliberately short. The tool surface is fixed for a process lifetime, but the vault is
+ * not, and a stale `resources/list` is a correctness bug in a client that trusts it.
+ */
+const CACHE_PRIVATE = { ttlMs: 60_000, cacheScope: "private" } as const;
+const CACHE_PUBLIC = { ttlMs: 300_000, cacheScope: "public" } as const;
+
 // tools/list returns at most this many tools per page; the client follows nextCursor for the
 // rest. Set well above the current tool surface (~103) so the whole surface fits one page — a
 // client that ignores nextCursor still receives every tool. The cursor exists for MCP pagination
@@ -70,6 +93,19 @@ export interface McpServerOptions {
   /** Tool-surface facade mode (THE-219). "triad" advertises 3 meta-tools; "flat" the full surface.
    *  Defaults to "flat" when unset so direct callers/tests are unaffected; cli/http pass the config. */
   facadeMode?: FacadeMode;
+  /**
+   * THE-583: the protocol revision THIS request arrived on, from the `MCP-Protocol-Version` header.
+   *
+   * It has to be threaded in rather than read off the Server because we are STATELESS: the HTTP
+   * transport builds a fresh Server per request and there is no handshake, so
+   * `server.getNegotiatedProtocolVersion()` is `undefined` on every call — including a request
+   * that plainly carried `MCP-Protocol-Version: 2026-07-28`. Reading it there silently produced a
+   * server that never emitted a single 2026-era field.
+   *
+   * Absent (stdio, direct construction, tests) means legacy, which is the safe default: no
+   * 2026-only fields go on the wire toward a client that never asked for that revision.
+   */
+  protocolVersion?: string;
 }
 
 function asStructured(data: unknown): Record<string, unknown> | undefined {
@@ -162,13 +198,62 @@ export function createMcpServer(opts: McpServerOptions): Server {
     },
   );
 
+  /**
+   * Attach SEP-2549 cache fields only on a MODERN connection.
+   *
+   * The 2025-11-25 wire schemas are frozen and know nothing about `ttlMs`/`cacheScope`; emitting
+   * them toward a legacy client would put fields on the wire that revision never defined. The
+   * negotiated version is per-connection, so this is asked per response rather than once at boot.
+   */
+  const isModern = opts.protocolVersion === MODERN_PROTOCOL_VERSION;
+  const withCacheHint = <T extends object>(
+    result: T,
+    hint: { ttlMs: number; cacheScope: string },
+  ): T => (isModern ? { ...result, ...hint } : result);
+
   const facadeMode: FacadeMode = opts.facadeMode ?? "flat";
+
+  // SEP-2575: `server/discover` REPLACES the initialize/initialized handshake, which the
+  // 2026-07-28 revision removed outright, and the spec makes it mandatory.
+  //
+  // ⚠ THIS HANDLER IS NOT YET REACHABLE, and saying so here is the point — a registered handler
+  // that never runs is indistinguishable from conformance from the outside.
+  //
+  // The SDK routes a request through the wire registry of the era the CONNECTION was classified
+  // as, and `server/discover` exists only in the 2026 registry. In our stateless per-request
+  // wiring there is no handshake, so `Protocol.getNegotiatedProtocolVersion()` is `undefined` on
+  // every request — including one carrying `MCP-Protocol-Version: 2026-07-28` — and the connection
+  // falls back to the 2025 registry, which answers `-32601 Method not found` before this handler
+  // is consulted. Verified: the same -32601 comes back from the low-level `Server` AND from
+  // `McpServer`, under both the Node and WebStandard transports, so it is not a transport bug and
+  // not something a different handler shape fixes.
+  //
+  // Kept, rather than deleted, because it is correct and complete for the moment era classification
+  // reaches Protocol; `test/mcp-protocol-eras.test.ts` pins the CURRENT -32601 so that when the
+  // wiring is fixed the test fails loudly instead of the gap going unnoticed. Tracked separately.
+  //
+  // The response is deliberately caller-independent: a client calls this before establishing
+  // anything, so it must not depend on scopes or ACL, and it is safely PUBLIC. Capabilities mirror
+  // the constructor's rather than being restated — a discover document that disagreed with the
+  // server's real capabilities would be worse than none.
+  server.setRequestHandler("server/discover", () =>
+    withCacheHint(
+      {
+        supportedVersions: [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS],
+        capabilities: server.getCapabilities(),
+        instructions:
+          `${opts.name} ${opts.version} — an MCP server over Obsidian vaults. ` +
+          `Tools are authorized per call (scopes + folder ACL); resources are vault notes.`,
+      },
+      CACHE_PUBLIC,
+    ),
+  );
 
   server.setRequestHandler("tools/list", (req, extra): ListToolsResult => {
     // THE-219 facade: in triad/domain mode advertise the three meta-tools instead of the full
     // surface. Every registered tool stays callable by name via call_capability, so nothing is
     // hidden; flat mode is the back-compat full-surface behavior.
-    if (facadeMode === "triad") return { tools: triadTools() };
+    if (facadeMode === "triad") return withCacheHint({ tools: triadTools() }, CACHE_PRIVATE);
     if (facadeMode === "domain") {
       const dctx = opts.context(extra.mcpReq.signal);
       const dvisible = opts.registry.listVisible({
@@ -193,7 +278,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // toMcpTool, so a tool that declares neither still serializes byte-identically to before).
     const tools: Tool[] = page.map(toMcpTool);
     const nextStart = start + page.length;
-    return nextStart < visible.length ? { tools, nextCursor: String(nextStart) } : { tools };
+    return withCacheHint(
+      nextStart < visible.length ? { tools, nextCursor: String(nextStart) } : { tools },
+      CACHE_PRIVATE,
+    );
   });
 
   const formatData = (data: unknown): CallToolResult => {
@@ -312,26 +400,30 @@ export function createMcpServer(opts: McpServerOptions): Server {
   if (vaultRegistry) {
     server.setRequestHandler("resources/list", (req, extra): Promise<ListResourcesResult> => {
       const ctx = opts.context(extra.mcpReq.signal);
-      return opts.registry.dispatchResource(
-        "resources/list",
-        ctx,
-        ["read:notes"],
-        { cursor: req.params?.cursor ?? null },
-        () => listResources(vaultRegistry, ctx, req.params?.cursor),
-      );
+      return opts.registry
+        .dispatchResource(
+          "resources/list",
+          ctx,
+          ["read:notes"],
+          { cursor: req.params?.cursor ?? null },
+          () => listResources(vaultRegistry, ctx, req.params?.cursor),
+        )
+        .then((r) => withCacheHint(r, CACHE_PRIVATE));
     });
     server.setRequestHandler("resources/read", (req, extra): Promise<ReadResourceResult> => {
       const ctx = opts.context(extra.mcpReq.signal);
-      return opts.registry.dispatchResource(
-        "resources/read",
-        ctx,
-        ["read:notes"],
-        { uri: req.params.uri },
-        // THE-514 item 2: pass the registry's configured maxResponseBytes so a lowered ceiling
-        // applies to resources too, not just tools — resources.ts no longer holds its own
-        // unconfigurable fixed copy of the default.
-        () => readResource(vaultRegistry, ctx, req.params.uri, opts.registry.maxResponseBytes),
-      );
+      return opts.registry
+        .dispatchResource(
+          "resources/read",
+          ctx,
+          ["read:notes"],
+          { uri: req.params.uri },
+          // THE-514 item 2: pass the registry's configured maxResponseBytes so a lowered ceiling
+          // applies to resources too, not just tools — resources.ts no longer holds its own
+          // unconfigurable fixed copy of the default.
+          () => readResource(vaultRegistry, ctx, req.params.uri, opts.registry.maxResponseBytes),
+        )
+        .then((r) => withCacheHint(r, CACHE_PRIVATE));
     });
   }
 
@@ -344,7 +436,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // open-template semantics while closing the observability gap.
   server.setRequestHandler("prompts/list", (_req, extra): Promise<ListPromptsResult> => {
     const ctx = opts.context(extra.mcpReq.signal);
-    return opts.registry.dispatchResource("prompts/list", ctx, [], {}, () => listPrompts());
+    return opts.registry
+      .dispatchResource("prompts/list", ctx, [], {}, () => listPrompts())
+      .then((r) => withCacheHint(r, CACHE_PUBLIC));
   });
   server.setRequestHandler("prompts/get", (req, extra): Promise<GetPromptResult> => {
     const ctx = opts.context(extra.mcpReq.signal);

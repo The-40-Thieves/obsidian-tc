@@ -263,6 +263,9 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       context,
       vaultRegistry: opts.vaultRegistry,
       facadeMode: opts.facadeMode,
+      // THE-583: the era this request declared. Stateless means no handshake, so this header is
+      // the ONLY signal of which revision the caller speaks — see McpServerOptions.protocolVersion.
+      protocolVersion: c.req.header("mcp-protocol-version"),
     });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

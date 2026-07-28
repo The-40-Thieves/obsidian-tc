@@ -155,4 +155,41 @@ describe("protocol eras — one server serves 2025-11-25 and 2026-07-28 (THE-583
       await h.close();
     }
   }, 20_000);
+  it("attaches SEP-2549 cache hints on MODERN only, and scopes them by caller-dependence", async () => {
+    // `cacheScope` is a security decision: `public` lets a SHARED cache reuse one caller's response
+    // for another. tools/list is filtered by grantedScopes, so it must be private; prompts/list is
+    // the built-in templates with no filtering, so it is safely public.
+    const h = await boot();
+    try {
+      const modern = await rpc(h.port, { jsonrpc: "2.0", id: 5, method: "tools/list" }, MODERN);
+      expect(modern.json.result.ttlMs).toBeGreaterThan(0);
+      expect(modern.json.result.cacheScope).toBe("private");
+
+      const prompts = await rpc(h.port, { jsonrpc: "2.0", id: 6, method: "prompts/list" }, MODERN);
+      expect(prompts.json.result.cacheScope).toBe("public");
+
+      // The 2025-11-25 wire schemas are frozen and never defined these fields. Emitting them at a
+      // legacy client would put a 2026-only shape on a revision that does not know it.
+      const legacy = await rpc(h.port, { jsonrpc: "2.0", id: 7, method: "tools/list" }, LEGACY);
+      expect(legacy.json.result.ttlMs).toBeUndefined();
+      expect(legacy.json.result.cacheScope).toBeUndefined();
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
+
+  it("PINS THE GAP: server/discover is still -32601 (SEP-2575 not yet reachable)", async () => {
+    // A handler for `server/discover` IS registered, but the SDK routes by the era the CONNECTION
+    // was classified as, and stateless-per-request leaves that undefined -> the 2025 wire registry,
+    // which has no such method. This asserts the CURRENT broken state deliberately: when the era
+    // wiring is fixed this test fails, which is the notification that the gap closed. Without it,
+    // a registered-but-unreachable handler reads as conformance forever.
+    const h = await boot();
+    try {
+      const d = await rpc(h.port, { jsonrpc: "2.0", id: 8, method: "server/discover" }, MODERN);
+      expect(d.json.error?.code).toBe(-32601);
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
 });
