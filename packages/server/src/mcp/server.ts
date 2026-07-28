@@ -13,6 +13,7 @@ import {
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
+import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import { emitLog, type LogLevel } from "./client-features";
 import { extractClientInfo } from "./client-info";
@@ -30,6 +31,7 @@ import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
 import { listResources, readResource } from "./resources";
+import { requestsTask, TASK_CALL_JOB_TYPE, type TaskCallPayload, toMcpTask } from "./tasks";
 
 /**
  * The first "modern" revision (SEP-2575: no initialize handshake, protocol version in `_meta`,
@@ -116,6 +118,14 @@ export interface McpServerOptions {
    * the 2025 behaviour: the error, and an `elicit_token` argument to satisfy it.
    */
   elicitCodec?: ElicitCodec;
+  /**
+   * THE-583: durable queue backing TASK-AUGMENTED tool calls.
+   *
+   * The Tasks extension methods (`tasks/get` / `tasks/cancel`) are served in the transport, in
+   * front of the SDK handler, because it rejects unknown methods. Augmentation is different: it
+   * rides `tools/call`, which IS a core method, so it belongs here.
+   */
+  jobQueue?: JobQueue;
 }
 
 /**
@@ -467,6 +477,35 @@ export function createMcpServer(opts: McpServerOptions): Server {
       const { elicit_token, ...rest } = rawArgs;
       args = rest;
       ctx = { ...ctx, elicitToken: elicit_token };
+    }
+    // THE-583: run as a background TASK when the client asked and the tool opted in.
+    //
+    // Both conditions matter. A client asks with `params.task`; a tool declares `taskAugmentable`.
+    // Silently deferring a tool that returns in milliseconds would cost the caller a poll round
+    // trip to learn what one call would have told it, so augmentation is never inferred.
+    //
+    // The caller's scopes are snapshotted INTO the job. The runner gets exactly these and nothing
+    // else, so a task can never do more than the caller could have done synchronously.
+    if (opts.jobQueue && requestsTask(req.params)) {
+      const def = opts.registry.list().find((d) => d.name === req.params.name);
+      if (def?.taskAugmentable) {
+        const job = opts.jobQueue.enqueue(TASK_CALL_JOB_TYPE, {
+          owner: { vaultId: ctx.vaultId, caller: ctx.caller },
+          payload: {
+            tool: req.params.name,
+            args,
+            caller: ctx.caller,
+            scopes: [...ctx.grantedScopes],
+            vaultId: ctx.vaultId,
+            vaultBound: ctx.vaultBound === true,
+          } satisfies TaskCallPayload,
+        });
+        // The handle IS the result: the client polls `tasks/get` from here.
+        return {
+          content: [{ type: "text", text: `task ${job.id} accepted` }],
+          structuredContent: toMcpTask(job) as unknown as Record<string, unknown>,
+        };
+      }
     }
     // THE-275 domain-verb facade: a domain meta-tool ("notes", "search", ...) carries {action, args};
     // route the named action straight through registry.dispatch so every gate + the target's own

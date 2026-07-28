@@ -157,3 +157,44 @@ export async function serveTaskExtension(
   }
   return { jsonrpc: "2.0", id, result: toMcpTask(job) };
 }
+
+/**
+ * A tool call captured for background execution, with the authorization it was made under.
+ *
+ * The scope set is snapshotted at ENQUEUE time and the runner is given exactly this and nothing
+ * else. That is the whole security contract of task-augmentation: a job cannot do more than the
+ * caller could have done synchronously, because the only authority it carries is the authority that
+ * was in the request. Reconstructing a context from server config instead — or re-reading the
+ * caller's current grants at run time — would make a task a privilege-escalation primitive.
+ *
+ * A consequence worth naming: a grant revoked AFTER enqueue does not stop a running task. That is
+ * inherent to deferring work, not specific to this design — the alternative is re-authorizing
+ * mid-run, which needs a revocation channel we do not have.
+ */
+export interface TaskCallPayload {
+  tool: string;
+  args: Record<string, unknown>;
+  caller: string | null;
+  /** Exactly the scopes the caller held at enqueue. Serialized because the runner has no request. */
+  scopes: string[];
+  vaultId: string;
+  vaultBound: boolean;
+}
+
+/** The job type a task-augmented tool call is enqueued as. */
+export const TASK_CALL_JOB_TYPE = "mcp_tool_call";
+
+/**
+ * Was this request asking to run as a task?
+ *
+ * NOT `isTaskAugmentedRequestParams`: that helper returns TRUE for `{}` — it validates the shape of
+ * an optional field rather than testing for its presence, so using it would turn every ordinary
+ * tool call into a background job. Presence is the signal.
+ */
+export function requestsTask(params: unknown): boolean {
+  return (
+    params !== null &&
+    typeof params === "object" &&
+    (params as Record<string, unknown>).task !== undefined
+  );
+}

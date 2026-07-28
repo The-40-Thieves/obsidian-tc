@@ -59,6 +59,7 @@ import { createRetrievalLogger } from "./experiential/log";
 import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
+import { TASK_CALL_JOB_TYPE } from "./mcp/tasks";
 import { startMetricsEndpoint } from "./metrics/endpoint";
 import { recordIngestStats } from "./metrics/ingest-stats";
 import { buildModelTierReranker } from "./model";
@@ -74,6 +75,7 @@ import { applyReconcileOutcome } from "./runtime/reconcile-outcome";
 import { JobQueue } from "./scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "./scheduler/job-runner";
 import { Scheduler } from "./scheduler/scheduler";
+import { makeTaskCallHandler } from "./scheduler/task-call-runner";
 import { ensureNotesFts } from "./search/fts";
 import { IndexCoordinator } from "./search/index-coordinator";
 import {
@@ -486,6 +488,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         }
       : undefined;
   const jobHandlers = new Map<string, JobHandler>();
+  jobHandlers.set(TASK_CALL_JOB_TYPE, makeTaskCallHandler({ registry, db, acl }));
   if (roles) {
     jobHandlers.set("contradiction", async (job) => {
       const { vaultId, chunkId } = job.payload as { vaultId: string; chunkId: string };

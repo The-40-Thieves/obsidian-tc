@@ -140,6 +140,8 @@ export type ToolDomain = (typeof TOOL_DOMAINS)[number];
 
 export interface ToolDefinition<I = unknown, O = unknown> {
   name: string;
+  /** THE-583: runnable as a background TASK on `params.task`; opt-in. See mcp/tasks.ts. */
+  taskAugmentable?: boolean;
   /** THE-513: which facade domain (see TOOL_DOMAINS) this capability groups under in "domain" mode.
    *  Optional here (the sink type) so fixtures unrelated to the facade — dispatch/throttle/HITL
    *  unit tests build bare ToolDefinition literals to exercise the pipeline — don't need to fabricate

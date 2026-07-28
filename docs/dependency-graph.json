@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 288,
-    "dependencies": 1171,
-    "subsystemPairs": 85,
-    "crossSubsystemImports": 485
+    "modules": 289,
+    "dependencies": 1179,
+    "subsystemPairs": 86,
+    "crossSubsystemImports": 489
   },
   "subsystems": {
     "auth": 3,
@@ -31,7 +31,7 @@
     "plugin": 2,
     "plur": 2,
     "runtime": 3,
-    "scheduler": 3,
+    "scheduler": 4,
     "schemas": 1,
     "search": 43,
     "tools": 59,
@@ -137,6 +137,11 @@
       "weight": 4
     },
     {
+      "from": "scheduler",
+      "to": "db",
+      "weight": 4
+    },
+    {
       "from": "tools",
       "to": "experiential",
       "weight": 4
@@ -172,11 +177,6 @@
       "weight": 3
     },
     {
-      "from": "scheduler",
-      "to": "db",
-      "weight": 3
-    },
-    {
       "from": "tools",
       "to": "embeddings",
       "weight": 3
@@ -204,6 +204,11 @@
     {
       "from": "experiential",
       "to": "plane",
+      "weight": 2
+    },
+    {
+      "from": "mcp",
+      "to": "scheduler",
       "weight": 2
     },
     {
@@ -239,6 +244,11 @@
     {
       "from": "runtime",
       "to": "metrics",
+      "weight": 2
+    },
+    {
+      "from": "scheduler",
+      "to": "mcp",
       "weight": 2
     },
     {
@@ -364,11 +374,6 @@
     {
       "from": "mcp",
       "to": "search",
-      "weight": 1
-    },
-    {
-      "from": "mcp",
-      "to": "scheduler",
       "weight": 1
     },
     {
