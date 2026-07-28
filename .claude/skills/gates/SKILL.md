@@ -28,8 +28,27 @@ rg -n 'run: (bun|node|npx)' .github/workflows/*.yml
 
 ## The usual pre-PR set
 
+**`bun run lint` is ONLY `biome check`.** CI's `lint` *job* runs eight steps, and the seven beyond
+biome are where the interesting failures live. Running the script and believing it covered the job
+cost a CI round on THE-658. Run the loop:
+
 ```bash
-bun run lint                       # biome + every check:* gate
+for g in lint check:boundaries check:dev-dep-imports check:perf-timing-scope \
+         check:ingest-telemetry-wiring check:config-paths check:duplicate-exports \
+         check:duplication; do
+  bun run "$g" > "/tmp/gate-${g//:/-}.log" 2>&1; echo "$g exit=$?"
+done
+```
+
+`check:boundaries` (dependency-cruiser) is the one that catches what typecheck cannot: it rejects
+an import **cycle** even when the import is type-only and erased at runtime. Adding a CLI command is
+the usual way to trip it — put the command's shape inline in the `CliCommand` union in
+`cli/args.ts` and have the command module use `Cmd<"my-command">` from `cli/shared.ts`, never the
+reverse.
+
+Then the rest, which live in other jobs:
+
+```bash
 bun run typecheck                  # all 4 workspaces
 cd packages/server && node ./node_modules/vitest/vitest.mjs run
 
@@ -40,6 +59,10 @@ bun run migrations:embed:check
 cd packages/server && bun run docgen:render -- --check
 cd packages/server && bun run docgen:facts-check
 ```
+
+`map:check` disagrees between here and CI whenever `packages/*/dist` exists — depcruise resolves the
+workspace differently (THE-578, and the generator's own header says so). Delete `packages/*/dist`
+before `bun run map`, or you will commit a graph CI rejects.
 
 ## Offload the full suite — don't run it locally
 
