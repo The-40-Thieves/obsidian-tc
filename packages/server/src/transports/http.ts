@@ -145,12 +145,81 @@ async function resolveAuth(
  * when the response closes. Node req/res are bridged from Hono's Fetch Request
  * by createMcpHandler, which classifies the protocol era per request and serves both.
  */
+/**
+ * Rebuild a caller context from the request's pass-through `authInfo`.
+ *
+ * FAILS CLOSED. An absent `authInfo` means the request reached the handler without the Hono auth
+ * gate having populated it, which cannot happen on any path that exists today — and if it ever
+ * does, the safe answer is to refuse rather than mint a context. Defaulting here would produce
+ * `authenticated: true` for a caller nobody verified, on the server's default vault.
+ */
+function contextFromAuthInfo(
+  opts: HttpAppOptions,
+  authInfo: { scopes?: string[]; extra?: Record<string, unknown> } | undefined,
+): (signal?: AbortSignal) => CallerContext {
+  return (signal?: AbortSignal): CallerContext => {
+    if (authInfo === undefined) {
+      throw new Error("unauthenticated request reached the MCP handler");
+    }
+    const extra = authInfo.extra as { caller?: string | null; vault?: string } | undefined;
+    return {
+      caller: extra?.caller ?? null,
+      authenticated: true,
+      grantedScopes: new Set(authInfo.scopes ?? []),
+      // Bind the caller to its token's vault (or the server default when the token carries no
+      // `vault` claim). vaultBound makes dispatch reject a tool call naming a different vault
+      // (THE-267), so an HTTP token cannot reach every configured vault via the `vault` argument.
+      vaultId: extra?.vault ?? opts.vaultId,
+      vaultBound: true,
+      db: opts.db,
+      acl: opts.acl,
+      signal,
+    };
+  };
+}
+
 export function createHttpApp(opts: HttpAppOptions): Hono {
   const app = new Hono();
   // THE-583: one codec per server, not per request — a state minted on one request is verified on
   // the NEXT one, so the key has to outlive both. Only available under `jwt` auth: without a
   // secret there is nothing to sign with, and an unauthenticated deployment has no caller identity
   // to bind a confirmation to anyway, so it keeps the 2025 token path.
+  /**
+   * THE-583: the MCP handler, created ONCE for the app rather than per request.
+   *
+   * It used to be per request, and the reason was sound: the caller context closed over THIS
+   * request's verified identity, so a long-lived handler would have leaked one caller's
+   * authorization into another's. That constraint is what made a long-lived
+   * `subscriptions/listen` stream impossible — the handler serving it was closed the instant the
+   * request that created it returned.
+   *
+   * The isolation is preserved by a different mechanism, not dropped. `createMcpHandler` invokes
+   * its factory once per SERVING UNIT — one HTTP request — and hands it that request's
+   * `authInfo`, which the SDK treats as strictly pass-through (it never reads headers or verifies
+   * anything itself). So the caller context is still built per request from this request's
+   * identity; it simply arrives as an argument instead of a closure. Auth itself is unchanged and
+   * still runs in Hono, ahead of this.
+   *
+   * Asserted by test/http-caller-isolation.test.ts, which drives two different tokens through the
+   * SAME handler and fails if either sees the other's scopes or vault.
+   */
+  const handler = createMcpHandler(
+    (mcpCtx) =>
+      createMcpServer({
+        name: opts.name,
+        version: opts.version,
+        registry: opts.registry,
+        context: contextFromAuthInfo(opts, mcpCtx.authInfo),
+        vaultRegistry: opts.vaultRegistry,
+        facadeMode: opts.facadeMode,
+        // The SDK's own classification, not a header we re-interpret.
+        era: mcpCtx.era,
+        elicitCodec,
+        jobQueue: opts.jobQueue,
+      }),
+    { legacy: "stateless" },
+  );
+
   const elicitCodec = opts.auth.jwtSecret
     ? createElicitCodec(opts.auth.jwtSecret, getDefaultElicitTtlSeconds())
     : undefined;
@@ -271,55 +340,6 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       );
     }
 
-    // THE-514: signal is the per-request AbortSignal the MCP SDK hands each handler
-    // (extra.signal in mcp/server.ts) — threaded through so a cancelled/disconnected HTTP call
-    // stops runDispatch at the next stage boundary instead of running to completion unobserved.
-    const context = (signal?: AbortSignal): CallerContext => ({
-      caller: authz.caller,
-      authenticated: true,
-      grantedScopes: authz.scopes,
-      // Bind the caller to its token's vault (or the server default when the token carries no
-      // `vault` claim). vaultBound makes dispatch reject a tool call naming a different vault
-      // (THE-267), so an HTTP token cannot reach every configured vault via the `vault` argument.
-      vaultId: authz.vault ?? opts.vaultId,
-      vaultBound: true,
-      db: opts.db,
-      acl: opts.acl,
-      signal,
-    });
-
-    // THE-583: createMcpHandler is the SDK's era-aware entry point, and using it is what makes
-    // `server/discover` reachable at all. Hand-wiring Server + transport (what this did before)
-    // never establishes a protocol era on a stateless connection, so every request fell back to
-    // the frozen 2025 wire registry — which has no `server/discover` and answered -32601 no matter
-    // what the client sent. The handler classifies each request itself and tells the factory which
-    // era it is constructing for.
-    //
-    // `legacy: "stateless"` (the default, spelled out here because it is load-bearing) is exactly
-    // the idiom this transport already used: each 2025-era request is served by a fresh instance
-    // over a stateless transport. LiteLLM keeps working unchanged.
-    //
-    // Built per request rather than once, matching the previous per-request Server: the caller
-    // context closes over THIS request's verified identity, and binding it to a long-lived handler
-    // would leak one caller's authorization into another's request.
-    const handler = createMcpHandler(
-      (mcpCtx) =>
-        createMcpServer({
-          name: opts.name,
-          version: opts.version,
-          registry: opts.registry,
-          context,
-          vaultRegistry: opts.vaultRegistry,
-          facadeMode: opts.facadeMode,
-          // The SDK's own classification, not a header we re-interpret.
-          era: mcpCtx.era,
-          elicitCodec,
-          // THE-583: without this the augmentation branch in `tools/call` is unreachable — the only
-          // transport that serves Tasks never handed the server the queue that backs it.
-          jobQueue: opts.jobQueue,
-        }),
-      { legacy: "stateless" },
-    );
     // THE-583: serve the Tasks EXTENSION here, BEFORE delegating.
     //
     // `createMcpHandler` validates an inbound method against the spec registry and answers -32601
@@ -338,12 +358,18 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       });
       if (taskResponse !== undefined) return c.json(taskResponse);
     }
-    try {
-      // Web-standard fetch in, Response out.
-      return await handler.fetch(c.req.raw);
-    } finally {
-      void handler.close();
-    }
+    // Web-standard fetch in, Response out. `authInfo` is how this request's verified identity
+    // reaches the factory — strictly pass-through, so the handler never re-derives or re-checks it.
+    // NOT closed here any more: the handler is the app's, and closing it per request is what made a
+    // long-lived `subscriptions/listen` stream impossible.
+    return await handler.fetch(c.req.raw, {
+      authInfo: {
+        token: bearer(c.req.header("authorization")) ?? "",
+        clientId: authz.caller ?? "",
+        scopes: [...authz.scopes],
+        extra: { caller: authz.caller, vault: authz.vault },
+      },
+    });
   });
 
   // Stateless mode has no standalone SSE stream or server-side session to delete.
