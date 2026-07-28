@@ -32,11 +32,11 @@ import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
 import { listResources, readResource } from "./resources";
 import {
-  invalidTaskParams,
-  requestsTask,
+  clientSupportsTasks,
   TASK_CALL_JOB_TYPE,
+  TASKS_EXTENSION,
   type TaskCallPayload,
-  toMcpTask,
+  toCreateTaskResult,
 } from "./tasks";
 
 /**
@@ -228,6 +228,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
         prompts: {},
         logging: {},
         ...(opts.vaultRegistry ? { resources: {} } : {}),
+        // THE-583: advertise the Tasks extension, but only when there is a queue to back it. The
+        // client checks this before it is willing to receive a handle, so advertising it without a
+        // substrate would invite a task we cannot create. `extensions` is the SEP-2575 field.
+        ...(opts.jobQueue ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
       },
       // THE-583: serve BOTH protocol eras from one server. The SDK ships a frozen 2025-11-25 wire
       // codec alongside the 2026-07-28 one and picks per connection, but the shipped
@@ -495,18 +499,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     //
     // The caller's scopes are snapshotted INTO the job. The runner gets exactly these and nothing
     // else, so a task can never do more than the caller could have done synchronously.
-    if (opts.jobQueue && requestsTask(req.params)) {
-      // Validated the moment the client ASKS, before asking whether the tool would honour it. A
-      // malformed `task` is a client bug either way, and silently running the call synchronously
-      // would leave that client with no way to tell a rejected `task` from an ignored one.
-      const malformed = invalidTaskParams(req.params);
-      if (malformed !== null)
-        return {
-          content: [
-            { type: "text", text: JSON.stringify({ code: "invalid_params", message: malformed }) },
-          ],
-          isError: true,
-        };
+    if (opts.jobQueue && clientSupportsTasks(server.getClientCapabilities())) {
       const def = opts.registry.list().find((d) => d.name === req.params.name);
       if (def?.taskAugmentable) {
         const job = opts.jobQueue.enqueue(TASK_CALL_JOB_TYPE, {
@@ -520,11 +513,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
             vaultBound: ctx.vaultBound === true,
           } satisfies TaskCallPayload,
         });
-        // The handle IS the result: the client polls `tasks/get` from here.
-        return {
-          content: [{ type: "text", text: `task ${job.id} accepted` }],
-          structuredContent: toMcpTask(job) as unknown as Record<string, unknown>,
-        };
+        // The handle IS the result: `resultType: "task"` is the discriminator the client switches on
+        // to tell it apart from an answer, and it polls `tasks/get` from here.
+        return toCreateTaskResult(job) as unknown as CallToolResult;
       }
     }
     // THE-275 domain-verb facade: a domain meta-tool ("notes", "search", ...) carries {action, args};

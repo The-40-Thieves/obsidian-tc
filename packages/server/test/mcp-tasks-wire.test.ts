@@ -12,6 +12,7 @@
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
@@ -29,11 +30,55 @@ const META = {
   "io.modelcontextprotocol/clientCapabilities": {},
 };
 
+/** Same, but declaring the Tasks extension — the 2026 trigger for task creation. */
+const META_TASKS = {
+  ...META,
+  "io.modelcontextprotocol/clientCapabilities": {
+    extensions: { "io.modelcontextprotocol/tasks": {} },
+  },
+};
+
+async function callTool(
+  port: number,
+  jwt: string,
+  name: string,
+  meta: Record<string, unknown>,
+): Promise<any> {
+  const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${jwt}`,
+      "mcp-protocol-version": MODERN,
+      "mcp-method": "tools/call",
+      "mcp-name": name,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name, arguments: {}, _meta: meta },
+    }),
+  });
+  const text = await res.text();
+  const line = text.split("\n").find((l) => l.startsWith("data: "));
+  return JSON.parse(line ? line.slice(6) : text || "{}");
+}
+
 async function boot() {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const queue = new JobQueue(db);
   const registry = new ToolRegistry();
+  registry.register({
+    name: "slow_thing",
+    description: "test-only task-augmentable tool",
+    inputSchema: z.object({}),
+    requiredScopes: [],
+    taskAugmentable: true,
+    handler: () => ({ ok: true }),
+  } as never);
   registry.register(
     createHealthTool({
       version: "0.0.0-test",
@@ -294,6 +339,51 @@ describe("tasks/update over the wire (THE-583)", () => {
       );
       expect(r.result).toBeUndefined();
       expect(r.error).toBeDefined();
+    } finally {
+      await handle.close();
+    }
+  }, 25_000);
+});
+
+describe("task creation is SERVER-DIRECTED off the client capability (THE-583)", () => {
+  it("returns a CreateTaskResult when the client declared the Tasks extension", async () => {
+    // The decisive one: the SDK VALIDATES outbound tools/call results against the era's wire schema,
+    // and the Tasks extension has no SDK runtime. If `resultType: "task"` did not survive that
+    // validation, task creation could not ride tools/call at all.
+    const { handle } = await boot();
+    const jwt = await tokenFor("agent-1");
+    try {
+      const r = await callTool(handle.port, jwt, "slow_thing", META_TASKS);
+      expect(r.error).toBeUndefined();
+      expect(r.result.resultType).toBe("task");
+      expect(typeof r.result.taskId).toBe("string");
+      expect(r.result.status).toBe("working");
+    } finally {
+      await handle.close();
+    }
+  }, 25_000);
+
+  it("runs SYNCHRONOUSLY for a client that did not declare it — never hand it a handle", async () => {
+    // "Never return a task to a client that did not declare support." Such a client cannot poll
+    // `tasks/get`, so a handle would lose the work outright.
+    const { handle } = await boot();
+    const jwt = await tokenFor("agent-1");
+    try {
+      const r = await callTool(handle.port, jwt, "slow_thing", META);
+      expect(r.error).toBeUndefined();
+      expect(r.result.resultType).not.toBe("task");
+      expect(r.result.taskId).toBeUndefined();
+    } finally {
+      await handle.close();
+    }
+  }, 25_000);
+
+  it("runs synchronously for a NON-augmentable tool even with the capability", async () => {
+    const { handle } = await boot();
+    const jwt = await tokenFor("agent-1");
+    try {
+      const r = await callTool(handle.port, jwt, "health", META_TASKS);
+      expect(r.result?.resultType).not.toBe("task");
     } finally {
       await handle.close();
     }

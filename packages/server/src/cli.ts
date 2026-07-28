@@ -488,7 +488,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         }
       : undefined;
   const jobHandlers = new Map<string, JobHandler>();
-  jobHandlers.set(TASK_CALL_JOB_TYPE, makeTaskCallHandler({ registry, db, acl }));
+  jobHandlers.set(TASK_CALL_JOB_TYPE, makeTaskCallHandler({ registry, db, acl, queue: jobQueue }));
   if (roles) {
     jobHandlers.set("contradiction", async (job) => {
       const { vaultId, chunkId } = job.payload as { vaultId: string; chunkId: string };

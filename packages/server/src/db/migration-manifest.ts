@@ -22,6 +22,7 @@ export const CACHE_MIGRATION_FILES = [
   // THE-627: client_name / client_version on workspace_sessions, read from MCP `_meta`.
   "20260727_001_session_client_info.sql",
   "20260728_001_jobs_owner.sql",
+  "20260728_002_jobs_outcome.sql",
 ] as const;
 
 /**

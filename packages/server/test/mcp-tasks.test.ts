@@ -43,6 +43,7 @@ describe("toTask — projecting a queue job onto the extension vocabulary", () =
     updatedAt: 1_700_000_001_000,
     vaultId: "main",
     caller: "agent-1",
+    outcome: null,
   };
 
   it("collapses queued, running and retrying to `working`", () => {
