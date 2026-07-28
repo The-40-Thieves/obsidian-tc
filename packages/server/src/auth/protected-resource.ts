@@ -54,7 +54,18 @@ export function resourceMetadataUrl(auth: AuthConfig): string {
   return getOAuthProtectedResourceMetadataUrl(new URL(auth.resource as string));
 }
 
-/** RFC 6750 / RFC 9728 §5.1 challenge pointing the client at the PRM document. */
+/**
+ * RFC 6750 / RFC 9728 §5.1 challenge pointing the client at the PRM document.
+ *
+ * THE-658: carries `scope` when the operator configured `scopesSupported`. The 2026-07-28 spec
+ * makes this a SHOULD, and the reason is concrete — a general-purpose MCP client has no
+ * domain knowledge to pick scopes with. Its documented fallback when `scope` is absent is to request
+ * EVERY scope in `scopes_supported`, so omitting the parameter does not fail closed; it pushes
+ * clients toward asking for more than they need.
+ */
 export function wwwAuthenticateChallenge(auth: AuthConfig): string {
-  return `Bearer realm="obsidian-tc", resource_metadata="${resourceMetadataUrl(auth)}"`;
+  const scopes = auth.scopesSupported;
+  const scope =
+    scopes && scopes.length > 0 ? `, scope="${scopes.join(" ").replace(/"/g, "")}"` : "";
+  return `Bearer realm="obsidian-tc", resource_metadata="${resourceMetadataUrl(auth)}"${scope}`;
 }

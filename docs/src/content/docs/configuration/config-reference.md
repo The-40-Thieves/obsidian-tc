@@ -42,7 +42,8 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `auth.authorizationServers` | `array<string>` | — |  | Authorization server issuer URLs advertised in the Protected Resource Metadata document. At least one is needed for PRM to be served. |
 | `auth.issuer` | `string` | — |  | Expected `iss` claim. Setting it also requires an audience — validating the issuer alone does not establish that the token was meant for this server. |
 | `auth.jwks` | `record` | — |  | Inline JWKS document for asymmetric verification (RS256/ES256/EdDSA). Rotation is multiple keys in the set, selected by the token's `kid`. |
-| `auth.jwksFile` | `string` | — |  | Path to a JWKS document, loaded once at transport boot. File or inline only — no URL fetch, so verification adds no network attack surface. |
+| `auth.jwksFile` | `string` | — |  | Path to a JWKS document, loaded once at transport boot. Adds no network dependency; prefer it over jwksUri when the keys are static. |
+| `auth.jwksUri` | `string` | — |  | URL of an authorization server's JWKS (its `jwks_uri`), fetched and cached for asymmetric verification. Opt-in: it adds a network dependency to token verification, which jwks/jwksFile do not. Use it when an external AS rotates keys. |
 | `auth.jwtSecret` | `string` | — |  | Shared secret for HS256 verification, minimum 32 characters. Secret. HS256 tokens verify ONLY against this, never against the JWKS. |
 | `auth.mode` | `enum(none\|jwt)` | `"none"` |  | Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` requires a jwtSecret or a JWKS. |
 | `auth.resource` | `string` | — |  | This server's canonical resource URI (RFC 9728). Set together with authorizationServers to advertise Protected Resource Metadata; also serves as the default bound audience. |

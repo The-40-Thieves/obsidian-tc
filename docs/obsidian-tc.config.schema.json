@@ -320,8 +320,13 @@
           "additionalProperties": {}
         },
         "jwksFile": {
-          "description": "Path to a JWKS document, loaded once at transport boot. File or inline only — no URL fetch, so verification adds no network attack surface.",
+          "description": "Path to a JWKS document, loaded once at transport boot. Adds no network dependency; prefer it over jwksUri when the keys are static.",
           "type": "string"
+        },
+        "jwksUri": {
+          "description": "URL of an authorization server's JWKS (its `jwks_uri`), fetched and cached for asymmetric verification. Opt-in: it adds a network dependency to token verification, which jwks/jwksFile do not. Use it when an external AS rotates keys.",
+          "type": "string",
+          "format": "uri"
         },
         "algorithms": {
           "description": "Explicit allowlist of accepted JWT algorithms. Algorithm confusion is structurally impossible regardless: HS256 verifies only against jwtSecret and asymmetric algorithms only against the JWKS.",

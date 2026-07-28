@@ -232,7 +232,26 @@ export const AuthConfigSchema = z
       .string()
       .optional()
       .describe(
-        "Path to a JWKS document, loaded once at transport boot. File or inline only — no URL fetch, so verification adds no network attack surface.",
+        "Path to a JWKS document, loaded once at transport boot. Adds no network dependency; prefer it over jwksUri when the keys are static.",
+      ),
+    // THE-658: fetch the JWKS from an authorization server's `jwks_uri`.
+    //
+    // THE-297 deliberately allowed inline/file ONLY, reasoning that a URL fetch adds network
+    // attack surface. That reasoning still holds and is why this is OPT-IN and unset by default —
+    // it is not a silent reversal. What it buys is the thing that made adopting a real
+    // authorization server a code change rather than a config change: with inline keys, every AS
+    // key rotation means an operator hand-copying a JWKS and redeploying, so rotation (the entire
+    // point of asymmetric verification) becomes a manual outage risk.
+    //
+    // The added surface is bounded: jose caches the fetched set and re-fetches only on an unknown
+    // `kid`, the URL is operator-configured (never derived from a request), and a fetch failure
+    // rejects the token rather than falling back to any other key source.
+    jwksUri: z
+      .string()
+      .url()
+      .optional()
+      .describe(
+        "URL of an authorization server's JWKS (its `jwks_uri`), fetched and cached for asymmetric verification. Opt-in: it adds a network dependency to token verification, which jwks/jwksFile do not. Use it when an external AS rotates keys.",
       ),
     algorithms: z
       .array(z.string())
@@ -287,11 +306,11 @@ export const AuthConfigSchema = z
       .optional()
       .describe("Scopes advertised as supported in the Protected Resource Metadata document."),
   })
-  .refine((c) => c.mode !== "jwt" || !!c.jwtSecret || !!c.jwks || !!c.jwksFile, {
-    message: "auth.mode 'jwt' requires jwtSecret (>=32 chars) or a JWKS (jwks / jwksFile)",
+  .refine((c) => c.mode !== "jwt" || !!c.jwtSecret || !!c.jwks || !!c.jwksFile || !!c.jwksUri, {
+    message:
+      "auth.mode 'jwt' requires jwtSecret (>=32 chars) or a JWKS (jwks / jwksFile / jwksUri)",
     path: ["jwtSecret"],
   });
-
 export const AclRuleSchema = z.object({
   glob: z.string().min(1).describe("Glob matched against the vault-relative note path."),
   scopes: z
@@ -1494,7 +1513,10 @@ export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
   // explicit `audience` OR a `resource` satisfies the binding. HS256 on a loopback bind stays
   // audience-optional (self-issued, local); a JWKS (external issuer) is never audience-optional.
   if (cfg.auth.mode === "jwt") {
-    const hasJwks = Boolean(cfg.auth.jwks || cfg.auth.jwksFile);
+    // THE-658: jwksUri counts. It is the MOST external of the three key sources — keys fetched
+    // from an authorization server at runtime — so leaving it out would have exempted exactly the
+    // configuration that most needs an audience bound.
+    const hasJwks = Boolean(cfg.auth.jwks || cfg.auth.jwksFile || cfg.auth.jwksUri);
     const boundAudience = cfg.auth.audience ?? cfg.auth.resource;
     const remote = http.enabled && !isLoopbackHost(http.host);
     if (hasJwks && boundAudience === undefined) {
@@ -1502,7 +1524,7 @@ export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
         code: z.ZodIssueCode.custom,
         path: ["auth", "audience"],
         message:
-          "auth.mode 'jwt' with a JWKS (jwks/jwksFile) requires auth.audience (or auth.resource): a JWKS trusts an external issuer, so without an audience a token that issuer minted for another service is accepted here (confused deputy). (THE-456)",
+          "auth.mode 'jwt' with a JWKS (jwks/jwksFile/jwksUri) requires auth.audience (or auth.resource): a JWKS trusts an external issuer, so without an audience a token that issuer minted for another service is accepted here (confused deputy). (THE-456)",
       });
     }
     if (remote && boundAudience === undefined) {

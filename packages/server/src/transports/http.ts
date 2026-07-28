@@ -273,6 +273,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
       ? createTokenVerifier({
           secret: opts.auth.jwtSecret,
           jwks,
+          jwksUri: opts.auth.jwksUri,
           algorithms: opts.auth.algorithms,
           maxAgeSeconds: opts.auth.tokenTtlSeconds,
           audience,
