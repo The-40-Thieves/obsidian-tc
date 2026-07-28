@@ -4,6 +4,7 @@ import {
   inputRequired,
   type ListPromptsResult,
   type ListResourcesResult,
+  type ListResourceTemplatesResult,
   type ListToolsResult,
   type ReadResourceResult,
   ResourceNotFoundError,
@@ -629,6 +630,24 @@ export function createMcpServer(opts: McpServerOptions): Server {
         )
         .then((r) => withCacheHint(r, CACHE_PRIVATE));
     });
+    // SEP-2549 names `resources/templates/list` among the five cacheable results, so a server that
+    // declares `resources` is expected to answer it. We had no handler at all, and the SDK answered
+    // -32601 — a client probing the resource surface saw the METHOD as unsupported rather than
+    // seeing that we simply publish no templates.
+    //
+    // The empty list is the honest answer, not a placeholder: resources here are concrete vault
+    // notes enumerated by `resources/list`, and there is no URI template to expand. It still
+    // carries the cache hint, because the emptiness is as cacheable as any other listing.
+    server.setRequestHandler(
+      "resources/templates/list",
+      (_req, _extra): Promise<ListResourceTemplatesResult> =>
+        Promise.resolve(
+          withCacheHint(
+            { resourceTemplates: [] } as ListResourceTemplatesResult,
+            CACHE_PRIVATE,
+          ) as ListResourceTemplatesResult,
+        ),
+    );
     server.setRequestHandler("resources/read", (req, extra): Promise<ReadResourceResult> => {
       const ctx = opts.context(extra.mcpReq.signal);
       return opts.registry
