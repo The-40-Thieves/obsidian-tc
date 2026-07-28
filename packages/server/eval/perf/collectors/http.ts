@@ -23,7 +23,7 @@ import type { MetricSample } from "../report";
  * handling from being masked by startup noise, and vice versa.
  */
 export async function collectHttp(vault: VaultCtx): Promise<MetricSample[]> {
-  const app = createHttpApp({
+  const { app } = createHttpApp({
     name: "obsidian-tc-perf",
     version: "0.0.0-perf",
     registry: new ToolRegistry(),
@@ -101,7 +101,7 @@ export async function collectHttp(vault: VaultCtx): Promise<MetricSample[]> {
  * listener, no port contention.
  */
 async function fireConcurrentHandshakes(
-  app: ReturnType<typeof createHttpApp>,
+  app: ReturnType<typeof createHttpApp>["app"],
   initialize: () => Request,
   concurrency: number,
 ): Promise<{ ms: number; okCount: number }[]> {
@@ -122,7 +122,7 @@ async function fireConcurrentHandshakes(
 }
 
 export async function collectHttpConcurrency(vault: VaultCtx): Promise<MetricSample[]> {
-  const app = createHttpApp({
+  const { app } = createHttpApp({
     name: "obsidian-tc-perf",
     version: "0.0.0-perf",
     registry: new ToolRegistry(),
