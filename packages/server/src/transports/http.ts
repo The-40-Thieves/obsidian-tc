@@ -397,6 +397,11 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     // NOT closed here any more: the handler is the app's, and closing it per request is what made a
     // long-lived `subscriptions/listen` stream impossible.
     return await handler.fetch(c.req.raw, {
+      // The body we already parsed above (for the Tasks extension checks). Without this the SDK
+      // parses the same bytes a SECOND time on every request — `createMcpHandler` only parses when
+      // `parsedBody` is undefined. The clone stays: the SDK is handed the untouched request, and
+      // this is purely about not re-doing the JSON work.
+      ...(body !== undefined ? { parsedBody: body } : {}),
       authInfo: {
         token: bearer(c.req.header("authorization")) ?? "",
         clientId: authz.caller ?? "",
