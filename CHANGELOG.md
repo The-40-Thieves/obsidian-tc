@@ -29,6 +29,27 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `test/mcp-protocol-eras.test.ts` pins both eras plus a floor asserting an unadvertised revision is
   still refused.
 
+- **HITL confirmation now uses the 2026-07-28 multi-round-trip shape (THE-583, SEP-2260/2322).** A
+  destructive call from a modern client is answered with `inputRequired` carrying an opaque,
+  HMAC-signed `requestState`; the client re-issues the same call echoing it back and the server
+  verifies it before any handler runs. Previously this was an `elicit_required` error plus a bespoke
+  `elicit_token` argument that only a client written against this server could complete.
+
+  The 2025 token path is untouched and still serves legacy callers, so both eras work. The round
+  trip is offered **only** when the client advertised form elicitation — the SDK rejects an
+  `inputRequired` naming a capability the client never declared, so offering it unconditionally
+  would turn "needs confirmation" into a hard protocol error for clients that cannot prompt a human.
+
+  A confirmation is bound to tool, arguments, vault **and** caller: approving one write does not
+  authorize another.
+
+  **Known trade, accepted deliberately:** `requestState` is authenticated and TTL-bounded but *not
+  consumed*, where the `elicit_tokens` table it supersedes was single-use
+  (`UPDATE … WHERE consumed_at IS NULL`). Within the TTL a captured confirmation can authorize the
+  same call more than once. A test asserts this replay behaviour explicitly so it cannot be mistaken
+  for the old semantics; restoring one-time use means a consumed-nonce table and does not require a
+  wire change.
+
 - **Adopt SDK helpers over hand-rolled equivalents (THE-583).** Three duplicated implementations now
   defer to the SDK, removing second copies of wire constants and validation logic:
 

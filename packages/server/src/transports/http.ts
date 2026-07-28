@@ -16,6 +16,8 @@ import {
 } from "../auth/protected-resource";
 import { createTokenVerifier, type TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
+import { getDefaultElicitTtlSeconds } from "../elicit";
+import { createElicitCodec } from "../elicit-request-state";
 import type { FacadeMode } from "../mcp/facade";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
@@ -139,6 +141,13 @@ async function resolveAuth(
  */
 export function createHttpApp(opts: HttpAppOptions): Hono {
   const app = new Hono();
+  // THE-583: one codec per server, not per request — a state minted on one request is verified on
+  // the NEXT one, so the key has to outlive both. Only available under `jwt` auth: without a
+  // secret there is nothing to sign with, and an unauthenticated deployment has no caller identity
+  // to bind a confirmation to anyway, so it keeps the 2025 token path.
+  const elicitCodec = opts.auth.jwtSecret
+    ? createElicitCodec(opts.auth.jwtSecret, getDefaultElicitTtlSeconds())
+    : undefined;
   // Token verifier seam (W-AUTH): default to HS256 JWT (jose) built from config; a custom
   // verifier (e.g. an OAuth 2.1 bearer/introspection verifier) may be injected via
   // opts.verifier without touching this transport. null in "none" mode or jwt-without-secret.
@@ -297,6 +306,7 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
           facadeMode: opts.facadeMode,
           // The SDK's own classification, not a header we re-interpret.
           era: mcpCtx.era,
+          elicitCodec,
         }),
       { legacy: "stateless" },
     );

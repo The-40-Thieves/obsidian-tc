@@ -1,6 +1,7 @@
 import {
   type CallToolResult,
   type GetPromptResult,
+  inputRequired,
   type ListPromptsResult,
   type ListResourcesResult,
   type ListToolsResult,
@@ -10,6 +11,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/server";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
+import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { VaultRegistry } from "../vault/registry";
 import { extractClientInfo } from "./client-info";
@@ -106,6 +108,28 @@ export interface McpServerOptions {
    * 2026-only field goes on the wire toward a client that never asked for that revision.
    */
   era?: "legacy" | "modern";
+  /**
+   * THE-583: codec for the 2026-07-28 HITL round trip (SEP-2260/2322). When supplied, an
+   * `elicit_required` outcome is answered with `inputRequired({ requestState })` — the protocol's
+   * own shape — instead of a bare error a generic client cannot act on. Absent (stdio, tests) keeps
+   * the 2025 behaviour: the error, and an `elicit_token` argument to satisfy it.
+   */
+  elicitCodec?: ElicitCodec;
+}
+
+/**
+ * Did the caller advertise form elicitation?
+ *
+ * The 2026-07-28 revision carries client capabilities in the per-request `_meta` envelope, but the
+ * SDK parses and consumes those keys before a handler runs — so this reads the capabilities object
+ * the SDK exposes rather than re-parsing the wire. Offering an `inputRequired` naming a capability
+ * the client never advertised is a hard -32021 protocol error, so this gate decides whether the
+ * round trip is offered at all.
+ */
+function clientSupportsFormElicitation(caps: unknown): boolean {
+  if (caps === null || typeof caps !== "object") return false;
+  const elicitation = (caps as Record<string, unknown>).elicitation;
+  return elicitation !== null && typeof elicitation === "object" && "form" in elicitation;
 }
 
 function asStructured(data: unknown): Record<string, unknown> | undefined {
@@ -195,6 +219,13 @@ export function createMcpServer(opts: McpServerOptions): Server {
       // down. Verified with that exact client against this SDK: negotiated 2025-11-25, listed
       // tools, called one.
       supportedProtocolVersions: [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS],
+      // THE-583: the SDK verifies an echoed `requestState` (HMAC + TTL) BEFORE any handler runs,
+      // and only then exposes the decoded payload via `ctx.mcpReq.requestState<T>()`. Wiring it
+      // here rather than verifying inside the handler means an unauthenticated state never reaches
+      // our code at all — the handler cannot forget to check it.
+      ...(opts.elicitCodec
+        ? { requestState: { verify: (state: string) => opts.elicitCodec?.verify(state) } }
+        : {}),
     },
   );
 
@@ -314,9 +345,57 @@ export function createMcpServer(opts: McpServerOptions): Server {
     name: string,
     args: Record<string, unknown>,
     ctx: CallerContext,
+    /** Whether the caller advertised form elicitation — decided once per request by the handler. */
+    canElicit = false,
   ): Promise<CallToolResult> => {
     const result = await opts.registry.dispatch(name, args, ctx);
-    if (!result.ok) return errorToResult(result.error);
+    if (!result.ok) {
+      // THE-583 (SEP-2260/2322): a confirmation requirement is not a failure, it is a round trip.
+      // The 2026-07-28 shape answers with `inputRequired` carrying an opaque state the client
+      // echoes back on the retry — which a generic MCP client knows how to complete, where the
+      // old `elicit_required` error plus a bespoke `elicit_token` argument required client code
+      // written against THIS server.
+      //
+      // Only on the modern era and only when a codec is wired: a 2025-era caller still gets the
+      // error it understands. `args_hash` comes from dispatch itself, so the state is bound to the
+      // hash the gate will recompute — deriving it here instead would be a second implementation
+      // of the same hash, free to drift.
+      // Only when the CLIENT declared it can render a form elicitation. The SDK refuses an
+      // `inputRequired` naming a capability the client never advertised (-32021), so offering the
+      // round trip unconditionally would turn "needs confirmation" into a hard protocol error for
+      // every modern client that cannot prompt a human. Those clients get the plain
+      // `elicit_required` error and the 2025 token path, which they can still complete out of band.
+      if (result.error.code === "elicit_required" && isModern && opts.elicitCodec && canElicit) {
+        const argsHash = (result.error as { details?: { args_hash?: string } }).details?.args_hash;
+        if (typeof argsHash === "string") {
+          return inputRequired({
+            requestState: await opts.elicitCodec.mint({
+              tool: name,
+              argsHash,
+              vaultId: ctx.vaultId,
+              caller: ctx.caller,
+            }),
+            inputRequests: {
+              confirm: {
+                method: "elicitation/create",
+                params: {
+                  mode: "form",
+                  message: `Confirm ${name}: this call changes vault content and needs approval.`,
+                  requestedSchema: {
+                    type: "object",
+                    properties: {
+                      approve: { type: "boolean", title: "Approve this change" },
+                    },
+                    required: ["approve"],
+                  },
+                },
+              },
+            },
+          }) as unknown as CallToolResult;
+        }
+      }
+      return errorToResult(result.error);
+    }
     return formatData(result.data);
   };
 
@@ -337,6 +416,15 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // caller that sends none, in which case the session row records NULL rather than a placeholder.
     const clientInfo = extractClientInfo(req.params._meta);
     if (clientInfo !== undefined) ctx = { ...ctx, clientInfo };
+    // The SDK consumes the SEP-2575 envelope keys before a handler sees `params._meta`, so client
+    // capabilities are read from its own accessor rather than re-parsed off the wire.
+    const canElicit = clientSupportsFormElicitation(server.getClientCapabilities());
+    // THE-583: a verified 2026-07-28 request-state, when the client echoed one. The transport has
+    // already checked its HMAC and TTL; dispatch still checks that it authorizes this exact call.
+    const echoed = (
+      extra.mcpReq as { requestState?: <T>() => T | undefined }
+    ).requestState?.<ElicitRequestState>();
+    if (echoed !== undefined) ctx = { ...ctx, elicitState: echoed };
     if (typeof rawArgs.elicit_token === "string") {
       const { elicit_token, ...rest } = rawArgs;
       args = rest;
@@ -348,7 +436,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     if (facadeMode === "domain" && isDomainTool(req.params.name)) {
       const action = typeof args.action === "string" ? args.action : "";
       const actionArgs = (args.args ?? {}) as Record<string, unknown>;
-      return dispatchToResult(action, actionArgs, ctx);
+      return dispatchToResult(action, actionArgs, ctx, canElicit);
     }
     // THE-219 facade interception (boundary-only): find/describe are pure metadata over the
     // caller-visible catalog; call_capability routes the named TARGET through registry.dispatch so
@@ -383,9 +471,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
       }
       const target = typeof args.name === "string" ? args.name : "";
       const targetArgs = (args.args ?? {}) as Record<string, unknown>;
-      return dispatchToResult(target, targetArgs, ctx);
+      return dispatchToResult(target, targetArgs, ctx, canElicit);
     }
-    return dispatchToResult(req.params.name, args, ctx);
+    return dispatchToResult(req.params.name, args, ctx, canElicit);
   });
 
   // Resources: vault notes. resources.ts owns AUTHORIZATION (read:notes scope, vault binding,

@@ -16,6 +16,7 @@ import type { z } from "zod";
 import type { FolderAcl } from "../acl";
 import { type AuditEvent, writeEvent } from "../audit";
 import { cachedPrepare, type Database } from "../db/types";
+import { type ElicitRequestState, hitlSatisfiedByState } from "../elicit-request-state";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/attrs";
@@ -43,6 +44,9 @@ export interface CallerContext {
   vaultBound?: boolean;
   db: Database;
   elicitToken?: string | null;
+  /** THE-583: a transport-VERIFIED 2026-era HITL confirmation (HMAC+TTL already checked); the
+   *  gate still binds it to this call. Absent for 2025 callers, who use `elicitToken`. */
+  elicitState?: ElicitRequestState;
   acl?: FolderAcl;
   /** THE-209: active workspace session for this caller. When set (by the transport context
    *  factory), each dispatch appends a tool_invocation record to that session's JSONL trace. */
@@ -1167,7 +1171,19 @@ export class ToolRegistry {
       const needsHitl = def.destructive === true || def.requiredScopes.some(scopeRequiresHitl);
       if (needsHitl) {
         const ok =
-          !!ctx.elicitToken && !!this.verifyElicit && this.verifyElicit(ctx.elicitToken, hash, ctx);
+          (!!ctx.elicitToken &&
+            !!this.verifyElicit &&
+            this.verifyElicit(ctx.elicitToken, hash, ctx)) ||
+          // THE-583 2026-era path: transport-authenticated state, bound to THIS call. The decision
+          // lives in elicit-request-state.ts (hitlSatisfiedByState) so it is testable without a
+          // registry; this file's biome line cap was raised 1310 -> 1325 for the wiring rather than
+          // shaving the reasoning around it, matching what THE-610 did for the sweep.
+          hitlSatisfiedByState(ctx.elicitState, {
+            tool: name,
+            argsHash: hash,
+            vaultId: ctx.vaultId,
+            caller: ctx.caller,
+          });
         if (!ok) {
           this.meter((m) => m.incHitlElicited(ctx.vaultId, name));
           if (idemClaimed && idemKey) {

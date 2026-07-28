@@ -14,6 +14,16 @@ export function setDefaultElicitTtlSeconds(seconds: number): void {
   if (Number.isInteger(seconds) && seconds > 0) defaultTtlSeconds = seconds;
 }
 
+/**
+ * The effective confirmation TTL. Exported so THE-583's request-state codec expires a 2026-era
+ * confirmation on exactly the same clock as the 2025 token it replaces — two eras of the same
+ * mechanism disagreeing about how long an approval lasts is the kind of drift nobody notices until
+ * one of them is wrong.
+ */
+export function getDefaultElicitTtlSeconds(): number {
+  return defaultTtlSeconds;
+}
+
 export interface IssueElicitInput {
   vaultId: string;
   toolName: string;
