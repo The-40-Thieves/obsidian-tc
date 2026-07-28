@@ -1,11 +1,6 @@
 import { readFileSync } from "node:fs";
-// THE-583: v2 renamed this. `WebStandardStreamableHTTPServerTransport` (from
-// @modelcontextprotocol/server) takes a Fetch Request directly and would let the fetch-to-node
-// bridge below be deleted entirely — a worthwhile follow-up, deliberately NOT bundled into the
-// SDK upgrade so that the keep-alive behaviour THE-561 fixed changes in one step, not two.
-import { NodeStreamableHTTPServerTransport as StreamableHTTPServerTransport } from "@modelcontextprotocol/node";
+import { createMcpHandler } from "@modelcontextprotocol/server";
 import { isLoopbackHost, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
@@ -135,7 +130,7 @@ async function resolveAuth(
  * Each request is stateless: the edge resolves auth, then a fresh MCP server +
  * transport are assembled with a CallerContext for that request and torn down
  * when the response closes. Node req/res are bridged from Hono's Fetch Request
- * via fetch-to-node, so the same app runs under Node or Bun.
+ * by createMcpHandler, which classifies the protocol era per request and serves both.
  */
 export function createHttpApp(opts: HttpAppOptions): Hono {
   const app = new Hono();
@@ -229,9 +224,11 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       );
     }
 
-    let body: unknown;
+    // Early malformed-JSON guard so a parse failure is a clean JSON-RPC -32700 rather than
+    // whatever the handler would surface. The parsed value is not needed: createMcpHandler reads
+    // the request itself.
     try {
-      body = await c.req.raw.clone().json();
+      await c.req.raw.clone().json();
     } catch {
       return c.json(
         { jsonrpc: "2.0", error: { code: -32700, message: "parse error" }, id: null },
@@ -256,26 +253,40 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
       signal,
     });
 
-    const server = createMcpServer({
-      name: opts.name,
-      version: opts.version,
-      registry: opts.registry,
-      context,
-      vaultRegistry: opts.vaultRegistry,
-      facadeMode: opts.facadeMode,
-    });
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-    });
-    const { req, res } = toReqRes(c.req.raw);
-    res.on("close", () => {
-      void transport.close();
-      void server.close();
-    });
-    await server.connect(transport);
-    await transport.handleRequest(req, res, body);
-    return toFetchResponse(res);
+    // THE-583: createMcpHandler is the SDK's era-aware entry point, and using it is what makes
+    // `server/discover` reachable at all. Hand-wiring Server + transport (what this did before)
+    // never establishes a protocol era on a stateless connection, so every request fell back to
+    // the frozen 2025 wire registry — which has no `server/discover` and answered -32601 no matter
+    // what the client sent. The handler classifies each request itself and tells the factory which
+    // era it is constructing for.
+    //
+    // `legacy: "stateless"` (the default, spelled out here because it is load-bearing) is exactly
+    // the idiom this transport already used: each 2025-era request is served by a fresh instance
+    // over a stateless transport. LiteLLM keeps working unchanged.
+    //
+    // Built per request rather than once, matching the previous per-request Server: the caller
+    // context closes over THIS request's verified identity, and binding it to a long-lived handler
+    // would leak one caller's authorization into another's request.
+    const handler = createMcpHandler(
+      (mcpCtx) =>
+        createMcpServer({
+          name: opts.name,
+          version: opts.version,
+          registry: opts.registry,
+          context,
+          vaultRegistry: opts.vaultRegistry,
+          facadeMode: opts.facadeMode,
+          // The SDK's own classification, not a header we re-interpret.
+          era: mcpCtx.era,
+        }),
+      { legacy: "stateless" },
+    );
+    try {
+      // Web-standard fetch in, Response out.
+      return await handler.fetch(c.req.raw);
+    } finally {
+      void handler.close();
+    }
   });
 
   // Stateless mode has no standalone SSE stream or server-side session to delete.
@@ -302,8 +313,9 @@ export type HttpHandle = ServerHandle;
  * The Bun-vs-Node choice lives in `serveHono` because it is a PROCESS-wide decision, not a
  * per-server one — see THE-659 there. THE-561 is why Bun wins under Bun: @hono/node-server's
  * Node-compat `http.Server` drops ~25% of requests that arrive on a REUSED keep-alive connection
- * with ECONNRESET, which a pooling client such as LiteLLM's httpx hits constantly. The in-handler
- * fetch-to-node bridge above is unchanged and works under both runtimes. Regression harnesses:
+ * with ECONNRESET, which a pooling client such as LiteLLM's httpx hits constantly. THE-583 removed
+ * the fetch-to-node bridge this used to need: createMcpHandler is web-standard fetch in, Response
+ * out, so the /mcp route no longer round-trips through Node req/res at all. Regression harnesses:
  * test/http-keepalive-reuse.bun.ts and bun-smoke/dual-http-servers.test.ts (both Bun-only).
  */
 export function startHttp(

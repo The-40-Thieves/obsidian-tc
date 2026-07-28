@@ -59,18 +59,37 @@ async function boot() {
   });
 }
 
-/** POST one JSON-RPC message and return {status, body}; unwraps an SSE `data:` frame. */
-async function rpc(
+/**
+ * A MODERN (2026-07-28) request is not just "the same body with a header". SEP-2575 moved the
+ * handshake into a per-request `_meta` envelope and SEP-2243 added routing headers the server
+ * cross-checks against the body — so a modern call must carry ALL of:
+ *
+ *   * `Mcp-Method` (and `Mcp-Name` where the method names a thing) — the server rejects a request
+ *     whose headers and body disagree, with -32020.
+ *   * `_meta` carrying protocolVersion + clientInfo + clientCapabilities — a missing key is
+ *     -32602 naming the key.
+ *
+ * Building it here rather than in each test is deliberate: every one of those requirements was
+ * discovered by getting it wrong, and a helper keeps the tests about ERAS rather than about
+ * envelope assembly.
+ */
+const MODERN_META = {
+  "io.modelcontextprotocol/protocolVersion": MODERN,
+  "io.modelcontextprotocol/clientInfo": { name: "eras-test", version: "1.0.0" },
+  "io.modelcontextprotocol/clientCapabilities": {},
+};
+
+async function post(
   port: number,
   body: unknown,
-  protocolVersion?: string,
+  headers: Record<string, string>,
 ): Promise<{ status: number; json: any }> {
   const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
-      ...(protocolVersion ? { "mcp-protocol-version": protocolVersion } : {}),
+      ...headers,
     },
     body: JSON.stringify(body),
   });
@@ -86,12 +105,29 @@ async function rpc(
   return { status: res.status, json };
 }
 
+/** A 2025-era call: bare body, version header only. This is what LiteLLM sends. */
+const legacy = (port: number, body: unknown) =>
+  post(port, body, { "mcp-protocol-version": LEGACY });
+
+/** A 2026-era call: routing headers + the full `_meta` envelope. */
+const modern = (
+  port: number,
+  method: string,
+  params: Record<string, unknown> = {},
+  name?: string,
+) =>
+  post(
+    port,
+    { jsonrpc: "2.0", id: 1, method, params: { ...params, _meta: MODERN_META } },
+    { "mcp-protocol-version": MODERN, "mcp-method": method, ...(name ? { "mcp-name": name } : {}) },
+  );
+
 describe("protocol eras — one server serves 2025-11-25 and 2026-07-28 (THE-583)", () => {
   it("serves a LEGACY client: initialize negotiates 2025-11-25 and tools/list works", async () => {
-    // This is the production path. LiteLLM cannot speak anything newer.
+    // The production path. LiteLLM pins `mcp` 1.28.1 and cannot speak anything newer.
     const h = await boot();
     try {
-      const init = await rpc(h.port, {
+      const init = await legacy(h.port, {
         jsonrpc: "2.0",
         id: 1,
         method: "initialize",
@@ -104,7 +140,7 @@ describe("protocol eras — one server serves 2025-11-25 and 2026-07-28 (THE-583
       expect(init.status).toBe(200);
       expect(init.json.result?.protocolVersion).toBe(LEGACY);
 
-      const list = await rpc(h.port, { jsonrpc: "2.0", id: 2, method: "tools/list" }, LEGACY);
+      const list = await legacy(h.port, { jsonrpc: "2.0", id: 2, method: "tools/list" });
       expect(list.status).toBe(200);
       expect(list.json.result?.tools?.map((t: { name: string }) => t.name)).toContain(
         "server_health",
@@ -114,27 +150,37 @@ describe("protocol eras — one server serves 2025-11-25 and 2026-07-28 (THE-583
     }
   }, 20_000);
 
-  it("serves a MODERN client: tools/call with NO initialize handshake", async () => {
-    // SEP-2575 removed the handshake outright. A 2026 client opens with a real request, and a
-    // server that still demanded initialize would reject it.
+  it("serves a MODERN client: server/discover replaces the handshake (SEP-2575)", async () => {
+    // The handshake is GONE on this revision, so discover is how a client learns what it is
+    // talking to. The spec makes it mandatory; hand-wiring Server+transport left it unreachable
+    // (-32601) because a stateless connection never established an era — createMcpHandler is what
+    // fixed that, and this asserts the fix rather than the handler merely being registered.
     const h = await boot();
     try {
-      const call = await rpc(
+      const d = await modern(h.port, "server/discover");
+      expect(d.status).toBe(200);
+      expect(d.json.error).toBeUndefined();
+      expect(d.json.result.supportedVersions).toContain(MODERN);
+      // Capabilities must mirror what the server actually serves, or discovery misleads.
+      expect(d.json.result.capabilities).toHaveProperty("tools");
+      expect(d.json.result._meta?.["io.modelcontextprotocol/serverInfo"]?.name).toBe("obsidian-tc");
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
+
+  it("serves a MODERN client: tools/call with NO initialize handshake", async () => {
+    const h = await boot();
+    try {
+      const call = await modern(
         h.port,
-        {
-          jsonrpc: "2.0",
-          id: 3,
-          method: "tools/call",
-          params: { name: "server_health", arguments: {} },
-        },
-        MODERN,
+        "tools/call",
+        { name: "server_health", arguments: {} },
+        "server_health",
       );
       expect(call.status).toBe(200);
-      // Not merely "not an error": the tool actually ran.
       expect(call.json.error).toBeUndefined();
-      expect(call.json.result).toBeDefined();
-      // Stricter than "no error": a bad tool name returns a RESULT carrying isError, which the two
-      // assertions above would happily accept. The tool has to have actually run.
+      // Stricter than "no error": a bad tool name returns a RESULT carrying isError.
       expect(call.json.result.isError).not.toBe(true);
       expect(JSON.stringify(call.json.result)).toContain("0.0.0-test");
     } finally {
@@ -142,13 +188,76 @@ describe("protocol eras — one server serves 2025-11-25 and 2026-07-28 (THE-583
     }
   }, 20_000);
 
-  it("does not answer an UNKNOWN future revision — the advertised set is finite", async () => {
-    // The floor that stops this suite passing vacuously. If the server accepted anything at all,
-    // the two tests above would prove nothing about era negotiation. A version we never advertised
-    // must be refused, and refused with the version named.
+  it("enforces SEP-2243: a modern request whose headers and body disagree is refused", async () => {
+    // The server rejects header/body mismatch rather than trusting either. Without this, the
+    // routing headers would be decoration — a gateway could route on one method while the server
+    // executed another.
     const h = await boot();
     try {
-      const r = await rpc(h.port, { jsonrpc: "2.0", id: 4, method: "tools/list" }, "2099-01-01");
+      const mismatched = await post(
+        h.port,
+        { jsonrpc: "2.0", id: 9, method: "tools/list", params: { _meta: MODERN_META } },
+        { "mcp-protocol-version": MODERN, "mcp-method": "prompts/list" },
+      );
+      expect(mismatched.status).toBe(400);
+      expect(JSON.stringify(mismatched.json)).toMatch(/disagree|mismatch/i);
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
+
+  it("enforces the SEP-2575 envelope: a missing _meta key is refused by name", async () => {
+    const h = await boot();
+    try {
+      const noCaps = await post(
+        h.port,
+        {
+          jsonrpc: "2.0",
+          id: 10,
+          method: "tools/list",
+          params: { _meta: { "io.modelcontextprotocol/protocolVersion": MODERN } },
+        },
+        { "mcp-protocol-version": MODERN, "mcp-method": "tools/list" },
+      );
+      expect(noCaps.status).toBe(400);
+      expect(JSON.stringify(noCaps.json)).toContain("clientCapabilities");
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
+
+  it("attaches SEP-2549 cache hints on MODERN only, scoped by caller-dependence", async () => {
+    // `cacheScope` is a security decision: `public` lets a SHARED cache reuse one caller's response
+    // for another. tools/list is filtered by grantedScopes, so it must be private; prompts/list is
+    // the built-in templates with no filtering, so it is safely public.
+    const h = await boot();
+    try {
+      const t = await modern(h.port, "tools/list");
+      expect(t.json.result.ttlMs).toBeGreaterThan(0);
+      expect(t.json.result.cacheScope).toBe("private");
+
+      const p = await modern(h.port, "prompts/list");
+      expect(p.json.result.cacheScope).toBe("public");
+
+      // The 2025-11-25 wire schemas are frozen and never defined these fields.
+      const l = await legacy(h.port, { jsonrpc: "2.0", id: 7, method: "tools/list" });
+      expect(l.json.result.ttlMs).toBeUndefined();
+      expect(l.json.result.cacheScope).toBeUndefined();
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
+
+  it("does not answer an UNKNOWN future revision — the advertised set is finite", async () => {
+    // The floor. If the server accepted anything at all, every case above would prove nothing
+    // about era negotiation.
+    const h = await boot();
+    try {
+      const r = await post(
+        h.port,
+        { jsonrpc: "2.0", id: 4, method: "tools/list" },
+        { "mcp-protocol-version": "2099-01-01" },
+      );
       expect(r.status).toBe(400);
       expect(JSON.stringify(r.json)).toContain("2099-01-01");
     } finally {
