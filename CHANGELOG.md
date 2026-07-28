@@ -29,6 +29,52 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `test/mcp-protocol-eras.test.ts` pins both eras plus a floor asserting an unadvertised revision is
   still refused.
 
+- **Foundation for the MCP Tasks extension over the durable queue (THE-583).** Tasks left the core
+  protocol in 2026-07-28 and was redesigned around polling (`tasks/get`, `tasks/cancel`;
+  `tasks/list` removed). The SDK ships **no runtime** for it, so this is an implementation of the
+  extension rather than an adoption — verified first that extension methods do route through
+  `setRequestHandler` on a modern connection.
+
+  The `jobs` table gains nullable `vault_id` / `caller` columns. **NULL is the meaningful default:**
+  a job with no owner is internal maintenance work and is never visible over MCP. Every existing row
+  and every existing `enqueue` call site — reconcile, contradiction, synthesis, audit, index writes —
+  stays invisible without being touched. Visibility is opt-in at enqueue, not opt-out at read.
+
+  That matters because the queue was never caller-scoped: exposing it as-is would have let any
+  authenticated caller read any job by id, including `payload` and `last_error`, which carry vault
+  paths and error text. A foreign task id and a missing one now answer identically, so the lookup
+  cannot be used to enumerate another caller's ids.
+
+  `tasks/get` and `tasks/cancel` are served on modern connections. They are answered **in front of**
+  the SDK handler, not through it: `createMcpHandler` validates an inbound method against the spec
+  registry and answers `-32601` for anything unrecognised, extension methods included — a handler
+  registered on the `Server` for `tasks/get` is never consulted. (A raw transport *does* route it,
+  which is what made the difference easy to miss.)
+
+  A foreign task id and a missing one answer identically, so the surface cannot be used to enumerate
+  another caller's ids, and cancelling someone else's work — a write, not a read — is refused.
+
+- **Logging, Roots and Sampling wired (THE-583, SEP-2577 deprecation window).** The 2026-07-28
+  revision deprecated these three server→client features but did not remove them, and the SDK still
+  implements all three — so a client mid-migration can still use them.
+
+  The server now advertises the `logging` capability and emits `notifications/message`. The first
+  real use: when the byte governor **truncates** a response, the client is told. That was previously
+  visible only in `meta` and server-side metrics, so a caller could act on a shortened result
+  believing it complete.
+
+  `roots` and `sampling` are consulted per connection and gated on the client having advertised
+  them — calling either against a client that did not is a protocol error, not a soft miss.
+  Sampling is deliberately **not** a fallback for the LiteLLM gateway: the gateway is chosen,
+  configured and budgeted by the operator, while the client's model is whatever the caller happens
+  to be running, so substituting one for the other would move inference and its data exposure to a
+  party the operator never selected.
+
+  **`logging/setLevel` is not routable in SDK v2** — it is absent from both the 2025 and 2026 wire
+  registries and a handler registered for it answers `-32601`. The verbosity floor is therefore
+  fixed at `info` rather than settable; a handler was written, measured as dead, and removed instead
+  of being left in place looking implemented.
+
 - **HITL confirmation now uses the 2026-07-28 multi-round-trip shape (THE-583, SEP-2260/2322).** A
   destructive call from a modern client is answered with `inputRequired` carrying an opaque,
   HMAC-signed `requestState`; the client re-issues the same call echoing it back and the server

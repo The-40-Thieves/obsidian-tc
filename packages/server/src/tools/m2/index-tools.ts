@@ -45,6 +45,11 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
       inputSchema: z.object({ vault: VaultId, folder: VaultPath.optional() }).strict(),
       outputSchema: IndexVaultOutput,
       requiredScopes: ["admin:vault"],
+      // THE-583: a full vault index runs for seconds-to-minutes, which is exactly the shape the
+      // Tasks extension exists for — the client asks with `params.task` and polls a handle instead
+      // of holding a request open. Opt-in per tool: most vault reads return fast enough that a
+      // handle is strictly worse than the answer.
+      taskAugmentable: true,
       handler: async (input, ctx) => {
         // index_vault writes the index/cache DB. admin:vault is a non-mutating family,
         // so dispatch's read-only kill switch does not cover it; refuse explicitly when

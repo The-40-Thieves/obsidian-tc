@@ -21,7 +21,9 @@ import { createElicitCodec } from "../elicit-request-state";
 import type { FacadeMode } from "../mcp/facade";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
+import { MODERN_PROTOCOL_VERSION, serveTaskExtension } from "../mcp/tasks";
 import type { MetricsRecorder } from "../metrics/registry";
+import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import { type ServerHandle, serveHono } from "./serve";
 
@@ -76,6 +78,10 @@ export interface HttpAppOptions {
   vaultRegistry?: VaultRegistry;
   /** Optional bearer-token verifier (W-AUTH seam). Defaults to an HS256 JWT verifier from `auth`. */
   verifier?: TokenVerifier;
+  /** THE-583: durable queue backing the Tasks extension; when absent, tasks/* are not served.
+   *  Only caller-OWNED jobs are ever visible through it — everything this process enqueues for
+   *  itself has a NULL owner and stays invisible (see mcp/tasks.ts). */
+  jobQueue?: JobQueue;
   /** Tool-surface facade mode (THE-219), threaded to createMcpServer. */
   facadeMode?: FacadeMode;
   /** DNS-rebinding / cross-origin guard (THE-271). Defaults on when undefined. */
@@ -255,8 +261,9 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
     // Early malformed-JSON guard so a parse failure is a clean JSON-RPC -32700 rather than
     // whatever the handler would surface. The parsed value is not needed: createMcpHandler reads
     // the request itself.
+    let body: unknown;
     try {
-      await c.req.raw.clone().json();
+      body = await c.req.raw.clone().json();
     } catch {
       return c.json(
         { jsonrpc: "2.0", error: { code: -32700, message: "parse error" }, id: null },
@@ -310,6 +317,24 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
         }),
       { legacy: "stateless" },
     );
+    // THE-583: serve the Tasks EXTENSION here, BEFORE delegating.
+    //
+    // `createMcpHandler` validates an inbound method against the spec registry and answers -32601
+    // for anything it does not recognise — extension methods included. Measured: a `tasks/get`
+    // handler registered on the server is never consulted, even with era=modern, because the
+    // handler rejects the method first. (A raw transport DOES route it, which is what made the
+    // difference easy to miss.) So an extension cannot be served through the handler; it has to be
+    // answered in front of it.
+    //
+    // Everything the extension needs is already established at this point: auth has run, so
+    // `authz` names the caller and vault the ownership check uses.
+    if (opts.jobQueue && c.req.header("mcp-protocol-version") === MODERN_PROTOCOL_VERSION) {
+      const taskResponse = await serveTaskExtension(body, opts.jobQueue, {
+        vaultId: authz.vault ?? opts.vaultId,
+        caller: authz.caller,
+      });
+      if (taskResponse !== undefined) return c.json(taskResponse);
+    }
     try {
       // Web-standard fetch in, Response out.
       return await handler.fetch(c.req.raw);

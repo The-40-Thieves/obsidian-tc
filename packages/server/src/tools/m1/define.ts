@@ -7,6 +7,9 @@ import type { CallerContext, ToolDefinition, ToolDomain, ToolIcon } from "../../
 import type { AclOp } from "../../vault/acl-path";
 
 export interface ToolSpec<S extends z.ZodTypeAny, O> {
+  /** THE-583: may this tool run as a background TASK when the client asks (`params.task`)?
+   *  Opt-in — see ToolDefinition.taskAugmentable. */
+  taskAugmentable?: boolean;
   name: string;
   /** THE-513: see ToolDefinition.domain — required here too so defineTool's cast to
    *  ToolDefinition can never paper over a missing domain at a call site. */

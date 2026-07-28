@@ -13,7 +13,9 @@ import {
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
+import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
+import { emitLog, type LogLevel } from "./client-features";
 import { extractClientInfo } from "./client-info";
 import {
   describeCapability,
@@ -29,6 +31,13 @@ import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
 import { listResources, readResource } from "./resources";
+import {
+  invalidTaskParams,
+  requestsTask,
+  TASK_CALL_JOB_TYPE,
+  type TaskCallPayload,
+  toMcpTask,
+} from "./tasks";
 
 /**
  * The first "modern" revision (SEP-2575: no initialize handshake, protocol version in `_meta`,
@@ -115,6 +124,14 @@ export interface McpServerOptions {
    * the 2025 behaviour: the error, and an `elicit_token` argument to satisfy it.
    */
   elicitCodec?: ElicitCodec;
+  /**
+   * THE-583: durable queue backing TASK-AUGMENTED tool calls.
+   *
+   * The Tasks extension methods (`tasks/get` / `tasks/cancel`) are served in the transport, in
+   * front of the SDK handler, because it rejects unknown methods. Augmentation is different: it
+   * rides `tools/call`, which IS a core method, so it belongs here.
+   */
+  jobQueue?: JobQueue;
 }
 
 /**
@@ -203,7 +220,15 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // handlers serve an empty list / throw, so declaring the capability would mislead a client
     // that inspects capabilities to enumerate resources or subscribe to change notifications.
     {
-      capabilities: { tools: {}, prompts: {}, ...(opts.vaultRegistry ? { resources: {} } : {}) },
+      // THE-583: `logging` is advertised because the SDK still implements it and SEP-2577 gave it
+      // a >=12-month window — a client mid-migration can still ask for it. roots/sampling are
+      // CLIENT capabilities, so they are never declared here; they are consulted per connection.
+      capabilities: {
+        tools: {},
+        prompts: {},
+        logging: {},
+        ...(opts.vaultRegistry ? { resources: {} } : {}),
+      },
       // THE-583: serve BOTH protocol eras from one server. The SDK ships a frozen 2025-11-25 wire
       // codec alongside the 2026-07-28 one and picks per connection, but the shipped
       // SUPPORTED_PROTOCOL_VERSIONS list is 2025-era ONLY — an unmodified v2 server answers a
@@ -243,6 +268,19 @@ export function createMcpServer(opts: McpServerOptions): Server {
   ): T => (isModern ? { ...result, ...hint } : result);
 
   const facadeMode: FacadeMode = opts.facadeMode ?? "flat";
+
+  // THE-583: the verbosity floor for server->client log notifications.
+  //
+  // FIXED at `info`, and deliberately not settable. `logging/setLevel` is NOT a routable method in
+  // SDK v2 — it is absent from both the 2025 and 2026 wire registries, and a handler registered for
+  // it answers -32601 (measured). The SDK owns that method internally when the capability is
+  // declared. Registering our own was dead code that read as a feature, so it is gone rather than
+  // left in place looking implemented.
+  //
+  // Two further reasons a fixed floor is the honest choice here: this server is rebuilt per request
+  // under Streamable HTTP, so a level could not persist between calls anyway; and `debug` on a
+  // per-request server would emit for every dispatch with nothing to suppress it.
+  const logLevel: LogLevel = "info";
 
   // SEP-2575: `server/discover` REPLACES the initialize/initialized handshake, which the
   // 2026-07-28 revision removed outright, and the spec makes it mandatory.
@@ -396,6 +434,22 @@ export function createMcpServer(opts: McpServerOptions): Server {
       }
       return errorToResult(result.error);
     }
+    // THE-583: tell the client when the byte governor TRUNCATED its answer. This was previously
+    // visible only in `meta` (and in server-side metrics), so a caller could act on a silently
+    // shortened result believing it complete — the failure mode the governor exists to bound, moved
+    // one layer up. Fire-and-forget: a log line must never fail the call it describes.
+    const overflow = result.meta.overflow_bytes;
+    if (typeof overflow === "number" && overflow > 0) {
+      void emitLog(server, logLevel, {
+        level: "warning",
+        logger: "obsidian-tc/governor",
+        data: {
+          tool: name,
+          overflow_bytes: overflow,
+          message: "response truncated by byte ceiling",
+        },
+      });
+    }
     return formatData(result.data);
   };
 
@@ -429,6 +483,46 @@ export function createMcpServer(opts: McpServerOptions): Server {
       const { elicit_token, ...rest } = rawArgs;
       args = rest;
       ctx = { ...ctx, elicitToken: elicit_token };
+    }
+    // THE-583: run as a background TASK when the client asked and the tool opted in.
+    //
+    // Both conditions matter. A client asks with `params.task`; a tool declares `taskAugmentable`.
+    // Silently deferring a tool that returns in milliseconds would cost the caller a poll round
+    // trip to learn what one call would have told it, so augmentation is never inferred.
+    //
+    // The caller's scopes are snapshotted INTO the job. The runner gets exactly these and nothing
+    // else, so a task can never do more than the caller could have done synchronously.
+    if (opts.jobQueue && requestsTask(req.params)) {
+      // Validated the moment the client ASKS, before asking whether the tool would honour it. A
+      // malformed `task` is a client bug either way, and silently running the call synchronously
+      // would leave that client with no way to tell a rejected `task` from an ignored one.
+      const malformed = invalidTaskParams(req.params);
+      if (malformed !== null)
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ code: "invalid_params", message: malformed }) },
+          ],
+          isError: true,
+        };
+      const def = opts.registry.list().find((d) => d.name === req.params.name);
+      if (def?.taskAugmentable) {
+        const job = opts.jobQueue.enqueue(TASK_CALL_JOB_TYPE, {
+          owner: { vaultId: ctx.vaultId, caller: ctx.caller },
+          payload: {
+            tool: req.params.name,
+            args,
+            caller: ctx.caller,
+            scopes: [...ctx.grantedScopes],
+            vaultId: ctx.vaultId,
+            vaultBound: ctx.vaultBound === true,
+          } satisfies TaskCallPayload,
+        });
+        // The handle IS the result: the client polls `tasks/get` from here.
+        return {
+          content: [{ type: "text", text: `task ${job.id} accepted` }],
+          structuredContent: toMcpTask(job) as unknown as Record<string, unknown>,
+        };
+      }
     }
     // THE-275 domain-verb facade: a domain meta-tool ("notes", "search", ...) carries {action, args};
     // route the named action straight through registry.dispatch so every gate + the target's own
