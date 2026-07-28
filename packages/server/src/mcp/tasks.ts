@@ -266,3 +266,86 @@ export function clientSupportsTasks(caps: unknown): boolean {
 export function toCreateTaskResult(job: Job): Record<string, unknown> {
   return { resultType: "task", ...toMcpTask(job) };
 }
+
+/**
+ * The subscription key a client uses to opt into task notifications.
+ *
+ * The extension spec routes these through `subscriptions/listen`, but the SDK's `SubscriptionFilter`
+ * is a strict four-key object (`toolsListChanged`, `promptsListChanged`, `resourcesListChanged`,
+ * `resourceSubscriptions`) and its `ServerEvent` union is closed over the same four. There is no key
+ * a client could send through it and no event a server could publish, so the extension's own stream
+ * is served HERE, in front of the SDK handler — the same reason and the same seam `tasks/get` uses.
+ *
+ * Namespaced by the extension identifier so it cannot collide with a core key the SDK later adds.
+ */
+export const TASKS_SUBSCRIPTION_KEY = TASKS_EXTENSION;
+
+/** Did this `subscriptions/listen` ask for task notifications? */
+export function subscribesToTasks(body: unknown): boolean {
+  const params = (body as { params?: { notifications?: Record<string, unknown> } } | null)?.params;
+  return params?.notifications?.[TASKS_SUBSCRIPTION_KEY] === true;
+}
+
+/**
+ * Serve the Tasks extension's `subscriptions/listen` stream.
+ *
+ * Ack first, then one `notifications/tasks` frame per state change on a task THIS caller owns —
+ * the same ownership predicate `tasks/get` uses, applied to the push side. A change feed is the
+ * easiest place to undo an isolation guarantee, because nobody re-checks the thing that pushes.
+ *
+ * Each frame carries the full task state, which is the point: the spec notes it "eliminat[es] the
+ * need for an extra `tasks/get` round-trip". Polling stays supported and is still the default.
+ */
+export function serveTaskSubscription(
+  body: unknown,
+  queue: JobQueue,
+  owner: McpTaskOwner,
+  signal: AbortSignal,
+): Response {
+  const id = (body as { id?: string | number | null } | null)?.id ?? null;
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (frame: Record<string, unknown>) => {
+        try {
+          controller.enqueue(encoder.encode(`event: message\ndata: ${JSON.stringify(frame)}\n\n`));
+        } catch {
+          /* the client hung up between the check and the write */
+        }
+      };
+      // Ack first, carrying the subscription id, exactly as the core streams do.
+      send({
+        jsonrpc: "2.0",
+        method: "notifications/subscriptions/acknowledged",
+        params: {
+          notifications: { [TASKS_SUBSCRIPTION_KEY]: true },
+          _meta: { "io.modelcontextprotocol/subscriptionId": id },
+        },
+      });
+      const unsubscribe = queue.onTaskChange((job) => {
+        // OWNERSHIP, on every frame. The queue announces every owned job; this stream may only see
+        // the ones belonging to the caller who opened it.
+        if (job.vaultId !== owner.vaultId) return;
+        if ((job.caller ?? null) !== owner.caller) return;
+        send({ jsonrpc: "2.0", method: "notifications/tasks", params: toMcpTask(job) });
+      });
+      const close = () => {
+        unsubscribe();
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+      };
+      if (signal.aborted) close();
+      else signal.addEventListener("abort", close, { once: true });
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+    },
+  });
+}

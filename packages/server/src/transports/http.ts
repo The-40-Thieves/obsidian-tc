@@ -22,7 +22,12 @@ import { createElicitCodec } from "../elicit-request-state";
 import type { FacadeMode } from "../mcp/facade";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
-import { MODERN_PROTOCOL_VERSION, serveTaskExtension } from "../mcp/tasks";
+import {
+  MODERN_PROTOCOL_VERSION,
+  serveTaskExtension,
+  serveTaskSubscription,
+  subscribesToTasks,
+} from "../mcp/tasks";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
@@ -373,6 +378,19 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         caller: authz.caller,
       });
       if (taskResponse !== undefined) return c.json(taskResponse);
+      // THE-583: the extension's own `subscriptions/listen` stream. Served here for the same reason
+      // as the methods above — the SDK's SubscriptionFilter is a strict four-key object and its
+      // ServerEvent union is closed over the same four, so neither the opt-in nor the event is
+      // expressible through it. Only intercepted when the client actually asked for task
+      // notifications; every other listen request goes to the SDK untouched.
+      if (subscribesToTasks(body)) {
+        return serveTaskSubscription(
+          body,
+          opts.jobQueue,
+          { vaultId: authz.vault ?? opts.vaultId, caller: authz.caller },
+          c.req.raw.signal,
+        );
+      }
     }
     // Web-standard fetch in, Response out. `authInfo` is how this request's verified identity
     // reaches the factory — strictly pass-through, so the handler never re-derives or re-checks it.
