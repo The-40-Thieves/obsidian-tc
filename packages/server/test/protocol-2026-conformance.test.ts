@@ -7,6 +7,9 @@
 //
 // The removals matter as much as the additions: a method the revision deleted, still answered, is a
 // conformance failure that no feature test would ever notice.
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -24,8 +27,16 @@ const MODERN = "2026-07-28";
 
 let handle: HttpHandle;
 let jwt: string;
+/**
+ * A real vault the TEST creates. An earlier version pointed at a `/tmp/...` directory made by hand
+ * outside the suite: green locally, red on all four CI runners — and doubly wrong on Windows, which
+ * has no `/tmp` at all. A fixture a test depends on but does not create is not a fixture.
+ */
+let vaultRoot: string;
 
 beforeAll(async () => {
+  vaultRoot = mkdtempSync(join(tmpdir(), "obsidian-tc-conf-"));
+  writeFileSync(join(vaultRoot, "note.md"), "---\ntitle: X\n---\n\nbody\n");
   const db = openMemoryDb();
   provisionCacheDb(db);
   const registry = new ToolRegistry();
@@ -54,7 +65,7 @@ beforeAll(async () => {
     port: 0,
     jobQueue: new JobQueue(db),
     // The real class, not a hand-rolled stub — a stub is how three of these "failed" as a mock bug.
-    vaultRegistry: new VaultRegistry([{ id: "v1", path: "/tmp/conf-vault" }]),
+    vaultRegistry: new VaultRegistry([{ id: "v1", path: vaultRoot }]),
   });
   const now = Math.floor(Date.now() / 1000);
   jwt = await new SignJWT({ sub: "a", scopes: ["*"], aud: "http://test", iat: now, exp: now + 600 })
@@ -64,6 +75,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await handle?.close();
+  if (vaultRoot) rmSync(vaultRoot, { recursive: true, force: true });
 });
 
 /** One modern JSON-RPC call. `name` fills the SEP-2243 Mcp-Name header when the method needs it. */
