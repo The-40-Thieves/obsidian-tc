@@ -198,3 +198,36 @@ export function requestsTask(params: unknown): boolean {
     (params as Record<string, unknown>).task !== undefined
   );
 }
+
+/**
+ * Why the client's `task` is unusable, or `null` if it is well-formed.
+ *
+ * A SEPARATE question from `requestsTask`, and the split is the point: one asks whether the client
+ * asked, the other whether the ask makes sense. Conflating them in either direction is a bug —
+ * answering "did they ask?" with a validator defers every ordinary call (an absent `task` is
+ * perfectly valid), and skipping validation entirely turns `task: "garbage"` into a background job.
+ *
+ * Deliberately NOT the SDK's `isTaskAugmentedRequestParams`. That helper is `@deprecated` and,
+ * by its own doc, "recognizes 2025-11-25 task wire vocabulary" — the revision this one redesigned.
+ * Validating a 2026-07-28 request against it is wrong in both directions: it can reject a field the
+ * new revision added and accept one it removed. What IS revision-stable is its enforcement surface,
+ * reproduced here: the spec's schema is a LOOSE object, so unknown keys are tolerated (a field added
+ * later must not become a hard rejection) and only the known numeric fields are checked.
+ *
+ * Non-finite is rejected where the SDK's `z.number()` would accept `Infinity`: a task told to live
+ * for infinite milliseconds is not a request we can honour, and saying so beats guessing.
+ */
+export function invalidTaskParams(params: unknown): string | null {
+  const task = (params as { task?: unknown } | null | undefined)?.task;
+  // `typeof null === "object"` and `typeof [] === "object"`; neither is a params object.
+  if (task === null || typeof task !== "object" || Array.isArray(task)) {
+    return "task must be an object";
+  }
+  for (const key of ["ttl", "pollInterval"] as const) {
+    const value = (task as Record<string, unknown>)[key];
+    if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value))) {
+      return `task.${key} must be a finite number`;
+    }
+  }
+  return null;
+}

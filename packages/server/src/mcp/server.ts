@@ -31,7 +31,13 @@ import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
 import { listResources, readResource } from "./resources";
-import { requestsTask, TASK_CALL_JOB_TYPE, type TaskCallPayload, toMcpTask } from "./tasks";
+import {
+  invalidTaskParams,
+  requestsTask,
+  TASK_CALL_JOB_TYPE,
+  type TaskCallPayload,
+  toMcpTask,
+} from "./tasks";
 
 /**
  * The first "modern" revision (SEP-2575: no initialize handshake, protocol version in `_meta`,
@@ -487,6 +493,17 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // The caller's scopes are snapshotted INTO the job. The runner gets exactly these and nothing
     // else, so a task can never do more than the caller could have done synchronously.
     if (opts.jobQueue && requestsTask(req.params)) {
+      // Validated the moment the client ASKS, before asking whether the tool would honour it. A
+      // malformed `task` is a client bug either way, and silently running the call synchronously
+      // would leave that client with no way to tell a rejected `task` from an ignored one.
+      const malformed = invalidTaskParams(req.params);
+      if (malformed !== null)
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ code: "invalid_params", message: malformed }) },
+          ],
+          isError: true,
+        };
       const def = opts.registry.list().find((d) => d.name === req.params.name);
       if (def?.taskAugmentable) {
         const job = opts.jobQueue.enqueue(TASK_CALL_JOB_TYPE, {

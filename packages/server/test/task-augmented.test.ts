@@ -11,14 +11,18 @@
 //    would read `completed`, and a caller would have performed an operation they had no scope for.
 //    The scope snapshot is the only thing standing between "deferred execution" and "privilege
 //    escalation primitive", so it gets tested directly.
+import { isTaskAugmentedRequestParams } from "@modelcontextprotocol/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
-import { requestsTask, type TaskCallPayload } from "../src/mcp/tasks";
+import { invalidTaskParams, requestsTask, type TaskCallPayload } from "../src/mcp/tasks";
 import { runTaskCall } from "../src/scheduler/task-call-runner";
 import { openMemoryDb } from "./helpers";
+
+/** The deprecated 2025-11-25 validator, for the overlap check below. */
+const SDK_VALIDATOR = isTaskAugmentedRequestParams as (v: unknown) => boolean;
 
 describe("requestsTask — presence, not shape", () => {
   it("is true only when `task` is actually present", () => {
@@ -30,12 +34,57 @@ describe("requestsTask — presence, not shape", () => {
     expect(requestsTask(null)).toBe(false);
   });
 
-  it("does NOT use the SDK's isTaskAugmentedRequestParams, which is true for {}", async () => {
+  it("does NOT use the SDK's isTaskAugmentedRequestParams, which is true for {}", () => {
     // Pinned because the confusion is one import away: that helper validates the SHAPE of an
-    // optional field, so using it would turn every ordinary tool call into a background job.
-    const { isTaskAugmentedRequestParams } = await import("@modelcontextprotocol/server");
-    expect((isTaskAugmentedRequestParams as (v: unknown) => boolean)({})).toBe(true);
+    // optional field, so an ABSENT `task` is perfectly valid to it. Using it for this decision
+    // would turn every ordinary tool call into a background job.
+    expect(SDK_VALIDATOR({})).toBe(true);
+    expect(SDK_VALIDATOR({ name: "search", arguments: {} })).toBe(true);
     expect(requestsTask({})).toBe(false);
+  });
+});
+
+describe("invalidTaskParams — the shape check the presence test cannot do", () => {
+  it("accepts a well-formed ask", () => {
+    expect(invalidTaskParams({ task: {} })).toBeNull();
+    expect(invalidTaskParams({ task: { ttl: 60_000 } })).toBeNull();
+    expect(invalidTaskParams({ task: { ttl: 60_000, pollInterval: 2_000 } })).toBeNull();
+  });
+
+  it("tolerates an unknown key, because the spec's own schema is a LOOSE object", () => {
+    // A field added in a later revision must not become a hard rejection.
+    expect(invalidTaskParams({ task: { somethingAddedLater: true } })).toBeNull();
+  });
+
+  it("rejects a `task` that is not an object", () => {
+    // The hole a presence-only check leaves: each of these passes `requestsTask`.
+    for (const bad of ["garbage", null, 42, true, [] as unknown]) {
+      expect(requestsTask({ task: bad })).toBe(true);
+      expect(invalidTaskParams({ task: bad })).toBe("task must be an object");
+    }
+  });
+
+  it("rejects a non-numeric or non-finite ttl / pollInterval", () => {
+    expect(invalidTaskParams({ task: { ttl: "abc" } })).toMatch(/ttl/);
+    expect(invalidTaskParams({ task: { pollInterval: null } })).toMatch(/pollInterval/);
+    // Stricter than the SDK's `z.number()`, which accepts these: a task told to live for infinite
+    // milliseconds is not a request we can honour, and saying so beats guessing.
+    expect(invalidTaskParams({ task: { ttl: Number.POSITIVE_INFINITY } })).toMatch(/ttl/);
+    expect(invalidTaskParams({ task: { ttl: Number.NaN } })).toMatch(/ttl/);
+  });
+
+  it("agrees with the SDK validator everywhere the two revisions overlap", () => {
+    // Not a claim that the deprecated 2025 helper is authoritative — it is the reason we do not use
+    // it. But where the vocabularies DO overlap, disagreeing would mean one of us has it wrong.
+    for (const params of [
+      { task: {} },
+      { task: { ttl: 60_000 } },
+      { task: { ttl: "abc" } },
+      { task: "garbage" },
+      { task: null },
+    ]) {
+      expect(invalidTaskParams(params) === null).toBe(SDK_VALIDATOR(params));
+    }
   });
 });
 
