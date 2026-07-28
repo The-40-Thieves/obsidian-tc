@@ -94,18 +94,18 @@ export interface McpServerOptions {
    *  Defaults to "flat" when unset so direct callers/tests are unaffected; cli/http pass the config. */
   facadeMode?: FacadeMode;
   /**
-   * THE-583: the protocol revision THIS request arrived on, from the `MCP-Protocol-Version` header.
+   * THE-583: the protocol era this instance is being constructed to serve, as classified by the
+   * SDK (`createMcpHandler`'s `McpRequestContext.era`).
    *
-   * It has to be threaded in rather than read off the Server because we are STATELESS: the HTTP
-   * transport builds a fresh Server per request and there is no handshake, so
-   * `server.getNegotiatedProtocolVersion()` is `undefined` on every call — including a request
-   * that plainly carried `MCP-Protocol-Version: 2026-07-28`. Reading it there silently produced a
-   * server that never emitted a single 2026-era field.
+   * It must be supplied rather than read off the Server: we are STATELESS, so there is no
+   * handshake and `server.getNegotiatedProtocolVersion()` is `undefined` on every call — including
+   * a request that plainly carried `MCP-Protocol-Version: 2026-07-28`. An earlier version of this
+   * read it there and silently emitted no 2026-era field at all while looking correct.
    *
    * Absent (stdio, direct construction, tests) means legacy, which is the safe default: no
-   * 2026-only fields go on the wire toward a client that never asked for that revision.
+   * 2026-only field goes on the wire toward a client that never asked for that revision.
    */
-  protocolVersion?: string;
+  era?: "legacy" | "modern";
 }
 
 function asStructured(data: unknown): Record<string, unknown> | undefined {
@@ -205,7 +205,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
    * them toward a legacy client would put fields on the wire that revision never defined. The
    * negotiated version is per-connection, so this is asked per response rather than once at boot.
    */
-  const isModern = opts.protocolVersion === MODERN_PROTOCOL_VERSION;
+  const isModern = opts.era === "modern";
   const withCacheHint = <T extends object>(
     result: T,
     hint: { ttlMs: number; cacheScope: string },

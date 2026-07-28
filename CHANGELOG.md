@@ -29,6 +29,24 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `test/mcp-protocol-eras.test.ts` pins both eras plus a floor asserting an unadvertised revision is
   still refused.
 
+- **Full 2026-07-28 conformance: `server/discover`, SEP-2243 routing headers, SEP-2549 cache hints
+  (THE-583).** The `/mcp` route is now served by the SDK's `createMcpHandler`, which classifies the
+  protocol era per request and serves both from one endpoint.
+
+  This is what makes **`server/discover` (SEP-2575)** work. Hand-wiring `Server` + transport never
+  establishes an era on a stateless connection, so every request fell back to the frozen 2025 wire
+  registry — which has no such method and answered `-32601` regardless of what the client sent.
+
+  **SEP-2243** routing headers (`Mcp-Method`/`Mcp-Name`) are enforced: a modern request whose
+  headers and body disagree is refused, so a gateway cannot route on one method while the server
+  executes another. **SEP-2549** adds `ttlMs`/`cacheScope` to cacheable results, on modern
+  connections only. `cacheScope` is a security decision — `tools/list` and `resources/*` are
+  `private` because they are scope- and ACL-filtered per caller; only `prompts/list` is `public`.
+
+  `fetch-to-node` is **removed as a dependency**: `createMcpHandler` is web-standard fetch in,
+  Response out, so the route no longer round-trips through Node req/res. THE-561's keep-alive
+  harness still passes 40/40.
+
 - **`obsidian-tc token mint` — reproducible, auditable bearer tokens (THE-658).** There was no mint
   tooling at all, so every token this project runs on came from a Python one-liner in someone's
   shell history — which is how the live tokens ended up with no `aud` claim.
