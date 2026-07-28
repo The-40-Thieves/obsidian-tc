@@ -1,4 +1,4 @@
-import type { GetPromptResult, ListPromptsResult } from "@modelcontextprotocol/sdk/types.js";
+import type { GetPromptResult, ListPromptsResult } from "@modelcontextprotocol/server";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 
 interface PromptArg {

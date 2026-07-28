@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+// THE-583: v2 renamed this. `WebStandardStreamableHTTPServerTransport` (from
+// @modelcontextprotocol/server) takes a Fetch Request directly and would let the fetch-to-node
+// bridge below be deleted entirely — a worthwhile follow-up, deliberately NOT bundled into the
+// SDK upgrade so that the keep-alive behaviour THE-561 fixed changes in one step, not two.
+import { NodeStreamableHTTPServerTransport as StreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { isLoopbackHost, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { Hono } from "hono";
