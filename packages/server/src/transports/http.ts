@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import {
   createMcpHandler,
   localhostAllowedHostnames,
+  type ServerNotifier,
   validateHostHeader,
   validateOriginHeader,
 } from "@modelcontextprotocol/server";
@@ -178,7 +179,22 @@ function contextFromAuthInfo(
   };
 }
 
-export function createHttpApp(opts: HttpAppOptions): Hono {
+/**
+ * The app plus the MCP handler backing it.
+ *
+ * The handler is returned rather than hidden because two things now depend on outliving a request:
+ * its `notify` facade (the publish side of `subscriptions/listen`) and its `close()` (which was
+ * previously called per request and must now happen at shutdown).
+ */
+export interface HttpApp {
+  app: Hono;
+  /** Publish-side facade over the `subscriptions/listen` bus. No-op when no stream is open. */
+  notify: ServerNotifier;
+  /** Aborts in-flight modern exchanges and closes their per-request instances. */
+  close: () => Promise<void>;
+}
+
+export function createHttpApp(opts: HttpAppOptions): HttpApp {
   const app = new Hono();
   // THE-583: one codec per server, not per request — a state minted on one request is verified on
   // the NEXT one, so the key has to outlive both. Only available under `jwt` auth: without a
@@ -384,10 +400,20 @@ export function createHttpApp(opts: HttpAppOptions): Hono {
     ),
   );
 
-  return app;
+  // The handler is the APP's now. Closing it is a shutdown concern, and `notify` is how a change
+  // detected outside any request (the vault watcher) reaches an open subscription stream.
+  return { app, notify: handler.notify, close: () => handler.close() };
 }
 
-export type HttpHandle = ServerHandle;
+export type HttpHandle = ServerHandle & {
+  /**
+   * THE-583: publish a change event to every open `subscriptions/listen` stream that opted in.
+   *
+   * Exposed on the handle because the events originate OUTSIDE the request path — the vault watcher
+   * sees a note change, and no request is in flight to carry the notification.
+   */
+  notify: ServerNotifier;
+};
 
 /**
  * Serve the HTTP app on host:port. Pass port 0 for an ephemeral port; the resolved handle
@@ -404,5 +430,16 @@ export type HttpHandle = ServerHandle;
 export function startHttp(
   opts: HttpAppOptions & { host: string; port: number },
 ): Promise<HttpHandle> {
-  return serveHono(createHttpApp(opts), { host: opts.host, port: opts.port });
+  const { app, notify, close } = createHttpApp(opts);
+  return serveHono(app, { host: opts.host, port: opts.port }).then((handle) => ({
+    ...handle,
+    notify,
+    // Close the MCP handler BEFORE the socket: it aborts in-flight modern exchanges, and doing it
+    // after would leave a `subscriptions/listen` stream holding a connection the server is trying
+    // to shut down. Previously the handler was closed per request, so nothing owned this.
+    close: async () => {
+      await close();
+      await handle.close();
+    },
+  }));
 }

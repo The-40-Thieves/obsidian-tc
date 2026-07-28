@@ -263,10 +263,17 @@ export function createMcpServer(opts: McpServerOptions): Server {
       // a >=12-month window — a client mid-migration can still ask for it. roots/sampling are
       // CLIENT capabilities, so they are never declared here; they are consulted per connection.
       capabilities: {
-        tools: {},
-        prompts: {},
+        // SEP-2575: `listChanged` is what makes a `subscriptions/listen` filter REAL. The handler
+        // acknowledges a subscription only for types the server declared, so an undeclared type is
+        // silently dropped from the filter — the stream opens, the ack comes back carrying
+        // `notifications: {}`, and the client waits forever for events that were never subscribed.
+        // Measured: without these, every publish reached zero listeners and nothing errored.
+        tools: { listChanged: true },
+        prompts: { listChanged: true },
         logging: {},
-        ...(opts.vaultRegistry ? { resources: {} } : {}),
+        // `subscribe` covers per-URI `notifications/resources/updated`; `listChanged` covers the
+        // list itself. Both only when a vault registry makes resources available at all.
+        ...(opts.vaultRegistry ? { resources: { listChanged: true, subscribe: true } } : {}),
         // THE-583: advertise the Tasks extension, but only when there is a queue to back it. The
         // client checks this before it is willing to receive a handle, so advertising it without a
         // substrate would invite a task we cannot create. `extensions` is the SEP-2575 field.
