@@ -89,12 +89,20 @@ describe("toTask — projecting a queue job onto the extension vocabulary", () =
     ).toBeUndefined();
   });
 
+  it("always carries ttlMs, which the schema makes REQUIRED and nullable", () => {
+    // Not optional: omitting it produces a Task the extension schema rejects. Null is the honest
+    // value — queue rows are durable and are not reaped on a clock.
+    const t = toMcpTask({ ...base, state: "running", cancelRequested: false });
+    expect(t).toHaveProperty("ttlMs");
+    expect(t.ttlMs).toBeNull();
+  });
+
   it("offers a poll interval only while working", () => {
     expect(
-      toMcpTask({ ...base, state: "running", cancelRequested: false }).pollInterval,
+      toMcpTask({ ...base, state: "running", cancelRequested: false }).pollIntervalMs,
     ).toBeGreaterThan(0);
     expect(
-      toMcpTask({ ...base, state: "complete", cancelRequested: false }).pollInterval,
+      toMcpTask({ ...base, state: "complete", cancelRequested: false }).pollIntervalMs,
     ).toBeUndefined();
   });
 

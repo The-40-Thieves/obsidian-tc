@@ -5,13 +5,14 @@
 // makes of the client, so calling one against a client that never advertised it is a protocol
 // error rather than a soft miss. A helper that "works" in a test with a fully-capable client tells
 // you nothing about the case that actually occurs — a client that advertised nothing.
-import { InMemoryTransport, Server } from "@modelcontextprotocol/server";
+import { Server } from "@modelcontextprotocol/server";
 import { describe, expect, it } from "vitest";
 import {
   clientRoots,
   clientSupportsSampling,
   emitLog,
   LOG_LEVELS,
+  type LogLevel,
   meetsLevel,
   sampleViaClient,
 } from "../src/mcp/client-features";
@@ -47,51 +48,49 @@ describe("meetsLevel — RFC 5424 ordering", () => {
   });
 });
 
-describe("emitLog", () => {
-  it("emits notifications/message for a message at the requested level", async () => {
-    const s = new Server({ name: "t", version: "0" }, { capabilities: { logging: {} } });
-    const [client, server] = InMemoryTransport.createLinkedPair();
-    const seen: unknown[] = [];
-    client.onmessage = (m: unknown) => seen.push(m);
-    await s.connect(server);
-    await client.start();
+describe("emitLog — delegates to the PER-REQUEST sink", () => {
+  // The contract changed with SEP-2575 and the reason is a MUST NOT. Verbosity is now a per-request
+  // `_meta` field, and a server MUST NOT emit `notifications/message` for a request that did not
+  // carry one. That gate lives in the SDK's `mcpReq.log` (it reads the request envelope and returns
+  // silently when the field is absent) — NOT in `server.sendLoggingMessage`, which filters against a
+  // session-keyed level a stateless server never populates and therefore emits to clients that never
+  // asked. emitLog's whole job is now to hand the message to the right sink and stay out of the way,
+  // so what is testable here is the forwarding, not the filtering.
+  it("forwards level, data and logger to the sink", async () => {
+    const calls: Array<[string, unknown, string | undefined]> = [];
+    const sink = async (level: LogLevel, data: unknown, logger?: string) => {
+      calls.push([level, data, logger]);
+    };
+    await emitLog(sink, { level: "warning", logger: "test", data: { k: 1 } });
+    expect(calls).toEqual([["warning", { k: 1 }, "test"]]);
+  });
 
-    await emitLog(s, "info", { level: "warning", logger: "test", data: { k: 1 } });
-    await new Promise((r) => setTimeout(r, 100));
+  it("does NOT filter by level itself — the client's threshold is the SDK's to apply", async () => {
+    // A server-side floor here would re-filter what the SDK already filtered, against the wrong
+    // number: ours, not the one the client put on this request.
+    const calls: string[] = [];
+    const sink = async (level: LogLevel) => {
+      calls.push(level);
+    };
+    await emitLog(sink, { level: "debug", logger: "test", data: {} });
+    expect(calls).toEqual(["debug"]);
+  });
 
-    const note = seen.find((m) => (m as { method?: string }).method === "notifications/message") as
-      | { params?: { level?: string; logger?: string } }
-      | undefined;
-    expect(note?.params?.level).toBe("warning");
-    expect(note?.params?.logger).toBe("test");
-    await s.close();
-  }, 15_000);
-
-  it("drops a message BELOW the requested level rather than sending it", async () => {
-    const s = new Server({ name: "t", version: "0" }, { capabilities: { logging: {} } });
-    const [client, server] = InMemoryTransport.createLinkedPair();
-    const seen: unknown[] = [];
-    client.onmessage = (m: unknown) => seen.push(m);
-    await s.connect(server);
-    await client.start();
-
-    await emitLog(s, "error", { level: "debug", logger: "test", data: {} });
-    await new Promise((r) => setTimeout(r, 100));
-
-    expect(
-      seen.filter((m) => (m as { method?: string }).method === "notifications/message"),
-    ).toEqual([]);
-    await s.close();
-  }, 15_000);
-
-  it("never throws when there is no transport — diagnostics must not fail the call", async () => {
-    // The common real case: the client hung up mid-call. An unconnected server is the cheapest
-    // faithful stand-in, and this asserts the swallow rather than assuming it.
-    const s = new Server({ name: "t", version: "0" }, { capabilities: { logging: {} } });
+  it("no-ops when there is no sink (stdio, direct construction, tests)", async () => {
     await expect(
-      emitLog(s, "debug", { level: "emergency", logger: "test", data: {} }),
+      emitLog(undefined, { level: "emergency", logger: "test", data: {} }),
     ).resolves.toBeUndefined();
-  }, 15_000);
+  });
+
+  it("never throws when the sink throws — diagnostics must not fail the call", async () => {
+    // The common real case: the client hung up mid-call.
+    const sink = async () => {
+      throw new Error("transport gone");
+    };
+    await expect(
+      emitLog(sink, { level: "error", logger: "test", data: {} }),
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe("roots — gated on the client advertising it", () => {
