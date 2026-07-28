@@ -29,6 +29,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `test/mcp-protocol-eras.test.ts` pins both eras plus a floor asserting an unadvertised revision is
   still refused.
 
+- **Foundation for the MCP Tasks extension over the durable queue (THE-583).** Tasks left the core
+  protocol in 2026-07-28 and was redesigned around polling (`tasks/get`, `tasks/cancel`;
+  `tasks/list` removed). The SDK ships **no runtime** for it, so this is an implementation of the
+  extension rather than an adoption — verified first that extension methods do route through
+  `setRequestHandler` on a modern connection.
+
+  The `jobs` table gains nullable `vault_id` / `caller` columns. **NULL is the meaningful default:**
+  a job with no owner is internal maintenance work and is never visible over MCP. Every existing row
+  and every existing `enqueue` call site — reconcile, contradiction, synthesis, audit, index writes —
+  stays invisible without being touched. Visibility is opt-in at enqueue, not opt-out at read.
+
+  That matters because the queue was never caller-scoped: exposing it as-is would have let any
+  authenticated caller read any job by id, including `payload` and `last_error`, which carry vault
+  paths and error text. A foreign task id and a missing one now answer identically, so the lookup
+  cannot be used to enumerate another caller's ids.
+
+  Ships the status projection and the ownership filter with tests. The wire handlers are the next
+  increment.
+
 - **Logging, Roots and Sampling wired (THE-583, SEP-2577 deprecation window).** The 2026-07-28
   revision deprecated these three server→client features but did not remove them, and the SDK still
   implements all three — so a client mid-migration can still use them.

@@ -37,6 +37,11 @@ export interface Job {
   lastError: string | null;
   createdAt: number;
   updatedAt: number;
+  /** THE-583: the vault this job was enqueued FOR, when a caller asked for it. NULL for internal
+   *  maintenance work, which is what makes such jobs invisible to the MCP Tasks extension. */
+  vaultId: string | null;
+  /** THE-583: the principal that asked for it; NULL alongside `vaultId` for internal work. */
+  caller: string | null;
 }
 
 interface JobRow {
@@ -56,6 +61,8 @@ interface JobRow {
   last_error: string | null;
   created_at: number;
   updated_at: number;
+  vault_id: string | null;
+  caller: string | null;
 }
 
 function fromRow(row: JobRow): Job {
@@ -76,10 +83,15 @@ function fromRow(row: JobRow): Job {
     lastError: row.last_error,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    vaultId: row.vault_id ?? null,
+    caller: row.caller ?? null,
   };
 }
 
 export interface EnqueueOptions {
+  /** THE-583: enqueue on a CALLER's behalf, making the job visible as an MCP task to that caller
+   *  and no one else. Omit for internal maintenance work — the default is invisible. */
+  owner?: { vaultId: string; caller: string | null };
   /** Bounded-concurrency bucket; defaults to `type`. */
   class?: string;
   maxAttempts?: number;
@@ -185,12 +197,16 @@ export class JobQueue {
       idempotency_key: opts.idempotencyKey ?? null,
       created_at: t,
       updated_at: t,
+      // NULL unless a caller asked for this job — see the migration's note on why invisible is the
+      // default rather than something a read path has to remember to filter for.
+      vault_id: opts.owner?.vaultId ?? null,
+      caller: opts.owner?.caller ?? null,
     };
     try {
       this.db
         .prepare(
-          `INSERT INTO jobs (id, type, class, state, attempt, max_attempts, next_attempt_at, payload, idempotency_key, created_at, updated_at)
-           VALUES (@id, @type, @class, 'queued', 0, @max_attempts, @created_at, @payload, @idempotency_key, @created_at, @updated_at)`,
+          `INSERT INTO jobs (id, type, class, state, attempt, max_attempts, next_attempt_at, payload, idempotency_key, created_at, updated_at, vault_id, caller)
+           VALUES (@id, @type, @class, 'queued', 0, @max_attempts, @created_at, @payload, @idempotency_key, @created_at, @updated_at, @vault_id, @caller)`,
         )
         .run(row);
     } catch (e) {
