@@ -6,7 +6,7 @@
 // describe_capability are pure metadata over the caller-visible catalog, and call_capability routes
 // the named TARGET straight through registry.dispatch so every gate fires unchanged. Every
 // registered tool stays callable by name, so a client that already knows a name is never blocked.
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/server";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";

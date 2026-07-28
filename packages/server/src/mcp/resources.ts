@@ -1,4 +1,4 @@
-import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
+import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/server";
 import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import { enforcePathAcl } from "../vault/acl-path";
 import { readableRel } from "../vault/acl-read-filter";

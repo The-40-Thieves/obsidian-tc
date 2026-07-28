@@ -8,6 +8,27 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **MCP SDK v2 + the 2026-07-28 protocol revision, alongside 2025-11-25 (THE-583).** The server now
+  speaks **both** protocol eras from one endpoint. A 2026-07-28 client can call tools with no
+  `initialize` handshake at all (SEP-2575 removed it); a 2025-11-25 client is unaffected and still
+  negotiates exactly as before.
+
+  Migrated from `@modelcontextprotocol/sdk@1` to the v2 package split —
+  `@modelcontextprotocol/server` and `@modelcontextprotocol/node`, both 2.0.0. The v1 SDK moves to
+  **devDependencies**: it is retained deliberately as a *real* legacy client for the roundtrip
+  tests, which is stronger evidence of back-compatibility than a hand-written 2025-era request.
+
+  Serving the modern era is **opt-in** — the SDK's shipped `SUPPORTED_PROTOCOL_VERSIONS` is
+  2025-only, so an unmodified v2 server answers a 2026 client with `400 Unsupported protocol
+  version`. Worth knowing if you vendor this: the opt-in must be set on `ServerOptions`, because
+  `Server.connect()` overwrites the transport's copy with the server's — setting it on the transport
+  throws nothing and silently leaves the server legacy-only.
+
+  Back-compatibility was verified against the exact client the deployment depends on (LiteLLM's
+  `mcp` 1.28.1, protocol ceiling 2025-11-25): negotiated `2025-11-25`, listed tools, called one.
+  `test/mcp-protocol-eras.test.ts` pins both eras plus a floor asserting an unadvertised revision is
+  still refused.
+
 - **`obsidian-tc token mint` — reproducible, auditable bearer tokens (THE-658).** There was no mint
   tooling at all, so every token this project runs on came from a Python one-liner in someone's
   shell history — which is how the live tokens ended up with no `aud` claim.

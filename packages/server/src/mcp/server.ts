@@ -1,19 +1,14 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
-  CallToolRequestSchema,
   type CallToolResult,
-  GetPromptRequestSchema,
   type GetPromptResult,
-  ListPromptsRequestSchema,
   type ListPromptsResult,
-  ListResourcesRequestSchema,
   type ListResourcesResult,
-  ListToolsRequestSchema,
   type ListToolsResult,
-  ReadResourceRequestSchema,
   type ReadResourceResult,
+  Server,
+  SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/server";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { VaultRegistry } from "../vault/registry";
@@ -32,6 +27,13 @@ import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
 import { listResources, readResource } from "./resources";
+
+/**
+ * The first "modern" revision (SEP-2575: no initialize handshake, protocol version in `_meta`,
+ * `server/discover`). The SDK knows it internally as FIRST_MODERN_PROTOCOL_VERSION but does not
+ * export it, and does not include it in SUPPORTED_PROTOCOL_VERSIONS — so it is named here.
+ */
+const MODERN_PROTOCOL_VERSION = "2026-07-28";
 
 // tools/list returns at most this many tools per page; the client follows nextCursor for the
 // rest. Set well above the current tool surface (~103) so the whole surface fits one page — a
@@ -54,7 +56,7 @@ export interface McpServerOptions {
    * auth: stdio supplies a trusted local context; HTTP supplies one derived
    * from the verified JWT. The db handle and vaultId are bound here as well.
    *
-   * THE-514: an optional per-request AbortSignal (the SDK's `extra.signal`), threaded through so
+   * THE-514: an optional per-request AbortSignal (the SDK's `extra.mcpReq.signal`), threaded through so
    * runDispatch can observe cancellation. Every call site below passes it; a factory that ignores
    * the argument (every one before THE-514, and any test double) is unaffected — the parameter is
    * optional and dispatch treats an absent signal as a no-op.
@@ -142,18 +144,33 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // that inspects capabilities to enumerate resources or subscribe to change notifications.
     {
       capabilities: { tools: {}, prompts: {}, ...(opts.vaultRegistry ? { resources: {} } : {}) },
+      // THE-583: serve BOTH protocol eras from one server. The SDK ships a frozen 2025-11-25 wire
+      // codec alongside the 2026-07-28 one and picks per connection, but the shipped
+      // SUPPORTED_PROTOCOL_VERSIONS list is 2025-era ONLY — an unmodified v2 server answers a
+      // 2026-07-28 client with `400 Unsupported protocol version`. Modern is opt-in, and this is
+      // the opt-in.
+      //
+      // It MUST be set here rather than on the transport: Server.connect() overwrites the
+      // transport's own supportedProtocolVersions with the server's. Setting it on the transport
+      // looks correct, throws nothing, and silently leaves the server legacy-only.
+      //
+      // Legacy stays first-class, not tolerated: LiteLLM — the gateway in front of this — pins
+      // `mcp` 1.28.1, whose ceiling is 2025-11-25. Dropping the old era would take the MCP plane
+      // down. Verified with that exact client against this SDK: negotiated 2025-11-25, listed
+      // tools, called one.
+      supportedProtocolVersions: [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS],
     },
   );
 
   const facadeMode: FacadeMode = opts.facadeMode ?? "flat";
 
-  server.setRequestHandler(ListToolsRequestSchema, (req, extra): ListToolsResult => {
+  server.setRequestHandler("tools/list", (req, extra): ListToolsResult => {
     // THE-219 facade: in triad/domain mode advertise the three meta-tools instead of the full
     // surface. Every registered tool stays callable by name via call_capability, so nothing is
     // hidden; flat mode is the back-compat full-surface behavior.
     if (facadeMode === "triad") return { tools: triadTools() };
     if (facadeMode === "domain") {
-      const dctx = opts.context(extra.signal);
+      const dctx = opts.context(extra.mcpReq.signal);
       const dvisible = opts.registry.listVisible({
         grantedScopes: dctx.grantedScopes,
         readOnly: dctx.acl?.readOnly,
@@ -164,7 +181,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // advertised surface, so a caller never sees a tool it could not dispatch. A full grant
     // (stdio / auth-none) leaves the surface unchanged. Filter first, THEN page: the cursor is an
     // opaque offset into this caller's visible list (mirrors resources/list).
-    const ctx = opts.context(extra.signal);
+    const ctx = opts.context(extra.mcpReq.signal);
     const visible = opts.registry.listVisible({
       grantedScopes: ctx.grantedScopes,
       readOnly: ctx.acl?.readOnly,
@@ -215,13 +232,13 @@ export function createMcpServer(opts: McpServerOptions): Server {
     return formatData(result.data);
   };
 
-  server.setRequestHandler(CallToolRequestSchema, async (req, extra): Promise<CallToolResult> => {
+  server.setRequestHandler("tools/call", async (req, extra): Promise<CallToolResult> => {
     // Bridge the HITL elicit token from tool arguments into the caller context,
     // stripping it from the args so it never perturbs args_hash — the token is
     // bound to the hash of the call WITHOUT the token (see elicit.ts / hitl.ts).
     const rawArgs = (req.params.arguments ?? {}) as Record<string, unknown>;
     let args: Record<string, unknown> = rawArgs;
-    let ctx = opts.context(extra.signal);
+    let ctx = opts.context(extra.mcpReq.signal);
     // SEP-414: lift W3C trace context out of `_meta` so dispatch's SERVER span is parented to the
     // caller's span. Read from `_meta`, NOT from a transport header — this is the one place that
     // works identically over stdio and Streamable HTTP, and it is where the 2026-07-28 spec puts it.
@@ -293,35 +310,29 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // unsupported rather than as a misleading empty/error surface.
   const { vaultRegistry } = opts;
   if (vaultRegistry) {
-    server.setRequestHandler(
-      ListResourcesRequestSchema,
-      (req, extra): Promise<ListResourcesResult> => {
-        const ctx = opts.context(extra.signal);
-        return opts.registry.dispatchResource(
-          "resources/list",
-          ctx,
-          ["read:notes"],
-          { cursor: req.params?.cursor ?? null },
-          () => listResources(vaultRegistry, ctx, req.params?.cursor),
-        );
-      },
-    );
-    server.setRequestHandler(
-      ReadResourceRequestSchema,
-      (req, extra): Promise<ReadResourceResult> => {
-        const ctx = opts.context(extra.signal);
-        return opts.registry.dispatchResource(
-          "resources/read",
-          ctx,
-          ["read:notes"],
-          { uri: req.params.uri },
-          // THE-514 item 2: pass the registry's configured maxResponseBytes so a lowered ceiling
-          // applies to resources too, not just tools — resources.ts no longer holds its own
-          // unconfigurable fixed copy of the default.
-          () => readResource(vaultRegistry, ctx, req.params.uri, opts.registry.maxResponseBytes),
-        );
-      },
-    );
+    server.setRequestHandler("resources/list", (req, extra): Promise<ListResourcesResult> => {
+      const ctx = opts.context(extra.mcpReq.signal);
+      return opts.registry.dispatchResource(
+        "resources/list",
+        ctx,
+        ["read:notes"],
+        { cursor: req.params?.cursor ?? null },
+        () => listResources(vaultRegistry, ctx, req.params?.cursor),
+      );
+    });
+    server.setRequestHandler("resources/read", (req, extra): Promise<ReadResourceResult> => {
+      const ctx = opts.context(extra.mcpReq.signal);
+      return opts.registry.dispatchResource(
+        "resources/read",
+        ctx,
+        ["read:notes"],
+        { uri: req.params.uri },
+        // THE-514 item 2: pass the registry's configured maxResponseBytes so a lowered ceiling
+        // applies to resources too, not just tools — resources.ts no longer holds its own
+        // unconfigurable fixed copy of the default.
+        () => readResource(vaultRegistry, ctx, req.params.uri, opts.registry.maxResponseBytes),
+      );
+    });
   }
 
   // Prompts: built-in, static templates (no vault access, so no authorization gate — like the
@@ -331,12 +342,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // is audited" hold for the prompt surface too. dispatchResource applies throttle + audit + metrics
   // but enforces no scope (authorization stays the handler's job), so passing [] preserves the
   // open-template semantics while closing the observability gap.
-  server.setRequestHandler(ListPromptsRequestSchema, (_req, extra): Promise<ListPromptsResult> => {
-    const ctx = opts.context(extra.signal);
+  server.setRequestHandler("prompts/list", (_req, extra): Promise<ListPromptsResult> => {
+    const ctx = opts.context(extra.mcpReq.signal);
     return opts.registry.dispatchResource("prompts/list", ctx, [], {}, () => listPrompts());
   });
-  server.setRequestHandler(GetPromptRequestSchema, (req, extra): Promise<GetPromptResult> => {
-    const ctx = opts.context(extra.signal);
+  server.setRequestHandler("prompts/get", (req, extra): Promise<GetPromptResult> => {
+    const ctx = opts.context(extra.mcpReq.signal);
     return opts.registry.dispatchResource("prompts/get", ctx, [], { name: req.params.name }, () =>
       getPrompt(req.params.name, req.params.arguments),
     );
