@@ -111,7 +111,15 @@ describe("forgetNoteAudited (THE-605)", () => {
     expect(eventLogRows(cache)).toHaveLength(1);
   });
 
-  it("a no-op forget (unknown path) does not write a spurious audit_events row", () => {
+  // THE-609 REVERSED this. It previously asserted the opposite — that a no-op writes no audit row —
+  // on the rationale that a never-indexed path "touches nothing". It does: forgetNote appends to
+  // THE-239's hash chain outside its own chunkIds guard, inside the transaction that always commits,
+  // and may rmSync prewarm files. So the old behaviour left a permanent forget_log entry with
+  // NOTHING in audit_events, which is the split THE-600 and THE-605 item 2 both exist to prevent.
+  //
+  // The rule now, for both writers: audit_events mirrors forget_log. See dispatch-parity.test.ts
+  // Section 7, where it is pinned alongside the episode case that legitimately writes neither.
+  it("a no-op forget (unknown path) writes an audit row, because forget_log gets one too", () => {
     const edb = edb0();
     const cache = openMemoryDb();
     provisionCacheDb(cache); // no chunks seeded — the path was never indexed
@@ -120,8 +128,9 @@ describe("forgetNoteAudited (THE-605)", () => {
       relPath: "notes/never-known.md",
       nowMs: NOW,
     });
-    expect(r.chunk_ids).toHaveLength(0);
-    expect(eventLogRows(cache)).toHaveLength(0);
+    expect(r.chunk_ids).toHaveLength(0); // precondition: this really is the no-op branch
+    expect(verifyForgetLog(edb)).toEqual({ ok: true, entries: 1 });
+    expect(eventLogRows(cache)).toHaveLength(1);
   });
 });
 

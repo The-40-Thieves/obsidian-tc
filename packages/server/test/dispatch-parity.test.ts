@@ -26,7 +26,7 @@ import { ObsidianTcError, ServerConfigSchema } from "@the-40-thieves/obsidian-tc
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
-import { forgetEpisodeAudited } from "../src/cli/commands/forget";
+import { forgetEpisodeAudited, forgetNoteAudited } from "../src/cli/commands/forget";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -522,5 +522,72 @@ describe("THE-605 — CLI forget's audit_events row matches dispatch's shape", (
     // of event_log's other event_type shapes (sweep_run, snapshot_skipped, ...).
     expect(dispatchRow.event_type).toBe("tool_invocation");
     expect(cliRow.event_type).toBe("tool_invocation");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Section 7 — THE-609. WHEN each audit surface writes, as opposed to Section 6's WHAT it writes.
+//
+// The rule, and the whole of it: **audit_events mirrors forget_log.** A row lands on one exactly
+// when a row lands on the other.
+//
+// This was not true. `forgetNoteAudited` gated its audit row on `chunk_ids.length > 0`, reasoning
+// that a never-indexed path "touches nothing". It does: `forgetNote` appends to THE-239's
+// tamper-evident hash chain OUTSIDE its own chunkIds guard, inside the transaction that always
+// commits (experiential/forget.ts), and may also rmSync prewarm files. So a no-op forget left a
+// permanent forget_log entry and NOTHING in audit_events — an operator reading one surface saw an
+// operation the other denied. THE-605 item 2 required the audit row even when forget_log is
+// written, and THE-600 established that having one is not having the other.
+//
+// The note/episode asymmetry below is the rule holding, not an exception to it: a missing episode
+// returns before forgetEpisode opens its transaction, so it appends no forget_log row either.
+// These tests exist so the next reader finds the decision rather than re-deriving the discrepancy.
+// ---------------------------------------------------------------------------------------------
+
+describe("THE-609 — audit_events mirrors forget_log, including on a no-op", () => {
+  it("writes an audit row for a NEVER-INDEXED note, because forget_log gets one too", () => {
+    const cacheDb = openMemoryDb();
+    provisionCacheDb(cacheDb);
+    const edb = experientialDb();
+
+    const r = forgetNoteAudited(edb, cacheDb, {
+      vaultId: "v1",
+      relPath: "never/indexed.md",
+      nowMs: NOW,
+    });
+
+    // Precondition: this really is the no-op case the old guard suppressed. Without this the test
+    // could pass against an indexed path and prove nothing about the branch under test.
+    expect(r.chunk_ids).toEqual([]);
+
+    // The hash chain recorded it — with chunks: 0, which is the honest count, not an absence.
+    const chain = edb
+      .prepare("SELECT kind, target, details FROM forget_log WHERE target = ?")
+      .get("never/indexed.md") as { kind: string; target: string; details: string } | undefined;
+    expect(chain?.kind).toBe("note");
+    expect(JSON.parse(chain?.details ?? "{}").chunks).toBe(0);
+
+    // ...and so did audit_events. This is the assertion that fails on the pre-THE-609 code.
+    const audit = cacheDb
+      .prepare("SELECT tool_name, event_type FROM event_log WHERE tool_name = ?")
+      .get("forget") as { tool_name: string; event_type: string } | undefined;
+    expect(audit?.event_type).toBe("tool_invocation");
+  });
+
+  it("writes NEITHER record for a missing episode — the same rule, not an exception", () => {
+    // forgetEpisode returns before opening its transaction, so there is no hash-chain append to
+    // mirror. Keeping the `r.found` gate is therefore consistent with the note path, not a
+    // leftover: both writers key on "did a forget_log row happen".
+    const cacheDb = openMemoryDb();
+    provisionCacheDb(cacheDb);
+    const edb = experientialDb();
+
+    const r = forgetEpisodeAudited(edb, cacheDb, "v1", "ep-does-not-exist", { nowMs: NOW });
+    expect(r.found).toBe(false);
+
+    expect((edb.prepare("SELECT COUNT(*) AS n FROM forget_log").get() as { n: number }).n).toBe(0);
+    expect((cacheDb.prepare("SELECT COUNT(*) AS n FROM event_log").get() as { n: number }).n).toBe(
+      0,
+    );
   });
 });
