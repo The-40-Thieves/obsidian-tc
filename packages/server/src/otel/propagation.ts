@@ -19,10 +19,25 @@
 // This is forward-compatible on purpose: `_meta` passthrough exists in the CURRENT spec too, so
 // this works under `2025-11-25` today and under `2026-07-28` after the SDK migration (THE-583),
 // with no second implementation.
+import {
+  BAGGAGE_META_KEY,
+  TRACEPARENT_META_KEY,
+  TRACESTATE_META_KEY,
+} from "@modelcontextprotocol/server";
 import { type Context, context, propagation } from "@opentelemetry/api";
 
-/** The three key names SEP-414 fixes. Not configurable — the whole point is that they are agreed. */
-export const TRACE_CARRIER_KEYS = ["traceparent", "tracestate", "baggage"] as const;
+/**
+ * The three key names SEP-414 fixes. Not configurable — the whole point is that they are agreed.
+ *
+ * THE-583: sourced from the SDK's own constants rather than re-typed. These were literals written
+ * before the v2 SDK shipped, and a carrier key that silently stops matching does not throw — it
+ * just yields an empty carrier, i.e. a trace that quietly stops propagating.
+ */
+export const TRACE_CARRIER_KEYS = [
+  TRACEPARENT_META_KEY,
+  TRACESTATE_META_KEY,
+  BAGGAGE_META_KEY,
+] as const;
 
 export type TraceCarrier = Record<string, string>;
 

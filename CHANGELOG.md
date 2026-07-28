@@ -29,6 +29,26 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `test/mcp-protocol-eras.test.ts` pins both eras plus a floor asserting an unadvertised revision is
   still refused.
 
+- **Adopt SDK helpers over hand-rolled equivalents (THE-583).** Three duplicated implementations now
+  defer to the SDK, removing second copies of wire constants and validation logic:
+
+  * **`_meta` key constants** — `client-info.ts` and `otel/propagation.ts` had hand-typed literals
+    for `io.modelcontextprotocol/clientInfo`, `traceparent`, `tracestate` and `baggage`. They now
+    re-export the SDK's. A drifted wire constant does not throw; it yields an absent clientInfo or a
+    trace that quietly stops propagating.
+  * **DNS-rebinding guard** — `validateHostHeader` / `validateOriginHeader` replace regex parsing.
+    The `allowedHosts` allowlist is normalized to both `host:port` and bare-hostname forms first: the
+    SDK matches on hostname while our config schema documents "Host header values", and passing those
+    straight through would have 403'd every request for anyone who configured a port.
+  * **RFC 9728 metadata URL** — now the SDK's derivation. **Behaviour fix:** for a resource carrying
+    a path (`https://host/mcp`), RFC 9728 §3.1 inserts that path *after* the well-known suffix
+    (`/.well-known/oauth-protected-resource/mcp`). Ours dropped it, collapsing two distinct resources
+    on one host onto a single metadata document.
+
+  The rebinding guard gained its first real coverage in the process — 8 tests over Host and Origin
+  acceptance, using `node:http` because Node's `fetch` silently drops a custom `Host` header, which
+  had made the first draft of those tests pass against loopback while appearing to test rebinding.
+
 - **Full 2026-07-28 conformance: `server/discover`, SEP-2243 routing headers, SEP-2549 cache hints
   (THE-583).** The `/mcp` route is now served by the SDK's `createMcpHandler`, which classifies the
   protocol era per request and serves both from one endpoint.

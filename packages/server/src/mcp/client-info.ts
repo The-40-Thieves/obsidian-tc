@@ -20,8 +20,17 @@
 // bounded, dropped rather than truncated, absent is normal. These values reach a DB column, so an
 // unbounded one is a storage problem, and a truncated version string is a WRONG version string.
 
-/** The reverse-DNS `_meta` key the 2026-07-28 spec assigns to client identity. */
-export const CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo";
+/**
+ * The reverse-DNS `_meta` key the 2026-07-28 spec assigns to client identity.
+ *
+ * THE-583: re-exported from the SDK rather than spelled out here. It was a hand-typed literal
+ * written before the v2 SDK shipped; keeping a second copy of a wire constant is how a rename in
+ * the spec becomes a silent no-op on our side — the key would simply stop matching and clientInfo
+ * would read as absent, which is a legal state and therefore invisible.
+ */
+export { CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
+
+import { CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
 
 export interface ClientInfo {
   name: string;
