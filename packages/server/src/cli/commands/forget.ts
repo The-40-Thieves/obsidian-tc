@@ -108,10 +108,37 @@ export function forgetEpisodeAudited(
   return r;
 }
 
-/** forgetNote + THE-605's audit_events row, gated on `chunk_ids.length > 0` — an unknown path
- *  (never indexed) touches nothing and must not write a spurious audit row; chunk_ids is the
- *  same "did this path exist to the system at all" signal forgetNote already computes, so no new
- *  no-op concept is invented here. */
+/**
+ * forgetNote + THE-605's audit_events row, written UNCONDITIONALLY.
+ *
+ * THE-609 decision: the two audit surfaces record the same events. This used to be gated on
+ * `chunk_ids.length > 0`, on the rationale that "an unknown path (never indexed) touches nothing
+ * and must not write a spurious audit row". That rationale does not hold — a run against a
+ * never-indexed path is not a no-op:
+ *
+ *   * `forgetNote` appends to `forget_log` unconditionally (THE-239's tamper-evident hash chain);
+ *     the append sits outside its own `chunk_ids` guard, inside the transaction that always commits.
+ *   * it may `rmSync` prewarm cache files (experiential/forget.ts), likewise ungated by chunk_ids.
+ *
+ * So the operation had effects and left a permanent record on one surface while the other showed
+ * nothing. THE-605 item 2 was explicit that the audit row "must be written even when the CLI path
+ * already writes forget_log", and THE-600 established that having one is not having the other —
+ * keeping the asymmetry would have inverted both. The alternative reading ("audit_events records
+ * EFFECTS, forget_log records INVOCATIONS") is coherent, but it is the opposite of where THE-600
+ * landed, so it is not adopted silently here.
+ *
+ * THE RULE, stated once for both writers: **audit_events mirrors forget_log.** An audit row is
+ * written exactly when a hash-chain row is appended, and never otherwise. That is why
+ * `forgetEpisodeAudited` below keeps its `r.found` gate and is NOT inconsistent with this: a
+ * missing episode returns before `forgetEpisode` opens its transaction, so no forget_log row is
+ * appended either. Note and episode differ because their forget_log behaviour differs, not because
+ * their audit policy does.
+ *
+ * A no-op now writes a row whose `resultSize` reflects an empty result — honest, and reconstructable
+ * from the result shape; the paired forget_log row already carries `chunks: 0` explicitly. Pinned in
+ * dispatch-parity.test.ts Section 6 so the next reader finds the decision rather than the
+ * discrepancy.
+ */
 export function forgetNoteAudited(
   edb: Database,
   cacheDb: Database,
@@ -119,17 +146,15 @@ export function forgetNoteAudited(
 ): NoteForgetResult {
   const t0 = Date.now();
   const r = forgetNote(edb, cacheDb, opts);
-  if (r.chunk_ids.length > 0) {
-    auditForgetEvent(
-      cacheDb,
-      opts.vaultId,
-      "note",
-      opts.relPath,
-      !!opts.erase,
-      Date.now() - t0,
-      Buffer.byteLength(JSON.stringify(r), "utf8"),
-    );
-  }
+  auditForgetEvent(
+    cacheDb,
+    opts.vaultId,
+    "note",
+    opts.relPath,
+    !!opts.erase,
+    Date.now() - t0,
+    Buffer.byteLength(JSON.stringify(r), "utf8"),
+  );
   return r;
 }
 
