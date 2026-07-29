@@ -99,4 +99,36 @@ describe("contribution report (THE-249)", () => {
     seedRetrieval(edb, "r1", "ghost-chunk", 1);
     expect(contributionReport(edb, cache).totals.retrievedPaths).toBe(0);
   });
+
+  it("THE-622: a session id containing a comma is not split into fragments", () => {
+    // Latent today (session ids are generated and comma-free), but the old GROUP_CONCAT(",")
+    // encoding would silently shatter an id like this into ["a", "b"] and miss the
+    // callerBySession lookup entirely — wrong attribution with no error.
+    const edb = edb0();
+    const cache = cacheDb0();
+    cache.prepare("INSERT INTO chunks (id, path) VALUES ('a1', 'notes/a.md')").run();
+    cache.prepare("INSERT INTO workspace_sessions (id, caller) VALUES ('a,b', 'claude')").run();
+    seedRetrieval(edb, "r1", "a1", 1, NOW, "a,b");
+
+    const report = contributionReport(edb, cache);
+    const a = report.notes.find((n) => n.path === "notes/a.md");
+    expect(a?.callers).toEqual(["claude"]);
+  });
+
+  it("THE-622: dedupes callers across several sessions crediting the same note", () => {
+    const edb = edb0();
+    const cache = cacheDb0();
+    cache.prepare("INSERT INTO chunks (id, path) VALUES ('a1', 'notes/a.md')").run();
+    cache.prepare("INSERT INTO chunks (id, path) VALUES ('a2', 'notes/a.md')").run();
+    cache.prepare("INSERT INTO workspace_sessions (id, caller) VALUES ('s1', 'claude')").run();
+    cache.prepare("INSERT INTO workspace_sessions (id, caller) VALUES ('s2', 'claude')").run();
+    cache.prepare("INSERT INTO workspace_sessions (id, caller) VALUES ('s3', 'codex')").run();
+    seedRetrieval(edb, "r1", "a1", 1, NOW, "s1");
+    seedRetrieval(edb, "r2", "a1", 1, NOW + 1, "s2"); // same caller, different session
+    seedRetrieval(edb, "r3", "a2", 1, NOW + 2, "s3");
+
+    const report = contributionReport(edb, cache);
+    const a = report.notes.find((n) => n.path === "notes/a.md");
+    expect(a?.callers.sort()).toEqual(["claude", "codex"]);
+  });
 });

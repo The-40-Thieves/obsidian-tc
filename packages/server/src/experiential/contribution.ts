@@ -17,6 +17,19 @@ export interface NoteContribution {
   callers: string[];
 }
 
+// THE-622: GROUP_CONCAT(DISTINCT x, sep) is rejected by SQLite — a DISTINCT aggregate takes exactly
+// one argument, so a custom separator is not an option — and the bare-comma join it replaces would
+// silently shatter a session id that happens to contain a comma into fragments, missing the
+// callerBySession lookup with no error. Safe today (session ids are generated and comma-free), but
+// this file should not have to keep re-verifying that. json_group_array(DISTINCT ...) takes the one
+// argument GROUP_CONCAT(DISTINCT ...) already did, so it compiles, and each id is JSON-escaped
+// rather than delimiter-joined, so an embedded comma cannot be confused with the separator. DISTINCT
+// still treats NULL (the CASE's "not cited" branch) as one distinct value, so the array can carry a
+// single `null` entry — filtered out here, same as the old code's `if (s)` truthy check.
+function parseSessions(sessionsJson: string): string[] {
+  return (JSON.parse(sessionsJson) as Array<string | null>).filter((s): s is string => s !== null);
+}
+
 export interface ContributionReport {
   window: { since: number | null; until: number | null };
   notes: NoteContribution[];
@@ -54,7 +67,7 @@ export function contributionReport(
               COUNT(*) AS retrievals,
               SUM(CASE WHEN cited_in_response = 1 THEN 1 ELSE 0 END) AS contributions,
               MAX(CASE WHEN cited_in_response = 1 THEN retrieved_at END) AS last_contribution,
-              GROUP_CONCAT(DISTINCT CASE WHEN cited_in_response = 1 THEN session_id END) AS sessions
+              json_group_array(DISTINCT CASE WHEN cited_in_response = 1 THEN session_id END) AS sessions_json
        FROM chunk_retrievals WHERE ${clauses.join(" AND ")}
        GROUP BY chunk_id`,
     )
@@ -63,7 +76,7 @@ export function contributionReport(
     retrievals: number;
     contributions: number;
     last_contribution: number | null;
-    sessions: string | null;
+    sessions_json: string;
   }>;
   if (rows.length === 0) {
     return {
@@ -88,7 +101,7 @@ export function contributionReport(
   // session -> caller via workspace_sessions (best-effort; table may be empty).
   const sessionIds = new Set<string>();
   for (const r of rows) {
-    for (const s of (r.sessions ?? "").split(",")) if (s) sessionIds.add(s);
+    for (const s of parseSessions(r.sessions_json)) sessionIds.add(s);
   }
   const callerBySession = new Map<string, string>();
   const sids = [...sessionIds];
@@ -106,6 +119,11 @@ export function contributionReport(
   }
 
   const byPath = new Map<string, NoteContribution>();
+  // Callers accumulate in a Set per path (O(1) add) rather than the array's own `.includes` check
+  // (O(n) per add, O(n²) over a path with many distinct callers) — distinct callers per note are
+  // few in practice, so this is tidiness rather than a measured cost. Converted to the public
+  // `string[]` shape once, below.
+  const callersByPath = new Map<string, Set<string>>();
   for (const r of rows) {
     const path = pathByChunk.get(r.chunk_id);
     if (!path) continue; // chunk deleted since retrieval
@@ -124,11 +142,20 @@ export function contributionReport(
     ) {
       entry.lastContributionTs = r.last_contribution;
     }
-    for (const s of (r.sessions ?? "").split(",")) {
-      const caller = s ? callerBySession.get(s) : undefined;
-      if (caller && !entry.callers.includes(caller)) entry.callers.push(caller);
+    let callers = callersByPath.get(path);
+    if (!callers) {
+      callers = new Set();
+      callersByPath.set(path, callers);
+    }
+    for (const s of parseSessions(r.sessions_json)) {
+      const caller = callerBySession.get(s);
+      if (caller) callers.add(caller);
     }
     byPath.set(path, entry);
+  }
+  for (const [path, callers] of callersByPath) {
+    const entry = byPath.get(path);
+    if (entry) entry.callers = [...callers];
   }
 
   const notes = [...byPath.values()].sort(
