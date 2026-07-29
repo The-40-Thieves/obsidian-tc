@@ -258,6 +258,7 @@ is covered in [docs/CUTOVER.md](./docs/CUTOVER.md).
 - [docs/WHY.md](./docs/WHY.md) — threat model, what governance means concretely, what obsidian-tc is not
 - [docs/COHERENCE.md](./docs/COHERENCE.md) — writing while Obsidian is open: the coherence contract
 - [docs/CUTOVER.md](./docs/CUTOVER.md) — migrating from another Obsidian MCP server
+- [docs/MCP-COMPATIBILITY.md](./docs/MCP-COMPATIBILITY.md) — protocol-revision and capability compatibility matrix, evidence-backed
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — the dispatch pipeline and package layout
 - [SECURITY.md](./SECURITY.md) — threat model, protections, reporting
 
