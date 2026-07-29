@@ -92,7 +92,9 @@ describe("gateway client", () => {
 
   it("maps a non-2xx response to an internal error", async () => {
     const fetchFn = (async () => jsonResponse({ error: "boom" }, 500)) as unknown as typeof fetch;
-    const client = createGatewayClient({ baseUrl: "http://gw", fetchFn });
+    // maxAttempts: 1 — this test is about the status->error mapping, not retry; THE-615's retry
+    // behavior gets its own describe block below.
+    const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 1 });
     await expect(client.extract({ messages: [] })).rejects.toMatchObject({ code: "internal" });
   });
 
@@ -102,7 +104,12 @@ describe("gateway client", () => {
       e.name = "AbortError";
       throw e;
     }) as unknown as typeof fetch;
-    const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, timeoutMs: 5 });
+    const client = createGatewayClient({
+      baseUrl: "http://gw",
+      fetchFn,
+      timeoutMs: 5,
+      maxAttempts: 1,
+    });
     await expect(client.judge({ messages: [] })).rejects.toMatchObject({
       code: "operation_timeout",
     });
@@ -128,5 +135,172 @@ describe("gateway client", () => {
     } finally {
       if (prev !== undefined) process.env.OBSIDIAN_TC_GATEWAY_URL = prev;
     }
+  });
+});
+
+// THE-615 — bounded retry with backoff. A stub `fetchFn` that fails N times then succeeds is
+// the prescribed way to prove the per-attempt AbortController/timeout actually resets, since a
+// controller reused across retries would abort attempt 2 immediately (it inherits attempt 1's
+// already-fired signal).
+describe("gateway client retry (THE-615)", () => {
+  it("retries a transient network throw and succeeds on the next attempt", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("ECONNRESET");
+      return jsonResponse({ model: "m", choices: [{ message: { content: "ok" } }] });
+    }) as unknown as typeof fetch;
+    const client = createGatewayClient({
+      baseUrl: "http://gw",
+      fetchFn,
+      maxAttempts: 2,
+      retryBaseDelayMs: 1,
+      sleepFn: async () => {},
+    });
+    const r = await client.extract({ messages: [] });
+    expect(r.text).toBe("ok");
+    expect(calls).toBe(2);
+  });
+
+  it(
+    "retries a per-attempt timeout with a FRESH AbortController — a reused, already-fired " +
+      "signal would abort the retry instantly",
+    async () => {
+      let calls = 0;
+      const fetchFn = (async (_url: any, init: any) => {
+        calls += 1;
+        if (calls === 1) {
+          // Simulate the first attempt hanging until ITS OWN per-attempt timer fires.
+          return new Promise((_resolve, reject) => {
+            init.signal.addEventListener("abort", () => {
+              const e = new Error("aborted");
+              e.name = "AbortError";
+              reject(e);
+            });
+          });
+        }
+        // If the client reused attempt 1's controller, this signal would already be aborted.
+        expect(init.signal.aborted).toBe(false);
+        return jsonResponse({ model: "m", choices: [{ message: { content: "ok" } }] });
+      }) as unknown as typeof fetch;
+      const client = createGatewayClient({
+        baseUrl: "http://gw",
+        fetchFn,
+        timeoutMs: 5,
+        maxAttempts: 2,
+        retryBaseDelayMs: 1,
+        sleepFn: async () => {},
+      });
+      const r = await client.extract({ messages: [] });
+      expect(r.text).toBe("ok");
+      expect(calls).toBe(2);
+    },
+  );
+
+  it("retries a 5xx up to maxAttempts with exponential backoff, then throws the typed error", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      return jsonResponse({}, 503);
+    }) as unknown as typeof fetch;
+    const delays: number[] = [];
+    const client = createGatewayClient({
+      baseUrl: "http://gw",
+      fetchFn,
+      maxAttempts: 3,
+      retryBaseDelayMs: 100,
+      retryMaxDelayMs: 1000,
+      sleepFn: async (ms) => {
+        delays.push(ms);
+      },
+    });
+    await expect(client.extract({ messages: [] })).rejects.toMatchObject({ code: "internal" });
+    expect(calls).toBe(3);
+    expect(delays).toEqual([100, 200]); // base * 2^(attempt-1), same formula as job-queue.ts
+  });
+
+  it("never retries a 4xx — retrying our own bad request just repeats the same mistake", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      return jsonResponse({}, 400);
+    }) as unknown as typeof fetch;
+    const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 3 });
+    await expect(client.extract({ messages: [] })).rejects.toMatchObject({ code: "internal" });
+    expect(calls).toBe(1);
+  });
+
+  it("a bare 429 (no Retry-After) is terminal, like other 4xx", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      return jsonResponse({}, 429);
+    }) as unknown as typeof fetch;
+    const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 3 });
+    await expect(client.extract({ messages: [] })).rejects.toMatchObject({ code: "internal" });
+    expect(calls).toBe(1);
+  });
+
+  it("a 429 with Retry-After is retried, honoring the header's delay over the backoff formula", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(JSON.stringify({}), {
+          status: 429,
+          headers: { "content-type": "application/json", "retry-after": "2" },
+        });
+      }
+      return jsonResponse({ model: "m", choices: [{ message: { content: "ok" } }] });
+    }) as unknown as typeof fetch;
+    const delays: number[] = [];
+    const client = createGatewayClient({
+      baseUrl: "http://gw",
+      fetchFn,
+      maxAttempts: 2,
+      retryBaseDelayMs: 100,
+      sleepFn: async (ms) => {
+        delays.push(ms);
+      },
+    });
+    const r = await client.extract({ messages: [] });
+    expect(r.text).toBe("ok");
+    expect(calls).toBe(2);
+    expect(delays).toEqual([2000]); // Retry-After: 2 (seconds) wins over the 100ms backoff base
+  });
+});
+
+// THE-617 item 4 — a lightweight liveness probe, folded into THE-615's retry work per the
+// ticket (worth doing only alongside the client's other resilience changes, not standalone).
+describe("gateway client ping (THE-617)", () => {
+  it("GETs LiteLLM's /health and returns true on 2xx", async () => {
+    let calledUrl = "";
+    let method = "";
+    const fetchFn = (async (url: any, init: any) => {
+      calledUrl = String(url);
+      method = init?.method;
+      return jsonResponse({ status: "healthy" });
+    }) as unknown as typeof fetch;
+    const client = createGatewayClient({ baseUrl: "http://gw", fetchFn });
+    await expect(client.ping()).resolves.toBe(true);
+    expect(calledUrl).toBe("http://gw/health");
+    expect(method).toBe("GET");
+  });
+
+  it("returns false (never throws) on a non-2xx, a network error, or a timeout — and never retries", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      return jsonResponse({}, 503);
+    }) as unknown as typeof fetch;
+    const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 3 });
+    await expect(client.ping()).resolves.toBe(false);
+    expect(calls).toBe(1); // ping is a single-shot probe, not subject to the retry policy
+
+    const throwingFetch = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    const client2 = createGatewayClient({ baseUrl: "http://gw", fetchFn: throwingFetch });
+    await expect(client2.ping()).resolves.toBe(false);
   });
 });
