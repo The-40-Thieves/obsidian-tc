@@ -1,0 +1,39 @@
+# docker-compose.yml — run obsidian-tc against a vault with one command, no local install.
+#
+# obsidian-tc is spawned per session by an MCP client (stdio), the same way the npx/Claude
+# Desktop/Cursor/VS Code wiring in README.md "Quick start" and docs/QUICKSTART.md works — this is
+# not a long-running network daemon, so start it with `run`, not `up -d`:
+#
+#   docker compose run --rm obsidian-tc
+#
+# Before that works you need to do two things:
+#
+#   1. Point the vault bind-mount below at your real vault: set OBSIDIAN_VAULT_PATH, or edit the
+#      placeholder directly. The committed placeholder is deliberately fake and does not exist on
+#      disk — Docker bind-mounts a missing host directory as an empty one rather than erroring, so
+#      forgetting this step boots the server against an empty vault (visibly wrong, not a leak),
+#      not a hard failure.
+#   2. Copy examples/config.scratch.json to ./config/obsidian-tc.config.json and change
+#      vaults[0].path to "/vault" (the mount point below) — see docs/QUICKSTART.md step 2 for
+#      what else that file's ACL/transport fields mean. Skipping this step DOES fail loudly: the
+#      CLI exits with "no such vault folder or config file" when OBSIDIAN_TC_CONFIG points nowhere.
+#
+# The config is bind-mounted as a DIRECTORY (./config), not as a single file: a file bind pins the
+# host inode, so editing the config in place afterwards would leave the container reading the
+# stale original.
+#
+# The image runs as the unprivileged `bun` uid (see Dockerfile) — its $HOME (/home/bun) is owned
+# by that user already, so the default cache dir (~/.obsidian-tc) is writable with no extra
+# volume; add one (e.g. `obsidian-tc-cache:/home/bun/.obsidian-tc`) if you want the index to
+# survive a `docker compose down`.
+services:
+  obsidian-tc:
+    build: .
+    # Or use the published image instead of building locally:
+    # image: ghcr.io/the-40-thieves/obsidian-tc:latest
+    stdin_open: true
+    volumes:
+      - ${OBSIDIAN_VAULT_PATH:-/absolute/path/to/REPLACE_WITH_YOUR_VAULT}:/vault
+      - ./config:/config:ro
+    environment:
+      OBSIDIAN_TC_CONFIG: /config/obsidian-tc.config.json

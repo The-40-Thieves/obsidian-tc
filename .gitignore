@@ -61,6 +61,10 @@ coverage/
 # is never accidentally committed.
 .obsidian-tc/
 
+# docker-compose.yml's config bind-mount target (THE-638). A contributor copies
+# examples/config.scratch.json here and points it at their own vault path — never commit that.
+/config/
+
 # Agent tooling. Local STATE stays out; SHARED config is committed.
 #
 # `.claude/` was blanket-ignored, which meant the project's Claude Code configuration could not

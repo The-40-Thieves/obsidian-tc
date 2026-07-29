@@ -104,7 +104,7 @@ obsidian-tc is the **converged memory engine**: vault read/write, search, and co
 
 ## Quick start
 
-Full walkthrough (Claude Desktop / Claude Code wiring, first queries, a governed write): [docs/QUICKSTART.md](./docs/QUICKSTART.md).
+Full walkthrough (Claude Desktop / Claude Code wiring, first queries, a governed write): [docs/QUICKSTART.md](./docs/QUICKSTART.md). Prefer Docker over a local install? [docker-compose.yml](./docker-compose.yml) runs the server against a bind-mounted vault with no `npm install` needed.
 
 Install, then point obsidian-tc at a JSON config — a vault `id` and `path` is the
 minimum (every other field has a default):
