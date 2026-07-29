@@ -5,13 +5,28 @@
 import type { Database } from "../../db/types";
 import type { Job, JobContext, JobResult } from "../plane";
 
+/** Per-vault breakdown of the two health checks below (THE-606). */
+export interface VaultAuditCounts {
+  vault_id: string;
+  null_embeddings: number;
+  duplicate_chunk_positions: number;
+}
+
 export interface AuditReport {
   vault_null_embeddings: number;
   duplicate_chunk_positions: number;
+  /** THE-606: the two totals above are GLOBAL sums across every vault -- this is the per-vault
+   *  breakdown an operator actually needs to tell "vault A is unhealthy" from "vault B is". */
+  per_vault: VaultAuditCounts[];
   details: Record<string, unknown>;
 }
 
 interface CountRow {
+  c: number;
+}
+
+interface VaultCountRow {
+  vault_id: string;
   c: number;
 }
 
@@ -35,9 +50,38 @@ export function runAudit(
     )
     .get() as CountRow;
 
+  const nullEmbByVault = db
+    .prepare(
+      `SELECT vault_id, COUNT(*) AS c FROM chunks c
+       WHERE NOT EXISTS (SELECT 1 FROM chunk_embeddings e WHERE e.chunk_id = c.id AND e.is_active = 1)
+       GROUP BY vault_id`,
+    )
+    .all() as VaultCountRow[];
+  const dupePositionsByVault = db
+    .prepare(
+      `SELECT vault_id, COUNT(*) AS c FROM (
+         SELECT vault_id, path, chunk_index FROM chunks
+         GROUP BY vault_id, path, chunk_index HAVING COUNT(*) > 1
+       )
+       GROUP BY vault_id`,
+    )
+    .all() as VaultCountRow[];
+  const perVault = new Map<string, VaultAuditCounts>();
+  const vaultRow = (vaultId: string): VaultAuditCounts => {
+    let row = perVault.get(vaultId);
+    if (!row) {
+      row = { vault_id: vaultId, null_embeddings: 0, duplicate_chunk_positions: 0 };
+      perVault.set(vaultId, row);
+    }
+    return row;
+  };
+  for (const r of nullEmbByVault) vaultRow(r.vault_id).null_embeddings = r.c;
+  for (const r of dupePositionsByVault) vaultRow(r.vault_id).duplicate_chunk_positions = r.c;
+
   const report: AuditReport = {
     vault_null_embeddings: nullEmb.c,
     duplicate_chunk_positions: dupePositions.c,
+    per_vault: [...perVault.values()],
     details: {},
   };
   const totalIssues = report.vault_null_embeddings + report.duplicate_chunk_positions;
