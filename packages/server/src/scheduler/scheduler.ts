@@ -52,6 +52,22 @@ export interface SchedulerOptions {
   shutdownDeadlineMs?: number;
   /** How long a deferred tick waits before re-checking the event-loop budget (default 250ms). */
   deferralRecheckMs?: number;
+  /** THE-666: fired when a durable-persistence write/read fails (ensureTable, seedNextRun,
+   *  persistRunStart, persist). Same "error channel" shape as `JobSpec.onError` and
+   *  `makeActivationLookup`'s `onError` (THE-653) — guarded so it can never throw out of the
+   *  scheduler, and never changes the best-effort contract: persistence stays disabled for that
+   *  write, scheduling continues regardless. Throttled — see `reportPersistError`. */
+  onPersistError?: (failure: SchedulerPersistFailure) => void;
+}
+
+/** THE-666: one occurrence of a persistence op failing. `job` is absent for `ensureTable`, which
+ *  runs once at construction, before any job exists, and whose failure is process-wide rather
+ *  than job-scoped (every subsequent seedNextRun/persistRunStart/persist call is also doomed,
+ *  since job_schedule was never created). */
+export interface SchedulerPersistFailure {
+  op: "ensureTable" | "seedNextRun" | "persistRunStart" | "persist";
+  job?: string;
+  error: unknown;
 }
 
 interface JobState {
@@ -109,6 +125,11 @@ export class Scheduler {
   private readonly loopDelay?: () => number;
   /** perf_hooks histogram backing the default loop-delay source; disabled on stop(). */
   private loopMonitor?: { percentile(p: number): number; enable(): void; disable(): void };
+  private readonly onPersistError?: (failure: SchedulerPersistFailure) => void;
+  /** THE-666: dedup keys (`${op}:${job ?? ""}`) already reported to onPersistError. Cleared for a
+   *  job's write ops on their next SUCCESS, so a failure that recovers and later recurs alerts
+   *  again — this is not a one-shot-forever suppression, it is "one alert per failure streak". */
+  private readonly persistErrorSeen = new Set<string>();
 
   private timer: ReturnType<typeof setTimeout> | null = null;
   private virtualNow = 0;
@@ -124,6 +145,7 @@ export class Scheduler {
     this.random = opts.random ?? Math.random;
     this.shutdownDeadlineMs = opts.shutdownDeadlineMs ?? DEFAULT_SHUTDOWN_DEADLINE_MS;
     this.deferralRecheckMs = opts.deferralRecheckMs ?? DEFAULT_DEFERRAL_RECHECK_MS;
+    this.onPersistError = opts.onPersistError;
     // Budget deferral needs a delay source only when a threshold is set. Prefer the injected seam;
     // otherwise attach the real event-loop-delay monitor (lazily, so no cost when deferral is off).
     if (this.eventLoopDeferMs !== undefined) {
@@ -196,17 +218,65 @@ export class Scheduler {
 
   // --- internals -------------------------------------------------------------
 
+  /** THE-666: every persistence catch below used to discard its error with nothing outside the
+   *  process — no log, no counter, no health signal, so a broken `job_schedule` table and a
+   *  healthy one were byte-identical from outside. This reports it through the guarded
+   *  `onPersistError` channel (same shape as `JobSpec.onError`), throttled to ONE call per
+   *  distinct (op, job) pair since the last success: the scheduler ticks continuously (the
+   *  job-queue-runner alone is every 15s in production, see cli.ts), so an unthrottled callback
+   *  on every failed write would itself become a log flood. One alert per failure streak is
+   *  enough to page an operator; it does not change the best-effort contract — scheduling is
+   *  unaffected either way. */
+  private reportPersistError(
+    op: SchedulerPersistFailure["op"],
+    job: string | undefined,
+    error: unknown,
+  ): void {
+    const key = `${op}:${job ?? ""}`;
+    if (this.persistErrorSeen.has(key)) return;
+    this.persistErrorSeen.add(key);
+    try {
+      this.onPersistError?.({ op, job, error });
+    } catch {
+      /* persist-error sink must never throw */
+    }
+  }
+
+  /** Clears a (op, job) key's dedup entry on a SUCCESSFUL write, so a later failure — a new
+   *  streak, not a continuation of the one already reported — alerts again instead of staying
+   *  silent forever after the first occurrence. */
+  private clearPersistError(op: SchedulerPersistFailure["op"], job: string): void {
+    this.persistErrorSeen.delete(`${op}:${job}`);
+  }
+
   private ensureTable(db: Database): void {
     try {
       db.exec(
         "CREATE TABLE IF NOT EXISTS job_schedule (name TEXT PRIMARY KEY, last_run_at INTEGER, last_success_at INTEGER, next_run_at INTEGER, consecutive_failures INTEGER NOT NULL DEFAULT 0)",
       );
-    } catch {
-      /* persistence is best-effort: a table failure must never disable scheduling */
+    } catch (err) {
+      // THE-666: persistence is best-effort: a table failure must never disable scheduling — but
+      // it DOES mean every persist below is dead for the rest of the process (there is no retry
+      // of ensureTable), a materially different condition from one write failing. Reported without
+      // a `job` (this runs once, at construction, before any job is registered).
+      this.reportPersistError("ensureTable", undefined, err);
     }
   }
 
-  /** Seed a job's first virtual due time from a stored next_run_at (relative to now()), or null. */
+  /** Seed a job's first virtual due time from a stored next_run_at (relative to now()), or null.
+   *
+   *  THE-666: `null` means two very different things — no stored row (a fresh install; correctly
+   *  silent, every job starts that way once) and a read that THREW (a corrupt/unreadable
+   *  job_schedule; the scheduler responds by reseeding every job from scratch on every restart,
+   *  masquerading as a fresh install forever). Both must still fall back to the same schedule —
+   *  reseeding from `intervalMs` is the only safe move when the stored value cannot be trusted
+   *  either way, so the RETURN VALUE stays collapsed to `null` on purpose (start() cannot act on
+   *  the difference and must not throw). What was missing was a CHANNEL: the catch branch below
+   *  now reports through `onPersistError`, so a persistent read failure is distinguishable from a
+   *  cold cache from OUTSIDE the process, even though in-process behaviour is identical either
+   *  way — same distinction THE-653's `makeActivationLookup` drew for a cache miss vs. a read
+   *  failure, carried through a side channel instead of the return type for the same reason: this
+   *  call site can't widen its contract without changing what "no seed" means for every caller. */
   private seedNextRun(state: JobState): number | null {
     if (!this.db) return null;
     try {
@@ -220,7 +290,8 @@ export class Scheduler {
       if (row.next_run_at == null) return null;
       const delay = Math.max(0, row.next_run_at - this.now());
       return this.virtualNow + delay;
-    } catch {
+    } catch (err) {
+      this.reportPersistError("seedNextRun", state.spec.name, err);
       return null;
     }
   }
@@ -381,8 +452,11 @@ export class Scheduler {
              next_run_at = excluded.next_run_at`,
         )
         .run(state.spec.name, t, t + this.effInterval(state));
-    } catch {
-      /* durable scheduling is best-effort: a write failure must never break the timer loop */
+      this.clearPersistError("persistRunStart", state.spec.name);
+    } catch (err) {
+      // THE-666: durable scheduling is best-effort: a write failure must never break the timer
+      // loop — but it must not be INVISIBLE either. Throttled inside reportPersistError.
+      this.reportPersistError("persistRunStart", state.spec.name, err);
     }
   }
 
@@ -419,8 +493,11 @@ export class Scheduler {
           fields.next_run_at ?? null,
           fields.consecutive_failures ?? null,
         );
-    } catch {
-      /* durable scheduling is best-effort: a write failure must never break the timer loop */
+      this.clearPersistError("persist", state.spec.name);
+    } catch (err) {
+      // THE-666: durable scheduling is best-effort: a write failure must never break the timer
+      // loop — but it must not be INVISIBLE either. Throttled inside reportPersistError.
+      this.reportPersistError("persist", state.spec.name, err);
     }
   }
 

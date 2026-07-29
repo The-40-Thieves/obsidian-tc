@@ -14,3 +14,9 @@ export function errorMessage(e: unknown): string {
 export function stderrOnError(tag: string): (e: unknown) => void {
   return (e) => process.stderr.write(`[${tag}] ${errorMessage(e)}\n`);
 }
+
+/** THE-666: scheduler.ts's `onPersistError` carries `{ op, job, error }`, not a bare `e`, so it
+ *  can't reuse `stderrOnError` above verbatim — same shape otherwise. */
+export function schedulerPersistErrorSink(f: { op: string; job?: string; error: unknown }): void {
+  process.stderr.write(`[scheduler-persist] ${f.op} ${f.job ?? ""}: ${errorMessage(f.error)}\n`);
+}
