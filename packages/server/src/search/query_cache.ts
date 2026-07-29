@@ -46,7 +46,9 @@ export interface QueryCacheStats {
   stores: number;
   /** Entries dropped because the cache was full (LRU). */
   evictions: number;
-  /** Entries found but past their TTL — a miss that also proves the TTL is doing work. */
+  /** Entries found past their TTL — either on `get()` (a miss) or swept proactively at the front of
+   *  `set()` before the LRU cap runs (THE-626). Both prove the TTL is doing work; kept separate from
+   *  `evictions` because an expiry and a capacity eviction mean different things about cache sizing. */
   expirations: number;
 }
 
@@ -112,6 +114,24 @@ export class QueryCache<V> {
 
   set(key: string, value: V): void {
     this.entries.delete(key);
+    // THE-626: sweep one expired entry before growing the map. Without this, an entry that expires
+    // and is never re-requested just sits at the front — get() is the only other place that checks
+    // expiresAt, and only for the key actually asked for — until ordinary capacity pressure evicts
+    // it. That eviction lands on the right entry often enough to hide the bug, but it is charged as
+    // an LRU eviction rather than an expiration, and in the meantime the dead entry occupies a slot
+    // a live one could have used instead. Map iterates in insertion order and get() only reorders on
+    // a HIT, so the front is the least-recently-touched entry — a good proxy for "expired", though
+    // not a proof: an entry can be touched (moved to the back) without its expiresAt moving with it,
+    // so this does not catch every dead entry. A single check is O(1) amortised; scanning the whole
+    // map on every store is not worth the extra correctness for a cache this size (see the ticket).
+    const front = this.entries.keys().next();
+    if (!front.done) {
+      const frontEntry = this.entries.get(front.value);
+      if (frontEntry && frontEntry.expiresAt <= this.now()) {
+        this.entries.delete(front.value);
+        this.expirations++;
+      }
+    }
     this.entries.set(key, { value, expiresAt: this.now() + this.ttlMs });
     this.stores++;
     while (this.entries.size > this.maxEntries) {
@@ -301,6 +321,16 @@ export function hashInto(h: Hash, v: unknown): void {
   }
   // Plain object (and anything object-like): sorted own enumerable string keys.
   const obj = v as Record<string, unknown>;
+  // FRAGILE: skipping `undefined` properties means `{k: undefined}` and `{}` hash IDENTICALLY
+  // (pinned by query-cache.test.ts's "treats an explicitly-undefined property as absent" case).
+  // That is safe only because every option today is read as `opts.x ?? default`, so absent and
+  // explicitly-undefined already mean the same thing to the pipeline. It stops being safe the day a
+  // new nullable GraphSearchOptions field is added where "explicitly undefined" and "omitted" are
+  // supposed to differ: one call site passing it and another omitting it would then collide here and
+  // share a cache entry across a real behavioural difference — with aclFingerprint riding in the
+  // same key, that is a cross-principal leak, not just a stale read. `graphSearchKey`'s `reranker`
+  // handling below is the pattern to copy for such a field: map it to an explicit sentinel
+  // ("absent"/"present") instead of relying on this skip.
   const keys = Object.keys(obj)
     .filter((k) => obj[k] !== undefined)
     .sort();
@@ -366,8 +396,17 @@ export function graphSearchKey(
 // Results are handed out to callers that pack, sort and annotate them in place. Store and return
 // COPIES so a caller mutating its own results can never rewrite what the next caller reads —
 // the cheap structural half of the same rule FolderAcl's accessors follow.
-function copyResults(results: GraphSearchResult[]): GraphSearchResult[] {
-  return results.map((r) => ({ ...r }));
+//
+// THE-626: GraphSearchResult is NOT flat — `via_edge` (graph_search_stages/types.ts) is itself an
+// object, so a bare `{...r}` spread only protects the top-level fields; `via_edge` would still be
+// the SAME object shared between the cached entry and every caller that ever read it, so one
+// caller mutating it corrupts the entry for every later reader. Deep-copy that one field
+// explicitly rather than reaching for a generic deep clone: it is the only nested field this type
+// has today, and this runs on every hit AND every store (see :413/:423 below — a hot path a
+// speculative general-purpose clone is not worth paying for on fields that are already flat.
+// Exported for query-cache.test.ts's mutation test.
+export function copyResults(results: GraphSearchResult[]): GraphSearchResult[] {
+  return results.map((r) => ({ ...r, via_edge: r.via_edge ? { ...r.via_edge } : null }));
 }
 
 /** Everything the cache needs that is NOT already in the options object. */
