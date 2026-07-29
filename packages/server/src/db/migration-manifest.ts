@@ -37,7 +37,8 @@ export const CACHE_MIGRATION_FILES = [
  * 20260725_001 adds the retrieval_policy table plus chunk_retrievals.event_group/stream_source, so
  * a retrieval outcome can be attributed to the fusion configuration that produced it. THE-537:
  * 20260725_002 is the note_quality rollup — a derived, resettable read surface over signals that
- * already exist in both stores.
+ * already exist in both stores. THE-644: 20260729_001 is the gap_reports append-only pass log —
+ * persists the gap detector's GapReport so it can be read back instead of recomputed.
  */
 export const EXPERIENTIAL_MIGRATION_FILES = [
   "20260626_001_experiential_init.sql",
@@ -50,6 +51,9 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   "20260724_001_chunk_retrievals_caller.sql",
   "20260725_001_retrieval_policy.sql",
   "20260725_002_note_quality.sql",
+  // THE-644 item 1: 20260729_001 is the gap_reports append-only pass log (persists the gap
+  // detector's GapReport so the THE-611 read-only MCP tool has something to read).
+  "20260729_001_gap_reports.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

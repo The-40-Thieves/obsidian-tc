@@ -10,7 +10,7 @@
 | | |
 |---|---|
 | **Version** | `1.13.1` |
-| **Tools** | 150 governed capabilities (advertised via the 3-tool facade) |
+| **Tools** | 151 governed capabilities (advertised via the 3-tool facade) |
 | **Config keys** | 169 |
 | **Golden set** | 250 queries, statistical ship rule on every ranking change |
 | **Retrieval** | contextual chunk enrichment +0.223 nDCG, defaults on |
@@ -18,7 +18,7 @@
 | **License** | AGPL-3.0-only |
 <!-- END GENERATED: stats -->
 
-> **Status:** Shipped — **v1.13.1**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.13.1`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **150 tools across 31 domains**, advertised by default through a three-tool facade. Licensed **AGPL-3.0-only**.
+> **Status:** Shipped — **v1.13.1**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.13.1`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **151 tools across 31 domains**, advertised by default through a three-tool facade. Licensed **AGPL-3.0-only**.
 
 ## Three pillars
 
@@ -26,7 +26,7 @@
 2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS), per-vault folder ACLs, a read-only kill switch, human-in-the-loop (HITL) confirmation on destructive operations, compare-and-swap on writes, idempotency keys, and per-class rate limiting.
 3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, a CloudEvents spool, and structured event emission on every tool call.
 
-## The interface: 3 tools, 150 governed capabilities
+## The interface: 3 tools, 151 governed capabilities
 
 By default `tools/list` advertises just **three meta-tools**: `find_capability` (BM25 search over the capability catalog), `describe_capability` (one capability's schema, scopes, and safety hints), and `call_capability` (invoke by name — routed through the same auth/ACL/HITL/idempotency/throttle pipeline as a direct call). This keeps agent context lean while the full surface stays reachable; `toolFacade.mode` selects `triad` (default), `domain`, or `flat`. The facade is boundary-only — no gate is ever bypassed.
 

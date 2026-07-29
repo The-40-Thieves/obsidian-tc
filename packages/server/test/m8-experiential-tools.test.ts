@@ -6,10 +6,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { FolderAcl } from "../src/acl";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
 import { verifyForgetLog } from "../src/experiential/forget";
+import { detectGaps, persistGapReport, singleQuerySearch } from "../src/experiential/gaps";
 import { createRetrievalLogger } from "../src/experiential/log";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM8Tools } from "../src/tools/m8";
@@ -399,5 +401,124 @@ describe("M8 experiential tools (THE-229)", () => {
       ),
     );
     expect(admin.updated).toBe(1);
+  });
+});
+
+// THE-611 — gap_report: a read-only view over the persisted gap-detector pass (THE-644 item 1).
+// NEVER calls detectGaps itself; only reads gap_reports back and applies the THE-563/564 read
+// ACL to the `nearest` paths before returning them.
+describe("gap_report (THE-611)", () => {
+  it("reports unavailable without an open experiential handle", async () => {
+    const { registry, ctx } = harness(undefined);
+    const res = un<{ available: boolean }>(
+      await registry.dispatch(
+        "gap_report",
+        { vault: "main" },
+        ctx({ grantedScopes: new Set(["read:notes"]) }),
+      ),
+    );
+    expect(res.available).toBe(false);
+  });
+
+  it("is denied without read:notes", async () => {
+    const db = edb0();
+    const { registry, ctx } = harness(db);
+    const r = (await registry.dispatch(
+      "gap_report",
+      { vault: "main" },
+      ctx({ grantedScopes: new Set([]) }),
+    )) as { ok: boolean };
+    expect(r.ok).toBe(false);
+  });
+
+  it("honest-empty: no pass ever persisted -> available, computed_at null, no items", async () => {
+    const db = edb0();
+    const { registry, ctx } = harness(db);
+    const res = un<{
+      available: boolean;
+      computed_at: number | null;
+      total: number;
+      returned: number;
+      items: unknown[];
+    }>(
+      await registry.dispatch(
+        "gap_report",
+        { vault: "main" },
+        ctx({ grantedScopes: new Set(["read:notes"]) }),
+      ),
+    );
+    expect(res.available).toBe(true);
+    expect(res.computed_at).toBeNull();
+    expect(res.total).toBe(0);
+    expect(res.returned).toBe(0);
+    expect(res.items).toEqual([]);
+  });
+
+  it("reads back the persisted pass: item order, gaps_only filter, and pass-level stats", async () => {
+    const db = edb0();
+    const report = await detectGaps(
+      [
+        { id: "q1", query: "covered" },
+        { id: "q2", query: "gap" },
+      ],
+      singleQuerySearch(async (q) =>
+        q === "covered" ? [{ path: "a.md", score: 0.9 }] : [{ path: "b.md", score: 0.001 }],
+      ),
+      { threshold: 0.1, minResults: 1 },
+    );
+    persistGapReport(db, report, { vaultId: "main", computedAt: 5_000 });
+    const { registry, ctx } = harness(db);
+    const c = ctx({ grantedScopes: new Set(["read:notes"]) });
+
+    const full = un<{
+      computed_at: number | null;
+      total: number;
+      gaps: number;
+      returned: number;
+      items: Array<{ id: string }>;
+    }>(await registry.dispatch("gap_report", { vault: "main" }, c));
+    expect(full.computed_at).toBe(5_000);
+    expect(full.total).toBe(2);
+    expect(full.gaps).toBe(1);
+    expect(full.returned).toBe(2);
+    expect(full.items.map((i) => i.id)).toEqual(["q1", "q2"]); // input order preserved
+
+    const gapsOnly = un<{ returned: number; total: number; items: Array<{ id: string }> }>(
+      await registry.dispatch("gap_report", { vault: "main", gaps_only: true }, c),
+    );
+    expect(gapsOnly.items.map((i) => i.id)).toEqual(["q2"]);
+    expect(gapsOnly.returned).toBe(1);
+    // pass-level `total` is unaffected by the gaps_only display filter — it still describes
+    // the whole persisted pass, not just what gaps_only narrowed `items` down to.
+    expect(gapsOnly.total).toBe(2);
+  });
+
+  it("THE-563/564: filters nearest paths the caller cannot read, without dropping the item", async () => {
+    const db = edb0();
+    const report = await detectGaps(
+      [{ id: "q1", query: "mixed" }],
+      singleQuerySearch(async () => [
+        { path: "public/a.md", score: 0.5 },
+        { path: "private/b.md", score: 0.4 },
+      ]),
+      { threshold: 0, minResults: 1, nearestN: 5 },
+    );
+    persistGapReport(db, report, { vaultId: "main", computedAt: 1_000 });
+    const { registry, ctx } = harness(db);
+    const readOnlyPublic = new FolderAcl({
+      readOnly: false,
+      defaultScopes: [],
+      rules: [],
+      readPaths: ["public/**"],
+    });
+    const res = un<{ items: Array<{ id: string; nearest: Array<{ path: string }> }> }>(
+      await registry.dispatch(
+        "gap_report",
+        { vault: "main" },
+        ctx({ grantedScopes: new Set(["read:notes"]), acl: readOnlyPublic }),
+      ),
+    );
+    expect(res.items).toHaveLength(1); // the item survives...
+    expect(res.items[0]?.nearest.map((n) => n.path)).toEqual(["public/a.md"]); // ...but private/ is gone
   });
 });

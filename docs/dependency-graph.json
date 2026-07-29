@@ -3,9 +3,9 @@
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
     "modules": 290,
-    "dependencies": 1187,
+    "dependencies": 1193,
     "subsystemPairs": 87,
-    "crossSubsystemImports": 492
+    "crossSubsystemImports": 497
   },
   "subsystems": {
     "auth": 3,
@@ -44,7 +44,7 @@
     {
       "from": "tools",
       "to": "vault",
-      "weight": 153
+      "weight": 154
     },
     {
       "from": "tools",
@@ -59,7 +59,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 19
+      "weight": 20
     },
     {
       "from": "tools",
@@ -67,14 +67,14 @@
       "weight": 19
     },
     {
+      "from": "experiential",
+      "to": "db",
+      "weight": 13
+    },
+    {
       "from": "search",
       "to": "vault",
       "weight": 12
-    },
-    {
-      "from": "experiential",
-      "to": "db",
-      "weight": 11
     },
     {
       "from": "tools",
@@ -127,6 +127,11 @@
       "weight": 5
     },
     {
+      "from": "tools",
+      "to": "experiential",
+      "weight": 5
+    },
+    {
       "from": "plane",
       "to": "db",
       "weight": 4
@@ -144,11 +149,6 @@
     {
       "from": "scheduler",
       "to": "db",
-      "weight": 4
-    },
-    {
-      "from": "tools",
-      "to": "experiential",
       "weight": 4
     },
     {

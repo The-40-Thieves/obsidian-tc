@@ -42,7 +42,7 @@
     "direction": "higher-worse"
   },
   "boot.tools_registered": {
-    "value": 148,
+    "value": 149,
     "tol": 0,
     "mode": "ratio",
     "class": "hard",
