@@ -95,6 +95,26 @@ describe("ACT-R activation recompute (THE-227)", () => {
     expect(lookup("hot")).toBeNull(); // read failure degrades to inert
   });
 
+  it("THE-653: onError distinguishes a read failure from a legitimate miss", () => {
+    const db = edb0();
+    addRetrieval(db, "hot", NOW - DAY / 2);
+    recomputeActivation(db, NOW);
+    const errors: unknown[] = [];
+    const lookup = makeActivationLookup(db, { onError: (e) => errors.push(e) });
+
+    // A miss (no state row for this chunk) is NOT an error — it is the documented "no state
+    // yet" case, and must stay silent so a cold vault doesn't spam onError on every lookup.
+    expect(lookup("never-seen")).toBeNull();
+    expect(errors).toHaveLength(0);
+
+    // A genuine read failure — the table is gone, not just the row — still degrades to null
+    // (the safe-inert contract is unchanged) but is now distinguishable via the callback: a
+    // corrupt/full db is no longer indistinguishable from an empty cache.
+    db.exec("DROP TABLE vault_object_state");
+    expect(lookup("hot")).toBeNull();
+    expect(errors).toHaveLength(1);
+  });
+
   it("outcome axis folds multiplicatively with feedback (THE-230)", () => {
     const base = actrActivation([{ retrieved_at: NOW - DAY / 2 }], NOW);
     const badOutcome = actrActivation([{ retrieved_at: NOW - DAY / 2, outcome: -1 }], NOW);

@@ -170,8 +170,15 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     : undefined;
   // THE-187/193: serve-side activation lookup for the graph bubble pass — dark unless
   // experiential.activationRerank flips after a ship-rule A/B.
+  // THE-653: onError wired like retrievalLog/episodeCapture/activation-recompute above — a
+  // read failure here used to be silently indistinguishable from "this chunk has no state".
   const activationFor = config.experiential.activationRerank
-    ? makeActivationLookup(experientialDb)
+    ? makeActivationLookup(experientialDb, {
+        onError: (e) =>
+          process.stderr.write(
+            `[activation-lookup] ${e instanceof Error ? e.message : String(e)}\n`,
+          ),
+      })
     : undefined;
   const experientialOpen = !!(retrievalLog || episodeCapture || activationFor);
   if (!experientialOpen) experientialDb.close?.();
