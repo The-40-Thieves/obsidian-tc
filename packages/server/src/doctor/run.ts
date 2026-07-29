@@ -10,6 +10,7 @@ import {
   obsidianCheck,
   retrievalHeadsCheck,
   runtimeCheck,
+  snapshotsCheck,
 } from "./checks";
 import { runDoctor } from "./report";
 import type { Check, DoctorReport } from "./types";
@@ -38,6 +39,9 @@ export interface DoctorConfigView {
   /** #16: retrieval-head readiness inputs (config.embeddings + config.retrieval). Optional so a
    *  pure profile-only doctor call omits the check rather than reporting a hollow one. */
   retrieval?: RetrievalHeadsView;
+  /** THE-648: destructive-write snapshot policy (config.snapshots). Optional, same reasoning as
+   *  retrieval above. */
+  snapshots?: { enabled: boolean; retention: number };
 }
 
 export interface AssembleOptions {
@@ -66,6 +70,8 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   ];
   // #16: retrieval-head readiness, added only when the caller supplied the config-derived view.
   if (config.retrieval) checks.push(retrievalHeadsCheck(config.retrieval));
+  // THE-648: snapshot policy, same optional-view reasoning.
+  if (config.snapshots) checks.push(snapshotsCheck(config.snapshots));
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".
   if (opts.bridgeReports) checks.push(bridgeCheck(opts.bridgeReports));

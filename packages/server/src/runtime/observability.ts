@@ -179,10 +179,11 @@ export function createObservability(deps: ObservabilityDeps): Observability {
     },
   });
 
-  // THE-603: make the snapshot-on-write no-op legible instead of silent. Fires only when a
-  // destructive patch_note replace ran with snapshots disabled (config.snapshots.enabled false,
-  // the default "trusted-local" posture) — never load-bearing, so a write_event failure here must
-  // not surface to the caller. `path` is accepted for callers/tests that want it, but event_log
+  // THE-603/THE-648: make the snapshot-on-write no-op legible instead of silent. Fires only when
+  // a destructive patch_note replace ran with snapshots disabled (config.snapshots.enabled false
+  // — an explicit opt-out from the now-on-by-default "trusted-local" posture) — never
+  // load-bearing, so a write_event failure here must not surface to the caller. `path` is
+  // accepted for callers/tests that want it, but event_log
   // has no path column (see 20260519_001_initial.sql) — vault_id + tool_name is what it can carry.
   const onSnapshotSkipped = (vaultId: string, _path: string, op: string): void => {
     try {

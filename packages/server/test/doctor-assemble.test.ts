@@ -109,4 +109,16 @@ describe("THE-521 assembleDoctorReport", () => {
     expect(report.checks["auth.maxAge"]?.status).toBe("ok");
     expect(report.checks["auth.maxAge"]?.notes?.length).toBeGreaterThan(0);
   });
+
+  it("THE-648: adds snapshots.policy only when the config view supplies it", async () => {
+    const without = await assembleDoctorReport({ config, profile, now: () => "t" });
+    expect(without.checks["snapshots.policy"]).toBeUndefined();
+
+    const withSnapshots = await assembleDoctorReport({
+      config: { ...config, snapshots: { enabled: true, retention: 10 } },
+      profile,
+      now: () => "t",
+    });
+    expect(withSnapshots.checks["snapshots.policy"]?.status).toBe("ok");
+  });
 });

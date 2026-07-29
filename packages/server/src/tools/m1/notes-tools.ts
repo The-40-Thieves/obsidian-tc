@@ -736,7 +736,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
-        'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it off, so such a write has no built-in rollback unless the posture is "hardened".',
+        'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.',
       inputSchema: PatchInput,
       outputSchema: PatchNoteOutput,
       requiredScopes: ["write:notes"],
@@ -803,9 +803,9 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
           );
 
         const next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter);
-        // THE-603: captureSnapshot silently no-ops when config.snapshots.enabled is false (the
-        // default "trusted-local" posture) — surface that gap for a destructive replace instead of
-        // letting the "safety net" call succeed while writing nothing.
+        // THE-603/THE-648: captureSnapshot silently no-ops when config.snapshots.enabled is false
+        // (opt-out from the now-on-by-default "trusted-local" posture) — surface that gap for a
+        // destructive replace instead of letting the "safety net" call succeed while writing nothing.
         if (input.operation === "replace" && !deps.snapshots?.enabled)
           deps.onSnapshotSkipped?.(v.id, rel, "patch_note");
         captureSnapshot(ctx.db, deps.snapshots, v.id, rel, raw, "patch_note", ctx.now);
@@ -831,7 +831,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: (input) => [{ op: "delete", path: input.path }],
       description:
-        "Delete a note (to the vault's .trash mirror, or permanently). Destructive — requires confirmation. restore_note reads its undo from a snapshot, which is captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it off, so a deleted note may have no restore_note path back even though it is confirmed destructive.",
+        "Delete a note (to the vault's .trash mirror, or permanently). Destructive — requires confirmation. restore_note reads its undo from a snapshot, which is captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it on, so a deleted note has a restore_note path back unless snapshots have been explicitly disabled.",
       inputSchema: DeleteInput,
       outputSchema: DeleteNoteOutput,
       requiredScopes: ["delete:notes"],

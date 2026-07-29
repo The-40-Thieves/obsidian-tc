@@ -6,6 +6,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- **`snapshots.enabled` now defaults to `true` (THE-648).** `trusted-local`'s permissive posture was
+  meant to guard against untrusted *callers* — THE-603 showed the real gap was our own write path
+  (a `patch_note` replace on a lone H1 silently discarding a whole note), and the default posture
+  left no rollback for it. Snapshots are unconditionally pruned inline (newest 10 versions per
+  note, content-addressed, orphan blobs GC'd on every prune), so the growth this adds is bounded by
+  construction, not by an operator remembering to configure retention.
+
+  **Effect on upgrade:** an existing config that omits `snapshots` (or has an explicit
+  `snapshots: {}`) will start capturing a pre-write snapshot on every destructive `patch_note`
+  replace, `delete_note`, `write_note` overwrite, and similar op — previously silent no-ops. Disk
+  use grows by up to 10 prior versions per actively-edited note until the inline prune catches up
+  (immediate, not a background sweep). `hardened`'s own `{ enabled: true, retention: 20 }` is
+  unaffected.
+
+  **To opt out**, set `snapshots: { enabled: false }` explicitly in your config. `obsidian-tc
+  doctor` now reports the effective policy (`snapshots.policy`) and warns when it is off.
+
 ## [1.13.1] - 2026-07-28
 
 ### Added

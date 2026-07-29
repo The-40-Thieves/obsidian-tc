@@ -1446,8 +1446,8 @@
       "type": "object",
       "properties": {
         "enabled": {
-          "default": false,
-          "description": "Capture the prior content-addressed state before a destructive note write, so restore_note can roll back.",
+          "default": true,
+          "description": "Capture the prior content-addressed state before a destructive note write, so restore_note can roll back. On by default under the trusted-local posture; retention is pruned inline, so growth is bounded.",
           "type": "boolean"
         },
         "retention": {

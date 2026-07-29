@@ -234,7 +234,7 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `snapshots.enabled` | `boolean` | `false` |  | Capture the prior content-addressed state before a destructive note write, so restore_note can roll back. |
+| `snapshots.enabled` | `boolean` | `true` |  | Capture the prior content-addressed state before a destructive note write, so restore_note can roll back. On by default under the trusted-local posture; retention is pruned inline, so growth is bounded. |
 | `snapshots.retention` | `number` | `10` |  | Maximum snapshot versions kept per note. Older versions are pruned. |
 
 ### `throttle`

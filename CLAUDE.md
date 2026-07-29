@@ -102,5 +102,8 @@ strict gate.
 
 ## Security posture
 
-`trusted-local` is the default and leaves `snapshots.enabled` **off** — so destructive writes have
-no rollback unless the posture is `hardened`. Worth knowing before running anything that deletes.
+`trusted-local` is the default and leaves `snapshots.enabled` **on** (THE-648) — destructive note
+writes capture an undo via `restore_note` unless a config explicitly opts out
+(`snapshots: { enabled: false }`). Retention (10 versions/note) is pruned inline and orphan blobs
+are GC'd, so growth is bounded by construction. Worth knowing either way before running anything
+that deletes.
