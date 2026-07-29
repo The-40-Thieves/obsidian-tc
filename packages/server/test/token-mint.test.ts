@@ -139,6 +139,46 @@ describe("readAuthBlock", () => {
   });
 });
 
+describe("readAuthBlock — OBSIDIAN_TC_JWT_SECRET overlay (THE-658 mint-on-env-secret)", () => {
+  // The deployment shape the project's own docs recommend — "prefer OBSIDIAN_TC_JWT_SECRET, keeps
+  // it off disk" — previously could not mint at all, because readAuthBlock read the raw file and
+  // skipped applyEnvOverlays, the only thing that injects the env secret into auth.jwtSecret.
+  const write = (body: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), "tc-mint-env-"));
+    const p = join(dir, "config.json");
+    writeFileSync(p, body, "utf8");
+    return p;
+  };
+
+  it("mints from an env-supplied secret alone, when the file has none", () => {
+    const p = write(JSON.stringify({ vaults: [], auth: { mode: "jwt" } }));
+    const auth = readAuthBlock(p, { OBSIDIAN_TC_JWT_SECRET: SECRET });
+    const { claims } = planMint(auth, cmd(), NOW);
+    expect(claims.sub).toBe("cave-agents");
+  });
+
+  it("lets the env secret override a file-provided one — same precedence as applyEnvOverlays", () => {
+    const p = write(
+      JSON.stringify({ vaults: [], auth: { mode: "jwt", jwtSecret: "file-secret" } }),
+    );
+    const auth = readAuthBlock(p, { OBSIDIAN_TC_JWT_SECRET: "env-secret" });
+    expect(auth.jwtSecret).toBe("env-secret");
+  });
+
+  it("falls back to the file secret when no env var is set", () => {
+    const p = write(
+      JSON.stringify({ vaults: [], auth: { mode: "jwt", jwtSecret: "file-secret" } }),
+    );
+    expect(readAuthBlock(p, {}).jwtSecret).toBe("file-secret");
+  });
+
+  it("still refuses when neither file nor env supplies a secret, naming OBSIDIAN_TC_JWT_SECRET", () => {
+    const p = write(JSON.stringify({ vaults: [], auth: { mode: "jwt" } }));
+    const auth = readAuthBlock(p, {});
+    expect(() => planMint(auth, cmd(), NOW)).toThrow(/OBSIDIAN_TC_JWT_SECRET/);
+  });
+});
+
 describe("the planned claims are what actually gets signed", () => {
   // The planner agreeing with itself proves nothing if the signer disagrees with it.
   it("produces a token jose verifies under the same secret, audience and max age", async () => {
