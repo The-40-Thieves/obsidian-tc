@@ -454,8 +454,14 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // THE-507/THE-588: recordIngestStats lives in ./metrics/ingest-stats so the production wiring
   // between a real IndexStats pass and the Prometheus counters is importable and testable directly
   // (see its module doc comment for why).
-  const recordIngestStatsFor = (vaultId: string, s: IndexStats): void =>
+  const recordIngestStatsFor = (vaultId: string, s: IndexStats): IndexStats => {
     recordIngestStats(db, metrics, vaultId, s);
+    return s;
+  };
+  // THE-625 item 4: routes both direct indexVault(...) callers below through this recorder instead
+  // of a per-call-site reminder (THE-590 found one caller left uninstrumented).
+  const indexVaultRecorded = (opts: Parameters<typeof indexVault>[0]) =>
+    indexVault(opts).then((s) => recordIngestStatsFor(opts.vaultId, s));
 
   // THE-457: cap on how long graceful shutdown waits for in-flight index work.
   const SHUTDOWN_DRAIN_MS = 5000;
@@ -623,7 +629,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // THE-376: runtime add_vault triggers a full index of the newly registered vault
     // (mirrors the boot reconcile below). indexReadableFor is defined just above.
     indexVault: async (vaultId) => {
-      const s = await indexVault({
+      const s = await indexVaultRecorded({
         db,
         provider: embeddingProvider,
         embed: embedConfig,
@@ -642,7 +648,6 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         // THE-490/THE-591: indexing.streamingWalk. Off by default -> byte-identical to before.
         walk: { streaming: config.indexing.streamingWalk },
       });
-      recordIngestStatsFor(vaultId, s);
       return { notes_seen: s.notes_seen };
     },
   });
@@ -945,7 +950,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   const runReconcile = async (): Promise<void> => {
     await Promise.all(
       config.vaults.map((v) =>
-        indexVault({
+        indexVaultRecorded({
           db,
           provider: embeddingProvider,
           embed: embedConfig,
@@ -968,18 +973,13 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           // THE-390: a completed reconcile that had to SKIP notes (embed provider rejected a
           // chunk even at single-text size) still degrades health — precise, non-fatal, retried
           // next reconcile — instead of the old behavior of aborting the whole reindex.
-          (s) => {
-            // THE-507: the boot reconcile is the pass most worth counting — it is the one that
-            // processes the whole vault after downtime.
-            recordIngestStatsFor(v.id, s);
-            return {
-              vault: v.id,
-              error:
-                s.notes_embed_failed > 0
-                  ? `${s.notes_embed_failed} note(s) skipped: embed provider rejected their chunks (HTTP 400)`
-                  : (null as string | null),
-            };
-          },
+          (s) => ({
+            vault: v.id,
+            error:
+              s.notes_embed_failed > 0
+                ? `${s.notes_embed_failed} note(s) skipped: embed provider rejected their chunks (HTTP 400)`
+                : (null as string | null),
+          }),
           (e) => ({ vault: v.id, error: e instanceof Error ? e.message : String(e) }),
         ),
       ),
