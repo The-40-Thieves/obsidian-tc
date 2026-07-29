@@ -46,6 +46,10 @@ const COUNTERS = [
   // running at all. `vault` carries the bounded job name ("activation-recompute"), the same
   // process-wide-subsystem precedent as the scheduler gauges above.
   "obsidian_tc_activation_recompute_chunks_total",
+  // THE-612: ensureVecChunks DROPs and rebuilds vec_chunks with no prior signal at all — rare and
+  // huge blast radius (every vault's dense index goes cold). No `vault` label: the event is not
+  // scoped to one vault, same precedent as obsidian_tc_auth_rejections_total above.
+  "obsidian_tc_vec_rebuild_total",
 ];
 const HISTOGRAMS = [
   "obsidian_tc_tool_duration_seconds",
@@ -85,14 +89,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 23 counters, 4 histograms, 16 gauges", async () => {
+  it("registers the full catalog: 24 counters, 4 histograms, 16 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(43);
+    expect(new Set(declared).size).toBe(44);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
@@ -210,6 +214,16 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     expect(text).toContain(
       'obsidian_tc_activation_recompute_chunks_total{vault="activation-recompute"} 5',
     );
+  });
+
+  it("counts vec_chunks rebuild events by reason, with no vault label (THE-612)", async () => {
+    const r = new MetricsRecorder();
+    r.incVecRebuild("fingerprint_changed");
+    r.incVecRebuild("fingerprint_changed");
+    r.incVecRebuild("legacy_shape");
+    const text = await r.metrics();
+    expect(text).toContain('obsidian_tc_vec_rebuild_total{reason="fingerprint_changed"} 2');
+    expect(text).toContain('obsidian_tc_vec_rebuild_total{reason="legacy_shape"} 1');
   });
 
   it("counts vec fallbacks separately by reason (THE-585)", async () => {

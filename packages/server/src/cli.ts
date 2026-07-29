@@ -168,8 +168,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           process.stderr.write(`[episodes] ${e instanceof Error ? e.message : String(e)}\n`),
       })
     : undefined;
-  // THE-187/193: serve-side activation lookup for the graph bubble pass — dark unless
-  // experiential.activationRerank flips after a ship-rule A/B.
+  // THE-187/193: serve-side activation lookup for the bubble pass — dark unless activationRerank.
   const activationFor = config.experiential.activationRerank
     ? makeActivationLookup(experientialDb, {
         onError: (e) =>
@@ -328,7 +327,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       chunkerVersion: CHUNKER_VERSION,
       schemaGen: VEC_SCHEMA_GEN,
     },
-    { now: Date.now },
+    { now: Date.now, onRebuild: observability.onVecRebuild },
   );
   // THE-291: FTS5 probe (trigram notes_fts) — false on adapters without FTS5 or when
   // OBSIDIAN_TC_DISABLE_FTS=1; the query layer then keeps the disk-scan floor.
@@ -635,6 +634,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         isReadable: indexReadableFor(vaultId),
         now: Date.now,
         sql: sqlHooksFor(vaultId),
+        onVecRebuild: observability.onVecRebuild,
         onIndexed: makeOnIndexed(vaultId),
         onNotesPass: () => {
           indexHealth.notesReady = true;
@@ -956,6 +956,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           isReadable: indexReadableFor(v.id),
           now: Date.now,
           sql: sqlHooksFor(v.id),
+          onVecRebuild: observability.onVecRebuild,
           onIndexed: makeOnIndexed(v.id),
           // THE-291: metadata/FTS readiness is independent of embed success.
           onNotesPass: () => {

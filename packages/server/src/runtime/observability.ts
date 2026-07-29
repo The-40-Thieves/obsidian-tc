@@ -30,6 +30,7 @@ import type { Scheduler } from "../scheduler/scheduler";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexCoordinatorStats } from "../search/index-coordinator";
 import type { RetrievalCaches } from "../search/query_cache";
+import type { VecRebuildEvent } from "../search/vec";
 
 /** Bounded subsystem name used in the `vault` label where a metric is process-wide rather than
  *  per-vault — the precedent the query-cache gauges set ("results"/"vectors"). */
@@ -62,6 +63,9 @@ export interface Observability {
    *  instead of discarded. Same seam shape as onVecFallback — the experiential layer never
    *  imports the metrics recorder. */
   onActivationRecompute: (vault: string, stats: ActivationRecomputeStats) => void;
+  /** THE-612: ensureVecChunks' onRebuild, routed to the recorder. Same seam shape as
+   *  onVecFallback — search/vec.ts never imports the metrics recorder. */
+  onVecRebuild: (event: VecRebuildEvent) => void;
   /** THE-585 (#5): bind a vault to the write-lock hooks. Same seam as onVecFallback — the db and
    *  indexer layers take plain callbacks and never import metrics, so the composition root stays
    *  the only module that knows a recorder exists. */
@@ -144,6 +148,8 @@ export function createObservability(deps: ObservabilityDeps): Observability {
   // THE-645 item 1: same seam shape as onVecFallback/onStageMetric above.
   const onActivationRecompute = (vault: string, stats: ActivationRecomputeStats): void =>
     metrics.incActivationRecomputeChunks(vault, stats.chunks);
+  // THE-612: same seam shape as onVecFallback above.
+  const onVecRebuild = (event: VecRebuildEvent): void => metrics.incVecRebuild(event.reason);
   // THE-585 (#5): bind a vault to the write-lock hooks. Same seam as onVecFallback — the db and
   // indexer layers take plain callbacks and never import metrics, so the composition root stays
   // the only module that knows a recorder exists. `vault` is a real vault id for the index paths;
@@ -198,6 +204,7 @@ export function createObservability(deps: ObservabilityDeps): Observability {
     onVecFallback,
     onStageMetric,
     onActivationRecompute,
+    onVecRebuild,
     sqlHooksFor,
     morgiana,
     onSnapshotSkipped,

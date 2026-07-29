@@ -268,3 +268,15 @@ describe("THE-645 item 1: onActivationRecompute reaches the exposition", () => {
     );
   });
 });
+
+describe("THE-612: onVecRebuild reaches the exposition", () => {
+  it("routes ensureVecChunks' onRebuild event to the recorder, by reason, with no vault label", async () => {
+    const db = await seededDb();
+    const observability = createObservability(baseDeps(db));
+
+    observability.onVecRebuild({ reason: "fingerprint_changed", skippedVectors: 3 });
+
+    const text = await observability.metrics.metrics();
+    expect(text).toContain('obsidian_tc_vec_rebuild_total{reason="fingerprint_changed"} 1');
+  });
+});

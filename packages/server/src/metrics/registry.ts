@@ -109,6 +109,7 @@ export class MetricsRecorder {
   private readonly sqlBusy: Counter<string>;
   private readonly outputSchemaDrift: Counter<string>;
   private readonly activationRecomputeChunks: Counter<string>;
+  private readonly vecRebuild: Counter<string>;
   private readonly retrievalStageCandidatesIn: Counter<string>;
   private readonly retrievalStageCandidatesOut: Counter<string>;
   private readonly retrievalContentBytesIn: Counter<string>;
@@ -185,6 +186,18 @@ export class MetricsRecorder {
       name: "obsidian_tc_vec_fallback_total",
       help: "Searches that abandoned the vec0 KNN index for the exhaustive brute-force scan, by vault and reason. Results stay correct; the cost profile does not. reason=error is usually a dimension mismatch after an embedding-model change (the index no longer matches the query) and a persistent count means a real misconfiguration; reason=underfill means ACL-invisible chunks may be crowding out visible ones, so the over-fetch could not fill k visible hits.",
       labelNames: ["vault", "reason"],
+      registers,
+    });
+    // THE-612: ensureVecChunks DROPs and rebuilds vec_chunks — a full re-embed of every vault
+    // sharing the table — whenever the stored representation fingerprint drifts or a legacy
+    // pre-partition shape is detected. Rare (a deploy changed the embedding model, or a one-time
+    // schema upgrade) and huge blast radius (dense retrieval goes cold for every vault until
+    // re-embedded), and previously had no counter at all — no `vault` label because the event is
+    // not scoped to one vault; see obsidian_tc_auth_rejections_total for the same precedent.
+    this.vecRebuild = new Counter({
+      name: "obsidian_tc_vec_rebuild_total",
+      help: "vec_chunks DROP+rebuild events, by reason. legacy_shape is a one-time pre-partition upgrade; fingerprint_changed means the embedding provider/model/dimensions, distance metric, or chunk/enrichment representation changed since the index was built. Either way every vault's dense index is cold until it re-embeds — any non-zero count outside a deliberate model migration is worth investigating.",
+      labelNames: ["reason"],
       registers,
     });
     // THE-417 Phase 2: the instrument that makes warn-mode runnable. Before this, a mismatch wrote
@@ -514,6 +527,10 @@ export class MetricsRecorder {
    *  watermark) creates no series churn. */
   incActivationRecomputeChunks(vault: string, n: number): void {
     if (n > 0) this.activationRecomputeChunks.inc({ vault }, n);
+  }
+  /** THE-612: one vec_chunks DROP+rebuild event. */
+  incVecRebuild(reason: "legacy_shape" | "fingerprint_changed"): void {
+    this.vecRebuild.inc({ reason });
   }
   incSqlBusy(vault: string, txn: WriteTxnLabel, reason: BusyReason): void {
     this.sqlBusy.inc({ vault, txn, reason });
