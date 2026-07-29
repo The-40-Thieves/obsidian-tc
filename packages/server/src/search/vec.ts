@@ -1,6 +1,10 @@
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { cachedPrepare, type Database } from "../db/types";
 import { type VecFingerprint, vecFingerprint } from "./representation";
+import { EMBEDDED_VEC_BASE64 } from "./vec-embedded";
 
 export type { VecFingerprint } from "./representation";
 export { vecFingerprint } from "./representation";
@@ -34,6 +38,39 @@ export function blobToFloats(blob: Uint8Array): Float32Array {
 // stays retryable); node:sqlite (no loadExtension) is rejected before the cache check.
 const vecLoaded = new WeakSet<Database>();
 
+// THE-663: sqlite's extension loader derives the entry-point symbol it dlsym()s from the
+// FILENAME (stripped of its extension, prefixed sqlite3_ and suffixed _init) rather than from any
+// metadata in the binary — so the materialized file's basename MUST be exactly "vec0.<ext>" or
+// loadExtension fails with an "undefined symbol" error even though the bytes are byte-for-byte
+// correct. The extension is platform-specific, mirroring sqlite-vec's own extensionSuffix().
+function vecExtension(): string {
+  if (process.platform === "win32") return "dll";
+  if (process.platform === "darwin") return "dylib";
+  return "so";
+}
+
+// Lazily materializes the embedded vec0 binary to a private temp file, once per process, and
+// reuses that path for every subsequent loadVec() call — the embedded-copy analogue of vecLoaded's
+// per-connection memoization below. Returns undefined when this binary carries no embedded copy
+// (EMBEDDED_VEC_BASE64 is the empty placeholder outside a --compile release build), so loadVec
+// falls through to its existing "can't load" return false.
+//
+// Exported (only) so bun-smoke/vec-embedded.test.ts can exercise the materialize+loadExtension
+// mechanism directly against a real vec0 binary, without needing an actual --compile build to
+// force loadVec's require("sqlite-vec") to fail — see that test for why.
+let embeddedVecPath: string | undefined;
+export function materializeEmbeddedVec(): string | undefined {
+  if (embeddedVecPath) return embeddedVecPath;
+  if (!EMBEDDED_VEC_BASE64) return undefined;
+  const dir = mkdtempSync(join(tmpdir(), "otc-vec-"));
+  chmodSync(dir, 0o700);
+  const out = join(dir, `vec0.${vecExtension()}`);
+  writeFileSync(out, Buffer.from(EMBEDDED_VEC_BASE64, "base64"));
+  chmodSync(out, 0o755);
+  embeddedVecPath = out;
+  return out;
+}
+
 // Load the sqlite-vec extension on this connection. Returns false (never throws)
 // when the runtime can't load extensions (node:sqlite) or the platform binary is
 // unavailable, so callers degrade to the brute-force cosine scan.
@@ -47,7 +84,20 @@ export function loadVec(db: Database): boolean {
     vecLoaded.add(db);
     return true;
   } catch {
-    return false;
+    // THE-663: the require() above resolves relative to import.meta.url, which `bun build
+    // --compile` freezes to the BUILD MACHINE's path — so it throws in every published standalone
+    // binary, on every platform, not only the cross-compiled ones. Fall back to the copy baked
+    // into THIS binary for its own target platform (see vec-embedded.ts).
+    try {
+      const embedded = materializeEmbeddedVec();
+      if (!embedded) return false;
+      db.loadExtension(embedded);
+      db.prepare("SELECT vec_version()").get();
+      vecLoaded.add(db);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 

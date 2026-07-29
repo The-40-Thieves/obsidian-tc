@@ -49,7 +49,8 @@
     "setup:dco-hook": "node scripts/setup-dco-hook.mjs",
     "setup:git-merge-driver": "node scripts/setup-git-merge-driver.mjs",
     "test": "bun run --filter='*' test",
-    "typecheck": "bun run --filter='*' typecheck"
+    "typecheck": "bun run --filter='*' typecheck",
+    "vec:embed": "node scripts/gen-embedded-vec.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",

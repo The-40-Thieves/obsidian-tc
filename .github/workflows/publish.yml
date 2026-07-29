@@ -419,6 +419,18 @@ jobs:
       - name: build shared
         working-directory: packages/shared
         run: bun run build
+      # THE-663: bake this target's sqlite-vec vec0 binary into vec-embedded.ts BEFORE compiling.
+      # `bun build --compile` freezes import.meta.url to this runner's path, so the npm-resolved
+      # sqlite-vec (packages/server/src/search/vec.ts's first-choice path) cannot be found by the
+      # shipped binary on any other machine — silently losing dense retrieval to the brute-force
+      # fallback. Needed for every target, not only the two that cross-compile (linux-arm64 on this
+      # x64 host, darwin-x64 on the arm64 macOS runner): a same-arch build is just as broken once
+      # the binary leaves this runner. Regenerated fresh per target and never committed — see
+      # scripts/gen-embedded-vec.mjs's header for why this can't be a single checked-in file the
+      # way migrations-embedded.ts is.
+      - name: embed sqlite-vec for this target
+        run: node scripts/gen-embedded-vec.mjs --target ${{ matrix.target }}
+        shell: bash
       - name: compile standalone binary
         run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
         shell: bash
@@ -442,6 +454,16 @@ jobs:
           echo "smoking: $bin"
           chmod +x "$bin" || true
 
+          # THE-663: this smoke test runs in the SAME checkout that just compiled the binary, so
+          # packages/server/node_modules/sqlite-vec still sits at the exact absolute path
+          # import.meta.url got frozen to — the compiled binary's npm-require path would resolve
+          # here even on the OLD, unfixed code (that is exactly why this shipped unnoticed for two
+          # releases: "run it on the build machine" was never a real test). Deleting node_modules
+          # first makes this runner match every real installation: the binary itself is now the
+          # only thing it can be provisioning from, so vec=on below can only come from the
+          # embedded fallback, not the require() path this bug is about.
+          rm -rf node_modules packages/*/node_modules
+
           want=$(node -p "require('./packages/server/package.json').version")
           got=$("$bin" version)
           echo "version: want=$want got=$got"
@@ -454,6 +476,15 @@ jobs:
           echo "$out"
           echo "$out" | grep -q "ready on stdio" || {
             echo "::error::compiled binary did not reach stdio-ready — it cannot provision (THE-578)"
+            exit 1
+          }
+          # THE-663: `ready on stdio` alone is not enough — it was already true for a binary that
+          # had silently lost dense retrieval. This binary's own startup banner (cli.ts) reports
+          # native=on/off and vec=on/off; assert vec actually loaded rather than having quietly
+          # fallen back to the brute-force cosine scan, which is exactly what shipped, unnoticed,
+          # in v1.10.0 and v1.11.0.
+          echo "$out" | grep -q "vec=on" || {
+            echo "::error::compiled binary reports vec=off — sqlite-vec did not load (THE-663); it silently fell back to the brute-force scan"
             exit 1
           }
           # Both migration chains must have produced a database, not just cache.db: the experiential
