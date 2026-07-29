@@ -120,15 +120,20 @@ describe("readAuthBlock", () => {
     return p;
   };
 
+  // Every case here is about what the FILE contains, so each passes an explicit empty env. Letting
+  // these default to `process.env` made them pass or fail based on the developer's shell: since
+  // readAuthBlock started applying applyEnvOverlays, a host that exports OBSIDIAN_TC_JWT_SECRET
+  // (sourcing a deployment .env is enough) injected a jwtSecret into both expectations below and
+  // failed two tests that have nothing to do with the environment.
   it("reads the auth block out of a config file", () => {
     const p = write(JSON.stringify({ vaults: [], auth: { mode: "jwt", jwtSecret: "s" } }));
-    expect(readAuthBlock(p)).toEqual({ mode: "jwt", jwtSecret: "s" });
+    expect(readAuthBlock(p, {})).toEqual({ mode: "jwt", jwtSecret: "s" });
   });
 
   it("returns an empty block when auth is absent, rather than throwing", () => {
     // planMint then refuses with "not jwt", which names the actual problem. Throwing here would
     // report a parse failure for a config that parses perfectly well.
-    expect(readAuthBlock(write(JSON.stringify({ vaults: [] })))).toEqual({});
+    expect(readAuthBlock(write(JSON.stringify({ vaults: [] })), {})).toEqual({});
   });
 
   it("reports a missing file and invalid JSON distinctly", () => {
@@ -170,6 +175,17 @@ describe("readAuthBlock — OBSIDIAN_TC_JWT_SECRET overlay (THE-658 mint-on-env-
       JSON.stringify({ vaults: [], auth: { mode: "jwt", jwtSecret: "file-secret" } }),
     );
     expect(readAuthBlock(p, {}).jwtSecret).toBe("file-secret");
+  });
+
+  it("does not let an EMPTY env var blank out a file secret", () => {
+    // applyEnvOverlays guards on `if (envSecret)`, so only a TRUTHY value overwrites — "env always
+    // wins" is the wrong mental model and would delete a working secret on a host that exports the
+    // variable empty. Asserting the guard directly, because the overlay is now shared with the
+    // loader and a change to it would silently change what `token mint` reads.
+    const p = write(
+      JSON.stringify({ vaults: [], auth: { mode: "jwt", jwtSecret: "file-secret" } }),
+    );
+    expect(readAuthBlock(p, { OBSIDIAN_TC_JWT_SECRET: "" }).jwtSecret).toBe("file-secret");
   });
 
   it("still refuses when neither file nor env supplies a secret, naming OBSIDIAN_TC_JWT_SECRET", () => {
