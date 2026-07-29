@@ -244,12 +244,29 @@ export class JobQueue {
       caller: opts.owner?.caller ?? null,
     };
     try {
+      // THE-665: positional `?` binds, not named `@param` object binds — bun:sqlite accepts a
+      // bare-key object without throwing but silently binds every column to NULL (see
+      // db/bun-sqlite.ts and the conformance test in test/param-binding.test.ts). Positional binding
+      // is the one form all three adapters (bun:sqlite, node:sqlite, better-sqlite3) apply
+      // correctly, so it is the only safe choice for a statement shared across runtimes.
       this.db
         .prepare(
           `INSERT INTO jobs (id, type, class, state, attempt, max_attempts, next_attempt_at, payload, idempotency_key, created_at, updated_at, vault_id, caller)
-           VALUES (@id, @type, @class, 'queued', 0, @max_attempts, @created_at, @payload, @idempotency_key, @created_at, @updated_at, @vault_id, @caller)`,
+           VALUES (?, ?, ?, 'queued', 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(row);
+        .run(
+          row.id,
+          row.type,
+          row.class,
+          row.max_attempts,
+          row.created_at,
+          row.payload,
+          row.idempotency_key,
+          row.created_at,
+          row.updated_at,
+          row.vault_id,
+          row.caller,
+        );
     } catch (e) {
       // Two racing enqueues with the same idempotency key: the loser's INSERT hits the unique
       // index; fall back to the winner's row rather than surfacing a constraint error.

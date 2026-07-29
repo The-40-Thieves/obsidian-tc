@@ -369,19 +369,18 @@ export class Scheduler {
     if (!this.db) return;
     const t = this.now();
     try {
+      // THE-665: positional `?` binds, not named `@param` object binds — bun:sqlite accepts a
+      // bare-key object without throwing but silently binds every column to NULL (see
+      // db/bun-sqlite.ts and the conformance test in test/param-binding.test.ts).
       this.db
         .prepare(
           `INSERT INTO job_schedule (name, last_run_at, next_run_at)
-           VALUES (@name, @last_run_at, @next_run_at)
+           VALUES (?, ?, ?)
            ON CONFLICT(name) DO UPDATE SET
              last_run_at = excluded.last_run_at,
              next_run_at = excluded.next_run_at`,
         )
-        .run({
-          name: state.spec.name,
-          last_run_at: t,
-          next_run_at: t + this.effInterval(state),
-        });
+        .run(state.spec.name, t, t + this.effInterval(state));
     } catch {
       /* durable scheduling is best-effort: a write failure must never break the timer loop */
     }
@@ -400,23 +399,26 @@ export class Scheduler {
     try {
       // Upsert the touched columns; unspecified columns retain their stored value via COALESCE on
       // the excluded row (INSERT supplies NULLs for the untouched ones).
+      // THE-665: positional `?` binds, not named `@param` object binds — bun:sqlite accepts a
+      // bare-key object without throwing but silently binds every column to NULL (see
+      // db/bun-sqlite.ts and the conformance test in test/param-binding.test.ts).
       this.db
         .prepare(
           `INSERT INTO job_schedule (name, last_run_at, last_success_at, next_run_at, consecutive_failures)
-           VALUES (@name, @last_run_at, @last_success_at, @next_run_at, @consecutive_failures)
+           VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(name) DO UPDATE SET
              last_run_at = COALESCE(excluded.last_run_at, job_schedule.last_run_at),
              last_success_at = COALESCE(excluded.last_success_at, job_schedule.last_success_at),
              next_run_at = COALESCE(excluded.next_run_at, job_schedule.next_run_at),
              consecutive_failures = COALESCE(excluded.consecutive_failures, job_schedule.consecutive_failures)`,
         )
-        .run({
-          name: state.spec.name,
-          last_run_at: fields.last_run_at ?? null,
-          last_success_at: fields.last_success_at ?? null,
-          next_run_at: fields.next_run_at ?? null,
-          consecutive_failures: fields.consecutive_failures ?? null,
-        });
+        .run(
+          state.spec.name,
+          fields.last_run_at ?? null,
+          fields.last_success_at ?? null,
+          fields.next_run_at ?? null,
+          fields.consecutive_failures ?? null,
+        );
     } catch {
       /* durable scheduling is best-effort: a write failure must never break the timer loop */
     }
