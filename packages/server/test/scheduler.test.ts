@@ -24,15 +24,26 @@ function openFileDb(dbPath: string): Database {
   return new DatabaseSync(dbPath) as Database;
 }
 
-// THE-666 review fix: chmod 0o444 sets Windows' FILE_ATTRIBUTE_READONLY, and Windows refuses to
-// DELETE a read-only file (unlike POSIX, where the write bit governs writes but a directory's own
-// permissions govern unlink). Left as `fs.rmSync(dir, { force: true })`, that turned a passing
-// assertion into an EPERM thrown from cleanup — `force` only suppresses ENOENT, not EPERM, and a
-// `finally` block's own throw REPLACES whatever the try block already threw or returned, so this
-// was capable of silently masking a genuine assertion failure too. Restore write permission first
-// (best-effort — the file may legitimately already be gone if an earlier step in the same test
-// failed) so removal is a plain, unconditional success on every OS.
-function cleanupReadOnlyDb(dir: string, dbPath: string): void {
+// THE-666 review fix. Cleaning up a read-only sqlite file needs BOTH of these on Windows, and
+// neither is required on POSIX — which is why this only ever failed on the windows-latest runner:
+//
+//   1. Restore the write bit. chmod 0o444 sets FILE_ATTRIBUTE_READONLY, and Windows refuses to
+//      DELETE a read-only file (on POSIX the write bit governs writes, while the *directory's*
+//      permissions govern unlink, so the file's own mode is irrelevant to rm).
+//   2. CLOSE the open handle. Windows refuses to delete a file that is still open; POSIX happily
+//      unlinks it and defers the inode's release. The tests below deliberately keep a handle open
+//      to make writes fail, so it must be closed before removal, and closed even when an assertion
+//      threw — hence the hoisted `db` and the `finally`.
+//
+// `fs.rmSync(..., { force: true })` fixes neither: `force` suppresses ENOENT, not EPERM. And a
+// `finally` block's own throw REPLACES whatever the try block threw or returned, so leaving this
+// broken could silently mask a genuine assertion failure behind an unrelated permissions error.
+function cleanupReadOnlyDb(dir: string, dbPath: string, db?: Database): void {
+  try {
+    db?.close?.();
+  } catch {
+    /* already closed, or the handle never opened; removal is what matters */
+  }
   try {
     fs.chmodSync(dbPath, 0o644);
   } catch {
@@ -378,6 +389,7 @@ describe("Scheduler (THE-462)", () => {
       vi.useFakeTimers();
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "the666-persist-"));
       const dbPath = path.join(dir, "sched.db");
+      let db: Database | undefined;
       try {
         // job_schedule already exists and is writable when created; only AFTER that does the file
         // lose its write bit, so every persistRunStart/persist call on the scheduler under test
@@ -388,7 +400,7 @@ describe("Scheduler (THE-462)", () => {
         );
         setup.close?.();
         fs.chmodSync(dbPath, 0o444);
-        const db = openFileDb(dbPath);
+        db = openFileDb(dbPath);
 
         const failures: SchedulerPersistFailure[] = [];
         let runs = 0;
@@ -422,7 +434,7 @@ describe("Scheduler (THE-462)", () => {
         await sched.stop();
       } finally {
         vi.useRealTimers();
-        cleanupReadOnlyDb(dir, dbPath);
+        cleanupReadOnlyDb(dir, dbPath, db);
       }
     });
 
@@ -430,6 +442,7 @@ describe("Scheduler (THE-462)", () => {
       vi.useFakeTimers();
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "the666-ensuretable-"));
       const dbPath = path.join(dir, "sched.db");
+      let db: Database | undefined;
       try {
         // Unlike the test above, job_schedule does NOT already exist — ensureTable's own
         // CREATE TABLE IF NOT EXISTS is the write that fails.
@@ -437,7 +450,7 @@ describe("Scheduler (THE-462)", () => {
         setup.exec("CREATE TABLE dummy (x INTEGER)");
         setup.close?.();
         fs.chmodSync(dbPath, 0o444);
-        const db = openFileDb(dbPath);
+        db = openFileDb(dbPath);
 
         const failures: SchedulerPersistFailure[] = [];
         const sched = new Scheduler({
@@ -459,7 +472,7 @@ describe("Scheduler (THE-462)", () => {
         await sched.stop();
       } finally {
         vi.useRealTimers();
-        cleanupReadOnlyDb(dir, dbPath);
+        cleanupReadOnlyDb(dir, dbPath, db);
       }
     });
 
