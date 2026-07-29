@@ -170,6 +170,40 @@ jobs:
         run: bun test bun-smoke
         working-directory: packages/server
 
+  acl-audit:
+    # THE-607: src/vault/acl-audit.ts (THE-414 follow-up, #280) already exists and already
+    # verifies that a tool's declared `pathAcl` extractor mirrors the vault paths its handler
+    # actually resolves for filesystem ops -- but it is gated on OBSIDIAN_TC_ACL_AUDIT, which
+    # nothing set. This job is the first thing that ever sets it in strict mode.
+    #
+    # Deliberately NOT folded into build-test: that matrix's module-harness tests
+    # (test/m{1..6}-helpers.ts) build their ToolRegistry with no `rootResolver`, so the central
+    # pathAcl stage in registry.ts (`const root = this.rootResolver?.(effVault); if (root) { ...
+    # def.pathAcl(...) }`) never runs and the extractors never execute there -- running strict
+    # mode over that suite would not test the extractors at all. The seven files below are the
+    # ones that DO wire a real rootResolver (grep for it if that set needs to grow), so this is
+    # the real dispatch path: central pathAcl stage + handler inside one runAudited frame.
+    #
+    # EXPECTED TO FAIL as landed. Watching it fail is the point -- see `bun run test:acl-audit`.
+    # It found a real, reproducible gap: get_attachment / list_attachments (include_reference_
+    # count) / delete_attachment all call findAttachmentReferences (src/formats/attachments.ts),
+    # which -- per its own call-site comment in attachment-tools.ts ("findAttachmentReferences
+    # walks the whole vault ACL-free") -- reads every other note's content to detect backlinks
+    # with no folder-ACL check on any of those paths; the caller's ACL is only applied to FILTER
+    # the response afterward. delete_attachment (destructive: true) hits this unconditionally,
+    # not behind an opt-in flag. That is a real finding, not a test bug -- do not "fix" it here
+    # by adding an exemption; it needs its own ticket. This job is intentionally not (yet) a
+    # required status check, the same way `perf` isn't -- promote it once that ticket lands.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+      - name: ACL extractor audit, strict mode, real dispatch surface (THE-607)
+        run: bun run test:acl-audit
+        working-directory: packages/server
+
   perf:
     runs-on: ubuntu-latest
     # THE-503: the motivating incident was a perf run overlapping the Vitest suite -- index/embed
