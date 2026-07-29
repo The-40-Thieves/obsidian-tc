@@ -1,0 +1,11 @@
+{
+  "vaults": [{ "id": "scratch", "path": "/absolute/path/to/obsidian-tc/examples/scratch-vault" }],
+  "acl": {
+    "readOnly": false,
+    "strictReadDefault": false,
+    "readPaths": ["**"],
+    "writePaths": ["00-example/**"],
+    "deletePaths": []
+  },
+  "transports": { "stdio": true, "http": { "enabled": false } }
+}

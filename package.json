@@ -44,8 +44,9 @@
     "map:check": "node scripts/gen-tree-map.mjs --check",
     "migrations:embed": "node scripts/gen-embedded-migrations.mjs",
     "migrations:embed:check": "node scripts/gen-embedded-migrations.mjs --check",
-    "prepare": "node scripts/setup-git-merge-driver.mjs",
+    "prepare": "node scripts/setup-git-merge-driver.mjs && node scripts/setup-dco-hook.mjs",
     "release": "bun scripts/release.mjs",
+    "setup:dco-hook": "node scripts/setup-dco-hook.mjs",
     "setup:git-merge-driver": "node scripts/setup-git-merge-driver.mjs",
     "test": "bun run --filter='*' test",
     "typecheck": "bun run --filter='*' typecheck"

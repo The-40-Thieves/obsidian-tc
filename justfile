@@ -8,8 +8,50 @@ _default:
 build:
     bun run build
 
+# Full workspace suite, pinned to the interpreter ci-server.yml's "test server" step actually
+# uses for packages/server: `node ./node_modules/vitest/vitest.mjs run`, not `bun run test`.
+#
+# The difference is not cosmetic. `openDatabase()` (packages/server/src/db/open.ts) branches on
+# `typeof Bun !== "undefined"`: under a real Bun runtime it resolves the bun:sqlite adapter, under
+# Node it resolves better-sqlite3 / node:sqlite — DIFFERENT DATABASE DRIVERS for the same tests,
+# the same class of divergence THE-608 hit (a test passing on four CI runners, failing locally,
+# because each ran a different implementation). CI keeps the two paths deliberately separate: this
+# command for the main suite, plus a dedicated `bun-smoke` job (`bun test bun-smoke`) that exists
+# specifically to exercise bun:sqlite. `bun run test` here would collapse that distinction locally
+# by relying on however Bun's own script runner happens to resolve `vitest`'s bin — pinning it
+# explicitly means `just test` can't silently drift from what CI actually runs.
+#
+# shared/plugin/native run under Bun's own script runner — none of them touch node:sqlite.
 test:
+    bun run --filter='!obsidian-tc' test
+    cd packages/server && node ./node_modules/vitest/vitest.mjs run
+
+# Fast local iteration, entirely under Bun (including packages/server's bun:sqlite adapter path —
+# see the comment on `test` above). A pass here is NOT a CI-equivalent result; use `just test`
+# before pushing.
+test-bun:
     bun run test
+
+# Contributor toolchain diagnostic: expected-vs-found per pinned tool (bun/node/python/rust)
+# against mise.toml (and packages/native/rust-toolchain.toml for Rust). `mise install` is already
+# most of the answer — this is read-only and exists for what it can't catch on its own (a stale
+# PATH/shim, or a contributor not using mise at all). See scripts/doctor.mjs for the full story,
+# including why this is NOT the `obsidian-tc doctor` CLI subcommand.
+doctor:
+    node scripts/doctor.mjs
+
+# Symlinks packages/plugin/dist/ into a scratch vault's `.obsidian/plugins/obsidian-tc/`
+# directory — the manual step CONTRIBUTING.md's "Running the plugin in Obsidian" section
+# otherwise has a contributor build by hand every time. Builds the plugin first if `dist/` is
+# missing. See examples/scratch-vault/ for a synthetic vault to point this at.
+#
+#   just link-plugin examples/scratch-vault
+#
+# On Windows this creates a directory junction instead of a symlink — junctions need no elevated
+# privileges, and `build-test (windows-latest)` is a required check, so Windows contributors are
+# explicitly in scope. See scripts/link-plugin.mjs.
+link-plugin vault:
+    node scripts/link-plugin.mjs {{vault}}
 
 lint:
     bun run lint

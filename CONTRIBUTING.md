@@ -46,10 +46,14 @@ You need two toolchains for full development: Node/Bun and Rust. You can skip Ru
 ```bash
 git clone https://github.com/the-40-thieves/obsidian-tc.git
 cd obsidian-tc
-bun install              # installs all workspace deps (native falls back to pure-JS)
+bun install              # installs all workspace deps (native falls back to pure-JS); also
+                          # configures the merge driver and a DCO sign-off git hook (both idempotent)
 bun run build            # builds shared + native + server + plugin (native needs Rust)
-bun run test             # runs the workspace test suites
+just test                # runs the workspace test suites the way CI does (see `just test` in the
+                          # justfile for why packages/server runs under Node specifically, not `bun run test`)
 ```
+
+Toolchain mismatch? `just doctor` compares `bun`/`node`/`python3`/`rustc` on your PATH against this repo's pins in `mise.toml` (`mise install` already resolves them if you use mise).
 
 No Rust toolchain? Skip the native build and rely on the pure-JS fallback:
 
@@ -75,7 +79,7 @@ cd packages/server
 bun run dev              # auto-reload on file changes (stdio transport)
 ```
 
-Point your config's vault `path` at a scratch vault — do not use your real vault during development. To exercise the HTTP transport, enable `transports.http` in your config; it binds `127.0.0.1` by default, and an unauthenticated server refuses to bind a non-loopback host.
+Point your config's vault `path` at a scratch vault — do not use your real vault during development. `examples/scratch-vault/` ships a tiny, entirely synthetic one for exactly this (paired with `examples/config.scratch.json`; copy it and fill in an absolute path). To exercise the HTTP transport, enable `transports.http` in your config; it binds `127.0.0.1` by default, and an unauthenticated server refuses to bind a non-loopback host.
 
 ### Running the plugin in Obsidian
 
@@ -84,7 +88,11 @@ cd packages/plugin
 bun run dev              # esbuild watch mode
 ```
 
-Symlink `packages/plugin/dist/` into your test vault's `.obsidian/plugins/obsidian-tc/` directory. Enable the plugin in Obsidian Community Plugins. Restart Obsidian on manifest changes.
+Symlink `packages/plugin/dist/` into your test vault's `.obsidian/plugins/obsidian-tc/` directory —
+`just link-plugin <path-to-vault>` does this for you (building the plugin first if needed; run it
+again after any `manifest.json` change). For example, against the scratch vault above:
+`just link-plugin examples/scratch-vault`. Enable the plugin in Obsidian Community Plugins.
+Restart Obsidian on manifest changes.
 
 ### Running the native module tests
 
@@ -269,7 +277,7 @@ Contributions are accepted under the [Developer Certificate of Origin](https://d
 Signed-off-by: Jane Doe <jane@example.com>
 ```
 
-Add it automatically with `git commit -s` (configure `git config user.name` / `user.email` first). To sign off a branch of existing commits, run `git rebase --signoff main` and force-push. The `dco` CI check verifies this on every PR and fails with a remediation hint if a commit is missing the trailer; merge commits are exempt.
+Add it automatically with `git commit -s` (configure `git config user.name` / `user.email` first). `bun install` also installs a local `prepare-commit-msg` git hook (`scripts/setup-dco-hook.mjs`) that appends the same trailer to every commit automatically, so forgetting `-s` no longer produces a commit `dco` will reject — it leaves alone any `prepare-commit-msg` hook you already have. To sign off a branch of existing commits, run `git rebase --signoff main` and force-push. The `dco` CI check verifies this on every PR and fails with a remediation hint if a commit is missing the trailer; merge commits are exempt.
 
 ## Getting Help
 
