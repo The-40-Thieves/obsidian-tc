@@ -111,6 +111,49 @@ describe("agent_episodes capture bus (THE-228)", () => {
     expect(b[0]?.prev_id).toBeNull(); // other caller's chain is independent
   });
 
+  it("THE-654: the chain survives a restart — a fresh sink still finds the caller's last episode", () => {
+    const db = edb0();
+    let t = NOW;
+    // First "process": one sink instance, one episode for "a".
+    const first = createEpisodeCapture(db, { now: () => t++ });
+    first(ev({ caller: "a", argsHash: "1" }));
+    const firstId = allRows(db)[0]?.id;
+    expect(firstId).toBeDefined();
+
+    // Restart: a BRAND NEW createEpisodeCapture call, exactly what boot does — its prevByCaller
+    // Map starts empty. Without a durable fallback this reads as "a" has no previous episode and
+    // breaks the amendment chain (THE-655 walks prev_id) at every process restart.
+    const restarted = createEpisodeCapture(db, { now: () => t++ });
+    restarted(ev({ caller: "a", argsHash: "2" }));
+    const rows = allRows(db).filter((r) => r.caller === "a");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]?.prev_id).toBe(firstId); // chains across the restart, not null
+
+    // A caller truly seen for the first time ever (by any process) still gets prev_id null.
+    restarted(ev({ caller: "never-before", argsHash: "3" }));
+    const fresh = allRows(db).find((r) => r.caller === "never-before");
+    expect(fresh?.prev_id).toBeNull();
+
+    // The in-memory cache still short-circuits within the SAME process — no extra chain break.
+    restarted(ev({ caller: "a", argsHash: "4" }));
+    const aChain = allRows(db).filter((r) => r.caller === "a");
+    expect(aChain[2]?.prev_id).toBe(aChain[1]?.id);
+  });
+
+  it("THE-654: a null caller's chain is looked up as NULL, not the string 'null'", () => {
+    const db = edb0();
+    let t = NOW;
+    const first = createEpisodeCapture(db, { now: () => t++ });
+    first(ev({ caller: null, argsHash: "1" }));
+    const firstId = allRows(db)[0]?.id;
+
+    const restarted = createEpisodeCapture(db, { now: () => t++ });
+    restarted(ev({ caller: null, argsHash: "2" }));
+    const rows = allRows(db).filter((r) => r.caller === null);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]?.prev_id).toBe(firstId);
+  });
+
   it("captureContent persists redacted, size-capped args and records the scan", () => {
     const db = edb0();
     const sink = createEpisodeCapture(db, { now: () => NOW, captureContent: true });

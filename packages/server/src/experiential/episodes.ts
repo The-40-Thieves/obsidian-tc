@@ -75,7 +75,21 @@ export function createEpisodeCapture(edb: Database, opts: EpisodeCaptureOptions 
      ) VALUES (?, ?, ?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const maxArgsBytes = opts.maxArgsBytes ?? 4096;
+  // THE-654: prevByCaller is a process-local CACHE over the durable chain, not the chain itself.
+  // A miss used to mean "no previous episode" outright, which broke the amendment chain at every
+  // restart — the Map starts empty on boot, so the first episode captured per caller after a
+  // restart got prev_id NULL even when that caller has years of history sitting in the table.
+  // idx_agent_episodes_caller(caller, ts DESC) makes the fallback query below an index-covered
+  // point lookup, so the cache exists purely to skip it on the hot (same-process, same-caller)
+  // path rather than for correctness.
   const prevByCaller = new Map<string, string>();
+  // `caller IS ?` (not `=`) so a NULL caller is looked up as NULL rather than never matching —
+  // the same null-safe idiom experiential-tools.ts already uses for this column. `rowid DESC`
+  // breaks a same-millisecond tie in actual insertion order, mirroring activation.ts's use of
+  // rowid as a tiebreaker over the same wall clock.
+  const selectLastByCaller = edb.prepare(
+    "SELECT id FROM agent_episodes WHERE caller IS ? ORDER BY ts DESC, rowid DESC LIMIT 1",
+  );
 
   return (e) => {
     try {
@@ -100,7 +114,12 @@ export function createEpisodeCapture(edb: Database, opts: EpisodeCaptureOptions 
       const trust = episodeTrust("dispatch", poison.risk);
       const eligibility = poison.risk === "high" ? "ineligible" : "pending";
       const callerKey = e.caller ?? "";
-      const prev = prevByCaller.get(callerKey) ?? null;
+      // THE-654: a cache miss falls through to the DB instead of concluding "no previous episode".
+      let prev = prevByCaller.get(callerKey) ?? null;
+      if (prev === null) {
+        const row = selectLastByCaller.get(e.caller) as { id: string } | undefined;
+        prev = row?.id ?? null;
+      }
       insert.run(
         id,
         ts,

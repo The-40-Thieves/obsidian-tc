@@ -108,6 +108,8 @@ export class MetricsRecorder {
   private readonly vecFallbacks: Counter<string>;
   private readonly sqlBusy: Counter<string>;
   private readonly outputSchemaDrift: Counter<string>;
+  private readonly activationRecomputeChunks: Counter<string>;
+  private readonly vecRebuild: Counter<string>;
   private readonly retrievalStageCandidatesIn: Counter<string>;
   private readonly retrievalStageCandidatesOut: Counter<string>;
   private readonly retrievalContentBytesIn: Counter<string>;
@@ -186,6 +188,18 @@ export class MetricsRecorder {
       labelNames: ["vault", "reason"],
       registers,
     });
+    // THE-612: ensureVecChunks DROPs and rebuilds vec_chunks — a full re-embed of every vault
+    // sharing the table — whenever the stored representation fingerprint drifts or a legacy
+    // pre-partition shape is detected. Rare (a deploy changed the embedding model, or a one-time
+    // schema upgrade) and huge blast radius (dense retrieval goes cold for every vault until
+    // re-embedded), and previously had no counter at all — no `vault` label because the event is
+    // not scoped to one vault; see obsidian_tc_auth_rejections_total for the same precedent.
+    this.vecRebuild = new Counter({
+      name: "obsidian_tc_vec_rebuild_total",
+      help: "vec_chunks DROP+rebuild events, by reason. legacy_shape is a one-time pre-partition upgrade; fingerprint_changed means the embedding provider/model/dimensions, distance metric, or chunk/enrichment representation changed since the index was built. Either way every vault's dense index is cold until it re-embeds — any non-zero count outside a deliberate model migration is worth investigating.",
+      labelNames: ["reason"],
+      registers,
+    });
     // THE-417 Phase 2: the instrument that makes warn-mode runnable. Before this, a mismatch wrote
     // one stderr line among every other internal error and nothing accumulated it, so "let
     // warn-mode surface latent mismatches" had no way to be read. Labels are bounded exactly like
@@ -195,6 +209,17 @@ export class MetricsRecorder {
       name: "obsidian_tc_output_schema_drift_total",
       help: "Handler payloads that did not match their advertised outputSchema, by vault and tool. In production this is WARN-only — the payload still ships — so a non-zero value is the only signal that a tool's declared contract has drifted from what it returns. In dev/CI the same condition is a hard internal_error. Any non-zero count names a tool whose schema or handler is wrong; there is no benign case.",
       labelNames: ["vault", "tool"],
+      registers,
+    });
+    // THE-645 item 1: registerActivationRecompute's onRecompute stats were computed every tick
+    // and discarded — nothing outside the process could see whether the periodic ACT-R recompute
+    // was running, or how much work it was doing. `vault` carries the bounded job name
+    // ("activation-recompute"), the same process-wide-subsystem precedent the scheduler gauges
+    // use, since the recompute runs once over the whole experiential store rather than per vault.
+    this.activationRecomputeChunks = new Counter({
+      name: "obsidian_tc_activation_recompute_chunks_total",
+      help: "Chunks whose cached_activation_score was recomputed by the periodic ACT-R activation job, by job name. Cumulative. A flat line while the scheduler reports the job running means chunk_retrievals has stopped growing, not that the job stalled.",
+      labelNames: ["vault"],
       registers,
     });
     this.sqlBusy = new Counter({
@@ -496,6 +521,16 @@ export class MetricsRecorder {
   /** THE-417 Phase 2: one output-schema mismatch. */
   incOutputSchemaDrift(vault: string, tool: string): void {
     this.outputSchemaDrift.inc({ vault, tool });
+  }
+  /** THE-645 item 1: one activation-recompute tick's worth of chunks. Guarded on n > 0 like the
+   *  ingest counters above — a tick that recomputed nothing (no new retrievals since the last
+   *  watermark) creates no series churn. */
+  incActivationRecomputeChunks(vault: string, n: number): void {
+    if (n > 0) this.activationRecomputeChunks.inc({ vault }, n);
+  }
+  /** THE-612: one vec_chunks DROP+rebuild event. */
+  incVecRebuild(reason: "legacy_shape" | "fingerprint_changed"): void {
+    this.vecRebuild.inc({ reason });
   }
   incSqlBusy(vault: string, txn: WriteTxnLabel, reason: BusyReason): void {
     this.sqlBusy.inc({ vault, txn, reason });

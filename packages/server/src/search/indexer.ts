@@ -49,7 +49,7 @@ import {
 } from "./representation";
 import { scanSecrets } from "./secrets";
 import { deleteChunkSparse, ensureChunkSparse, type SparseVec, upsertChunkSparse } from "./sparse";
-import { blobToFloats, ensureVecChunks, floatBlob, upsertVec } from "./vec";
+import { blobToFloats, ensureVecChunks, floatBlob, upsertVec, type VecRebuildEvent } from "./vec";
 
 export interface IndexStats {
   notes_seen: number;
@@ -1074,11 +1074,10 @@ export interface IndexVaultArgs {
    *  compared, so a non-globally-sorted traversal produces an IDENTICAL final DB state. Left
    *  default-off anyway, per THE-490's instruction to keep the existing path the default. */
   walk?: { streaming?: boolean };
-  /** THE-585 (#5): observability-only hooks fired when a write transaction acquires (or fails to
-   *  acquire) SQLite's write lock. Additive and best-effort — an absent value, or a throwing sink,
-   *  changes nothing about what gets indexed. Threaded from the composition root, which is the only
-   *  place that knows a MetricsRecorder exists. */
+  /** THE-585 (#5) / THE-612: write-lock + vec-rebuild hooks. Additive/best-effort, threaded from
+   *  the composition root — the only place that knows a MetricsRecorder exists. */
   sql?: WriteTxnHooks;
+  onVecRebuild?: (e: VecRebuildEvent) => void;
 }
 
 // THE-500 defaults: 100 notes was the prior hardcoded flush size; 8 MiB caps a batch of large notes.
@@ -1101,7 +1100,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       chunkerVersion: CHUNKER_VERSION,
       schemaGen: VEC_SCHEMA_GEN,
     },
-    { now },
+    { now, onRebuild: args.onVecRebuild },
   );
   // THE-291: notes metadata + FTS ride the reconcile. The UNFILTERED walk backs the stale-path
   // sweep (ACL-invisible-but-present files must never be deindexed); the readable subset drives

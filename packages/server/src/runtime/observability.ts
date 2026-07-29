@@ -19,6 +19,10 @@
 import { writeEvent } from "../audit";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
+import {
+  type ActivationRecomputeStats,
+  registerActivationRecompute,
+} from "../experiential/activation";
 import { databaseGaugeSources } from "../metrics/gauge-sources";
 import { MetricsRecorder } from "../metrics/registry";
 import { MorgianaEmitter } from "../morgiana/emitter";
@@ -26,6 +30,7 @@ import type { Scheduler } from "../scheduler/scheduler";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexCoordinatorStats } from "../search/index-coordinator";
 import type { RetrievalCaches } from "../search/query_cache";
+import type { VecRebuildEvent } from "../search/vec";
 
 /** Bounded subsystem name used in the `vault` label where a metric is process-wide rather than
  *  per-vault — the precedent the query-cache gauges set ("results"/"vectors"). */
@@ -54,6 +59,13 @@ export interface Observability {
   onVecFallback: (vault: string, reason: "error" | "underfill") => void;
   /** THE-585 (#6): retrieval stage duration + candidate funnel. Same seam shape as onVecFallback. */
   onStageMetric: (vault: string, metric: StageMetric) => void;
+  /** THE-645 item 1: registerActivationRecompute's onRecompute stats, routed to the recorder
+   *  instead of discarded. Same seam shape as onVecFallback — the experiential layer never
+   *  imports the metrics recorder. */
+  onActivationRecompute: (vault: string, stats: ActivationRecomputeStats) => void;
+  /** THE-612: ensureVecChunks' onRebuild, routed to the recorder. Same seam shape as
+   *  onVecFallback — search/vec.ts never imports the metrics recorder. */
+  onVecRebuild: (event: VecRebuildEvent) => void;
   /** THE-585 (#5): bind a vault to the write-lock hooks. Same seam as onVecFallback — the db and
    *  indexer layers take plain callbacks and never import metrics, so the composition root stays
    *  the only module that knows a recorder exists. */
@@ -133,6 +145,11 @@ export function createObservability(deps: ObservabilityDeps): Observability {
   // a plain callback, so the retrieval layer still never imports the metrics recorder.
   const onStageMetric = (vault: string, metric: StageMetric): void =>
     metrics.observeRetrievalStage(vault, metric);
+  // THE-645 item 1: same seam shape as onVecFallback/onStageMetric above.
+  const onActivationRecompute = (vault: string, stats: ActivationRecomputeStats): void =>
+    metrics.incActivationRecomputeChunks(vault, stats.chunks);
+  // THE-612: same seam shape as onVecFallback above.
+  const onVecRebuild = (event: VecRebuildEvent): void => metrics.incVecRebuild(event.reason);
   // THE-585 (#5): bind a vault to the write-lock hooks. Same seam as onVecFallback — the db and
   // indexer layers take plain callbacks and never import metrics, so the composition root stays
   // the only module that knows a recorder exists. `vault` is a real vault id for the index paths;
@@ -182,5 +199,38 @@ export function createObservability(deps: ObservabilityDeps): Observability {
     }
   };
 
-  return { metrics, onVecFallback, onStageMetric, sqlHooksFor, morgiana, onSnapshotSkipped };
+  return {
+    metrics,
+    onVecFallback,
+    onStageMetric,
+    onActivationRecompute,
+    onVecRebuild,
+    sqlHooksFor,
+    morgiana,
+    onSnapshotSkipped,
+  };
+}
+
+/**
+ * THE-645 item 1: registers the periodic activation recompute with its onRecompute/onError
+ * already bound to `observability` — cli.ts was the only construction site AND the only place
+ * that could have reported the stats registerActivationRecompute already computed every tick, so
+ * they were silently discarded. Same "wiring lives next to the thing it wires" shape as
+ * maintenance-wiring.ts's configureMaintenance, kept here (not there) because the only new
+ * behaviour is a metrics emission — `observability` already owns that seam.
+ */
+export function wireActivationRecompute(
+  scheduler: Scheduler,
+  observability: Pick<Observability, "onActivationRecompute">,
+  deps: { edb: Database; intervalMs: number },
+): void {
+  registerActivationRecompute(scheduler, {
+    edb: deps.edb,
+    intervalMs: deps.intervalMs,
+    onRecompute: (stats) => observability.onActivationRecompute("activation-recompute", stats),
+    onError: (e) =>
+      process.stderr.write(
+        `[activation-recompute] ${e instanceof Error ? e.message : String(e)}\n`,
+      ),
+  });
 }

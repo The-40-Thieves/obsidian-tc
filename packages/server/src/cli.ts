@@ -53,7 +53,7 @@ import { openDatabase } from "./db/open";
 import { provisionCacheDb } from "./db/provision";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
 import { createEmbeddingProvider } from "./embeddings";
-import { makeActivationLookup, registerActivationRecompute } from "./experiential/activation";
+import { makeActivationLookup } from "./experiential/activation";
 import { createEpisodeCapture } from "./experiential/episodes";
 import { createRetrievalLogger } from "./experiential/log";
 import { createGatewayClient, type GatewayClient } from "./gateway";
@@ -70,7 +70,7 @@ import { checkContradictions, loadChunkForContradiction } from "./plane/jobs/con
 import { isoWeek, runSynthesis } from "./plane/jobs/synthesis";
 import { createPlurBackend } from "./plur/client";
 import { configureMaintenance } from "./runtime/maintenance-wiring";
-import { createObservability } from "./runtime/observability";
+import { createObservability, wireActivationRecompute } from "./runtime/observability";
 import { applyReconcileOutcome } from "./runtime/reconcile-outcome";
 import { JobQueue } from "./scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "./scheduler/job-runner";
@@ -168,10 +168,12 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           process.stderr.write(`[episodes] ${e instanceof Error ? e.message : String(e)}\n`),
       })
     : undefined;
-  // THE-187/193: serve-side activation lookup for the graph bubble pass — dark unless
-  // experiential.activationRerank flips after a ship-rule A/B.
+  // THE-187/193: serve-side activation lookup for the bubble pass — dark unless activationRerank.
   const activationFor = config.experiential.activationRerank
-    ? makeActivationLookup(experientialDb)
+    ? makeActivationLookup(experientialDb, {
+        onError: (e) =>
+          process.stderr.write(`[activation-read] ${e instanceof Error ? e.message : String(e)}\n`),
+      })
     : undefined;
   const experientialOpen = !!(retrievalLog || episodeCapture || activationFor);
   if (!experientialOpen) experientialDb.close?.();
@@ -201,16 +203,17 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // THE-466 slice 2: MetricsRecorder + its gauge sources, onVecFallback/onStageMetric/sqlHooksFor,
   // and the MORGIANA emitter all live in runtime/observability.ts now — see that file for the
   // THE-585 history (three gauges that were declared and never wired) this extraction fixes.
+  const observability = createObservability({
+    db,
+    cacheDir: config.cacheDir,
+    morgianaSpool: config.observability.morgiana.spool,
+    retrievalCaches,
+    getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
+    getSchedulerStats: () => requireBoot(schedulerRef, "scheduler").stats(),
+    getHttpConstructSeconds: () => httpConstructSeconds,
+  });
   const { metrics, onVecFallback, onStageMetric, sqlHooksFor, morgiana, onSnapshotSkipped } =
-    createObservability({
-      db,
-      cacheDir: config.cacheDir,
-      morgianaSpool: config.observability.morgiana.spool,
-      retrievalCaches,
-      getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
-      getSchedulerStats: () => requireBoot(schedulerRef, "scheduler").stats(),
-      getHttpConstructSeconds: () => httpConstructSeconds,
-    });
+    observability;
   // Shared rate limiter (G2.4 tiers) — the dispatch gate (THE-210) and get_metrics share it.
   const rateLimiter = new RateLimiter(config.throttle.tiers);
   const vaultRegistry = new VaultRegistry(config.vaults, process.env.OBSIDIAN_TC_DEFAULT_VAULT);
@@ -324,7 +327,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       chunkerVersion: CHUNKER_VERSION,
       schemaGen: VEC_SCHEMA_GEN,
     },
-    { now: Date.now },
+    { now: Date.now, onRebuild: observability.onVecRebuild },
   );
   // THE-291: FTS5 probe (trigram notes_fts) — false on adapters without FTS5 or when
   // OBSIDIAN_TC_DISABLE_FTS=1; the query layer then keeps the disk-scan floor.
@@ -631,6 +634,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         isReadable: indexReadableFor(vaultId),
         now: Date.now,
         sql: sqlHooksFor(vaultId),
+        onVecRebuild: observability.onVecRebuild,
         onIndexed: makeOnIndexed(vaultId),
         onNotesPass: () => {
           indexHealth.notesReady = true;
@@ -952,6 +956,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           isReadable: indexReadableFor(v.id),
           now: Date.now,
           sql: sqlHooksFor(v.id),
+          onVecRebuild: observability.onVecRebuild,
           onIndexed: makeOnIndexed(v.id),
           // THE-291: metadata/FTS readiness is independent of embed success.
           onNotesPass: () => {
@@ -1068,13 +1073,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // left, stale the moment new retrievals land. Registered only while the experiential store is open
   // (capture on); idempotent, no gateway, best-effort. Reuses the maintenance cadence.
   if (experientialOpen) {
-    registerActivationRecompute(scheduler, {
+    wireActivationRecompute(scheduler, observability, {
       edb: experientialDb,
       intervalMs: config.maintenance.intervalMinutes * 60_000,
-      onError: (e) =>
-        process.stderr.write(
-          `[activation-recompute] ${e instanceof Error ? e.message : String(e)}\n`,
-        ),
     });
   }
 

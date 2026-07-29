@@ -64,8 +64,20 @@ export function actrActivation(
  * point read of cached_activation_score per chunk id (PK lookup, ~top-K calls per query).
  * Returns null when the chunk has no state (bubble pass stays inert for it) and never
  * throws: a read failure degrades to inert, not to a broken search.
+ *
+ * THE-653: the return value stays uniform (null either way) — every caller already treats
+ * "no score" as "stay inert", and changing that contract would touch every call site for no
+ * ranking benefit. What was missing was a CHANNEL: `onError` fires only on a genuine read
+ * failure, never on a legitimate miss, so a corrupt or full db is no longer indistinguishable
+ * from a cold cache. Same shape as log.ts's `createRetrievalLogger` onError, and the same
+ * no-result-vs-could-not-read distinction THE-613 drew for the contradiction judge — just
+ * carried through a side channel instead of the return type, since this call site can't widen
+ * its contract without breaking every reader.
  */
-export function makeActivationLookup(edb: Database): (chunkId: string) => number | null {
+export function makeActivationLookup(
+  edb: Database,
+  opts: { onError?: (err: unknown) => void } = {},
+): (chunkId: string) => number | null {
   const stmt = edb.prepare(
     "SELECT cached_activation_score AS s FROM vault_object_state WHERE object_id = ?",
   );
@@ -73,7 +85,8 @@ export function makeActivationLookup(edb: Database): (chunkId: string) => number
     try {
       const row = stmt.get(chunkId) as { s: number | null } | undefined;
       return row?.s ?? null;
-    } catch {
+    } catch (err) {
+      opts.onError?.(err);
       return null;
     }
   };

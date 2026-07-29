@@ -62,10 +62,29 @@ export function loadVec(db: Database): boolean {
 // dedicated vec_index_fingerprint table and compared on every call; ANY field changing (a
 // same-dimension model swap, a chunker/enrichment version bump, a schema-gen bump, or a plain
 // dimension change) triggers the same rebuild+backfill path as the legacy pre-partition shape.
+/** THE-612: fired exactly once per DROP+rebuild — see `ensureVecChunks`'s `onRebuild` opt. */
+export interface VecRebuildEvent {
+  /** "legacy_shape": a pre-partition table was found and reshaped in place. "fingerprint_changed":
+   *  the stored representation (provider/model/dims/metric/enrichment/chunker/schema) no longer
+   *  matches what was last built — a deploy changed the embedding model, or one config field did. */
+  reason: "legacy_shape" | "fingerprint_changed";
+  /** Active vectors NOT backfilled because they were captured at a different representation than
+   *  the one this rebuild is for — a re-embed regenerates them on the next reconcile. */
+  skippedVectors: number;
+}
+
 export function ensureVecChunks(
   db: Database,
   fp: VecFingerprint,
-  opts: { now?: () => number } = {},
+  opts: {
+    now?: () => number;
+    /** THE-612: this event is RARE (a deploy changed the embedding model, or a pre-partition db is
+     *  being upgraded) and has a HUGE blast radius — every vault sharing this table goes cold on
+     *  dense retrieval until it re-embeds — so it is worth reporting even though this module has no
+     *  injected logger and never imports the metrics recorder. Optional and additive, same shape as
+     *  the other `opts` callbacks in this file's siblings (log.ts, activation.ts). */
+    onRebuild?: (event: VecRebuildEvent) => void;
+  } = {},
 ): boolean {
   if (!loadVec(db)) return false;
   const now = opts.now ?? Date.now;
@@ -138,14 +157,19 @@ export function ensureVecChunks(
         // Retrieval would then score new-model queries against old-model embeddings: not an error,
         // just quietly wrong results. Vectors from any other model are left for the re-embed to
         // regenerate, which is the same posture already taken for a dimension change.
-        const inserted = db
-          .prepare(
-            `INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding)
-             SELECT e.chunk_id, c.vault_id, c.path, e.model, e.embedding
-             FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id
-             WHERE e.is_active = 1 AND length(e.embedding) = ${dims * 4} AND e.model = ?`,
-          )
-          .run(fp.model).changes as number;
+        db.prepare(
+          `INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding)
+           SELECT e.chunk_id, c.vault_id, c.path, e.model, e.embedding
+           FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id
+           WHERE e.is_active = 1 AND length(e.embedding) = ${dims * 4} AND e.model = ?`,
+        ).run(fp.model);
+        // THE-612: NOT `.changes` from the INSERT above — vec0 virtual tables are backed by
+        // several shadow tables, so `.changes` reports shadow-table writes rather than logical
+        // rows (measured: 6 for a single logical row backfilled). vec_chunks was DROPped and
+        // recreated immediately above, so a plain COUNT here is exactly what this INSERT just
+        // wrote — cheap and exact, unlike `.changes` on a virtual table.
+        const inserted = (db.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get() as { n: number })
+          .n;
         skipped = active - inserted;
       }
       const rebuiltVersion = `20260712_004_vec_chunks_aux_${dims}`;
@@ -163,6 +187,14 @@ export function ensureVecChunks(
           `vec0:partition+aux:${dims}${skipped > 0 ? `:skipped${skipped}` : ""}`,
         );
       }
+      // THE-612: a full re-embed of every vault sharing this table, previously silent. `legacy`
+      // and `fpChanged` are the only two ways into this block, so exactly one reason applies.
+      const reason = legacy ? "legacy_shape" : "fingerprint_changed";
+      process.stderr.write(
+        `[vec] rebuilding vec_chunks (${reason}): every vault's dense index was dropped and is ` +
+          `backfilling from chunk_embeddings${skipped > 0 ? `; ${skipped} vector(s) at a different representation are left for the next re-embed` : ""}.\n`,
+      );
+      opts.onRebuild?.({ reason, skippedVectors: skipped });
     }
   }
   const recorded = db
