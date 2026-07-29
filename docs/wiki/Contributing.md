@@ -13,12 +13,12 @@ This is a condensed guide. The authoritative version is [`CONTRIBUTING.md`](http
 ```bash
 git clone https://github.com/the-40-thieves/obsidian-tc.git
 cd obsidian-tc
-bun install      # native falls back to pure-JS if Rust is absent
+bun install      # native falls back to pure-JS if Rust is absent; also installs a DCO git hook
 bun run build    # shared + native + server + plugin
-bun run test
+just test        # CI-equivalent suite (packages/server explicitly under Node, not `bun run test`)
 ```
 
-No Rust? `bun run --filter='!@the-40-thieves/obsidian-tc-native' build`.
+No Rust? `bun run --filter='!@the-40-thieves/obsidian-tc-native' build`. Toolchain versions off? `just doctor`.
 
 ## Dev loops
 
@@ -28,7 +28,7 @@ cd packages/plugin && bun run dev    # plugin, esbuild watch
 cd packages/native && cargo test     # Rust unit tests
 ```
 
-Point your config at a **scratch vault**, never your real one. Force the fallback path with `OBSIDIAN_TC_FORCE_JS_FALLBACK=1 bun run test`; CI runs both native and fallback.
+Point your config at a **scratch vault**, never your real one — `examples/scratch-vault/` ships a synthetic one, paired with `examples/config.scratch.json`. `just link-plugin <vault>` symlinks the plugin build into it. Force the fallback path with `OBSIDIAN_TC_FORCE_JS_FALLBACK=1 bun run test`; CI runs both native and fallback.
 
 ## Conventions
 
