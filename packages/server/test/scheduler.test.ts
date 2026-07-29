@@ -24,6 +24,23 @@ function openFileDb(dbPath: string): Database {
   return new DatabaseSync(dbPath) as Database;
 }
 
+// THE-666 review fix: chmod 0o444 sets Windows' FILE_ATTRIBUTE_READONLY, and Windows refuses to
+// DELETE a read-only file (unlike POSIX, where the write bit governs writes but a directory's own
+// permissions govern unlink). Left as `fs.rmSync(dir, { force: true })`, that turned a passing
+// assertion into an EPERM thrown from cleanup — `force` only suppresses ENOENT, not EPERM, and a
+// `finally` block's own throw REPLACES whatever the try block already threw or returned, so this
+// was capable of silently masking a genuine assertion failure too. Restore write permission first
+// (best-effort — the file may legitimately already be gone if an earlier step in the same test
+// failed) so removal is a plain, unconditional success on every OS.
+function cleanupReadOnlyDb(dir: string, dbPath: string): void {
+  try {
+    fs.chmodSync(dbPath, 0o644);
+  } catch {
+    /* already gone, or was never made read-only on this platform; fall through regardless */
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 describe("Scheduler (THE-462)", () => {
   it("runs a job on its interval and stop() halts further runs", async () => {
     vi.useFakeTimers();
@@ -405,7 +422,7 @@ describe("Scheduler (THE-462)", () => {
         await sched.stop();
       } finally {
         vi.useRealTimers();
-        fs.rmSync(dir, { recursive: true, force: true });
+        cleanupReadOnlyDb(dir, dbPath);
       }
     });
 
@@ -442,7 +459,7 @@ describe("Scheduler (THE-462)", () => {
         await sched.stop();
       } finally {
         vi.useRealTimers();
-        fs.rmSync(dir, { recursive: true, force: true });
+        cleanupReadOnlyDb(dir, dbPath);
       }
     });
 
