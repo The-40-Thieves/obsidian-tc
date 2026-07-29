@@ -24,6 +24,31 @@ export interface GraphSearchResult {
   rerank_score: number;
 }
 
+/** THE-631: an ADDITIVE, non-ranking-affecting coverage/confidence estimate for one graphSearch()
+ *  call — see graph_search.ts's estimateCoverage() for exactly how each field is computed and why
+ *  it is honest rather than a fabricated 0-1 score. Reported via GraphSearchOptions.onCoverage. */
+export interface CoverageEstimate {
+  /** GraphSearchResult.source values actually present in the returned set — observed from the
+   *  results themselves, not from which streams were merely enabled. */
+  arms: Array<"seed" | "expansion" | "lexical" | "sparse" | "temporal">;
+  armsContributed: number;
+  /** Size of the full source taxonomy (5) — the denominator for armsContributed. */
+  armsPossible: number;
+  /** The seed-strength router (classify.ts) judged the seeds strong enough and skipped graph
+   *  expansion outright — zero expansion arm here is a deliberate decision, not a coverage gap. */
+  expansionSkipped: boolean;
+  /** Expansion ran and found more qualifying candidates than maxExpansionChunks / a per-seed cap
+   *  kept — a genuine coverage gap, distinct from expansionSkipped. */
+  expansionTruncated: boolean;
+  /** opts.finalTopK (or its default) — how many results the caller asked for. */
+  requested: number;
+  /** results.length actually returned. */
+  returned: number;
+  /** returned < requested: the pipeline could not fill the requested page. Not a ranking
+   *  judgment — just an honest count. */
+  underfilled: boolean;
+}
+
 export interface GraphSearchOptions {
   query: string;
   queryVec: number[];
@@ -177,6 +202,14 @@ export interface GraphSearchOptions {
     lex: number;
     sparse: number;
   }) => void;
+  /** THE-631 (additive, observability-only): fired once per completed graphSearch call with an
+   *  honest coverage estimate of the RETURNED result set — see CoverageEstimate above and
+   *  graph_search.ts's estimateCoverage() for exactly what it means. This is a pure reported
+   *  side-channel: it MUST NOT feed back into scoring or ordering (see estimateCoverage()'s doc
+   *  comment and the "pure side-channel" test in test/graph-coverage.test.ts). Default undefined
+   *  -> no behavior change. Under multi-query fan-out (multi_query.ts) this fires once per
+   *  variant; the last call wins, mirroring onFusionWeights' existing precedent. */
+  onCoverage?: (coverage: CoverageEstimate) => void;
   reranker?: Reranker | null;
   isReadable?: (path: string) => boolean;
   /** cached_activation_score lookup from vault_object_state (W-SCHEMA); inert when absent. */

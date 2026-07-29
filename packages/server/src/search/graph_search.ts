@@ -10,6 +10,7 @@ import { applyGatedRerank } from "./graph_search_stages/rerank_stage";
 import { generateSeeds } from "./graph_search_stages/seed_generation";
 import {
   type Candidate,
+  type CoverageEstimate,
   DEFAULT_DECAY_LAMBDA,
   type FusionMode,
   type GraphSearchOptions,
@@ -21,8 +22,50 @@ import { rerankWithScores } from "./rerank";
 // GraphSearchResult shape, same GraphSearchOptions surface (every opts.* default preserved) —
 // re-exported here from graph_search_stages/types so every existing import path
 // (`from "./graph_search"` / `from "../../search/graph_search"`) keeps working untouched.
-export type { FusionMode, GraphSearchOptions, GraphSearchResult };
+export type { CoverageEstimate, FusionMode, GraphSearchOptions, GraphSearchResult };
 export { clampMetadataBoost, seedZMargin };
+
+// THE-631: the full GraphSearchResult.source taxonomy — the denominator for
+// CoverageEstimate.armsPossible and the enumeration estimateCoverage() checks presence against.
+const ALL_SOURCES = ["seed", "expansion", "lexical", "sparse", "temporal"] as const;
+
+/**
+ * THE-631: an honest, additive coverage estimate for one completed graphSearch call. Grounded in
+ * what the pipeline actually did — never a fabricated 0-1 confidence number:
+ *   - arms/armsContributed: which of the five possible streams contributed a surviving hit to
+ *     THIS result set, observed from the results themselves (not from which streams were merely
+ *     enabled in opts — a stream can be on and still contribute zero hits, e.g. no lexical term
+ *     match).
+ *   - expansionSkipped vs expansionTruncated: two different reasons expansion contributes little
+ *     or nothing. Skipped means the seed-strength router (classify.ts) judged the seeds strong
+ *     enough and never ran expansion at all — a deliberate decision, not a gap. Truncated means
+ *     expansion ran and found MORE qualifying candidates than maxExpansionChunks/a per-seed cap
+ *     kept — a genuine coverage gap.
+ *   - requested/returned/underfilled: the plainest signal. `underfilled` is true when the
+ *     pipeline returned fewer chunks than the caller asked for (finalTopK) — the corpus/graph did
+ *     not have enough qualifying candidates to fill the page. Not a ranking judgment.
+ *
+ * Exported and pure (no DB access) so it is unit-testable against a known GraphSearchResult[]
+ * fixture without a live search. Reported ONLY via opts.onCoverage — this value is never read
+ * back into scoring, fusion, or ordering anywhere in this pipeline.
+ */
+export function estimateCoverage(
+  results: GraphSearchResult[],
+  requested: number,
+  pipeline: { routedToSeedsOnly: boolean; expansionTruncated: boolean },
+): CoverageEstimate {
+  const arms = ALL_SOURCES.filter((s) => results.some((r) => r.source === s));
+  return {
+    arms: [...arms],
+    armsContributed: arms.length,
+    armsPossible: ALL_SOURCES.length,
+    expansionSkipped: pipeline.routedToSeedsOnly,
+    expansionTruncated: pipeline.expansionTruncated,
+    requested,
+    returned: results.length,
+    underfilled: results.length < requested,
+  };
+}
 
 // THE-585 (#12): content bytes hydrated at the two boundaries that matter — how much duplicate
 // hydration candidateAssembly's dedup absorbs, and how much of what got hydrated the diversity/
@@ -59,19 +102,35 @@ export async function graphSearch(
   opts: GraphSearchOptions,
 ): Promise<GraphSearchResult[]> {
   const core = await graphSearchCore(db, opts);
-  return runStage(
+  const results = await runStage(
     "projection",
-    core.length,
-    () => colbertRerankResults(db, core, opts),
+    core.results.length,
+    () => colbertRerankResults(db, core.results, opts),
     (r) => r.length,
     opts.onStageMetric,
   );
+  // THE-631: fired AFTER projection so the estimate describes exactly what the caller receives,
+  // never fed back into the pipeline above — see estimateCoverage()'s doc comment.
+  opts.onCoverage?.(
+    estimateCoverage(results, core.finalTopK, {
+      routedToSeedsOnly: core.routedToSeedsOnly,
+      expansionTruncated: core.expansionTruncated,
+    }),
+  );
+  return results;
+}
+
+interface GraphSearchCoreResult {
+  results: GraphSearchResult[];
+  finalTopK: number;
+  routedToSeedsOnly: boolean;
+  expansionTruncated: boolean;
 }
 
 async function graphSearchCore(
   db: Database,
   opts: GraphSearchOptions,
-): Promise<GraphSearchResult[]> {
+): Promise<GraphSearchCoreResult> {
   const seedCount = opts.seedCount ?? 30;
   const finalTopK = opts.finalTopK ?? 30;
   const maxExpansionChunks = opts.maxExpansionChunks ?? 50;
@@ -101,7 +160,8 @@ async function graphSearchCore(
     (r) => r.seeds.length + r.lexHits.length + r.sparseHits.length,
     onStageMetric,
   );
-  if (seeds.length === 0 && lexHits.length === 0 && sparseHits.length === 0) return [];
+  if (seeds.length === 0 && lexHits.length === 0 && sparseHits.length === 0)
+    return { results: [], finalTopK, routedToSeedsOnly: false, expansionTruncated: false };
 
   // Stage: classify (seed-strength router).
   const { zMargin, routedToSeedsOnly } = await runStage(
@@ -126,6 +186,7 @@ async function graphSearchCore(
   // seeds-only, exactly as before THE-465; still reports a zero-work StageMetric).
   let expansionChunks: Candidate[] = [];
   let expSimById = new Map<string, number>();
+  let expansionTruncated = false;
   if (!routedToSeedsOnly) {
     const r = await runStage(
       "graphExpansion",
@@ -148,6 +209,7 @@ async function graphSearchCore(
     );
     expansionChunks = r.expansionChunks;
     expSimById = r.expSimById;
+    expansionTruncated = r.truncated;
   } else if (onStageMetric) {
     onStageMetric({
       stage: "graphExpansion",
@@ -194,7 +256,8 @@ async function graphSearchCore(
       out: (r) => contentBytes(r.candidates),
     },
   );
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0)
+    return { results: [], finalTopK, routedToSeedsOnly, expansionTruncated };
 
   // Fusion mode "score_merge" bypasses the RRF/convex fusion pipeline (scoreFusion/diversity/
   // gatedRerank stages) entirely — same early return as before THE-465.
@@ -205,7 +268,7 @@ async function graphSearchCore(
       Math.min(finalTopK, candidates.length),
       opts.reranker,
     );
-    return finalize(ranked, opts);
+    return { results: finalize(ranked, opts), finalTopK, routedToSeedsOnly, expansionTruncated };
   }
 
   // Stage: scoreFusion (adaptive RRF tilt / RRF / convex, metadata prior, final sort).
@@ -245,7 +308,7 @@ async function graphSearchCore(
       { in: contentBytes(fused), out: (r) => contentBytes(r) },
     );
     // Stage: gatedRerank (THE-394 hard-query gate; falls through to plain projection).
-    return runStage(
+    const gated = await runStage(
       "gatedRerank",
       capped.length,
       () => applyGatedRerank({ opts, capped, seeds, zMargin, routedToSeedsOnly, scoreOfWithPrior }),
@@ -253,6 +316,7 @@ async function graphSearchCore(
       onStageMetric,
       { in: contentBytes(capped), out: (r) => contentBytes(r) },
     );
+    return { results: gated, finalTopK, routedToSeedsOnly, expansionTruncated };
   }
 
   // rrf_rerank: rerank the top-RRF pool for the final order.
@@ -263,5 +327,5 @@ async function graphSearchCore(
     Math.min(finalTopK, pool.length),
     opts.reranker,
   );
-  return finalize(ranked, opts);
+  return { results: finalize(ranked, opts), finalTopK, routedToSeedsOnly, expansionTruncated };
 }

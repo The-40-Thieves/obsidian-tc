@@ -66,8 +66,8 @@ function availableWith<T extends z.ZodRawShape>(shape: T) {
 
 /** Mirrors `projectEpisode()` field for field. Written from the PROJECTION, not from EpisodeRow —
  *  the projection renames (`vault_id` -> `vault`), derives (`tags` parsed from JSON, `blocked`
- *  narrowed to a boolean) and drops (`prev_id`), so a schema built from the row type would be
- *  wrong in four places. */
+ *  narrowed to a boolean, `prev_id` filtered through the caller's own visible set), so a schema
+ *  built from the row type would be wrong in four places. */
 const EpisodeProjection = z.object({
   id: z.string(),
   ts: z.number(),
@@ -86,6 +86,10 @@ const EpisodeProjection = z.object({
   trust: z.number().nullable(),
   eligibility: z.string(),
   blocked: z.boolean(),
+  // THE-655: the amendment chain link (episodes/createEpisodeCapture builds it per-caller, so it
+  // never crosses the caller partition on its own). NULL when there is no predecessor OR when the
+  // predecessor is tombstoned — see visiblePrevIds() below.
+  prev_id: z.string().nullable(),
 });
 
 interface EpisodeRow {
@@ -119,7 +123,25 @@ function parseTags(tags: string | null): string[] {
   }
 }
 
-function projectEpisode(r: EpisodeRow) {
+/** THE-655: an amendment chain can point at a tombstoned predecessor — work_search's control 1
+ *  ("blocked rows NEVER surface") is documented absolute, and a raw `prev_id` pointing at a
+ *  blocked row would leak that row's id (and its existence in the chain) even though the row
+ *  itself never surfaces. The chain is built per-CALLER (episodes.ts's `prevByCaller`/
+ *  `selectLastByCaller` both key on `caller IS ?`), so it can never cross the caller partition on
+ *  its own — the only thing left to filter is the tombstone. One batched follow-up query per
+ *  handler call (not per row) resolves which referenced predecessors are still visible. */
+function visiblePrevIds(edb: Database, rows: EpisodeRow[]): Set<string> {
+  const ids = [...new Set(rows.map((r) => r.prev_id).filter((id): id is string => id !== null))];
+  if (ids.length === 0) return new Set();
+  const rs = edb
+    .prepare(
+      `SELECT id FROM agent_episodes WHERE blocked = 0 AND id IN (${ids.map(() => "?").join(",")})`,
+    )
+    .all(...ids) as { id: string }[];
+  return new Set(rs.map((r) => r.id));
+}
+
+function projectEpisode(r: EpisodeRow, visiblePrev: Set<string>) {
   return {
     id: r.id,
     ts: r.ts,
@@ -139,6 +161,7 @@ function projectEpisode(r: EpisodeRow) {
     trust: r.trust,
     eligibility: r.eligibility,
     blocked: r.blocked === 1,
+    prev_id: r.prev_id !== null && visiblePrev.has(r.prev_id) ? r.prev_id : null,
   };
 }
 
@@ -224,10 +247,11 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
              ORDER BY ts DESC LIMIT ?`,
           )
           .all(...params, input.k) as EpisodeRow[];
+        const visiblePrev = visiblePrevIds(deps.edb, rows);
         return {
           available: true,
           floor: { min_trust: input.min_trust, include_pending: input.include_pending },
-          results: rows.map(projectEpisode),
+          results: rows.map((r) => projectEpisode(r, visiblePrev)),
         };
       },
     }),
@@ -293,7 +317,8 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
              ORDER BY ts DESC LIMIT ?`,
           )
           .all(...params, input.k) as EpisodeRow[];
-        return { available: true, episodes: rows.map(projectEpisode) };
+        const visiblePrev = visiblePrevIds(deps.edb, rows);
+        return { available: true, episodes: rows.map((r) => projectEpisode(r, visiblePrev)) };
       },
     }),
 

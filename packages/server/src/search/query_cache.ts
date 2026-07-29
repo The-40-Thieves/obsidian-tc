@@ -231,6 +231,11 @@ export function createRetrievalCaches(opts: QueryCacheOptions): RetrievalCaches 
 //                    consequence to be aware of rather than a defect: a cache HIT skips the search
 //                    entirely, so it also skips any fallback it would have taken — the counter
 //                    measures executed searches, not requested ones.
+//   onCoverage     — observability only (THE-631 coverage/confidence estimate), reported, never
+//                    read back into scoring or ordering — same non-behavioral shape as
+//                    onFusionWeights. Same cache-HIT caveat as onVecFallback above: a hit never
+//                    calls graphSearch, so onCoverage does not fire and the tool-layer response
+//                    simply omits `coverage` (the schema field is optional for exactly this).
 //   reranker       — a bare `(query, docs, topN) => hits` function with no identity to hash. It is
 //                    built once per process from config, so swapping it mid-process is not a thing
 //                    that happens today; the key records only whether one is PRESENT, since absent
@@ -243,6 +248,7 @@ const FUNCTION_FIELDS = [
   "onStageMetric",
   "onFusionWeights",
   "onVecFallback",
+  "onCoverage",
 ] as const;
 
 /** Fields excluded from the key because they are derived from (query text, representation), both

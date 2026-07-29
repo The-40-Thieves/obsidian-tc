@@ -27,6 +27,11 @@ export interface GraphExpansionResult {
   // THE-398: raw ordering score (cos, possibly decay/smooth-weighted) per KEPT expansion chunk —
   // the convex fusion normalizes over exactly the chunks that entered the stream.
   expSimById: Map<string, number>;
+  // THE-631: true when more candidates cleared similarityThreshold than the global
+  // maxExpansionChunks cap or a per-seed cap kept — a genuine coverage gap (candidates existed
+  // and were discarded), distinct from the router skipping expansion outright. False when
+  // expansion found no qualifying candidates at all (nothing to truncate).
+  truncated: boolean;
 }
 
 /** 3. Literal graph expansion (skipped when the router fires). Score each expansion chunk by
@@ -150,8 +155,11 @@ export function expandGraph(input: GraphExpansionInput): GraphExpansionResult {
       expSimById.set(s.cand.chunk_id, s.sim);
       expansionChunks.push(s.cand);
     }
+    // THE-631: some `scored` candidate cleared the similarity gate but was not kept — either the
+    // global maxExpansionChunks cap or a per-seed cap discarded it.
+    return { expansionChunks, expSimById, truncated: expansionChunks.length < scored.length };
   }
-  return { expansionChunks, expSimById };
+  return { expansionChunks, expSimById, truncated: false };
 }
 
 // THE-73 Phase 3: note mtimes for the expansion paths (Ebbinghaus decay input). Absent notes table
