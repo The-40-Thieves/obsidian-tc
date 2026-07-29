@@ -21,6 +21,7 @@
 //     misunderstanding took the MCP plane down for five days.
 import { readFileSync } from "node:fs";
 import { SignJWT } from "jose";
+import { applyEnvOverlays } from "../../config/load";
 import { CliError } from "../args";
 import type { Cmd } from "../shared";
 
@@ -43,8 +44,20 @@ interface AuthShape {
  * validation aimed at BOOTING a server (it will, for instance, refuse a non-loopback bind under
  * `auth.mode: none`), and none of that should stand between an operator and a token. What matters
  * here is only what the verifier will actually check.
+ *
+ * The env overlay is NOT optional, though: the project's own docs recommend `OBSIDIAN_TC_JWT_SECRET`
+ * over a file-resident secret ("keeps it off disk"), and `applyEnvOverlays` is the only code that
+ * injects it into `auth.jwtSecret` — skip it and mint fails on the recommended deployment shape
+ * with a misleading "no jwtSecret" error even though the secret is right there in the environment.
+ * Reusing `applyEnvOverlays` (rather than a second hand-rolled env lookup) keeps this in the one
+ * place the loader itself points at (see the `config/load.ts` comment on hand-kept duplicate lists)
+ * and guarantees identical precedence — env overwrites a file-provided value — without pulling in
+ * `finalizeConfig`'s validation.
  */
-export function readAuthBlock(configPath: string): AuthShape {
+export function readAuthBlock(
+  configPath: string,
+  env: Record<string, string | undefined> = process.env,
+): AuthShape {
   let raw: string;
   try {
     raw = readFileSync(configPath, "utf8");
@@ -58,7 +71,8 @@ export function readAuthBlock(configPath: string): AuthShape {
     throw new CliError(`config is not valid JSON: ${configPath}`);
   }
   const auth = (parsed as { auth?: AuthShape } | null)?.auth;
-  return auth && typeof auth === "object" ? auth : {};
+  const overlaid = applyEnvOverlays({ auth: auth && typeof auth === "object" ? auth : {} }, env);
+  return (overlaid.auth as AuthShape) ?? {};
 }
 
 export interface MintPlan {
@@ -80,7 +94,10 @@ export function planMint(auth: AuthShape, cmd: TokenMintCmd, now: number): MintP
     );
   }
   if (!auth.jwtSecret) {
-    throw new CliError("config has auth.mode 'jwt' but no auth.jwtSecret to sign with");
+    throw new CliError(
+      "config has auth.mode 'jwt' but no auth.jwtSecret to sign with — set it in the config " +
+        "file, or export OBSIDIAN_TC_JWT_SECRET",
+    );
   }
 
   // An explicit --aud wins; otherwise inherit whatever the server will verify against. `resource`
