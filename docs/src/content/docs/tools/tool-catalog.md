@@ -15,7 +15,7 @@ between the markers — change the tool and regenerate.
 :::
 
 <!-- BEGIN GENERATED: tools -->
-_150 tools. Access is a coarse hint; the required scopes are authoritative._
+_151 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -53,6 +53,7 @@ _150 tools. Access is a coarse hint; the required scopes are authoritative._
 | `find_orphans` | read | `read:notes` | Find notes that nothing else links to (optionally also requiring no outgoing links). |
 | `find_unresolved_links` | read | `read:notes` | Find internal links that do not resolve to any note (dangling links). |
 | `format_table` | write | `write:notes` | Reformat a GFM markdown table in a note: realign columns to a uniform width, honoring the delimiter row's alignment. Addressed by 0-based table_index within the note. |
+| `gap_report` | read | `read:notes` | Read-only view of the latest gap-detector pass (THE-48/THE-616/THE-644): which of the pass's queries scored below the calibrated coverage floor, with their nearest-hit context. Populated by the offline `obsidian-tc gaps` pass; computed_at tells you how fresh it is, and null means no pass has ever been persisted for this vault. Never recomputes — a fresh reading requires re-running the CLI pass. Nearest-hit paths are filtered to the caller's read ACL (THE-563/564) before being returned. |
 | `generate_uri` | read | — | Build an obsidian:// URI for a target (open/search/new/daily/command/hookmark/advanced). Pure string builder — touches no vault state, requires no scope. `vault_name` is the Obsidian DISPLAY NAME (not a vault id) and is used verbatim. |
 | `get_attachment` | read | `read:attachments` | Read an attachment's bytes (base64) plus MIME type and size. Fails with invalid_input when the file exceeds max_bytes. |
 | `get_backlinks` | read | `read:notes` | Find every note that links to the given note, with source line/column. |

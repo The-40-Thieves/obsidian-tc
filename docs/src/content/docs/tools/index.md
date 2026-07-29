@@ -1,6 +1,6 @@
 ---
 title: Tool Reference
-description: The ~150-tool surface obsidian-tc exposes to MCP clients, and the facade that shapes it.
+description: The ~151-tool surface obsidian-tc exposes to MCP clients, and the facade that shapes it.
 ---
 
 obsidian-tc groups **~150 tools across modules M1–M8 plus admin**. Every tool has

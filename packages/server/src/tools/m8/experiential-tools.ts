@@ -20,8 +20,14 @@ import { err, grantsAll, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
 import { appendForgetLog } from "../../experiential/forget";
+import {
+  DEFAULT_GAP_MIN_RESULTS,
+  DEFAULT_GAP_THRESHOLD,
+  readLatestGapReport,
+} from "../../experiential/gaps";
 import { readNoteQuality } from "../../experiential/note-quality";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
+import { readableRel } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
 
 // P1.7 (audit THE-562): the experiential per-principal partition is an AUTHORIZATION boundary, not
@@ -482,6 +488,77 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
             contradictions_open: r.contradictions_open,
             tombstoned: r.tombstoned === 1,
           })),
+        };
+      },
+    }),
+
+    // THE-611: a read-only surface over the gap detector (THE-48/THE-616), modelled directly on
+    // note_quality_report above (THE-548's audit precedent: the CLI recomputes, the MCP sibling
+    // only reads). detectGaps embeds + runs a full graphSearch per query — expensive, and a
+    // derived-state write, not something a dispatch call should trigger. THE-644 item 1 made the
+    // read half possible by persisting the offline `obsidian-tc gaps` pass's report; this tool
+    // reads the latest one back and NEVER calls detectGaps itself.
+    defineTool({
+      name: "gap_report",
+      domain: "knowledge",
+      description:
+        "Read-only view of the latest gap-detector pass (THE-48/THE-616/THE-644): which of the pass's queries scored below the calibrated coverage floor, with their nearest-hit context. Populated by the offline `obsidian-tc gaps` pass; computed_at tells you how fresh it is, and null means no pass has ever been persisted for this vault. Never recomputes — a fresh reading requires re-running the CLI pass. Nearest-hit paths are filtered to the caller's read ACL (THE-563/564) before being returned.",
+      inputSchema: z
+        .object({
+          vault: VaultId,
+          gaps_only: z.boolean().default(false),
+          limit: z.number().int().positive().max(500).default(50),
+        })
+        .strict(),
+      outputSchema: availableWith({
+        vault: z.string(),
+        // Null distinguishes "no pass has ever run" from a pass that found nothing.
+        computed_at: z.number().nullable(),
+        threshold: z.number(),
+        min_results: z.number().int(),
+        // Pass-level stats — always over the FULL persisted pass, unaffected by gaps_only/limit.
+        total: z.number().int(),
+        gaps: z.number().int(),
+        gap_rate: z.number(),
+        // items.length after gaps_only/limit narrowing (and ACL-filtered nearest paths within it).
+        returned: z.number().int(),
+        items: z.array(
+          z.object({
+            id: z.string(),
+            query: z.string(),
+            top_score: z.number().nullable(),
+            results: z.number().int(),
+            gap: z.boolean(),
+            nearest: z.array(z.object({ path: z.string(), score: z.number() })),
+          }),
+        ),
+      }),
+      requiredScopes: ["read:notes"],
+      tags: ["experiential", "knowledge"],
+      handler: (input, ctx) => {
+        if (!deps.edb) return UNAVAILABLE;
+        // Null when no pass has ever been persisted for this vault — every field below falls
+        // back to an honest "nothing measured yet" zero rather than throwing.
+        const existing = readLatestGapReport(deps.edb, input.vault);
+        const allItems = existing?.items ?? [];
+        const filtered = input.gaps_only ? allItems.filter((i) => i.gap) : allItems;
+        const items = filtered.slice(0, input.limit).map((i) => ({
+          ...i,
+          // THE-563/564: a gap report naming notes the caller cannot read is a disclosure — the
+          // item itself (query/score/gap) carries no path, so only `nearest` needs filtering.
+          nearest: i.nearest.filter((n) => readableRel(ctx.acl, n.path)),
+        }));
+        return {
+          available: true,
+          vault: existing?.vault_id ?? input.vault,
+          computed_at: existing?.computed_at ?? null,
+          threshold: existing?.threshold ?? DEFAULT_GAP_THRESHOLD,
+          min_results: existing?.min_results ?? DEFAULT_GAP_MIN_RESULTS,
+          total: existing?.total ?? 0,
+          gaps: existing?.gaps ?? 0,
+          gap_rate: existing?.gap_rate ?? 0,
+          returned: items.length,
+          items,
         };
       },
     }),

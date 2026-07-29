@@ -6,6 +6,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616,
+  THE-644 item 1).** The gap detector (THE-48) now persists its `GapReport` to experiential.db
+  after every `obsidian-tc gaps` pass instead of only printing/writing it; `gap_report` reads the
+  latest persisted pass back for a vault, filtered to the caller's read ACL (THE-563/564) on every
+  `nearest`-hit path it returns. It never recomputes — a fresh reading means re-running the CLI
+  pass — because a dispatch-triggered embed-and-graphSearch per query is both expensive and a
+  derived-state write, the same reasoning `note_quality_report` (THE-537) already established for
+  its own offline-pass sibling.
+
+  Both loops that call the embedding provider one query at a time (`detectGaps` and the
+  `--calibrate` path, including the one that runs the full 250-query golden set) now batch into a
+  single `provider.embed(queries[])` call per pass instead of N. `graphSearch` itself still runs
+  one query at a time — only the embed call batches, so this adds no extra concurrency pressure on
+  the gateway. `detectGaps`'s injected search seam is batch-shaped as a result
+  (`GapBatchSearchFn`); `singleQuerySearch` adapts a plain per-query function back to that shape
+  for simple callers.
+
 ### Changed
 
 - **`snapshots.enabled` now defaults to `true` (THE-648).** `trusted-local`'s permissive posture was
