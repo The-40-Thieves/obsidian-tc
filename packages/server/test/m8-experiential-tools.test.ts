@@ -64,13 +64,14 @@ interface Ep {
   valid_until?: number | null;
   session_id?: string | null;
   summary?: string | null;
+  prev_id?: string | null;
 }
 
 function seed(db: Database, e: Ep) {
   db.prepare(
     `INSERT INTO agent_episodes (id, ts, vault_id, session_id, caller, channel, episode_type,
-       tool, status, eligibility, trust, blocked, valid_from, valid_until, summary)
-     VALUES (?, ?, 'main', ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?)`,
+       tool, status, eligibility, trust, blocked, valid_from, valid_until, summary, prev_id)
+     VALUES (?, ?, 'main', ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     e.id,
     e.ts ?? NOW,
@@ -84,6 +85,7 @@ function seed(db: Database, e: Ep) {
     e.ts ?? NOW,
     e.valid_until ?? null,
     e.summary ?? null,
+    e.prev_id ?? null,
   );
 }
 
@@ -175,6 +177,49 @@ describe("M8 experiential tools (THE-229)", () => {
       await registry.dispatch("work_episodes", { include_blocked: true }, ctx()),
     );
     expect(withBlocked.episodes.map((e) => e.id).sort()).toEqual(["b1", "i1", "p1"]);
+  });
+
+  it("THE-655: work_search and work_episodes expose the amendment chain (prev_id)", async () => {
+    const db = edb0();
+    seed(db, { id: "e-first" });
+    seed(db, { id: "e-second", prev_id: "e-first" });
+    const { registry, ctx } = harness(db);
+
+    const search = un<{ results: Array<{ id: string; prev_id: string | null }> }>(
+      await registry.dispatch("work_search", {}, ctx()),
+    );
+    const byId = (rs: Array<{ id: string; prev_id: string | null }>) =>
+      Object.fromEntries(rs.map((r) => [r.id, r.prev_id]));
+    expect(byId(search.results)).toEqual({ "e-first": null, "e-second": "e-first" });
+
+    const episodes = un<{ episodes: Array<{ id: string; prev_id: string | null }> }>(
+      await registry.dispatch("work_episodes", {}, ctx()),
+    );
+    expect(byId(episodes.episodes)).toEqual({ "e-first": null, "e-second": "e-first" });
+  });
+
+  it("THE-655: a tombstoned predecessor's id is never leaked via prev_id (control 1)", async () => {
+    const db = edb0();
+    // e-blocked is tombstoned, so it never surfaces itself (blocked=0 clause) — but e-visible's
+    // prev_id still points at it in the raw row. The amendment link must not leak that id.
+    seed(db, { id: "e-blocked", blocked: 1 });
+    seed(db, { id: "e-visible", prev_id: "e-blocked" });
+    const { registry, ctx } = harness(db);
+
+    const search = un<{ results: Array<{ id: string; prev_id: string | null }> }>(
+      await registry.dispatch("work_search", {}, ctx()),
+    );
+    expect(search.results).toHaveLength(1);
+    expect(search.results[0]).toMatchObject({ id: "e-visible", prev_id: null });
+
+    // work_episodes: even with include_blocked (which surfaces e-blocked's OWN row), e-visible's
+    // link to it still must not leak — include_blocked lists tombstoned rows, it doesn't turn a
+    // hidden link visible.
+    const episodes = un<{ episodes: Array<{ id: string; prev_id: string | null }> }>(
+      await registry.dispatch("work_episodes", { include_blocked: true }, ctx()),
+    );
+    const visible = episodes.episodes.find((e) => e.id === "e-visible");
+    expect(visible?.prev_id).toBeNull();
   });
 
   it("work_forget tombstones an episode and work_search stops returning it", async () => {

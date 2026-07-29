@@ -22,7 +22,11 @@ import {
 import { type GatewayRoles, prompt } from "../../plane/gateway";
 import { bm25Chunks } from "../../search/chunk_fts";
 import { readGeneration } from "../../search/generation";
-import type { GraphSearchOptions, GraphSearchResult } from "../../search/graph_search";
+import type {
+  CoverageEstimate,
+  GraphSearchOptions,
+  GraphSearchResult,
+} from "../../search/graph_search";
 import type { StageMetric } from "../../search/graph_search_stages/instrumentation";
 import { multiQueryGraphSearch } from "../../search/multi_query";
 import {
@@ -78,6 +82,22 @@ const GraphSearchResultSchema = z.object({
     .nullable(),
   root_seed: z.string().nullable(),
   rerank_score: z.number(),
+});
+
+/** THE-631: mirrors search/graph_search_stages/types.ts's CoverageEstimate. Additive and
+ *  reported-only — see estimateCoverage() in search/graph_search.ts for exactly what each field
+ *  means; it never feeds back into ranking. Present only on the graph-fusion arm of a search tool
+ *  (the lexical-route arm bypasses graphSearch entirely and has nothing to report), hence
+ *  .optional() rather than .nullable() here too. */
+const CoverageEstimateSchema = z.object({
+  arms: z.array(z.enum(["seed", "expansion", "lexical", "sparse", "temporal"])),
+  armsContributed: z.number(),
+  armsPossible: z.number(),
+  expansionSkipped: z.boolean(),
+  expansionTruncated: z.boolean(),
+  requested: z.number(),
+  returned: z.number(),
+  underfilled: z.boolean(),
 });
 
 /** The trimmed citation shape reflect returns (NOT a full GraphSearchResult). */
@@ -201,6 +221,8 @@ const VaultGraphSearchOutput = z.object({
   query: z.string().optional(),
   hyde: z.literal(true).optional(),
   variants_used: z.number().optional(),
+  // THE-631: additive, reported-only — present on the graph arm, absent on lexical-route.
+  coverage: CoverageEstimateSchema.optional(),
   results: z.array(GraphSearchResultSchema),
 });
 
@@ -210,6 +232,8 @@ const KnowledgeSearchOutput = z.object({
   vault: z.string(),
   mode_used: z.enum(["lexical-route", "graph"]),
   route: z.array(z.string()).optional(),
+  // THE-631: additive, reported-only — present on the graph arm, absent on lexical-route.
+  coverage: CoverageEstimateSchema.optional(),
   results: z.array(GraphSearchResultSchema),
 });
 
@@ -376,6 +400,22 @@ function capturePolicy(deps: M7Deps, vaultId: string, routeClass: string) {
   };
 }
 
+/** THE-631: capture the coverage estimate for ONE search call, mirroring capturePolicy's sink
+ *  pattern above. Under multi-query fan-out, graphSearch's onCoverage fires once per variant (see
+ *  its own doc comment); `get()` returns whichever call landed last, matching capturePolicy's/
+ *  onFusionWeights' existing precedent for the same fan-out shape. Undefined when the search
+ *  never reached graphSearch at all (the lexical-route arm) — that stays undefined -> omitted
+ *  from the response, matching CoverageEstimateSchema's `.optional()`. */
+function captureCoverage() {
+  let coverage: CoverageEstimate | undefined;
+  return {
+    sink: (c: CoverageEstimate) => {
+      coverage = c;
+    },
+    get: () => coverage,
+  };
+}
+
 /** THE-538: one log hit per result, carrying the fusion STREAM that produced it. */
 function retrievalHits(results: GraphSearchResult[]) {
   return results.map((r, i) => ({
@@ -467,6 +507,8 @@ export function buildGraphSearchOptions(
     isReadable: GraphSearchOptions["isReadable"];
     /** THE-538: per-query fusion-weight sink for retrieval-policy provenance. */
     onFusionWeights?: GraphSearchOptions["onFusionWeights"];
+    /** THE-631: per-query coverage-estimate sink, mirrors onFusionWeights above. */
+    onCoverage?: GraphSearchOptions["onCoverage"];
   },
 ): Omit<GraphSearchOptions, "queryVec"> & { queryVec?: number[] } {
   return {
@@ -486,6 +528,7 @@ export function buildGraphSearchOptions(
     reranker: site.reranker,
     isReadable: site.isReadable,
     ...(site.onFusionWeights ? { onFusionWeights: site.onFusionWeights } : {}),
+    ...(site.onCoverage ? { onCoverage: site.onCoverage } : {}),
     ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
     // THE-585: vec0 -> brute-force degradation signal, bound to this vault. Threaded through the
     // options builder so EVERY graph-search site gets it — wiring it per call site is how a
@@ -1167,6 +1210,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           ? routeQuery(ctx.db, v.id, input.query)
           : { class: "standard" as const, signals: [] as string[] };
         const policy = capturePolicy(deps, v.id, route.class);
+        const coverage = captureCoverage();
         if (route.class === "lexical") {
           const results = lexicalRouteResults(ctx.db, v.id, input.query, input.final_top_k, (rel) =>
             readableRel(ctx.acl, rel),
@@ -1202,6 +1246,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           reranker: deps.reranker,
           isReadable: (rel) => readableRel(ctx.acl, rel),
           onFusionWeights: policy.sink,
+          onCoverage: coverage.sink,
         });
         // THE-448: the main query ALWAYS leads, then the supplied phrasings, blanks dropped and
         // duplicates collapsed — a repeat must not double-weight itself in the cross-variant RRF.
@@ -1257,6 +1302,9 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           // from "silently ignored queries[] and ran one search", which is how a feature ships
           // inert and nobody notices.
           ...(fanOut ? { variants_used: variants.length } : {}),
+          // THE-631: present only when graphSearch actually ran (absent on a query-cache HIT,
+          // which never calls it — see query_cache.ts's FUNCTION_FIELDS comment on onCoverage).
+          ...(coverage.get() ? { coverage: coverage.get() } : {}),
           results,
         };
       },
@@ -1290,6 +1338,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           ? routeQuery(ctx.db, v.id, input.query)
           : { class: "standard" as const, signals: [] as string[] };
         const policy = capturePolicy(deps, v.id, route.class);
+        const coverage = captureCoverage();
         if (route.class === "lexical") {
           const results = lexicalRouteResults(ctx.db, v.id, input.query, input.final_top_k, (rel) =>
             readableRel(ctx.acl, rel),
@@ -1317,6 +1366,7 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
             reranker: null,
             isReadable: (rel) => readableRel(ctx.acl, rel),
             onFusionWeights: policy.sink,
+            onCoverage: coverage.sink,
           }),
           () => embedAll(input.query, input.query),
           cacheContextFor(deps, ctx, v.id, input.query),
@@ -1330,7 +1380,13 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
           // The lexical class returned early above, so this path always fused.
           policy: policy.record("static"),
         });
-        return { vault: v.id, mode_used: "graph", results };
+        return {
+          vault: v.id,
+          mode_used: "graph",
+          // THE-631: present only when graphSearch actually ran (absent on a cache HIT).
+          ...(coverage.get() ? { coverage: coverage.get() } : {}),
+          results,
+        };
       },
     }),
 
