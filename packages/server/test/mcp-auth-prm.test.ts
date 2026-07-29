@@ -67,6 +67,9 @@ describe("THE-278 Protected Resource Metadata (RFC 9728)", () => {
       expect(doc.authorization_servers).toEqual([AS]);
       expect(doc.scopes_supported).toEqual(["read:notes"]);
       expect(doc.resource_name).toBe("obsidian-tc");
+      // THE-661: RFC 9728 §5.2, OPTIONAL -- obsidian-tc's verifier only reads the Authorization
+      // header (never body/query), so this is a fixed fact about the deployment.
+      expect(doc.bearer_methods_supported).toEqual(["header"]);
     }
     await handle.close();
   });
