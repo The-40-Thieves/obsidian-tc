@@ -10,14 +10,30 @@
 // constructs) through createObservability and assert the resulting values reach the Prometheus
 // TEXT EXPOSITION — not just a shim/recorder-method assertion, which is the assertion shape that
 // let the three THE-585 gauges go dark in the first place.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
+import { runMigrations } from "../src/db/migrate";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
-import { createObservability } from "../src/runtime/observability";
+import { createObservability, wireActivationRecompute } from "../src/runtime/observability";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { IndexCoordinator } from "../src/search/index-coordinator";
 import { createRetrievalCaches } from "../src/search/query_cache";
 import { openMemoryDb } from "./helpers";
+
+const readMigration = (name: string) =>
+  readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
+
+/** Same minimal experiential chain activation.test.ts uses: chunk_retrievals + vault_object_state. */
+function experientialDb(): Database {
+  const db = openMemoryDb();
+  runMigrations(db, [
+    { version: "20260626_001", sql: readMigration("20260626_001_experiential_init.sql") },
+    { version: "20260711_001", sql: readMigration("20260711_001_experiential_outcome.sql") },
+  ]);
+  return db;
+}
 
 async function seededDb(): Promise<Database> {
   const raw = openMemoryDb();
@@ -206,6 +222,49 @@ describe("THE-466 slice 2: the metric-emitting seams route to the SAME recorder"
     );
     expect(text).toContain(
       'obsidian_tc_sql_busy_total{vault="main",txn="index_note",reason="busy"} 1',
+    );
+  });
+});
+
+describe("THE-645 item 1: onActivationRecompute reaches the exposition", () => {
+  it("routes registerActivationRecompute's stats to the recorder instead of discarding them", async () => {
+    const db = await seededDb();
+    const observability = createObservability(baseDeps(db));
+
+    // Mirrors cli.ts's onRecompute wiring: the job name is the bounded `vault` label, per the
+    // same process-wide-subsystem precedent as the scheduler gauges (job name, not a real vault).
+    observability.onActivationRecompute("activation-recompute", { chunks: 12 });
+
+    const text = await observability.metrics.metrics();
+    expect(text).toContain(
+      'obsidian_tc_activation_recompute_chunks_total{vault="activation-recompute"} 12',
+    );
+  });
+
+  it("wireActivationRecompute: a REAL scheduler tick reaches the exposition end-to-end", async () => {
+    const db = await seededDb();
+    const observability = createObservability(baseDeps(db));
+    const edb = experientialDb();
+    edb
+      .prepare(
+        "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at) VALUES ('r1', 'hot', 1000)",
+      )
+      .run();
+
+    vi.useFakeTimers();
+    try {
+      const scheduler = new Scheduler();
+      wireActivationRecompute(scheduler, observability, { edb, intervalMs: 1000 });
+      scheduler.start();
+      await vi.advanceTimersByTimeAsync(1000);
+      await scheduler.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const text = await observability.metrics.metrics();
+    expect(text).toContain(
+      'obsidian_tc_activation_recompute_chunks_total{vault="activation-recompute"} 1',
     );
   });
 });

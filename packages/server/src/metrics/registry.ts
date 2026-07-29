@@ -108,6 +108,7 @@ export class MetricsRecorder {
   private readonly vecFallbacks: Counter<string>;
   private readonly sqlBusy: Counter<string>;
   private readonly outputSchemaDrift: Counter<string>;
+  private readonly activationRecomputeChunks: Counter<string>;
   private readonly retrievalStageCandidatesIn: Counter<string>;
   private readonly retrievalStageCandidatesOut: Counter<string>;
   private readonly retrievalContentBytesIn: Counter<string>;
@@ -195,6 +196,17 @@ export class MetricsRecorder {
       name: "obsidian_tc_output_schema_drift_total",
       help: "Handler payloads that did not match their advertised outputSchema, by vault and tool. In production this is WARN-only — the payload still ships — so a non-zero value is the only signal that a tool's declared contract has drifted from what it returns. In dev/CI the same condition is a hard internal_error. Any non-zero count names a tool whose schema or handler is wrong; there is no benign case.",
       labelNames: ["vault", "tool"],
+      registers,
+    });
+    // THE-645 item 1: registerActivationRecompute's onRecompute stats were computed every tick
+    // and discarded — nothing outside the process could see whether the periodic ACT-R recompute
+    // was running, or how much work it was doing. `vault` carries the bounded job name
+    // ("activation-recompute"), the same process-wide-subsystem precedent the scheduler gauges
+    // use, since the recompute runs once over the whole experiential store rather than per vault.
+    this.activationRecomputeChunks = new Counter({
+      name: "obsidian_tc_activation_recompute_chunks_total",
+      help: "Chunks whose cached_activation_score was recomputed by the periodic ACT-R activation job, by job name. Cumulative. A flat line while the scheduler reports the job running means chunk_retrievals has stopped growing, not that the job stalled.",
+      labelNames: ["vault"],
       registers,
     });
     this.sqlBusy = new Counter({
@@ -496,6 +508,12 @@ export class MetricsRecorder {
   /** THE-417 Phase 2: one output-schema mismatch. */
   incOutputSchemaDrift(vault: string, tool: string): void {
     this.outputSchemaDrift.inc({ vault, tool });
+  }
+  /** THE-645 item 1: one activation-recompute tick's worth of chunks. Guarded on n > 0 like the
+   *  ingest counters above — a tick that recomputed nothing (no new retrievals since the last
+   *  watermark) creates no series churn. */
+  incActivationRecomputeChunks(vault: string, n: number): void {
+    if (n > 0) this.activationRecomputeChunks.inc({ vault }, n);
   }
   incSqlBusy(vault: string, txn: WriteTxnLabel, reason: BusyReason): void {
     this.sqlBusy.inc({ vault, txn, reason });

@@ -41,6 +41,11 @@ const COUNTERS = [
   // stages populate StageMetric.bytesIn/bytesOut, so only they emit a series here.
   "obsidian_tc_retrieval_content_bytes_in_total",
   "obsidian_tc_retrieval_content_bytes_out_total",
+  // THE-645 item 1: registerActivationRecompute's onRecompute stats were computed every tick and
+  // discarded — nothing outside the process could see the periodic activation recompute was
+  // running at all. `vault` carries the bounded job name ("activation-recompute"), the same
+  // process-wide-subsystem precedent as the scheduler gauges above.
+  "obsidian_tc_activation_recompute_chunks_total",
 ];
 const HISTOGRAMS = [
   "obsidian_tc_tool_duration_seconds",
@@ -80,14 +85,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 22 counters, 4 histograms, 16 gauges", async () => {
+  it("registers the full catalog: 23 counters, 4 histograms, 16 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(42);
+    expect(new Set(declared).size).toBe(43);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
@@ -195,6 +200,16 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     const text = await new MetricsRecorder({ httpConstructSeconds: () => [] }).metrics();
     expect(text).toContain("# TYPE obsidian_tc_http_construct_seconds gauge");
     expect(text).not.toMatch(/^obsidian_tc_http_construct_seconds\{/m);
+  });
+
+  it("counts activation-recompute chunks, guarded on n > 0 like the ingest counters (THE-645)", async () => {
+    const r = new MetricsRecorder();
+    r.incActivationRecomputeChunks("activation-recompute", 5);
+    r.incActivationRecomputeChunks("activation-recompute", 0); // a tick with nothing new
+    const text = await r.metrics();
+    expect(text).toContain(
+      'obsidian_tc_activation_recompute_chunks_total{vault="activation-recompute"} 5',
+    );
   });
 
   it("counts vec fallbacks separately by reason (THE-585)", async () => {
