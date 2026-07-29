@@ -3,10 +3,54 @@
 // a single tick loop with single-flight, budget deferral, durable last-success/next-run, backoff,
 // and bounded cancellation. Scheduling is driven by the (fake) timer's own advancement — the
 // injected `now()` is used ONLY for durable timestamps, so tests can pin it to a constant.
+
+import * as fs from "node:fs";
+import { createRequire } from "node:module";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { Database } from "../src/db/types";
+import type { SchedulerPersistFailure } from "../src/scheduler/scheduler";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
+
+// THE-666: a REAL file-backed sqlite handle (not a stub) whose writes fail once the file's write
+// bit is removed — node:sqlite falls back to read-only at open() time and every write then throws
+// "attempt to write a readonly database". Loaded at runtime, same as helpers.ts's openMemoryDb, so
+// Vite never statically resolves the node:sqlite builtin.
+const req = createRequire(import.meta.url);
+function openFileDb(dbPath: string): Database {
+  const { DatabaseSync } = req("node:sqlite");
+  return new DatabaseSync(dbPath) as Database;
+}
+
+// THE-666 review fix. Cleaning up a read-only sqlite file needs BOTH of these on Windows, and
+// neither is required on POSIX — which is why this only ever failed on the windows-latest runner:
+//
+//   1. Restore the write bit. chmod 0o444 sets FILE_ATTRIBUTE_READONLY, and Windows refuses to
+//      DELETE a read-only file (on POSIX the write bit governs writes, while the *directory's*
+//      permissions govern unlink, so the file's own mode is irrelevant to rm).
+//   2. CLOSE the open handle. Windows refuses to delete a file that is still open; POSIX happily
+//      unlinks it and defers the inode's release. The tests below deliberately keep a handle open
+//      to make writes fail, so it must be closed before removal, and closed even when an assertion
+//      threw — hence the hoisted `db` and the `finally`.
+//
+// `fs.rmSync(..., { force: true })` fixes neither: `force` suppresses ENOENT, not EPERM. And a
+// `finally` block's own throw REPLACES whatever the try block threw or returned, so leaving this
+// broken could silently mask a genuine assertion failure behind an unrelated permissions error.
+function cleanupReadOnlyDb(dir: string, dbPath: string, db?: Database): void {
+  try {
+    db?.close?.();
+  } catch {
+    /* already closed, or the handle never opened; removal is what matters */
+  }
+  try {
+    fs.chmodSync(dbPath, 0o644);
+  } catch {
+    /* already gone, or was never made read-only on this platform; fall through regardless */
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+}
 
 describe("Scheduler (THE-462)", () => {
   it("runs a job on its interval and stop() halts further runs", async () => {
@@ -334,5 +378,209 @@ describe("Scheduler (THE-462)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // THE-666 — durable persistence used to swallow every failure with no signal: ensureTable,
+  // seedNextRun, persistRunStart, and persist all had a bare `catch {}`. These tests induce REAL
+  // persistence failures (a read-only sqlite file, a dropped table) rather than stubbing an error,
+  // and check both halves the ticket asks for: the signal fires, AND the scheduler keeps running.
+  describe("durable persistence failure signal (THE-666)", () => {
+    it("persistRunStart/persist failures on a real read-only db surface once each via onPersistError, and the job keeps running", async () => {
+      vi.useFakeTimers();
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "the666-persist-"));
+      const dbPath = path.join(dir, "sched.db");
+      let db: Database | undefined;
+      try {
+        // job_schedule already exists and is writable when created; only AFTER that does the file
+        // lose its write bit, so every persistRunStart/persist call on the scheduler under test
+        // hits a genuine "attempt to write a readonly database" — not a mocked error.
+        const setup = openFileDb(dbPath);
+        setup.exec(
+          "CREATE TABLE IF NOT EXISTS job_schedule (name TEXT PRIMARY KEY, last_run_at INTEGER, last_success_at INTEGER, next_run_at INTEGER, consecutive_failures INTEGER NOT NULL DEFAULT 0)",
+        );
+        setup.close?.();
+        fs.chmodSync(dbPath, 0o444);
+        db = openFileDb(dbPath);
+
+        const failures: SchedulerPersistFailure[] = [];
+        let runs = 0;
+        const sched = new Scheduler({
+          db,
+          now: () => 1_000_000,
+          onPersistError: (f) => failures.push(f),
+        });
+        sched.register({ name: "j", intervalMs: 1000, run: () => void runs++ });
+        sched.start();
+
+        // Three due ticks. EVERY tick's persistRunStart (before the run) and persist (after the
+        // run succeeds) fail — the constraint under test is that the job body still runs on every
+        // one of them regardless.
+        await vi.advanceTimersByTimeAsync(3500);
+        expect(runs).toBe(3); // scheduling survives a wholly broken persistence layer
+
+        const persistRunStartFailures = failures.filter((f) => f.op === "persistRunStart");
+        const persistFailures = failures.filter((f) => f.op === "persist");
+        // Watched failing: both ops genuinely failed 3 times each, but the signal is throttled to
+        // ONE call per op — the job-queue-runner ticks every 15s in production, so an unthrottled
+        // callback here would be an unbounded log flood.
+        expect(persistRunStartFailures).toHaveLength(1);
+        expect(persistFailures).toHaveLength(1);
+        expect(persistRunStartFailures[0]?.job).toBe("j");
+        expect(persistFailures[0]?.job).toBe("j");
+        expect(String((persistRunStartFailures[0]?.error as Error)?.message)).toMatch(
+          /readonly database/i,
+        );
+
+        await sched.stop();
+      } finally {
+        vi.useRealTimers();
+        cleanupReadOnlyDb(dir, dbPath, db);
+      }
+    });
+
+    it("ensureTable failure surfaces via onPersistError with no job, and scheduling still starts", async () => {
+      vi.useFakeTimers();
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "the666-ensuretable-"));
+      const dbPath = path.join(dir, "sched.db");
+      let db: Database | undefined;
+      try {
+        // Unlike the test above, job_schedule does NOT already exist — ensureTable's own
+        // CREATE TABLE IF NOT EXISTS is the write that fails.
+        const setup = openFileDb(dbPath);
+        setup.exec("CREATE TABLE dummy (x INTEGER)");
+        setup.close?.();
+        fs.chmodSync(dbPath, 0o444);
+        db = openFileDb(dbPath);
+
+        const failures: SchedulerPersistFailure[] = [];
+        const sched = new Scheduler({
+          db,
+          now: () => 2_000_000,
+          onPersistError: (f) => failures.push(f),
+        });
+        // ensureTable runs synchronously inside the constructor, before any job is registered.
+        const ensureTableFailures = failures.filter((f) => f.op === "ensureTable");
+        expect(ensureTableFailures).toHaveLength(1);
+        expect(ensureTableFailures[0]?.job).toBeUndefined();
+
+        let runs = 0;
+        sched.register({ name: "k", intervalMs: 1000, run: () => void runs++ });
+        sched.start();
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(runs).toBe(3); // job_schedule was NEVER created; scheduling is unaffected regardless
+
+        await sched.stop();
+      } finally {
+        vi.useRealTimers();
+        cleanupReadOnlyDb(dir, dbPath, db);
+      }
+    });
+
+    it("seedNextRun: a legitimate missing row emits no signal (fresh install, not a failure)", async () => {
+      vi.useFakeTimers();
+      try {
+        const db = openMemoryDb() as Database;
+        const failures: SchedulerPersistFailure[] = [];
+        const sched = new Scheduler({
+          db,
+          now: () => 3_000_000,
+          onPersistError: (f) => failures.push(f),
+        });
+        sched.register({ name: "fresh", intervalMs: 1000, run: () => {} });
+        sched.start(); // job_schedule exists (ensureTable) but has no row for "fresh"
+        expect(failures).toHaveLength(0);
+        await sched.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("seedNextRun: a real read failure (dropped table) surfaces via onPersistError, and scheduling still starts", async () => {
+      vi.useFakeTimers();
+      try {
+        const db = openMemoryDb() as Database;
+        const failures: SchedulerPersistFailure[] = [];
+        const sched = new Scheduler({
+          db,
+          now: () => 3_000_000,
+          onPersistError: (f) => failures.push(f),
+        });
+        // A genuine read failure, not a stub — the table ensureTable just created is gone by the
+        // time start() calls seedNextRun's SELECT.
+        db.exec("DROP TABLE job_schedule");
+
+        let runs = 0;
+        sched.register({ name: "j2", intervalMs: 1000, run: () => void runs++ });
+        sched.start();
+
+        const seedFailures = failures.filter((f) => f.op === "seedNextRun");
+        expect(seedFailures).toHaveLength(1);
+        expect(seedFailures[0]?.job).toBe("j2");
+        expect(String((seedFailures[0]?.error as Error)?.message)).toMatch(/no such table/i);
+
+        // Falls back to a fresh schedule exactly like a legitimate "no row" would — the read
+        // failure is distinguishable from OUTSIDE the process (via onPersistError above), but it
+        // does not change in-process scheduling behaviour.
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(runs).toBe(1);
+
+        await sched.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a persist failure that recovers alerts again on a later failure, not just the first (throttle resets on success)", async () => {
+      vi.useFakeTimers();
+      try {
+        // A controlled fake, isolating the dedup-reset transition itself — the tests above already
+        // prove the signal fires on genuine sqlite I/O errors; a real file handle can't cleanly
+        // model "recovers mid-connection" since node:sqlite decides read-only fallback at open()
+        // time (verified: chmod'ing the file writable again does not un-stick an already-open
+        // handle).
+        const real = openMemoryDb();
+        let failing = false;
+        const db: Database = {
+          exec: (sql) => real.exec(sql),
+          prepare: (sql) => {
+            const stmt = real.prepare(sql);
+            return {
+              get: (...args: unknown[]) => stmt.get(...args),
+              all: (...args: unknown[]) => stmt.all(...args),
+              run: (...args: unknown[]) => {
+                if (failing) throw new Error("injected: db unavailable");
+                return stmt.run(...args);
+              },
+            };
+          },
+        };
+
+        const failures: SchedulerPersistFailure[] = [];
+        let runs = 0;
+        const sched = new Scheduler({
+          db,
+          now: () => 4_000_000,
+          onPersistError: (f) => failures.push(f),
+        });
+        sched.register({ name: "flap", intervalMs: 1000, run: () => void runs++ });
+        sched.start();
+
+        failing = true;
+        await vi.advanceTimersByTimeAsync(1000); // tick 1: fails, alerts once
+        expect(failures.filter((f) => f.op === "persistRunStart")).toHaveLength(1);
+
+        failing = false;
+        await vi.advanceTimersByTimeAsync(1000); // tick 2: recovers, clears the dedup key
+
+        failing = true;
+        await vi.advanceTimersByTimeAsync(1000); // tick 3: fails again -> a NEW streak, alerts again
+        expect(failures.filter((f) => f.op === "persistRunStart")).toHaveLength(2);
+        expect(runs).toBe(3); // the job body ran on every tick throughout
+
+        await sched.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

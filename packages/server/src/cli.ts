@@ -112,7 +112,7 @@ import { registerM7Tools } from "./tools/m7";
 import { registerM8Tools } from "./tools/m8";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
-import { errorMessage, stderrOnError } from "./util/errors";
+import { errorMessage, schedulerPersistErrorSink, stderrOnError } from "./util/errors";
 import { resolveMode, type VaultMode } from "./vault/mode";
 import { contentHash, resolveVaultPath } from "./vault/paths";
 import { VaultRegistry } from "./vault/registry";
@@ -996,11 +996,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   morgiana.emit(firstVault.id, "tc.server.start");
 
   // THE-462: ONE unref'd background scheduler folds the four formerly-independent setInterval
-  // timers (maintenance sweep, plane consolidation, activation recompute, contradiction drain) into
-  // a single tick loop. Each job keeps its exact run body and error/skip routing; the scheduler adds
-  // shared single-flight and durable last-success/next-run (job_schedule in cache.db). Its clock is
-  // Date.now for durable timestamps only. Budget deferral is reachable from config
-  // (`scheduler.eventLoopDeferMs`, THE-458 item 6) and stays OFF unless an operator sets it.
+  // timers (maintenance sweep, plane consolidation, activation recompute, contradiction drain)
+  // into a single tick loop, with shared single-flight, durable last-success/next-run (clock =
+  // Date.now, job_schedule in cache.db), and budget deferral reachable from config
+  // (`scheduler.eventLoopDeferMs`, THE-458 item 6) — OFF unless an operator sets it.
   const scheduler = new Scheduler({
     now: Date.now,
     db,
@@ -1009,6 +1008,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     ...(config.scheduler.eventLoopDeferMs !== undefined
       ? { eventLoopDeferMs: config.scheduler.eventLoopDeferMs }
       : {}),
+    onPersistError: schedulerPersistErrorSink, // THE-666: was silently swallowed; throttled per op+job
   });
   // THE-466 slice 2: hand the live scheduler to the observability module's lazy gauge sources
   // (schedulerSkipped / schedulerConsecutiveFailures / schedulerDeferred).
