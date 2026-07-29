@@ -1,19 +1,15 @@
 // THE-466 slice 1: the one-shot CLI handlers (run_version, run_doctor, run_forget, etc.) live in
 // ./cli/commands/*, and shared dispatch plumbing (Cmd<K>, resolveOrUsageExit, experientialMigrations)
-// in ./cli/shared.ts. This file grew 37% (1483 -> 2027 lines) between when THE-466 was filed and
-// when it was picked up, unnoticed until a probe measured it — after slice 1 it was dispatch +
-// run_serve only, at 1278 lines. biome.json's per-file `noExcessiveLinesPerFile` override (scoped
-// to this path) is the floor gate so a future regrowth trips `bun run lint` instead of going
-// unnoticed again.
+// in ./cli/shared.ts. This file grew 37% (1483 -> 2027) unnoticed before a probe measured it; slice 1
+// left dispatch + run_serve at 1278 lines. biome.json's per-file `noExcessiveLinesPerFile` override
+// (scoped to this path) is the floor gate so a future regrowth trips `bun run lint` instead.
 //
-// THE-466 slice 2: run_serve's own observability wiring (MetricsRecorder, its gauge sources,
-// onVecFallback/onStageMetric/sqlHooksFor, the MORGIANA emitter — see THE-585's history of gauges
-// that were declared and never wired) moved to ./runtime/observability.ts, where it is unit
-// testable against a real recorder instead of buried inside a 1000+ line boot function. This file
-// onIndexVaultComplete wiring); the maxLines cap in biome.json sits just above the measured size.
-// THE-610 raised it (1245 -> see biome.json) to wire the sweep's filesystem arm: there was ZERO
-// headroom, and golfing under the old limit had already produced a duplicated DEFAULT_TRACE_FOLDER
-// literal. A cap only ever raised is not a gate — THE-466's next slice must ratchet it back DOWN.
+// THE-466 slice 2: run_serve's observability wiring (MetricsRecorder, gauge sources, the MORGIANA
+// emitter — see THE-585's gauge history) moved to ./runtime/observability.ts, unit-testable there.
+// THE-610 raised the cap (1245 -> see biome.json) with zero headroom left, after golfing under the
+// old cap had already produced a duplicated DEFAULT_TRACE_FOLDER literal. A cap only ever raised is
+// not a gate — THE-625/THE-643 (wrapPlaneJob/errorMessage dedup + the note-quality job) is the first
+// slice to ratchet it back DOWN.
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
@@ -56,6 +52,7 @@ import { createEmbeddingProvider } from "./embeddings";
 import { makeActivationLookup } from "./experiential/activation";
 import { createEpisodeCapture } from "./experiential/episodes";
 import { createRetrievalLogger } from "./experiential/log";
+import { recomputeNoteQualityAll } from "./experiential/note-quality";
 import { createGatewayClient, type GatewayClient } from "./gateway";
 import { type CallerContext, ToolRegistry } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
@@ -68,6 +65,7 @@ import type { GatewayRoles } from "./plane/gateway";
 import { auditJob } from "./plane/jobs/audit";
 import { checkContradictions, loadChunkForContradiction } from "./plane/jobs/contradiction";
 import { isoWeek, runSynthesis } from "./plane/jobs/synthesis";
+import { wrapPlaneJob } from "./plane/plane";
 import { createPlurBackend } from "./plur/client";
 import { configureMaintenance } from "./runtime/maintenance-wiring";
 import { createObservability, wireActivationRecompute } from "./runtime/observability";
@@ -114,6 +112,7 @@ import { registerM7Tools } from "./tools/m7";
 import { registerM8Tools } from "./tools/m8";
 import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
+import { errorMessage, stderrOnError } from "./util/errors";
 import { resolveMode, type VaultMode } from "./vault/mode";
 import { contentHash, resolveVaultPath } from "./vault/paths";
 import { VaultRegistry } from "./vault/registry";
@@ -154,26 +153,19 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // with both off the store is provisioned-then-released (pre-capture behavior). Sink failures
   // go to stderr and never fail the dispatch/search that fired them (best-effort telemetry).
   const retrievalLog = config.experiential.logRetrievals
-    ? createRetrievalLogger(experientialDb, {
-        onError: (e) =>
-          process.stderr.write(`[retrieval-log] ${e instanceof Error ? e.message : String(e)}\n`),
-      })
+    ? createRetrievalLogger(experientialDb, { onError: stderrOnError("retrieval-log") })
     : undefined;
   // THE-228: capture-everything episode bus (agent_episodes). The content axis (raw args) is
   // a separate gate, default OFF until the THE-238 poisoning defense lands.
   const episodeCapture = config.experiential.captureEpisodes
     ? createEpisodeCapture(experientialDb, {
         captureContent: config.experiential.captureContent,
-        onError: (e) =>
-          process.stderr.write(`[episodes] ${e instanceof Error ? e.message : String(e)}\n`),
+        onError: stderrOnError("episodes"),
       })
     : undefined;
   // THE-187/193: serve-side activation lookup for the bubble pass — dark unless activationRerank.
   const activationFor = config.experiential.activationRerank
-    ? makeActivationLookup(experientialDb, {
-        onError: (e) =>
-          process.stderr.write(`[activation-read] ${e instanceof Error ? e.message : String(e)}\n`),
-      })
+    ? makeActivationLookup(experientialDb, { onError: stderrOnError("activation-read") })
     : undefined;
   const experientialOpen = !!(retrievalLog || episodeCapture || activationFor);
   if (!experientialOpen) experientialDb.close?.();
@@ -511,21 +503,22 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       // synthesis handler below states. Retry is safe (INSERT OR IGNORE on a content-derived id).
       if (r.unjudged > 0) throw new Error(`contradiction: ${r.unjudged}/${r.checked} unjudged`);
     });
-    // #14: the plane consolidation (weekly synthesis + daily audit) is now durable jobs too — see
-    // the plane-enqueue scheduler below. runSynthesis/auditJob.run report failure via
-    // JobResult.ok:false rather than throwing (e.g. parseSynthesis rejecting a malformed LLM
-    // response) — the runner's dead-letter/retry machinery only reacts to a THROW, so an ok:false
-    // must be turned into one here or a real failure gets recorded as `complete` and silently
-    // vanishes (worse than the pre-migration behavior this ticket exists to fix). `{ok:true,
-    // detail:{skipped:...}}` (e.g. no chunks yet) is NOT a failure and correctly falls through.
-    jobHandlers.set("synthesis", async () => {
-      const r = await runSynthesis({ db, roles, now: Date.now });
-      if (!r.ok) throw new Error(`synthesis job failed: ${JSON.stringify(r.detail ?? {})}`);
-    });
-    jobHandlers.set("audit", async () => {
-      const r = await auditJob.run({ db, roles, now: Date.now });
-      if (!r.ok) throw new Error(`audit job failed: ${JSON.stringify(r.detail ?? {})}`);
-    });
+    // #14: synthesis/audit are durable jobs; wrapPlaneJob (THE-625 item 3) turns their ok:false
+    // into the THROW its dead-letter/retry needs; biome breaks nested .set() calls, so bind first.
+    const planeCtx = { db, roles, now: Date.now };
+    const synthesisJob = wrapPlaneJob("synthesis", () => runSynthesis(planeCtx));
+    const auditPassJob = wrapPlaneJob("audit", () => auditJob.run(planeCtx));
+    jobHandlers.set("synthesis", synthesisJob);
+    jobHandlers.set("audit", auditPassJob);
+  }
+  // THE-643: note_quality was write-only (an unused CLI command); no gateway dependency here.
+  if (experientialOpen) {
+    const vaultIds = config.vaults.map((v) => v.id);
+    const noteQualityJob = wrapPlaneJob("note-quality", async () => ({
+      ok: true,
+      detail: { per_vault: recomputeNoteQualityAll(db, experientialDb, vaultIds, Date.now()) },
+    }));
+    jobHandlers.set("note-quality", noteQualityJob);
   }
   const jobRunner = makeJobRunner({
     queue: jobQueue,
@@ -566,7 +559,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
         ),
       onError: (e) => {
         indexHealth.writeFailures++;
-        indexHealth.lastWriteError = e instanceof Error ? e.message : String(e);
+        indexHealth.lastWriteError = errorMessage(e);
       },
     },
     {
@@ -980,7 +973,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
                 ? `${s.notes_embed_failed} note(s) skipped: embed provider rejected their chunks (HTTP 400)`
                 : (null as string | null),
           }),
-          (e) => ({ vault: v.id, error: e instanceof Error ? e.message : String(e) }),
+          (e) => ({ vault: v.id, error: errorMessage(e) }),
         ),
       ),
     ).then(async (results) => {
@@ -1061,10 +1054,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
           maxAttempts: 1,
         });
       },
-      onError: (e) =>
-        process.stderr.write(
-          `[plane-enqueue] enqueue failed: ${e instanceof Error ? e.message : String(e)}\n`,
-        ),
+      onError: (e) => process.stderr.write(`[plane-enqueue] enqueue failed: ${errorMessage(e)}\n`),
     });
   }
 
@@ -1073,24 +1063,30 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // left, stale the moment new retrievals land. Registered only while the experiential store is open
   // (capture on); idempotent, no gateway, best-effort. Reuses the maintenance cadence.
   if (experientialOpen) {
-    wireActivationRecompute(scheduler, observability, {
-      edb: experientialDb,
-      intervalMs: config.maintenance.intervalMinutes * 60_000,
+    const maintMs = config.maintenance.intervalMinutes * 60_000;
+    wireActivationRecompute(scheduler, observability, { edb: experientialDb, intervalMs: maintMs });
+    // THE-643: own cadence, not the roles-gated plane-enqueue below — no gateway dependency.
+    scheduler.register({
+      name: "note-quality-enqueue",
+      intervalMs: maintMs,
+      run: () => {
+        jobQueue.enqueue("note-quality", {
+          class: "plane",
+          idempotencyKey: `note-quality:${new Date().toISOString().slice(0, 10)}`,
+          maxAttempts: 1,
+        });
+      },
+      onError: stderrOnError("note-quality-enqueue"),
     });
   }
 
-  // #14: the durable job-queue runner, folded into the unified scheduler exactly as the old
-  // contradiction-drain worker was — claim/lease/retry/dead-letter all live in JobQueue itself, so
-  // this registration only needs to tick. Registered only when the gateway is configured (no
-  // handlers are registered without roles, so an unconditional registration would just dead-letter
-  // every claimed job — see makeJobRunner's empty-handlers guard).
-  if (roles) {
-    scheduler.register({
-      name: "job-queue-runner",
-      intervalMs: CONTRADICTION_DRAIN_MS,
-      run: (signal) => jobRunner.drainOnce(signal),
-    });
-  }
+  // #14: job-queue runner tick. THE-643: was `if (roles)`, also starving the unconditional
+  // TASK_CALL_JOB_TYPE handler of any drain — safe: makeJobRunner no-ops with zero handlers.
+  scheduler.register({
+    name: "job-queue-runner",
+    intervalMs: CONTRADICTION_DRAIN_MS,
+    run: (signal) => jobRunner.drainOnce(signal),
+  });
 
   // THE-458 item 6: the periodic reconcile. The scheduler's single-flight guard matters more here
   // than for any other job — a reconcile walks the whole vault and can outlast its own interval, and

@@ -349,6 +349,23 @@ export function recomputeNoteQuality(
   return out;
 }
 
+/**
+ * Fan `recomputeNoteQuality` out across every configured vault — the per-vault breakdown THE-643's
+ * scheduled job reports (mirrors THE-606's audit `per_vault`). Does not touch the single-vault
+ * function's own logic above; this is only the multi-vault loop cli.ts would otherwise inline.
+ */
+export function recomputeNoteQualityAll(
+  cacheDb: Database,
+  edb: Database,
+  vaultIds: string[],
+  nowMs: number,
+): Record<string, NoteQualityStats> {
+  const perVault: Record<string, NoteQualityStats> = {};
+  for (const vaultId of vaultIds)
+    perVault[vaultId] = recomputeNoteQuality(cacheDb, edb, { vaultId, nowMs });
+  return perVault;
+}
+
 /** Read side for the CLI and the MCP report tool. `flags` filters to rows carrying ALL of them. */
 export function readNoteQuality(
   edb: Database,
