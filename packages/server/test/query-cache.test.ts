@@ -3,7 +3,9 @@
 // "every option participates in the key" gate is in query-cache-key-coverage.test.ts.
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type { GraphSearchResult } from "../src/search/graph_search_stages/types";
 import {
+  copyResults,
   hashInto,
   QueryCache,
   type QueryCacheBinding,
@@ -86,6 +88,54 @@ describe("THE-497 QueryCache mechanics", () => {
     expect(() => new QueryCache({ maxEntries: 1.5, ttlMs: 1000 })).toThrow(/maxEntries/);
     expect(() => new QueryCache({ maxEntries: 1, ttlMs: 0 })).toThrow(/ttlMs/);
     expect(() => new QueryCache({ maxEntries: 1, ttlMs: Number.NaN })).toThrow(/ttlMs/);
+  });
+
+  it("THE-626: sweeps an expired entry at the front of set() instead of leaving it to LRU capacity pressure", () => {
+    let t = 0;
+    const c = new QueryCache<number>({ maxEntries: 2, ttlMs: 100, now: () => t });
+    c.set("a", 1); // expiresAt 100, never touched again
+    t = 10;
+    c.set("b", 2); // expiresAt 110, size is now at cap (2) but nothing is expired yet
+    t = 101; // "a" is now expired; "b" is still live
+    c.set("c", 3); // must sweep the dead "a" rather than evict live "b" for capacity
+    expect(c.get("a")).toBeUndefined();
+    expect(c.get("b")).toBe(2); // the live entry survived
+    expect(c.get("c")).toBe(3);
+    // The dead entry made room on its own — nothing was evicted purely for capacity, and the
+    // removal is counted as an expiration, not an LRU eviction (the two mean different things
+    // about how the cache is sized).
+    expect(c.stats().evictions).toBe(0);
+    expect(c.stats().expirations).toBe(1);
+  });
+});
+
+describe("THE-626 copyResults", () => {
+  const result = (): GraphSearchResult => ({
+    chunk_id: "c1",
+    path: "a.md",
+    source: "expansion",
+    hop: 1,
+    via_edge: { type: "wikilink", source_path: "b.md", provenance: "manual" },
+    root_seed: "b.md",
+    rerank_score: 1,
+  });
+
+  it("deep-copies via_edge — mutating the returned copy must not corrupt the original", () => {
+    const original = result();
+    const [copy] = copyResults([original]);
+    expect(copy).toBeDefined();
+    expect(copy?.via_edge).toEqual(original.via_edge);
+    expect(copy?.via_edge).not.toBe(original.via_edge); // not the SAME object
+    if (copy?.via_edge) copy.via_edge.type = "tampered";
+    // GraphSearchResult is not flat (via_edge is nested); a shallow `{...r}` spread would alias it,
+    // so mutating the copy's via_edge would corrupt whatever the cache stored for the next reader.
+    expect(original.via_edge?.type).toBe("wikilink");
+  });
+
+  it("preserves a null via_edge (seed results carry no edge)", () => {
+    const original: GraphSearchResult = { ...result(), source: "seed", via_edge: null };
+    const [copy] = copyResults([original]);
+    expect(copy?.via_edge).toBeNull();
   });
 });
 

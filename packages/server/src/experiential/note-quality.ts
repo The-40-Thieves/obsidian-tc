@@ -67,6 +67,21 @@ export function hasNoteQuality(edb: Database): boolean {
   return tableExists(edb, "note_quality");
 }
 
+// THE-620: columnExists re-introspects sqlite_master on every recomputeNoteQuality run, but the
+// schema cannot change between scheduler runs without a migration and a restart — the answer is
+// invariant for the lifetime of a connection. Memoized per Database instance via a WeakMap, NOT a
+// module-level boolean: the suite opens many databases in one process (node:sqlite in-memory), and
+// a bare global would leak one database's schema answer into every other database's runs.
+const bodyShaColumnCache = new WeakMap<Database, boolean>();
+
+function hasBodyShaColumn(cacheDb: Database): boolean {
+  const cached = bodyShaColumnCache.get(cacheDb);
+  if (cached !== undefined) return cached;
+  const result = columnExists(cacheDb, "chunks", "body_sha");
+  bodyShaColumnCache.set(cacheDb, result);
+  return result;
+}
+
 /**
  * The score. Deliberately simple, deliberately explicit about not knowing.
  *
@@ -127,7 +142,7 @@ export function recomputeNoteQuality(
 
   const chunkCounts = new Map<string, number>();
   const dupCounts = new Map<string, number>();
-  const hasBodySha = columnExists(cacheDb, "chunks", "body_sha");
+  const hasBodySha = hasBodyShaColumn(cacheDb);
   const chunkRows = cacheDb
     .prepare(
       hasBodySha
@@ -189,7 +204,13 @@ export function recomputeNoteQuality(
     string,
     { access_count: number; last_accessed_at: number; citations: number; outcome_balance: number }
   >();
-  if (tableExists(edb, "chunk_retrievals")) {
+  // THE-620: this queries the chunk_access_stats VIEW, not the chunk_retrievals table it wraps —
+  // guard on the view's own existence, since it is a LATER migration (20260712_002) than the table
+  // (20260626_001). A connection migrated only as far as chunk_retrievals (a "minimal harness",
+  // same shape contribution.test.ts builds for workspace_sessions) has the table without the view,
+  // and the old `tableExists(edb, "chunk_retrievals")` guard let that case reach the query below and
+  // throw "no such table: chunk_access_stats".
+  if (tableExists(edb, "chunk_access_stats", { includeViews: true })) {
     for (const s of edb
       .prepare(
         "SELECT chunk_id, access_count, last_accessed_at, citations, outcome_balance FROM chunk_access_stats",
