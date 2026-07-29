@@ -184,16 +184,24 @@ jobs:
     # ones that DO wire a real rootResolver (grep for it if that set needs to grow), so this is
     # the real dispatch path: central pathAcl stage + handler inside one runAudited frame.
     #
-    # EXPECTED TO FAIL as landed. Watching it fail is the point -- see `bun run test:acl-audit`.
-    # It found a real, reproducible gap: get_attachment / list_attachments (include_reference_
-    # count) / delete_attachment all call findAttachmentReferences (src/formats/attachments.ts),
-    # which -- per its own call-site comment in attachment-tools.ts ("findAttachmentReferences
-    # walks the whole vault ACL-free") -- reads every other note's content to detect backlinks
-    # with no folder-ACL check on any of those paths; the caller's ACL is only applied to FILTER
-    # the response afterward. delete_attachment (destructive: true) hits this unconditionally,
-    # not behind an opt-in flag. That is a real finding, not a test bug -- do not "fix" it here
-    # by adding an exemption; it needs its own ticket. This job is intentionally not (yet) a
-    # required status check, the same way `perf` isn't -- promote it once that ticket lands.
+    # It found a real gap, and it's a documented carve-out, not a fix here. get_attachment
+    # (include_references) / delete_attachment / list_attachments (include_reference_count) all
+    # call findAttachmentReferences (src/formats/attachments.ts), which walks the whole vault and
+    # reads every note's content with no per-note ACL check -- so the audit correctly flags
+    # resolved paths the central pathAcl stage never checked. But unlike an unfiltered leak, every
+    # one of those three call sites filters its output through readableRel(ctx.acl, p) before
+    # returning it (attachment-tools.ts's N-2 comment), so no out-of-ACL path is ever observable
+    # by the caller -- the same shape as the pre-existing CROSS_NOTE_REWRITE_TOOLS carve-out for
+    # move_note/move_attachment/bulk_move_notes, just for reads instead of rewrites. They're
+    # exempted via the separate CROSS_NOTE_READ_TOOLS set in acl-audit.ts (kept distinct from the
+    # rewrite set because the safety argument differs: a rewrite tool returns nothing to leak
+    # through, a read tool's safety depends entirely on that filtering staying intact). That
+    # invariant is pinned by test/attachment-tools-branch-coverage.test.ts's "reference discovery
+    # is ACL-filtered (THE-607)" suite, which asserts a referencing note outside the caller's read
+    # ACL never appears in `references` or `reference_count` -- each of its three assertions was
+    # confirmed to fail red when the corresponding `.filter(...)` was temporarily removed. This
+    # job is intentionally not (yet) a required status check, the same way `perf` isn't -- promote
+    # it once it has run green for a while.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
