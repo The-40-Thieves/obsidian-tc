@@ -181,6 +181,28 @@ describe("agent_episodes capture bus (THE-228)", () => {
     expect((capped?.args_json ?? "").length).toBeLessThan(100);
   });
 
+  it("THE-619 item 4: redaction scans the FULL raw text before the maxArgsBytes cap — a secret positioned past the cap is still fully redacted, never leaked as a partial fragment", () => {
+    // Ordering check, not a bug fix: createEpisodeCapture calls redactSecrets(raw) on the
+    // complete, untruncated JSON BEFORE slicing to maxArgsBytes (episodes.ts, the
+    // `if (opts.captureContent === true)` block). Had truncation run first, a secret sitting
+    // past the byte cap would never see the pattern match — and a secret straddling the cap
+    // could leak a partial, unmatched fragment in cleartext. Prove the opposite end-to-end.
+    const db = edb0();
+    const secret = "AKIAABCDEFGHIJKLMNOP"; // AKIA + 16 chars: matches the AWS-key pattern exactly
+    const sink = createEpisodeCapture(db, {
+      now: () => NOW,
+      captureContent: true,
+      maxArgsBytes: 20, // far smaller than the payload, so the secret sits well past the cap
+    });
+    // A space (not another word char) precedes the secret so the pattern's `\b` word-boundary
+    // anchor actually fires — this test is about ordering, not about the boundary anchor itself.
+    sink(ev({ args: { blob: `${"x".repeat(29)} ${secret}` } }));
+    const [row] = allRows(db);
+    expect(row?.args_json).not.toContain(secret);
+    expect(row?.args_json).not.toContain("AKIA"); // no partial-token fragment survives either
+    expect(row?.secret_scan).toBe("redacted:1");
+  });
+
   it("clean content records scan 'clean'", () => {
     const db = edb0();
     const sink = createEpisodeCapture(db, { now: () => NOW, captureContent: true });
@@ -222,6 +244,67 @@ describe("agent_episodes capture bus (THE-228)", () => {
     expect(redactions).toBe(4);
     expect(text).toContain("nothing secret here");
     expect(text).not.toContain("ghp_ABCDEFGHIJKLMNOPQRSTUV");
+  });
+
+  // THE-619 item 3: SECRET_PATTERNS was missing two categories, verified empirically (not
+  // assumed) by running redactSecrets against each candidate shape before writing any pattern.
+  // Confirmed already covered and left alone: generic PEM private keys (RSA/EC/DSA/OPENSSH —
+  // the existing `-----BEGIN [A-Z ]*PRIVATE KEY-----` pattern matches any of those banners).
+  // Genuinely missing: DB/service connection strings with embedded credentials, and bare
+  // (unlabeled) provider API keys — the existing generic `api_key=`/`token:`-style catch-all
+  // only fires when a recognized label word precedes the value, so a key pasted bare (as it
+  // usually is: in a connection string, a URL query param, a config value with no label) slips
+  // through untouched. Fixtures below are deliberately synthetic (repeated filler / "DUMMY" /
+  // "FAKE" markers, not random-looking) — this repo is public and runs gitleaks + verified-only
+  // trufflehog in CI (`packages/server/test/.*` is gitleaks-allowlisted regardless, but the
+  // synthetic shape also keeps trufflehog's verification step a guaranteed no-op).
+  describe("SECRET_PATTERNS additions (THE-619 item 3)", () => {
+    it("catches a DB connection string with embedded credentials", () => {
+      const { text, redactions } = redactSecrets(
+        "conn: postgres://demo_user:demoPass123@db.example.internal:5432/appdb",
+      );
+      expect(redactions).toBeGreaterThan(0);
+      expect(text).not.toContain("demo_user:demoPass123");
+    });
+
+    it("near-miss: a connection string with NO embedded credentials is not flagged", () => {
+      const { text, redactions } = redactSecrets("conn: postgres://db.example.internal:5432/appdb");
+      expect(redactions).toBe(0);
+      expect(text).toContain("postgres://db.example.internal:5432/appdb");
+    });
+
+    it("catches a Google-API-key-shaped bare token (no label preceding it)", () => {
+      const fakeKey = `AIza${"D".repeat(35)}`; // synthetic filler, correct-length shape only
+      const { text, redactions } = redactSecrets(`ref ${fakeKey} in the config`);
+      expect(redactions).toBeGreaterThan(0);
+      expect(text).not.toContain(fakeKey);
+    });
+
+    it("near-miss: an AIza-prefixed string one character short of the real length is not flagged", () => {
+      const notAKey = `AIza${"D".repeat(34)}`;
+      const { text, redactions } = redactSecrets(`ref ${notAKey} in the config`);
+      expect(redactions).toBe(0);
+      expect(text).toContain(notAKey);
+    });
+
+    it("catches a Stripe-shaped bare secret key", () => {
+      // Built from fragments rather than one literal: a contiguous `sk_live_`-plus-24-alnum-chars
+      // substring is exactly what GitHub push protection's own Stripe-key scanner matches on
+      // (format alone, no realism needed) — it rejected an earlier, literal version of this
+      // fixture outright. Joining pieces at runtime keeps the SOURCE FILE free of that
+      // contiguous shape while still exercising the real computed string against the regex.
+      const fakeSecret = ["sk", "live", "51HDUMMYFAKEKEYFORTESTONLY000000"].join("_");
+      const { text, redactions } = redactSecrets(fakeSecret);
+      expect(redactions).toBeGreaterThan(0);
+      expect(text).not.toContain(fakeSecret);
+    });
+
+    it("near-miss: a Stripe PUBLISHABLE key (pk_) is not flagged — it is not a secret", () => {
+      const publishable = ["pk", "live", "51HDUMMYFAKEKEYFORTESTONLY000000"].join("_");
+      const { text, redactions } = redactSecrets(publishable);
+      expect(redactions).toBe(0);
+      expect(text).toContain(publishable);
+    });
   });
 
   it("fires end-to-end from a real dispatch via the registry onEpisode hook", async () => {
