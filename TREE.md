@@ -6,9 +6,9 @@ filesystem, not inferred. Counts in the hand-written sections come from
 regions state their own method.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 857 tracked code files · 129,463 lines.
+**Scale:** 861 tracked code files · 129,925 lines.
 
-TypeScript 122,162 · JavaScript 3,840 · Python 1,526 · SQL 953 · Rust 668 · Shell 314.
+TypeScript 122,624 · JavaScript 3,840 · Python 1,526 · SQL 953 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->

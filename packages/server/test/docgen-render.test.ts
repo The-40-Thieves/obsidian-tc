@@ -1,8 +1,10 @@
 // docgen renderers (THE-472): DocsModel slices -> CommonMark. Structural assertions (not full golden
 // files, which would churn as tools/config evolve); the drift gate (THE-476) pins the committed pages.
 import { describe, expect, it } from "vitest";
-import type { ConfigDoc, MetricDoc, ToolDoc } from "../scripts/docgen/model";
+import type { ConfigDoc, ErrorDoc, MetricDoc, ToolDoc } from "../scripts/docgen/model";
 import { renderConfig } from "../scripts/docgen/render-config";
+import { renderConfigExample } from "../scripts/docgen/render-config-example";
+import { renderErrors } from "../scripts/docgen/render-errors";
 import { renderMetrics } from "../scripts/docgen/render-metrics";
 import { renderTools } from "../scripts/docgen/render-tools";
 
@@ -27,6 +29,80 @@ describe("renderConfig (THE-472)", () => {
 
   it("sorts sections alphabetically", () => {
     expect(md.indexOf("### `auth`")).toBeLessThan(md.indexOf("### `cacheDir`"));
+  });
+});
+
+describe("renderConfigExample (THE-470)", () => {
+  const md = renderConfigExample();
+  const json = JSON.parse(md.slice(md.indexOf("{"), md.lastIndexOf("}") + 1));
+
+  it("emits a fenced json block that actually parses", () => {
+    expect(md.startsWith("```json")).toBe(true);
+    expect(json.cacheDir).toBeTruthy();
+  });
+
+  it("carries the blocks that had gone missing while this was hand-maintained", () => {
+    // Not arbitrary keys: these are the FIVE defaulted blocks measured absent from the
+    // hand-written version on 2026-07-28, which is what motivated generating it. If the renderer
+    // ever stops emitting schema defaults wholesale, this is what notices.
+    expect(json.indexing).toBeDefined();
+    expect(json.ranking?.metadataPrior).toBeDefined();
+    expect(json.retrieval?.cache).toBeDefined();
+    expect(json.retrieval?.adaptiveRrf).toBeDefined();
+    expect(json.maintenance?.episodesRetentionDays).toBeDefined();
+  });
+
+  it("shows the seeded vault and no invented ones", () => {
+    expect(json.vaults).toHaveLength(1);
+    expect(json.vaults[0].id).toBe("main");
+  });
+
+  it("omits optional (non-defaulted) keys rather than inventing values for them", () => {
+    // The whole point of defaults-only: an illustrative value sitting next to a real default,
+    // with nothing marking which is which, is the confusion this block already caused.
+    expect(json.toolVisibility).toBeUndefined();
+    expect(json.vaults[0].bridges).toBeUndefined();
+    expect(md).toContain("optional");
+  });
+});
+
+describe("renderErrors (THE-470)", () => {
+  const errors: ErrorDoc[] = [
+    { code: "forbidden", description: "scope or ACL denied", recovery: "Re-authenticate." },
+    // No `recovery` — the taxonomy declares `null` for codes where guidance would only restate
+    // the message. That is a considered omission, and the renderer must SAY so rather than leave
+    // a blank cell a reader would take for a gap.
+    { code: "internal", description: "internal error" },
+    // Pipes and backslashes in either column must not break the table. Escaping backslashes
+    // AFTER pipes would let the inserted `\` pair with the one just added — the CodeQL finding
+    // render-metrics.ts and render-config.ts both carry a note about.
+    { code: "pipe_case", description: "a|b", recovery: "use \\ or |" },
+  ];
+  const md = renderErrors(errors);
+
+  it("renders a three-column table with the code as a literal", () => {
+    expect(md).toContain("| Code | Default message | Recovery |");
+    expect(md).toContain("| `forbidden` | scope or ACL denied | Re-authenticate. |");
+  });
+
+  it("counts the codes AND how many carry a hint", () => {
+    // The second number is the point: it distinguishes "no hint declared" from "hints missing",
+    // which is exactly the ambiguity the em dash below resolves per-row.
+    expect(md).toContain("**3**");
+    expect(md).toMatch(/\*\*2\*\* of which ship a recovery hint/);
+  });
+
+  it("renders an em dash for a code with no declared hint", () => {
+    expect(md).toContain("| `internal` | internal error | — |");
+  });
+
+  it("escapes pipes and backslashes so the table survives", () => {
+    const row = md.split("\n").find((l) => l.startsWith("| `pipe_case`"));
+    expect(row).toBeDefined();
+    // Exactly three data cells — an unescaped pipe would split this into more.
+    expect((row as string).split(" | ").length).toBe(3);
+    expect(row).toContain("a\\|b");
+    expect(row).toContain("\\\\");
   });
 });
 

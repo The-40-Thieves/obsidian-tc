@@ -196,8 +196,15 @@ export function currentFactRules(): FactRule[] {
   return factRules(extractTools().length, facts.goldenSetSize, facts.domainCount);
 }
 
-/** Narrative surfaces to sweep. Generated regions inside them are stripped by scanFacts. */
-function narrativeFiles(repoRoot: string): string[] {
+/**
+ * Narrative surfaces to sweep. Generated regions inside them are stripped by scanFacts.
+ *
+ * Exported for check-error-envelope.ts (THE-470), which sweeps the same corpus for a different
+ * class of restated fact. One definition of "the narrative surfaces" — a second walk would drift
+ * from this one exactly the way render.ts's target list drifted from suggest-prose.ts's, which is
+ * why targets.ts exists.
+ */
+export function narrativeFiles(repoRoot: string): string[] {
   const rooted = (rel: string) => `${repoRoot}/${rel}`;
   const walk = (relDir: string): string[] => {
     let entries: string[];

@@ -41,6 +41,18 @@ jobs:
       - name: narrative fact gate (THE-566 — no stale tool-count / golden-set numbers in prose)
         working-directory: packages/server
         run: bun run docgen:facts-check
+      - name: error-envelope gate (THE-470 — documented error fields must match the taxonomy)
+        # facts-check sweeps NUMERIC facts; this sweeps the error envelope's string/boolean fields,
+        # which its FactRule shape cannot express. api-reference.md hand-copies the `acl_denied`
+        # recovery hint byte-for-byte from recoveryFor() — correct when measured, and silently stale
+        # the first time someone rewords it. Both directions are covered: a doc edited away from the
+        # taxonomy, and a taxonomy reworded past the doc.
+        #
+        # Floored on envelopes found, not just violations: the first draft read repo-relative paths
+        # as absolute, so every read threw into a catch and the sweep examined nothing. The floor is
+        # what caught that, exactly as facts-check's own floors are there to.
+        working-directory: packages/server
+        run: bun run docgen:error-envelope
       - name: config JSON Schema drift gate
         # The published schema is what editors read for autocomplete + inline docs on
         # obsidian-tc.config.json. It is generated from the Zod schema that already validates the
