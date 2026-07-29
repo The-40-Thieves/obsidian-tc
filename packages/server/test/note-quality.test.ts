@@ -23,6 +23,12 @@ import { openMemoryDb } from "./helpers";
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
 const CHAIN = EXPERIENTIAL_MIGRATION_FILES.map((f) => ({ version: versionOf(f), sql: read(f) }));
+// THE-620: a chain with chunk_retrievals but WITHOUT the chunk_access_stats VIEW (20260712_002) —
+// the same "minimal harness" shape contribution.test.ts already exercises for workspace_sessions.
+// Mimics an experiential.db that predates that migration.
+const CHAIN_NO_ACCESS_VIEWS = EXPERIENTIAL_MIGRATION_FILES.filter(
+  (f) => f !== "20260712_002_access_views.sql",
+).map((f) => ({ version: versionOf(f), sql: read(f) }));
 
 const NOW = 1_800_000_000_000;
 const DAY = 86_400_000;
@@ -33,6 +39,14 @@ function stores(): { cacheDb: Database; edb: Database } {
   provisionCacheDb(cacheDb);
   const edb = openMemoryDb();
   runMigrations(edb, CHAIN);
+  return { cacheDb, edb };
+}
+
+function storesWithoutAccessViews(): { cacheDb: Database; edb: Database } {
+  const cacheDb = openMemoryDb();
+  provisionCacheDb(cacheDb);
+  const edb = openMemoryDb();
+  runMigrations(edb, CHAIN_NO_ACCESS_VIEWS);
   return { cacheDb, edb };
 }
 
@@ -234,6 +248,70 @@ describe("THE-537 note_quality rollup", () => {
     recomputeNoteQuality(cacheDb, edb, { vaultId: "other-vault", nowMs: NOW });
     expect(readNoteQuality(edb, { vaultId: "other-vault" })).toEqual([]);
     expect(readNoteQuality(edb, { vaultId: VAULT })).toEqual([]);
+  });
+
+  it("THE-620: memoizes the body_sha column check per CONNECTION rather than re-introspecting every run", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    let pragmaCalls = 0;
+    const origPrepare = cacheDb.prepare.bind(cacheDb);
+    cacheDb.prepare = (sql: string) => {
+      if (sql.includes("table_info")) pragmaCalls++;
+      return origPrepare(sql);
+    };
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW + DAY });
+    // The schema cannot change between scheduler runs without a migration and a restart, so the
+    // second run must reuse the first run's answer rather than re-querying sqlite_master.
+    expect(pragmaCalls).toBe(1);
+  });
+
+  it("THE-620: does not leak one connection's schema answer into another's (no module-level cache)", () => {
+    // db1 has body_sha (via the shared migration chain's chunks table); db2 does not, because its
+    // chunks table is hand-rolled without that column. If the memo were a bare module-level
+    // boolean, whichever connection ran recomputeNoteQuality FIRST would silently decide the
+    // answer for every connection after it.
+    const { cacheDb: db1, edb: edb1 } = stores();
+    seed(db1, edb1);
+
+    const db2 = openMemoryDb();
+    db2.exec(
+      "CREATE TABLE notes (vault_id TEXT, path TEXT, title TEXT, tags TEXT, frontmatter TEXT, content_hash TEXT, mtime INTEGER, size INTEGER, indexed_at INTEGER);" +
+        "CREATE TABLE chunks (id TEXT, vault_id TEXT, path TEXT, chunk_index INTEGER, headings TEXT, content TEXT, content_hash TEXT, token_count INTEGER, created_at INTEGER, updated_at INTEGER);",
+    );
+    db2
+      .prepare(
+        "INSERT INTO notes (vault_id, path, title, tags, mtime, indexed_at) VALUES (?, 'solo.md', 'solo.md', '[]', ?, ?)",
+      )
+      .run(VAULT, NOW, NOW);
+    db2
+      .prepare(
+        "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES ('c-solo', ?, 'solo.md', 0, '[]', 'body', 'h', 10, ?, ?)",
+      )
+      .run(VAULT, NOW, NOW);
+    const edb2 = openMemoryDb();
+    runMigrations(edb2, CHAIN);
+
+    // db1 first (has body_sha -> dup_ratio is a number, not null, once it has chunks).
+    recomputeNoteQuality(db1, edb1, { vaultId: VAULT, nowMs: NOW });
+    const dupRow = readNoteQuality(edb1, { vaultId: VAULT }).find((r) => r.path === "dup.md");
+    expect(dupRow?.dup_ratio).not.toBeNull();
+
+    // db2 second, no body_sha column at all -> dup_ratio must read as "we cannot tell" (null), not
+    // whatever db1's memoized answer happened to be.
+    recomputeNoteQuality(db2, edb2, { vaultId: VAULT, nowMs: NOW });
+    const soloRow = readNoteQuality(edb2, { vaultId: VAULT }).find((r) => r.path === "solo.md");
+    expect(soloRow?.dup_ratio).toBeNull();
+  });
+
+  it("THE-620: chunk_access_stats is a VIEW derived from chunk_retrievals — a db with the table but not yet the view must not throw", () => {
+    // Regression for a guard that checked tableExists(edb, 'chunk_retrievals') but then queried the
+    // chunk_access_stats VIEW, which is a LATER migration (20260712_002) than the table it wraps
+    // (20260626_001). A connection migrated only partway between the two — the same "minimal
+    // harness" shape contribution.test.ts already builds — has the table without the view.
+    const { cacheDb, edb } = storesWithoutAccessViews();
+    seed(cacheDb, edb);
+    expect(() => recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW })).not.toThrow();
   });
 });
 
