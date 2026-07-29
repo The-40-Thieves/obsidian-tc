@@ -265,6 +265,78 @@ describe("attachment-tools branch coverage", () => {
   });
 });
 
+describe("attachment-tools branch coverage: reference discovery is ACL-filtered (THE-607)", () => {
+  // findAttachmentReferences (src/formats/attachments.ts) walks the WHOLE vault and reads every
+  // note's content with NO per-note ACL check. get_attachment/delete_attachment/list_attachments
+  // are safe to expose it only because every call site filters the result through
+  // readableRel(ctx.acl, p) before it reaches the caller (see the N-2 comment on get_attachment,
+  // and the CROSS_NOTE_READ_TOOLS carve-out in src/vault/acl-audit.ts, which is conditional on
+  // these three tests staying green). "out/note.md" sits outside the read whitelist below; if any
+  // of the `.filter((p) => readableRel(ctx.acl, p))` calls were ever dropped, its path would leak
+  // into the response and these tests would go red.
+  function vaultWithHiddenReferrer() {
+    return makeM3Vault({
+      files: {
+        "a.png": "x",
+        "in/note.md": "![[a.png]]\n",
+        "out/note.md": "![[a.png]]\n",
+      },
+      acl: { readPaths: ["a.png", "in/**"] }, // "out/**" is NOT in the read whitelist
+    });
+  }
+
+  it("get_attachment's include_references omits a referencing note outside the read ACL", async () => {
+    const v = vaultWithHiddenReferrer();
+    try {
+      const r = await v.call("get_attachment", {
+        vault: "test",
+        path: "a.png",
+        include_references: true,
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const refs = (r.data as { references: string[] }).references;
+        expect(refs).toEqual(["in/note.md"]);
+        expect(refs).not.toContain("out/note.md");
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("delete_attachment's references list omits a referencing note outside the read ACL", async () => {
+    const v = vaultWithHiddenReferrer();
+    try {
+      const r = await v.callConfirmed("delete_attachment", { vault: "test", path: "a.png" });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const refs = (r.data as { references: string[] }).references;
+        expect(refs).toEqual(["in/note.md"]);
+        expect(refs).not.toContain("out/note.md");
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("list_attachments's include_reference_count excludes a referencing note outside the read ACL", async () => {
+    const v = vaultWithHiddenReferrer();
+    try {
+      const r = await v.call("list_attachments", { vault: "test", include_reference_count: true });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const entry = (
+          r.data as { attachments: Array<{ path: string; reference_count?: number }> }
+        ).attachments.find((a) => a.path === "a.png");
+        // 1, not 2: "out/note.md" also links to a.png but must not be counted.
+        expect(entry?.reference_count).toBe(1);
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
 describe("attachment-tools branch coverage: list_attachments's pathAcl extractor (both legs)", () => {
   // def.pathAcl is only invoked by runDispatch's central folder-ACL stage when a rootResolver is
   // wired (registry.ts: `const root = this.rootResolver?.(effVault); if (root) { ... def.pathAcl(...) }`).

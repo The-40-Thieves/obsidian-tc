@@ -19,6 +19,27 @@
  * --ignore-known, so new rules could land green. That file should only ever shrink.
  */
 import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
+
+// GOTCHA guard (THE-664): shares gen-tree-map.mjs's stale-dist hazard — with packages/*/dist
+// present, depcruise resolves the shared package's bare specifier through its published
+// exports/main (dist) instead of the tsconfig `paths` mapping to src, producing a wrong-but-
+// internally-deterministic module/dependency count (measured: 287 modules / 1184 dependencies
+// clean vs 286 / 1089 with packages/shared/dist built). Refuse rather than report over it.
+const staleDistDirs = readdirSync("packages", { withFileTypes: true })
+  .filter((e) => e.isDirectory())
+  .map((e) => `packages/${e.name}/dist`)
+  .filter((p) => existsSync(p));
+
+if (staleDistDirs.length > 0) {
+  console.error(
+    `boundary gate: found built output at ${staleDistDirs.join(", ")} — depcruise resolves\n` +
+      "workspace packages differently with dist/ present, producing a wrong-but-stable module\n" +
+      "count (see scripts/gen-tree-map.mjs header). Refusing to report over it.\n" +
+      `Remedy: rm -rf ${staleDistDirs.join(" ")} and re-run.`,
+  );
+  process.exit(1);
+}
 
 // `**/` requires at least one directory component, so it excludes top-level files (cli.ts,
 // index.ts, ...) — a plain `*.ts` pattern is needed alongside it to also match those. Listing

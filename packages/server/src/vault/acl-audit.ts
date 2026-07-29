@@ -40,6 +40,29 @@ export const CROSS_NOTE_REWRITE_TOOLS = new Set<string>([
   "bulk_move_notes", // per-row moves + the all-or-nothing backlink rewrite phase
 ]);
 
+/** Tools that call findAttachmentReferences() (src/formats/attachments.ts), which walks the WHOLE
+ *  vault and reads every note's content with no per-note ACL check, to discover which notes
+ *  reference a given attachment. This is a DIFFERENT safety argument than CROSS_NOTE_REWRITE_TOOLS
+ *  above: a rewrite tool is safe because it returns nothing the caller can observe, but these tools
+ *  return the discovered paths (or a count derived from them) directly in the response. They are
+ *  safe ONLY because every call site filters its output through readableRel(ctx.acl, p) before it
+ *  reaches the caller (get_attachment / delete_attachment: `references`; list_attachments:
+ *  `reference_count`) -- see the N-2 comment in attachment-tools.ts. This carve-out is conditional
+ *  on that filtering staying pinned by test/attachment-tools-branch-coverage.test.ts's "reference
+ *  discovery is ACL-filtered" suite (THE-607): if a future edit drops one of those `.filter(...)`
+ *  calls, that suite goes red first. Do NOT add a tool here on the strength of "it's a read, not a
+ *  write" alone -- confirm its output is actually filtered before assuming this carve-out applies. */
+export const CROSS_NOTE_READ_TOOLS = new Set<string>([
+  "get_attachment", // include_references: true
+  "delete_attachment", // unconditional reference discovery, always filtered before returning
+  "list_attachments", // include_reference_count: true
+]);
+
+/** True when `tool` is exempt from use-flagging under either carve-out above (rewrite or read). */
+export function isCrossNoteAuditExempt(tool: string): boolean {
+  return CROSS_NOTE_REWRITE_TOOLS.has(tool) || CROSS_NOTE_READ_TOOLS.has(tool);
+}
+
 let _enabled = false;
 let _strict = false;
 let _collected: AclAuditViolation[] = [];

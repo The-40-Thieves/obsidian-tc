@@ -170,6 +170,48 @@ jobs:
         run: bun test bun-smoke
         working-directory: packages/server
 
+  acl-audit:
+    # THE-607: src/vault/acl-audit.ts (THE-414 follow-up, #280) already exists and already
+    # verifies that a tool's declared `pathAcl` extractor mirrors the vault paths its handler
+    # actually resolves for filesystem ops -- but it is gated on OBSIDIAN_TC_ACL_AUDIT, which
+    # nothing set. This job is the first thing that ever sets it in strict mode.
+    #
+    # Deliberately NOT folded into build-test: that matrix's module-harness tests
+    # (test/m{1..6}-helpers.ts) build their ToolRegistry with no `rootResolver`, so the central
+    # pathAcl stage in registry.ts (`const root = this.rootResolver?.(effVault); if (root) { ...
+    # def.pathAcl(...) }`) never runs and the extractors never execute there -- running strict
+    # mode over that suite would not test the extractors at all. The seven files below are the
+    # ones that DO wire a real rootResolver (grep for it if that set needs to grow), so this is
+    # the real dispatch path: central pathAcl stage + handler inside one runAudited frame.
+    #
+    # It found a real gap, and it's a documented carve-out, not a fix here. get_attachment
+    # (include_references) / delete_attachment / list_attachments (include_reference_count) all
+    # call findAttachmentReferences (src/formats/attachments.ts), which walks the whole vault and
+    # reads every note's content with no per-note ACL check -- so the audit correctly flags
+    # resolved paths the central pathAcl stage never checked. But unlike an unfiltered leak, every
+    # one of those three call sites filters its output through readableRel(ctx.acl, p) before
+    # returning it (attachment-tools.ts's N-2 comment), so no out-of-ACL path is ever observable
+    # by the caller -- the same shape as the pre-existing CROSS_NOTE_REWRITE_TOOLS carve-out for
+    # move_note/move_attachment/bulk_move_notes, just for reads instead of rewrites. They're
+    # exempted via the separate CROSS_NOTE_READ_TOOLS set in acl-audit.ts (kept distinct from the
+    # rewrite set because the safety argument differs: a rewrite tool returns nothing to leak
+    # through, a read tool's safety depends entirely on that filtering staying intact). That
+    # invariant is pinned by test/attachment-tools-branch-coverage.test.ts's "reference discovery
+    # is ACL-filtered (THE-607)" suite, which asserts a referencing note outside the caller's read
+    # ACL never appears in `references` or `reference_count` -- each of its three assertions was
+    # confirmed to fail red when the corresponding `.filter(...)` was temporarily removed. This
+    # job is intentionally not (yet) a required status check, the same way `perf` isn't -- promote
+    # it once it has run green for a while.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+      - name: ACL extractor audit, strict mode, real dispatch surface (THE-607)
+        run: bun run test:acl-audit
+        working-directory: packages/server
+
   perf:
     runs-on: ubuntu-latest
     # THE-503: the motivating incident was a perf run overlapping the Vitest suite -- index/embed

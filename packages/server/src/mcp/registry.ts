@@ -22,7 +22,7 @@ import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/attrs";
 import { type TraceCarrier, withTraceCarrier } from "../otel/propagation";
 import { callerHash, type RateLimiter } from "../throttle";
-import { CROSS_NOTE_REWRITE_TOOLS, runAudited } from "../vault/acl-audit";
+import { isCrossNoteAuditExempt, runAudited } from "../vault/acl-audit";
 import { type AclOp, enforcePathAcl } from "../vault/acl-path";
 import type { TraceRecord } from "../workspace/sessions";
 import type { ClientInfo } from "./client-info";
@@ -1276,7 +1276,7 @@ export class ToolRegistry {
       const out = await runAudited(
         {
           tool: def.name,
-          auditUses: def.pathAcl != null && !CROSS_NOTE_REWRITE_TOOLS.has(def.name),
+          auditUses: def.pathAcl != null && !isCrossNoteAuditExempt(def.name),
         },
         async () => {
           if (def.pathAcl) {
