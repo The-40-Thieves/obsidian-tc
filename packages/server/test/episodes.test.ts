@@ -288,19 +288,19 @@ describe("agent_episodes capture bus (THE-228)", () => {
     });
 
     it("catches a Stripe-shaped bare secret key", () => {
-      // Built from fragments rather than one literal: a contiguous `sk_live_`-plus-24-alnum-chars
-      // substring is exactly what GitHub push protection's own Stripe-key scanner matches on
-      // (format alone, no realism needed) — it rejected an earlier, literal version of this
-      // fixture outright. Joining pieces at runtime keeps the SOURCE FILE free of that
-      // contiguous shape while still exercising the real computed string against the regex.
-      const fakeSecret = ["sk", "live", "51HDUMMYFAKEKEYFORTESTONLY000000"].join("_");
+      // `sk_test_`, not `sk_live_`: the pattern accepts either (`(?:live|test)`), so a TEST-mode
+      // key exercises it just as well while not being a live-credential shape at all. A literal
+      // `sk_live_` fixture is what GitHub push protection's Stripe scanner matches on, and the
+      // fix for that is to stop writing a live-key shape — never to obfuscate one past the
+      // scanner. Kept as a plain literal, matching every other fixture in this file.
+      const fakeSecret = "sk_test_51HDUMMYFAKEKEYFORTESTONLY000000";
       const { text, redactions } = redactSecrets(fakeSecret);
       expect(redactions).toBeGreaterThan(0);
       expect(text).not.toContain(fakeSecret);
     });
 
     it("near-miss: a Stripe PUBLISHABLE key (pk_) is not flagged — it is not a secret", () => {
-      const publishable = ["pk", "live", "51HDUMMYFAKEKEYFORTESTONLY000000"].join("_");
+      const publishable = "pk_test_51HDUMMYFAKEKEYFORTESTONLY000000";
       const { text, redactions } = redactSecrets(publishable);
       expect(redactions).toBe(0);
       expect(text).toContain(publishable);
