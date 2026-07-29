@@ -49,6 +49,11 @@ describe("scoreDistribution", () => {
     expect(d.p10).toBeCloseTo(0.1);
     expect(d.p25).toBeCloseTo(0.25);
     expect(d.median).toBeCloseTo(0.5);
+    // THE-617 item 1 — extended past the median (a hard prerequisite for THE-631), reusing the
+    // same at() nearest-rank helper so every percentile shares one rounding rule.
+    expect(d.p75).toBeCloseTo(0.75);
+    expect(d.p90).toBeCloseTo(0.9);
+    expect(d.p95).toBeCloseTo(0.95);
     expect(scoreDistribution([]).n).toBe(0);
   });
 });
@@ -63,12 +68,24 @@ describe("parseQueriesFile", () => {
       '{"query":"no id"}',
       "{not json",
     ].join("\n");
-    const qs = parseQueriesFile(raw);
+    const { queries: qs, warnings } = parseQueriesFile(raw);
     expect(qs).toHaveLength(4);
     expect(qs[0]).toEqual({ id: "a", query: "first query" });
     expect(qs[1]?.query).toBe("a plain query line");
     expect(qs[2]?.query).toBe("no id");
     expect(qs[2]?.id).toMatch(/^q\d+$/);
-    expect(qs[3]?.query).toBe("{not json"); // malformed JSON degrades to a raw line
+    expect(qs[3]?.query).toBe("{not json"); // malformed JSON degrades to a raw line, not dropped
+    // THE-617 item 2 — a line that LOOKS like JSON but fails to parse is reported, not just
+    // silently degraded; the warning names the 1-indexed line number.
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/^line 6:/);
+  });
+
+  it("does not fail hard on a malformed file — the rest of the lines still parse", () => {
+    const raw = ['{"query":"good one"}', "{also not json", '{"query":"good two"}'].join("\n");
+    const { queries, warnings } = parseQueriesFile(raw);
+    expect(queries.map((q) => q.query)).toEqual(["good one", "{also not json", "good two"]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/^line 2:/);
   });
 });

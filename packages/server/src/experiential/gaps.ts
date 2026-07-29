@@ -69,7 +69,9 @@ export async function detectGaps(
   };
 }
 
-/** Nearest-rank percentiles over the top-1 score sample — the calibration output. */
+/** Nearest-rank percentiles over the top-1 score sample — the calibration output. THE-617 item
+ *  1 extends this past the median (p75/p90/p95) on the SAME `at()` helper below — a hard
+ *  prerequisite for THE-631, which needs the upper tail, not just where the threshold lives. */
 export function scoreDistribution(scores: number[]): {
   n: number;
   min: number;
@@ -77,6 +79,9 @@ export function scoreDistribution(scores: number[]): {
   p10: number;
   p25: number;
   median: number;
+  p75: number;
+  p90: number;
+  p95: number;
 } {
   const s = [...scores].sort((a, b) => a - b);
   const at = (p: number): number => s[Math.max(0, Math.ceil((p / 100) * s.length) - 1)] ?? 0;
@@ -87,30 +92,50 @@ export function scoreDistribution(scores: number[]): {
     p10: at(10),
     p25: at(25),
     median: at(50),
+    p75: at(75),
+    p90: at(90),
+    p95: at(95),
   };
 }
 
+export interface ParsedQueriesFile {
+  queries: GapQuery[];
+  /** THE-617 item 2 — a line that LOOKS like JSON (starts with "{") but fails to parse, or
+   *  parses without a usable `query` string, degrades to a raw query line (unchanged behavior:
+   *  a partly-malformed file must still produce a usable pass) but is no longer silently
+   *  indistinguishable from a line that never claimed to be JSON. One entry per such line,
+   *  naming its 1-indexed line number in the source file. */
+  warnings: string[];
+}
+
 /** Parse a queries file: JSONL objects ({id?, query}) or plain one-query-per-line text. */
-export function parseQueriesFile(raw: string): GapQuery[] {
-  const out: GapQuery[] = [];
-  const lines = raw
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0 && !l.startsWith("#"));
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] as string;
+export function parseQueriesFile(raw: string): ParsedQueriesFile {
+  const queries: GapQuery[] = [];
+  const warnings: string[] = [];
+  const rawLines = raw.split(/\r?\n/);
+  for (let lineNo = 1; lineNo <= rawLines.length; lineNo++) {
+    const line = (rawLines[lineNo - 1] as string).trim();
+    if (line.length === 0 || line.startsWith("#")) continue;
     if (line.startsWith("{")) {
       try {
         const obj = JSON.parse(line) as { id?: unknown; query?: unknown };
         if (typeof obj.query === "string" && obj.query.length > 0) {
-          out.push({ id: typeof obj.id === "string" ? obj.id : `q${i + 1}`, query: obj.query });
+          queries.push({
+            id: typeof obj.id === "string" ? obj.id : `q${queries.length + 1}`,
+            query: obj.query,
+          });
           continue;
         }
+        warnings.push(
+          `line ${lineNo}: looks like JSON but has no usable "query" string — treated as a raw query line`,
+        );
       } catch {
-        /* fall through to raw-line handling */
+        warnings.push(
+          `line ${lineNo}: looks like JSON but failed to parse — treated as a raw query line`,
+        );
       }
     }
-    out.push({ id: `q${i + 1}`, query: line });
+    queries.push({ id: `q${queries.length + 1}`, query: line });
   }
-  return out;
+  return { queries, warnings };
 }
