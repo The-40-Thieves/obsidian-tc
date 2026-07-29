@@ -6,9 +6,9 @@ filesystem, not inferred. Counts in the hand-written sections come from
 regions state their own method.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 872 tracked code files · 133,168 lines.
+**Scale:** 874 tracked code files · 133,287 lines.
 
-TypeScript 125,381 · JavaScript 4,296 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 125,500 · JavaScript 4,296 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -200,7 +200,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**290 modules · 1193 dependencies · 87 distinct subsystem pairs · 497 cross-subsystem imports.**
+**291 modules · 1197 dependencies · 88 distinct subsystem pairs · 498 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -218,7 +218,7 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 87 pairs.
+set is 88 pairs.
 
 ```mermaid
 flowchart LR
