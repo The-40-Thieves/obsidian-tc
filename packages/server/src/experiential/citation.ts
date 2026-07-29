@@ -91,6 +91,12 @@ export interface InferCitationsOptions {
   /** Gateway judge role; absent/null -> stage-1-only mode (survivors stamp cited=1). */
   judge?: GatewayRoles["judge"] | null;
   thresholds?: { rouge?: number; cosine?: number; killSwitch?: number };
+  /** THE-617 item 3 — cap on how many stage-1 survivors get judged per run (bounded judge
+   *  cost). Same default/shape as reflect.ts's identically-named MAX_JUDGED, but this is a
+   *  SEPARATE knob: citation-inference judgements and episode-evaluation judgements are
+   *  independent workloads and should be tunable independently. Override via --max-judged on
+   *  the citation-infer CLI. Default 25. */
+  maxJudged?: number;
   log?: (line: string) => void;
 }
 
@@ -195,7 +201,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   let judged = 0;
   let parseFailures = 0;
   if (opts.judge && passers.length > 0) {
-    for (const a of passers.slice(0, MAX_JUDGED)) {
+    for (const a of passers.slice(0, opts.maxJudged ?? MAX_JUDGED)) {
       const req = {
         ...prompt(
           JUDGE_SYSTEM,

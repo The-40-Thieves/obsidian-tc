@@ -41,6 +41,7 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
         : {}),
       embed: (texts) => provider.embed(texts, { input: "query" }),
       judge: gwc ? (r) => gwc.judge(r).then((x) => ({ text: x.text, model: x.model })) : null,
+      ...(cmd.maxJudged !== undefined ? { maxJudged: cmd.maxJudged } : {}),
       log: (s) => process.stderr.write(`${s}\n`),
     });
     process.stdout.write(

@@ -212,6 +212,41 @@ describe("parseCliArgs — token mint (THE-658)", () => {
   });
 });
 
+describe("parseCliArgs — citation-infer --max-judged (THE-617 item 3)", () => {
+  it("parses --max-judged alongside the config path without eating it as a value", () => {
+    const cmd = parseCliArgs([
+      "citation-infer",
+      "--session",
+      "s1",
+      "--transcript",
+      "t.txt",
+      "--max-judged",
+      "5",
+      "/etc/cfg.json",
+    ]);
+    expect(cmd).toMatchObject({
+      kind: "citation-infer",
+      session: "s1",
+      transcript: "t.txt",
+      maxJudged: 5,
+      input: "/etc/cfg.json",
+    });
+  });
+
+  it("rejects a negative or non-numeric --max-judged", () => {
+    expect(parseCliArgs(["citation-infer", "--session", "s1", "--max-judged", "-1"]).kind).toBe(
+      "error",
+    );
+    expect(parseCliArgs(["citation-infer", "--session", "s1", "--max-judged", "soon"]).kind).toBe(
+      "error",
+    );
+  });
+
+  it("omits maxJudged entirely when the flag is absent (opts fall back to citation.ts's default)", () => {
+    expect(parseCliArgs(["citation-infer", "--session", "s1"])).not.toHaveProperty("maxJudged");
+  });
+});
+
 describe("redactConfig — generic key-suffix fields", () => {
   it("masks any *key/*secret/*token field, including signing/private keys", () => {
     const json = JSON.stringify(

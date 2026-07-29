@@ -31,6 +31,7 @@ export type CliCommand =
       since?: number;
       until?: number;
       transcript?: string;
+      maxJudged?: number;
     }
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
   | { kind: "note-quality"; input?: string; vault?: string; flags?: string[]; limit?: number }
@@ -286,7 +287,14 @@ export function parseCliArgs(argv: string[]): CliCommand {
       };
       // Strip value-carrying flags so positional() cannot mistake a flag value for the config.
       const scan = [...rest];
-      for (const f of ["--session", "--since", "--until", "--transcript", "--config"]) {
+      for (const f of [
+        "--session",
+        "--since",
+        "--until",
+        "--transcript",
+        "--max-judged",
+        "--config",
+      ]) {
         const i = scan.indexOf(f);
         if (i >= 0) scan.splice(i, 2);
       }
@@ -294,6 +302,15 @@ export function parseCliArgs(argv: string[]): CliCommand {
       const since = num("--since");
       const until = num("--until");
       const transcript = flagValue(rest, "--transcript");
+      // THE-617 item 3: same --max-judged shape as the `reflect` command, applied to this
+      // command's OWN MAX_JUDGED (a separate knob — see citation.ts's InferCitationsOptions).
+      const mv = flagValue(rest, "--max-judged");
+      let maxJudged: number | undefined;
+      if (mv !== undefined) {
+        maxJudged = Number.parseInt(mv, 10);
+        if (!Number.isFinite(maxJudged) || maxJudged < 0)
+          return { kind: "error", message: "--max-judged must be a non-negative integer" };
+      }
       return {
         kind: "citation-infer",
         input: flagValue(rest, "--config") ?? positional(scan),
@@ -301,6 +318,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
         ...(transcript !== undefined ? { transcript } : {}),
+        ...(maxJudged !== undefined ? { maxJudged } : {}),
       };
     }
     // THE-249: per-note output-contribution report over the experiential telemetry.

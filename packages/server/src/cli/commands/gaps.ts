@@ -49,12 +49,13 @@ export async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
       }
       const d = scoreDistribution(tops);
       process.stdout.write(
-        `calibrate (${vaultId}, n=${d.n}): min=${d.min.toFixed(4)} p5=${d.p5.toFixed(4)} p10=${d.p10.toFixed(4)} p25=${d.p25.toFixed(4)} median=${d.median.toFixed(4)}\n` +
+        `calibrate (${vaultId}, n=${d.n}): min=${d.min.toFixed(4)} p5=${d.p5.toFixed(4)} p10=${d.p10.toFixed(4)} p25=${d.p25.toFixed(4)} median=${d.median.toFixed(4)} p75=${d.p75.toFixed(4)} p90=${d.p90.toFixed(4)} p95=${d.p95.toFixed(4)}\n` +
           `suggested threshold (p5): ${d.p5.toFixed(4)} (shipped default ${DEFAULT_GAP_THRESHOLD})\n`,
       );
       return;
     }
-    const queries = parseQueriesFile(readFileSync(cmd.queries as string, "utf8"));
+    const { queries, warnings } = parseQueriesFile(readFileSync(cmd.queries as string, "utf8"));
+    for (const w of warnings) process.stderr.write(`gaps: ${w}\n`);
     const report = await detectGaps(queries, search, {
       ...(cmd.threshold !== undefined ? { threshold: cmd.threshold } : {}),
       ...(cmd.minResults !== undefined ? { minResults: cmd.minResults } : {}),

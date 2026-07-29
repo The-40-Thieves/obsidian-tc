@@ -162,4 +162,33 @@ describe("citation inference (THE-170)", () => {
     });
     expect(stats.cited).toBe(1);
   });
+
+  // THE-617 item 3 — the module-local MAX_JUDGED=25 had no override anywhere (unlike
+  // reflect.ts's identically-shaped constant, which reflect's CLI already exposes via
+  // --max-judged). Threaded the same way: an opts override here, --max-judged on the
+  // citation-infer CLI.
+  it("maxJudged caps how many stage-1 survivors get judged, overriding the default", async () => {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    const chunkIds = ["cA", "cB", "cC"];
+    for (const id of chunkIds) {
+      cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run(id, CHUNK_CITED);
+      seedRetrieval(edb, `r-${id}`, id, "s1");
+    }
+    let judgeCalls = 0;
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      maxJudged: 2,
+      judge: async () => {
+        judgeCalls += 1;
+        return { text: '{"cited": true, "score": 0.9}', model: "fake" };
+      },
+    });
+    expect(stats.stage1Pass).toBe(3); // all three survive stage 1
+    expect(stats.judged).toBe(2); // but only maxJudged of them are actually judged
+    expect(judgeCalls).toBe(2);
+  });
 });
