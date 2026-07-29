@@ -6,7 +6,9 @@ import { openBetterSqlite3 } from "../src/db/node-better-sqlite3";
 import { cachedPrepare, type Database, type Statement } from "../src/db/types";
 
 // better-sqlite3's native binding is not built in every local env (the suite otherwise uses
-// node:sqlite); probe once and skip the adapter integration test when it cannot load. It runs on CI.
+// node:sqlite); probe once and skip the adapter integration test when it cannot load. CI's
+// build-test jobs run with --ignore-scripts (THE-665), so the binding is ABSENT there too — this
+// leg is currently verified locally only, not on CI.
 let bsqlOk = true;
 try {
   const d = await openBetterSqlite3(":memory:");

@@ -17,6 +17,13 @@
 // throws under Node), so that leg spawns `test/param-binding-bun-probe.ts` as a real `bun` process
 // and asserts on its JSON stdout — mirroring test/otel-lazy-load.test.ts + eval/perf/otel-lazy-probe.ts.
 //
+// better-sqlite3's native binding is not built on CI (build-test installs with --ignore-scripts),
+// so that leg probes-and-skips using test/db-baseline.test.ts's existing pattern rather than a new
+// one — it is verified LOCALLY ONLY. node:sqlite and bun:sqlite are CI-guaranteed, so a coverage
+// floor at the bottom of this file prints exactly which adapters ran and fails outright if that set
+// is empty or missing either of the two CI-guaranteed ones — a gate that silently skips everything
+// is worse than no gate, because it reports success over an empty set.
+//
 // Watched failing (THE-665 PR): with job-queue.ts/scheduler.ts reverted to the pre-fix `@name` +
 // bare-key-object bind style, the bun leg's job/schedule assertions fail — job-queue's INSERT hits
 // `jobs.type`'s NOT NULL constraint and throws (SqliteError), and scheduler.ts's swallowed-by-design
@@ -33,6 +40,56 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { JobQueue } from "../src/scheduler/job-queue";
 import { Scheduler } from "../src/scheduler/scheduler";
+
+// --- adapter availability, probed once at module scope, before any test runs -----------------
+
+// node:sqlite is a Node builtin (flag-free since 22.13/23.4) and what the rest of this suite
+// defaults to (test/helpers.ts) — probe it the same way as the others rather than assuming, so an
+// availability regression surfaces here instead of as a cryptic import error inside a describe.
+let nodeSqliteOk = true;
+try {
+  const d = await openNodeSqlite(":memory:");
+  d.close?.();
+} catch {
+  nodeSqliteOk = false;
+}
+
+// better-sqlite3's native binding is not built in every local env (test/db-baseline.test.ts
+// established this probe-and-skip pattern first; reused here rather than inventing a second
+// mechanism). CI's build-test jobs install with `--ignore-scripts` (ci-server.yml — "M0 tests use
+// node:sqlite and do not need the native / better-sqlite3 compiles"), so the binding is ABSENT
+// there too: this leg is verified LOCALLY ONLY today, never on CI. It would start running in CI if
+// a job installed with lifecycle scripts enabled (no --ignore-scripts) before this file runs.
+let betterSqlite3Ok = true;
+try {
+  const d = await openBetterSqlite3(":memory:");
+  d.close?.();
+} catch {
+  betterSqlite3Ok = false;
+}
+
+// bun:sqlite cannot be probed in-process — vitest runs under Node, and `import("bun:sqlite")`
+// throws there. Probe `bun`'s presence on PATH instead; the adapter itself is exercised by
+// spawning it (test/param-binding-bun-probe.ts). Every build-test / lint job installs `bun` via
+// oven-sh/setup-bun, so this is CI-guaranteed, unlike better-sqlite3 above.
+const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
+
+// A per-adapter conformance gate that silently drops an adapter reports success over a SMALLER set
+// than it claims to cover — precisely THE-665's own failure mode (a passing "row exists" check that
+// covered a corrupted row). Print exactly which adapters ran on THIS invocation, and fail outright
+// if the covered set is empty or missing an adapter CI guarantees. Only better-sqlite3 is allowed
+// to be absent, and only because CI's install step deliberately skips native builds — see above.
+const adaptersRun: string[] = [];
+const adaptersSkipped: string[] = [];
+if (nodeSqliteOk) adaptersRun.push("node:sqlite");
+else adaptersSkipped.push("node:sqlite (probe failed)");
+if (betterSqlite3Ok) adaptersRun.push("better-sqlite3 (local only — CI installs --ignore-scripts)");
+else adaptersSkipped.push("better-sqlite3 (native binding not built)");
+if (bunAvailable) adaptersRun.push("bun:sqlite (subprocess)");
+else adaptersSkipped.push("bun:sqlite (bun not on PATH)");
+console.log(
+  `[THE-665 param-binding conformance] adapters run: [${adaptersRun.join(", ") || "NONE"}]; skipped: [${adaptersSkipped.join(", ") || "none"}]`,
+);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,7 +151,7 @@ function expectCorrectScheduleRow(scheduleRow: Record<string, unknown> | undefin
   expect(scheduleRow?.consecutive_failures).toBe(0);
 }
 
-describe("THE-665: parameter-binding conformance (node:sqlite)", () => {
+describe.skipIf(!nodeSqliteOk)("THE-665: parameter-binding conformance (node:sqlite)", () => {
   it("stores correct, non-null values for a bare-key object bound to a named-param statement", async () => {
     const db = await openNodeSqlite(":memory:");
     db.exec("CREATE TABLE probe (id TEXT, name TEXT)");
@@ -113,7 +170,7 @@ describe("THE-665: parameter-binding conformance (node:sqlite)", () => {
   });
 });
 
-describe("THE-665: parameter-binding conformance (better-sqlite3)", () => {
+describe.skipIf(!betterSqlite3Ok)("THE-665: parameter-binding conformance (better-sqlite3)", () => {
   it("stores correct, non-null values for a bare-key object bound to a named-param statement", async () => {
     const db = await openBetterSqlite3(":memory:");
     db.exec("CREATE TABLE probe (id TEXT, name TEXT)");
@@ -130,18 +187,6 @@ describe("THE-665: parameter-binding conformance (better-sqlite3)", () => {
     expectCorrectJobRow(jobRow);
     expectCorrectScheduleRow(scheduleRow);
   });
-});
-
-// bun:sqlite cannot be exercised in-process: vitest runs under Node, and `import("bun:sqlite")`
-// throws there. Spawn a real `bun` process instead.
-const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
-
-// Loud floor, deliberately OUTSIDE the skipIf block below: if `bun` is missing, THIS assertion
-// fails (not skips), so the bun:sqlite leg of the gate cannot go silently missing the way the
-// bug itself did. A gate that quietly reports "0 tests ran, all green" over an empty set is worse
-// than no gate — see the gates skill and THE-665's own directive.
-it("THE-665: bun is on PATH (required for the bun:sqlite leg of the param-binding gate)", () => {
-  expect(bunAvailable).toBe(true);
 });
 
 describe.skipIf(!bunAvailable)("THE-665: parameter-binding conformance (bun:sqlite)", () => {
@@ -187,5 +232,18 @@ describe.skipIf(!bunAvailable)("THE-665: parameter-binding conformance (bun:sqli
   it("JobQueue.enqueue + Scheduler persist store correct values end-to-end", () => {
     expectCorrectJobRow(result.jobRow);
     expectCorrectScheduleRow(result.scheduleRow);
+  });
+});
+
+// Coverage floor, deliberately its own describe (not skipIf'd) so it always runs: a suite that
+// skips every adapter must not report green. node:sqlite and bun:sqlite are CI-guaranteed
+// (node:sqlite is a Node builtin; `bun` is installed by every job via oven-sh/setup-bun) — if
+// either is missing, that's an environment regression, not a reason to quietly cover less than
+// this gate claims to.
+describe("THE-665: parameter-binding conformance — coverage floor", () => {
+  it(`ran on a non-empty, CI-required subset of adapters (see console output above for the exact set)`, () => {
+    expect(adaptersRun.length).toBeGreaterThan(0);
+    expect(nodeSqliteOk).toBe(true);
+    expect(bunAvailable).toBe(true);
   });
 });
