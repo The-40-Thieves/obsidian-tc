@@ -302,3 +302,32 @@ jobs:
           echo "$RUNNER_TEMP/opengrep-bin" >> "$GITHUB_PATH"
       - name: opengrep full scan (community registry ruleset, auto-detected by language)
         run: opengrep scan --config auto --error .
+
+  aikido:
+    # Read side of the Aikido integration: the platform scans the repo via its GitHub App, this job
+    # asks what is currently OPEN and prints it where a PR reviewer will see it. Report-only for the
+    # same reason the dependency audits above are — a finding disclosed upstream should surface, not
+    # wall off an unrelated feature PR. Promote to a gate (`--gate high`) once the steady-state
+    # finding count is known; gating on an unknown baseline just lands a permanently-red job.
+    #
+    # NOT folded into an existing job: it needs repo secrets, and secrets are unavailable to fork
+    # PRs. The credential check below turns that into a LOUD skip rather than an auth failure that
+    # looks like a scanner problem.
+    name: aikido findings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: aikido open findings (report-only)
+        continue-on-error: true  # step-level: job-level would SKIP the steps after a failure
+        env:
+          AIKIDO_CLIENT_ID: ${{ secrets.AIKIDO_CLIENT_ID }}
+          AIKIDO_CLIENT_SECRET: ${{ secrets.AIKIDO_CLIENT_SECRET }}
+        run: |
+          if [ -z "$AIKIDO_CLIENT_ID" ] || [ -z "$AIKIDO_CLIENT_SECRET" ]; then
+            echo "::notice title=aikido skipped::Credentials unavailable (fork PR, or secrets unset). This is NOT a clean result — nothing was queried."
+            exit 0
+          fi
+          node scripts/aikido-findings.mjs
