@@ -66,6 +66,14 @@ containment with real-path symlink checks.
   Local REST API key are trusted (the LRA key is a full-vault admin credential — see
   [SECURITY.md](../SECURITY.md)). The gates govern agents talking MCP, not root on
   your box.
+- **Not a web search tool.** Every retrieval mode here — FTS5, vector, GraphRAG — runs
+  against your indexed vault, never the open internet; there is no web-fetch or
+  web-search capability to govern. That is deliberate: the threat model above is about
+  what an agent can reach *inside* your notes, and a server that also fetched arbitrary
+  URLs would both widen the exfiltration surface (fetched content becomes untrusted
+  input the same way vault content is) and blur what "governed access" means. If an
+  agent needs the web too, wire a separate, purpose-built web-search MCP server
+  alongside obsidian-tc rather than asking this one to do both jobs.
 
 If you just want a thin, single-user read/write wrapper, simpler servers exist and are
 listed honestly in the [README comparison](../README.md#how-it-compares). obsidian-tc is
