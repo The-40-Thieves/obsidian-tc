@@ -6,6 +6,7 @@
 
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
+import type { JobHandler } from "../scheduler/job-runner";
 import type { GatewayRoles } from "./gateway";
 
 export interface JobContext {
@@ -26,6 +27,16 @@ export interface JobResult {
 export interface Job {
   name: string;
   run(ctx: JobContext): Promise<JobResult>;
+}
+
+// THE-625 item 3: cli.ts's synthesis/audit/note-quality job-queue handlers were 3-line ok:false-
+// must-throw twins — a plane job reports failure via JobResult.ok:false, but the durable runner's
+// dead-letter/retry only reacts to a THROW, so that boolean has to become one somewhere.
+export function wrapPlaneJob(name: string, run: () => Promise<JobResult>): JobHandler {
+  return async () => {
+    const r = await run();
+    if (!r.ok) throw new Error(`${name} job failed: ${JSON.stringify(r.detail ?? {})}`);
+  };
 }
 
 export class SleepTimePlane {

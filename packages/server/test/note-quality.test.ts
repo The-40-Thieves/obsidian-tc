@@ -15,6 +15,7 @@ import {
   flagsFor,
   readNoteQuality,
   recomputeNoteQuality,
+  recomputeNoteQualityAll,
   STALE_EDIT_DAYS,
   scoreNote,
 } from "../src/experiential/note-quality";
@@ -312,6 +313,37 @@ describe("THE-537 note_quality rollup", () => {
     const { cacheDb, edb } = storesWithoutAccessViews();
     seed(cacheDb, edb);
     expect(() => recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW })).not.toThrow();
+  });
+});
+
+// THE-643: cli.ts's scheduled job fans recomputeNoteQuality out across every configured vault and
+// reports a per-vault breakdown (mirrors THE-606's audit `per_vault`) — this is that fan-out,
+// extracted so the loop itself has coverage independent of the single-vault scoring logic above.
+describe("THE-643 recomputeNoteQualityAll", () => {
+  it("recomputes each vault independently and keys the result by vault id", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    // A second, unrelated vault: one note, no edges, no usage — its own independent row.
+    cacheDb
+      .prepare(
+        "INSERT INTO notes (vault_id, path, title, tags, frontmatter, content_hash, mtime, size, indexed_at) VALUES ('other', 'solo.md', 'solo.md', '[]', NULL, 'h-solo', ?, 10, ?)",
+      )
+      .run(NOW - DAY, NOW);
+
+    const result = recomputeNoteQualityAll(cacheDb, edb, [VAULT, "other"], NOW);
+
+    expect(Object.keys(result).sort()).toEqual(["main", "other"]);
+    expect(result[VAULT]?.notes).toBe(6); // the fixture's six notes
+    expect(result.other?.notes).toBe(1);
+    // Confirms the fan-out actually WROTE through recomputeNoteQuality, not just tallied in memory.
+    expect(readNoteQuality(edb, { vaultId: "other" })).toHaveLength(1);
+  });
+
+  it("returns an empty map for an empty vault list, without touching the store", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    expect(recomputeNoteQualityAll(cacheDb, edb, [], NOW)).toEqual({});
+    expect(readNoteQuality(edb, { vaultId: VAULT })).toEqual([]);
   });
 });
 
