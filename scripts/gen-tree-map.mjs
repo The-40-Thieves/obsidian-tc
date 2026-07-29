@@ -29,9 +29,29 @@
  *      the real fix.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const CHECK = process.argv.includes("--check");
+
+// GOTCHA guard (THE-664): the header above documents this exact failure — with packages/*/dist
+// present, depcruise resolves workspace packages differently and reports a wrong-but-internally-
+// deterministic module/dependency count, which then fails drift-gate in CI for reasons that look
+// unrelated to the developer's change. Detect and refuse rather than merely comment on it, matching
+// the zero-module guard below.
+const staleDistDirs = readdirSync("packages", { withFileTypes: true })
+  .filter((e) => e.isDirectory())
+  .map((e) => `packages/${e.name}/dist`)
+  .filter((p) => existsSync(p));
+
+if (staleDistDirs.length > 0) {
+  console.error(
+    `gen-tree-map: found built output at ${staleDistDirs.join(", ")} — depcruise resolves\n` +
+      "workspace packages differently with dist/ present, producing a wrong-but-stable module\n" +
+      "count (see the header comment). Refusing to generate from it.\n" +
+      `Remedy: rm -rf ${staleDistDirs.join(" ")} and re-run.`,
+  );
+  process.exit(1);
+}
 const SOURCE_GLOBS = [
   "packages/server/src/*.ts",
   "packages/server/src/**/*.ts",
