@@ -78,6 +78,8 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         sparseEnabled: config.retrieval.sparse,
         colbertEnabled: config.retrieval.colbert,
       },
+      // THE-648: snapshots default to enabled; surface the effective posture either way.
+      snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
     },
     profile,
     bridgeReports,

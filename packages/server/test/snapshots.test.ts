@@ -74,6 +74,9 @@ describe("THE-374 snapshot + restore_note", () => {
   });
 
   it("captures nothing when snapshots are disabled; manual snapshot_note still works", async () => {
+    // snapshots omitted here means disabled in this harness specifically (makeTestVault builds
+    // the runtime deps directly and does not run them through ServerConfigSchema) — THE-648 made
+    // enabled the schema/production default, but that default is not what this test exercises.
     const v = makeTestVault({ files: { "a.md": "hello" } });
     try {
       const ap = await v.call("append_note", { vault: "test", path: "a.md", content: " world" });
@@ -94,8 +97,10 @@ describe("THE-374 snapshot + restore_note", () => {
     const skipped: Array<{ vaultId: string; path: string; op: string }> = [];
     const v = makeTestVault({
       files: { "a.md": "V1" },
-      // snapshots omitted -> disabled; snapshot_note still works (hardcoded enabled:true), so a
-      // real snapshot row exists to restore from even though the auto-capture path is off.
+      // snapshots omitted -> disabled in this harness (see the comment on the previous test re:
+      // THE-648 — this bypasses the schema, so it is independent of the production default).
+      // snapshot_note still works (hardcoded enabled:true), so a real snapshot row exists to
+      // restore from even though the auto-capture path is off.
       onSnapshotSkipped: (vaultId, path, op) => skipped.push({ vaultId, path, op }),
     });
     try {

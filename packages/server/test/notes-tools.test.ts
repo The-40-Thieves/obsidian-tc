@@ -670,7 +670,9 @@ describe("THE-603 patch_note replace blast-radius guard", () => {
     const skipped: Array<{ vaultId: string; path: string; op: string }> = [];
     const v = makeTestVault({
       files: { "a.md": raw },
-      // snapshots omitted -> disabled, matching the default "trusted-local" posture.
+      // THE-648: snapshots default to enabled now, so this test's "disabled" path must be forced
+      // explicitly — makeTestVault does not run the schema layer, but production callers do.
+      snapshots: { enabled: false, retention: 10 },
       onSnapshotSkipped: (vaultId, path, op) => skipped.push({ vaultId, path, op }),
     });
     try {
@@ -717,7 +719,9 @@ describe("THE-603 patch_note replace blast-radius guard", () => {
     const skipped: Array<{ vaultId: string; path: string; op: string }> = [];
     const v = makeTestVault({
       files: { "a.md": "hello" },
-      // snapshots omitted -> disabled, matching the default "trusted-local" posture.
+      // THE-648: snapshots default to enabled now, so this test's "disabled" path must be forced
+      // explicitly — makeTestVault does not run the schema layer, but production callers do.
+      snapshots: { enabled: false, retention: 10 },
       onSnapshotSkipped: (vaultId, path, op) => skipped.push({ vaultId, path, op }),
     });
     try {

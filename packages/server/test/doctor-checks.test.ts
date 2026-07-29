@@ -15,6 +15,7 @@ import {
   type RetrievalHeadsView,
   retrievalHeadsCheck,
   runtimeCheck,
+  snapshotsCheck,
 } from "../src/doctor/checks";
 
 const ctx = { serverVersion: "1.10.0" };
@@ -249,5 +250,21 @@ describe("#16 retrievalHeadsCheck (dense/sparse/ColBERT/reranker readiness)", ()
     expect(r.details?.sparse).toContain("ready");
     expect(r.details?.colbert).toContain("ready");
     expect(r.details?.reranker).toContain("rerank capable");
+  });
+});
+
+describe("THE-648 snapshots.policy check", () => {
+  it("reports ok with the retention count when snapshots are enabled (the default)", async () => {
+    const r = await snapshotsCheck({ enabled: true, retention: 10 }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.enabled).toBe("true");
+    expect(r.summary).toContain("10");
+  });
+
+  it("warns when snapshots are explicitly disabled, with remediation", async () => {
+    const r = await snapshotsCheck({ enabled: false, retention: 10 }).run(ctx);
+    expect(r.status).toBe("warning");
+    expect(r.summary.toLowerCase()).toContain("no built-in rollback");
+    expect(r.remediation).toBeTruthy();
   });
 });

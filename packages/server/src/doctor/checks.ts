@@ -219,6 +219,34 @@ export function authMaxAgeCheck(
   };
 }
 
+/** snapshots.policy (THE-648) — reports whether destructive-write snapshots (restore_note's undo)
+ *  are captured. Enabled is the default posture as of THE-648, so it is unremarkable; explicitly
+ *  disabled is a warning, since a delete/replace then has no built-in rollback. Retention is
+ *  informational only — it is already pruned inline, so it never affects status. */
+export function snapshotsCheck(view: { enabled: boolean; retention: number }): Check {
+  return {
+    id: "snapshots.policy",
+    category: "notes",
+    run: () => {
+      const details = { enabled: String(view.enabled), retention: String(view.retention) };
+      if (!view.enabled) {
+        return {
+          status: "warning",
+          summary: "snapshots.enabled is false — destructive note writes have no built-in rollback",
+          details,
+          remediation:
+            "Set snapshots.enabled: true (the default) to let restore_note undo a destructive write, or leave disabled if that trade-off is intentional.",
+        };
+      }
+      return {
+        status: "ok",
+        summary: `snapshots enabled, keeping the newest ${view.retention} version(s) per note`,
+        details,
+      };
+    },
+  };
+}
+
 /** bridge.state (THE-523) — per-vault live/headless/degraded with reasons. A degraded vault (version
  *  skew, or the previously-invisible enabled-but-unreachable) is a warning with actionable
  *  remediation; live and headless are both healthy states. */

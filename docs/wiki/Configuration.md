@@ -30,7 +30,7 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 | `transports` | object | `stdio` (default on) and `http` (default off, loopback) |
 | `governor` | `{ "maxResponseBytes": 1000000, "regexTimeoutMs": 2000 }` | Response size ceiling + regex worker-time budget (ReDoS guard) |
 | `writes` | `{ "requireCas": false }` | When true, destructive note writes REQUIRE `prev_hash` (compare-and-swap) and fail closed without it |
-| `snapshots` | `{ "enabled": false, "retention": 10 }` | Point-in-time snapshots of destructive writes so `restore_note` can roll back |
+| `snapshots` | `{ "enabled": true, "retention": 10 }` | Point-in-time snapshots of destructive writes so `restore_note` can roll back (THE-648: on by default under `trusted-local`; retention is pruned inline) |
 | `bootstrap` | `{ "domains": [], "deepPaths": [], "maxPaths": 10 }` | Session-bootstrap routing table (signals → context notes; deep-mode phrases) |
 | `throttle` | object | Per-class rate tiers (read 600/100 … admin 5/1) + max concurrent writes/vault (16) |
 | `observability` | object | `otel` / `prometheus` / `morgiana` / `retention` (only `retention.eventLogDays` is enforced — trace files and the morgiana spool are not pruned) |
@@ -383,7 +383,7 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `snapshots.enabled` | `boolean` | `false` |  | Capture the prior content-addressed state before a destructive note write, so restore_note can roll back. |
+| `snapshots.enabled` | `boolean` | `true` |  | Capture the prior content-addressed state before a destructive note write, so restore_note can roll back. On by default under the trusted-local posture; retention is pruned inline, so growth is bounded. |
 | `snapshots.retention` | `number` | `10` |  | Maximum snapshot versions kept per note. Older versions are pruned. |
 
 ### `throttle`

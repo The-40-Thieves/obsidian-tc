@@ -11,6 +11,9 @@
 const HARDENED_BASE: Record<string, unknown> = {
   acl: { strictReadDefault: true },
   writes: { requireCas: true },
+  // THE-648: `enabled: true` now matches the schema's own default (trusted-local also snapshots),
+  // but stays listed here — explicit, not relied on — because `retention: 20` (vs. the base
+  // default of 10) is still hardened-specific and both keys merge as one object.
   snapshots: { enabled: true, retention: 20 },
   transports: { http: { enabled: false } },
 };

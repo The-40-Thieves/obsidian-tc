@@ -1092,9 +1092,9 @@ export const SnapshotsConfigSchema = z
   .object({
     enabled: z
       .boolean()
-      .default(false)
+      .default(true)
       .describe(
-        "Capture the prior content-addressed state before a destructive note write, so restore_note can roll back.",
+        "Capture the prior content-addressed state before a destructive note write, so restore_note can roll back. On by default under the trusted-local posture; retention is pruned inline, so growth is bounded.",
       ),
     retention: z
       .number()
