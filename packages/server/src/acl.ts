@@ -37,9 +37,37 @@ const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform ===
 // longest is under 20 chars — so the ceiling is deliberately generous and never trips in practice.
 const MAX_GLOB_LENGTH = 512;
 
+// THE-618: globToRegExp compiles on every call, and it sits on the per-note ACL hot path
+// (globMatch, called per rule per path from scopesForPath/makeIndexReadable/acl-read-filter/
+// acl-path/graph-health-tools' include-exclude scan). Memoize the compiled regex.
+//
+// Key design: a NESTED Map, outer keyed by the exact glob string and inner keyed by the
+// `caseInsensitive` boolean — NOT a concatenated string key. `caseInsensitive` changes the
+// compiled RegExp's flags, so a cache keyed on the glob alone would hand a case-insensitive
+// caller a case-sensitive compile (or vice versa, depending on call order): a silent ACL
+// correctness bug, worse than the perf problem this memoizes away. A concatenated key (glob
+// and the flag joined into one string with a delimiter) would also work but reuses the
+// NUL-sentinel idea this file already uses for `**` (line ~26) for an unrelated purpose, and
+// invites exactly the naive-string-key collision class `check:nul` exists to catch; nesting
+// on the boolean makes collision structurally impossible instead of merely unlikely — the
+// inner key is never a string, so it can never be misread as part of the glob.
+//
+// Bound: globs are config-authored (AclConfigT.rules/readPaths/writePaths/deletePaths) EXCEPT
+// for one caller — audit_provenance's `include`/`exclude` tool args (graph-health-tools.ts)
+// accept up to 64 caller-supplied glob strings per call, unbounded across calls over the
+// process lifetime. An unbounded cache is therefore a real memory-growth vector, not a
+// theoretical one. Cap total entries and evict the oldest on overflow (Map preserves insertion
+// order, so this is a cheap FIFO — an LRU is unnecessary because the whole point is bounding
+// worst-case growth from a caller pumping distinct globs, not maximizing hit rate).
+const GLOB_CACHE_MAX = 1000;
+const globCache = new Map<string, Map<boolean, RegExp>>();
+
 export function globToRegExp(glob: string, caseInsensitive: boolean = CASE_INSENSITIVE_FS): RegExp {
   if (glob.length > MAX_GLOB_LENGTH)
     throw new Error(`glob too long (${glob.length} > ${MAX_GLOB_LENGTH})`);
+  const byFlag = globCache.get(glob);
+  const cached = byFlag?.get(caseInsensitive);
+  if (cached !== undefined) return cached;
   const withDouble = glob.replace(/\*\*/g, NUL);
   let re = "";
   for (const c of withDouble) {
@@ -48,7 +76,19 @@ export function globToRegExp(glob: string, caseInsensitive: boolean = CASE_INSEN
     else if (c === "?") re += "[^/]";
     else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   }
-  return new RegExp(`^${re}$`, caseInsensitive ? "i" : "");
+  const compiled = new RegExp(`^${re}$`, caseInsensitive ? "i" : "");
+  let entry = byFlag;
+  if (!entry) {
+    if (globCache.size >= GLOB_CACHE_MAX) {
+      // Evict the oldest glob string (both its flag variants) — insertion order is the FIFO order.
+      const oldest = globCache.keys().next().value;
+      if (oldest !== undefined) globCache.delete(oldest);
+    }
+    entry = new Map();
+    globCache.set(glob, entry);
+  }
+  entry.set(caseInsensitive, compiled);
+  return compiled;
 }
 
 // Match glob against path in a Unicode-normalization-insensitive way (THE-272). macOS stores

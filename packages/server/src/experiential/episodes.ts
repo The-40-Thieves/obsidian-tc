@@ -22,6 +22,20 @@ export function genEpisodeId(): string {
 // Deliberately compact, high-precision credential shapes (gitleaks-style). The scan is a
 // REDACTION pass, not the poisoning defense — THE-238 layers the injection/consistency
 // checks on top. Order matters only for overlap; each pattern is applied globally.
+//
+// THE-619 item 3: two categories were verified (empirically, by running redactSecrets against
+// each candidate shape) to be genuinely missing and are added below. NOT added, because already
+// covered: generic PEM private keys — `-----BEGIN [A-Z ]*PRIVATE KEY-----` already matches RSA/
+// EC/DSA/OPENSSH banners regardless of the algorithm word, since `[A-Z ]*` swallows it.
+//   1. DB/service connection strings with embedded credentials (`scheme://user:pass@host`) — no
+//      existing pattern's label list ("api_key", "token", "password", ...) matches a bare `://`
+//      URL, so a leaked connection string slipped through entirely.
+//   2. Bare (unlabeled) provider API keys — the generic label pattern only fires when a
+//      recognized word precedes the value; a key pasted bare (in a URL, a connection string, an
+//      unlabeled config field) is invisible to it. Added the two verified-missing, well-known,
+//      fixed-shape formats: Google API keys and Stripe secret/restricted keys. Deliberately
+//      excludes Stripe PUBLISHABLE keys (`pk_...`) — those are meant to be public, so redacting
+//      them would be a false positive that destroys non-secret data for nothing.
 const SECRET_PATTERNS: RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key id
@@ -32,6 +46,12 @@ const SECRET_PATTERNS: RegExp[] = [
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g, // JWT
   /\bBearer\s+[A-Za-z0-9._-]{16,}\b/g,
   /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|secret|token)\s*[=:]\s*["']?[^\s"',;]{8,}/gi,
+  // DB/service connection string with embedded user:pass — common schemes only (not a generic
+  // `scheme://user:pass@host` catch-all, which would over-match arbitrary URLs unrelated to
+  // credential storage).
+  /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps|mssql):\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/gi,
+  /\bAIza[0-9A-Za-z_-]{35}\b/g, // Google API key (fixed 39-char shape)
+  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g, // Stripe secret/restricted key (not pk_ — publishable is not a secret)
 ];
 
 const REDACTED = "[REDACTED]";

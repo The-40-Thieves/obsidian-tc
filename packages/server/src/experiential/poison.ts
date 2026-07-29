@@ -32,19 +32,25 @@ export interface PoisonAssessment {
   signals: string[];
 }
 
-/** Per-channel base trust (memory contract: where a belief may originate). */
-export const CHANNEL_TRUST: Record<string, number> = {
+/**
+ * Per-channel base trust (memory contract: where a belief may originate). `Object.freeze` +
+ * `Readonly<>` (THE-619 item 1): nothing in this codebase mutates these tables at runtime today —
+ * this is hardening against a future accidental write (e.g. a caller doing `CHANNEL_TRUST[c] = x`
+ * instead of reading it) corrupting the trust computation for every episode. ESM runs in strict
+ * mode, so a write to a frozen property throws instead of silently no-op'ing.
+ */
+export const CHANNEL_TRUST: Readonly<Record<string, number>> = Object.freeze({
   dispatch: 0.6, // the agent's own tool traffic through the registry
   ambient: 0.3, // future: ambient capture worker (THE-175)
   import: 0.2, // future: imported/external episode packs
-};
+});
 
 /** Risk multiplier applied to the channel base (risk only ever lowers trust). */
-export const RISK_TRUST_MULTIPLIER: Record<PoisonRisk, number> = {
+export const RISK_TRUST_MULTIPLIER: Readonly<Record<PoisonRisk, number>> = Object.freeze({
   none: 1,
   suspect: 0.5,
   high: 0.1,
-};
+});
 
 // Family: instruction-override / injection markers. English + the common Romance/Germanic
 // forms (ignora/ignorar/ignore/ignorer/ignorez/ignorieren) — multilingual payloads are a
@@ -105,6 +111,25 @@ export function normalizeForScan(text: string): string {
   return text.normalize("NFKC").replace(INVISIBLE_CONTROLS, "");
 }
 
+// THE-619 item 2: assessPoison runs on EVERY capture regardless of content persistence (see the
+// MEMORY CONTRACT above), so an unbounded input makes every regex family in this file walk the
+// full string on every dispatch — a tool arg carrying a large file's content (or worse, an
+// adversarial input crafted to be slow against these patterns) turns into unbounded work on a
+// hot path with no size floor.
+//
+// Truncation semantics: truncate-and-scan, NOT refuse (throw). Refusing would propagate out of
+// assessPoison into the capture bus's per-episode try/catch (episodes.ts createEpisodeCapture),
+// which treats any capture failure as best-effort and skips the row entirely — that breaks the
+// THE-238 contract that "the log stays complete while retrieval-use is gated" (file header).
+// But truncating SILENTLY is the fail-unsafe choice: it would scan only the capped prefix and
+// still report 'none' if that prefix looks clean, even though a payload placed past the cap was
+// never examined — a poison payload past the cap would be invisible. So: scan the capped prefix
+// for the normal signal families, but treat "there was more text than we looked at" as itself a
+// signal. 'oversized' alone escalates to 'suspect' (never 'none'), and combines with any other
+// single family to reach 'high' via the existing >=2-signals rule below — an over-cap payload can
+// never be graded as fully clean.
+export const MAX_TEXT_LENGTH = 65_536; // 64 KiB: generous vs. real tool-arg payloads (episodes.ts caps stored args at 4096 bytes post-redaction), bounds worst-case regex work per dispatch.
+
 /**
  * Assess one episode's textual payload. Precision-leaning by design: 'high' means an
  * instruction-override or exfil shape fired (born-ineligible); 'suspect' means persistence
@@ -113,19 +138,22 @@ export function normalizeForScan(text: string): string {
  */
 export function assessPoison(text: string): PoisonAssessment {
   const signals: string[] = [];
+  const oversized = text.length > MAX_TEXT_LENGTH;
+  const bounded = oversized ? text.slice(0, MAX_TEXT_LENGTH) : text;
   // Content families run against the canonicalized text (homoglyph/zero-width evasion folded away);
-  // the hidden-text family runs against the ORIGINAL, since the presence of the invisibles is itself
-  // the signal that normalization would erase.
-  const scan = normalizeForScan(text);
+  // the hidden-text family runs against the ORIGINAL (bounded), since the presence of the
+  // invisibles is itself the signal that normalization would erase.
+  const scan = normalizeForScan(bounded);
   if (OVERRIDE.some((p) => p.test(scan))) signals.push("override");
   if (PERSISTENCE.some((p) => p.test(scan))) signals.push("persistence");
   const hidden =
-    ZERO_WIDTH.test(text) ||
-    BIDI_OVERRIDE.test(text) ||
+    ZERO_WIDTH.test(bounded) ||
+    BIDI_OVERRIDE.test(bounded) ||
     HTML_COMMENT_DIRECTIVE.test(scan) ||
     OPAQUE_BLOB.test(scan);
   if (hidden) signals.push("hidden");
   if (EXFIL.some((p) => p.test(scan))) signals.push("exfil");
+  if (oversized) signals.push("oversized");
 
   let risk: PoisonRisk = "none";
   if (signals.includes("override") || signals.includes("exfil")) risk = "high";
