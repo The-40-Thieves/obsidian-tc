@@ -20,10 +20,15 @@ obsidian-tc is a polyglot monorepo. The packages are:
 - `packages/plugin/` — TypeScript Obsidian companion plugin.
 - `packages/native/` — Rust native module via napi-rs.
 - `packages/shared/` — Shared TypeScript types and Zod schemas.
+- `services/` — Python sidecar services (`bge-m3-service`, `docs-ingest`, `qwen-tei`). Optional at
+  runtime; the server falls back when they are not reachable.
 - `docs/` — Astro Starlight documentation site.
 - `examples/` — Example integrations (Claude Desktop, Claude Code, Cursor, Docker, agents).
 
-There is no Python in the repo. A Python ML sidecar was once reserved for V2 retrieval intelligence; it is **out of scope** for obsidian-tc.
+Python is confined to `services/` and is not part of the server, plugin, shared, or native build.
+You do not need Python to work on those. The V2 retrieval-intelligence ML sidecar is a separate,
+still **out-of-scope** idea and is not what lives here — `services/` holds embedding, reranking and
+docs-ingest workers, covered by their own CI job (`ci-model-service.yml`).
 
 ## Development Setup
 
