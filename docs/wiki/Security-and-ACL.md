@@ -28,7 +28,7 @@ Destructive or large operations require confirmation. A tripped tool returns an 
 
 This is a custom token pattern, **not** MCP's native `elicitation` capability, so it works with any MCP client.
 
-### Default thresholds (per-vault tunable)
+### Thresholds (hardcoded — not configurable)
 
 | Condition | Default |
 |---|---|
@@ -42,7 +42,7 @@ This is a custom token pattern, **not** MCP's native `elicitation` capability, s
 | `write_note` overwrite | required when overwriting a non-empty existing file |
 | `reset_vault_cache` | always required |
 
-Humans can raise thresholds for lower friction; agent sandboxes can lower them for tighter safety. **Execute-family tools sit on a hardcoded HITL floor** — `git_commit`, command execution, and bulk-destructive paths always require confirmation regardless of configured thresholds.
+These conditions are **hardcoded floors — a client cannot configure them away**, which keeps the confirmation gate present even under a permissive config. There is no per-vault or global threshold key in the config schema; the only elicitation-related setting is `elicitTtlSeconds`, which controls how long an issued token stays valid, not when confirmation is demanded. Execute-family tools (`git_commit`, command execution, bulk-destructive paths) sit on the same floor and always require confirmation.
 
 ## Write safety (compare-and-swap)
 

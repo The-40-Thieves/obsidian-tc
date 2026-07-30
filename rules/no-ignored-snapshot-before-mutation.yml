@@ -25,12 +25,14 @@ rule:
     - precedes:
         stopBy: end
         any:
+          # Only the mutation helpers that actually exist in packages/server/src/vault/notes-io.ts.
+          # A pattern for a function with no definition and no rule-test case cannot fire and cannot
+          # be proven, so it reads as coverage without being coverage. If a rename/move mutation
+          # helper is added later, add its pattern AND a rule-test case in the same change.
           - pattern: writeNoteAtomic($$$MUTATE_ARGS)
           - pattern: hardDelete($$$MUTATE_ARGS)
-          - pattern: renameNoteAtomic($$$MUTATE_ARGS)
           - has:
               stopBy: end
               any:
                 - pattern: writeNoteAtomic($$$MUTATE_ARGS)
                 - pattern: hardDelete($$$MUTATE_ARGS)
-                - pattern: renameNoteAtomic($$$MUTATE_ARGS)
