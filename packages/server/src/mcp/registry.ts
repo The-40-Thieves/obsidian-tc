@@ -1,4 +1,4 @@
-import { type Span, SpanKind, SpanStatusCode, type Tracer } from "@opentelemetry/api";
+import { SpanKind, type Tracer } from "@opentelemetry/api";
 import {
   err,
   grantsAll,
@@ -11,7 +11,6 @@ import {
   type ToolResult,
   type ToolVisibilityConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { type AuditEvent, writeEvent } from "../audit";
 import { cachedPrepare, type Database } from "../db/types";
 import { hitlSatisfiedByState } from "../elicit-request-state";
 import { argsHash } from "../hash";
@@ -21,6 +20,11 @@ import { withTraceCarrier } from "../otel/propagation";
 import { callerHash, type RateLimiter } from "../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../vault/acl-audit";
 import { enforcePathAcl } from "../vault/acl-path";
+import {
+  annotateSpanResult,
+  callStatusForError,
+  DispatchObservability,
+} from "./registry/dispatch-observability";
 import { ToolStore } from "./registry/tool-store";
 import {
   type CallerContext,
@@ -69,40 +73,6 @@ export function assertScopesGranted(
   if (!grantsAll(ctx.grantedScopes, requiredScopes)) {
     throw err.forbidden(message, { required: requiredScopes });
   }
-}
-
-/** Map a terminal error code to the G2.4 tool-call status label (ok | denied | error). */
-function callStatusForError(code: string): ToolCallStatus {
-  switch (code) {
-    case "unauthorized":
-    case "forbidden":
-    case "acl_denied":
-    case "elicit_required":
-    case "throttled":
-      return "denied";
-    default:
-      return "error";
-  }
-}
-
-/** Set the G2.4 result attributes + span status on the root span from a dispatch outcome. */
-function annotateSpanResult(span: Span, result: ToolResult): void {
-  span.setAttribute(SPAN_ATTR.durationMs, result.meta.duration_ms);
-  if (result.ok) {
-    span.setAttribute(SPAN_ATTR.status, "ok");
-    span.setAttribute(SPAN_ATTR.rateLimitHit, false);
-    span.setStatus({ code: SpanStatusCode.OK });
-    return;
-  }
-  const code = result.error.code;
-  span.setAttribute(SPAN_ATTR.status, callStatusForError(code));
-  span.setAttribute(SPAN_ATTR.errorCode, code);
-  span.setAttribute(SPAN_ATTR.rateLimitHit, code === "throttled");
-  if (typeof result.meta.overflow_bytes === "number") {
-    span.setAttribute(SPAN_ATTR.overflowB, result.meta.overflow_bytes);
-  }
-  // Error spans are always recorded (G2.4: sampled regardless of trace rate).
-  span.setStatus({ code: SpanStatusCode.ERROR, message: code });
 }
 
 /** The whole-operation idempotency key for a call, if any (D3). Reads a top-level
@@ -182,28 +152,25 @@ export class ToolRegistry {
   // interface seam (map constraint 6). ToolRegistry still resolves a definition by name at several
   // dispatch-body call sites below (unchanged this slice), now via toolStore.get(name).
   private readonly toolStore = new ToolStore();
+  // WP4.2: the observability sinks (meter/relay/morgianaData/relayCompletion/emitCompletion/
+  // recordOutcome) moved to registry/dispatch-observability.ts (DispatchObservability) — same
+  // concrete-composition pattern as toolStore above. ToolRegistry's own meter/relay/etc. methods
+  // below are now one-line delegations, so the dispatch-body call sites that use them (this slice
+  // does not move the dispatch body) are unchanged.
+  private readonly observability: DispatchObservability;
   private readonly _maxResponseBytes: number;
   private readonly verifyElicit?: VerifyElicit;
-  private readonly metrics?: MetricsRecorder;
   private readonly tracer?: Tracer;
-  private readonly emit?: (
-    vaultId: string,
-    type: MorgianaEventType,
-    data: Partial<MorgianaEventData>,
-  ) => void;
   private readonly rateLimiter?: RateLimiter;
   private readonly idempotencyTtlMs: number;
   private readonly idempotencyReclaimMs: number;
   private readonly toolVisibility: ToolVisibilityConfig;
   private readonly onProfile?: (p: DispatchProfile) => void;
-  private readonly sessionTracer?: RegistryOptions["sessionTracer"];
   private readonly onInternalError?: RegistryOptions["onInternalError"];
   private readonly onOutputSchemaDrift?: RegistryOptions["onOutputSchemaDrift"];
-  private readonly onAuditFailure?: RegistryOptions["onAuditFailure"];
   private readonly aclResolver?: RegistryOptions["aclResolver"];
   private readonly rootResolver?: RegistryOptions["rootResolver"];
   private readonly vaultKindResolver?: RegistryOptions["vaultKindResolver"];
-  private readonly onEpisode?: RegistryOptions["onEpisode"];
   private readonly strictOutputSchema: boolean;
 
   /** THE-514 item 2: read-only access to the configured ceiling, so mcp/server.ts can pass it to
@@ -217,78 +184,40 @@ export class ToolRegistry {
   constructor(opts: RegistryOptions = {}) {
     this._maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
     this.verifyElicit = opts.verifyElicit;
-    this.metrics = opts.metrics;
     this.tracer = opts.tracer;
-    this.emit = opts.emit;
     this.rateLimiter = opts.rateLimiter;
     this.idempotencyTtlMs = (opts.idempotencyTtlSeconds ?? 86400) * 1000;
     this.idempotencyReclaimMs = (opts.idempotencyReclaimSeconds ?? 60) * 1000;
     this.toolVisibility = opts.toolVisibility ?? ALLOW_ALL;
     this.onProfile = opts.onProfile;
-    this.sessionTracer = opts.sessionTracer;
     this.onInternalError = opts.onInternalError;
     this.onOutputSchemaDrift = opts.onOutputSchemaDrift;
-    this.onAuditFailure = opts.onAuditFailure;
     this.aclResolver = opts.aclResolver;
     this.rootResolver = opts.rootResolver;
     this.vaultKindResolver = opts.vaultKindResolver;
-    this.onEpisode = opts.onEpisode;
     this.strictOutputSchema = opts.strictOutputSchema ?? strictOutputSchemaDefault();
+    this.observability = new DispatchObservability({
+      toolStore: this.toolStore,
+      metrics: opts.metrics,
+      emit: opts.emit,
+      sessionTracer: opts.sessionTracer,
+      onAuditFailure: opts.onAuditFailure,
+      onEpisode: opts.onEpisode,
+    });
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
   private meter(fn: (m: MetricsRecorder) => void): void {
-    const m = this.metrics;
-    if (!m) return;
-    try {
-      fn(m);
-    } catch {
-      /* observability must never block tool execution */
-    }
+    this.observability.meter(fn);
   }
 
   /** Emit one MORGIANA CloudEvent; a sink error must never break dispatch (G2.4 fail-soft). */
   private relay(vaultId: string, type: MorgianaEventType, data: Partial<MorgianaEventData>): void {
-    if (!this.emit) return;
-    try {
-      this.emit(vaultId, type, data);
-    } catch {
-      /* MORGIANA emission must never block tool execution */
-    }
+    this.observability.relay(vaultId, type, data);
   }
 
-  /** The shared CloudEvents data payload for a completed call. */
-  private morgianaData(
-    name: string,
-    ctx: CallerContext,
-    result: ToolResult,
-  ): Partial<MorgianaEventData> {
-    return {
-      tool: name,
-      caller_hash: callerHash(ctx.caller),
-      scopes_required: this.toolStore.get(name)?.requiredScopes ?? [],
-      status: result.ok ? "ok" : callStatusForError(result.error.code),
-      duration_ms: result.meta.duration_ms,
-      // THE-288 hardening: emit a one-way fingerprint, never the raw single-use HITL token.
-      elicit_token: ctx.elicitToken ? callerHash(ctx.elicitToken) : null,
-      result_size: result.meta.result_size,
-      overflow_bytes: result.meta.overflow_bytes ?? null,
-      error: result.ok ? null : { code: result.error.code, message: result.error.message },
-    };
-  }
-
-  /**
-   * THE-514 item 1: the MORGIANA completion-event fan-out for a terminal call outcome — always
-   * tc.tool.call.completed, plus the specific signal for the error code (if any). This used to be
-   * two copies: emitCompletion's switch (below) for tool dispatch, and a REDUCED copy inside
-   * dispatchResource's `emit` closure that fired only tc.tool.call.completed and never the
-   * per-error-code signal — so a resource read denied by path ACL never relayed tc.acl.denied,
-   * a resource over MAX_RESOURCE_BYTES never relayed tc.governor.overflow, etc., for the exact
-   * codes tool dispatch already signals on. Deliberate decision: resources gain the richer
-   * behavior (relay through this shared method) rather than tools losing it, because this is
-   * strictly more information to the same MORGIANA consumer and changes no existing tool
-   * behavior — dispatchResource's caller-visible contract (throw/return) is untouched.
-   */
+  /** See DispatchObservability.relayCompletion (registry/dispatch-observability.ts) — the MORGIANA
+   *  completion-event fan-out shared by tool dispatch and dispatchResource's `emit` closure below. */
   private relayCompletion(
     vaultId: string,
     name: string,
@@ -296,40 +225,12 @@ export class ToolRegistry {
     code: string | undefined,
     data: Partial<MorgianaEventData>,
   ): void {
-    this.relay(vaultId, "tc.tool.call.completed", data);
-    if (status === "ok") {
-      if (name === "reset_vault_cache") this.relay(vaultId, "tc.vault.cache_reset", data);
-      return;
-    }
-    switch (code) {
-      case "forbidden":
-      case "acl_denied":
-        this.relay(vaultId, "tc.acl.denied", data);
-        break;
-      case "overflow":
-        this.relay(vaultId, "tc.governor.overflow", data);
-        break;
-      case "elicit_required":
-        this.relay(vaultId, "tc.elicit.requested", data);
-        break;
-      case "throttled":
-        this.relay(vaultId, "tc.rate_limit.hit", data);
-        break;
-    }
+    this.observability.relayCompletion(vaultId, name, status, code, data);
   }
 
   /** Per-call MORGIANA events for a completed tool dispatch — see relayCompletion. */
   private emitCompletion(name: string, ctx: CallerContext, result: ToolResult): void {
-    if (!this.emit) return;
-    const data = this.morgianaData(name, ctx, result);
-    const status: ToolCallStatus = result.ok ? "ok" : callStatusForError(result.error.code);
-    this.relayCompletion(
-      ctx.vaultId,
-      name,
-      status,
-      result.ok ? undefined : result.error.code,
-      data,
-    );
+    this.observability.emitCompletion(name, ctx, result);
   }
 
   /** Try to atomically claim the in-flight idempotency slot for (vault, key). */
@@ -446,10 +347,7 @@ export class ToolRegistry {
   // One OTEL root span per tool call (G2.4) wraps the pipeline when a tracer is configured;
   // otherwise the tracer-less fast path runs unchanged. Span attributes come from ctx + the
   // ToolResult, so runDispatch's internals stay untouched.
-  /** THE-415: record ONE governed outcome - audit row + session trace + episode bus.
-   *  Shared by tool dispatch and by dispatchResource, so the resources/* surface cannot
-   *  drift from tools/* on audit. Fail-open throughout: observability must never break
-   *  the call. */
+  /** THE-415: record ONE governed outcome — see DispatchObservability.recordOutcome. */
   private recordOutcome(
     ctx: CallerContext,
     name: string,
@@ -460,75 +358,16 @@ export class ToolRegistry {
     resultSize: number,
     code?: string,
   ): void {
-    try {
-      const e: AuditEvent = {
-        ts: Date.now(),
-        vault_id: ctx.vaultId,
-        tool_name: name,
-        caller: ctx.caller,
-        duration_ms: durationMs,
-        result_size: resultSize,
-        status,
-        error_code: code ?? null,
-        args_hash: hash,
-        event_type: "tool_invocation",
-      };
-      writeEvent(ctx.db, e);
-    } catch {
-      // Audit stays fail-open — it must never break dispatch. But a silent failure
-      // (locked DB, disk full, migration drift) makes the security-audit trail lossy
-      // with no signal at all, so surface it as a metric. meter() is itself guarded,
-      // so this cannot throw back out of the catch. THE-457: also notify the health sink so an
-      // operator watching server_health (not metrics) sees the audit trail going lossy.
-      this.meter((m) => m.incAuditWriteFailed(ctx.vaultId, name));
-      try {
-        this.onAuditFailure?.(name, ctx.vaultId);
-      } catch {
-        /* health sink must never break dispatch */
-      }
-    }
-    // THE-209: mirror the audit row into the active session's JSONL trace, if any.
-    if (ctx.sessionId && this.sessionTracer) {
-      try {
-        this.sessionTracer(
-          { vaultId: ctx.vaultId, sessionId: ctx.sessionId, caller: ctx.caller },
-          {
-            ts: Date.now(),
-            type: "tool_invocation",
-            tool: name,
-            caller: ctx.caller,
-            duration_ms: durationMs,
-            args_hash: hash,
-            result_size: resultSize,
-            status,
-            ...(code ? { error_code: code } : {}),
-          },
-        );
-      } catch {
-        /* tracing must never break dispatch */
-      }
-    }
-    // THE-228: hand the same outcome to the experiential episode bus — every dispatch,
-    // session or not. The bus owns content policy (redaction / caps / off) + persistence.
-    if (this.onEpisode) {
-      try {
-        this.onEpisode({
-          ts: Date.now(),
-          vaultId: ctx.vaultId,
-          tool: name,
-          caller: ctx.caller,
-          sessionId: ctx.sessionId ?? null,
-          status,
-          errorCode: code ?? null,
-          durationMs,
-          resultSize,
-          argsHash: hash,
-          args: rawInput,
-        });
-      } catch {
-        /* capture must never break dispatch */
-      }
-    }
+    this.observability.recordOutcome(
+      ctx,
+      name,
+      hash,
+      rawInput,
+      status,
+      durationMs,
+      resultSize,
+      code,
+    );
   }
 
   /**
