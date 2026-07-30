@@ -305,6 +305,106 @@ describe("agent_episodes capture bus (THE-228)", () => {
       expect(redactions).toBe(0);
       expect(text).toContain(publishable);
     });
+
+    it("catches a Hugging Face token (bare, no preceding label)", () => {
+      // No "token:"/"api_key="-style label in front — this exercises the hf_-specific pattern
+      // in isolation, not the generic labeled-value catch-all above. THE-619 defect 4: this
+      // fixture used to be 33 chars while claiming a "correct length" token — that codified the
+      // pattern's permissive `{30,}` floor as if it were the real shape. Use a GENUINE 34-char
+      // payload (the shape upstream Gitleaks models: `hf_` + exactly 34 alphanumeric) so this
+      // test asserts against the real token length, not just "long enough to pass the floor".
+      const fakeToken = `hf_${"D".repeat(34)}`; // synthetic filler, genuine 34-char hf_ token shape
+      const { text, redactions } = redactSecrets(`ref ${fakeToken} in the config`);
+      expect(redactions).toBeGreaterThan(0);
+      expect(text).not.toContain(fakeToken);
+    });
+
+    it("THE-619 defect 3: an hf_ token immediately followed by `_` is still caught", () => {
+      // The old pattern's trailing `\b` never fires between two word characters, and `_` is a
+      // word character — so a token flush against a trailing underscore slipped through with 0
+      // redactions. This is the false-negative / leak defect, not a cosmetic near-miss. No
+      // preceding label word (as in the "bare" test above) — isolates the hf_-specific pattern
+      // from the generic labeled-value catch-all, which would otherwise mask the bug via a
+      // "token=" style label.
+      const secretPart = "a".repeat(36);
+      const fakeToken = `hf_${secretPart}_`;
+      const { text, redactions } = redactSecrets(`ref ${fakeToken} in the config`);
+      expect(redactions).toBeGreaterThan(0);
+      expect(text).not.toContain(secretPart);
+    });
+
+    it("THE-619 defect 3: an hf_ token wrapped in markdown emphasis (_..._) is still caught", () => {
+      // A realistic capture-path shape: someone pastes a token into markdown and it lands
+      // wrapped in emphasis underscores on both sides. Both the leading AND trailing `_`
+      // defeated the old \b-anchored pattern.
+      const secretPart = "b".repeat(36);
+      const wrapped = `_hf_${secretPart}_`;
+      const { text, redactions } = redactSecrets(`note: ${wrapped} here`);
+      expect(redactions).toBeGreaterThan(0);
+      expect(text).not.toContain(secretPart);
+    });
+
+    it("near-miss: a bare content hash is not flagged as a Hugging Face token", () => {
+      // A hex sha (git commit / content hash) can never contain the literal `hf_` prefix — hex
+      // digits stop at 'f', so 'h' never appears — but this pins that guarantee against future
+      // pattern changes rather than trusting it implicitly.
+      const sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85";
+      const { text, redactions } = redactSecrets(`content hash: ${sha}`);
+      expect(redactions).toBe(0);
+      expect(text).toContain(sha);
+    });
+
+    // THE-619 defect 1/2: `sig` sitting in the generic keyword alternation over-redacted benign
+    // config values (`sig: migration`, `sig=disabled`) and public, non-secret signature material.
+    // Replaced with a standalone pattern requiring actual query-parameter context (`?`/`&`, or
+    // their percent-encoded forms) plus a realistic Base64-signature length floor. Fixture
+    // signatures below are 44 chars — the real Base64-encoded HMAC-SHA256 shape (32 bytes -> 44
+    // chars incl. one `=` pad) — matching the pattern's documented floor rather than an
+    // arbitrarily short placeholder.
+    const SAS_SIG = "A1b2C3d4E5A1b2C3d4E5A1b2C3d4E5A1b2C3d4E5Hi9K"; // 44 chars, genuine SAS-sig shape
+
+    it("THE-619 defect 1: a literal Azure SAS URL is still redacted by the targeted pattern", () => {
+      const sasUrl = `https://demoaccount.blob.core.windows.net/democontainer/blob.txt?sv=2022-11-02&ss=b&srt=sco&sp=rwdlacx&se=2026-08-01T00:00:00Z&sig=${SAS_SIG}`;
+      const { text, redactions } = redactSecrets(sasUrl);
+      expect(redactions).toBeGreaterThan(0);
+      expect(text).not.toContain(SAS_SIG);
+    });
+
+    it("THE-619 defect 2: a percent-encoded (URL-encoded) SAS URL is redacted too", () => {
+      // Realistic on a capture path: this exact shape (the whole URL, including its own `?`/`&`/
+      // `=` delimiters, percent-encoded) appears when a SAS URL is carried as a JSON string
+      // argument. The old pattern only recognized literal `?`/`&`/`sig=` and missed this
+      // entirely (0 redactions) — the encoded delimiters (`%3F`/`%26`/`%3D`) need their own path.
+      const encoded = `https%3A%2F%2Fx.blob.core.windows.net%2Fc%3Fsv%3D2022-11-02%26sig%3D${SAS_SIG}`;
+      const { text, redactions } = redactSecrets(encoded);
+      expect(redactions).toBeGreaterThan(0);
+      expect(text).not.toContain(SAS_SIG);
+    });
+
+    it("THE-619 defect 1: benign 'sig' labeled values are NOT redacted", () => {
+      for (const benign of ["sig: migration", "sig=disabled", "sig: v2"]) {
+        const { text, redactions } = redactSecrets(benign);
+        expect(redactions).toBe(0);
+        expect(text).toBe(benign);
+      }
+    });
+
+    it("THE-619 defect 1: public signature material (not a secret) is NOT redacted", () => {
+      const benign = "sig: MEUCIQDxyzABCDEFGHIJKLMNOP";
+      const { text, redactions } = redactSecrets(benign);
+      expect(redactions).toBe(0);
+      expect(text).toBe(benign);
+    });
+
+    it("near-miss: 'signature' (containing 'sig' as a substring) and a bare hash are not flagged", () => {
+      // This near-miss stays green whether or not `sig` sits in the generic alternation: even
+      // before THE-619 defect 1's fix, "signature" was never followed immediately by `=`/`:` (it
+      // is followed by "nature"), so the keyword match never fired on it either way.
+      const sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85";
+      const { text, redactions } = redactSecrets(`commit signature check: ${sha}`);
+      expect(redactions).toBe(0);
+      expect(text).toContain(sha);
+    });
   });
 
   it("fires end-to-end from a real dispatch via the registry onEpisode hook", async () => {

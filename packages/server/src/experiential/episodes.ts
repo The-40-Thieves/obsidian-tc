@@ -36,6 +36,35 @@ export function genEpisodeId(): string {
 //      fixed-shape formats: Google API keys and Stripe secret/restricted keys. Deliberately
 //      excludes Stripe PUBLISHABLE keys (`pk_...`) — those are meant to be public, so redacting
 //      them would be a false positive that destroys non-secret data for nothing.
+//
+// THE-619 item 3 (continued): two more categories, same "verified genuinely missing" bar as
+// above. Anthropic key patterns, `export KEY=` forms, Cohere keys, atomic groups, and ReDoS
+// hardening were all considered and explicitly excluded — out of scope for this pass.
+//   3. Hugging Face tokens — fixed `hf_` prefix, no existing pattern covers it (the generic
+//      label pattern needs a preceding label word; a bare `hf_...` token has none).
+//   4. Azure SAS tokens — no fixed prefix to anchor on (unlike AKIA/gh_/sk-/AIza above), but a
+//      SAS URL always carries a `sig=<signature>` query parameter.
+//
+// THE-619 review fixes (this pass), against the additions above:
+//   Defect 1 — `sig` was added to the generic keyword alternation (`api_key|token|password|...`)
+//      to catch SAS tokens, but `sig` is too short and common a config key for that alternation:
+//      it over-matched `sig: migration`, `sig=disabled`, and public (non-secret) signature
+//      material. Removed from the alternation; replaced with a standalone, TARGETED SAS pattern
+//      below that requires actual query-parameter context.
+//   Defect 2 — that targeted pattern also has to recognize a percent-encoded SAS URL (`%3F`/
+//      `%26`/`%3D` in place of `?`/`&`/`=`), which is a realistic shape on a capture path — SAS
+//      URLs commonly arrive pre-encoded inside a JSON args payload.
+//   Defect 3 — the `hf_` pattern's trailing `\b` failed whenever the token was adjacent to `_`
+//      (`_` is a word character, so `\b` does not fire at a `hf_...` / `..._` boundary), which
+//      is a false negative / leak, not a cosmetic near-miss: a token wrapped in markdown
+//      emphasis (`_hf_..._`) or trailing an env-style `_` slipped through uncaught. Replaced
+//      both boundaries with lookaround anchored on the token's own alphabet
+//      (`[A-Za-z0-9]`) instead of `\b`, so it deliberately still matches when adjacent to `_` —
+//      for a redactor, over-matching a secret is the safe direction.
+//   Defect 4 — upstream Gitleaks models `hf_` tokens as exactly 34 alphanumeric chars; this file
+//      deliberately keeps the permissive `{30,}` floor rather than tightening to `{34}` (HF has
+//      not published a stable shape, and a false negative here leaks a live credential while a
+//      false positive only costs one redacted string) — see the pattern below.
 const SECRET_PATTERNS: RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key id
@@ -52,6 +81,26 @@ const SECRET_PATTERNS: RegExp[] = [
   /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps|mssql):\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/gi,
   /\bAIza[0-9A-Za-z_-]{35}\b/g, // Google API key (fixed 39-char shape)
   /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g, // Stripe secret/restricted key (not pk_ — publishable is not a secret)
+  // Hugging Face token: `hf_` + 30+ alphanumeric. Boundaries are lookaround on the token's own
+  // alphabet, not `\b` — `_` is a word character, so a trailing/leading `_` (env-style
+  // `hf_...token..._`, or markdown emphasis `_hf_..._`) would silently defeat a `\b`-anchored
+  // match (THE-619 defect 3). `{30,}` is a deliberately permissive floor, not the exact 34-char
+  // shape Gitleaks models upstream — HF has not published a stable length, and for a redactor a
+  // false negative (leaked live credential) is far worse than a false positive (one redacted
+  // string) (THE-619 defect 4).
+  /(?<![A-Za-z0-9])hf_[A-Za-z0-9]{30,}(?![A-Za-z0-9])/g,
+  // Azure SAS token: a `sig=` (or percent-encoded `sig%3D`) query parameter, anchored on real
+  // query-string context (`?`/`&`, or their percent-encoded forms `%3F`/`%26` for a SAS URL
+  // that has itself been percent-encoded whole — a realistic shape when it arrives inside a
+  // JSON args payload on a capture path, THE-619 defect 2). A bare `sig: <value>` with no
+  // query-parameter delimiter — e.g. `sig: migration`, `sig=disabled`, or public signature
+  // material — is deliberately NOT matched; `sig` is too short/common a key to sit in the
+  // generic labeled-value alternation above (THE-619 defect 1, replacing the earlier
+  // `sig`-in-alternation approach). Length floor 40: a SAS signature is a Base64-encoded
+  // HMAC-SHA256 digest, a fixed 44 chars (32 bytes -> 11 base64 groups + one `=` pad); 40 sits
+  // just under that to tolerate percent-encoding of the value itself without hardcoding the
+  // exact literal count.
+  /(?:[?&]|%3F|%26)sig(?:=|%3D)(?:[A-Za-z0-9+/_-]|%2B|%2F|%3D){40,}/gi,
 ];
 
 const REDACTED = "[REDACTED]";
