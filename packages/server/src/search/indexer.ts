@@ -14,8 +14,14 @@
 // live in indexing/types.ts. Every name this file exported before that split is still exported
 // from here, so no consumer needs to change its import path.
 //
-// Persistence (applyNoteWrites, the dedup vector copy) and the orchestrators (indexNote,
-// deindexNote, indexVault) stay in this file for WP3 slices 2 and 3.
+// WP3 slice 2: the cross-path dedup lookup/copy (fetchDedupSource, copyDedupVectors) lives in
+// indexing/dedup.ts; the transactional SQL-application phase (applyNoteWrites, fireIndexHook,
+// DELETE_CONTRADICTIONS_SQL) lives in indexing/persist-note-plan.ts. Both execute INSIDE the
+// caller's existing write transaction and make no embedding calls.
+//
+// The orchestrators (indexNote, deindexNote, indexVault) stay in this file for WP3 slice 3 — they
+// own the transaction boundary (BEGIN/COMMIT/ROLLBACK) that applyNoteWrites and copyDedupVectors
+// execute inside of.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { tableExists } from "../db/introspect";
 import { inWriteTransaction, type WriteTxnHooks } from "../db/txn";
@@ -26,8 +32,8 @@ import { type ExtractedLink, extractLinks } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVault, walkVaultStream } from "../vault/paths";
 import { noteTags } from "../vault/tags";
-import { deleteChunkColbert, ensureChunkColbert, upsertChunkColbert } from "./chunk_colbert";
-import { deleteChunkFtsRow, ensureChunkFts, upsertChunkFtsRow } from "./chunk_fts";
+import { deleteChunkColbert, ensureChunkColbert } from "./chunk_colbert";
+import { deleteChunkFtsRow, ensureChunkFts } from "./chunk_fts";
 import {
   computeKnnEdges,
   computeKnnEdgesForPaths,
@@ -64,9 +70,13 @@ import {
   preloadChunkState,
   readNoteTags,
 } from "./indexing/note-plan";
+import {
+  applyNoteWrites,
+  DELETE_CONTRADICTIONS_SQL,
+  fireIndexHook,
+} from "./indexing/persist-note-plan";
 import type {
   DedupCache,
-  DedupSource,
   IndexHook,
   IndexStats,
   IndexVaultArgs,
@@ -79,8 +89,8 @@ import {
   VEC_DISTANCE_METRIC,
   VEC_SCHEMA_GEN,
 } from "./representation";
-import { deleteChunkSparse, ensureChunkSparse, upsertChunkSparse } from "./sparse";
-import { blobToFloats, ensureVecChunks, floatBlob, upsertVec } from "./vec";
+import { deleteChunkSparse, ensureChunkSparse } from "./sparse";
+import { ensureVecChunks } from "./vec";
 
 // THE-408: enrichChunkText moved to ./chunk (import-cycle-free for chunk_fts); re-exported here
 // for existing importers (tests, scripts).
@@ -135,284 +145,6 @@ async function planNoteWrites(
     }
   }
   return res;
-}
-
-// #280-followup: a chunk's contradiction flags are judged on its exact content; when the chunk is
-// pruned or re-embedded (content changed) they are stale and must be dropped, or "open" rows accrue
-// unbounded and pollute the synthesis / knowledge_challenge / reflect grounding (all read
-// status='open'). Tied to chunk lifetime here, alongside the fts/vec/sparse/colbert cleanup.
-const DELETE_CONTRADICTIONS_SQL =
-  "DELETE FROM contradictions WHERE source_chunk_id = ? OR conflict_chunk_id = ?";
-
-// THE-454: copy an identical EMBED TEXT's already-stored vectors onto a cross-path-dedup (skipEmbed)
-// chunk so it stays retrievable by dense/sparse/ColBERT, not just FTS. The source is another chunk
-// (c.id != target) with the same embed representation + model. It MUST match on content_hash (the
-// enriched embed-text hash under THE-406), not body_sha alone: two identical raw bodies under
-// DIFFERENT titles share a body_sha but embed different text, so copying by body_sha handed the second
-// note the first note's (wrongly-titled) vector. body_sha stays in the predicate purely as the indexed
-// access path (index chunks_body_sha); content_hash enforces correctness. The owner is visible because
-// its plan was applied earlier in this same transaction (walk order) or committed in a prior run
-// (THE-445 seed). If the owner has no stored embedding (e.g. it was quarantined), nothing is copied —
-// the chunk degrades to FTS-only, no worse than before. Requires the body_sha column (guaranteed:
-// skipEmbed is only set when it exists, see computeNotePlan dedupEnabled).
-
-// THE-488: fetch the owner chunk's stored vectors for a content_hash — one embedding SELECT plus, when
-// the columns exist, one sparse and one colbert SELECT. Memoized by copyDedupVectors so this runs once
-// per DISTINCT content_hash per flush, not once per deduped chunk.
-function fetchDedupSource(
-  db: Database,
-  args: { vaultId: string; bodySha: string; contentHash: string; model: string; targetId: string },
-  hasChunkSparse: boolean,
-  hasChunkColbert: boolean,
-): DedupSource {
-  const emb = cachedPrepare(
-    db,
-    "SELECT e.embedding AS embedding, e.dimensions AS dimensions FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND e.model = ? AND e.is_active = 1 AND c.id != ? LIMIT 1",
-  ).get(args.vaultId, args.bodySha, args.contentHash, args.model, args.targetId) as
-    | { embedding: Uint8Array; dimensions: number }
-    | undefined;
-  if (!emb) return null;
-  const sparse = hasChunkSparse
-    ? ((
-        cachedPrepare(
-          db,
-          "SELECT s.weights AS weights FROM chunk_sparse s JOIN chunks c ON c.id = s.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND c.id != ? LIMIT 1",
-        ).get(args.vaultId, args.bodySha, args.contentHash, args.targetId) as
-          | { weights: string }
-          | undefined
-      )?.weights ?? null)
-    : null;
-  const colbert = hasChunkColbert
-    ? ((
-        cachedPrepare(
-          db,
-          "SELECT cb.vectors AS vectors FROM chunk_colbert cb JOIN chunks c ON c.id = cb.chunk_id WHERE c.vault_id = ? AND c.body_sha = ? AND c.content_hash = ? AND c.id != ? LIMIT 1",
-        ).get(args.vaultId, args.bodySha, args.contentHash, args.targetId) as
-          | { vectors: string }
-          | undefined
-      )?.vectors ?? null)
-    : null;
-  return { embedding: emb.embedding, dimensions: emb.dimensions, sparse, colbert };
-}
-
-function copyDedupVectors(
-  db: Database,
-  args: {
-    targetId: string;
-    bodySha: string;
-    contentHash: string;
-    vaultId: string;
-    path: string;
-    model: string;
-    ts: number;
-    hasVec: boolean;
-    hasChunkSparse: boolean;
-    hasChunkColbert: boolean;
-  },
-  cache: DedupCache,
-): { resolved: boolean } {
-  // THE-488: memoize the owner's vectors by content_hash for this flush. The source is the same owner
-  // chunk for every duplicate of a content_hash, so the JOINs run once per distinct content_hash, not
-  // once per deduped chunk (a hot repeated JOIN inside the write txn on template-heavy vaults).
-  let src = cache.get(args.contentHash);
-  if (src === undefined) {
-    src = fetchDedupSource(db, args, args.hasChunkSparse, args.hasChunkColbert);
-    cache.set(args.contentHash, src);
-  }
-  // THE-588: no stored embedding to copy — chunk degrades to FTS-only (unchanged behaviour). The
-  // caller counts this as an UNRESOLVED dedup skip, distinct from the reused-work counter.
-  if (!src) return { resolved: false };
-
-  cachedPrepare(
-    db,
-    "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
-  ).run(args.targetId, args.model, src.dimensions, src.embedding, args.ts);
-  // THE-531: the copied vector is under the current model, so retire any superseded-model row for the
-  // target chunk (same "active = current representation" rule as the direct-embed path).
-  cachedPrepare(
-    db,
-    "UPDATE chunk_embeddings SET is_active = 0 WHERE chunk_id = ? AND model != ? AND is_active = 1",
-  ).run(args.targetId, args.model);
-  if (args.hasVec)
-    upsertVec(db, args.targetId, Array.from(blobToFloats(src.embedding)), {
-      vaultId: args.vaultId,
-      path: args.path,
-      model: args.model,
-    });
-  // sparse + ColBERT are plain TEXT columns — write the memoized owner values onto the target.
-  if (args.hasChunkSparse && src.sparse !== null)
-    cachedPrepare(
-      db,
-      "INSERT INTO chunk_sparse (chunk_id, vault_id, weights) VALUES (?, ?, ?) ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, weights = excluded.weights",
-    ).run(args.targetId, args.vaultId, src.sparse);
-  if (args.hasChunkColbert && src.colbert !== null)
-    cachedPrepare(
-      db,
-      "INSERT INTO chunk_colbert (chunk_id, vault_id, vectors) VALUES (?, ?, ?) ON CONFLICT(chunk_id) DO UPDATE SET vault_id = excluded.vault_id, vectors = excluded.vectors",
-    ).run(args.targetId, args.vaultId, src.colbert);
-  return { resolved: true };
-}
-
-// Apply a note's write plan (prune + upserts). Contains NO transaction control — the CALLER owns
-// BEGIN/COMMIT/ROLLBACK, so one transaction can batch many notes' applies.
-function applyNoteWrites(
-  db: Database,
-  provider: EmbeddingProvider,
-  vaultId: string,
-  plan: NoteWritePlan,
-  hasVec: boolean,
-  hasChunkFts: boolean,
-  hasChunkSparse: boolean,
-  hasChunkColbert: boolean,
-  /** migration 20260719_001: write the raw-body hash column only when it exists. */
-  hasBodySha: boolean,
-  /** THE-488: per-flush memo of dedup source vectors by content_hash, shared across the batch's notes
-   *  so a duplicate's JOIN runs once per distinct content_hash. */
-  dedupCache: DedupCache,
-): { upserted: number; deleted: number; dedupUnresolved: number } {
-  // THE-316: static-arity SQL on the per-note reconcile write path — cache the compiled statements
-  // by SQL text (cachedPrepare) so a 100-note flush recompiles these five once for the process, not
-  // once per note. The vec0 DELETE is prepared only when the extension loaded — the table may not
-  // exist otherwise.
-  const delEmb = cachedPrepare(db, "DELETE FROM chunk_embeddings WHERE chunk_id = ?");
-  // THE-531: when a chunk is re-embedded under the current model, deactivate any OTHER-model rows for
-  // it — PRIMARY KEY (chunk_id, model) lets both coexist, so "active" must mean "current
-  // representation", not "ever generated". A superseded row stays in the table (audit/rollback) but
-  // is_active = 0 so retrieval and the vec rebuild ignore it.
-  const deactivateOld = cachedPrepare(
-    db,
-    "UPDATE chunk_embeddings SET is_active = 0 WHERE chunk_id = ? AND model != ? AND is_active = 1",
-  );
-  const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
-  const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
-  // body_sha rides the same upsert when the column exists (migration 20260719_001); cachedPrepare
-  // keys on the SQL text, so the with/without-column variants compile independently and a pre-migration
-  // cache.db never sees the extra column.
-  // `contradictions` is an optional plane table — gate on a cheap in-memory sqlite_master check.
-  const delContra = tableExists(db, "contradictions")
-    ? cachedPrepare(db, DELETE_CONTRADICTIONS_SQL)
-    : null;
-  const upChunk = cachedPrepare(
-    db,
-    hasBodySha
-      ? "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, body_sha, token_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET chunk_index = excluded.chunk_index, headings = excluded.headings, content = excluded.content, content_hash = excluded.content_hash, body_sha = excluded.body_sha, token_count = excluded.token_count, updated_at = excluded.updated_at"
-      : "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET chunk_index = excluded.chunk_index, headings = excluded.headings, content = excluded.content, content_hash = excluded.content_hash, token_count = excluded.token_count, updated_at = excluded.updated_at",
-  );
-  const upEmb = cachedPrepare(
-    db,
-    "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
-  );
-  let deleted = 0;
-  let dedupUnresolved = 0;
-  for (const e of plan.existing) {
-    if (plan.desiredIds.has(e.id)) continue;
-    delEmb.run(e.id);
-    delChunk.run(e.id);
-    if (delVec) delVec.run(e.id);
-    if (hasChunkFts) deleteChunkFtsRow(db, e.id);
-    if (hasChunkSparse) deleteChunkSparse(db, e.id);
-    if (hasChunkColbert) deleteChunkColbert(db, e.id);
-    if (delContra) delContra.run(e.id, e.id);
-    deleted += 1;
-  }
-  plan.toEmbed.forEach((d, i) => {
-    // A re-embedded chunk changed content; its prior contradiction flags are stale. Drop them —
-    // the onIndexed contradiction job re-detects against the new content.
-    if (delContra) delContra.run(d.id, d.id);
-    const vec = plan.vectors[i] ?? [];
-    // Every chunk is STORED — the chunk row lands regardless of the dedup decision. body_sha is
-    // passed only when the column exists.
-    if (hasBodySha) {
-      upChunk.run(
-        d.id,
-        vaultId,
-        plan.path,
-        d.index,
-        JSON.stringify(d.headings),
-        d.content,
-        d.contentHash,
-        d.bodySha,
-        d.tokenCount,
-        plan.ts,
-        plan.ts,
-      );
-    } else {
-      upChunk.run(
-        d.id,
-        vaultId,
-        plan.path,
-        d.index,
-        JSON.stringify(d.headings),
-        d.content,
-        d.contentHash,
-        d.tokenCount,
-        plan.ts,
-        plan.ts,
-      );
-    }
-    // Cross-path dedup (migration 20260719_001): a reused/skipped body was never sent to the
-    // provider this run. THE-454: instead of writing NO vector (which left the chunk invisible to
-    // dense/sparse/ColBERT retrieval and stranded it when the owner was deleted), COPY the identical
-    // body's already-stored vectors from the first walked path — same provider call cost, but every
-    // path stays semantically retrievable.
-    if (!d.skipEmbed) {
-      upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
-      deactivateOld.run(d.id, provider.id); // THE-531: retire any superseded-model row for this chunk
-      if (hasVec) upsertVec(db, d.id, vec, { vaultId, path: plan.path, model: provider.id });
-    } else {
-      const { resolved } = copyDedupVectors(
-        db,
-        {
-          targetId: d.id,
-          bodySha: d.bodySha,
-          contentHash: d.contentHash,
-          vaultId,
-          path: plan.path,
-          model: provider.id,
-          ts: plan.ts,
-          hasVec,
-          hasChunkSparse,
-          hasChunkColbert,
-        },
-        dedupCache,
-      );
-      if (!resolved) dedupUnresolved += 1;
-    }
-    // THE-406: BM25 matches on the same text the dense vector embeds (enriched when the flag is
-    // on); bm25Chunks JOINs chunks for the raw display content, so search output is unchanged.
-    if (hasChunkFts) upsertChunkFtsRow(db, d.id, vaultId, plan.path, d.embedText ?? d.content);
-    // THE-395: an empty head (the serving runtime could not produce it) is skipped, not stored —
-    // an all-empty chunk_sparse / chunk_colbert would only bloat scans with dead rows.
-    const sp = plan.sparse?.[i];
-    if (!d.skipEmbed && hasChunkSparse && sp && Object.keys(sp).length > 0)
-      upsertChunkSparse(db, d.id, vaultId, sp);
-    const cb = plan.colbert?.[i];
-    if (!d.skipEmbed && hasChunkColbert && cb && cb.length > 0)
-      upsertChunkColbert(db, d.id, vaultId, cb);
-  });
-  return { upserted: plan.toEmbed.length, deleted, dedupUnresolved };
-}
-
-// Notify the index hook of a committed plan's (re)embedded chunks. Call only AFTER the plan's
-// transaction has committed, so a consumer never observes an uncommitted (possibly rolled-back)
-// chunk.
-function fireIndexHook(onIndexed: IndexHook | undefined, plan: NoteWritePlan): void {
-  if (!onIndexed) return;
-  // Cross-path dedup (migration 20260719_001): a skipEmbed chunk carries no NEW embedding this run,
-  // so it is not reported as a (re)embedded chunk.
-  const embedded = plan.toEmbed
-    .map((d, i) => ({ d, vec: plan.vectors[i] ?? [] }))
-    .filter((x) => !x.d.skipEmbed);
-  if (embedded.length > 0) {
-    onIndexed(
-      embedded.map(({ d, vec }) => ({
-        id: d.id,
-        path: plan.path,
-        content: d.content,
-        embedding: vec,
-      })),
-    );
-  }
 }
 
 // Index a single note atomically: plan (incl. embed, outside the txn), then prune + upsert in one
