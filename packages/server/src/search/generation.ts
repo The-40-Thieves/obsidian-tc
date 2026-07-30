@@ -8,7 +8,8 @@
 //
 // THE-579 — who bumps, and the one writer that deliberately does not:
 //
-//   * indexer.ts (indexVault / indexNote / deindexNote) — authored content. The original three sites.
+//   * indexing/index-vault.ts (indexVault) + indexing/index-note.ts (indexNote / deindexNote),
+//     re-exported from indexer.ts — authored content. The original three sites.
 //   * derived-edges.ts (reconcileDerivedEdges / …Scoped) — the DERIVED plane: similar_to, shared_tag
 //     and semantically_similar_to. The graph-expansion stage walks these when densify.includeInWalk
 //     is on, and `confidence` is the weight fusion reads, so rewriting them changes results. Bumps

@@ -4,11 +4,12 @@
 // executes INSIDE THE CALLER'S EXISTING WRITE TRANSACTION and performs NO embedding calls (the
 // plan's vectors were already computed by embedPlans, outside any transaction) and NO transaction
 // control of its own — it must never open, commit, or roll back a transaction; indexNote/indexVault
-// (indexer.ts) own that boundary and continue to. The vault_generation bump is NOT made from here: it
-// is the orchestrator's job, made as the LAST write in the SAME transaction that calls applyNoteWrites
-// (see indexNote) — a placement test/indexer-transaction-rollback.test.ts depends on. dedup.ts (the
-// cross-path embedding-copy lookup) and indexer.ts (orchestration) both depend on this file; this file
-// must depend on neither of them.
+// (WP3 slice 3: index-note.ts / index-vault.ts) own that boundary and continue to. The
+// vault_generation bump is NOT made from here: it is the orchestrator's job, made as the LAST write
+// in the SAME transaction that calls applyNoteWrites (see indexNote) — a placement
+// test/indexer-transaction-rollback.test.ts depends on. dedup.ts (the cross-path embedding-copy
+// lookup) and index-note.ts/index-vault.ts (orchestration) both depend on this file; this file must
+// depend on neither of them.
 import { tableExists } from "../../db/introspect";
 import { cachedPrepare, type Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
@@ -23,7 +24,7 @@ import type { DedupCache, IndexHook, NoteWritePlan } from "./types";
 // pruned or re-embedded (content changed) they are stale and must be dropped, or "open" rows accrue
 // unbounded and pollute the synthesis / knowledge_challenge / reflect grounding (all read
 // status='open'). Tied to chunk lifetime here, alongside the fts/vec/sparse/colbert cleanup. Exported
-// because deindexNote (indexer.ts) shares the same delete-on-chunk-lifetime rule for a whole-note
+// because deindexNote (index-note.ts) shares the same delete-on-chunk-lifetime rule for a whole-note
 // delete, not only a prune/re-embed.
 export const DELETE_CONTRADICTIONS_SQL =
   "DELETE FROM contradictions WHERE source_chunk_id = ? OR conflict_chunk_id = ?";
