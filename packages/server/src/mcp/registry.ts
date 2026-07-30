@@ -11,7 +11,6 @@ import {
   type ToolResult,
   type ToolVisibilityConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { cachedPrepare, type Database } from "../db/types";
 import { hitlSatisfiedByState } from "../elicit-request-state";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
@@ -25,12 +24,20 @@ import {
   callStatusForError,
   DispatchObservability,
 } from "./registry/dispatch-observability";
+import {
+  claimOrReplay,
+  deleteIdempotency,
+  extractIdempotencyKey,
+  finalizeIdempotency,
+  finalizeIndeterminate,
+  markEffectCommitted,
+  readIdempotency,
+} from "./registry/idempotency";
 import { ToolStore } from "./registry/tool-store";
 import {
   type CallerContext,
   type DispatchEpisode,
   type DispatchProfile,
-  type IdempotencyState,
   type RegistryOptions,
   type Status,
   TOOL_DOMAINS,
@@ -75,22 +82,6 @@ export function assertScopesGranted(
   }
 }
 
-/** The whole-operation idempotency key for a call, if any (D3). Reads a top-level
- *  `idempotency_key`, the `bulk_idempotency_key` alias, or a nested
- *  `options.idempotency_key`; never a per-item `items[].idempotency_key`. */
-function extractIdempotencyKey(data: unknown): string | undefined {
-  if (data === null || typeof data !== "object") return undefined;
-  const o = data as Record<string, unknown>;
-  const top = o.idempotency_key ?? o.bulk_idempotency_key;
-  if (typeof top === "string" && top.length > 0) return top;
-  const opts = o.options;
-  if (opts !== null && typeof opts === "object") {
-    const nested = (opts as Record<string, unknown>).idempotency_key;
-    if (typeof nested === "string" && nested.length > 0) return nested;
-  }
-  return undefined;
-}
-
 /** THE-513 Part 2: the caller-supplied target vault id for this call, read from the tool's
  *  declared `vaultArg` field (defaulting to "vault", the name every tool used before this field
  *  existed) — the single place the four call sites below resolve it, instead of each hardcoding
@@ -108,14 +99,6 @@ function vaultArgOf(def: ToolDefinition, data: unknown): string | undefined {
  *  every existing caller (no signal) sees no behavior change. */
 function checkAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw err.aborted();
-}
-
-/** Coerce a SQLite result column (string | Buffer | Uint8Array) to a UTF-8 string. */
-function bufToString(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (v instanceof Uint8Array)
-    return Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString("utf8");
-  return String(v ?? "");
 }
 
 // THE-294 — single-serialization contract. runDispatch stringifies a successful result once for
@@ -233,120 +216,6 @@ export class ToolRegistry {
     this.observability.emitCompletion(name, ctx, result);
   }
 
-  /** Try to atomically claim the in-flight idempotency slot for (vault, key). */
-  private tryClaimIdempotency(
-    db: Database,
-    vaultId: string,
-    key: string,
-    tool: string,
-    argsHashValue: string,
-    nowMs: number,
-  ): "claimed" | "exists" {
-    try {
-      cachedPrepare(
-        db,
-        "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
-      ).run(vaultId, key, tool, argsHashValue, nowMs, nowMs + this.idempotencyTtlMs);
-      return "claimed";
-    } catch (e) {
-      if (/UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test((e as Error).message)) return "exists";
-      throw e;
-    }
-  }
-
-  private readIdempotency(
-    db: Database,
-    vaultId: string,
-    key: string,
-  ):
-    | {
-        tool_name: string;
-        args_hash: string;
-        started_at: number;
-        completed_at: number | null;
-        result: unknown;
-        result_size: number | null;
-        expires_at: number;
-        state: IdempotencyState;
-      }
-    | undefined {
-    return cachedPrepare(
-      db,
-      "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state FROM idempotency_keys WHERE vault_id = ? AND key = ?",
-    ).get(vaultId, key) as
-      | {
-          tool_name: string;
-          args_hash: string;
-          started_at: number;
-          completed_at: number | null;
-          result: unknown;
-          result_size: number | null;
-          expires_at: number;
-          state: IdempotencyState;
-        }
-      | undefined;
-  }
-
-  private finalizeIdempotency(
-    db: Database,
-    vaultId: string,
-    key: string,
-    json: string,
-    size: number,
-    nowMs: number,
-  ): void {
-    cachedPrepare(
-      db,
-      "UPDATE idempotency_keys SET completed_at = ?, result = ?, result_size = ?, state = 'completed' WHERE vault_id = ? AND key = ?",
-    ).run(nowMs, json, size, vaultId, key);
-  }
-
-  /** #13: durable marker set the instant the handler returns — the effect may now be committed.
-   *  A crash after this leaves a durable 'effect_committed' row that reclaim honors (never re-runs). */
-  private markEffectCommitted(db: Database, vaultId: string, key: string, _nowMs: number): void {
-    cachedPrepare(
-      db,
-      "UPDATE idempotency_keys SET state = 'effect_committed' WHERE vault_id = ? AND key = ? AND completed_at IS NULL",
-    ).run(vaultId, key);
-  }
-
-  /** #13: a post-effect fault finalizes the claim as indeterminate (never deletes it), so a retry
-   *  returns indeterminate_outcome instead of re-executing. result_size stays NULL so the overflow
-   *  re-check never fires; the state='indeterminate' branch answers first. */
-  private finalizeIndeterminate(db: Database, vaultId: string, key: string, nowMs: number): void {
-    cachedPrepare(
-      db,
-      "UPDATE idempotency_keys SET completed_at = ?, result = 'null', result_size = NULL, state = 'indeterminate' WHERE vault_id = ? AND key = ?",
-    ).run(nowMs, vaultId, key);
-  }
-
-  private deleteIdempotency(db: Database, vaultId: string, key: string): void {
-    cachedPrepare(db, "DELETE FROM idempotency_keys WHERE vault_id = ? AND key = ?").run(
-      vaultId,
-      key,
-    );
-  }
-
-  // biome-ignore lint/suspicious/noExplicitAny: accepts any specific ToolDefinition for storage in the heterogeneous registry (see ToolStore).
-  register(def: ToolDefinition<any, any>): void {
-    this.toolStore.register(def);
-  }
-  list(): ToolDefinition[] {
-    return this.toolStore.list();
-  }
-  /** Tools advertised by tools/list: the registered set minus those the visibility config
-   *  hides/disables (THE-219) and those the caller cannot dispatch (THE-250). `list()` stays
-   *  the full registered set. */
-  listVisible(caller?: VisibilityCaller): ToolDefinition[] {
-    return this.toolStore.listVisible(this.toolVisibility, caller);
-  }
-  has(name: string): boolean {
-    return this.toolStore.has(name);
-  }
-
-  // One OTEL root span per tool call (G2.4) wraps the pipeline when a tracer is configured;
-  // otherwise the tracer-less fast path runs unchanged. Span attributes come from ctx + the
-  // ToolResult, so runDispatch's internals stay untouched.
   /** THE-415: record ONE governed outcome — see DispatchObservability.recordOutcome. */
   private recordOutcome(
     ctx: CallerContext,
@@ -370,6 +239,26 @@ export class ToolRegistry {
     );
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: accepts any specific ToolDefinition for storage in the heterogeneous registry (see ToolStore).
+  register(def: ToolDefinition<any, any>): void {
+    this.toolStore.register(def);
+  }
+  list(): ToolDefinition[] {
+    return this.toolStore.list();
+  }
+  /** Tools advertised by tools/list: the registered set minus those the visibility config
+   *  hides/disables (THE-219) and those the caller cannot dispatch (THE-250). `list()` stays
+   *  the full registered set. */
+  listVisible(caller?: VisibilityCaller): ToolDefinition[] {
+    return this.toolStore.listVisible(this.toolVisibility, caller);
+  }
+  has(name: string): boolean {
+    return this.toolStore.has(name);
+  }
+
+  // One OTEL root span per tool call (G2.4) wraps the pipeline when a tracer is configured;
+  // otherwise the tracer-less fast path runs unchanged. Span attributes come from ctx + the
+  // ToolResult, so runDispatch's internals stay untouched.
   /**
    * THE-415: run an MCP *resource* operation under the same governance a tool call gets -
    * rate limit, audit, metrics, MORGIANA.
@@ -641,103 +530,80 @@ export class ToolRegistry {
       // (auth/scope/ACL) still runs before this gate, so it stays authoritative on replays.
       idemKey = extractIdempotencyKey(parsed.data);
       if (idemKey) {
-        if (
-          this.tryClaimIdempotency(ctx.db, ctx.vaultId, idemKey, name, hash, now()) === "claimed"
-        ) {
-          idemClaimed = true;
-        } else {
-          let row = this.readIdempotency(ctx.db, ctx.vaultId, idemKey);
-          // Reclaim an expired or crashed (in-flight past the configured reclaim window) row,
-          // then retry once (idempotencyReclaimSeconds, THE-293).
-          if (
-            row &&
-            (row.expires_at <= now() ||
-              (row.state === "in_flight" &&
-                row.completed_at == null &&
-                row.started_at + this.idempotencyReclaimMs <= now()))
-          ) {
-            this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
-            if (
-              this.tryClaimIdempotency(ctx.db, ctx.vaultId, idemKey, name, hash, now()) ===
-              "claimed"
-            ) {
-              idemClaimed = true;
-            } else {
-              row = this.readIdempotency(ctx.db, ctx.vaultId, idemKey);
-            }
-          }
-          if (!idemClaimed) {
-            if (!row)
-              throw new ObsidianTcError("idempotency_in_flight", "operation in progress", {
-                key: idemKey,
-              });
-            if (row.tool_name !== name || row.args_hash !== hash)
-              throw new ObsidianTcError(
-                "idempotency_key_mismatch",
-                "idempotency key reused with a different tool or arguments",
-                { key: idemKey },
-              );
-            if (row.state === "indeterminate") return indeterminateReplay(idemKey);
-            if (row.state === "effect_committed") return indeterminateReplay(idemKey);
-            if (row.completed_at != null) {
-              // Terminal-overflow replay: the original call committed its side effect but its response
-              // exceeded the byte budget, so the claim was finalized with the real over-limit size and
-              // no payload. Replay the SAME overflow error rather than re-executing or returning an
-              // absent/oversized payload. A normal success always finalizes with size <= the budget,
-              // so this never fires on a legitimate cached result.
-              if (row.result_size != null && row.result_size > this._maxResponseBytes) {
-                // Hoist the narrowed size into a const so it stays `number` inside the meter closure
-                // (TS drops the `!= null` narrowing on a property access captured by a later-called fn).
-                const overSize = row.result_size;
-                const duration = Math.max(0, now() - start);
-                const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
-                  result_size: overSize,
-                  limit: this._maxResponseBytes,
-                });
-                audit("error", duration, overSize, e.code);
-                this.meter((m) => {
-                  m.incIdempotencyHit(ctx.vaultId, name);
-                  m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, overSize);
-                });
-                return {
-                  ok: false,
-                  error: e.toJSON(),
-                  meta: {
-                    duration_ms: duration,
-                    result_size: overSize,
-                    overflow_bytes: overSize - this._maxResponseBytes,
-                  },
-                };
-              }
-              try {
-                const cachedStr = bufToString(row.result);
-                const cached = JSON.parse(cachedStr) as unknown;
-                memoizeSerialized(cached, cachedStr);
-                const resultSize = row.result_size ?? Buffer.byteLength(cachedStr, "utf8");
-                const duration = Math.max(0, now() - start);
-                audit("ok", duration, resultSize);
-                this.meter((m) =>
-                  m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize),
-                );
-                this.meter((m) => m.incIdempotencyHit(ctx.vaultId, name));
-                return {
-                  ok: true,
-                  data: cached,
-                  meta: { duration_ms: duration, result_size: resultSize },
-                };
-              } catch {
-                // Corrupt cached blob: drop it (so the next call re-executes) and fail this one cleanly.
-                this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
-                throw new ObsidianTcError(
-                  "internal",
-                  "cached idempotent result was unreadable; retry",
-                );
-              }
-            }
+        // WP4.2: the claim-or-replay decision (reclaim-and-retry, corrupt-blob recovery,
+        // terminal-overflow replay) now lives in registry/idempotency.ts's claimOrReplay,
+        // returning one explicit discriminated state instead of re-deriving it inline here. Only
+        // the dispatch-shaped reaction to each state — error construction, audit/meter calls, the
+        // result-serialization memo — stays here, unchanged in behavior from before the extraction.
+        const claim = claimOrReplay(
+          ctx.db,
+          ctx.vaultId,
+          idemKey,
+          name,
+          hash,
+          now(),
+          this.idempotencyTtlMs,
+          this.idempotencyReclaimMs,
+          this._maxResponseBytes,
+        );
+        switch (claim.kind) {
+          case "claimed":
+            idemClaimed = true;
+            break;
+          case "mismatch":
+            throw new ObsidianTcError(
+              "idempotency_key_mismatch",
+              "idempotency key reused with a different tool or arguments",
+              { key: idemKey },
+            );
+          case "in_flight":
             throw new ObsidianTcError("idempotency_in_flight", "operation in progress", {
               key: idemKey,
             });
-          }
+          case "replay":
+            if (claim.outcome === "indeterminate") return indeterminateReplay(idemKey);
+            if (claim.outcome === "overflow") {
+              // Terminal-overflow replay: the original call committed its side effect but its
+              // response exceeded the byte budget, so the claim was finalized with the real
+              // over-limit size and no payload. Replay the SAME overflow error rather than
+              // re-executing or returning an absent/oversized payload.
+              const overSize = claim.resultSize;
+              const duration = Math.max(0, now() - start);
+              const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
+                result_size: overSize,
+                limit: this._maxResponseBytes,
+              });
+              audit("error", duration, overSize, e.code);
+              this.meter((m) => {
+                m.incIdempotencyHit(ctx.vaultId, name);
+                m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, overSize);
+              });
+              return {
+                ok: false,
+                error: e.toJSON(),
+                meta: {
+                  duration_ms: duration,
+                  result_size: overSize,
+                  overflow_bytes: overSize - this._maxResponseBytes,
+                },
+              };
+            }
+            // outcome === "ok": a normal completed call within budget — replay its cached result.
+            memoizeSerialized(claim.data, claim.json);
+            {
+              const resultSize = claim.resultSize;
+              const duration = Math.max(0, now() - start);
+              audit("ok", duration, resultSize);
+              this.meter((m) =>
+                m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize),
+              );
+              this.meter((m) => m.incIdempotencyHit(ctx.vaultId, name));
+              return {
+                ok: true,
+                data: claim.data,
+                meta: { duration_ms: duration, result_size: resultSize },
+              };
+            }
         }
       }
 
@@ -766,7 +632,7 @@ export class ToolRegistry {
           this.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
           if (idemClaimed && idemKey) {
             try {
-              this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+              deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
             } catch {
               /* best-effort */
             }
@@ -804,7 +670,7 @@ export class ToolRegistry {
           this.meter((m) => m.incHitlElicited(ctx.vaultId, name));
           if (idemClaimed && idemKey) {
             try {
-              this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+              deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
             } catch {
               /* best-effort */
             }
@@ -861,7 +727,7 @@ export class ToolRegistry {
           );
         }
         slot.markEffectCommitted = () => {
-          this.markEffectCommitted(ctx.db, ctx.vaultId, claimedKey, now());
+          markEffectCommitted(ctx.db, ctx.vaultId, claimedKey, now());
           effectCommitted = true;
         };
         installedMarker = slot;
@@ -899,7 +765,7 @@ export class ToolRegistry {
           // such a handler calls ctx.markEffectCommitted() at its own first durable effect, which
           // sets the same marker earlier. This call stays as the backstop for every single-effect
           // handler (and re-fires harmlessly when the handler already signalled).
-          if (idemClaimed && idemKey) this.markEffectCommitted(ctx.db, ctx.vaultId, idemKey, now());
+          if (idemClaimed && idemKey) markEffectCommitted(ctx.db, ctx.vaultId, idemKey, now());
           return r;
         },
       );
@@ -962,7 +828,7 @@ export class ToolRegistry {
         if (idemClaimed && idemKey) {
           this.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
           try {
-            this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, "null", resultSize, now());
+            finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, "null", resultSize, now());
           } catch (finalizeErr) {
             // A finalize fault here leaves the row 'effect_committed' (not in-flight) — #13's durable
             // marker means a retry resolves to indeterminate_outcome rather than re-executing. Surface
@@ -996,7 +862,7 @@ export class ToolRegistry {
       }
 
       if (idemClaimed && idemKey)
-        this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, json, resultSize, now());
+        finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, json, resultSize, now());
       audit("ok", duration, resultSize);
       this.meter((m) => m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize));
       try {
@@ -1025,7 +891,7 @@ export class ToolRegistry {
         if (effectCommitted) {
           try {
             durablyCommitted =
-              this.readIdempotency(ctx.db, ctx.vaultId, idemKey)?.state === "effect_committed";
+              readIdempotency(ctx.db, ctx.vaultId, idemKey)?.state === "effect_committed";
           } catch {
             durablyCommitted = true;
           }
@@ -1034,7 +900,7 @@ export class ToolRegistry {
           // #13: post-effect fault — NEVER delete; record indeterminate so a retry gets a definite
           // answer instead of re-executing the committed effect.
           try {
-            this.finalizeIndeterminate(ctx.db, ctx.vaultId, idemKey, now());
+            finalizeIndeterminate(ctx.db, ctx.vaultId, idemKey, now());
           } catch (finErr) {
             try {
               this.onInternalError?.(`idempotency_indeterminate:${name}`, ctx.vaultId, finErr);
@@ -1045,7 +911,7 @@ export class ToolRegistry {
         } else {
           // pre-handler failure: safe to release the slot so a legitimate retry re-runs.
           try {
-            this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+            deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
           } catch {
             /* cleanup best-effort; must not mask the original error */
           }
