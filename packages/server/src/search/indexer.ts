@@ -4,7 +4,19 @@
 // ones, and prunes chunks that no longer exist in the note. chunk_embeddings is
 // deleted explicitly (not relying on FK cascade, which node:sqlite tests run with
 // foreign_keys off). vec_chunks is kept in lock-step only when the extension loaded.
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+//
+// WP3 slice 1 (docs/plans/2026-07-30-codebase-refactor-map.md): this file is now a compatibility
+// facade over ./indexing/*. The READ-ONLY planning phase (chunkId, estimateEmbedTokens,
+// preloadChunkState, computeNotePlan, hasBodyShaColumn, hasDerivedEdgeColumns, readNoteTags) lives
+// in indexing/note-plan.ts; the external-provider phase (isEmbedRejection, embedSubBatch,
+// embedPlans) lives in indexing/embed-batches.ts; the shared types (IndexStats, IndexedChunk,
+// IndexHook, EmbedReport, DedupCache, IndexVaultArgs, and the internal plan/row types those need)
+// live in indexing/types.ts. Every name this file exported before that split is still exported
+// from here, so no consumer needs to change its import path.
+//
+// Persistence (applyNoteWrites, the dedup vector copy) and the orchestrators (indexNote,
+// deindexNote, indexVault) stay in this file for WP3 slices 2 and 3.
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { tableExists } from "../db/introspect";
 import { inWriteTransaction, type WriteTxnHooks } from "../db/txn";
 import { cachedPrepare, type Database } from "../db/types";
@@ -12,12 +24,10 @@ import type { EmbeddingProvider } from "../embeddings";
 import { parseNote } from "../vault/frontmatter";
 import { type ExtractedLink, extractLinks } from "../vault/links";
 import { readNote } from "../vault/notes-io";
-import { contentHash, resolveVaultPath, walkVault, walkVaultStream } from "../vault/paths";
+import { resolveVaultPath, walkVault, walkVaultStream } from "../vault/paths";
 import { noteTags } from "../vault/tags";
-import { chunkNote, enrichChunkText } from "./chunk";
 import { deleteChunkColbert, ensureChunkColbert, upsertChunkColbert } from "./chunk_colbert";
 import { deleteChunkFtsRow, ensureChunkFts, upsertChunkFtsRow } from "./chunk_fts";
-import type { ColbertMatrix } from "./colbert";
 import {
   computeKnnEdges,
   computeKnnEdgesForPaths,
@@ -42,466 +52,62 @@ import {
 } from "./fts";
 import { bumpGeneration } from "./generation";
 import {
+  EMBED_BATCH,
+  EMBED_CONCURRENCY,
+  EMBED_MAX_BATCH_TOKENS,
+  embedPlans,
+} from "./indexing/embed-batches";
+import {
+  computeNotePlan,
+  hasBodyShaColumn,
+  hasDerivedEdgeColumns,
+  preloadChunkState,
+  readNoteTags,
+} from "./indexing/note-plan";
+import type {
+  DedupCache,
+  DedupSource,
+  IndexHook,
+  IndexStats,
+  IndexVaultArgs,
+  NoteWritePlan,
+  PlanResult,
+} from "./indexing/types";
+import {
   CHUNKER_VERSION,
   ENRICHMENT_VERSION,
   VEC_DISTANCE_METRIC,
   VEC_SCHEMA_GEN,
 } from "./representation";
-import { scanSecrets } from "./secrets";
-import { deleteChunkSparse, ensureChunkSparse, type SparseVec, upsertChunkSparse } from "./sparse";
-import { blobToFloats, ensureVecChunks, floatBlob, upsertVec, type VecRebuildEvent } from "./vec";
-
-export interface IndexStats {
-  notes_seen: number;
-  notes_indexed: number;
-  chunks_upserted: number;
-  chunks_deleted: number;
-  chunks_unchanged: number;
-  edges_inserted: number;
-  edges_deleted: number;
-  secrets_skipped: number;
-  vec_enabled: boolean;
-  /** THE-291 (additive): FTS5 availability + notes-metadata write counts. */
-  fts_enabled: boolean;
-  notes_upserted: number;
-  notes_deleted: number;
-  /** THE-390 (additive): notes skipped this pass because the embed provider rejected one of
-   *  their chunks even as a single-text request; retried automatically next reconcile. */
-  notes_embed_failed: number;
-  /** THE-499: chunks whose embedding was reused from an identical-body sibling this pass (dedup),
-   *  aggregated instead of logged per-chunk. */
-  chunks_dedup_reused: number;
-  /** THE-588: the LOSS side of dedup — a chunk was skipped for embedding (its body matched an
-   *  already-seen sibling) but that sibling had no stored vector to copy (e.g. the owner's note was
-   *  quarantined this pass, see notes_embed_failed). The chunk row is still written, but it carries
-   *  no dense/sparse/colbert vector this pass and stays FTS-only until the owner re-embeds — see
-   *  copyDedupVectors' `!src` bail. Unlike chunks_dedup_reused, a rise here is BAD: it is retrieval
-   *  coverage lost, not work avoided. */
-  chunks_dedup_unresolved: number;
-  /** THE-507 (additive): embed requests the provider rejected for exceeding its context (HTTP
-   *  400/413) and that were bisected + retried this pass. Already reported on stderr; surfaced here
-   *  so the caller can emit it as a counter without the indexer taking a telemetry dependency. */
-  embed_batch_rejections: number;
-  model: string;
-  dimensions: number;
-}
-
-/** A chunk that was (re)embedded this pass; handed to the optional index hook. */
-export interface IndexedChunk {
-  id: string;
-  path: string;
-  content: string;
-  embedding: number[];
-}
-
-/** THE-233 W-INGEST seam: notified of newly-embedded chunks. W-WORKERS wires the
- *  contradiction-check enqueue here at integration; default is no hook. */
-export type IndexHook = (chunks: IndexedChunk[]) => void;
-
-// Stable, content-independent id for a chunk slot. Re-chunking the same note
-// reproduces these ids, so content_hash alone decides re-embed vs. skip.
-export function chunkId(vaultId: string, path: string, index: string): string {
-  const key = [vaultId, path, index].join(" ");
-  return "chk_".concat(contentHash(key).slice(0, 24));
-}
-
-interface ExistingRow {
-  id: string;
-  content_hash: string;
-  /** THE-531: the model of this chunk's ACTIVE embedding, or null when it has none. A mismatch with
-   *  the current provider forces a re-embed even when content_hash is unchanged. */
-  active_model: string | null;
-}
-
-// A note's chunk after secret-gating, carrying its stable chunk id. embedText (THE-406) is the
-// context-enriched text that is embedded + BM25-indexed INSTEAD of content when
-// embeddings.chunkContext is on; content stays the raw display text everywhere.
-// bodySha is contentHash() over the RAW body (c.content, PRE-enrichment) — the cross-path
-// dedup key; skipEmbed marks a chunk whose identical body was already embedded at another path
-// this run, so it is STORED but its embedding is reused/skipped (migration 20260719_001).
-type PlannedChunk = ReturnType<typeof chunkNote>[number] & {
-  id: string;
-  embedText?: string;
-  bodySha: string;
-  skipEmbed?: boolean;
-};
+import { deleteChunkSparse, ensureChunkSparse, upsertChunkSparse } from "./sparse";
+import { blobToFloats, ensureVecChunks, floatBlob, upsertVec } from "./vec";
 
 // THE-408: enrichChunkText moved to ./chunk (import-cycle-free for chunk_fts); re-exported here
 // for existing importers (tests, scripts).
 export { enrichChunkText } from "./chunk";
+// indexing/embed-batches.ts: the external-provider phase.
+export { embedPlans } from "./indexing/embed-batches";
 
-// A note's pending writes, computed (including the embed() network call) WITHOUT touching the
-// database or opening a transaction, so many plans can be applied inside one transaction.
-interface NoteWritePlan {
-  path: string;
-  existing: ExistingRow[];
-  desiredIds: Set<string>;
-  toEmbed: PlannedChunk[];
-  vectors: number[][];
-  /** THE-388: filled by embedPlans only when the provider emits embedFull() (bge-m3), parallel to
-   *  vectors; written to chunk_sparse / chunk_colbert. Absent for dense-only providers. */
-  sparse?: SparseVec[];
-  colbert?: ColbertMatrix[];
-  ts: number;
-}
-
-interface PlanResult {
-  plan: NoteWritePlan | null;
-  unchanged: number;
-  secretsSkipped: number;
-  /** THE-291: secret-flagged chunk contents, excised from the note's FTS copy. */
-  flagged: string[];
-  /** THE-499: number of chunks in this note whose embedding was dedup-reused from a sibling path. */
-  dedupSkipped: number;
-}
-
-// Provider-sized embed sub-batch + how many to run in flight (THE-277) — the defaults used when a
-// caller passes no embed config. GH #171/#172: a request is ALSO capped by estimated tokens
-// (EMBED_MAX_BATCH_TOKENS), so a token-dense sub-batch can't overrun a stock local runner's budget
-// and crash it regardless of the input count. THE-390: the token cap must stay UNDER the provider's
-// loaded context — Ollama defaults to n_ctx 4096 and 400-rejects a request whose SUMMED tokens
-// exceed it, and estimateTokens undercounts real tokenization (~2-2.5x on link-dense markdown).
-// 2048 estimated keeps a batch inside a 4096 context with that drift; must match the
-// EmbeddingsConfigSchema default.
-const EMBED_BATCH = 512;
-const EMBED_CONCURRENCY = 4;
-const EMBED_MAX_BATCH_TOKENS = 2048;
-
-// THE-487: token estimate for the embed batch budget. chars/4 is the right rule-of-thumb for prose,
-// but link-dense Markdown ([[...]], tables, URLs) fragments into ~2-2.5x more tokens, so a chars/4
-// budget overflowed the provider's n_ctx and forced a bisect+retry. We tighten the divisor toward 3
-// as the special-character density rises: prose stays at chars/4 (no batch-size regression), dense
-// text is estimated conservatively (fewer overflows). Zero-dependency and still intentionally coarse —
-// it only needs to keep a request under n_ctx, not be exact; a real tokenizer is the follow-up if
-// measurement shows residual retries.
-export function estimateEmbedTokens(text: string): number {
-  const len = text.length;
-  if (len === 0) return 0;
-  const special = (text.match(/[^\w\s]/g) ?? []).length;
-  // >12% non-word/non-space (brackets, pipes, slashes, punctuation) marks link/table-dense Markdown.
-  const divisor = special / len > 0.12 ? 3 : 4;
-  return Math.ceil(len / divisor);
-}
-
-// THE-501: preload the whole vault's lightweight chunk state (ids + hashes + active model) in ONE
-// query, grouped by path, so a full reconcile plans every note without a per-note chunk query. Never
-// loads content or vectors — memory stays bounded to identifiers and hashes.
-export function preloadChunkState(db: Database, vaultId: string): Map<string, ExistingRow[]> {
-  const rows = db
-    .prepare(
-      "SELECT c.path AS path, c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? ORDER BY c.path",
-    )
-    .all(vaultId) as Array<ExistingRow & { path: string }>;
-  const byPath = new Map<string, ExistingRow[]>();
-  for (const r of rows) {
-    const list = byPath.get(r.path);
-    const row: ExistingRow = {
-      id: r.id,
-      content_hash: r.content_hash,
-      active_model: r.active_model,
-    };
-    if (list) list.push(row);
-    else byPath.set(r.path, [row]);
-  }
-  return byPath;
-}
-
-// Compute a note's write plan WITHOUT embedding — NO network, NO database writes, NO transaction.
-// Vectors are filled later by embedPlans, which batches the embed() calls across many notes so a
-// reconcile does not pay one serial round-trip per note. Returns { plan: null } when the note is
-// unchanged (nothing to prune or embed), so the caller opens no transaction for a warm re-index.
-function computeNotePlan(
-  db: Database,
-  vaultId: string,
-  path: string,
-  raw: string,
-  ts: number,
-  enrich: boolean,
-  /** Cross-path embedding dedup (migration 20260719_001): a per-RUN registry of content_hash -> the
-   *  first walked path producing that EMBED text. Keying on content_hash (not the raw body_sha) is
-   *  what makes dedup safe under contextual enrichment (THE-406): content_hash covers the title +
-   *  breadcrumb + body actually embedded, so two identical bodies under DIFFERENT titles no longer
-   *  collide and no longer share a (wrongly-titled) vector; with enrichment off it equals the raw-body
-   *  hash, so cross-path dedup of identical bodies is unchanged. Purely in-memory, so it works even on
-   *  a cache.db that predates the body_sha column. Callers on the batched indexVault path share ONE
-   *  map across the whole walk; single-note paths pass a fresh (effectively empty) map. */
-  dedupRegistry: Map<string, string> = new Map(),
-  /** THE-454: enable cross-path embedding dedup only when applyNoteWrites can later COPY the
-   *  sibling's stored vector to a skipEmbed chunk — i.e. when the body_sha column exists. Without
-   *  it, embed every chunk, or a duplicate path would be left with no vector (dense-invisible). */
-  dedupEnabled = false,
-  /** THE-531: the active embedding model (provider.id). A chunk whose stored active embedding is from
-   *  a DIFFERENT model is re-embedded even when its content_hash is unchanged, so a same-dimension
-   *  model swap re-embeds the corpus on the next reconcile instead of silently shrinking it. Omitted
-   *  -> content-hash-only gate (back-compat). */
-  model?: string,
-  /** THE-501: preloaded per-path chunk state for the whole vault (built once by preloadChunkState).
-   *  When present, this note's slice is used and no per-note chunk query runs. Omitted -> per-note
-   *  query (the single-note indexing path). */
-  preloadedExisting?: Map<string, ExistingRow[]>,
-): PlanResult {
-  const body = parseNote(raw).body;
-  // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
-  // before embedding — never embedded, never stored, pruned if it existed. Class names only
-  // are logged; the matched value is never logged or thrown.
-  let secretsSkipped = 0;
-  const flagged: string[] = [];
-  // THE-406: with enrichment on, the content hash is computed over the ENRICHED text, so flipping
-  // embeddings.chunkContext re-embeds every chunk on the next pass instead of silently serving
-  // vectors built from a different representation.
-  const desired = chunkNote(body)
-    .map((c): PlannedChunk => {
-      // body_sha keys on the RAW body (c.content), PRE-enrichment — it must NOT depend on the
-      // path-salted embed text, so identical bodies at different paths collide (migration
-      // 20260719_001).
-      const bodySha = contentHash(c.content);
-      if (!enrich) return { ...c, id: chunkId(vaultId, path, c.index), bodySha };
-      const embedText = enrichChunkText(path, c.headings, c.content);
-      return {
-        ...c,
-        id: chunkId(vaultId, path, c.index),
-        embedText,
-        contentHash: contentHash(embedText),
-        bodySha,
-      };
-    })
-    .filter((c) => {
-      const scan = scanSecrets(c.content);
-      if (scan.clean) return true;
-      flagged.push(c.content);
-      secretsSkipped += 1;
-      process.stderr.write(
-        `[ingest] secret-gate skipped ${path}#${c.index} (${scan.classes.join(", ")})\n`,
-      );
-      return false;
-    });
-  const desiredIds = new Set(desired.map((d) => d.id));
-  // THE-531: LEFT JOIN the active embedding so we know each chunk's stored model, not just its
-  // content_hash. A chunk with no active embedding yields active_model = null (re-embed).
-  // THE-501: on a full reconcile the caller preloads the whole vault's chunk state in ONE query and
-  // passes this note's slice, so computeNotePlan issues no per-note chunk query (N queries -> 1). The
-  // single-note path passes no preload and keeps the targeted per-note query.
-  const existing =
-    preloadedExisting?.get(path) ??
-    (db
-      .prepare(
-        "SELECT c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.path = ?",
-      )
-      .all(vaultId, path) as ExistingRow[]);
-  const existingById = new Map(existing.map((e) => [e.id, e]));
-  // Re-embed when the content changed OR (THE-531) the stored active model differs from the current
-  // one. When `model` is undefined the model check is skipped (back-compat, content-hash-only gate).
-  const toEmbed = desired.filter((d) => {
-    const ex = existingById.get(d.id);
-    if (!ex || ex.content_hash !== d.contentHash) return true;
-    return model !== undefined && ex.active_model !== model;
-  });
-  const unchanged = desired.length - toEmbed.length;
-  const willPrune = existing.some((e) => !desiredIds.has(e.id));
-  // Cross-path embedding dedup (migration 20260719_001). Register EVERY desired chunk's raw-body
-  // hash (changed or not) so a later path dedups against a body already indexed here — first walked
-  // path wins. Then flag any TO-EMBED chunk whose body was first seen at a DIFFERENT path: it is
-  // still STORED at this path (applyNoteWrites writes the chunk row), but its embedding is
-  // reused/skipped — embedPlans never sends it to the provider and applyNoteWrites writes no
-  // embedding row for it. Same-path repeats keep firstPath === path and are never skipped (an index
-  // shift is change detection's job, not dedup's).
-  // THE-499: count dedup reuse and let the caller aggregate it into a single per-pass summary,
-  // instead of one synchronous stderr line per duplicate chunk (which could cost more than the dedup
-  // and floods CI logs). Individual paths stay available behind OBSIDIAN_TC_DEBUG_DEDUP.
-  let dedupSkipped = 0;
-  if (dedupEnabled) {
-    const debug = process.env.OBSIDIAN_TC_DEBUG_DEDUP !== undefined;
-    for (const d of desired) {
-      if (!dedupRegistry.has(d.contentHash)) dedupRegistry.set(d.contentHash, path);
-    }
-    for (const d of toEmbed) {
-      const firstPath = dedupRegistry.get(d.contentHash);
-      if (firstPath !== undefined && firstPath !== path) {
-        d.skipEmbed = true;
-        dedupSkipped += 1;
-        if (debug) {
-          process.stderr.write(
-            `[ingest] embed-text dedup: ${path}#${d.index} reuses the embedding already computed for ` +
-              `${firstPath} (identical embed text); the vector is copied, not recomputed\n`,
-          );
-        }
-      }
-    }
-  }
-  if (toEmbed.length === 0 && !willPrune) {
-    return { plan: null, unchanged, secretsSkipped, flagged, dedupSkipped };
-  }
-  return {
-    plan: { path, existing, desiredIds, toEmbed, vectors: [], ts },
-    unchanged,
-    secretsSkipped,
-    flagged,
-    dedupSkipped,
-  };
-}
-
-/** THE-390: outcome of an embedPlans pass. `failed` lists plans with at least one chunk the
- *  provider rejected even as a single-text request (HTTP 400/413); their vectors are NOT
- *  populated and they must not be applied — the content-hash skip retries them next reconcile.
- *  `rejections` counts rejected requests that were bisected + retried (an operator signal that
- *  `embeddings.maxBatchTokens` sits over the provider context and the pass is paying retries). */
-export interface EmbedReport {
-  failed: NoteWritePlan[];
-  rejections: number;
-}
-
-// A provider "request rejected" error — HTTP 400/413, most commonly Ollama refusing a request
-// whose summed tokens exceed the model's loaded n_ctx (THE-390). Distinct from an outage
-// (timeout / 5xx / network error), which must keep aborting the reconcile.
-function isEmbedRejection(e: unknown): boolean {
-  if (!(e instanceof ObsidianTcError) || e.code !== "embedding_provider_error") return false;
-  const status = e.details?.status;
-  return status === 400 || status === 413;
-}
-
-// One sub-batch's outputs, aligned to its input order; null marks a quarantined text.
-interface SubBatchOut {
-  dense: Array<number[] | null>;
-  sparse?: Array<SparseVec | null>;
-  colbert?: Array<ColbertMatrix | null>;
-}
-
-// Embed one sub-batch, bisecting on a provider rejection: the token budget is an ESTIMATE
-// (chars/4 undercounts real tokenization), so a packed batch can overshoot the provider context
-// and 400 — halve and retry instead of aborting the whole reconcile (THE-390). A single text
-// still rejected alone is quarantined as null, never silently truncated. Any other error
-// propagates unchanged: a dead backend must abort, not degrade into one failing request per text.
-async function embedSubBatch(
-  provider: EmbeddingProvider,
-  batch: string[],
-  useFull: boolean,
-  counters: { rejections: number },
-): Promise<SubBatchOut> {
-  try {
-    if (useFull && provider.embedFull) {
-      const full = await provider.embedFull(batch);
-      return {
-        dense: full.map((f) => f.dense),
-        sparse: full.map((f) => f.sparse),
-        colbert: full.map((f) => f.colbert),
-      };
-    }
-    return { dense: await provider.embed(batch) };
-  } catch (e) {
-    if (!isEmbedRejection(e)) throw e;
-    counters.rejections += 1;
-    if (batch.length === 1) {
-      return useFull ? { dense: [null], sparse: [null], colbert: [null] } : { dense: [null] };
-    }
-    const mid = Math.ceil(batch.length / 2);
-    const left = await embedSubBatch(provider, batch.slice(0, mid), useFull, counters);
-    const right = await embedSubBatch(provider, batch.slice(mid), useFull, counters);
-    return {
-      dense: left.dense.concat(right.dense),
-      ...(useFull
-        ? {
-            sparse: (left.sparse ?? []).concat(right.sparse ?? []),
-            colbert: (left.colbert ?? []).concat(right.colbert ?? []),
-          }
-        : {}),
-    };
-  }
-}
-
-// Embed all of `plans`' to-embed chunks in provider-sized sub-batches under bounded concurrency
-// (THE-277), then write the vectors back onto each plan IN ORDER. Batching across notes turns a
-// reconcile's K serial per-note embed round-trips into ceil(total_chunks / batchSize) requests with
-// a few in flight. Order is preserved: sub-batch i lands at results[i], concatenated in index order
-// and sliced back to each plan by its toEmbed length. The write lock is never held across this.
-export async function embedPlans(
-  provider: EmbeddingProvider,
-  plans: NoteWritePlan[],
-  batchSize: number,
-  concurrency: number,
-  maxBatchTokens: number = EMBED_MAX_BATCH_TOKENS,
-): Promise<EmbedReport> {
-  const contents: string[] = [];
-  // THE-406: embed the enriched text when present; c.content remains the stored display text.
-  // Cross-path dedup (migration 20260719_001): a skipEmbed chunk's identical body is already embedded
-  // at another path, so it is NOT sent to the provider — its vector slot is filled below.
-  for (const p of plans)
-    for (const c of p.toEmbed) {
-      if (c.skipEmbed) continue;
-      contents.push(c.embedText ?? c.content);
-    }
-  if (contents.length === 0) return { failed: [], rejections: 0 };
-  // Pack sub-batches greedily under BOTH caps: at most `batchSize` inputs and at most
-  // `maxBatchTokens` estimated tokens per request (GH #172 — a fixed 512-input batch packed ~87k
-  // tokens into one call and crashed a stock local runner). A single text that alone exceeds the
-  // token cap still goes in its own batch: never split, never dropped.
-  const subBatches: string[][] = [];
-  let cur: string[] = [];
-  let curTokens = 0;
-  for (const text of contents) {
-    const t = estimateEmbedTokens(text);
-    if (cur.length > 0 && (cur.length >= batchSize || curTokens + t > maxBatchTokens)) {
-      subBatches.push(cur);
-      cur = [];
-      curTokens = 0;
-    }
-    cur.push(text);
-    curTokens += t;
-  }
-  if (cur.length > 0) subBatches.push(cur);
-  // THE-388: when the provider emits embedFull() (bge-m3), collect the sparse + ColBERT heads per
-  // sub-batch alongside the dense vector; dense-only providers take the embed() path unchanged.
-  const hasFull = typeof provider.embedFull === "function";
-  const counters = { rejections: 0 };
-  const results: SubBatchOut[] = new Array(subBatches.length);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    for (let i = next++; i < subBatches.length; i = next++) {
-      results[i] = await embedSubBatch(provider, subBatches[i] as string[], hasFull, counters);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, subBatches.length) }, () => worker()),
-  );
-  const flatDense = results.flatMap((r) => r.dense);
-  const flatSparse = hasFull ? results.flatMap((r) => r.sparse ?? []) : null;
-  const flatColbert = hasFull ? results.flatMap((r) => r.colbert ?? []) : null;
-  const failed: NoteWritePlan[] = [];
-  // Walk each plan's chunks in order, consuming a provider vector only for the ones actually embedded
-  // (skipEmbed chunks get an empty placeholder so vectors[] stays aligned to toEmbed; applyNoteWrites
-  // writes no embedding for them). A skipEmbed placeholder never counts as a quarantine (migration
-  // 20260719_001 + THE-390).
-  let off = 0;
-  for (const p of plans) {
-    const dense: number[][] = [];
-    const sparse: SparseVec[] = [];
-    const colbert: ColbertMatrix[] = [];
-    let quarantined = false;
-    for (const c of p.toEmbed) {
-      if (c.skipEmbed) {
-        dense.push([]);
-        if (flatSparse) sparse.push({} as SparseVec);
-        if (flatColbert) colbert.push([] as unknown as ColbertMatrix);
-        continue;
-      }
-      const v = flatDense[off];
-      // A quarantined chunk (provider rejected it even alone) fails its whole NOTE: its vectors are
-      // not applied and the caller must exclude the plan (THE-390).
-      if (v === null || v === undefined) quarantined = true;
-      dense.push((v ?? []) as number[]);
-      if (flatSparse) sparse.push((flatSparse[off] ?? {}) as SparseVec);
-      if (flatColbert) colbert.push((flatColbert[off] ?? []) as unknown as ColbertMatrix);
-      off += 1;
-    }
-    if (quarantined) {
-      failed.push(p);
-    } else {
-      p.vectors = dense;
-      if (flatSparse) p.sparse = sparse;
-      if (flatColbert) p.colbert = colbert;
-    }
-  }
-  return { failed, rejections: counters.rejections };
-}
+// indexing/note-plan.ts: the READ-ONLY planning phase.
+export {
+  chunkId,
+  estimateEmbedTokens,
+  hasBodyShaColumn,
+  hasDerivedEdgeColumns,
+  preloadChunkState,
+  readNoteTags,
+} from "./indexing/note-plan";
+// indexing/types.ts: the shared IndexStats/IndexedChunk/IndexHook/EmbedReport/DedupCache/
+// IndexVaultArgs surface, plus the internal plan/row types persistence and orchestration below
+// still need.
+export type {
+  DedupCache,
+  EmbedReport,
+  IndexedChunk,
+  IndexHook,
+  IndexStats,
+  IndexVaultArgs,
+} from "./indexing/types";
 
 // Single-note plan + embed (indexNote / index-on-write path). indexVault batches embeds instead.
 async function planNoteWrites(
@@ -531,32 +137,6 @@ async function planNoteWrites(
   return res;
 }
 
-/** Does the chunks table carry the body_sha column (migration 20260719_001)? A cache.db provisioned
- *  before that migration — or a bare fixture — lacks it; the INSERT then omits body_sha so the write
- *  path keeps working (the in-memory dedup registry is unaffected). Mirrors hasDerivedEdgeColumns. */
-// THE-491: column presence only changes at migration time, and migrations run at open before any
-// probe — so this is a per-connection constant. It was re-issuing PRAGMA table_info per NOTE
-// (called at :684 in the write path and again per reconcile), so a 1000-note vault paid 1000+
-// round trips to answer a fixed question. WeakMap keyed on the connection, matching the pattern
-// hasNotesTable already uses in fts.ts, so a closed db's entry is collectable.
-const bodyShaCache = new WeakMap<Database, boolean>();
-const derivedEdgeCache = new WeakMap<Database, boolean>();
-
-/** @internal exported for the memoization test; production callers use it directly. */
-export function hasBodyShaColumn(db: Database): boolean {
-  const cached = bodyShaCache.get(db);
-  if (cached !== undefined) return cached;
-  let ok = false;
-  try {
-    const cols = db.prepare("PRAGMA table_info(chunks)").all() as Array<{ name: string }>;
-    ok = cols.some((c) => c.name === "body_sha");
-  } catch {
-    ok = false;
-  }
-  bodyShaCache.set(db, ok);
-  return ok;
-}
-
 // #280-followup: a chunk's contradiction flags are judged on its exact content; when the chunk is
 // pruned or re-embedded (content changed) they are stale and must be dropped, or "open" rows accrue
 // unbounded and pollute the synthesis / knowledge_challenge / reflect grounding (all read
@@ -575,15 +155,6 @@ const DELETE_CONTRADICTIONS_SQL =
 // (THE-445 seed). If the owner has no stored embedding (e.g. it was quarantined), nothing is copied —
 // the chunk degrades to FTS-only, no worse than before. Requires the body_sha column (guaranteed:
 // skipEmbed is only set when it exists, see computeNotePlan dedupEnabled).
-/** THE-488: the source vectors for a dedup copy, keyed by content_hash. `null` caches a MISS (the
- *  owner had no stored embedding) so a duplicate-heavy flush never re-queries a known-absent source. */
-type DedupSource = {
-  embedding: Uint8Array;
-  dimensions: number;
-  sparse: string | null;
-  colbert: string | null;
-} | null;
-export type DedupCache = Map<string, DedupSource>;
 
 // THE-488: fetch the owner chunk's stored vectors for a content_hash — one embedding SELECT plus, when
 // the columns exist, one sparse and one colbert SELECT. Memoized by copyDedupVectors so this runs once
@@ -978,106 +549,6 @@ export function deindexNote(
     },
     sql,
   );
-}
-
-/** Does vault_edges carry the densification columns (migration 20260713_001: confidence +
- *  source_fingerprint)? A vault_edges provisioned BEFORE that migration — or a bare fixture — has neither,
- *  and the derived-edge upsert would throw and take the whole index pass down with it. No columns means no
- *  derived edge can exist, so there is nothing to reconcile and nothing to prune: skipping is safe. */
-/** @internal exported for the memoization test; production callers use it directly. */
-export function hasDerivedEdgeColumns(db: Database): boolean {
-  const cached = derivedEdgeCache.get(db);
-  if (cached !== undefined) return cached;
-  let ok = false;
-  try {
-    const cols = db.prepare("PRAGMA table_info(vault_edges)").all() as Array<{ name: string }>;
-    const names = new Set(cols.map((c) => c.name));
-    ok = names.has("confidence") && names.has("source_fingerprint");
-  } catch {
-    ok = false;
-  }
-  derivedEdgeCache.set(db, ok);
-  return ok;
-}
-
-/** Per-note frontmatter tag sets (notes.tags is a JSON array). A note with unparseable tags contributes
- *  none — one bad row never aborts the index pass.
- *  @internal exported for the THE-486 delta-vs-full-recompute regression test; production callers use
- *  it directly. */
-export function readNoteTags(db: Database, vaultId: string): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  const rows = db.prepare("SELECT path, tags FROM notes WHERE vault_id = ?").all(vaultId) as Array<{
-    path: string;
-    tags: string | null;
-  }>;
-  for (const row of rows) {
-    try {
-      const parsed = row.tags ? (JSON.parse(row.tags) as unknown) : [];
-      if (Array.isArray(parsed)) {
-        out.set(
-          row.path,
-          parsed.filter((t): t is string => typeof t === "string"),
-        );
-      }
-    } catch {
-      // unparseable tags -> this note contributes none
-    }
-  }
-  return out;
-}
-
-export interface IndexVaultArgs {
-  db: Database;
-  provider: EmbeddingProvider;
-  vaultId: string;
-  root: string;
-  sub?: string;
-  isReadable: (rel: string) => boolean;
-  now?: () => number;
-  onIndexed?: IndexHook;
-  /** GH #171/#172: embed-batch tuning; each field falls back to its module default. Callers thread
-   *  config.embeddings.{batchSize,concurrency,maxBatchTokens} here so a slow or small local runner
-   *  can be tuned without touching code. */
-  embed?: { batchSize?: number; concurrency?: number; maxBatchTokens?: number };
-  /** THE-406: embeddings.chunkContext — embed + BM25-index each chunk with a note-title +
-   *  heading-breadcrumb prefix (display content stays raw). Callers MUST thread the same value on
-   *  every index path (boot reconcile, index_vault tool, index-on-write): the chunk content hash
-   *  covers the enriched text, so mixed values would re-embed the same chunks back and forth. */
-  chunkContext?: boolean;
-  /** Graph densification (docs/plans/2026-07-13-graph-densification.md): build derived edges during
-   *  index_vault. tagEdges = shared-frontmatter-tag co-occurrence; knnEdges = vec0 kNN neighbors.
-   *  Off unless threaded from config.retrieval.densify. Full-state per kind (toggling off prunes). */
-  densify?: {
-    tagEdges?: boolean;
-    knnEdges?: boolean;
-    knnK?: number;
-    knnMinSim?: number;
-    maxTagFanout?: number;
-  };
-  /** THE-291: fires when the notes/FTS metadata pass has committed (independent of embed
-   *  success), so the caller can flip metadata readiness even if the embed pass later fails. */
-  onNotesPass?: () => void;
-  /** THE-500: bound each write transaction by BOTH note count and accumulated raw bytes, so a batch
-   *  of large notes cannot make one oversized transaction. Each falls back to its default
-   *  (maxNotes 100, maxBytes 8 MiB). Embedding always runs OUTSIDE the write txn regardless. */
-  batch?: { maxNotes?: number; maxBytes?: number };
-  /** THE-490: opt-in streaming walk. OFF by default — the default path is byte-for-byte the
-   *  pre-THE-490 behavior (walkVault's full sorted array, materialized before any note is
-   *  processed). When true, indexVault instead consumes walkVaultStream's async generator:
-   *  entries are only sorted WITHIN one directory (not across the whole tree), so peak walk
-   *  memory is bounded by the largest single directory rather than the total file count, and
-   *  note processing (parse/plan/batch) for the first entries begins before the rest of the tree
-   *  has been read. Verified order-independent for index OUTPUT (not for internal ordering/stats)
-   *  in test/index-stream-walk-equivalence.test.ts: every downstream consumer of walk order
-   *  (the content-hash dedup registry, the wikilink/tag/kNN edge reconcilers) already normalizes
-   *  via a Set, a full internal sort, or a full-state DB reconcile before anything is written or
-   *  compared, so a non-globally-sorted traversal produces an IDENTICAL final DB state. Left
-   *  default-off anyway, per THE-490's instruction to keep the existing path the default. */
-  walk?: { streaming?: boolean };
-  /** THE-585 (#5) / THE-612: write-lock + vec-rebuild hooks. Additive/best-effort, threaded from
-   *  the composition root — the only place that knows a MetricsRecorder exists. */
-  sql?: WriteTxnHooks;
-  onVecRebuild?: (e: VecRebuildEvent) => void;
 }
 
 // THE-500 defaults: 100 notes was the prior hardcoded flush size; 8 MiB caps a batch of large notes.

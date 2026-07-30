@@ -6,9 +6,9 @@ filesystem, not inferred. Counts in the hand-written sections come from
 regions state their own method.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 901 tracked code files · 135,485 lines.
+**Scale:** 904 tracked code files · 135,575 lines.
 
-TypeScript 127,159 · JavaScript 4,835 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 127,249 · JavaScript 4,835 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -200,7 +200,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**309 modules · 1296 dependencies · 88 distinct subsystem pairs · 539 cross-subsystem imports.**
+**312 modules · 1316 dependencies · 88 distinct subsystem pairs · 546 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -223,7 +223,7 @@ set is 88 pairs.
 ```mermaid
 flowchart LR
   tools[tools<br/>69 files]
-  search[search<br/>44 files]
+  search[search<br/>47 files]
   cli[cli<br/>22 files]
   vault[vault<br/>18 files]
   db[(db<br/>13 files)]
@@ -239,11 +239,11 @@ flowchart LR
   tools -->|162| vault
   tools -->|62| mcp
   tools -->|36| search
-  search -->|30| db
+  search -->|33| db
   cli -->|20| db
+  search -->|14| vault
   tools -->|14| db
   experiential -->|13| db
-  search -->|12| vault
   cli -->|8| experiential
   formats -->|8| vault
   mcp -->|8| vault
@@ -263,11 +263,11 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 199 | `tools` | 315 |
-| `db` | 99 | `cli` | 48 |
-| `mcp` | 71 | `search` | 46 |
+| `vault` | 201 | `tools` | 315 |
+| `db` | 102 | `search` | 53 |
+| `mcp` | 71 | `cli` | 48 |
 | `search` | 59 | `experiential` | 18 |
-| `experiential` | 15 | `mcp` | 17 |
+| `embeddings` | 17 | `mcp` | 17 |
 <!-- END GENERATED: tree-fan -->
 
 The shape is layered and largely acyclic at the subsystem level: the tool surface

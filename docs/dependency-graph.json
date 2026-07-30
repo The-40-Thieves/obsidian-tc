@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 309,
-    "dependencies": 1296,
+    "modules": 312,
+    "dependencies": 1316,
     "subsystemPairs": 88,
-    "crossSubsystemImports": 539
+    "crossSubsystemImports": 546
   },
   "subsystems": {
     "auth": 3,
@@ -33,7 +33,7 @@
     "runtime": 3,
     "scheduler": 4,
     "schemas": 1,
-    "search": 44,
+    "search": 47,
     "tools": 69,
     "transports": 3,
     "util": 4,
@@ -59,12 +59,17 @@
     {
       "from": "search",
       "to": "db",
-      "weight": 30
+      "weight": 33
     },
     {
       "from": "cli",
       "to": "db",
       "weight": 20
+    },
+    {
+      "from": "search",
+      "to": "vault",
+      "weight": 14
     },
     {
       "from": "tools",
@@ -75,11 +80,6 @@
       "from": "experiential",
       "to": "db",
       "weight": 13
-    },
-    {
-      "from": "search",
-      "to": "vault",
-      "weight": 12
     },
     {
       "from": "cli",
@@ -184,6 +184,11 @@
     {
       "from": "metrics",
       "to": "db",
+      "weight": 3
+    },
+    {
+      "from": "search",
+      "to": "embeddings",
       "weight": 3
     },
     {
@@ -424,11 +429,6 @@
     {
       "from": "search",
       "to": "util",
-      "weight": 1
-    },
-    {
-      "from": "search",
-      "to": "embeddings",
       "weight": 1
     },
     {

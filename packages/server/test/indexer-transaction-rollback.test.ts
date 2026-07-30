@@ -27,7 +27,8 @@ const PATH = "note.md";
 // Two headings -> chunkNote (src/search/chunk.ts) yields two chunks, so applyNoteWrites issues
 // multiple INSERT INTO chunks calls before the transaction's final statement (the vault_generation
 // bump) runs — the writes that must NOT survive a late failure.
-const RAW = "# Alpha\n\nThe quick brown fox jumps over the lazy dog.\n\n# Beta\n\nA second section.\n";
+const RAW =
+  "# Alpha\n\nThe quick brown fox jumps over the lazy dog.\n\n# Beta\n\nA second section.\n";
 
 /** Wrap a real Database so any prepared statement whose SQL contains `matchSql` throws on `.run()`
  *  — a failure injected at a specific point in an otherwise-real transaction. Every other statement
@@ -74,9 +75,9 @@ describe("indexNote transaction rollback (WP3 invariant)", () => {
     const db = injectRunFailure(real, "INSERT INTO vault_generation");
     const provider = fakeEmbeddingProvider({ dimensions: 8 });
 
-    await expect(
-      indexNote(db, provider, VAULT_ID, PATH, RAW, false, () => 1000),
-    ).rejects.toThrow(/injected failure/);
+    await expect(indexNote(db, provider, VAULT_ID, PATH, RAW, false, () => 1000)).rejects.toThrow(
+      /injected failure/,
+    );
 
     // Query the REAL (unwrapped) connection — the transaction must have rolled back, so none of
     // this note's writes survive.
