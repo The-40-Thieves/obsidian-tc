@@ -111,7 +111,16 @@ const EXPECTED: ToolSnapshot[] = [
     tags: ["knowledge", "search"],
     hasPathAcl: false,
     inputKeys: ["final_top_k", "hypothetical_answer", "queries", "query", "vault"],
-    outputKeys: ["coverage", "hyde", "mode_used", "query", "results", "route", "variants_used", "vault"],
+    outputKeys: [
+      "coverage",
+      "hyde",
+      "mode_used",
+      "query",
+      "results",
+      "route",
+      "variants_used",
+      "vault",
+    ],
   },
   {
     name: "knowledge_search",

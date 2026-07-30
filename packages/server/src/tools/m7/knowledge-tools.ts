@@ -3,31 +3,26 @@
 // on the branch: vault_graph_search (W-RETRIEVAL GraphRAG) and knowledge_challenge (W-WORKERS
 // red-team core). Both degrade gracefully when the inference gateway is unconfigured.
 // knowledge_get_critical is intentionally absent (vendor-KB data model not in the tree).
+//
+// WP2 slice 1: this file is now a compatibility facade over ./knowledge/*. The 11 output schema
+// consts live in knowledge/schemas.ts, M7Deps in knowledge/deps.ts, and the shared retrieval
+// helpers (cache-key/policy/coverage capture, budget packing, the graphSearch options builder,
+// the tag/contradiction lookups) in knowledge/retrieval-runtime.ts. `buildKnowledgeTools` itself
+// stays here unchanged — only where its pieces are imported from moved. Every name this file
+// exported before this split (M7Deps, packBudget, buildGraphSearchOptions, noteTagsByPath,
+// openContradictionsForPaths, buildKnowledgeTools) is still exported from here, so no consumer
+// needs to change its import path.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { err, grantsAll, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { tableExists } from "../../db/introspect";
-import type { Database } from "../../db/types";
-import type { EmbeddingProvider } from "../../embeddings";
-import type { RetrievalLogger, RetrievalPolicyRecord } from "../../experiential/log";
-import type { CallerContext, ToolDefinition } from "../../mcp/registry";
-import {
-  type ContradictionContext,
-  challengeOutputSchema,
-  challengeProposal,
-  type EvidenceChunk,
-  isDecisionChunk,
-} from "../../plane/challenge";
-import { type GatewayRoles, prompt } from "../../plane/gateway";
+import type { ToolDefinition } from "../../mcp/registry";
+import { challengeProposal, type EvidenceChunk, isDecisionChunk } from "../../plane/challenge";
+import { prompt } from "../../plane/gateway";
 import { bm25Chunks } from "../../search/chunk_fts";
 import { readGeneration } from "../../search/generation";
-import type {
-  CoverageEstimate,
-  GraphSearchOptions,
-  GraphSearchResult,
-} from "../../search/graph_search";
-import type { StageMetric } from "../../search/graph_search_stages/instrumentation";
+import type { GraphSearchResult } from "../../search/graph_search";
 import { multiQueryGraphSearch } from "../../search/multi_query";
 import {
   callerAclFingerprint,
@@ -36,581 +31,43 @@ import {
   readPrewarm,
   writePrewarm,
 } from "../../search/prefetch";
-import {
-  cachedGraphSearch,
-  type QueryCacheContext,
-  type QueryVectors,
-  type RetrievalCaches,
-} from "../../search/query_cache";
-import type { Reranker } from "../../search/rerank";
+import { cachedGraphSearch, type QueryVectors } from "../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../search/router";
 import { semanticSearch } from "../../search/semantic";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { persistGovernedNote } from "../../vault/persist-note";
-import type { VaultRegistry } from "../../vault/registry";
 import { defineTool } from "../m1/define";
+import type { M7Deps } from "./knowledge/deps";
+import {
+  buildGraphSearchOptions,
+  CHALLENGE_RECALL,
+  cacheContextFor,
+  captureCoverage,
+  capturePolicy,
+  LESSON_PATH_RE,
+  NEXT_SESSION_NOTE,
+  noteTagsByPath,
+  openContradictionsForPaths,
+  packBudget,
+  prewarmBundlePaths,
+  REFLECT_SYSTEM_PROMPT,
+  retrievalHits,
+} from "./knowledge/retrieval-runtime";
+import {
+  KnowledgeChallengeOutput,
+  KnowledgeCriticalOutput,
+  KnowledgeSearchOutput,
+  ListContradictionsOutput,
+  ReflectOutput,
+  VaultContextOutput,
+  VaultGraphSearchOutput,
+} from "./knowledge/schemas";
 import { resolveQueryColbert, resolveQuerySparse } from "./query-sparse";
 
-// ---------------------------------------------------------------------------------------------
-// THE-417 Phase 1: declared output contracts for m7.
-//
-// m7 is where the surface's shape inconsistency actually lives. THE-548 found three different
-// "unavailable" returns across the tool surface; three of them are IN THIS FILE, and they are not
-// the same shape as each other — only `{ vault, available: false, message }` is common. reflect
-// adds mode/route/sources/answer, list_contradictions adds total/contradictions, and
-// knowledge_challenge returns just the triple. Declaring each one is what makes that legible to a
-// caller instead of something you learn by reading handlers.
-//
-// Written from the RETURN STATEMENTS, not from the types the data came from: several fields are
-// renamed, derived, or conditionally spread on the way out, so a schema inferred from the source
-// row/interface would be wrong. Conditional spreads (`...(cond ? { x } : {})`) omit the key
-// entirely, which is `.optional()`, not `.nullable()`.
-// ---------------------------------------------------------------------------------------------
-
-/** Mirrors search/graph_search_stages/types.ts's GraphSearchResult. `content` is genuinely
- *  optional (omitted when the projection did not hydrate it), not nullable. */
-const GraphSearchResultSchema = z.object({
-  chunk_id: z.string(),
-  path: z.string(),
-  content: z.string().optional(),
-  source: z.enum(["seed", "expansion", "lexical", "sparse", "temporal"]),
-  hop: z.number(),
-  via_edge: z
-    .object({ type: z.string(), source_path: z.string(), provenance: z.string().nullable() })
-    .nullable(),
-  root_seed: z.string().nullable(),
-  rerank_score: z.number(),
-});
-
-/** THE-631: mirrors search/graph_search_stages/types.ts's CoverageEstimate. Additive and
- *  reported-only — see estimateCoverage() in search/graph_search.ts for exactly what each field
- *  means; it never feeds back into ranking. Present only on the graph-fusion arm of a search tool
- *  (the lexical-route arm bypasses graphSearch entirely and has nothing to report), hence
- *  .optional() rather than .nullable() here too. */
-const CoverageEstimateSchema = z.object({
-  arms: z.array(z.enum(["seed", "expansion", "lexical", "sparse", "temporal"])),
-  armsContributed: z.number(),
-  armsPossible: z.number(),
-  expansionSkipped: z.boolean(),
-  expansionTruncated: z.boolean(),
-  requested: z.number(),
-  returned: z.number(),
-  underfilled: z.boolean(),
-});
-
-/** The trimmed citation shape reflect returns (NOT a full GraphSearchResult). */
-const SourceRef = z.object({ chunk_id: z.string(), path: z.string(), score: z.number() });
-
-const ContradictionRow = z.object({
-  id: z.string(),
-  source_path: z.string(),
-  conflict_path: z.string(),
-  judge_verdict: z.string(),
-  judge_rationale: z.string(),
-});
-
-/** vault_context. The prefetch path returns the SAME bundle plus two markers, so they are optional
- *  here rather than a separate union arm — a second arm would duplicate ~30 fields to add two. */
-const VaultContextOutput = z.object({
-  vault: z.string(),
-  route: z.array(z.string()),
-  query_source: z.enum(["input", "next_session"]),
-  signal: z.string().optional(),
-  signal_hash: z.string().optional(),
-  budget: z.object({
-    requested: z.number(),
-    chunk_budget: z.number(),
-    packed_tokens: z.number(),
-  }),
-  stats: z.object({
-    chunks_considered: z.number(),
-    chunks_packed: z.number(),
-    notes: z.number(),
-    contradictions: z.number(),
-    syntheses: z.number(),
-    lessons: z.number(),
-  }),
-  notes: z.array(
-    z.object({
-      path: z.string(),
-      chunks: z.array(
-        z.object({
-          chunk_id: z.string(),
-          content: z.string().optional(),
-          score: z.number(),
-          source: z.string(),
-          hop: z.number(),
-        }),
-      ),
-    }),
-  ),
-  // `patterns` is JSON.parse'd with a fallback to the raw string, so its shape is genuinely not
-  // known here. z.unknown() states that honestly rather than inventing a contract for it.
-  syntheses: z.array(
-    z.object({
-      iso_year: z.number(),
-      iso_week: z.number(),
-      generated_at: z.number(),
-      patterns: z.unknown(),
-    }),
-  ),
-  contradictions: z.array(ContradictionRow),
-  lessons: z.array(
-    z.object({
-      chunk_id: z.string(),
-      path: z.string(),
-      excerpt: z.string(),
-      via: z.enum(["engine", "lexical"]),
-    }),
-  ),
-  // Present only with include_work; degrades to a marker object rather than an empty array, so a
-  // caller can tell "no work" from "work plane unavailable".
-  episodes: z
-    .union([
-      z.array(
-        z.object({
-          id: z.string(),
-          ts: z.number(),
-          tool: z.string().nullable(),
-          status: z.string(),
-          summary: z.string().nullable(),
-        }),
-      ),
-      z.object({ work_unavailable: z.literal(true) }),
-    ])
-    .optional(),
-  prefetched: z.literal(true).optional(),
-  prefetch_generated_at: z.number().optional(),
-});
-
-/** reflect: three arms. `mode` in the degraded arm ECHOES the input rather than being normalised,
- *  which is why it is a plain string there and a literal in the other two. */
-/** reflect. Encoded as ONE object with optionals rather than a discriminated union, because
- *  TypeScript unifies the handler's three branch returns into a single widened shape
- *  (`available: boolean`, absent fields as `?: undefined`) rather than preserving the union — so a
- *  union of literal-tagged arms cannot match the inferred return type.
- *
- *  What the three arms actually are, since the schema can no longer say it:
- *    degraded  { available: false, message, answer: null, sources }   — `mode` ECHOES the input here
- *    challenge { available: true,  model, challenge, sources }
- *    synthesis { available: true,  model, answer, sources, persisted? }
- *
- *  Every field name and type is still checked; only the correlation between them is not. */
-const ReflectOutput = z.object({
-  vault: z.string(),
-  mode: z.string(),
-  route: z.array(z.string()),
-  available: z.boolean(),
-  message: z.string().optional(),
-  answer: z.string().nullable().optional(),
-  model: z.string().optional(),
-  challenge: challengeOutputSchema.optional(),
-  sources: z.array(SourceRef),
-  persisted: z.object({ path: z.string() }).optional(),
-});
-
-/** vault_graph_search: `route` appears only on the lexical arm; hyde/variants_used are spread in
- *  conditionally. Kept as one object with optionals rather than a union, because the two arms
- *  differ only by which optional keys are present. */
-const VaultGraphSearchOutput = z.object({
-  vault: z.string(),
-  mode_used: z.enum(["lexical-route", "graph"]),
-  route: z.array(z.string()).optional(),
-  query: z.string().optional(),
-  hyde: z.literal(true).optional(),
-  variants_used: z.number().optional(),
-  // THE-631: additive, reported-only — present on the graph arm, absent on lexical-route.
-  coverage: CoverageEstimateSchema.optional(),
-  results: z.array(GraphSearchResultSchema),
-});
-
-/** knowledge_search: `route` is present on the lexical arm and ABSENT on the graph arm — not null,
- *  not empty. Optional is the honest encoding. */
-const KnowledgeSearchOutput = z.object({
-  vault: z.string(),
-  mode_used: z.enum(["lexical-route", "graph"]),
-  route: z.array(z.string()).optional(),
-  // THE-631: additive, reported-only — present on the graph arm, absent on lexical-route.
-  coverage: CoverageEstimateSchema.optional(),
-  results: z.array(GraphSearchResultSchema),
-});
-
-const KnowledgeCriticalOutput = z.object({
-  vault: z.string(),
-  count: z.number(),
-  items: z.array(
-    z.object({
-      path: z.string(),
-      title: z.string(),
-      category: z.string().nullable(),
-      source: z.string().nullable(),
-      severity: z.literal("critical"),
-    }),
-  ),
-});
-
-/** knowledge_challenge: three arms, and the degraded one is only the shared triple — deliberately
- *  narrower than reflect's, which is exactly the inconsistency THE-548 surfaced. */
-/** knowledge_challenge. Same widening reason as ReflectOutput. Its degraded arm is only
- *  `{ vault, available: false, message }` — deliberately NARROWER than reflect's, which is exactly
- *  the surface inconsistency THE-548 surfaced and this ticket is making legible. */
-const KnowledgeChallengeOutput = z.object({
-  vault: z.string(),
-  available: z.boolean(),
-  message: z.string().optional(),
-  evidence_count: z.number().optional(),
-  contradiction_count: z.number().optional(),
-  // null on the no-evidence arm, a full ChallengeOutput on success, absent when degraded.
-  output: challengeOutputSchema.nullable().optional(),
-  model: z.string().optional(),
-});
-
-const ListContradictionsOutput = z.object({
-  vault: z.string(),
-  available: z.boolean(),
-  message: z.string().optional(),
-  total: z.number(),
-  contradictions: z.array(ContradictionRow),
-});
-
-export interface M7Deps {
-  vaultRegistry: VaultRegistry;
-  embeddingProvider: EmbeddingProvider;
-  /** Rerank seam → gateway /rerank passthrough; null when the gateway is unconfigured. */
-  reranker: Reranker | null;
-  /** Generative roles → gateway extract/synthesize/judge; null when unconfigured. */
-  roles: GatewayRoles | null;
-  /** THE-397: config-driven retrieval knobs (config.retrieval); absent -> graphSearch defaults. */
-  retrieval?: {
-    rrfK?: number;
-    sparse?: boolean;
-    colbert?: boolean;
-    densify?: { includeInWalk?: boolean; derivedWeight?: number };
-    /** THE-391/THE-536: adaptive per-stream RRF weighting. Absent/false -> static RRF, byte-
-     *  identical to today. */
-    adaptiveRrf?: { enabled?: boolean; gain?: number };
-    /** THE-394/THE-591: gated cross-encoder rerank (retrieval.gatedRerank). Absent/false ->
-     *  graphSearch's gatedRerank stage never fires, byte-identical to today. */
-    gatedRerank?: boolean;
-  };
-  /** Config-driven POST-FUSION ranking overlays (config.ranking); absent -> graphSearch defaults
-   *  (metadata prior OFF). */
-  ranking?: {
-    metadataPrior?: {
-      enabled?: boolean;
-      rules?: Array<{ field: string; value: string; boost: number }>;
-      clampFraction?: number;
-    };
-  };
-  /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging. */
-  retrievalLog?: RetrievalLogger;
-  /** THE-585 (#7, #8): one vec0 -> brute-force degradation, by vault and reason. Absent -> inert,
-   *  matching retrievalLog above. Wired from the composition root so this module never learns
-   *  about the metrics recorder. */
-  onVecFallback?: (vault: string, reason: "error" | "underfill") => void;
-  /** THE-585 (#6): one record per named retrieval stage (duration + candidate funnel), by vault.
-   *  The `onStageMetric` seam and its closed `StageName` union already existed (THE-465); this is
-   *  the missing half — nothing consumed it outside the perf collector. Absent -> inert. */
-  onStageMetric?: (vault: string, metric: StageMetric) => void;
-  /** THE-187/193: cached_activation_score lookup for the graph bubble pass; absent -> inert
-   *  (the config-gated dark default until the A/B passes the ship rule). */
-  activationFor?: (chunkId: string) => number | null;
-  /** THE-258: the deterministic class router (retrieval.classRouter). Dark by default —
-   *  absent/false, every query takes the measured standard path. */
-  classRouter?: boolean;
-  /** THE-132/229: open experiential handle for vault_context's include_work leg; absent ->
-   *  include_work reports work_unavailable. */
-  edb?: Database;
-  /** THE-231: per-vault memory folder (same source as M5) — where the next-session signal
-   *  note lives for vault_context's bootstrap mode; absent -> "memory". */
-  memoryFolder?: (vaultId: string) => string;
-  /** THE-136: directory holding the prewarm cache (prewarm-<vault>.json). When set, bootstrap
-   *  mode reads a fresh entry instead of cold-querying and writes through on a live compose;
-   *  absent -> every bootstrap composes live. */
-  prewarmDir?: string;
-  /** THE-562 P1.6: governed-write handles so reflect.persist snapshots + reindexes like write_note. */
-  snapshots?: { enabled: boolean; retention: number };
-  reindex?: (vaultId: string, path: string, content: string) => void;
-  /** THE-497: the in-process query-product cache (retrieval.cache). Absent -> every retrieval
-   *  surface below embeds and searches exactly as it did before, with no cache path taken. */
-  retrievalCaches?: RetrievalCaches;
-}
-
-/**
- * THE-497: the per-dispatch half of the cache key. Built here, at the only place that has all
- * three inputs: the CALLER (ACL fingerprint — the isolation guarantee), the VAULT (generation —
- * the staleness guarantee), and what the query vectors will MEAN (provider/model/dimensions plus
- * which multi-vector streams are on, since those decide which heads `embed()` even produces).
- *
- * Returns undefined when the cache is off, which makes every call site an exact pass-through.
- */
-function cacheContextFor(
-  deps: M7Deps,
-  ctx: CallerContext,
-  vaultId: string,
-  denseText: string,
-): QueryCacheContext | undefined {
-  if (!deps.retrievalCaches) return undefined;
-  return {
-    caches: deps.retrievalCaches,
-    denseText,
-    binding: {
-      aclFingerprint: callerAclFingerprint(ctx.acl, ctx.grantedScopes),
-      generation: readGeneration(ctx.db, vaultId),
-      representation: {
-        id: deps.embeddingProvider.id,
-        provider: deps.embeddingProvider.provider,
-        model: deps.embeddingProvider.model,
-        dimensions: deps.embeddingProvider.dimensions,
-        sparse: deps.retrieval?.sparse === true,
-        colbert: deps.retrieval?.colbert === true,
-      },
-    },
-  };
-}
-
-/**
- * THE-538: capture the ranking policy behind ONE search call, for `retrieval_policy`.
- *
- * The weights are taken from the fusion stage's own sink rather than re-derived from config: under
- * adaptive RRF they are computed PER QUERY from lexical specificity, and a missing FTS signal
- * silently falls back to static all-1 weights — so a record built from the configured gain would
- * describe a policy that did not run. No sink call (the lexical short-circuit never fuses) leaves
- * the weights null and the policy id explicit.
- */
-function capturePolicy(deps: M7Deps, vaultId: string, routeClass: string) {
-  let weights: { policyId: string; dense: number; lex: number; sparse: number } | undefined;
-  return {
-    sink: (w: typeof weights) => {
-      weights = w;
-    },
-    record: (fallbackPolicyId: string): RetrievalPolicyRecord => ({
-      vaultId,
-      policyId: weights?.policyId ?? fallbackPolicyId,
-      denseW: weights?.dense ?? null,
-      lexW: weights?.lex ?? null,
-      sparseW: weights?.sparse ?? null,
-      // These surfaces never override fusionMode, so the effective mode is graphSearch's default.
-      fusionMode: weights ? "graph_rrf" : null,
-      rrfK: weights ? (deps.retrieval?.rrfK ?? 10) : null,
-      routeClass,
-    }),
-  };
-}
-
-/** THE-631: capture the coverage estimate for ONE search call, mirroring capturePolicy's sink
- *  pattern above. Under multi-query fan-out, graphSearch's onCoverage fires once per variant (see
- *  its own doc comment); `get()` returns whichever call landed last, matching capturePolicy's/
- *  onFusionWeights' existing precedent for the same fan-out shape. Undefined when the search
- *  never reached graphSearch at all (the lexical-route arm) — that stays undefined -> omitted
- *  from the response, matching CoverageEstimateSchema's `.optional()`. */
-function captureCoverage() {
-  let coverage: CoverageEstimate | undefined;
-  return {
-    sink: (c: CoverageEstimate) => {
-      coverage = c;
-    },
-    get: () => coverage,
-  };
-}
-
-/** THE-538: one log hit per result, carrying the fusion STREAM that produced it. */
-function retrievalHits(results: GraphSearchResult[]) {
-  return results.map((r, i) => ({
-    chunkId: r.chunk_id,
-    rank: i + 1,
-    score: r.rerank_score,
-    streamSource: r.source,
-  }));
-}
-
-/** THE-231: lesson-class paths — decision notes, lessons, postmortems, retros. Convention-based
- *  (path substring), matching the vault layouts the challenge corpus already assumes. */
-const LESSON_PATH_RE = /decision|lesson|postmortem|retro/i;
-/** THE-231: the queued-thread signal note written at the end of the previous session. */
-const NEXT_SESSION_NOTE = "_next-session.md";
-
-/** THE-222: grounded-synthesis role prompt for reflect's default mode. */
-const REFLECT_SYSTEM_PROMPT =
-  "You synthesize a grounded answer from the user's own notes. Use ONLY the numbered evidence " +
-  "chunks; cite them inline as [n]; state plainly what the evidence does not establish. " +
-  "Concise, factual, no filler.";
-
-/** THE-132: greedy budget packer — walk fused-rank order, spend token costs until the budget
- *  binds. Pure and exported for the packing pins. */
-export function packBudget<T>(
-  items: T[],
-  tokenOf: (item: T) => number,
-  budget: number,
-): { packed: T[]; tokens: number } {
-  const packed: T[] = [];
-  let tokens = 0;
-  for (const item of items) {
-    const cost = Math.max(1, tokenOf(item));
-    if (tokens + cost > budget && packed.length > 0) break;
-    packed.push(item);
-    tokens += cost;
-    if (tokens >= budget) break;
-  }
-  return { packed, tokens };
-}
-
-const CHALLENGE_RECALL = 30;
-
-/** THE-543 layer 3 (defence in depth): every vault-relative path a cached prewarm bundle
- *  references, so the hit path can re-run each one through readableRel before trusting the
- *  bundle — even a bundle whose cache key checks out gets one final authorization pass. */
-function prewarmBundlePaths(bundle: Record<string, unknown>): string[] {
-  const paths: string[] = [];
-  for (const key of ["notes", "lessons"] as const) {
-    const arr = bundle[key];
-    if (!Array.isArray(arr)) continue;
-    for (const item of arr) {
-      const p = (item as { path?: unknown } | null)?.path;
-      if (typeof p === "string") paths.push(p);
-    }
-  }
-  return paths;
-}
-
-/** THE-545: every CONFIG-DERIVED graphSearch option, assembled in exactly one place.
- *
- *  The four graphSearch call sites in this module each hand-assembled this object, and the copies
- *  drifted. `ranking.metadataPrior` reached vault_context and reflect but neither
- *  vault_graph_search — the primary search verb — nor knowledge_search. Partial reachability is
- *  worse than no reachability: the knob measurably changed two surfaces and silently did nothing on
- *  the other two, so any measurement taken on one surface did not describe the others.
- *
- *  The generator of that defect was the hand-assembly itself — a new knob had to be remembered four
- *  separate times, and remembering is not a mechanism. Routing every site through one builder makes
- *  threading structural: a knob added here reaches every surface by construction.
- *
- *  Genuinely per-site values stay explicit parameters rather than being defaulted here, so a
- *  deliberate deviation stays visible at its call site. `reranker` is the one that matters:
- *  knowledge_search pins it to null on purpose (THE-441, reranking lost on the docs corpus), and
- *  that decision must not look like an omission. */
-export function buildGraphSearchOptions(
-  deps: M7Deps,
-  site: {
-    route: { class: string };
-    query: string;
-    /** THE-497: optional. The cached path builds these options BEFORE embedding — a cache hit must
-     *  skip the model round-trip, so the vectors are merged in afterwards on a miss only. */
-    queryVec?: number[];
-    querySparse?: GraphSearchOptions["querySparse"];
-    queryColbert?: GraphSearchOptions["queryColbert"];
-    vaultId: string;
-    finalTopK: number;
-    reranker: GraphSearchOptions["reranker"];
-    isReadable: GraphSearchOptions["isReadable"];
-    /** THE-538: per-query fusion-weight sink for retrieval-policy provenance. */
-    onFusionWeights?: GraphSearchOptions["onFusionWeights"];
-    /** THE-631: per-query coverage-estimate sink, mirrors onFusionWeights above. */
-    onCoverage?: GraphSearchOptions["onCoverage"];
-  },
-): Omit<GraphSearchOptions, "queryVec"> & { queryVec?: number[] } {
-  return {
-    ...(site.route.class === "temporal" ? { temporal: { enabled: true } } : {}),
-    query: site.query,
-    ...(site.queryVec ? { queryVec: site.queryVec } : {}),
-    model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
-    vaultId: site.vaultId,
-    finalTopK: site.finalTopK,
-    ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
-    ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
-    ...(deps.retrieval?.adaptiveRrf?.enabled ? { adaptiveRrf: deps.retrieval.adaptiveRrf } : {}),
-    ...(deps.retrieval?.gatedRerank ? { gatedRerank: { enabled: true } } : {}),
-    ...(deps.ranking?.metadataPrior?.enabled ? { metadataPrior: deps.ranking.metadataPrior } : {}),
-    ...(site.querySparse ? { querySparse: site.querySparse } : {}),
-    ...(site.queryColbert ? { queryColbert: site.queryColbert } : {}),
-    reranker: site.reranker,
-    isReadable: site.isReadable,
-    ...(site.onFusionWeights ? { onFusionWeights: site.onFusionWeights } : {}),
-    ...(site.onCoverage ? { onCoverage: site.onCoverage } : {}),
-    ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
-    // THE-585: vec0 -> brute-force degradation signal, bound to this vault. Threaded through the
-    // options builder so EVERY graph-search site gets it — wiring it per call site is how a
-    // counter ends up covering some paths and silently missing others.
-    ...(deps.onVecFallback
-      ? {
-          onVecFallback: (reason: "error" | "underfill") =>
-            deps.onVecFallback?.(site.vaultId, reason),
-        }
-      : {}),
-    // THE-585 (#6): same options-builder placement, same reason — a per-call-site wiring would
-    // cover some retrieval paths and silently miss others, which is the failure mode a funnel
-    // metric is least able to survive (a missing stage reads as a stage that never ran).
-    ...(deps.onStageMetric
-      ? { onStageMetric: (metric: StageMetric) => deps.onStageMetric?.(site.vaultId, metric) }
-      : {}),
-  };
-}
-
-/** Note-level frontmatter tags for the given paths (THE-309), so isDecisionChunk's tag rule can
- *  fire on the retrieved evidence — the semantic hit itself carries no tags. Scoped to the vault. */
-export function noteTagsByPath(
-  db: Database,
-  vaultId: string,
-  paths: string[],
-): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  if (paths.length === 0 || !tableExists(db, "notes")) return out;
-  const placeholders = paths.map(() => "?").join(",");
-  const rows = db
-    .prepare(`SELECT path, tags FROM notes WHERE vault_id = ? AND path IN (${placeholders})`)
-    .all(vaultId, ...paths) as Array<{ path: string; tags: string }>;
-  for (const r of rows) {
-    try {
-      const parsed = JSON.parse(r.tags);
-      if (Array.isArray(parsed)) {
-        out.set(
-          r.path,
-          parsed.filter((t): t is string => typeof t === "string"),
-        );
-      }
-    } catch {
-      // malformed tags JSON — treat the note as untagged rather than failing the challenge.
-    }
-  }
-  return out;
-}
-
-/** Open contradictions whose source or conflict note is in `paths` (THE-309), scoped to `vaultId`
- *  (THE-563) and re-authorized against the caller ACL (THE-564): a row is returned only if BOTH
- *  contributing sources remain readable — the opposite side of a matched pair may be outside the
- *  caller's set. Empty when the plane table is absent. */
-export function openContradictionsForPaths(
-  db: Database,
-  vaultId: string,
-  paths: string[],
-  isReadable: (rel: string) => boolean,
-): ContradictionContext[] {
-  if (paths.length === 0 || !tableExists(db, "contradictions")) return [];
-  const placeholders = paths.map(() => "?").join(",");
-  const rows = db
-    .prepare(
-      `SELECT id, source_path, conflict_path, judge_verdict, judge_rationale FROM contradictions
-       WHERE status = 'open' AND vault_id = ? AND (source_path IN (${placeholders}) OR conflict_path IN (${placeholders}))`,
-    )
-    .all(vaultId, ...paths, ...paths) as Array<{
-    id: string;
-    source_path: string;
-    conflict_path: string;
-    judge_verdict: string;
-    judge_rationale: string | null;
-  }>;
-  return rows
-    .filter((r) => isReadable(r.source_path) && isReadable(r.conflict_path))
-    .map((r) => ({
-      id: r.id,
-      source_path: r.source_path,
-      conflict_path: r.conflict_path,
-      judge_verdict: r.judge_verdict,
-      judge_rationale: r.judge_rationale ?? "",
-    }));
-}
+export type { M7Deps };
+export { buildGraphSearchOptions, noteTagsByPath, openContradictionsForPaths, packBudget };
 
 export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
   const embedQuery = async (q: string): Promise<number[]> => {
