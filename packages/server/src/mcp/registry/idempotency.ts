@@ -163,6 +163,10 @@ export type IdempotencyClaimResult =
  *  - tool-name/args-hash mismatch resolving to `mismatch`;
  *  - a corrupt cached blob deleting the row and THROWING `internal` (not a returned state) so the
  *    next call re-executes — this is the one path that still throws, matching the original.
+ *
+ * `now` is a CLOCK FUNCTION, not a pre-sampled instant — it is called at each of the (up to) four
+ * points the original inline block did, so an injectable/stateful `ctx.now` (or real clock drift
+ * across the claim+read) is observed the same number of times, at the same points, as before.
  */
 export function claimOrReplay(
   db: Database,
@@ -170,12 +174,18 @@ export function claimOrReplay(
   key: string,
   tool: string,
   argsHashValue: string,
-  nowMs: number,
+  now: () => number,
   ttlMs: number,
   reclaimMs: number,
   maxResponseBytes: number,
 ): IdempotencyClaimResult {
-  if (tryClaimIdempotency(db, vaultId, key, tool, argsHashValue, nowMs, ttlMs) === "claimed") {
+  // THE-4xx (cross-vendor review, WP4.2): the original inline block sampled `now()` four separate
+  // times — the initial claim, the two reclaim-window comparisons, and the retry claim — so a
+  // stateful clock (ctx.now, or real wall-clock drift across a slow claim+read) advances between
+  // them. Sampling once here and reusing it would backdate a reclaimed row's started_at/expires_at
+  // to the pre-read instant, silently shrinking its reclaim window. Call `now()` at each of the same
+  // four sites the original did, not before.
+  if (tryClaimIdempotency(db, vaultId, key, tool, argsHashValue, now(), ttlMs) === "claimed") {
     return { kind: "claimed" };
   }
 
@@ -184,13 +194,13 @@ export function claimOrReplay(
   // once (idempotencyReclaimSeconds, THE-293).
   if (
     row &&
-    (row.expires_at <= nowMs ||
+    (row.expires_at <= now() ||
       (row.state === "in_flight" &&
         row.completed_at == null &&
-        row.started_at + reclaimMs <= nowMs))
+        row.started_at + reclaimMs <= now()))
   ) {
     deleteIdempotency(db, vaultId, key);
-    if (tryClaimIdempotency(db, vaultId, key, tool, argsHashValue, nowMs, ttlMs) === "claimed") {
+    if (tryClaimIdempotency(db, vaultId, key, tool, argsHashValue, now(), ttlMs) === "claimed") {
       return { kind: "claimed" };
     }
     row = readIdempotency(db, vaultId, key);
@@ -208,6 +218,15 @@ export function claimOrReplay(
     if (row.result_size != null && row.result_size > maxResponseBytes) {
       return { kind: "replay", outcome: "overflow", resultSize: row.result_size };
     }
+    // Deliberately narrower than the original's try: the original's single try/catch happened to
+    // also wrap memoizeSerialized, duration, audit(), and meter() — because those all lived inline
+    // in runDispatch, right after the parse, sharing its catch by accident of position rather than
+    // by design. Reproducing that exact scope here would mean pulling audit/metrics into this leaf,
+    // which is the coupling this slice exists to remove. This catch covers only the parse/size step
+    // it is actually guarding against (a corrupt cached blob); a fault in the caller's audit/metrics
+    // tail (e.g. an injected `now()` throwing) now surfaces as the generic `internal` path in
+    // runDispatch's outer catch instead of this function's "cached idempotent result was
+    // unreadable" — a narrower, not wider, failure mode than before.
     try {
       const cachedStr = bufToString(row.result);
       const cached = JSON.parse(cachedStr) as unknown;

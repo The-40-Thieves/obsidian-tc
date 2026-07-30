@@ -541,7 +541,11 @@ export class ToolRegistry {
           idemKey,
           name,
           hash,
-          now(),
+          // Pass the clock FUNCTION, not a single now() sample — claimOrReplay calls it at each of
+          // the (up to) four points the original inline block did (initial claim, both reclaim-
+          // window comparisons, retry claim), so it observes the same drift a stateful ctx.now
+          // would (cross-vendor review, WP4.2).
+          now,
           this.idempotencyTtlMs,
           this.idempotencyReclaimMs,
           this._maxResponseBytes,
