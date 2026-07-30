@@ -11,11 +11,23 @@
 // something and are never flagged — that is fine. The check exists to catch the knnMinSim shape: a
 // distinctive name, declared, and referenced by nothing.
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
-const SCHEMA = "packages/shared/src/config.schema.ts";
+// WP1 split the single schema file into packages/shared/src/config/*.schema.ts, leaving
+// config.schema.ts behind as a re-export facade (still holding whatever hasn't been split out
+// yet). Both must be parsed: the facade for anything still declared there, and every leaf under
+// config/ — enumerated rather than named, so later slices (vault, retrieval,
+// indexing-embeddings, runtime, observability, tools, server) are picked up automatically.
+const SCHEMA_DIR = "packages/shared/src/config";
+const SCHEMAS = [
+  "packages/shared/src/config.schema.ts",
+  ...readdirSync(SCHEMA_DIR)
+    .filter((f) => f.endsWith(".schema.ts"))
+    .map((f) => `${SCHEMA_DIR}/${f}`)
+    .sort(),
+];
 
-const schema = readFileSync(SCHEMA, "utf8");
+const schema = SCHEMAS.map((f) => readFileSync(f, "utf8")).join("\n");
 // Keys are `  name: z.<type>(...)` — but Biome wraps long chains, so the far more common form is
 //
 //     rrfK: z
@@ -39,11 +51,15 @@ if (declared.length === 0) {
   process.exit(1);
 }
 
-// Every tracked .ts that could consume config: source and eval, never the schema itself, never tests
-// (a test referencing a key does not mean production code threads it).
+// Every tracked .ts that could consume config: source and eval, never a schema source itself
+// (a schema file must not count as its own consumer), never tests (a test referencing a key
+// does not mean production code threads it).
 const files = execFileSync("git", ["ls-files", "*.ts"], { encoding: "utf8" })
   .split("\n")
-  .filter((f) => f && !f.endsWith(SCHEMA) && !/(^|\/)test\//.test(f) && !/\.test\.ts$/.test(f));
+  .filter(
+    (f) =>
+      f && !SCHEMAS.some((s) => f.endsWith(s)) && !/(^|\/)test\//.test(f) && !/\.test\.ts$/.test(f),
+  );
 
 const body = files
   .map((f) => {
@@ -99,7 +115,7 @@ if (orphans.length === 0) {
 
 console.error(`config-threading: ${orphans.length} DECLARED-BUT-UNREAD config key(s)\n`);
 for (const k of orphans) {
-  console.error(`  ${k}  — declared in ${SCHEMA}, referenced by no source file`);
+  console.error(`  ${k}  — declared in the config schema, referenced by no source file`);
 }
 console.error(
   `\nEither thread it through to the code that should honor it, or delete it from the schema.`,
