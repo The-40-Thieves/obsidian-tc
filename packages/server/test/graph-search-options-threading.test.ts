@@ -132,20 +132,34 @@ describe("graphSearch options threading (THE-545)", () => {
   // The property test above only covers sites that CALL the builder. A hand-assembled call site
   // would bypass it entirely and silently reintroduce the exact defect -- so assert structurally
   // that no such site exists.
-  it("has no hand-assembled graphSearch options left in knowledge-tools.ts", () => {
-    const src = readFileSync(
-      join(__dirname, "..", "src", "tools", "m7", "knowledge-tools.ts"),
-      "utf8",
+  //
+  // WP2.3: the four call sites left knowledge-tools.ts in slice 2/3 (vault_context -> vault-context.ts,
+  // reflect -> reflect.ts, vault_graph_search -> graph-search.ts, knowledge_search -> knowledge-search.ts).
+  // Scanning knowledge-tools.ts alone would now find zero calls and the floor assertion below would
+  // (correctly) refuse that as a pass — so this scans every file the sites actually live in.
+  it("has no hand-assembled graphSearch options left in the knowledge/ tool factories", () => {
+    const files = ["vault-context.ts", "reflect.ts", "graph-search.ts", "knowledge-search.ts"];
+    const sources = files.map((f) =>
+      readFileSync(join(__dirname, "..", "src", "tools", "m7", "knowledge", f), "utf8"),
     );
+
     // THE-497 moved every site from `graphSearch(...)` to `cachedGraphSearch(...)`; both shapes are
     // matched so this keeps failing on a hand-assembled site of either kind. That the floor below
     // caught the rename (0 calls read as "clean" until it refused) is the reason it is here.
-    const inlineCalls = src.match(/(?:cached)?[gG]raphSearch\(\s*ctx\.db\s*,\s*\{/g) ?? [];
+    const inlineCalls = sources.flatMap(
+      (src) => src.match(/(?:cached)?[gG]raphSearch\(\s*ctx\.db\s*,\s*\{/g) ?? [],
+    );
     expect(inlineCalls).toEqual([]);
 
     // ...and every graphSearch call really does route through the builder.
-    const totalCalls = (src.match(/await (?:cachedG|g)raphSearch\(/g) ?? []).length;
-    const viaBuilder = (src.match(/buildGraphSearchOptions\(deps,/g) ?? []).length;
+    const totalCalls = sources.reduce(
+      (n, src) => n + (src.match(/await (?:cachedG|g)raphSearch\(/g) ?? []).length,
+      0,
+    );
+    const viaBuilder = sources.reduce(
+      (n, src) => n + (src.match(/buildGraphSearchOptions\(deps,/g) ?? []).length,
+      0,
+    );
     expect(totalCalls).toBeGreaterThan(0); // an empty match must never read as a pass
     expect(viaBuilder).toBe(totalCalls);
   });
