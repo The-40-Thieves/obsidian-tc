@@ -179,12 +179,13 @@ export function claimOrReplay(
   reclaimMs: number,
   maxResponseBytes: number,
 ): IdempotencyClaimResult {
-  // THE-4xx (cross-vendor review, WP4.2): the original inline block sampled `now()` four separate
-  // times — the initial claim, the two reclaim-window comparisons, and the retry claim — so a
-  // stateful clock (ctx.now, or real wall-clock drift across a slow claim+read) advances between
-  // them. Sampling once here and reusing it would backdate a reclaimed row's started_at/expires_at
-  // to the pre-read instant, silently shrinking its reclaim window. Call `now()` at each of the same
-  // four sites the original did, not before.
+  // Caught by cross-vendor review of WP4.2, and regression-tested by "reclaims using a LIVE clock
+  // across claim/read/retry, not one frozen sample" in idempotency.test.ts. The original inline
+  // block sampled `now()` four separate times — the initial claim, the two reclaim-window
+  // comparisons, and the retry claim — so a stateful clock (ctx.now, or real wall-clock drift
+  // across a slow claim+read) advances between them. Sampling once here and reusing it backdates a
+  // reclaimed row's started_at/expires_at to the pre-read instant, silently shrinking its reclaim
+  // window. Call `now()` at each of the same four sites the original did, not before.
   if (tryClaimIdempotency(db, vaultId, key, tool, argsHashValue, now(), ttlMs) === "claimed") {
     return { kind: "claimed" };
   }
