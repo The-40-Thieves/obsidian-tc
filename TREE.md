@@ -6,9 +6,9 @@ filesystem, not inferred. Counts in the hand-written sections come from
 regions state their own method.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 893 tracked code files · 135,147 lines.
+**Scale:** 895 tracked code files · 135,234 lines.
 
-TypeScript 126,821 · JavaScript 4,835 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 126,908 · JavaScript 4,835 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -200,7 +200,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**302 modules · 1230 dependencies · 88 distinct subsystem pairs · 511 cross-subsystem imports.**
+**304 modules · 1258 dependencies · 88 distinct subsystem pairs · 527 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -222,7 +222,7 @@ set is 88 pairs.
 
 ```mermaid
 flowchart LR
-  tools[tools<br/>62 files]
+  tools[tools<br/>64 files]
   search[search<br/>44 files]
   cli[cli<br/>22 files]
   vault[vault<br/>18 files]
@@ -236,13 +236,13 @@ flowchart LR
   plane[plane<br/>6 files]
   memory[memory<br/>2 files]
 
-  tools -->|154| vault
-  tools -->|55| mcp
+  tools -->|158| vault
+  tools -->|57| mcp
+  tools -->|33| search
   search -->|30| db
-  tools -->|25| search
   cli -->|20| db
+  tools -->|14| db
   experiential -->|13| db
-  tools -->|13| db
   search -->|12| vault
   cli -->|8| experiential
   formats -->|8| vault
@@ -250,11 +250,11 @@ flowchart LR
   model -->|8| embeddings
   tools -->|8| formats
   tools -->|7| bridge
+  tools -->|6| plane
   tools -->|6| experiential
   cli -->|5| search
   embeddings -->|5| search
   memory -->|5| vault
-  tools -->|5| plane
 ```
 <!-- END GENERATED: tree-subsystem-graph -->
 
@@ -263,10 +263,10 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 191 | `tools` | 287 |
-| `db` | 98 | `cli` | 48 |
-| `mcp` | 64 | `search` | 46 |
-| `search` | 48 | `experiential` | 18 |
+| `vault` | 195 | `tools` | 303 |
+| `db` | 99 | `cli` | 48 |
+| `mcp` | 66 | `search` | 46 |
+| `search` | 56 | `experiential` | 18 |
 | `experiential` | 15 | `mcp` | 17 |
 <!-- END GENERATED: tree-fan -->
 

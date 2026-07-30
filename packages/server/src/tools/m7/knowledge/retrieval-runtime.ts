@@ -9,6 +9,7 @@ import type { Database } from "../../../db/types";
 import type { RetrievalPolicyRecord } from "../../../experiential/log";
 import type { CallerContext } from "../../../mcp/registry";
 import type { ContradictionContext } from "../../../plane/challenge";
+import type { ColbertMatrix } from "../../../search/colbert";
 import { readGeneration } from "../../../search/generation";
 import type {
   CoverageEstimate,
@@ -17,8 +18,26 @@ import type {
 } from "../../../search/graph_search";
 import type { StageMetric } from "../../../search/graph_search_stages/instrumentation";
 import { callerAclFingerprint } from "../../../search/prefetch";
-import type { QueryCacheContext } from "../../../search/query_cache";
+import type { QueryCacheContext, QueryVectors } from "../../../search/query_cache";
+import type { SparseVec } from "../../../search/sparse";
 import type { M7Deps } from "./deps";
+
+/**
+ * WP2.2: the shared retrieval state `buildKnowledgeTools` used to build as bare local closures at
+ * its top — `embedQuery`/`embedQuerySparse`/`embedQueryColbert` (the three query encodings) plus
+ * `embedAll` (the THE-497 bundle of them, invoked only on a cache miss). Constructed exactly ONCE
+ * in `buildKnowledgeTools` and handed to every tool factory as a single object so no factory can
+ * end up building its own embedder, cache, or policy state — see embedAll's own doc comment (in
+ * knowledge-tools.ts, where it is still built) on why `embedAll` must stay a thunk rather than
+ * something already awaited: it is invoked ONLY on a cache miss, so eagerly evaluating it while
+ * hoisting would make a cache hit start making provider network calls.
+ */
+export interface RetrievalRuntime {
+  embedQuery: (query: string) => Promise<number[]>;
+  embedQuerySparse: (query: string) => Promise<SparseVec | undefined>;
+  embedQueryColbert: (query: string) => Promise<ColbertMatrix | undefined>;
+  embedAll: (denseText: string, lexicalText: string) => Promise<QueryVectors>;
+}
 
 /**
  * THE-497: the per-dispatch half of the cache key. Built here, at the only place that has all
