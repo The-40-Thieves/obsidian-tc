@@ -305,6 +305,42 @@ describe("agent_episodes capture bus (THE-228)", () => {
       expect(redactions).toBe(0);
       expect(text).toContain(publishable);
     });
+
+    it("catches a Hugging Face token (bare, no preceding label)", () => {
+      // No "token:"/"api_key="-style label in front — this exercises the hf_-specific pattern
+      // in isolation, not the generic labeled-value catch-all above.
+      const fakeToken = `hf_${"D".repeat(33)}`; // synthetic filler, correct hf_ prefix + length
+      const { text, redactions } = redactSecrets(`ref ${fakeToken} in the config`);
+      expect(redactions).toBeGreaterThan(0);
+      expect(text).not.toContain(fakeToken);
+    });
+
+    it("near-miss: a bare content hash is not flagged as a Hugging Face token", () => {
+      // A hex sha (git commit / content hash) can never contain the literal `hf_` prefix — hex
+      // digits stop at 'f', so 'h' never appears — but this pins that guarantee against future
+      // pattern changes rather than trusting it implicitly.
+      const sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85";
+      const { text, redactions } = redactSecrets(`content hash: ${sha}`);
+      expect(redactions).toBe(0);
+      expect(text).toContain(sha);
+    });
+
+    it("catches an Azure SAS token via its sig= query parameter", () => {
+      const sasUrl =
+        "https://demoaccount.blob.core.windows.net/democontainer/blob.txt?sv=2022-11-02&ss=b&srt=sco&sp=rwdlacx&se=2026-08-01T00:00:00Z&sig=AbCdEfGhIjKlMnOpQrStUvWxYz012345";
+      const { text, redactions } = redactSecrets(sasUrl);
+      expect(redactions).toBeGreaterThan(0);
+      expect(text).not.toContain("sig=AbCdEfGhIjKlMnOpQrStUvWxYz012345");
+    });
+
+    it("near-miss: 'signature' (containing 'sig' as a substring) and a bare hash are not flagged", () => {
+      // Word-boundary guard: the keyword alternation matches the literal token `sig`, not any
+      // word containing it — "signature" must not trigger just because it starts with "sig".
+      const sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85";
+      const { text, redactions } = redactSecrets(`commit signature check: ${sha}`);
+      expect(redactions).toBe(0);
+      expect(text).toContain(sha);
+    });
   });
 
   it("fires end-to-end from a real dispatch via the registry onEpisode hook", async () => {

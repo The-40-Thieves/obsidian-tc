@@ -36,6 +36,16 @@ export function genEpisodeId(): string {
 //      fixed-shape formats: Google API keys and Stripe secret/restricted keys. Deliberately
 //      excludes Stripe PUBLISHABLE keys (`pk_...`) — those are meant to be public, so redacting
 //      them would be a false positive that destroys non-secret data for nothing.
+//
+// THE-619 item 3 (continued): two more categories, same "verified genuinely missing" bar as
+// above. Anthropic key patterns, `export KEY=` forms, Cohere keys, atomic groups, and ReDoS
+// hardening were all considered and explicitly excluded — out of scope for this pass.
+//   3. Hugging Face tokens — fixed `hf_` prefix, no existing pattern covers it (the generic
+//      label pattern needs a preceding label word; a bare `hf_...` token has none).
+//   4. Azure SAS tokens — no fixed prefix to anchor on (unlike AKIA/gh_/sk-/AIza above), but a
+//      SAS URL always carries a `sig=<signature>` query parameter, so it fits the file's
+//      existing "labeled value" idiom: added to the keyword alternation already used for
+//      api_key/token/password/etc rather than a new standalone pattern.
 const SECRET_PATTERNS: RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key id
@@ -45,13 +55,14 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bsk-[A-Za-z0-9_-]{20,}\b/g, // OpenAI-style secret keys
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g, // JWT
   /\bBearer\s+[A-Za-z0-9._-]{16,}\b/g,
-  /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|secret|token)\s*[=:]\s*["']?[^\s"',;]{8,}/gi,
+  /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|secret|sig|token)\s*[=:]\s*["']?[^\s"',;]{8,}/gi,
   // DB/service connection string with embedded user:pass — common schemes only (not a generic
   // `scheme://user:pass@host` catch-all, which would over-match arbitrary URLs unrelated to
   // credential storage).
   /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps|mssql):\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/gi,
   /\bAIza[0-9A-Za-z_-]{35}\b/g, // Google API key (fixed 39-char shape)
   /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g, // Stripe secret/restricted key (not pk_ — publishable is not a secret)
+  /\bhf_[A-Za-z0-9]{30,}\b/g, // Hugging Face token
 ];
 
 const REDACTED = "[REDACTED]";

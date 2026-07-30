@@ -91,11 +91,17 @@ function contentBytes(items: ReadonlyArray<{ content?: string | null }>): number
  * (D1 gateway passthrough at integration; graceful no-op fallback otherwise).
  *
  * THE-465: the body below is a thin orchestrator over the staged pipeline in
- * `./graph_search_stages/` — classify -> seedGeneration -> graphExpansion ->
- * candidateAssembly -> scoreFusion -> diversity -> gatedRerank -> projection. Each stage is a
+ * `./graph_search_stages/`. ACTUAL run order (verified against the runStage(...) call sequence
+ * below, not the historical monolith): seedGeneration -> classify -> graphExpansion ->
+ * candidateAssembly -> scoreFusion -> diversity -> gatedRerank -> projection. classify is a
+ * POST-seed router — it consumes seed STRENGTH (seedZMargin, computed from the seeds
+ * seedGeneration already produced), it never sees the query text — so it structurally cannot run
+ * before seedGeneration. There is also an early return between the two
+ * (`if (seeds.length === 0 && lexHits.length === 0 && sparseHits.length === 0) return []`) that
+ * can terminate the whole pipeline before classify is ever reached. Each stage is a
  * separately-typed, separately-testable module; this function's only job is threading their
- * typed inputs/outputs together in the same order the pre-THE-465 monolith ran them, and
- * (additively) reporting a StageMetric per stage via opts.onStageMetric.
+ * typed inputs/outputs together in the order above, and (additively) reporting a StageMetric per
+ * stage via opts.onStageMetric.
  */
 export async function graphSearch(
   db: Database,
