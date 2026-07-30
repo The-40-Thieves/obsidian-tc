@@ -11,13 +11,23 @@
 // for every scenario, so a scenario's "downstream seams never fired" claim is a real absence, not
 // an artifact of that one test not bothering to wire them.
 //
-// Several pipeline stages have NO injectable double at all: the tool lookup + disabled check, the
-// vault-binding guard, all three checkAborted() boundary checks, the idempotency claim/read/
-// finalize (a raw ctx.db write, not a seam), the durable markEffectCommitted write, and the
-// byte-overflow size check itself. Their existence is still exercised — every scenario reaches
-// the outcome those stages are responsible for — but nothing in `trace` names them directly. See
-// the report for what that means for this gate's blind spots.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+// What this gate does NOT cover (do not read it as a general dispatch stage-drop/reorder gate):
+//   - Three authorization gates (the `authenticated` check, `assertScopesGranted`, the
+//     vault-binding guard) have no callback of their own — they are bracketed below by asserting
+//     the OBSERVABLE prefix that ran and that `acl_resolver` (the very next observable seam)
+//     never fired, not by a dedicated trace label.
+//   - The tool lookup + disabled check, all three checkAborted() boundary checks, the idempotency
+//     claim/read/finalize (a raw ctx.db write, not a seam), and the durable markEffectCommitted
+//     write are likewise unobserved directly — only their outcomes are exercised.
+//   - The REAL enforcePathAcl call (as opposed to the traced pathAcl extractor that feeds it) is
+//     production code, not a double — a reorder inside it would not show up here.
+//   - The audit DB write (writeEvent) is a different thing from the "episode" label below, which
+//     traces onEpisode (the experiential-capture sink), not the audit table write.
+//   - JSON serialization and the byte-length computation that feeds the overflow check are not
+//     observed directly, only their outcome (the `overflow` error code).
+// This is a strong regression gate for reordering/dropping stages that sit BETWEEN two observable
+// seams; it is not a complete stage-order gate for the stages listed above.
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolResult, VaultKind } from "@the-40-thieves/obsidian-tc-shared";
@@ -96,9 +106,10 @@ interface BuildOverrides {
 
 /** Builds one registry + one tool, with every seam runDispatch calls through wired to push its
  *  own stage label into `trace` before delegating to real behavior. Reused, identically, across
- *  all 8 scenarios below — so each scenario's expected trace is a genuine "this seam did/did not
+ *  every scenario below — so a scenario's expected trace is a genuine "this seam did/did not
  *  fire" claim against a pipeline that COULD have called it, not a consequence of that scenario
- *  simply not wiring it. */
+ *  simply not wiring it. Returns `db` so callers can close it (node:sqlite connections are not
+ *  garbage-collected). */
 function build(trace: string[], overrides: BuildOverrides = {}) {
   const db = freshDb();
   const calls = { handler: 0 };
@@ -122,7 +133,11 @@ function build(trace: string[], overrides: BuildOverrides = {}) {
       return overrides.pathAclRoot ?? "/wp4-dummy-root";
     },
     onProfile: () => trace.push("profile"),
-    onEpisode: () => trace.push("audit"),
+    // THE ONLY terminal-outcome seam: onEpisode fires once per dispatch (success or error), so
+    // "episode" is the last label in every scenario's trace. It observes onEpisode (the
+    // experiential-capture sink), NOT the audit DB write (writeEvent) — those are two different
+    // fail-open sinks recordOutcome calls, and only this one is injectable.
+    onEpisode: () => trace.push("episode"),
     maxResponseBytes: overrides.maxResponseBytes,
   });
 
@@ -176,18 +191,20 @@ function build(trace: string[], overrides: BuildOverrides = {}) {
     );
   };
 
-  return { calls, dispatch };
+  return { db, calls, dispatch };
 }
 
 interface Scenario {
   name: string;
-  run: () => Promise<{ trace: string[]; result: ToolResult; extraCheck?: () => void }>;
+  run: () => Promise<{
+    trace: string[];
+    result: ToolResult;
+    db: Database;
+    extraCheck?: () => void;
+  }>;
   expectedTrace: string[];
   expectedOk: boolean;
   expectedCode?: string;
-  /** Explicit belt-and-suspenders checks (redundant with `expectedTrace`'s exact-array match, but
-   *  each failure names the ONE missing/extra stage on its own, per scenario). */
-  notCalled: string[];
 }
 
 const scenarios: Scenario[] = [
@@ -195,7 +212,7 @@ const scenarios: Scenario[] = [
     name: "success: the full 12-stage ordered trace, exactly",
     async run() {
       const trace: string[] = [];
-      const { dispatch } = build(trace, {
+      const { db, dispatch } = build(trace, {
         destructive: true, // drives BOTH mutating=true (vault-kind gate) and needsHitl=true
         vaultField: "v1",
         pathAclRoot: "/wp4-dummy-root",
@@ -203,7 +220,7 @@ const scenarios: Scenario[] = [
         outputSchema: z.object({ ok: z.boolean() }),
       });
       const result = await dispatch({ n: 1 }, { elicitToken: "valid" });
-      return { trace, result };
+      return { trace, result, db };
     },
     expectedTrace: [
       "input_schema",
@@ -216,63 +233,100 @@ const scenarios: Scenario[] = [
       "path_acl",
       "handler",
       "output_schema",
-      "audit",
+      "episode",
       "profile",
     ],
     expectedOk: true,
-    notCalled: [],
   },
   {
     name: "schema failure: input_schema is the only stage that ran",
     async run() {
       const trace: string[] = [];
-      const { dispatch } = build(trace);
+      const { db, dispatch } = build(trace);
       const result = await dispatch({ n: "not-a-number" });
-      return { trace, result };
+      return { trace, result, db };
     },
-    expectedTrace: ["input_schema", "audit"],
+    expectedTrace: ["input_schema", "episode"],
     expectedOk: false,
     expectedCode: "validation_error",
-    notCalled: [
-      "acl_resolver",
-      "vault_kind_resolver",
-      "precheck",
-      "rate_limiter",
-      "verify_elicit",
-      "root_resolver",
-      "path_acl",
-      "handler",
-      "output_schema",
-      "profile",
-    ],
+  },
+  {
+    name: "unauthorized: the authenticated check stops before acl_resolver",
+    async run() {
+      const trace: string[] = [];
+      // vaultField is wired (so aclResolver is reachable in principle) precisely so its ABSENCE
+      // from the trace is real evidence the authenticated check ran first, not an artifact of
+      // acl_resolver never having a reason to fire.
+      const { db, dispatch } = build(trace, { requiredScopes: ["read:notes"], vaultField: "v1" });
+      const result = await dispatch({ n: 1 }, { authenticated: false });
+      return { trace, result, db };
+    },
+    expectedTrace: ["input_schema", "episode"],
+    expectedOk: false,
+    expectedCode: "unauthorized",
+  },
+  {
+    name: "missing scope: assertScopesGranted stops before acl_resolver",
+    async run() {
+      const trace: string[] = [];
+      const { db, dispatch } = build(trace, {
+        requiredScopes: ["write:notes"],
+        grantedScopes: new Set(["read:notes"]), // authenticated, but lacks the required scope
+        vaultField: "v1",
+      });
+      const result = await dispatch({ n: 1 });
+      return { trace, result, db };
+    },
+    expectedTrace: ["input_schema", "episode"],
+    expectedOk: false,
+    expectedCode: "forbidden",
+  },
+  {
+    name: "vault-binding: the bound-caller guard stops before acl_resolver",
+    async run() {
+      const trace: string[] = [];
+      // vaultField names a DIFFERENT vault than ctx.vaultId ("v1", from baseCtx) — a bound caller
+      // may not reach it. acl_resolver is wired and would fire on the very next stage if this
+      // guard didn't stop the call first.
+      const { db, dispatch } = build(trace, { vaultField: "other-vault" });
+      const result = await dispatch({ n: 1 }, { vaultBound: true });
+      return { trace, result, db };
+    },
+    expectedTrace: ["input_schema", "episode"],
+    expectedOk: false,
+    expectedCode: "forbidden",
   },
   {
     name: "ACL failure: central pathAcl denies AFTER HITL clears (load-bearing order)",
     async run() {
       const trace: string[] = [];
       const root = mkdtempSync(join(tmpdir(), "wp4-acl-"));
-      mkdirSync(join(root, "finance"), { recursive: true });
-      writeFileSync(join(root, "finance", "secret.md"), "x");
-      // finance/** is in the read whitelist (folder gate passes) but declares a read:finance
-      // rule-scope the caller does not hold — P1.4 scope-of-path denial, exercised through the
-      // CENTRAL dispatch stage (not a handler-side call).
-      const acl = new FolderAcl({
-        readOnly: false,
-        defaultScopes: [],
-        rules: [{ glob: "finance/**", scopes: ["read:finance"] }],
-        readPaths: ["finance/**"],
-      });
-      const { dispatch } = build(trace, {
-        destructive: true,
-        requiredScopes: ["read:notes"],
-        grantedScopes: new Set(["read:notes"]), // holds the TOOL scope, not the PATH scope
-        vaultField: "v1",
-        aclReturn: acl,
-        pathAclRoot: root,
-        pathAclEntries: [{ op: "read", path: "finance/secret.md" }],
-      });
-      const result = await dispatch({ n: 1 }, { elicitToken: "valid" });
-      return { trace, result };
+      try {
+        mkdirSync(join(root, "finance"), { recursive: true });
+        writeFileSync(join(root, "finance", "secret.md"), "x");
+        // finance/** is in the read whitelist (folder gate passes) but declares a read:finance
+        // rule-scope the caller does not hold — P1.4 scope-of-path denial, exercised through the
+        // CENTRAL dispatch stage (not a handler-side call).
+        const acl = new FolderAcl({
+          readOnly: false,
+          defaultScopes: [],
+          rules: [{ glob: "finance/**", scopes: ["read:finance"] }],
+          readPaths: ["finance/**"],
+        });
+        const { db, dispatch } = build(trace, {
+          destructive: true,
+          requiredScopes: ["read:notes"],
+          grantedScopes: new Set(["read:notes"]), // holds the TOOL scope, not the PATH scope
+          vaultField: "v1",
+          aclReturn: acl,
+          pathAclRoot: root,
+          pathAclEntries: [{ op: "read", path: "finance/secret.md" }],
+        });
+        const result = await dispatch({ n: 1 }, { elicitToken: "valid" });
+        return { trace, result, db };
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     },
     expectedTrace: [
       "input_schema",
@@ -283,19 +337,18 @@ const scenarios: Scenario[] = [
       "verify_elicit", // HITL cleared BEFORE the path-ACL denial below
       "root_resolver",
       "path_acl",
-      "audit",
+      "episode",
     ],
     expectedOk: false,
     expectedCode: "acl_denied",
-    notCalled: ["handler", "output_schema", "profile"],
   },
   {
     name: "HITL failure: elicit_required stops before pathAcl/handler",
     async run() {
       const trace: string[] = [];
-      const { dispatch } = build(trace, { destructive: true, vaultField: "v1" });
+      const { db, dispatch } = build(trace, { destructive: true, vaultField: "v1" });
       const result = await dispatch({ n: 1 }, { elicitToken: "not-the-right-token" });
-      return { trace, result };
+      return { trace, result, db };
     },
     expectedTrace: [
       "input_schema",
@@ -304,18 +357,19 @@ const scenarios: Scenario[] = [
       "precheck",
       "rate_limiter",
       "verify_elicit",
-      "audit",
+      "episode",
     ],
     expectedOk: false,
     expectedCode: "elicit_required",
-    notCalled: ["root_resolver", "path_acl", "handler", "output_schema", "profile"],
   },
   {
     name: "replay: idempotency claim short-circuits BEFORE throttle/HITL (TOCTOU defense)",
     async run() {
       const trace: string[] = [];
-      const { dispatch, calls } = build(trace, { destructive: true, vaultField: "v1" });
-      // First call spends the elicit token and completes normally.
+      const { db, dispatch, calls } = build(trace, { destructive: true, vaultField: "v1" });
+      // First call carries a valid elicit token, so HITL clears and the call completes normally
+      // (the verifier double at ~line 108 is stateless — it checks the token string, it does not
+      // consume anything; nothing here relies on single-use semantics).
       const first = await dispatch({ n: 1, idempotency_key: "K1" }, { elicitToken: "valid" });
       expect(first.ok).toBe(true);
       // Isolate `trace` to the REPLAY call under test.
@@ -326,35 +380,27 @@ const scenarios: Scenario[] = [
       return {
         trace,
         result: second,
+        db,
         extraCheck: () => {
           expect(calls.handler).toBe(1); // the handler never re-ran
           if (first.ok && second.ok) expect(second.data).toEqual(first.data);
         },
       };
     },
-    expectedTrace: ["input_schema", "acl_resolver", "vault_kind_resolver", "precheck", "audit"],
+    expectedTrace: ["input_schema", "acl_resolver", "vault_kind_resolver", "precheck", "episode"],
     expectedOk: true,
-    notCalled: [
-      "rate_limiter",
-      "verify_elicit",
-      "root_resolver",
-      "path_acl",
-      "handler",
-      "output_schema",
-      "profile",
-    ],
   },
   {
     name: "overflow: output_schema runs, THEN the byte-budget check fails",
     async run() {
       const trace: string[] = [];
-      const { dispatch } = build(trace, {
+      const { db, dispatch } = build(trace, {
         outputSchema: z.object({ blob: z.string() }),
         handlerReturn: () => ({ blob: "x".repeat(50) }),
         maxResponseBytes: 10,
       });
       const result = await dispatch({ n: 1 });
-      return { trace, result };
+      return { trace, result, db };
     },
     expectedTrace: [
       "input_schema",
@@ -362,76 +408,56 @@ const scenarios: Scenario[] = [
       "rate_limiter",
       "handler",
       "output_schema",
-      "audit",
+      "episode",
     ],
     expectedOk: false,
     expectedCode: "overflow",
-    notCalled: [
-      "acl_resolver",
-      "vault_kind_resolver",
-      "verify_elicit",
-      "root_resolver",
-      "path_acl",
-      "profile",
-    ],
   },
   {
     name: "abort: a mid-pipeline cancellation stops before rate_limiter",
     async run() {
       const trace: string[] = [];
       const ctrl = new AbortController();
-      const { dispatch } = build(trace, { afterPrecheck: () => ctrl.abort() });
+      const { db, dispatch } = build(trace, { afterPrecheck: () => ctrl.abort() });
       const result = await dispatch({ n: 1 }, { signal: ctrl.signal });
-      return { trace, result };
+      return { trace, result, db };
     },
-    expectedTrace: ["input_schema", "precheck", "audit"],
+    expectedTrace: ["input_schema", "precheck", "episode"],
     expectedOk: false,
     expectedCode: "aborted",
-    notCalled: [
-      "rate_limiter",
-      "verify_elicit",
-      "root_resolver",
-      "path_acl",
-      "handler",
-      "output_schema",
-      "profile",
-    ],
   },
   {
     name: "handler error: a non-typed throw is redacted to internal, still audited",
     async run() {
       const trace: string[] = [];
-      const { dispatch } = build(trace, { handlerThrow: new Error("boom") });
+      const { db, dispatch } = build(trace, { handlerThrow: new Error("boom") });
       const result = await dispatch({ n: 1 });
-      return { trace, result };
+      return { trace, result, db };
     },
-    expectedTrace: ["input_schema", "precheck", "rate_limiter", "handler", "audit"],
+    expectedTrace: ["input_schema", "precheck", "rate_limiter", "handler", "episode"],
     expectedOk: false,
     expectedCode: "internal",
-    notCalled: [
-      "acl_resolver",
-      "vault_kind_resolver",
-      "verify_elicit",
-      "root_resolver",
-      "path_acl",
-      "output_schema",
-      "profile",
-    ],
   },
 ];
 
 describe("dispatch pipeline stage order (WP4.0 gate-trace)", () => {
   for (const scenario of scenarios) {
     it(scenario.name, async () => {
-      const { trace, result, extraCheck } = await scenario.run();
-      // The full ordered sequence, not a subset: any dropped, added, or reordered stage fails
-      // this and prints the actual vs. expected sequence.
-      expect(trace).toEqual(scenario.expectedTrace);
-      for (const label of scenario.notCalled) expect(trace).not.toContain(label);
-      expect(result.ok).toBe(scenario.expectedOk);
-      if (!result.ok && scenario.expectedCode)
-        expect(result.error.code).toBe(scenario.expectedCode);
-      extraCheck?.();
+      const { trace, result, db, extraCheck } = await scenario.run();
+      try {
+        // The full ordered sequence, not a subset: any dropped, added, or reordered stage fails
+        // this and prints the actual vs. expected sequence. For the three authorization gates
+        // with no seam of their own (unauthorized / missing scope / vault-binding), this is what
+        // proves they ran BEFORE acl_resolver: acl_resolver is wired in every scenario, so its
+        // absence from a short trace is a real negative, not an unwired double.
+        expect(trace).toEqual(scenario.expectedTrace);
+        expect(result.ok).toBe(scenario.expectedOk);
+        if (!result.ok && scenario.expectedCode)
+          expect(result.error.code).toBe(scenario.expectedCode);
+        extraCheck?.();
+      } finally {
+        db.close?.();
+      }
     });
   }
 });
