@@ -18,6 +18,7 @@ import type { Database } from "../../db/types";
 import type { ToolDefinition } from "../../mcp/registry";
 import { mtimesByPath, noteFreshness } from "../../search/freshness";
 import { evaluatesTruthy } from "../../search/jsonlogic";
+import { createQueryEncoder } from "../../search/query-encoder";
 import { type SemanticHit, semanticSearch } from "../../search/semantic";
 import { searchRegex, searchText, searchTextIndexed } from "../../search/text";
 import { paginate } from "../../util/paginate";
@@ -252,10 +253,9 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
     };
   };
 
-  const embedQuery = async (query: string): Promise<number[]> => {
-    const [vec] = await deps.embeddingProvider.embed([query], { input: "query" });
-    return vec ?? [];
-  };
+  // Shared with M7's RetrievalRuntime via search/query-encoder.ts. This file used to carry its own
+  // copy of the same closure; see that module for why two private copies were a drift hazard.
+  const encoder = createQueryEncoder(deps.embeddingProvider);
 
   const semantic = async (
     ctx: { acl?: FolderAcl; db: Database; sessionId?: string; caller?: string | null },
@@ -266,14 +266,17 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
     returnContent: boolean,
     surface: string,
   ): Promise<SemanticHit[]> => {
-    const hits = semanticSearch(ctx.db, s.id, await embedQuery(query), {
+    const hits = semanticSearch(ctx.db, s.id, await encoder.dense(query), {
       k,
       minScore,
       returnContent,
       isReadable: s.readable,
       // THE-530: constrain the brute-force fallback to the active model so a same-dimension
-      // superseded-model vector is never scored against this query.
-      model: deps.embeddingProvider.id,
+      // superseded-model vector is never scored against this query. `storedModelId` is still
+      // provider.id — the encoder names that identity rather than changing it, because
+      // chunk_embeddings.model holds provider.id strings and filtering them by THE-460's stronger
+      // manifest hash would match nothing and read as "no hits". See query-encoder.ts.
+      model: encoder.storedModelId,
     });
     // THE-450: stamp note-content freshness (age_days + stale) additively — one batched mtime lookup
     // over the distinct hit paths. Informational only; it never reorders hits.
