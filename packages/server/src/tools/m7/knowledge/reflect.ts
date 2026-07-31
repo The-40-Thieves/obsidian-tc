@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { challengeProposal, type EvidenceChunk, isDecisionChunk } from "../../../plane/challenge";
 import { prompt } from "../../../plane/gateway";
+import { buildEvidence } from "../../../search/evidence";
 import type { GraphSearchResult } from "../../../search/graph_search";
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
@@ -18,7 +19,7 @@ import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {
   buildGraphSearchOptions,
-  CHALLENGE_RECALL,
+  CHALLENGE_EVIDENCE_BUDGET,
   cacheContextFor,
   capturePolicy,
   noteTagsByPath,
@@ -26,6 +27,7 @@ import {
   REFLECT_SYSTEM_PROMPT,
   type RetrievalRuntime,
   retrievalHits,
+  SYNTHESIS_EVIDENCE_BUDGET,
 } from "./retrieval-runtime";
 import { ReflectOutput } from "./schemas";
 
@@ -109,14 +111,20 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
       if (input.mode === "challenge") {
         const paths = [...new Set(results.map((r) => r.path))];
         const tags = noteTagsByPath(ctx.db, v.id, paths);
-        const evidence: EvidenceChunk[] = results
-          .filter((r) => isDecisionChunk({ path: r.path, tags: tags.get(r.path) ?? null }))
-          .slice(0, CHALLENGE_RECALL)
-          .map((r) => ({
-            path: r.path,
-            tags: tags.get(r.path) ?? null,
-            content: r.content ?? "",
-          }));
+        // Same shared builder and same budget as knowledge-challenge.ts — these two paths feed the
+        // identical judge prompt and used to build their sets independently (this one sliced to
+        // CHALLENGE_RECALL with no dedup; the other did not slice at all).
+        const evidence: EvidenceChunk[] = buildEvidence(
+          results
+            .filter((r) => isDecisionChunk({ path: r.path, tags: tags.get(r.path) ?? null }))
+            .map((r) => ({
+              path: r.path,
+              chunkId: r.chunk_id,
+              tags: tags.get(r.path) ?? null,
+              content: r.content ?? "",
+            })),
+          CHALLENGE_EVIDENCE_BUDGET,
+        ).items;
         const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
           readableRel(ctx.acl, rel),
         );
@@ -136,9 +144,21 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           sources,
         };
       }
-      const evidenceBlock = results
-        .slice(0, 20)
-        .map((r, i) => `[${i + 1}] ${r.path}\n${(r.content ?? "").slice(0, 800)}`)
+      // Selection through the shared builder; the RENDER stays this path's terse
+      // `[n] path\ncontent` shape rather than adopting challenge's `path:/headings:/tags:/content:`
+      // envelope. Unifying the two prompts' wording would change what the synthesis model reads,
+      // and prompt wording is an evaluated change here — the builder unifies WHICH chunks are shown
+      // and how they are numbered, not how they are phrased.
+      const synthesis = buildEvidence(
+        results.map((r) => ({
+          path: r.path,
+          chunkId: r.chunk_id,
+          content: r.content ?? "",
+        })),
+        SYNTHESIS_EVIDENCE_BUDGET,
+      );
+      const evidenceBlock = synthesis.items
+        .map((e) => `[${e.citation}] ${e.path}\n${e.content}`)
         .join("\n\n");
       const res = await deps.roles.synthesize(
         prompt(

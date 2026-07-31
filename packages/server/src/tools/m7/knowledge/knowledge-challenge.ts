@@ -7,11 +7,13 @@ import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { challengeProposal, isDecisionChunk } from "../../../plane/challenge";
+import { buildEvidence } from "../../../search/evidence";
 import { semanticSearch } from "../../../search/semantic";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {
+  CHALLENGE_EVIDENCE_BUDGET,
   CHALLENGE_RECALL,
   noteTagsByPath,
   openContradictionsForPaths,
@@ -78,13 +80,22 @@ export function createKnowledgeChallengeTool(
       // Enrich with note-level tags so isDecisionChunk's tag rule fires (not just the path
       // prefix) and the judge sees the tags; the semantic hit itself carries no tags (THE-309).
       const tagsByPath = noteTagsByPath(ctx.db, v.id, [...new Set(hits.map((h) => h.path))]);
-      const evidence = hits
-        .map((h) => ({
-          path: h.path,
-          content: h.content ?? "",
-          tags: tagsByPath.get(h.path) ?? [],
-        }))
-        .filter((e) => isDecisionChunk({ path: e.path, tags: e.tags }));
+      // Selection goes through the shared builder (search/evidence.ts) so this path and reflect.ts's
+      // challenge mode cannot drift on dedup, per-note quota, trimming or citation numbering — they
+      // used to assemble their own sets and only agreed by coincidence. `chunk_id` is threaded so
+      // dedup keys on retrieval identity rather than on text.
+      const built = buildEvidence(
+        hits
+          .map((h) => ({
+            path: h.path,
+            content: h.content ?? "",
+            chunkId: h.chunk_id,
+            tags: tagsByPath.get(h.path) ?? [],
+          }))
+          .filter((e) => isDecisionChunk({ path: e.path, tags: e.tags })),
+        CHALLENGE_EVIDENCE_BUDGET,
+      );
+      const evidence = built.items;
       if (evidence.length === 0) {
         return {
           vault: v.id,
