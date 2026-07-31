@@ -38,6 +38,7 @@ export const DEFAULT_FACADES = [
   "packages/server/src/tools/m7/knowledge-tools.ts",
   "packages/server/src/search/indexer.ts",
   "packages/server/src/mcp/registry.ts",
+  "packages/plugin/src/routes.ts",
 ];
 
 /** Reads `file` at `ref` via `git show`, or returns `{ missing: true }` if it doesn't exist there. */
