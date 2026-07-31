@@ -241,6 +241,16 @@ export function createRetrievalCaches(opts: QueryCacheOptions): RetrievalCaches 
 //                    that happens today; the key records only whether one is PRESENT, since absent
 //                    vs present does change results. Give Reranker a stable id and this becomes
 //                    exact.
+//   onRerankOutcome— observability only: reports WHY the returned ranking is what it is
+//                    (not_configured / skipped_by_policy / executed / timed_out /
+//                    malformed_response / provider_error / fallback_used) and cannot change the
+//                    ranking itself — `rerankWithScores` decides the outcome and then reports it.
+//                    Two calls differing only in this sink must share a cache entry.
+//                    Same cache-HIT caveat as onVecFallback/onCoverage, and it bites hardest here:
+//                    a hit skips the rerank decision entirely, so the counter measures rerank
+//                    decisions on EXECUTED searches, not on requested ones. A high cache hit rate
+//                    therefore suppresses this metric without the reranker's health changing —
+//                    read it alongside the cache's own hit/miss counters, never alone.
 const FUNCTION_FIELDS = [
   "isReadable",
   "activationFor",
@@ -249,6 +259,7 @@ const FUNCTION_FIELDS = [
   "onFusionWeights",
   "onVecFallback",
   "onCoverage",
+  "onRerankOutcome",
 ] as const;
 
 /** Fields excluded from the key because they are derived from (query text, representation), both
