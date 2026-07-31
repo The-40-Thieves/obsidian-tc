@@ -14,9 +14,10 @@
  * reuses check-export-surface.mjs's `parseExportedNames` rather than reimplementing the parser —
  * a second parser is exactly how these five bugs happened in the first place.
  *
- * Non-empty floor: refuses to compare a facade if its BASELINE parse yields fewer than
- * MIN_EXPORTS names — see check-boundaries.mjs's header for the shape of failure this guards
- * against (a gate that passes because it saw nothing is worse than no gate).
+ * Non-empty floor: refuses to compare a facade if its BASELINE parse yields fewer names than that
+ * facade's OWN floor (see DEFAULT_FACADES below for how each is derived) — see check-boundaries.mjs's
+ * header for the shape of failure this guards against (a gate that passes because it saw nothing is
+ * worse than no gate).
  *
  * Missing-file handling: a facade may be new (didn't exist at the baseline ref). That is not a
  * lost export surface, so it is skipped with a clear note rather than failing the gate.
@@ -29,17 +30,54 @@ import { parseExportedNames } from "./check-export-surface.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_BASELINE_REF = "origin/main";
-/** Below this, assume the baseline parse collapsed rather than that the facade shrank this far. */
+
+/**
+ * Fallback floor for a facade with no per-facade floor declared below — i.e. one named via an
+ * explicit `--file` that isn't in DEFAULT_FACADES. There is no baseline count to derive a floor
+ * from for an arbitrary path, so this keeps the gate's original global value (5) rather than
+ * inventing a number: conservative in the sense of "known to have worked before", not in the
+ * sense of "tuned for this file".
+ */
 const MIN_EXPORTS = 5;
 
-// The facades this refactor produces. Add new facades here as later slices extract more of them.
+/**
+ * The facades this refactor produces, each with its OWN non-empty floor — see compareFacade's
+ * `floor` parameter and the module header. A single global floor cannot work across facades this
+ * differently sized (5 to 44 baseline exports): loose enough to leave headroom for the largest
+ * facade sits above the smallest facade's entire export count, and tight enough for the smallest
+ * facade catches nothing for the largest.
+ *
+ * Rule: floor = ceil(baseline / 2). No single-slice refactor in this repo's history has cut a
+ * facade's export surface by more than half in one step; a parse landing under half its former
+ * count is far more likely the parser-collapse class documented in the module header (e.g. an
+ * `export type { ... }` block matched away entirely) than a legitimate reduction that large.
+ * Rounding up keeps the floor on the conservative (more-likely-to-catch-a-collapse) side while
+ * still leaving real headroom below the actual baseline count — unlike the old global 5, which
+ * left routes.ts (baseline 5) with none.
+ *
+ * Baseline counts below are as of this branch; re-derive the floor (don't just bump it) if a
+ * facade's baseline shifts enough to matter.
+ */
 export const DEFAULT_FACADES = [
-  "packages/shared/src/config.schema.ts",
-  "packages/server/src/tools/m7/knowledge-tools.ts",
-  "packages/server/src/search/indexer.ts",
-  "packages/server/src/mcp/registry.ts",
-  "packages/plugin/src/routes.ts",
+  { file: "packages/shared/src/config.schema.ts", floor: 22 }, // baseline 44 -> ceil(44/2)
+  { file: "packages/server/src/tools/m7/knowledge-tools.ts", floor: 3 }, // baseline 6 -> ceil(6/2)
+  { file: "packages/server/src/search/indexer.ts", floor: 9 }, // baseline 17 -> ceil(17/2)
+  { file: "packages/server/src/mcp/registry.ts", floor: 6 }, // baseline 12 -> ceil(12/2)
+  { file: "packages/plugin/src/routes.ts", floor: 3 }, // baseline 5 -> ceil(5/2)
 ];
+
+/** file -> declared floor, for O(1) lookup in main(). Falls back to MIN_EXPORTS when absent. */
+const FLOOR_BY_FILE = new Map(DEFAULT_FACADES.map(({ file, floor }) => [file, floor]));
+
+/**
+ * The floor for `file`: its own declared entry in DEFAULT_FACADES if it has one, otherwise the
+ * MIN_EXPORTS fallback documented above — this is what an explicit `--file` not in DEFAULT_FACADES
+ * gets. Exported (rather than inlined in main()) so the explicit-`--file` path is unit-testable
+ * without shelling out to git.
+ */
+export function floorForFile(file) {
+  return FLOOR_BY_FILE.get(file) ?? MIN_EXPORTS;
+}
 
 /** Reads `file` at `ref` via `git show`, or returns `{ missing: true }` if it doesn't exist there. */
 export function readAtRef(ref, file, { cwd = ROOT } = {}) {
@@ -120,7 +158,10 @@ export function parseArgs(argv) {
       throw new Error(`unrecognised argument: ${arg}`);
     }
   }
-  return { baseline, files: files.length > 0 ? files : [...DEFAULT_FACADES] };
+  return {
+    baseline,
+    files: files.length > 0 ? files : DEFAULT_FACADES.map(({ file }) => file),
+  };
 }
 
 function main() {
@@ -151,7 +192,13 @@ function main() {
     if (!baselineMissing) {
       currentSource = readFileSync(join(ROOT, file), "utf8");
     }
-    return compareFacade({ file, baselineSource, baselineMissing, currentSource });
+    return compareFacade({
+      file,
+      baselineSource,
+      baselineMissing,
+      currentSource,
+      floor: floorForFile(file),
+    });
   });
 
   let failed = false;
