@@ -9,146 +9,35 @@
 // against installed community plugins is validated against a real vault, not in CI.
 // Any absent API or thrown error degrades to a typed envelope the server already
 // handles (plugin_missing / plugin_unreachable / invalid_input / dql_error).
-import { type App, apiVersion, moment, normalizePath, type TFile } from "obsidian";
+//
+// WP6.1 split the shared scaffolding plus probe/commands/git/remotely-save out to
+// src/routes/{types,envelope,probe,commands,git,remotely-save}.ts. This file is now the
+// FACADE: it re-exports the public types those modules define, still holds the other 11
+// integration families inline (dataview/quickadd/ocr/excalidraw/makemd/omnisearch/datacore/
+// metadata-menu/daily-notes/templater/tasks — WP6.2), and `buildRoutes` concatenates every
+// family's routes in the same order as before the split. A `packages/plugin/test/
+// route-table-snapshot.test.ts` pins that order plus every (method, path) pair and their
+// uniqueness across the whole table, extracted or not.
+import { type App, moment, normalizePath, type TFile } from "obsidian";
+import { buildCommandsRoutes } from "./routes/commands";
+import { body, fail, ok, safeHandler, str } from "./routes/envelope";
+import { buildGitRoutes } from "./routes/git";
+import { buildProbeRoutes } from "./routes/probe";
+import { buildRemotelySaveRoutes } from "./routes/remotely-save";
+import {
+  type BridgeRes,
+  communityPlugin,
+  type InternalApp,
+  internalPlugin,
+  type RouteDef,
+} from "./routes/types";
 
-/** Bridge protocol version reported by /probe (matches the server's expectation). */
-const API_VERSION = "1";
+export type { BridgeReq, BridgeRes, RouteDef, RouteHandler } from "./routes/types";
 
 // Obsidian re-exports moment.js at runtime but its bundled d.ts types the export without a
 // call signature; alias to a minimal callable to construct dates for the daily-notes bridge.
 type MomentLike = { isValid(): boolean; format(fmt: string): string };
 const makeMoment = moment as unknown as (input?: string) => MomentLike;
-
-// Server capability key -> the community plugin's Obsidian id. The server addresses
-// plugins by the left-hand name (e.g. "excalidraw"); the right-hand is the real id.
-const CAP_IDS: Record<string, string> = {
-  excalidraw: "obsidian-excalidraw-plugin",
-  dataview: "dataview",
-  tasks: "obsidian-tasks-plugin",
-  templater: "templater-obsidian",
-  quickadd: "quickadd",
-  "text-extractor": "text-extractor",
-  "make-md": "make-md",
-  omnisearch: "omnisearch",
-  datacore: "datacore",
-  "metadata-menu": "metadata-menu",
-  git: "obsidian-git",
-  "remotely-save": "remotely-save",
-};
-
-export interface BridgeReq {
-  body?: unknown;
-  query?: Record<string, unknown>;
-}
-export interface BridgeRes {
-  status(code: number): BridgeRes;
-  json(body: unknown): void;
-}
-export type RouteHandler = (req: BridgeReq, res: BridgeRes) => void | Promise<void>;
-export interface RouteDef {
-  method: "get" | "post";
-  path: string;
-  handler: RouteHandler;
-}
-
-// --- Minimal models of Obsidian/community internals not in the public obsidian d.ts.
-interface CommunityPlugin {
-  manifest?: { version?: string };
-  api?: unknown;
-  settings?: unknown;
-}
-interface PluginRegistry {
-  plugins: Record<string, CommunityPlugin | undefined>;
-}
-interface CommandLite {
-  id: string;
-  name: string;
-}
-interface CommandsRegistry {
-  listCommands(): CommandLite[];
-  executeCommandById(id: string): boolean;
-}
-// Core (internal) plugins live under app.internalPlugins, separate from community plugins.
-interface InternalPluginLite {
-  enabled?: boolean;
-  instance?: { options?: Record<string, unknown> };
-}
-type InternalApp = App & {
-  plugins?: PluginRegistry;
-  commands?: CommandsRegistry;
-  internalPlugins?: { plugins?: Record<string, InternalPluginLite | undefined> };
-};
-
-const ok = (res: BridgeRes, result: unknown): void => {
-  res.status(200).json({ ok: true, result });
-};
-const fail = (
-  res: BridgeRes,
-  code: string,
-  message: string,
-  details?: Record<string, unknown>,
-): void => {
-  res.status(200).json({ ok: false, code, message, ...(details ? { details } : {}) });
-};
-
-// A handler that throws (or rejects) must still answer: LRA's express router does not
-// catch async rejections, so an unanswered request hangs the bridge client until its
-// timeout and surfaces as a cause-less plugin_unreachable. Every registered handler is
-// wrapped at buildRoutes' boundary.
-const safeHandler = (h: RouteHandler): RouteHandler => {
-  return async (req, res) => {
-    try {
-      await h(req, res);
-    } catch (e) {
-      try {
-        fail(res, "bridge_error", e instanceof Error ? e.message : String(e));
-      } catch {
-        // response already committed — nothing more to send
-      }
-    }
-  };
-};
-
-const body = (req: BridgeReq): Record<string, unknown> =>
-  typeof req.body === "object" && req.body !== null ? (req.body as Record<string, unknown>) : {};
-const str = (o: Record<string, unknown>, k: string): string | undefined =>
-  typeof o[k] === "string" ? (o[k] as string) : undefined;
-
-function communityPlugin(app: InternalApp, capKey: string): CommunityPlugin | undefined {
-  const id = CAP_IDS[capKey];
-  return id ? app.plugins?.plugins?.[id] : undefined;
-}
-
-/** Access a core (internal) plugin by id, e.g. "daily-notes". */
-function internalPlugin(app: InternalApp, id: string): InternalPluginLite | undefined {
-  return app.internalPlugins?.plugins?.[id];
-}
-
-// Duck-typed view of obsidian-git's gitManager (THE-378) — it exposes no stable `api`, so
-// every method is probed before use and absence degrades, never throws.
-interface GitManagerLite {
-  status?: () => Promise<unknown>;
-  getDiffString?: (path: string, staged?: boolean) => Promise<unknown>;
-  log?: (file: undefined, relativeToVault: boolean, limit: number) => Promise<unknown>;
-  stage?: (path: string, relativeToVault: boolean) => Promise<unknown>;
-  commit?: (opts: { message: string }) => Promise<unknown>;
-}
-
-/** Resolve obsidian-git's gitManager, mapping absence onto the error taxonomy. */
-function gitManagerOf(app: InternalApp, res: BridgeRes): GitManagerLite | null {
-  const plugin = communityPlugin(app, "git") as
-    | (CommunityPlugin & { gitManager?: GitManagerLite })
-    | undefined;
-  if (!plugin) {
-    fail(res, "plugin_missing", "obsidian-git is not installed", { plugin: "git" });
-    return null;
-  }
-  if (!plugin.gitManager) {
-    fail(res, "plugin_unreachable", "obsidian-git exposes no gitManager", { plugin: "git" });
-    return null;
-  }
-  return plugin.gitManager;
-}
 
 // Resolve a community plugin's `api`, mapping absence onto the error taxonomy: the
 // plugin not installed -> plugin_missing; installed but exposing no usable api ->
@@ -164,30 +53,6 @@ function requireApi<T>(app: InternalApp, res: BridgeRes, capKey: string): T | nu
     return null;
   }
   return plugin.api as T;
-}
-
-// --- /probe: deterministic capability discovery. -----------------------------------
-function probeResult(app: InternalApp, pluginVersion: string, shapeWarnings: string[]): unknown {
-  const capabilities: Record<string, { installed: boolean; version?: string }> = {};
-  for (const [key, id] of Object.entries(CAP_IDS)) {
-    const p = app.plugins?.plugins?.[id];
-    capabilities[key] = p
-      ? { installed: true, ...(p.manifest?.version ? { version: p.manifest.version } : {}) }
-      : { installed: false };
-  }
-  return {
-    plugin_version: pluginVersion,
-    obsidian_version: apiVersion,
-    obsidianTcApiVersion: API_VERSION,
-    // getName() is the vault's display name, not its filesystem path; on desktop the
-    // FileSystemAdapter exposes the real base path. Fall back to the name (e.g. on mobile).
-    vault_path:
-      (app.vault.adapter as { getBasePath?: () => string }).getBasePath?.() ?? app.vault.getName(),
-    capabilities,
-    // THE-282: startup shape self-check results (Obsidian internals this plugin duck-types).
-    shape_ok: shapeWarnings.length === 0,
-    ...(shapeWarnings.length ? { shape_warnings: shapeWarnings } : {}),
-  };
 }
 
 // --- Dataview adapters -------------------------------------------------------------
@@ -281,225 +146,13 @@ export function buildRoutes(
 ): RouteDef[] {
   const app = appArg as unknown as InternalApp;
   const defs: RouteDef[] = [
-    {
-      method: "get",
-      path: "/probe",
-      handler: (_req, res) => ok(res, probeResult(app, pluginVersion, shapeWarnings)),
-    },
+    ...buildProbeRoutes(app, pluginVersion, shapeWarnings),
 
-    // Command palette — core Obsidian, fully implemented.
-    {
-      method: "post",
-      path: "/commands/list",
-      handler: (req, res) => {
-        const filter = str(body(req), "filter")?.toLowerCase();
-        const items = (app.commands?.listCommands() ?? [])
-          .map((c) => ({ id: c.id, name: c.name }))
-          .filter(
-            (c) =>
-              !filter ||
-              c.id.toLowerCase().includes(filter) ||
-              c.name.toLowerCase().includes(filter),
-          );
-        ok(res, { items, total: items.length });
-      },
-    },
-    {
-      method: "post",
-      path: "/commands/execute",
-      handler: (req, res) => {
-        const id = str(body(req), "command_id");
-        if (!id) return fail(res, "invalid_input", "command_id is required");
-        const fired = app.commands?.executeCommandById(id) ?? false;
-        if (!fired)
-          return fail(res, "invalid_input", "command not found or did not run", { command_id: id });
-        ok(res, { command_id: id, fired_at: new Date().toISOString() });
-      },
-    },
+    ...buildCommandsRoutes(app),
 
-    // Obsidian Git (THE-378). The git plugin exposes no stable `api`; we duck-type its
-    // gitManager defensively and map any shape miss onto plugin_unreachable. Every git
-    // operation is wrapped so a git failure comes back as git_error, never a 500.
-    {
-      method: "post",
-      path: "/git/status",
-      handler: async (_req, res) => {
-        const gm = gitManagerOf(app, res);
-        if (!gm) return;
-        if (typeof gm.status !== "function")
-          return fail(res, "plugin_unreachable", "obsidian-git exposes no status()", {
-            plugin: "git",
-          });
-        try {
-          const s = (await gm.status()) as {
-            changed?: Array<{ path?: string; working_dir?: string; index?: string }>;
-            staged?: Array<{ path?: string; index?: string }>;
-            conflicted?: string[];
-          };
-          ok(res, {
-            changed: (s.changed ?? []).map((f) => ({
-              path: f.path ?? "",
-              working_dir: f.working_dir ?? "",
-              index: f.index ?? "",
-            })),
-            staged: (s.staged ?? []).map((f) => ({ path: f.path ?? "", index: f.index ?? "" })),
-            conflicted: s.conflicted ?? [],
-          });
-        } catch (e) {
-          fail(res, "git_error", e instanceof Error ? e.message : String(e));
-        }
-      },
-    },
-    {
-      method: "post",
-      path: "/git/diff",
-      handler: async (req, res) => {
-        const gm = gitManagerOf(app, res);
-        if (!gm) return;
-        if (typeof gm.getDiffString !== "function")
-          return fail(res, "plugin_unreachable", "obsidian-git exposes no getDiffString()", {
-            plugin: "git",
-          });
-        const path = str(body(req), "path");
-        if (!path) return fail(res, "invalid_input", "path is required");
-        const staged = body(req).staged === true;
-        try {
-          const diff = await gm.getDiffString(path, staged);
-          ok(res, { diff: typeof diff === "string" ? diff : "" });
-        } catch (e) {
-          fail(res, "git_error", e instanceof Error ? e.message : String(e));
-        }
-      },
-    },
-    {
-      method: "post",
-      path: "/git/log",
-      handler: async (req, res) => {
-        const gm = gitManagerOf(app, res);
-        if (!gm) return;
-        if (typeof gm.log !== "function")
-          return fail(res, "plugin_unreachable", "obsidian-git exposes no log()", {
-            plugin: "git",
-          });
-        const rawLimit = Number(body(req).limit);
-        const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 20;
-        try {
-          const entries = (await gm.log(undefined, false, limit)) as Array<{
-            hash?: string;
-            message?: string;
-            date?: string;
-            author?: { name?: string } | string;
-          }>;
-          ok(res, {
-            entries: (entries ?? []).map((e) => ({
-              hash: e.hash ?? "",
-              message: e.message ?? "",
-              date: e.date ?? "",
-              author: typeof e.author === "string" ? e.author : (e.author?.name ?? ""),
-            })),
-          });
-        } catch (e) {
-          fail(res, "git_error", e instanceof Error ? e.message : String(e));
-        }
-      },
-    },
-    {
-      method: "post",
-      path: "/git/stage",
-      handler: async (req, res) => {
-        const gm = gitManagerOf(app, res);
-        if (!gm) return;
-        if (typeof gm.stage !== "function")
-          return fail(res, "plugin_unreachable", "obsidian-git exposes no stage()", {
-            plugin: "git",
-          });
-        const paths = body(req).paths;
-        if (
-          !Array.isArray(paths) ||
-          paths.length === 0 ||
-          !paths.every((p) => typeof p === "string")
-        )
-          return fail(res, "invalid_input", "paths must be a non-empty string array");
-        let staged = 0;
-        try {
-          for (const p of paths as string[]) {
-            await gm.stage(p, true);
-            staged++;
-          }
-          ok(res, { staged });
-        } catch (e) {
-          // Report how many paths were staged before the failure — a bare error hides the
-          // partial state (some staged, some not), leaving the caller unable to resume safely.
-          fail(res, "git_error", e instanceof Error ? e.message : String(e), {
-            staged,
-            total: paths.length,
-          });
-        }
-      },
-    },
-    {
-      method: "post",
-      path: "/git/commit",
-      handler: async (req, res) => {
-        const gm = gitManagerOf(app, res);
-        if (!gm) return;
-        if (typeof gm.commit !== "function")
-          return fail(res, "plugin_unreachable", "obsidian-git exposes no commit()", {
-            plugin: "git",
-          });
-        const message = str(body(req), "message");
-        if (!message) return fail(res, "invalid_input", "message is required");
-        try {
-          const committed = await gm.commit({ message });
-          ok(res, {
-            committed: typeof committed === "number" ? committed : null,
-            fired_at: new Date().toISOString(),
-          });
-        } catch (e) {
-          fail(res, "git_error", e instanceof Error ? e.message : String(e));
-        }
-      },
-    },
+    ...buildGitRoutes(app),
 
-    // Remotely Save (THE-381): an independent backup-verification signal. Status duck-types
-    // the plugin's fields; trigger fires the public start-sync command.
-    {
-      method: "post",
-      path: "/remotely-save/status",
-      handler: (_req, res) => {
-        const plugin = communityPlugin(app, "remotely-save") as
-          | (CommunityPlugin & { syncStatus?: unknown; settings?: { lastSuccessSync?: unknown } })
-          | undefined;
-        if (!plugin)
-          return fail(res, "plugin_missing", "remotely-save is not installed", {
-            plugin: "remotely-save",
-          });
-        ok(res, {
-          sync_status: typeof plugin.syncStatus === "string" ? plugin.syncStatus : "unknown",
-          last_success_sync:
-            typeof plugin.settings?.lastSuccessSync === "number"
-              ? plugin.settings.lastSuccessSync
-              : null,
-        });
-      },
-    },
-    {
-      method: "post",
-      path: "/remotely-save/trigger",
-      handler: (_req, res) => {
-        const plugin = communityPlugin(app, "remotely-save");
-        if (!plugin)
-          return fail(res, "plugin_missing", "remotely-save is not installed", {
-            plugin: "remotely-save",
-          });
-        const fired = app.commands?.executeCommandById("remotely-save:start-sync") ?? false;
-        if (!fired)
-          return fail(res, "plugin_unreachable", "start-sync command did not fire", {
-            plugin: "remotely-save",
-          });
-        ok(res, { triggered: true, fired_at: new Date().toISOString() });
-      },
-    },
+    ...buildRemotelySaveRoutes(app),
 
     // Dataview.
     {
