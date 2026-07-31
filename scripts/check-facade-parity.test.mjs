@@ -178,15 +178,28 @@ test("DEFAULT_FACADES: every declared floor is well below its own baseline count
     "packages/server/src/search/indexer.ts": 17,
     "packages/server/src/mcp/registry.ts": 12,
     "packages/plugin/src/routes.ts": 5,
+    // WP8: notes-tools.ts re-exports exactly one name (buildNotesTools) both before and after its
+    // split into packages/server/src/tools/m1/notes/*. ceil(1/2) = 1 is mathematically the
+    // tightest floor >= 1 available for a baseline of 1 — there is no smaller non-zero floor to
+    // give it headroom, and a floor of 0 would defeat the sanity check entirely (a parse that
+    // collapsed to 0 exports would then never trip it). See the baseline === 1 carve-out below.
+    "packages/server/src/tools/m1/notes-tools.ts": 1,
   };
   for (const { file, floor } of DEFAULT_FACADES) {
     const baseline = baselineByFile[file];
     assert.ok(baseline !== undefined, `no known baseline count for ${file}`);
     assert.equal(floor, Math.ceil(baseline / 2), `${file}: floor should be ceil(${baseline} / 2)`);
-    assert.ok(
-      floor < baseline,
-      `${file}: floor ${floor} has no headroom below baseline ${baseline}`,
-    );
+    // A baseline of 1 cannot have headroom below it while the floor stays non-zero (and a 0 floor
+    // would never trip on a full parse collapse) — floor === baseline is the unavoidable, still
+    // meaningful case there. Every other facade here has baseline >= 5 and must keep real headroom.
+    if (baseline === 1) {
+      assert.equal(floor, 1, `${file}: a baseline-1 facade's floor must be exactly 1`);
+    } else {
+      assert.ok(
+        floor < baseline,
+        `${file}: floor ${floor} has no headroom below baseline ${baseline}`,
+      );
+    }
   }
 });
 
