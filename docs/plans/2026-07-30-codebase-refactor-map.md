@@ -376,6 +376,11 @@ Single-commit or small-PR sized. Assign tracker IDs before adding any source TOD
 ## Definition of complete
 
 - no production source file requires an excessive-lines lint exception;
+  **note (2026-07-30):** this was satisfied vacuously — `noExcessiveLinesPerFile` had no
+  repo-wide setting, only three dead per-file `overrides` (`cli.ts`, `registry.ts`,
+  `indexer.ts`) capped far above their post-refactor sizes. Closed by replacing those with a
+  single repo-wide override for `packages/*/src/**/*.ts` at `maxLines: 1100` — non-vacuous
+  today (see `biome.json`).
 - the known circular-dependency baseline is empty;
 - the unreachable-production allowlist is empty;
 - generated configuration and tool metadata are unchanged unless separately approved;
