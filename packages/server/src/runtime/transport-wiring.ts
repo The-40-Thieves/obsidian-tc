@@ -1,0 +1,101 @@
+// WP5.2 (issue 16): run_serve's HTTP + Prometheus /metrics transport wiring, extracted verbatim
+// out of cli.ts. THE-585 (#11): the HTTP transport's construction time is timed here (the perf
+// harness measures this as `http.cold_ms` on a synthetic vault) and reported back through
+// `httpConstructSeconds` so observability.ts's lazy gauge source can read it.
+//
+// Neither transport had an explicit close() before this slice — shutdown relied on process.exit(0)
+// tearing the sockets down. `close()` below gives both a real owner and an idempotent cleanup (the
+// map's WP5 acceptance criterion), closing whichever of the two were actually opened; a transport
+// that was never enabled contributes nothing to unwind, mirroring server-runtime.ts's
+// unwindReversed pattern for the boot-time layers.
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { FolderAcl } from "../acl";
+import type { Database } from "../db/types";
+import type { ToolRegistry } from "../mcp/registry";
+import { type MetricsHandle, startMetricsEndpoint } from "../metrics/endpoint";
+import type { MetricsRecorder } from "../metrics/registry";
+import type { JobQueue } from "../scheduler/job-queue";
+import { type HttpHandle, startHttp } from "../transports/http";
+import type { VaultRegistry } from "../vault/registry";
+
+export interface TransportWiringDeps {
+  config: ServerConfig;
+  version: string;
+  registry: ToolRegistry;
+  vaultRegistry: VaultRegistry;
+  db: Database;
+  firstVaultId: string;
+  acl: FolderAcl;
+  jobQueue: JobQueue;
+  metrics: MetricsRecorder;
+}
+
+export interface TransportsWiring {
+  /** THE-585 (#11): null until (and unless) the HTTP transport is constructed. */
+  httpConstructSeconds: number | null;
+  /** Idempotent: closes whichever of HTTP/metrics were actually opened; a no-op transport
+   *  contributes nothing. Safe to call more than once (each handle's own close() is awaited only
+   *  the first time — see server-runtime.ts's close(), which guards the whole shutdown sequence). */
+  close(): Promise<void>;
+}
+
+/**
+ * Bind the MCP HTTP transport (config.transports.http.enabled) and the Prometheus /metrics
+ * endpoint (config.observability.prometheus.enabled), each only when configured.
+ */
+export async function wireTransports(deps: TransportWiringDeps): Promise<TransportsWiring> {
+  const { config } = deps;
+  let httpConstructSeconds: number | null = null;
+  let httpHandle: HttpHandle | undefined;
+  let metricsHandle: MetricsHandle | undefined;
+
+  if (config.transports.http.enabled) {
+    // THE-585 (#11): time the transport's construction + bind.
+    const httpT0 = performance.now();
+    const http = await startHttp({
+      name: "obsidian-tc",
+      version: deps.version,
+      registry: deps.registry,
+      vaultRegistry: deps.vaultRegistry,
+      auth: config.auth,
+      db: deps.db,
+      vaultId: deps.firstVaultId,
+      acl: deps.acl,
+      host: config.transports.http.host,
+      port: config.transports.http.port,
+      facadeMode: config.toolFacade.mode,
+      jobQueue: deps.jobQueue,
+      enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
+      allowedHosts: config.transports.http.allowedHosts,
+      allowedOrigins: config.transports.http.allowedOrigins,
+      // THE-520: without this the auth_rejections_total counter exists but is never incremented.
+      metrics: deps.metrics,
+    });
+    httpConstructSeconds = (performance.now() - httpT0) / 1000;
+    httpHandle = http;
+    process.stderr.write(
+      `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,
+    );
+  }
+
+  if (config.observability.prometheus.enabled) {
+    const m = await startMetricsEndpoint({
+      recorder: deps.metrics,
+      bind: config.observability.prometheus.bind,
+      port: config.observability.prometheus.port,
+      auth: config.auth,
+    });
+    metricsHandle = m;
+    process.stderr.write(
+      `obsidian-tc /metrics on ${config.observability.prometheus.bind}:${m.port}\n`,
+    );
+  }
+
+  return {
+    httpConstructSeconds,
+    close: async () => {
+      if (httpHandle) await httpHandle.close();
+      if (metricsHandle) await metricsHandle.close();
+    },
+  };
+}

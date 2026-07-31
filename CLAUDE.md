@@ -34,11 +34,23 @@ lived only there.
 ## Commands
 
 ```bash
-bun run lint        # biome + all 9 check:* gates
+bun run lint        # ONLY biome. It runs no check:* gate — see below
 bun run typecheck   # all four packages
 bun run test        # per-workspace; server is vitest under Node, native is cargo test
 just                # list recipes (build, test, lint, format, bundle, map, release)
 ```
+
+**`bun run lint` is `biome check` and nothing else.** The gates run as separate *steps* of CI's
+`lint` **job**, which is a different thing with a confusingly similar name. Green locally on
+`bun run lint` says nothing about them. Enumerate the real list from `.github/workflows/` — the
+`lint` job currently runs biome plus `check:boundaries`, `check:dev-dep-imports`,
+`check:perf-timing-scope`, `check:ingest-telemetry-wiring`, `check:config-paths`,
+`check:duplicate-exports`, `check:duplication`, `check:export-surface`, `check:facade-parity` and
+`test:scripts`; `check:config-threading` lives in `ci-security.yml`.
+
+Two `check:*` scripts exist in `package.json` that **no workflow invokes** — `check:merge-driver`,
+and historically `check:export-surface` / `check:facade-parity` until they were wired. A script
+existing is not a gate running: grep the workflows, not `package.json`.
 
 **Don't run the full suite locally.** This box is 4 cores shared with ~43 containers; GitHub-hosted
 runners are free and unmetered for public repos, and cover three OSes:

@@ -1,0 +1,73 @@
+// WP2 slice 1: M7Deps, moved verbatim out of knowledge-tools.ts. Types only — no runtime code
+// belongs here, and nothing here may import knowledge-tools.ts (the facade) or retrieval-runtime.ts.
+import type { Database } from "../../../db/types";
+import type { EmbeddingProvider } from "../../../embeddings";
+import type { RetrievalLogger } from "../../../experiential/log";
+import type { GatewayRoles } from "../../../plane/gateway";
+import type { StageMetric } from "../../../search/graph_search_stages/instrumentation";
+import type { RetrievalCaches } from "../../../search/query_cache";
+import type { Reranker } from "../../../search/rerank";
+import type { VaultRegistry } from "../../../vault/registry";
+
+export interface M7Deps {
+  vaultRegistry: VaultRegistry;
+  embeddingProvider: EmbeddingProvider;
+  /** Rerank seam → gateway /rerank passthrough; null when the gateway is unconfigured. */
+  reranker: Reranker | null;
+  /** Generative roles → gateway extract/synthesize/judge; null when unconfigured. */
+  roles: GatewayRoles | null;
+  /** THE-397: config-driven retrieval knobs (config.retrieval); absent -> graphSearch defaults. */
+  retrieval?: {
+    rrfK?: number;
+    sparse?: boolean;
+    colbert?: boolean;
+    densify?: { includeInWalk?: boolean; derivedWeight?: number };
+    /** THE-391/THE-536: adaptive per-stream RRF weighting. Absent/false -> static RRF, byte-
+     *  identical to today. */
+    adaptiveRrf?: { enabled?: boolean; gain?: number };
+    /** THE-394/THE-591: gated cross-encoder rerank (retrieval.gatedRerank). Absent/false ->
+     *  graphSearch's gatedRerank stage never fires, byte-identical to today. */
+    gatedRerank?: boolean;
+  };
+  /** Config-driven POST-FUSION ranking overlays (config.ranking); absent -> graphSearch defaults
+   *  (metadata prior OFF). */
+  ranking?: {
+    metadataPrior?: {
+      enabled?: boolean;
+      rules?: Array<{ field: string; value: string; boost: number }>;
+      clampFraction?: number;
+    };
+  };
+  /** THE-230: serve-path retrieval logging into the experiential store; absent -> no logging. */
+  retrievalLog?: RetrievalLogger;
+  /** THE-585 (#7, #8): one vec0 -> brute-force degradation, by vault and reason. Absent -> inert,
+   *  matching retrievalLog above. Wired from the composition root so this module never learns
+   *  about the metrics recorder. */
+  onVecFallback?: (vault: string, reason: "error" | "underfill") => void;
+  /** THE-585 (#6): one record per named retrieval stage (duration + candidate funnel), by vault.
+   *  The `onStageMetric` seam and its closed `StageName` union already existed (THE-465); this is
+   *  the missing half — nothing consumed it outside the perf collector. Absent -> inert. */
+  onStageMetric?: (vault: string, metric: StageMetric) => void;
+  /** THE-187/193: cached_activation_score lookup for the graph bubble pass; absent -> inert
+   *  (the config-gated dark default until the A/B passes the ship rule). */
+  activationFor?: (chunkId: string) => number | null;
+  /** THE-258: the deterministic class router (retrieval.classRouter). Dark by default —
+   *  absent/false, every query takes the measured standard path. */
+  classRouter?: boolean;
+  /** THE-132/229: open experiential handle for vault_context's include_work leg; absent ->
+   *  include_work reports work_unavailable. */
+  edb?: Database;
+  /** THE-231: per-vault memory folder (same source as M5) — where the next-session signal
+   *  note lives for vault_context's bootstrap mode; absent -> "memory". */
+  memoryFolder?: (vaultId: string) => string;
+  /** THE-136: directory holding the prewarm cache (prewarm-<vault>.json). When set, bootstrap
+   *  mode reads a fresh entry instead of cold-querying and writes through on a live compose;
+   *  absent -> every bootstrap composes live. */
+  prewarmDir?: string;
+  /** THE-562 P1.6: governed-write handles so reflect.persist snapshots + reindexes like write_note. */
+  snapshots?: { enabled: boolean; retention: number };
+  reindex?: (vaultId: string, path: string, content: string) => void;
+  /** THE-497: the in-process query-product cache (retrieval.cache). Absent -> every retrieval
+   *  surface below embeds and searches exactly as it did before, with no cache path taken. */
+  retrievalCaches?: RetrievalCaches;
+}

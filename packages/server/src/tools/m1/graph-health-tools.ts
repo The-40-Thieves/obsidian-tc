@@ -14,7 +14,7 @@ import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links"
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "./define";
-import type { M1Deps } from "./index";
+import type { M1Deps } from "./shared";
 
 function readableNotes(root: string, acl: FolderAcl | undefined): string[] {
   return walkVault(root, { extensions: [".md"] })

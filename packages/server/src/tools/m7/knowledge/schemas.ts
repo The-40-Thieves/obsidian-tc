@@ -1,0 +1,231 @@
+// WP2 slice 1: the 11 output/result schema consts that used to sit at the top of
+// knowledge-tools.ts, moved verbatim. See THE-417 Phase 1 (m7-tool-metadata-parity.test.ts pins
+// the resulting tool metadata unchanged across this move).
+//
+// Exported from this leaf only as far as knowledge-tools.ts (the facade) needs them to build each
+// tool's `outputSchema` — the facade itself re-exports none of these, so its own public surface
+// (`rg '^export ' knowledge-tools.ts`) is unaffected by this file existing.
+import { z } from "zod";
+import { challengeOutputSchema } from "../../../plane/challenge";
+
+// ---------------------------------------------------------------------------------------------
+// THE-417 Phase 1: declared output contracts for m7.
+//
+// m7 is where the surface's shape inconsistency actually lives. THE-548 found three different
+// "unavailable" returns across the tool surface; three of them are IN THIS FILE, and they are not
+// the same shape as each other — only `{ vault, available: false, message }` is common. reflect
+// adds mode/route/sources/answer, list_contradictions adds total/contradictions, and
+// knowledge_challenge returns just the triple. Declaring each one is what makes that legible to a
+// caller instead of something you learn by reading handlers.
+//
+// Written from the RETURN STATEMENTS, not from the types the data came from: several fields are
+// renamed, derived, or conditionally spread on the way out, so a schema inferred from the source
+// row/interface would be wrong. Conditional spreads (`...(cond ? { x } : {})`) omit the key
+// entirely, which is `.optional()`, not `.nullable()`.
+// ---------------------------------------------------------------------------------------------
+
+/** Mirrors search/graph_search_stages/types.ts's GraphSearchResult. `content` is genuinely
+ *  optional (omitted when the projection did not hydrate it), not nullable. */
+export const GraphSearchResultSchema = z.object({
+  chunk_id: z.string(),
+  path: z.string(),
+  content: z.string().optional(),
+  source: z.enum(["seed", "expansion", "lexical", "sparse", "temporal"]),
+  hop: z.number(),
+  via_edge: z
+    .object({ type: z.string(), source_path: z.string(), provenance: z.string().nullable() })
+    .nullable(),
+  root_seed: z.string().nullable(),
+  rerank_score: z.number(),
+});
+
+/** THE-631: mirrors search/graph_search_stages/types.ts's CoverageEstimate. Additive and
+ *  reported-only — see estimateCoverage() in search/graph_search.ts for exactly what each field
+ *  means; it never feeds back into ranking. Present only on the graph-fusion arm of a search tool
+ *  (the lexical-route arm bypasses graphSearch entirely and has nothing to report), hence
+ *  .optional() rather than .nullable() here too. */
+export const CoverageEstimateSchema = z.object({
+  arms: z.array(z.enum(["seed", "expansion", "lexical", "sparse", "temporal"])),
+  armsContributed: z.number(),
+  armsPossible: z.number(),
+  expansionSkipped: z.boolean(),
+  expansionTruncated: z.boolean(),
+  requested: z.number(),
+  returned: z.number(),
+  underfilled: z.boolean(),
+});
+
+/** The trimmed citation shape reflect returns (NOT a full GraphSearchResult). */
+export const SourceRef = z.object({ chunk_id: z.string(), path: z.string(), score: z.number() });
+
+export const ContradictionRow = z.object({
+  id: z.string(),
+  source_path: z.string(),
+  conflict_path: z.string(),
+  judge_verdict: z.string(),
+  judge_rationale: z.string(),
+});
+
+/** vault_context. The prefetch path returns the SAME bundle plus two markers, so they are optional
+ *  here rather than a separate union arm — a second arm would duplicate ~30 fields to add two. */
+export const VaultContextOutput = z.object({
+  vault: z.string(),
+  route: z.array(z.string()),
+  query_source: z.enum(["input", "next_session"]),
+  signal: z.string().optional(),
+  signal_hash: z.string().optional(),
+  budget: z.object({
+    requested: z.number(),
+    chunk_budget: z.number(),
+    packed_tokens: z.number(),
+  }),
+  stats: z.object({
+    chunks_considered: z.number(),
+    chunks_packed: z.number(),
+    notes: z.number(),
+    contradictions: z.number(),
+    syntheses: z.number(),
+    lessons: z.number(),
+  }),
+  notes: z.array(
+    z.object({
+      path: z.string(),
+      chunks: z.array(
+        z.object({
+          chunk_id: z.string(),
+          content: z.string().optional(),
+          score: z.number(),
+          source: z.string(),
+          hop: z.number(),
+        }),
+      ),
+    }),
+  ),
+  // `patterns` is JSON.parse'd with a fallback to the raw string, so its shape is genuinely not
+  // known here. z.unknown() states that honestly rather than inventing a contract for it.
+  syntheses: z.array(
+    z.object({
+      iso_year: z.number(),
+      iso_week: z.number(),
+      generated_at: z.number(),
+      patterns: z.unknown(),
+    }),
+  ),
+  contradictions: z.array(ContradictionRow),
+  lessons: z.array(
+    z.object({
+      chunk_id: z.string(),
+      path: z.string(),
+      excerpt: z.string(),
+      via: z.enum(["engine", "lexical"]),
+    }),
+  ),
+  // Present only with include_work; degrades to a marker object rather than an empty array, so a
+  // caller can tell "no work" from "work plane unavailable".
+  episodes: z
+    .union([
+      z.array(
+        z.object({
+          id: z.string(),
+          ts: z.number(),
+          tool: z.string().nullable(),
+          status: z.string(),
+          summary: z.string().nullable(),
+        }),
+      ),
+      z.object({ work_unavailable: z.literal(true) }),
+    ])
+    .optional(),
+  prefetched: z.literal(true).optional(),
+  prefetch_generated_at: z.number().optional(),
+});
+
+/** reflect: three arms. `mode` in the degraded arm ECHOES the input rather than being normalised,
+ *  which is why it is a plain string there and a literal in the other two. */
+/** reflect. Encoded as ONE object with optionals rather than a discriminated union, because
+ *  TypeScript unifies the handler's three branch returns into a single widened shape
+ *  (`available: boolean`, absent fields as `?: undefined`) rather than preserving the union — so a
+ *  union of literal-tagged arms cannot match the inferred return type.
+ *
+ *  What the three arms actually are, since the schema can no longer say it:
+ *    degraded  { available: false, message, answer: null, sources }   — `mode` ECHOES the input here
+ *    challenge { available: true,  model, challenge, sources }
+ *    synthesis { available: true,  model, answer, sources, persisted? }
+ *
+ *  Every field name and type is still checked; only the correlation between them is not. */
+export const ReflectOutput = z.object({
+  vault: z.string(),
+  mode: z.string(),
+  route: z.array(z.string()),
+  available: z.boolean(),
+  message: z.string().optional(),
+  answer: z.string().nullable().optional(),
+  model: z.string().optional(),
+  challenge: challengeOutputSchema.optional(),
+  sources: z.array(SourceRef),
+  persisted: z.object({ path: z.string() }).optional(),
+});
+
+/** vault_graph_search: `route` appears only on the lexical arm; hyde/variants_used are spread in
+ *  conditionally. Kept as one object with optionals rather than a union, because the two arms
+ *  differ only by which optional keys are present. */
+export const VaultGraphSearchOutput = z.object({
+  vault: z.string(),
+  mode_used: z.enum(["lexical-route", "graph"]),
+  route: z.array(z.string()).optional(),
+  query: z.string().optional(),
+  hyde: z.literal(true).optional(),
+  variants_used: z.number().optional(),
+  // THE-631: additive, reported-only — present on the graph arm, absent on lexical-route.
+  coverage: CoverageEstimateSchema.optional(),
+  results: z.array(GraphSearchResultSchema),
+});
+
+/** knowledge_search: `route` is present on the lexical arm and ABSENT on the graph arm — not null,
+ *  not empty. Optional is the honest encoding. */
+export const KnowledgeSearchOutput = z.object({
+  vault: z.string(),
+  mode_used: z.enum(["lexical-route", "graph"]),
+  route: z.array(z.string()).optional(),
+  // THE-631: additive, reported-only — present on the graph arm, absent on lexical-route.
+  coverage: CoverageEstimateSchema.optional(),
+  results: z.array(GraphSearchResultSchema),
+});
+
+export const KnowledgeCriticalOutput = z.object({
+  vault: z.string(),
+  count: z.number(),
+  items: z.array(
+    z.object({
+      path: z.string(),
+      title: z.string(),
+      category: z.string().nullable(),
+      source: z.string().nullable(),
+      severity: z.literal("critical"),
+    }),
+  ),
+});
+
+/** knowledge_challenge: three arms, and the degraded one is only the shared triple — deliberately
+ *  narrower than reflect's, which is exactly the inconsistency THE-548 surfaced. */
+/** knowledge_challenge. Same widening reason as ReflectOutput. Its degraded arm is only
+ *  `{ vault, available: false, message }` — deliberately NARROWER than reflect's, which is exactly
+ *  the surface inconsistency THE-548 surfaced and this ticket is making legible. */
+export const KnowledgeChallengeOutput = z.object({
+  vault: z.string(),
+  available: z.boolean(),
+  message: z.string().optional(),
+  evidence_count: z.number().optional(),
+  contradiction_count: z.number().optional(),
+  // null on the no-evidence arm, a full ChallengeOutput on success, absent when degraded.
+  output: challengeOutputSchema.nullable().optional(),
+  model: z.string().optional(),
+});
+
+export const ListContradictionsOutput = z.object({
+  vault: z.string(),
+  available: z.boolean(),
+  message: z.string().optional(),
+  total: z.number(),
+  contradictions: z.array(ContradictionRow),
+});

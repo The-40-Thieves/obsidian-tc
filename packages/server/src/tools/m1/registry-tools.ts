@@ -9,7 +9,7 @@ import { loadConfig } from "../../config/load";
 import type { Database } from "../../db/types";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "./define";
-import type { M1Deps } from "./index";
+import type { M1Deps } from "./shared";
 
 const nowMs = (ctx: CallerContext): number => (ctx.now ?? Date.now)();
 const iso = (ms: number): string => new Date(ms).toISOString();

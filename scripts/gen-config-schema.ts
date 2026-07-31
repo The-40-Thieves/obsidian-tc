@@ -15,12 +15,21 @@
 // usage:
 //   bun scripts/gen-config-schema.ts            # write docs/obsidian-tc.config.schema.json
 //   bun scripts/gen-config-schema.ts --check    # fail if the committed file is stale
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
+
+// WP1.1: a pinned baseline of the complete emitted bytes (including the trailing newline). The
+// staleness check below (comparing regenerated output to the committed file) catches the schema
+// going STALE, but regenerating both together would silently hide an unintended CHANGE — this
+// hash is the second, independent witness. A deliberate schema change updates this constant in
+// its own behavioral PR, not as a side effect of an unrelated refactor.
+const CONFIG_SCHEMA_BASELINE_SHA256 =
+  "ae8bb2801214f351b12af60e174285f2672a0a72f02c0500725f9badfa976745";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
@@ -55,13 +64,29 @@ if (process.argv.includes("--check")) {
     console.error(`config schema missing: ${OUT}\nRun: bun scripts/gen-config-schema.ts`);
     process.exit(1);
   }
-  if (current !== json) {
-    console.error(
-      `config schema is STALE: ${OUT}\nThe Zod schema changed without regenerating.\nRun: bun scripts/gen-config-schema.ts`,
-    );
+  // Two independent checks, reported separately, because regenerating both files together would
+  // hide a change that trips ONLY the hash: staleness (committed file vs regenerated output) says
+  // nothing about whether that output still matches the pinned baseline.
+  const staleFile = current !== json;
+  const actualSha256 = createHash("sha256").update(json).digest("hex");
+  const staleHash = actualSha256 !== CONFIG_SCHEMA_BASELINE_SHA256;
+  if (staleFile || staleHash) {
+    if (staleFile) {
+      console.error(
+        `config schema is STALE: ${OUT}\nThe Zod schema changed without regenerating.\nRun: bun scripts/gen-config-schema.ts`,
+      );
+    }
+    if (staleHash) {
+      console.error(
+        `config schema HASH MISMATCH: expected ${CONFIG_SCHEMA_BASELINE_SHA256}, got ${actualSha256}\n` +
+          "The emitted JSON Schema bytes no longer match the pinned baseline. If this schema change " +
+          "is deliberate, update CONFIG_SCHEMA_BASELINE_SHA256 in scripts/gen-config-schema.ts in its " +
+          "own behavioral PR — do not update it as a side effect of an unrelated refactor.",
+      );
+    }
     process.exit(1);
   }
-  console.log(`config schema OK (${described} descriptions, up to date)`);
+  console.log(`config schema OK (${described} descriptions, up to date, hash ${actualSha256})`);
 } else {
   writeFileSync(OUT, json);
   console.log(`wrote ${OUT} (${described} descriptions)`);
