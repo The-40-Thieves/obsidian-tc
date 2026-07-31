@@ -21,7 +21,7 @@ import {
   unwindReversed,
   wireRuntimeCore,
 } from "../src/runtime/server-runtime";
-import { wireStores } from "../src/runtime/stores";
+import { type Stores, wireStores } from "../src/runtime/stores";
 
 describe("unwindReversed — reverse-ownership-order cleanup", () => {
   it("closes already-built layers in REVERSE (most-recently-opened-first) order", async () => {
@@ -107,22 +107,53 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", () 
     return d;
   };
 
+  // Every Stores this describe opens, so afterEach can close them BEFORE removing the temp dir.
+  // Windows refuses to delete a file that still has an open handle, and the happy-path test
+  // SUCCEEDS — so no unwind runs, so its sqlite handles are still open at cleanup and rmSync fails
+  // with EPERM (`force: true` suppresses ENOENT, never EPERM). The unwind tests passed on Windows
+  // precisely because the failure under test closed their stores for them. POSIX unlinks an open
+  // file happily, which is why this only ever showed up on windows-latest.
+  const openStores: Stores[] = [];
+  const track = (s: Stores): Stores => {
+    openStores.push(s);
+    return s;
+  };
+
   afterEach(() => {
+    for (const s of openStores.splice(0)) {
+      try {
+        s.close();
+      } catch {
+        // Already closed by an unwind under test — close is idempotent by contract, and a
+        // double-close must not mask the assertion failure that actually matters.
+      }
+      try {
+        // `Stores.close()` deliberately closes `db` only, matching pre-extraction shutdown. With
+        // every experiential gate off (this suite's config) wireStores has already released
+        // experientialDb at line ~82, so this is a no-op today — but a future test that enables one
+        // of those gates would hold a second handle and reintroduce the same EPERM on Windows.
+        s.experientialDb.close?.();
+      } catch {
+        // Already released by wireStores, or by the close() above.
+      }
+    }
     for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
   const baseDeps = async (cacheDir: string): Promise<Omit<RuntimeCoreDeps, "embeddings">> => ({
-    stores: await wireStores({
-      cacheDir,
-      version: "test",
-      experiential: {
-        logRetrievals: false,
-        captureEpisodes: false,
-        captureContent: false,
-        activationRerank: false,
-      },
-      experientialMigrations,
-    }),
+    stores: track(
+      await wireStores({
+        cacheDir,
+        version: "test",
+        experiential: {
+          logRetrievals: false,
+          captureEpisodes: false,
+          captureContent: false,
+          activationRerank: false,
+        },
+        experientialMigrations,
+      }),
+    ),
     vaults: [{ id: "v1", path: cacheDir }],
     acl: { readOnly: false, defaultScopes: ["*"], rules: [] },
     defaultVaultId: undefined,
