@@ -233,6 +233,31 @@ describe("parseCliArgs — citation-infer --max-judged (THE-617 item 3)", () => 
     });
   });
 
+  it("parses the valueless --allow-uncertain WITHOUT eating the positional config path", () => {
+    // The trap this pins: the value-carrying flags are spliced out of `scan` two entries at a
+    // time so positional() cannot mistake a flag's value for the config path. --allow-uncertain
+    // takes NO value, so adding it to that strip list would swallow the path after it.
+    const cmd = parseCliArgs([
+      "citation-infer",
+      "--session",
+      "s1",
+      "--allow-uncertain",
+      "/etc/cfg.json",
+    ]);
+    expect(cmd).toMatchObject({
+      kind: "citation-infer",
+      session: "s1",
+      allowUncertain: true,
+      input: "/etc/cfg.json",
+    });
+  });
+
+  it("omits allowUncertain entirely when the flag is absent — dark by default", () => {
+    const cmd = parseCliArgs(["citation-infer", "--session", "s1"]);
+    expect(cmd).toMatchObject({ kind: "citation-infer", session: "s1" });
+    expect((cmd as { allowUncertain?: boolean }).allowUncertain).toBeUndefined();
+  });
+
   it("rejects a negative or non-numeric --max-judged", () => {
     expect(parseCliArgs(["citation-infer", "--session", "s1", "--max-judged", "-1"]).kind).toBe(
       "error",

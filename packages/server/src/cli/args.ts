@@ -32,6 +32,7 @@ export type CliCommand =
       until?: number;
       transcript?: string;
       maxJudged?: number;
+      allowUncertain?: boolean;
     }
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
   | { kind: "note-quality"; input?: string; vault?: string; flags?: string[]; limit?: number }
@@ -311,6 +312,9 @@ export function parseCliArgs(argv: string[]): CliCommand {
         if (!Number.isFinite(maxJudged) || maxJudged < 0)
           return { kind: "error", message: "--max-judged must be a non-negative integer" };
       }
+      // Boolean flag: deliberately NOT added to the value-carrying strip list above — it takes no
+      // argument, so splicing two entries would eat the following positional.
+      const allowUncertain = rest.includes("--allow-uncertain");
       return {
         kind: "citation-infer",
         input: flagValue(rest, "--config") ?? positional(scan),
@@ -318,6 +322,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
         ...(transcript !== undefined ? { transcript } : {}),
+        ...(allowUncertain ? { allowUncertain } : {}),
         ...(maxJudged !== undefined ? { maxJudged } : {}),
       };
     }

@@ -61,16 +61,44 @@ const JUDGE_SYSTEM =
   "information from the SOURCE (paraphrase counts; shared topic alone does not). Respond with " +
   'ONLY strict JSON: {"cited": true|false, "score": <number 0..1>}. No prose, no fences.';
 
-function parseVerdict(text: string): { cited: boolean; score: number } | null {
+/** The widened contract, used ONLY when `allowUncertain` is set. Kept as a separate string rather
+ *  than a conditional fragment so the default prompt is byte-identical to what has always shipped:
+ *  a judge prompt is model-visible input, and changing it changes model output on every call. */
+const JUDGE_SYSTEM_UNCERTAIN =
+  "You judge citation. Given a SOURCE chunk and a RESPONSE, decide whether the RESPONSE uses " +
+  "information from the SOURCE (paraphrase counts; shared topic alone does not). Respond with " +
+  'ONLY strict JSON: {"cited": true|false|"uncertain", "score": <number 0..1>}. Answer ' +
+  '"uncertain" when the evidence genuinely does not settle it — abstention is better than a ' +
+  "confident guess. No prose, no fences.";
+
+/** `true`/`false` are the judge's verdict; `"uncertain"` is its abstention, and only reachable
+ *  when the caller opted in (see `allowUncertain`). */
+type JudgeVerdict = { cited: boolean | "uncertain"; score: number };
+
+/**
+ * `allowUncertain` gates the WIDER vocabulary on the parse side too, deliberately.
+ *
+ * A rejected parse is not free: it increments `parseFailures`, and >5% of judged rows aborts the
+ * entire stamping pass (the kill switch). So the prompt and the parser have to move together — a
+ * widened prompt against this parser's old `typeof v.cited !== "boolean"` check would turn every
+ * abstention into a parse failure and could abort a whole run. Gating both on one flag makes that
+ * pairing impossible to get half-right.
+ *
+ * With the flag OFF the behaviour is byte-identical to before: an `"uncertain"` reply is still a
+ * parse failure, exactly as it is today.
+ */
+function parseVerdict(text: string, allowUncertain: boolean): JudgeVerdict | null {
   const stripped = text
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/, "");
   try {
     const v = JSON.parse(stripped) as { cited?: unknown; score?: unknown };
-    if (typeof v.cited !== "boolean") return null;
     const score = typeof v.score === "number" && Number.isFinite(v.score) ? v.score : 0;
-    return { cited: v.cited, score: Math.max(0, Math.min(1, score)) };
+    const clamped = Math.max(0, Math.min(1, score));
+    if (typeof v.cited === "boolean") return { cited: v.cited, score: clamped };
+    if (allowUncertain && v.cited === "uncertain") return { cited: "uncertain", score: clamped };
+    return null;
   } catch {
     return null;
   }
@@ -90,6 +118,21 @@ export interface InferCitationsOptions {
   embed?: (texts: string[]) => Promise<number[][]>;
   /** Gateway judge role; absent/null -> stage-1-only mode (survivors stamp cited=1). */
   judge?: GatewayRoles["judge"] | null;
+  /**
+   * Let the judge abstain. DARK BY DEFAULT, and that is the point.
+   *
+   * Enabling it changes two model-visible things at once: the judge prompt gains a third allowed
+   * answer, and rows the judge declines to settle stamp `cited_in_response = 0` instead of `1`.
+   * That MOVES ROWS OUT OF THE CITATION COUNT read by chunk_access_stats, contribution.ts and
+   * metrics.ts. It is very likely the right answer — abstention beats fabricated certainty — but
+   * "likely right" is not the bar here: this repo ships retrieval policy dark until it beats a
+   * baseline on the golden set (13 of 15 flags in retrieval.schema.ts default false), and a change
+   * to what a model is asked belongs in the same category.
+   *
+   * There is no NULL option for an abstention, incidentally: NULL means "unprocessed", so an
+   * uncertain row left NULL would be re-judged on every run and abstain again forever.
+   */
+  allowUncertain?: boolean;
   thresholds?: { rouge?: number; cosine?: number; killSwitch?: number };
   /** THE-617 item 3 — cap on how many stage-1 survivors get judged per run (bounded judge
    *  cost). Same default/shape as reflect.ts's identically-named MAX_JUDGED, but this is a
@@ -105,6 +148,8 @@ export interface InferCitationsStats {
   stage1Pass: number;
   judged: number;
   cited: number;
+  /** Judge abstentions. Always 0 unless `allowUncertain` is set. */
+  uncertain: number;
   parseFailures: number;
   aborted: boolean;
 }
@@ -138,7 +183,15 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
       .all(...scopeParams) as Array<{ id: string }>
   ).map((r) => r.id);
   if (chunkIds.length === 0) {
-    return { scoped: 0, stage1Pass: 0, judged: 0, cited: 0, parseFailures: 0, aborted: false };
+    return {
+      scoped: 0,
+      stage1Pass: 0,
+      judged: 0,
+      cited: 0,
+      uncertain: 0,
+      parseFailures: 0,
+      aborted: false,
+    };
   }
 
   const contentStmt = opts.cacheDb.prepare("SELECT content FROM chunks WHERE id = ?");
@@ -197,14 +250,14 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   const negatives = assessments.filter((a) => !a.pass);
 
   // Stage 2: judge the survivors (bounded), collecting per-chunk verdicts.
-  const verdicts = new Map<string, { cited: boolean; score: number }>();
+  const verdicts = new Map<string, JudgeVerdict>();
   let judged = 0;
   let parseFailures = 0;
   if (opts.judge && passers.length > 0) {
     for (const a of passers.slice(0, opts.maxJudged ?? MAX_JUDGED)) {
       const req = {
         ...prompt(
-          JUDGE_SYSTEM,
+          opts.allowUncertain ? JUDGE_SYSTEM_UNCERTAIN : JUDGE_SYSTEM,
           `SOURCE:\n${a.content.slice(0, 1500)}\n\nRESPONSE:\n${opts.transcript.slice(0, 4000)}`,
         ),
         responseFormat: { type: "json_object" },
@@ -212,7 +265,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
       judged += 1;
       try {
         const res = await opts.judge(req);
-        const v = parseVerdict(res.text);
+        const v = parseVerdict(res.text, opts.allowUncertain === true);
         if (v) verdicts.set(a.chunkId, v);
         else parseFailures += 1;
       } catch {
@@ -236,6 +289,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
      WHERE chunk_id = ? AND cited_in_response IS NULL AND ${scopeClause}`,
   );
   let cited = 0;
+  let uncertain = 0;
   for (const a of negatives) {
     stamp.run(0, a.cosine ?? a.rouge, "rejected", a.chunkId, ...scopeParams);
   }
@@ -244,14 +298,22 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
       if (aborted) continue; // leave NULL for a clean rerun — state stays NULL too
       const v = verdicts.get(a.chunkId);
       if (!v) continue; // this chunk's judgement failed to parse — rerun later
-      stamp.run(
-        v.cited ? 1 : 0,
-        v.score,
-        v.cited ? "confirmed" : "rejected",
-        a.chunkId,
-        ...scopeParams,
-      );
-      if (v.cited) cited += 1;
+      if (v.cited === "uncertain") {
+        // An abstention is NOT a citation, so it must not count as one — but it is also not the
+        // judge saying "no", which is why it gets its own state rather than being folded into
+        // 'rejected'. Only reachable with allowUncertain set.
+        stamp.run(0, v.score, "uncertain", a.chunkId, ...scopeParams);
+        uncertain += 1;
+      } else {
+        stamp.run(
+          v.cited ? 1 : 0,
+          v.score,
+          v.cited ? "confirmed" : "rejected",
+          a.chunkId,
+          ...scopeParams,
+        );
+        if (v.cited) cited += 1;
+      }
     } else {
       // Stage-1-only: this row is stamped cited_in_response = 1 and therefore COUNTS as a citation
       // downstream, but nothing ever checked it against the transcript — it only cleared the cheap
@@ -268,6 +330,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     stage1Pass: passers.length,
     judged,
     cited,
+    uncertain,
     parseFailures,
     aborted,
   };

@@ -30,7 +30,7 @@ config + caches (no server needed):
 | `plugin install --vault <p>` | Copy the companion plugin into a vault |
 | `cluster [--k N]` | Recompute chunk clusters for diversified retrieval |
 | `activation-recompute` | Fold the retrieval log into ACT-R activation scores |
-| `citation-infer --transcript <f>` | Stamp `cited_in_response` on retrieval events from a session transcript |
+| `citation-infer --transcript <f>` | Stamp `cited_in_response` + `citation_state` on retrieval events from a session transcript. `--allow-uncertain` lets the judge abstain — **dark by default**: it changes the judge prompt and moves abstentions out of the citation count |
 | `contribution-report` | Per-note output-contribution report (top contributors + dead-retrieved) |
 | `prefetch [--vault id] [--ttl-hours N]` | Prewarm the session-bootstrap context cache (TTL enforced at read) |
 | `densify-llm [--vault id]` | LLM Pass-3 semantic-edge densification via the local gateway (graph densification, experimental; refuses if no gateway resolves) |

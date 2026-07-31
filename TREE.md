@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 965 tracked code files · 141,575 lines.
+**Scale:** 965 tracked code files · 141,791 lines.
 
-TypeScript 132,206 · JavaScript 5,844 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
+TypeScript 132,422 · JavaScript 5,844 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -89,10 +89,10 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `tools/` | 78 | 15,075 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 53 | 9,391 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,105 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `experiential/` | 11 | 2,756 | work-memory tier: activation, retrieval log, forget, citations |
 | `runtime/` | 13 | 2,702 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `experiential/` | 11 | 2,693 | work-memory tier: activation, retrieval log, forget, citations |
 | `vault/` | 17 | 1,968 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `cli/` | 22 | 1,820 | arg parsing + subcommands |
+| `cli/` | 22 | 1,826 | arg parsing + subcommands |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 13 | 1,123 | provisioning, migrate runner, experiential store |
@@ -145,7 +145,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 600 | `packages/server/src/metrics/registry.ts` |
 | 591 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
-| 566 | `packages/server/src/cli/args.ts` |
+| 571 | `packages/server/src/cli/args.ts` |
 | 565 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 527 | `packages/server/src/scheduler/scheduler.ts` |
