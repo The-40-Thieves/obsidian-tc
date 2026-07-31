@@ -214,6 +214,70 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", () 
     // (opened second) closes before stores (opened first); indexResources contributes nothing.
     expect(cleanedUp).toEqual(["governance", "stores"]);
   });
+
+  // otel-unwind-on-core-failure: WP5.1's unwind above only knew about its fixed three layers
+  // (stores/governance/indexResources) — `otel` sits textually between `stores` and this call in
+  // real boot (buildServerRuntime), so a throw here never reached it. `RuntimeCoreDeps.otel` is now
+  // an optional fourth layer, folded into the SAME `built`/`unwindReversed` mechanism at its real
+  // open position (right after stores, before governance) — reused, not duplicated.
+  it("also unwinds otel — between governance and stores — when otel is supplied and construction fails", async () => {
+    const cacheDir = tmpCacheDir();
+    const cleanedUp: string[] = [];
+    const deps = await baseDeps(cacheDir);
+    let otelShutdownCalled = false;
+    await expect(
+      wireRuntimeCore({
+        ...deps,
+        otel: {
+          shutdown: async () => {
+            otelShutdownCalled = true;
+          },
+        },
+        // Same real, synchronous failure the previous test uses (createEmbeddingProvider throws on
+        // an unrecognized provider) — this test is about otel's POSITION in the unwind, not a new
+        // failure mode.
+        embeddings: {
+          provider: "definitely-not-a-real-provider",
+          model: "x",
+          dimensions: 8,
+          batchSize: 8,
+          concurrency: 1,
+          maxBatchTokens: 1000,
+          chunkContext: false,
+        },
+        onCleanup: (name) => cleanedUp.push(name),
+      }),
+    ).rejects.toThrow(/unknown embeddings provider/);
+    expect(otelShutdownCalled).toBe(true);
+    // otel opened AFTER stores and BEFORE governance in real boot, so reverse-ownership order closes
+    // it AFTER governance (opened later) and BEFORE stores (opened first) — the same relationship
+    // the file header describes for otel vs. wireRuntimeCore's own layers.
+    expect(cleanedUp).toEqual(["governance", "otel", "stores"]);
+  });
+
+  it("swallows a throwing otel.shutdown() during unwind — the real construction error still propagates, not the shutdown error", async () => {
+    const cacheDir = tmpCacheDir();
+    const deps = await baseDeps(cacheDir);
+    await expect(
+      wireRuntimeCore({
+        ...deps,
+        otel: {
+          shutdown: async () => {
+            throw new Error("otel shutdown boom — must never surface");
+          },
+        },
+        embeddings: {
+          provider: "definitely-not-a-real-provider",
+          model: "x",
+          dimensions: 8,
+          batchSize: 8,
+          concurrency: 1,
+          maxBatchTokens: 1000,
+          chunkContext: false,
+        },
+      }),
+    ).rejects.toThrow(/unknown embeddings provider/);
+  });
 });
 
 // WP5.2 (issue 16): extends the boot-failure coverage above to the layers this slice adds on top
@@ -273,5 +337,56 @@ describe("buildServerRuntime — post-core unwind on a real late boot failure", 
     // watcher (opened third, after stores+governance) closes first; then governance; then stores.
     // "transports" never appears — wireTransports itself is what threw, so it never finished.
     expect(cleanedUp).toEqual(["watcher", "governance", "stores"]);
+  });
+});
+
+// otel-unwind-on-core-failure: proves the PRODUCTION wiring, not just the isolated `wireRuntimeCore`
+// unit tests above — `buildServerRuntime` opens `otel` between `stores` and its call into
+// `wireRuntimeCore`, and a throw INSIDE wireRuntimeCore is a failure window `postCoreLayers` never
+// sees (that array is only built AFTER wireRuntimeCore returns — see the describe block above, whose
+// scenario forces a LATER failure instead). Before this fix, `buildServerRuntime` never passed
+// `otel` (or `onCleanup`) into its `wireRuntimeCore` call at all, so this exact scenario leaked the
+// OTEL SDK with no unwind covering it whatsoever.
+describe("buildServerRuntime — otel unwind when wireRuntimeCore itself throws", () => {
+  const tmpDirs: string[] = [];
+  const tmpDir = (prefix: string): string => {
+    const d = mkdtempSync(join(tmpdir(), prefix));
+    tmpDirs.push(d);
+    return d;
+  };
+
+  afterEach(() => {
+    for (const d of tmpDirs.splice(0)) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {
+        // Same best-effort concession as the sibling describe block above: this exercises a FAILED
+        // boot, and the unwind order (the thing under test) has already run and been asserted by the
+        // time this fires.
+      }
+    }
+  });
+
+  it("closes otel between governance and stores when governance/index-resources construction fails inside wireRuntimeCore", async () => {
+    const vaultDir = tmpDir("otc-runtime-otel-vault-");
+    const config = configFromVaultPath(vaultDir);
+    config.cacheDir = tmpDir("otc-runtime-otel-cache-");
+    // Same real, synchronous failure the wireRuntimeCore-level tests above use:
+    // createEmbeddingProvider throws on an unrecognized provider, inside wireIndexResources — the
+    // LAST thing wireRuntimeCore composes, so governance (and otel, opened before wireRuntimeCore is
+    // even called) have already opened by the time it fires.
+    config.embeddings.provider =
+      "definitely-not-a-real-provider" as unknown as typeof config.embeddings.provider;
+
+    const cleanedUp: string[] = [];
+    await expect(
+      buildServerRuntime(config, undefined, (name) => cleanedUp.push(name)),
+    ).rejects.toThrow(/unknown embeddings provider/);
+    // Real boot's open order is stores -> otel -> governance; indexResources never finishes. Reverse
+    // order: governance (opened last) closes first, then otel (opened between stores and
+    // governance), then stores. "watcher"/"transports" never appear — buildServerRuntime's OWN
+    // post-core construction (where those come from) never starts, because wireRuntimeCore itself is
+    // what threw.
+    expect(cleanedUp).toEqual(["governance", "otel", "stores"]);
   });
 });
