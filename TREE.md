@@ -1,22 +1,25 @@
 # obsidian-tc — structural map
 
-Generated 2026-07-23 against `f1360b8`; hand-written sections re-verified 2026-07-31
-against `17585a4` after the structural refactor program. Every path below was verified against the
-filesystem, not inferred. Counts in the hand-written sections come from
-`find` / `wc -l` / `tokei`, excluding `node_modules`, `dist`, and `target`. The generated
-regions state their own method.
+Every count in this file is now **generated** — §3 (module boundaries), §4 (largest files) and
+§7 (dependency graph) all come from `git ls-files` via `scripts/gen-tree-map.mjs`, refreshed by
+`just map` and gated by `just map-check` in ci-docgen. The generated regions state their own
+method. Prose outside the markers is hand-written and can still drift.
+
+§3 and §4 were hand-maintained until 2026-07-31, each carrying its own "last measured" stamp, and
+both were stale within a DAY of being stamped — §3 claimed `search/` had 51 files while the
+generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 964 tracked code files · 141,245 lines.
+**Scale:** 964 tracked code files · 141,382 lines.
 
-TypeScript 132,033 · JavaScript 5,721 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 132,047 · JavaScript 5,844 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
 
-> §7's dependency-graph sections (scale, subsystem diagram, fan-in/out) are **generated** from the
-> real module graph — run `just map`, and `just map-check` gates them in ci-docgen. Everything
-> else here is still hand-written and can drift; THE-470 covers the rest.
+> §3, §4 and §7 are **generated** from the real module graph and `git ls-files` — run `just map`;
+> `just map-check` gates them in ci-docgen. Narrative prose outside the markers is hand-written
+> and can still drift.
 
 ---
 
@@ -77,27 +80,45 @@ services/
 
 ## 3. Module boundaries — `packages/server/src`
 
-Hand-maintained. **Last measured 2026-07-31 against `17585a4`** (`.ts` + `.sql`, excluding tests).
+Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git ls-files`; the
+`notes` column is prose and lives in that script, keyed by directory name.
 
+<!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 78 | 14,995 | domains m1–m8 + admin. The MCP tool surface (151 registered tools) |
-| `search/` | 51 | 8,795 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `tools/` | 78 | 15,075 | domains m1–m8 + admin. The MCP tool surface |
+| `search/` | 53 | 9,391 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,105 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `runtime/` | 13 | 2,682 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 13 | 2,702 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `experiential/` | 11 | 2,674 | work-memory tier: activation, retrieval log, forget, citations |
 | `vault/` | 17 | 1,968 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `cli/` | 22 | 1,820 | arg parsing + subcommands. `cli.ts` itself is now 110 lines |
+| `cli/` | 22 | 1,820 | arg parsing + subcommands |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 13 | 1,118 | provisioning, migrate runner, experiential store |
 | `migrations/` | 28 | 983 | hand-registered SQL. **Two chains** — see below |
-| `plane/` | 6 | 775 | generative plane; `jobs/` holds the contradiction detector |
+| `metrics/` | 4 | 832 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
+| `plane/` | 6 | 789 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
 | `model/` | 7 | 638 | model-service clients |
 | `embeddings/` | 6 | 608 | providers incl. the deterministic fake used in tests |
 | `capability/` | 6 | 605 | `defineTool` and the capability registry |
-| others | — | — | auth, capture, config, doctor, gateway, memory, metrics, morgiana, otel, plur, transports, util, workspace |
+| `transports/` | 3 | 559 | stdio, HTTP and the shared serve loop |
+| `doctor/` | 5 | 549 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `memory/` | 2 | 453 | entity extraction and materialization for the memory folder |
+| `auth/` | 3 | 427 | JWT verification, JWKS, RFC 9728 protected-resource metadata |
+| `graph/` | 1 | 381 | graph analytics (centrality, components) behind the health tools |
+| `config/` | 3 | 313 | config load, `explain`, and the security-profile resolver |
+| `gateway/` | 2 | 285 | inference-gateway client — the `judge`/`synthesize` roles |
+| `plur/` | 2 | 214 | PLUR client (local + remote) for the experiential plane |
+| `workspace/` | 1 | 212 | session tracking |
+| `otel/` | 3 | 190 | OpenTelemetry tracing, attributes, context propagation |
+| `capture/` | 1 | 126 | the capture queue |
+| `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
+| `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
+
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 338 files across 30 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+<!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
 - `cache.db` → `CACHE_MIGRATIONS` in `src/db/provision.ts`
@@ -111,29 +132,40 @@ entry, or it silently never runs. Versions collide across chains by design.
 
 ## 4. Largest files (>500 lines)
 
-Hand-maintained; re-measure with `fd -e ts . packages/*/src -x wc -l {} | sort -rn`.
-**Last measured 2026-07-31 against `17585a4`.**
+Generated — see `scripts/gen-tree-map.mjs`.
 
+<!-- BEGIN GENERATED: tree-largest-files -->
 | lines | file |
 |---:|---|
 | 701 | `packages/server/src/mcp/server.ts` |
-| 680 | `packages/server/src/runtime/server-runtime.ts` |
+| 688 | `packages/server/src/runtime/server-runtime.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
-| 644 | `packages/server/src/tools/m2/search-tools.ts` |
+| 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 602 | `packages/server/src/scheduler/job-queue.ts` |
+| 600 | `packages/server/src/metrics/registry.ts` |
 | 591 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
-| 582 | `packages/server/src/metrics/registry.ts` |
 | 566 | `packages/server/src/cli/args.ts` |
 | 565 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 527 | `packages/server/src/scheduler/scheduler.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
+
+14 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
+<!-- END GENERATED: tree-largest-files -->
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
 **The structural refactor program (THE-466, merged 2026-07-31) removed every entry that
-used to head this table.** Seven concentration targets, 8,380 → 791 lines:
+used to head this table.** Seven concentration targets, 9,422 → 842 lines (91.1% removed), measured
+at merge. <!-- facts-check:ignore -->
+
+The totals used to read "8,380 → 791" — the SIX-row sums, left unchanged when `notes-tools.ts`
+(1,042 → 51) was added as the seventh row. `9,422 − 1,042 = 8,380` and `842 − 51 = 791`, which is
+how the arithmetic gave itself away. The `after` column is a snapshot **as merged**, not a live
+measurement: `knowledge-tools.ts` is 100 lines today, two more than at merge, because a later PR
+routed it through the shared query encoder. That is why this row is marked historical rather than
+gated — a dated measurement is not a current fact.
 
 | file | before | after |
 |---|---:|---:|

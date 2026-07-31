@@ -346,10 +346,133 @@ function ensureHeadlineRegion(source) {
   return next.replace(legacy, `${begin}\n${end}`);
 }
 
+// ── §3 subsystem table ───────────────────────────────────────────────────────
+// This table was hand-maintained and carried its own "Last measured <date> against <sha>" stamp —
+// the honest form of a hand-written fact, and it still drifted within ONE DAY of being re-measured:
+// three PRs landed, one of them adding search/query-encoder.ts, and the table went on claiming
+// `search/` had 51 files while the GENERATED subsystem graph 173 lines further down in the same
+// file already said 52. A file disagreeing with itself is the clearest possible argument that the
+// numbers should not be typed by hand.
+//
+// Only the NUMBERS are derived. The `notes` column is real prose — what a subsystem is FOR is not
+// machine-derivable — so it lives here, keyed by directory name. A subsystem with no entry renders
+// an empty note rather than being dropped: a new directory must show up in the table immediately
+// (with a blank a human then fills in), because silently omitting it is how a table stays "correct"
+// while describing less and less of the tree.
+const SUBSYSTEM_NOTES = {
+  tools: "domains m1–m8 + admin. The MCP tool surface",
+  search: "retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3)",
+  mcp: "registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4)",
+  runtime: "**composition root** (WP5) — stores, governance, wiring, transports, shutdown",
+  experiential: "work-memory tier: activation, retrieval log, forget, citations",
+  vault: "filesystem primitives — paths, links, ACL, snapshots, prune",
+  cli: "arg parsing + subcommands",
+  scheduler: "unified background scheduler + durable job queue (THE-517)",
+  formats: "canvas, base, dataview, kanban parsing",
+  db: "provisioning, migrate runner, experiential store",
+  migrations: "hand-registered SQL. **Two chains** — see below",
+  plane: "generative plane; `jobs/` holds the contradiction detector",
+  bridge: "Obsidian plugin bridge clients",
+  model: "model-service clients",
+  embeddings: "providers incl. the deterministic fake used in tests",
+  capability: "`defineTool` and the capability registry",
+  // Everything below was invisible before this table was generated — the hand-written version
+  // rolled all fourteen into one `others` row with no counts, so `metrics/` at 832 lines read as
+  // indistinguishable from `morgiana/` at 101.
+  metrics: "Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats",
+  transports: "stdio, HTTP and the shared serve loop",
+  doctor: "`obsidian-tc doctor` — checks, report rendering, runner",
+  memory: "entity extraction and materialization for the memory folder",
+  auth: "JWT verification, JWKS, RFC 9728 protected-resource metadata",
+  graph: "graph analytics (centrality, components) behind the health tools",
+  config: "config load, `explain`, and the security-profile resolver",
+  gateway: "inference-gateway client — the `judge`/`synthesize` roles",
+  plur: "PLUR client (local + remote) for the experiential plane",
+  workspace: "session tracking",
+  otel: "OpenTelemetry tracing, attributes, context propagation",
+  capture: "the capture queue",
+  util: "concurrency, error shapes, ISO week, pagination",
+  morgiana: "Morgiana observability emitter (spike, paused)",
+};
+
+// Same scope the hand-written table declared: `.ts` + `.sql` under packages/server/src, excluding
+// tests. (Tests live in packages/server/test/, so the exclusion is currently vacuous — asserted
+// below rather than assumed, so moving a test under src/ cannot silently inflate a subsystem.)
+const TABLE_EXT = /\.(ts|sql)$/;
+const tableFiles = run("git", ["ls-files", "packages/server/src"])
+  .split("\n")
+  .map((l) => l.trim())
+  .filter((l) => l && TABLE_EXT.test(l) && !/\.test\.ts$/.test(l));
+
+if (tableFiles.length === 0) {
+  console.error("gen-tree-map: no packages/server/src sources — refusing to emit an empty table");
+  process.exit(1);
+}
+
+const bySubsystem = new Map();
+for (const f of tableFiles) {
+  const m = /^packages\/server\/src\/([^/]+)\//.exec(f);
+  if (!m) continue; // top-level file (cli.ts, hash.ts, …) — belongs to no subsystem
+  const key = m[1];
+  const cur = bySubsystem.get(key) ?? { files: 0, lines: 0 };
+  cur.files++;
+  cur.lines += countLines(f);
+  bySubsystem.set(key, cur);
+}
+
+const subsystemTable = [
+  "| subsystem | files | lines | notes |",
+  "|---|---:|---:|---|",
+  ...[...bySubsystem.entries()]
+    .sort((a, b) => b[1].lines - a[1].lines || a[0].localeCompare(b[0]))
+    .map(
+      ([name, s]) =>
+        `| \`${name}/\` | ${s.files} | ${s.lines.toLocaleString("en-US")} | ${SUBSYSTEM_NOTES[name] ?? ""} |`,
+    ),
+  "",
+  `Derived from \`git ls-files packages/server/src\` over \`.ts\`/\`.sql\`, tests excluded — ${tableFiles.length} files across ${bySubsystem.size} subsystems. Top-level files (\`cli.ts\`, \`hash.ts\`, …) belong to no subsystem and are not counted here.`,
+].join("\n");
+
+// ── §4 largest files ─────────────────────────────────────────────────────────
+// Also previously hand-maintained with a "re-measure with fd | wc -l" instruction and its own
+// dated stamp, and also stale within a day of that stamp: three of eight rows were wrong
+// (server-runtime.ts 680 -> 688, search-tools.ts 644 -> 647, metrics/registry.ts 582 -> 600).
+// A table whose refresh instruction is a shell one-liner is a table that should just run it.
+// Reuses `files` (SOURCE_GLOBS, already resolved above) rather than issuing a fresh
+// `git ls-files packages/*/src`: passed through execFileSync there is no shell to expand the glob,
+// git receives it literally, and it matches NOTHING. The first draft did exactly that and rendered
+// "0 file(s) over 500 lines" for a tree whose largest file is 701 — an empty table that would have
+// passed every gate, since map:check only compares committed bytes to regenerated bytes and both
+// were equally empty. Visibly-wrong output was the only thing that caught it.
+const LARGE_FILE_FLOOR = 500;
+const largest = files
+  .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f))
+  .map((f) => ({ f, n: countLines(f) }))
+  .filter((r) => r.n > LARGE_FILE_FLOOR)
+  .sort((a, b) => b.n - a.n || a.f.localeCompare(b.f));
+
+if (largest.length === 0) {
+  console.error(
+    "gen-tree-map: no file over " +
+      `${LARGE_FILE_FLOOR} lines across ${files.length} sources — refusing to emit an empty table`,
+  );
+  process.exit(1);
+}
+
+const largestTable = [
+  "| lines | file |",
+  "|---:|---|",
+  ...largest.map((r) => `| ${r.n} | \`${r.f}\` |`),
+  "",
+  `${largest.length} file(s) over ${LARGE_FILE_FLOOR} lines, from the same \`git ls-files\` source set as the module graph (\`.ts\` under packages/{server,shared,plugin}/src, tests excluded). The biome \`noExcessiveLinesPerFile\` cap of 700 counts CODE lines, so a file can appear here — raw \`wc -l\` — while sitting well under the cap.`,
+].join("\n");
+
 const before = readFileSync("TREE.md", "utf8");
 let after = ensureHeadlineRegion(before);
 after = inject(after, "tree-headline-scale", headlineScale);
 after = inject(after, "tree-scale", scale);
+after = inject(after, "tree-subsystem-table", subsystemTable);
+after = inject(after, "tree-largest-files", largestTable);
 after = inject(after, "tree-subsystem-graph", graphBlock);
 after = inject(after, "tree-fan", fanTable);
 
