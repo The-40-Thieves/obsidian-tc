@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 962 tracked code files · 140,815 lines.
+**Scale:** 964 tracked code files · 141,382 lines.
 
-TypeScript 131,480 · JavaScript 5,844 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 132,047 · JavaScript 5,844 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,8 +86,8 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 78 | 15,014 | domains m1–m8 + admin. The MCP tool surface |
-| `search/` | 52 | 9,130 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `tools/` | 78 | 15,075 | domains m1–m8 + admin. The MCP tool surface |
+| `search/` | 53 | 9,391 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,105 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 13 | 2,702 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `experiential/` | 11 | 2,674 | work-memory tier: activation, retrieval log, forget, citations |
@@ -98,7 +98,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `db/` | 13 | 1,118 | provisioning, migrate runner, experiential store |
 | `migrations/` | 28 | 983 | hand-registered SQL. **Two chains** — see below |
 | `metrics/` | 4 | 832 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
-| `plane/` | 6 | 775 | generative plane; `jobs/` holds the contradiction detector |
+| `plane/` | 6 | 789 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
 | `model/` | 7 | 638 | model-service clients |
 | `embeddings/` | 6 | 608 | providers incl. the deterministic fake used in tests |
@@ -117,7 +117,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 337 files across 30 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 338 files across 30 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -271,7 +271,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**360 modules · 1582 dependencies · 101 distinct subsystem pairs · 695 cross-subsystem imports.**
+**361 modules · 1586 dependencies · 101 distinct subsystem pairs · 699 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -294,7 +294,7 @@ set is 101 pairs.
 ```mermaid
 flowchart LR
   tools[tools<br/>78 files]
-  search[search<br/>52 files]
+  search[search<br/>53 files]
   cli[cli<br/>22 files]
   mcp[mcp<br/>17 files]
   vault[vault<br/>17 files]
@@ -314,7 +314,7 @@ flowchart LR
 
   tools -->|178| vault
   tools -->|67| mcp
-  tools -->|39| search
+  tools -->|42| search
   search -->|38| db
   runtime -->|22| search
   cli -->|20| db
@@ -351,10 +351,10 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 227 | `tools` | 339 |
+| `vault` | 227 | `tools` | 342 |
 | `db` | 122 | `runtime` | 127 |
 | `mcp` | 85 | `search` | 60 |
-| `search` | 81 | `cli` | 48 |
+| `search` | 85 | `cli` | 48 |
 | `embeddings` | 23 | `mcp` | 23 |
 <!-- END GENERATED: tree-fan -->
 
