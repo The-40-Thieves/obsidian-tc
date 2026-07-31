@@ -49,12 +49,27 @@ export interface QueryEncoder {
   readonly storedModelId: string;
 }
 
-/** Build the shared encoder for a provider. Cheap and stateless — it holds no cache and no
- *  buffers, so constructing one per tool-factory call (as M2 and M7 both do) costs nothing and
- *  keeps the provider binding explicit rather than module-global. */
+/**
+ * Build the shared encoder for a provider. Cheap and stateless — it holds no cache and no buffers,
+ * so constructing one per tool-factory call (as M2 and M7 both do) costs nothing and keeps the
+ * provider binding explicit rather than module-global.
+ *
+ * Construction TOUCHES NOTHING on `provider`. That is a hard requirement, not an optimisation:
+ * tool registration must not need a live embedding provider. registerM2Tools is called with `{}`
+ * in several suites (task-augmented.test.ts and friends) purely to read tool METADATA — names,
+ * taskAugmentable flags — and building the tool list has never required an embedder because the
+ * closures this module replaced only dereferenced `deps.embeddingProvider` when INVOKED.
+ *
+ * The first draft of this function read `storedModelId: provider.id` eagerly and broke exactly
+ * that, on all four platforms: `TypeError: Cannot read properties of undefined (reading 'id')` at
+ * registration. Hence the getter — it restores the original timing, where the id was read inline
+ * at the call site, per call. `encoderConstructionTouchesNothing` in the tests pins it.
+ */
 export function createQueryEncoder(provider: EmbeddingProvider): QueryEncoder {
   return {
-    storedModelId: provider.id,
+    get storedModelId(): string {
+      return provider.id;
+    },
     async dense(query: string): Promise<number[]> {
       const [vec] = await provider.embed([query], { input: "query" });
       return vec ?? [];

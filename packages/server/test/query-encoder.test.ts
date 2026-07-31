@@ -65,6 +65,33 @@ describe("shared dense query encoder", () => {
     expect(await createQueryEncoder(fakeProvider([])).dense("q")).toEqual([]);
   });
 
+  it("touches nothing on the provider at construction time", () => {
+    // Tool REGISTRATION must not need a live embedder. Several suites call
+    // `registerM2Tools(reg, {} as never)` to read tool metadata (names, taskAugmentable flags), and
+    // that worked because the closures this module replaced only dereferenced the provider when
+    // invoked. The first draft here read `storedModelId: provider.id` eagerly and broke it on all
+    // four platforms with `TypeError: Cannot read properties of undefined (reading 'id')`.
+    //
+    // A Proxy rather than `undefined`, so this fails on ANY property access — including one added
+    // later — instead of only on `.id`.
+    let touched: string | undefined;
+    const tripwire = new Proxy(
+      {},
+      {
+        get(_t, prop) {
+          touched = String(prop);
+          return undefined;
+        },
+      },
+    ) as EmbeddingProvider;
+
+    expect(() => createQueryEncoder(tripwire)).not.toThrow();
+    expect(touched).toBeUndefined();
+    // Reading the id IS allowed to touch it — laziness, not permanent abstinence.
+    createQueryEncoder(tripwire).storedModelId;
+    expect(touched).toBe("id");
+  });
+
   it("reports provider.id — NOT a representation manifest hash — as the stored-model identity", async () => {
     const p = fakeProvider([[1]]);
     // THE-530's brute-force filter compares this against chunk_embeddings.model, and the index
@@ -79,9 +106,14 @@ describe("shared dense query encoder", () => {
 
 describe("the encoder is the only single-query dense encode in the tree", () => {
   const SRC_ROOT = fileURLToPath(new URL("../src/", import.meta.url));
-  const files = readdirSync(SRC_ROOT, { recursive: true, encoding: "utf8" }).filter((f) =>
-    f.endsWith(".ts"),
-  );
+  // Separators normalised to "/" for the ASSERTIONS below. readdirSync returns backslashes on
+  // Windows, so the first run of this gate failed there and only there, with
+  // `[ 'search\query-encoder.ts' ]` vs `[ 'search/query-encoder.ts' ]` — a green Linux run says
+  // nothing about it. `posix` is what gets compared; `read` keeps the native separator, because
+  // that is what readFileSync needs.
+  const files = readdirSync(SRC_ROOT, { recursive: true, encoding: "utf8" })
+    .filter((f) => f.endsWith(".ts"))
+    .map((f) => ({ read: SRC_ROOT + f, posix: f.replaceAll("\\", "/") }));
 
   // Comments stripped before scanning — this gate's own module header quotes the very call it
   // forbids, and a scan that matches its own documentation is measuring the wrong thing.
@@ -139,9 +171,9 @@ describe("the encoder is the only single-query dense encode in the tree", () => 
   // `.embedFull([` (the sparse/ColBERT heads, a different provider method).
   const SINGLE_QUERY_ENCODE = /\.embed\(\s*\[/;
 
-  const hits = files.filter((f) =>
-    SINGLE_QUERY_ENCODE.test(stripped(readFileSync(SRC_ROOT + f, "utf8"))),
-  );
+  const hits = files
+    .filter((f) => SINGLE_QUERY_ENCODE.test(stripped(readFileSync(f.read, "utf8"))))
+    .map((f) => f.posix);
 
   it("scans a non-empty source set (floor — else every assertion below is vacuous)", () => {
     // 309 .ts files at the time of writing. A restructure that moves src/ must not turn this gate
