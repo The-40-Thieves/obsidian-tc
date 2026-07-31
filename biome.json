@@ -59,44 +59,14 @@
       }
     },
     {
-      "includes": ["packages/server/src/cli.ts"],
+      "includes": ["packages/*/src/**/*.ts"],
       "linter": {
         "rules": {
           "style": {
             "noExcessiveLinesPerFile": {
               "level": "error",
               "options": {
-                "maxLines": 1252
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "includes": ["packages/server/src/mcp/registry.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noExcessiveLinesPerFile": {
-              "level": "error",
-              "options": {
-                "maxLines": 1335
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "includes": ["packages/server/src/search/indexer.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noExcessiveLinesPerFile": {
-              "level": "error",
-              "options": {
-                "maxLines": 1448
+                "maxLines": 1100
               }
             }
           }
