@@ -98,6 +98,33 @@ jobs:
       - name: copy-paste detection
         run: bun run check:duplication
 
+      # The facade-parity family compares the CURRENT export surface against the same file at
+      # `origin/main`. actions/checkout leaves fetch-depth at 1, which gives no `origin/main` ref at
+      # all — so this fetch is load-bearing, not a convenience. Depth 1 is enough: the gates only
+      # read that commit's tree, never its history.
+      #
+      # Both gates fail closed on an unresolvable ref, so a broken fetch is loud rather than a
+      # green run that compared nothing. That property was already in check-export-surface; it was
+      # missing from check-facade-parity until it was added alongside this wiring.
+      - name: fetch parity baseline
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+
+      # These two shipped as committed, unit-tested scripts but were never invoked by any workflow,
+      # so across the whole schema/M7/indexer refactor they only ever ran when someone remembered to
+      # run them locally. They are the invariant that every facade extraction rests on — "the export
+      # set is identical before and after" — which makes local-only the wrong place for them.
+      - name: config-schema export surface (facade)
+        run: bun run check:export-surface
+      - name: facade parity (all extracted facades)
+        run: bun run check:facade-parity
+
+      # The gates above have their own unit tests, and those were unwired too. A gate whose tests
+      # never run is a gate whose non-vacuity nobody is checking — exactly how the hardcoded
+      # `files.length === 3` assertion in check-facade-parity.test.mjs survived a fourth facade
+      # being added.
+      - name: gate script unit tests
+        run: bun run test:scripts
+
   build-test:
     strategy:
       fail-fast: false

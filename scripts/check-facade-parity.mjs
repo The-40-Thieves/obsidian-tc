@@ -50,6 +50,30 @@ export function readAtRef(ref, file, { cwd = ROOT } = {}) {
 }
 
 /**
+ * Does `ref` resolve to a commit here? Checked ONCE before any comparison, because `readAtRef`
+ * cannot tell "this file is new at a valid baseline" from "the baseline ref does not exist at all"
+ * — both surface as a failed `git show`. Without this, an unfetched baseline (the default
+ * `actions/checkout` fetch-depth is 1, which leaves no `origin/main`) makes EVERY facade report
+ * "skipped, absent at <ref> (new facade)" and the gate exits 0 having compared nothing.
+ *
+ * check-export-surface.mjs, which this script generalises, already fails loudly in that case. That
+ * property was lost in the generalisation; this restores it. Same reasoning as the non-empty floor
+ * below — a gate that cannot see its baseline must say so, not pass.
+ */
+export function refResolves(ref, { cwd = ROOT } = {}) {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+      encoding: "utf8",
+      cwd,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * One facade's parity verdict, as a pure function of its baseline/current source text (or absence
  * thereof) — no filesystem or git access, so directly unit-testable.
  */
@@ -104,6 +128,18 @@ function main() {
     ({ baseline, files } = parseArgs(process.argv.slice(2)));
   } catch (e) {
     console.error(`facade-parity: ${e.message}`);
+    process.exit(1);
+    return;
+  }
+
+  if (!refResolves(baseline)) {
+    console.error(
+      `facade-parity: baseline ref "${baseline}" does not resolve to a commit here, so every ` +
+        "facade would be reported as new and this gate would pass having compared nothing. " +
+        "Fetch it first (in CI: `git fetch --no-tags --depth=1 origin " +
+        "main:refs/remotes/origin/main`, or check out with fetch-depth: 0), or set " +
+        "FACADE_PARITY_BASELINE_REF to a ref that exists.",
+    );
     process.exit(1);
     return;
   }
