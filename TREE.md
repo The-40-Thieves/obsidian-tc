@@ -6,9 +6,9 @@ filesystem, not inferred. Counts in the hand-written sections come from
 regions state their own method.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 919 tracked code files · 137,070 lines.
+**Scale:** 924 tracked code files · 137,745 lines.
 
-TypeScript 128,438 · JavaScript 5,141 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 129,113 · JavaScript 5,141 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -200,7 +200,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**324 modules · 1388 dependencies · 88 distinct subsystem pairs · 558 cross-subsystem imports.**
+**328 modules · 1420 dependencies · 92 distinct subsystem pairs · 593 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -218,7 +218,7 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 88 pairs.
+set is 92 pairs.
 
 ```mermaid
 flowchart LR
@@ -231,9 +231,11 @@ flowchart LR
   experiential[experiential<br/>11 files]
   bridge[bridge<br/>8 files]
   model[model<br/>7 files]
+  runtime[runtime<br/>7 files]
   embeddings[embeddings<br/>6 files]
   formats[formats<br/>6 files]
   plane[plane<br/>6 files]
+  metrics[metrics<br/>4 files]
   otel[otel<br/>3 files]
   memory[memory<br/>2 files]
 
@@ -245,12 +247,15 @@ flowchart LR
   search -->|14| vault
   tools -->|14| db
   experiential -->|13| db
+  runtime -->|12| db
+  runtime -->|10| search
   mcp -->|9| vault
   cli -->|8| experiential
   formats -->|8| vault
   model -->|8| embeddings
   tools -->|8| formats
   tools -->|7| bridge
+  runtime -->|6| metrics
   tools -->|6| experiential
   tools -->|6| plane
   cli -->|5| search
@@ -265,11 +270,11 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 202 | `tools` | 315 |
-| `db` | 108 | `search` | 59 |
-| `mcp` | 71 | `cli` | 48 |
-| `search` | 59 | `mcp` | 23 |
-| `embeddings` | 18 | `experiential` | 18 |
+| `vault` | 205 | `tools` | 315 |
+| `db` | 116 | `search` | 59 |
+| `mcp` | 75 | `runtime` | 51 |
+| `search` | 65 | `cli` | 48 |
+| `embeddings` | 20 | `mcp` | 23 |
 <!-- END GENERATED: tree-fan -->
 
 The shape is layered and largely acyclic at the subsystem level: the tool surface
