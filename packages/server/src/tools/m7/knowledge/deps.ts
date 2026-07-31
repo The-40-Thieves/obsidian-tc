@@ -48,7 +48,7 @@ export interface M7Deps {
    *  The `onStageMetric` seam and its closed `StageName` union already existed (THE-465); this is
    *  the missing half — nothing consumed it outside the perf collector. Absent -> inert. */
   onStageMetric?: (vault: string, metric: StageMetric) => void;
-  /** THE-668: one rerankWithScores decision (why the returned ranking is what it is — not
+  /** one rerankWithScores decision (why the returned ranking is what it is — not
    *  configured, policy-skipped, executed, timed out, malformed, or errored), by vault. Same seam
    *  shape as onVecFallback/onStageMetric above — wired from the composition root so this module
    *  never learns about the metrics recorder. Absent -> inert. */

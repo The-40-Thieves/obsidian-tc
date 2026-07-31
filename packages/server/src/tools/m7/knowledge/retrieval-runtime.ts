@@ -247,7 +247,7 @@ export function buildGraphSearchOptions(
     ...(deps.onStageMetric
       ? { onStageMetric: (metric: StageMetric) => deps.onStageMetric?.(site.vaultId, metric) }
       : {}),
-    // THE-668: same options-builder placement as onVecFallback/onStageMetric above, same reason —
+    // same options-builder placement as onVecFallback/onStageMetric above, same reason —
     // a per-call-site wiring would cover some rerank call sites and silently miss others.
     ...(deps.onRerankOutcome
       ? {

@@ -50,7 +50,7 @@ const COUNTERS = [
   // huge blast radius (every vault's dense index goes cold). No `vault` label: the event is not
   // scoped to one vault, same precedent as obsidian_tc_auth_rejections_total above.
   "obsidian_tc_vec_rebuild_total",
-  // THE-668: rerankWithScores' fallback returns the same shaped output whether the reranker was
+  // rerankWithScores' fallback returns the same shaped output whether the reranker was
   // never configured, timed out, errored, answered with garbage, or was deliberately skipped by
   // gatedRerank's policy gate — this is the counter that tells those apart. `outcome` is the
   // closed 7-value RerankOutcome union, bounded by construction like `stage` above.
@@ -231,7 +231,7 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     expect(text).toContain('obsidian_tc_vec_rebuild_total{reason="legacy_shape"} 1');
   });
 
-  it("counts rerank outcomes separately by vault and outcome (THE-668)", async () => {
+  it("counts rerank outcomes separately by vault and outcome ", async () => {
     const r = new MetricsRecorder();
     r.incRerankOutcome("main", "not_configured");
     r.incRerankOutcome("main", "executed");

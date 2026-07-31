@@ -36,10 +36,10 @@ describe("rerank seam (D1) with graceful no-op fallback", () => {
   });
 });
 
-// THE-668: rerankWithScores' fallback is byte-identical for every degraded path above — the whole
+// rerankWithScores' fallback is byte-identical for every degraded path above — the whole
 // point of this ticket is that WHY it fired was previously unobservable. `onOutcome` closes that
 // gap without touching the return shape or the fallback scores (re-asserted per outcome below).
-describe("THE-668: RerankOutcome distinguishes every degraded path from a genuine success", () => {
+describe("RerankOutcome distinguishes every degraded path from a genuine success", () => {
   function capture(): { outcomes: RerankOutcome[]; onOutcome: (o: RerankOutcome) => void } {
     const outcomes: RerankOutcome[] = [];
     return { outcomes, onOutcome: (o) => outcomes.push(o) };
@@ -65,7 +65,7 @@ describe("THE-668: RerankOutcome distinguishes every degraded path from a genuin
     const out = await rerankWithScores("q", docs, 3, throwing, onOutcome);
 
     expect(outcomes).toEqual(["provider_error"]);
-    // Fallback ranking unchanged from the pre-THE-668 behavior asserted above.
+    // Fallback ranking unchanged from the pre-change behavior asserted above.
     expect(out.map((o) => o.item.content)).toEqual(["alpha", "beta", "gamma"]);
     expect(out[0]?.score).toBeCloseTo(1.0);
   });

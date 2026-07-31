@@ -226,7 +226,7 @@ describe("THE-466 slice 2: the metric-emitting seams route to the SAME recorder"
   });
 });
 
-describe("THE-668: onRerankOutcome reaches the exposition", () => {
+describe("onRerankOutcome reaches the exposition", () => {
   it("routes a rerank decision to the recorder, by vault and outcome", async () => {
     const db = await seededDb();
     const observability = createObservability(baseDeps(db));

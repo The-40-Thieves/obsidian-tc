@@ -11,7 +11,7 @@
  * reranker or any error, retrieval degrades to the pre-rerank order with synthetic
  * descending scores, never throwing.
  *
- * THE-668: that fallback is deliberately silent about WHY it fired — "not configured",
+ * that fallback is deliberately silent about WHY it fired — "not configured",
  * "policy skipped it", "it timed out", "it returned garbage", and "it genuinely produced
  * this order" were all indistinguishable from the caller's side. `RerankOutcome` +
  * `onOutcome` close that gap additively: the return shape and the fallback SCORES are
@@ -30,7 +30,7 @@ export interface RankableDoc {
   content: string;
 }
 
-/** THE-668: the reason `rerankWithScores` returned what it returned, reported through `onOutcome`
+/** the reason `rerankWithScores` returned what it returned, reported through `onOutcome`
  *  (never inferable from the return value alone — every non-"executed" state produces the same
  *  shaped fallback output). `skipped_by_policy` is never emitted from inside this function — a
  *  caller that decides not to invoke the reranker at all (e.g. the gatedRerank hardness gate not
@@ -46,10 +46,18 @@ export type RerankOutcome =
 
 export type OnRerankOutcome = (outcome: RerankOutcome) => void;
 
-/** THE-668: reranking is a bounded round-trip over an already-hydrated candidate set (unlike the
- *  embedding provider's batch calls), so a tighter budget than embeddings/http.ts's 30s default is
- *  appropriate. Exceeded -> "timed_out", distinct from a provider that answers with an error. */
-const DEFAULT_RERANK_TIMEOUT_MS = 10_000;
+/** Reranking is a bounded round-trip over an already-hydrated candidate set (unlike the embedding
+ *  provider's batch calls), so a tighter budget than embeddings/http.ts's 30s would be defensible.
+ *
+ *  DELIBERATELY OPT-IN, NOT DEFAULTED. This module's job is to make an existing silent fallback
+ *  observable; imposing a timeout that did not previously exist is a latency-vs-quality decision,
+ *  and defaulting it here would mean a rerank that used to take 12s and SUCCEED now silently falls
+ *  back — the exact failure this change exists to expose, introduced by the change itself.
+ *
+ *  `timeoutMs` is therefore undefined by default and no production call site passes one today. The
+ *  mechanism and the "timed_out" outcome are in place so a follow-up can enable it with a measured
+ *  value; until then reranking stays bounded only by the provider/gateway budget, as before. */
+const DEFAULT_RERANK_TIMEOUT_MS: number | undefined = undefined;
 
 class RerankTimeoutError extends Error {}
 
@@ -93,7 +101,7 @@ export function reportRerankOutcome(
  * synthetic descending scores (1, 0.99, 0.98, ...) when the reranker is absent, empty, or
  * throws — so callers always get a usable number and retrieval never fails on rerank.
  *
- * THE-668: `onOutcome`, when provided, is reported exactly once per call with WHY the returned
+ * `onOutcome`, when provided, is reported exactly once per call with WHY the returned
  * ranking is what it is (see RerankOutcome). Purely additive — omitting it changes nothing.
  */
 export async function rerankWithScores<T extends RankableDoc>(
@@ -102,7 +110,7 @@ export async function rerankWithScores<T extends RankableDoc>(
   topN: number,
   reranker: Reranker | null | undefined,
   onOutcome?: OnRerankOutcome,
-  timeoutMs: number = DEFAULT_RERANK_TIMEOUT_MS,
+  timeoutMs: number | undefined = DEFAULT_RERANK_TIMEOUT_MS,
 ): Promise<Array<{ item: T; score: number }>> {
   const fallback = (): Array<{ item: T; score: number }> =>
     docs.slice(0, topN).map((item, i) => ({ item, score: 1 - i * 0.01 }));
@@ -116,14 +124,14 @@ export async function rerankWithScores<T extends RankableDoc>(
     return fallback();
   }
   try {
-    const hits = await withTimeout(
-      reranker(
-        query,
-        docs.map((d) => d.content),
-        topN,
-      ),
-      timeoutMs,
+    const call = reranker(
+      query,
+      docs.map((d) => d.content),
+      topN,
     );
+    // No timeout unless the caller asked for one — see DEFAULT_RERANK_TIMEOUT_MS above. Awaiting
+    // the bare promise keeps the pre-change bound (provider/gateway budget) exactly as it was.
+    const hits = timeoutMs === undefined ? await call : await withTimeout(call, timeoutMs);
     const out: Array<{ item: T; score: number }> = [];
     for (const h of hits) {
       const item = docs[h.index];

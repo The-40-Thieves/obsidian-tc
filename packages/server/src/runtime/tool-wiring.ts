@@ -250,7 +250,7 @@ export interface DomainToolsDeps {
   retrievalCaches: RetrievalCaches;
   onVecFallback: (vault: string, reason: "error" | "underfill") => void;
   onStageMetric: (vault: string, metric: StageMetric) => void;
-  /** THE-668: optional (unlike the two required seams above) — additive and purely observational,
+  /** optional (unlike the two required seams above) — additive and purely observational,
    *  see M7Deps.onRerankOutcome. */
   onRerankOutcome?: (vault: string, outcome: RerankOutcome) => void;
   activationFor?: (chunkId: string) => number | null;

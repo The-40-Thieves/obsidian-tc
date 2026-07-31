@@ -202,7 +202,7 @@ export class MetricsRecorder {
       labelNames: ["reason"],
       registers,
     });
-    // THE-668: rerankWithScores' fallback returns the same shaped output whether the reranker was
+    // rerankWithScores' fallback returns the same shaped output whether the reranker was
     // never configured, timed out, errored, answered with garbage, or was deliberately skipped by
     // gatedRerank's policy gate — a reranker broken for a week looks identical to one that never
     // ran. `outcome` is the closed 7-value RerankOutcome union, so the label set is bounded by
@@ -545,7 +545,7 @@ export class MetricsRecorder {
   incVecRebuild(reason: "legacy_shape" | "fingerprint_changed"): void {
     this.vecRebuild.inc({ reason });
   }
-  /** THE-668: one rerankWithScores decision (see the counter's help text for the full outcome
+  /** one rerankWithScores decision (see the counter's help text for the full outcome
    *  taxonomy). */
   incRerankOutcome(vault: string, outcome: RerankOutcome): void {
     this.rerankOutcome.inc({ vault, outcome });

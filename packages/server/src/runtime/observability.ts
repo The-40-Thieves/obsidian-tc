@@ -60,7 +60,7 @@ export interface Observability {
   onVecFallback: (vault: string, reason: "error" | "underfill") => void;
   /** THE-585 (#6): retrieval stage duration + candidate funnel. Same seam shape as onVecFallback. */
   onStageMetric: (vault: string, metric: StageMetric) => void;
-  /** THE-668: one rerankWithScores decision (see MetricsRecorder.incRerankOutcome). Same seam
+  /** one rerankWithScores decision (see MetricsRecorder.incRerankOutcome). Same seam
    *  shape as onVecFallback — the search layer never imports the metrics recorder. */
   onRerankOutcome: (vault: string, outcome: RerankOutcome) => void;
   /** THE-645 item 1: registerActivationRecompute's onRecompute stats, routed to the recorder
@@ -149,7 +149,7 @@ export function createObservability(deps: ObservabilityDeps): Observability {
   // a plain callback, so the retrieval layer still never imports the metrics recorder.
   const onStageMetric = (vault: string, metric: StageMetric): void =>
     metrics.observeRetrievalStage(vault, metric);
-  // THE-668: same seam shape as onVecFallback/onStageMetric above.
+  // same seam shape as onVecFallback/onStageMetric above.
   const onRerankOutcome = (vault: string, outcome: RerankOutcome): void =>
     metrics.incRerankOutcome(vault, outcome);
   // THE-645 item 1: same seam shape as onVecFallback/onStageMetric above.

@@ -94,7 +94,7 @@ describe("THE-394 gated rerank", () => {
     });
     expect(calls).toHaveLength(0);
     expect(out.map((r) => r.chunk_id)).toEqual(["a", "b"]);
-    // THE-668: a reranker IS configured and the gate IS on, but this query didn't qualify as
+    // a reranker IS configured and the gate IS on, but this query didn't qualify as
     // hard — a deliberate policy decision, reported distinctly from "not configured" below.
     expect(outcomes).toEqual(["skipped_by_policy"]);
   });
@@ -114,7 +114,7 @@ describe("THE-394 gated rerank", () => {
     expect(calls[0]?.docs).toEqual(["alpha content", "beta content"]);
     // Spy reverses the head: b above a; c untouched below.
     expect(out.map((r) => r.chunk_id)).toEqual(["b", "a", "c"]);
-    // THE-668 crux: the gate fired and the reranker actually ran — "executed", never confusable
+    // crux: the gate fired and the reranker actually ran — "executed", never confusable
     // with the "skipped_by_policy"/"not_configured" cases above/below despite an identical-shaped
     // GraphSearchResult[] coming back from all three.
     expect(outcomes).toEqual(["executed"]);
@@ -139,7 +139,7 @@ describe("THE-394 gated rerank", () => {
       onRerankOutcome,
     });
     expect(noBackend.map((r) => r.chunk_id)).toEqual(["a", "b", "c"]);
-    // THE-668 crux (the other half): the gate is ON but no reranker was ever injected — distinct
+    // crux (the other half): the gate is ON but no reranker was ever injected — distinct
     // from "skipped_by_policy" above, where a reranker exists and the gate legitimately passed on
     // it, and distinct from "executed", where one ran.
     expect(outcomes).toEqual(["not_configured"]);

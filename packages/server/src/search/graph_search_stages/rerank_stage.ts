@@ -21,7 +21,7 @@ export interface GatedRerankInput {
  *  weak (router silent + low top-1 cosine); everything else returns pure RRF/convex order
  *  (with the optional bubble-safe activation composition still applied).
  *
- *  THE-668: every branch that returns WITHOUT calling rerankWithScores reports its own outcome —
+ *  every branch that returns WITHOUT calling rerankWithScores reports its own outcome —
  *  rerankWithScores can only report what happens INSIDE the call it is given, so "the gate is off"
  *  and "reranking is unconfigured" would otherwise be silently indistinguishable from "the gate
  *  fired and the call happened", exactly the blind spot this closes. Purely additive: no branch's

@@ -210,7 +210,7 @@ export interface GraphSearchOptions {
    *  -> no behavior change. Under multi-query fan-out (multi_query.ts) this fires once per
    *  variant; the last call wins, mirroring onFusionWeights' existing precedent. */
   onCoverage?: (coverage: CoverageEstimate) => void;
-  /** THE-668 (additive, observability-only): fired once per rerankWithScores decision point —
+  /** additive, observability-only: fired once per rerankWithScores decision point —
    *  score_merge/rrf_rerank's direct call, and gatedRerank's call OR its policy-skip fallthrough
    *  (see rerank_stage.ts) — with WHY the returned ranking is what it is (see RerankOutcome's doc
    *  comment). Never changes the ranking or the fallback scores; same "pure side-channel" contract
