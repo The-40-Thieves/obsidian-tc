@@ -10,11 +10,9 @@
 // copy_note (overwriting an existing note) gate conditionally in the handler via
 // requireConfirmation, so ordinary creates, dry moves, and non-overwriting copies
 // never demand a token.
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
-import { z } from "zod";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../vault/links";
@@ -24,6 +22,7 @@ import { persistGovernedNote } from "../../vault/persist-note";
 import { rewriteLinks } from "../../vault/rewrite";
 import { captureSnapshot } from "../../vault/snapshots";
 import { defineTool } from "./define";
+import { createListNotesTool, createNoteExistsTool } from "./notes/list";
 import { createReadNotesTool, createReadNoteTool } from "./notes/read";
 import {
   AppendInput,
@@ -32,11 +31,8 @@ import {
   CopyNoteOutput,
   DeleteInput,
   DeleteNoteOutput,
-  ListInput,
-  ListNotesOutput,
   MoveInput,
   MoveNoteOutput,
-  NoteExistsOutput,
   PatchInput,
   PatchNoteOutput,
   WriteInput,
@@ -238,53 +234,9 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
     createReadNoteTool(deps),
     createReadNotesTool(deps),
 
-    defineTool({
-      name: "list_notes",
-      domain: "notes",
-      description: "List notes under a folder (read-ACL filtered), with cursor pagination.",
-      inputSchema: ListInput,
-      outputSchema: ListNotesOutput,
-      requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
-        const v = deps.vaultRegistry.resolve(input.vault);
-        const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const entries = walkVault(v.root, {
-          sub,
-          recursive: input.recursive,
-          extensions: input.extensions ?? [".md"],
-        }).filter((e) => readableRel(ctx.acl, e.relPath));
-        const after = input.cursor;
-        const visible = after ? entries.filter((e) => e.relPath > after) : entries;
-        const limit = input.limit ?? 200;
-        const page = visible.slice(0, limit);
-        const next = visible.length > limit ? (page[page.length - 1]?.relPath ?? null) : null;
-        return {
-          vault: v.id,
-          folder: sub ?? "",
-          notes: page.map((e) => ({ path: e.relPath, size: e.size, mtime: e.mtime })),
-          next_cursor: next,
-          total_returned: page.length,
-        };
-      },
-    }),
+    createListNotesTool(deps),
 
-    defineTool({
-      name: "note_exists",
-      domain: "notes",
-      pathAcl: (input) => [{ op: "read", path: input.path }],
-      description: "Check whether a path exists in the vault and whether it is a file or folder.",
-      inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
-      outputSchema: NoteExistsOutput,
-      requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
-        const v = deps.vaultRegistry.resolve(input.vault);
-        const rel = normalizeVaultPath(input.path);
-        const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
-        const ex = noteExists(abs);
-        return { vault: v.id, path: rel, exists: ex.exists, type: ex.type ?? null };
-      },
-    }),
+    createNoteExistsTool(deps),
 
     defineTool({
       name: "write_note",
