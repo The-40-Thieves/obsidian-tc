@@ -122,7 +122,7 @@ describe("evidence set construction", () => {
       { maxItems: 10, maxCharsPerItem: 100, maxTotalChars: 100 },
     );
     expect(out.items.map((i) => i.path)).toEqual(["a.md"]);
-    expect(out.stats.droppedCharBudget).toBe(2); // b.md and c.md, including the one that tripped it
+    expect(out.stats.unexaminedAfterBudget).toBe(2); // b.md and c.md, including the one that tripped it
   });
 
   it("reports the true candidate count, not just what survived", () => {

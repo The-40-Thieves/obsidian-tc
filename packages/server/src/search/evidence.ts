@@ -14,6 +14,23 @@
 // one large note from consuming the whole context — so "here is the evidence" quietly meant
 // something different depending on which tool the caller reached.
 //
+// THIS IS NOT A BEHAVIOUR-NEUTRAL REFACTOR, and should not be described as one. Two things can
+// change which chunks reach a model:
+//
+//   * DEDUP — a chunk retrieval returned twice now appears once. Strictly an improvement (counting
+//     one source twice reads to a model as two sources agreeing), but it is a change.
+//   * maxPerNote — genuinely new. It binds only when one note supplies 20-25% of the whole evidence
+//     set, which ordinary retrieval does not produce, but "rarely" is not "never".
+//
+// Everything else is preserved exactly: the item caps and per-item truncation are the numbers each
+// call site already hard-coded, and rank order is untouched.
+//
+// The coverage flags (`missingEvidence`, `lowCoverage`) and every `stats` counter are currently
+// COMPUTED BUT UNCONSUMED — no caller reads them yet. That is deliberate: surfacing them in a tool
+// result changes an output schema, which moves the tool-count gates and docgen, and belongs in its
+// own change rather than riding along with a mechanics unification. They are not a caller-visible
+// feature of this PR; they are the hooks the follow-up will read.
+//
 // SCOPE — mechanics, deliberately not policy. This module owns dedup, per-note quotas, budget,
 // boundary-aware trimming, stable numbering and the coverage flags. It does NOT reorder candidates,
 // prefer one edge kind over another, or balance supporting against conflicting evidence: those
@@ -60,7 +77,11 @@ export interface EvidenceStats {
   droppedDuplicate: number;
   droppedPerNoteQuota: number;
   droppedItemCap: number;
-  droppedCharBudget: number;
+  /** Candidates the walk never reached because the character budget stopped it — INCLUDING the one
+   *  that tripped it. Named for what it measures, not for a cause it does not establish: some of
+   *  these would have failed dedup or the per-note quota first and never consumed budget at all.
+   *  Read it as "how much was left unlooked-at", never as "this many items were too large". */
+  unexaminedAfterBudget: number;
   totalChars: number;
 }
 
@@ -144,7 +165,7 @@ export function buildEvidence(
     droppedDuplicate: 0,
     droppedPerNoteQuota: 0,
     droppedItemCap: 0,
-    droppedCharBudget: 0,
+    unexaminedAfterBudget: 0,
     totalChars: 0,
   };
 
@@ -184,7 +205,7 @@ export function buildEvidence(
       // Budget is a stop, not a skip: once it is reached, a later shorter chunk squeezing in would
       // make the set depend on chunk sizes rather than on rank. Every remaining candidate —
       // including this one — is counted as budget-dropped so the caller sees the true shortfall.
-      stats.droppedCharBudget += sources.length - i;
+      stats.unexaminedAfterBudget += sources.length - i;
       break;
     }
 
@@ -208,7 +229,7 @@ export function buildEvidence(
     stats.droppedDuplicate +
     stats.droppedPerNoteQuota +
     stats.droppedItemCap +
-    stats.droppedCharBudget;
+    stats.unexaminedAfterBudget;
 
   return {
     items,
@@ -216,7 +237,7 @@ export function buildEvidence(
     missingEvidence: items.length === 0,
     lowCoverage:
       items.length === 0 ||
-      stats.droppedPerNoteQuota + stats.droppedItemCap + stats.droppedCharBudget > 0 ||
+      stats.droppedPerNoteQuota + stats.droppedItemCap + stats.unexaminedAfterBudget > 0 ||
       (budget.lowCoverageBelow !== undefined && items.length < budget.lowCoverageBelow) ||
       // A set built entirely from duplicates saw less distinct material than its candidate count
       // suggests; that is a coverage fact, not a bookkeeping one.
