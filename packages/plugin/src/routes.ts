@@ -11,133 +11,33 @@
 // handles (plugin_missing / plugin_unreachable / invalid_input / dql_error).
 //
 // WP6.1 split the shared scaffolding plus probe/commands/git/remotely-save out to
-// src/routes/{types,envelope,probe,commands,git,remotely-save}.ts. This file is now the
-// FACADE: it re-exports the public types those modules define, still holds the other 11
-// integration families inline (dataview/quickadd/ocr/excalidraw/makemd/omnisearch/datacore/
-// metadata-menu/daily-notes/templater/tasks — WP6.2), and `buildRoutes` concatenates every
-// family's routes in the same order as before the split. A `packages/plugin/test/
-// route-table-snapshot.test.ts` pins that order plus every (method, path) pair and their
-// uniqueness across the whole table, extracted or not.
-import { type App, moment, normalizePath, type TFile } from "obsidian";
+// src/routes/{types,envelope,probe,commands,git,remotely-save}.ts. WP6.2 completed the split,
+// moving the remaining 11 community-plugin integration families out to their own modules
+// (src/routes/{dataview,quickadd,ocr,excalidraw,makemd,omnisearch,datacore,metadata-menu,
+// daily-notes,templater,tasks}.ts). This file is now purely the FACADE: it re-exports the
+// public types those modules define, and `buildRoutes` concatenates every family's routes in
+// the same order as before the split. A `packages/plugin/test/route-table-snapshot.test.ts`
+// pins that order plus every (method, path) pair and their uniqueness across the whole table.
+import type { App } from "obsidian";
 import { buildCommandsRoutes } from "./routes/commands";
-import { body, fail, ok, safeHandler, str } from "./routes/envelope";
+import { buildDailyNotesRoutes } from "./routes/daily-notes";
+import { buildDatacoreRoutes } from "./routes/datacore";
+import { buildDataviewRoutes } from "./routes/dataview";
+import { safeHandler } from "./routes/envelope";
+import { buildExcalidrawRoutes } from "./routes/excalidraw";
 import { buildGitRoutes } from "./routes/git";
+import { buildMakemdRoutes } from "./routes/makemd";
+import { buildMetadataMenuRoutes } from "./routes/metadata-menu";
+import { buildOcrRoutes } from "./routes/ocr";
+import { buildOmnisearchRoutes } from "./routes/omnisearch";
 import { buildProbeRoutes } from "./routes/probe";
+import { buildQuickAddRoutes } from "./routes/quickadd";
 import { buildRemotelySaveRoutes } from "./routes/remotely-save";
-import {
-  type BridgeRes,
-  communityPlugin,
-  type InternalApp,
-  internalPlugin,
-  type RouteDef,
-} from "./routes/types";
+import { buildTasksRoutes } from "./routes/tasks";
+import { buildTemplaterRoutes } from "./routes/templater";
+import type { InternalApp, RouteDef } from "./routes/types";
 
 export type { BridgeReq, BridgeRes, RouteDef, RouteHandler } from "./routes/types";
-
-// Obsidian re-exports moment.js at runtime but its bundled d.ts types the export without a
-// call signature; alias to a minimal callable to construct dates for the daily-notes bridge.
-type MomentLike = { isValid(): boolean; format(fmt: string): string };
-const makeMoment = moment as unknown as (input?: string) => MomentLike;
-
-// Resolve a community plugin's `api`, mapping absence onto the error taxonomy: the
-// plugin not installed -> plugin_missing; installed but exposing no usable api ->
-// plugin_unreachable. Returns the api on success, or null after sending the failure.
-function requireApi<T>(app: InternalApp, res: BridgeRes, capKey: string): T | null {
-  const plugin = communityPlugin(app, capKey);
-  if (!plugin) {
-    fail(res, "plugin_missing", `${capKey} is not installed`, { plugin: capKey });
-    return null;
-  }
-  if (!plugin.api) {
-    fail(res, "plugin_unreachable", `${capKey} exposes no programmatic API`, { plugin: capKey });
-    return null;
-  }
-  return plugin.api as T;
-}
-
-// --- Dataview adapters -------------------------------------------------------------
-interface DataviewQueryResult {
-  successful: boolean;
-  value?: { headers?: string[]; values?: unknown[][] };
-  error?: string;
-}
-interface DataviewEvalResult {
-  successful: boolean;
-  value?: unknown;
-  error?: string;
-}
-interface DataviewApi {
-  query?(source: string): Promise<DataviewQueryResult>;
-  // evaluate() takes a variable-context OBJECT — not a file path; page(path) builds the
-  // per-note context so `file.*` and frontmatter fields resolve inside the expression.
-  evaluate?(
-    expr: string,
-    context?: Record<string, unknown>,
-  ): Promise<DataviewEvalResult> | DataviewEvalResult;
-  page?(path: string): Record<string, unknown> | undefined;
-}
-
-// --- QuickAdd / Text Extractor adapters --------------------------------------------
-interface QuickAddApi {
-  executeChoice?(name: string, vars?: Record<string, unknown>): Promise<unknown>;
-}
-interface TextExtractorApi {
-  extractText?(file: TFile): Promise<string>;
-  isInCache?(file: TFile): Promise<boolean>;
-}
-
-// --- Omnisearch adapter. Public API at plugin.api: search(query) -> ranked
-// ResultNoteApi[] ({score, path, basename, foundWords, matches:{match,offset}[],
-// excerpt}). Read-only; no vault mutation.
-interface OmnisearchMatchApi {
-  match: string;
-  offset: number;
-}
-interface OmnisearchResultApi {
-  score: number;
-  path: string;
-  basename: string;
-  excerpt: string;
-  foundWords?: string[];
-  matches?: OmnisearchMatchApi[];
-}
-interface OmnisearchApi {
-  search?(query: string): Promise<OmnisearchResultApi[]>;
-}
-
-// --- Datacore adapter. Public API at plugin.api (DatacoreApi): tryQuery(q) ->
-// Result<Indexable[], string> ({successful, value?, error?}) using datacore's own
-// query language (e.g. "@page and #tag"). Result objects expose
-// $path/$name/$tags/$types/$frontmatter. Read-only.
-interface DatacoreObject {
-  $path?: string;
-  $name?: string;
-  $tags?: string[];
-  $types?: string[];
-  $frontmatter?: Record<string, unknown>;
-}
-interface DatacoreApi {
-  tryQuery?(query: string): unknown;
-}
-
-// --- Metadata Menu adapter. Public API at plugin.api (IMetadataMenuApi):
-// namedFileFields(file) -> Promise<Record<fieldName, IFieldInfo{value, type, isValid,
-// sourceType}>>. Read-only field introspection.
-interface MetadataMenuFieldInfo {
-  value?: unknown;
-  type?: unknown;
-  isValid?: unknown;
-  sourceType?: unknown;
-}
-interface MetadataMenuApi {
-  namedFileFields?(file: TFile | string): Promise<Record<string, MetadataMenuFieldInfo>>;
-}
-
-function fileByPath(app: App, rel: string): TFile | null {
-  const f = app.vault.getAbstractFileByPath(normalizePath(rel));
-  // TFile is the leaf type; folders lack the `extension` field we duck-check here.
-  return f && "extension" in f ? (f as TFile) : null;
-}
 
 export function buildRoutes(
   appArg: App,
@@ -154,453 +54,27 @@ export function buildRoutes(
 
     ...buildRemotelySaveRoutes(app),
 
-    // Dataview.
-    {
-      method: "post",
-      path: "/dataview/dql",
-      handler: async (req, res) => {
-        const dv = requireApi<DataviewApi>(app, res, "dataview");
-        if (!dv) return;
-        if (!dv.query)
-          return fail(res, "plugin_unreachable", "dataview query API unavailable", {
-            plugin: "dataview",
-          });
-        const r = await dv.query(str(body(req), "dql") ?? "");
-        if (!r.successful) return fail(res, "dql_error", r.error ?? "DQL query failed");
-        ok(res, { headers: r.value?.headers ?? [], rows: r.value?.values ?? [], note_paths: [] });
-      },
-    },
-    {
-      method: "post",
-      path: "/dataview/validate",
-      handler: async (req, res) => {
-        const dv = requireApi<DataviewApi>(app, res, "dataview");
-        if (!dv) return;
-        if (!dv.query)
-          return fail(res, "plugin_unreachable", "dataview query API unavailable", {
-            plugin: "dataview",
-          });
-        const r = await dv.query(str(body(req), "dql") ?? "");
-        ok(res, {
-          valid: r.successful,
-          ...(r.successful ? {} : { error: { message: r.error ?? "parse error" } }),
-        });
-      },
-    },
-    {
-      method: "post",
-      path: "/dataview/eval",
-      handler: async (req, res) => {
-        const dv = requireApi<DataviewApi>(app, res, "dataview");
-        if (!dv) return;
-        if (!dv.evaluate)
-          return fail(res, "plugin_unreachable", "dataview evaluate API unavailable", {
-            plugin: "dataview",
-          });
-        const b = body(req);
-        const path = str(b, "path");
-        let context: Record<string, unknown> | undefined;
-        if (path) {
-          const page = dv.page?.(path);
-          if (!page)
-            return fail(res, "note_not_found", `dataview has no indexed page for: ${path}`);
-          context = page;
-        }
-        try {
-          const r = await dv.evaluate(str(b, "expression") ?? "", context);
-          if (!r.successful) return fail(res, "dql_error", r.error ?? "evaluation failed");
-          ok(res, { value: r.value, type: typeof r.value });
-        } catch (e) {
-          fail(res, "dql_error", e instanceof Error ? e.message : String(e));
-        }
-      },
-    },
+    ...buildDataviewRoutes(app),
 
-    // QuickAdd.
-    {
-      method: "post",
-      path: "/quickadd/actions",
-      handler: (_req, res) => {
-        const plugin = communityPlugin(app, "quickadd");
-        if (!plugin)
-          return fail(res, "plugin_missing", "quickadd is not installed", { plugin: "quickadd" });
-        const settings = plugin.settings as
-          | { choices?: { name: string; type?: string }[] }
-          | undefined;
-        const items = (settings?.choices ?? []).map((c) => ({
-          name: c.name,
-          type: c.type ?? "unknown",
-        }));
-        ok(res, { items });
-      },
-    },
-    {
-      method: "post",
-      path: "/quickadd/trigger",
-      handler: async (req, res) => {
-        const api = requireApi<QuickAddApi>(app, res, "quickadd");
-        if (!api) return;
-        if (!api.executeChoice)
-          return fail(res, "plugin_unreachable", "quickadd execute API unavailable", {
-            plugin: "quickadd",
-          });
-        const b = body(req);
-        const name = str(b, "action_name");
-        if (!name) return fail(res, "invalid_input", "action_name is required");
-        const args =
-          typeof b.args === "object" && b.args !== null
-            ? (b.args as Record<string, unknown>)
-            : undefined;
-        await api.executeChoice(name, args);
-        ok(res, { action_name: name, fired_at: new Date().toISOString() });
-      },
-    },
+    ...buildQuickAddRoutes(app),
 
-    // OCR / Text Extractor.
-    {
-      method: "post",
-      path: "/ocr/attachment",
-      handler: async (req, res) => {
-        const api = requireApi<TextExtractorApi>(app, res, "text-extractor");
-        if (!api) return;
-        if (!api.extractText)
-          return fail(res, "plugin_unreachable", "text-extractor API unavailable", {
-            plugin: "text-extractor",
-          });
-        const rel = str(body(req), "path") ?? "";
-        const file = fileByPath(app, rel);
-        if (!file) return fail(res, "note_not_found", "attachment not found", { path: rel });
-        const cached = (await api.isInCache?.(file)) ?? false;
-        const start = Date.now();
-        const text = await api.extractText(file);
-        ok(res, { path: rel, text, cached, duration_ms: Date.now() - start });
-      },
-    },
-    {
-      method: "post",
-      path: "/ocr/bulk",
-      handler: async (req, res) => {
-        const api = requireApi<TextExtractorApi>(app, res, "text-extractor");
-        if (!api) return;
-        if (!api.extractText)
-          return fail(res, "plugin_unreachable", "text-extractor API unavailable", {
-            plugin: "text-extractor",
-          });
-        const raw = body(req).paths;
-        const paths = Array.isArray(raw) ? (raw as unknown[]) : [];
-        const start = Date.now();
-        const results: { path: string; ok: boolean; text?: string; error?: string }[] = [];
-        for (const rel of paths) {
-          // Validate per-item so one non-string element yields a per-path error instead of
-          // throwing out of fileByPath and aborting the whole batch.
-          if (typeof rel !== "string") {
-            results.push({ path: String(rel), ok: false, error: "path must be a string" });
-            continue;
-          }
-          const file = fileByPath(app, rel);
-          if (!file) {
-            results.push({ path: rel, ok: false, error: "not found" });
-            continue;
-          }
-          try {
-            results.push({ path: rel, ok: true, text: await api.extractText(file) });
-          } catch (e) {
-            results.push({ path: rel, ok: false, error: (e as Error).message });
-          }
-        }
-        ok(res, { processed: results.length, results, total_duration_ms: Date.now() - start });
-      },
-    },
+    ...buildOcrRoutes(app),
 
-    // Excalidraw — read returns raw scene text; write scaffolds/updates the note file.
-    {
-      method: "post",
-      path: "/excalidraw/read",
-      handler: async (req, res) => {
-        if (!communityPlugin(app, "excalidraw"))
-          return fail(res, "plugin_missing", "excalidraw is not installed", {
-            plugin: "excalidraw",
-          });
-        const rel = str(body(req), "path") ?? "";
-        const file = fileByPath(app, rel);
-        if (!file) return fail(res, "note_not_found", "drawing not found", { path: rel });
-        const text = await app.vault.read(file);
-        ok(res, { path: rel, text_content: text });
-      },
-    },
-    {
-      method: "post",
-      path: "/excalidraw/write",
-      handler: async (req, res) => {
-        if (!communityPlugin(app, "excalidraw"))
-          return fail(res, "plugin_missing", "excalidraw is not installed", {
-            plugin: "excalidraw",
-          });
-        const b = body(req);
-        const rel = str(b, "path") ?? "";
-        const existing = fileByPath(app, rel);
-        // The scaffold is content-free, so writing it over an existing drawing DESTROYS the
-        // scene. Only ever scaffold a NEW file (or an explicit overwrite:true reset); never
-        // silently clobber existing content — regardless of `mode` (a `mode:"update"` on a
-        // populated drawing previously wiped it to boilerplate).
-        if (existing && b.overwrite !== true) {
-          if (b.mode === "create")
-            return fail(res, "note_exists", "drawing already exists", { path: rel });
-          return ok(res, { path: rel, plugin_used: true, unchanged: true });
-        }
-        const scaffold = "---\nexcalidraw-plugin: parsed\n---\n# Excalidraw Data\n";
-        if (existing) await app.vault.modify(existing, scaffold);
-        else await app.vault.create(normalizePath(rel), scaffold);
-        ok(res, { path: rel, plugin_used: true });
-      },
-    },
+    ...buildExcalidrawRoutes(app),
 
-    // make.md.
-    {
-      method: "post",
-      path: "/makemd/spaces",
-      handler: (_req, res) => {
-        const api = requireApi<{ spaces?: () => unknown[] }>(app, res, "make-md");
-        if (!api) return;
-        ok(res, { spaces: typeof api.spaces === "function" ? api.spaces() : [] });
-      },
-    },
-    {
-      method: "post",
-      path: "/makemd/query",
-      handler: (req, res) => {
-        const api = requireApi<{ query?: (id: string, filter?: unknown) => unknown }>(
-          app,
-          res,
-          "make-md",
-        );
-        if (!api) return;
-        if (!api.query)
-          return fail(res, "plugin_unreachable", "make-md query API unavailable", {
-            plugin: "make-md",
-          });
-        const b = body(req);
-        const items = api.query(str(b, "space_id") ?? "", b.filter);
-        ok(res, {
-          items: Array.isArray(items) ? items : [],
-          total: Array.isArray(items) ? items.length : 0,
-        });
-      },
-    },
+    ...buildMakemdRoutes(app),
 
-    // Omnisearch — ranked full-text search via the plugin's public search() API.
-    {
-      method: "post",
-      path: "/omnisearch/search",
-      handler: async (req, res) => {
-        const api = requireApi<OmnisearchApi>(app, res, "omnisearch");
-        if (!api) return;
-        if (!api.search)
-          return fail(res, "plugin_unreachable", "omnisearch search API unavailable", {
-            plugin: "omnisearch",
-          });
-        const b = body(req);
-        const query = str(b, "query") ?? "";
-        if (!query) return fail(res, "invalid_input", "query is required");
-        const raw = await api.search(query);
-        const limit = typeof b.limit === "number" && b.limit > 0 ? b.limit : undefined;
-        const sliced = limit ? raw.slice(0, limit) : raw;
-        const items = sliced.map((r) => ({
-          path: r.path,
-          basename: r.basename,
-          score: r.score,
-          excerpt: r.excerpt,
-          found_words: r.foundWords ?? [],
-          matches: (r.matches ?? []).map((m) => ({ match: m.match, offset: m.offset })),
-        }));
-        ok(res, { items, total: items.length, query });
-      },
-    },
+    ...buildOmnisearchRoutes(app),
 
-    // Datacore — query via the Datacore plugin's own query language (Dataview's successor).
-    {
-      method: "post",
-      path: "/datacore/query",
-      handler: async (req, res) => {
-        const api = requireApi<DatacoreApi>(app, res, "datacore");
-        if (!api) return;
-        if (!api.tryQuery)
-          return fail(res, "plugin_unreachable", "datacore query API unavailable", {
-            plugin: "datacore",
-          });
-        const b = body(req);
-        const q = str(b, "query") ?? "";
-        if (!q) return fail(res, "invalid_input", "query is required");
-        const rRaw = await api.tryQuery(q);
-        const r = rRaw as { successful?: boolean; value?: unknown; error?: unknown } | undefined;
-        if (r && r.successful === false)
-          return fail(res, "dql_error", String(r.error ?? "datacore query failed"));
-        const rows: DatacoreObject[] = Array.isArray(r?.value)
-          ? (r.value as DatacoreObject[])
-          : Array.isArray(rRaw)
-            ? (rRaw as DatacoreObject[])
-            : [];
-        const limit = typeof b.limit === "number" && b.limit > 0 ? b.limit : undefined;
-        const sliced = limit ? rows.slice(0, limit) : rows;
-        const plain = (val: unknown): unknown => {
-          if (val === null || val === undefined) return val;
-          const t = typeof val;
-          if (t === "string" || t === "number" || t === "boolean") return val;
-          if (Array.isArray(val)) return val.map(plain);
-          if (t === "object") {
-            const o = val as Record<string, unknown>;
-            if ("value" in o) return plain(o.value);
-            return String(val);
-          }
-          return String(val);
-        };
-        const items = sliced.map((o) => ({
-          path: o?.$path,
-          name: o?.$name,
-          tags: o?.$tags ?? [],
-          types: o?.$types ?? [],
-          fields:
-            o?.$frontmatter && typeof o.$frontmatter === "object"
-              ? Object.fromEntries(
-                  Object.entries(o.$frontmatter).map(([k, val]) => [k, plain(val)]),
-                )
-              : {},
-        }));
-        ok(res, { items, total: items.length, query: q });
-      },
-    },
+    ...buildDatacoreRoutes(app),
 
-    // Metadata Menu — read a note's typed fields (name -> value/type/validity/source).
-    {
-      method: "post",
-      path: "/metadata-menu/fields",
-      handler: async (req, res) => {
-        const api = requireApi<MetadataMenuApi>(app, res, "metadata-menu");
-        if (!api) return;
-        if (!api.namedFileFields)
-          return fail(res, "plugin_unreachable", "metadata-menu fields API unavailable", {
-            plugin: "metadata-menu",
-          });
-        const rel = str(body(req), "path") ?? "";
-        if (!rel) return fail(res, "invalid_input", "path is required");
-        const file = fileByPath(app, rel);
-        if (!file) return fail(res, "note_not_found", "note not found", { path: rel });
-        const raw = await api.namedFileFields(file);
-        const fields: Record<string, unknown> = {};
-        for (const [name, info] of Object.entries(raw ?? {})) {
-          fields[name] = {
-            value: info?.value ?? null,
-            type: typeof info?.type === "string" ? info.type : undefined,
-            is_valid: typeof info?.isValid === "boolean" ? info.isValid : undefined,
-            source_type: typeof info?.sourceType === "string" ? info.sourceType : undefined,
-          };
-        }
-        ok(res, { path: rel, fields, total: Object.keys(fields).length });
-      },
-    },
+    ...buildMetadataMenuRoutes(app),
 
-    // Daily Notes (core) — resolve the daily note for a date via the plugin's folder+format.
-    {
-      method: "post",
-      path: "/daily-notes/resolve",
-      handler: (req, res) => {
-        const dn = internalPlugin(app, "daily-notes");
-        if (!dn?.enabled)
-          return fail(res, "plugin_unreachable", "core Daily Notes plugin is not enabled", {
-            plugin: "daily-notes",
-          });
-        const opts = dn.instance?.options ?? {};
-        const folder = typeof opts.folder === "string" ? opts.folder : "";
-        const format = typeof opts.format === "string" && opts.format ? opts.format : "YYYY-MM-DD";
-        const dateStr = str(body(req), "date");
-        const m = dateStr ? makeMoment(dateStr) : makeMoment();
-        if (!m.isValid())
-          return fail(res, "invalid_input", "date is not a valid date", { date: dateStr });
-        const rel = normalizePath(
-          folder ? `${folder}/${m.format(format)}.md` : `${m.format(format)}.md`,
-        );
-        const file = fileByPath(app, rel);
-        ok(res, { date: m.format("YYYY-MM-DD"), folder, format, path: rel, exists: !!file });
-      },
-    },
+    ...buildDailyNotesRoutes(app),
 
-    // Templater — expansion is performed by the plugin; verified live.
-    {
-      method: "post",
-      path: "/templater/list",
-      handler: (_req, res) => {
-        const plugin = communityPlugin(app, "templater");
-        if (!plugin)
-          return fail(res, "plugin_missing", "templater is not installed", { plugin: "templater" });
-        const settings = plugin.settings as { templates_folder?: string } | undefined;
-        const folder = settings?.templates_folder;
-        const items = folder
-          ? app.vault
-              .getMarkdownFiles()
-              .filter((f) => f.path.startsWith(`${folder}/`))
-              .map((f) => ({ path: f.path, name: f.basename }))
-          : [];
-        ok(res, { items });
-      },
-    },
-    {
-      method: "post",
-      path: "/templater/execute",
-      handler: async (req, res) => {
-        const plugin = communityPlugin(app, "templater") as
-          | { templater?: { create_new_note_from_template?: unknown } }
-          | undefined;
-        if (!plugin)
-          return fail(res, "plugin_missing", "templater is not installed", { plugin: "templater" });
-        if (!plugin.templater?.create_new_note_from_template)
-          return fail(res, "plugin_unreachable", "templater expansion API unavailable", {
-            plugin: "templater",
-          });
-        const b = body(req);
-        const template = str(b, "template") ?? "";
-        const target = str(b, "target") ?? "";
-        const tmpl = fileByPath(app, template);
-        if (!tmpl) return fail(res, "note_not_found", "template not found", { path: template });
-        // THE-289: honor overwrite — create_new_note_from_template clobbers/dups an existing
-        // target, so refuse when the resolved target already exists and overwrite is not set.
-        const targetMd = target.endsWith(".md") ? target : `${target}.md`;
-        if (b.overwrite !== true && fileByPath(app, targetMd))
-          return fail(res, "note_exists", "target already exists; set overwrite", {
-            path: targetMd,
-          });
-        const create = plugin.templater.create_new_note_from_template as (
-          t: TFile,
-          folder: string,
-          filename: string,
-          open: boolean,
-        ) => Promise<TFile | undefined>;
-        const slash = target.lastIndexOf("/");
-        const folder = slash > 0 ? target.slice(0, slash) : "";
-        const filename = (slash >= 0 ? target.slice(slash + 1) : target).replace(/\.md$/, "");
-        const out = await create(tmpl, folder, filename, false);
-        ok(res, { template, target: out?.path ?? target, created_at: new Date().toISOString() });
-      },
-    },
+    ...buildTemplaterRoutes(app),
 
-    // Tasks — the Tasks plugin exposes no stable programmatic filter API, so the DSL
-    // filter degrades honestly; list_tasks/update_task (server, filesystem) cover the
-    // rest without the plugin.
-    {
-      method: "post",
-      path: "/tasks/filter",
-      handler: (_req, res) => {
-        if (!communityPlugin(app, "tasks"))
-          return fail(res, "plugin_missing", "tasks is not installed", { plugin: "tasks" });
-        fail(
-          res,
-          "plugin_unreachable",
-          "Tasks exposes no programmatic filter API; use list_tasks",
-          {
-            plugin: "tasks",
-          },
-        );
-      },
-    },
+    ...buildTasksRoutes(app),
   ];
   return defs.map((d) => ({ ...d, handler: safeHandler(d.handler) }));
 }
