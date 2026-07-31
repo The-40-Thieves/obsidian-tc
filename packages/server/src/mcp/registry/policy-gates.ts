@@ -4,6 +4,7 @@ import {
   isMutatingScope,
   ObsidianTcError,
 } from "@the-40-thieves/obsidian-tc-shared";
+import { callerHash, type RateLimiter, type ThrottleDecision } from "../../throttle";
 import { vaultArgOf } from "./input-binding";
 import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
 
@@ -88,4 +89,24 @@ export async function runPrecheck<I>(
   ctx: CallerContext,
 ): Promise<void> {
   if (def.precheck) await def.precheck(data, ctx);
+}
+
+/**
+ * Dispatch-wide rate-limit policy gate (THE-210, G2.4 §Rate limits). Per (caller_hash,
+ * scope_class, vault); an unknown scope class is unlimited. `undefined` when no rateLimiter is
+ * configured — the caller then skips the gate entirely, matching the original `if
+ * (this.rateLimiter)` guard. The decision itself is a pure read (TokenBucket state, not a claim);
+ * the reaction to a rejected decision — metering, releasing an idempotency claim, throwing —
+ * stays with the caller, since it needs dispatch-local state (idemClaimed/idemKey) this function
+ * does not have.
+ */
+export function checkThrottle(
+  rateLimiter: RateLimiter | undefined,
+  caller: string | null,
+  scopeClass: string,
+  vaultId: string,
+  nowMs: number,
+): ThrottleDecision | undefined {
+  if (!rateLimiter) return undefined;
+  return rateLimiter.check(callerHash(caller), scopeClass, vaultId, nowMs);
 }

@@ -39,6 +39,7 @@ import {
 } from "./registry/input-binding";
 import {
   assertScopesGranted,
+  checkThrottle,
   enforceReadOnlyGate,
   enforceVaultKindGate,
   isMutatingCall,
@@ -540,29 +541,28 @@ export class ToolRegistry {
       // ones that clear it. Completed idempotent replays returned from the cache above, so
       // they are intentionally not re-counted here: the original call already drew down the
       // bucket. A throttled check does not draw down the bucket, so rejecting here costs no budget.
-      if (this.rateLimiter) {
-        const decision = this.rateLimiter.check(
-          callerHash(ctx.caller),
-          scopeClass,
-          ctx.vaultId,
-          now(),
-        );
-        if (!decision.ok) {
-          this.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
-          if (idemClaimed && idemKey) {
-            try {
-              deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
-            } catch {
-              /* best-effort */
-            }
+      const throttleDecision = checkThrottle(
+        this.rateLimiter,
+        ctx.caller,
+        scopeClass,
+        ctx.vaultId,
+        now(),
+      );
+      if (throttleDecision && !throttleDecision.ok) {
+        this.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
+        if (idemClaimed && idemKey) {
+          try {
+            deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+          } catch {
+            /* best-effort */
           }
-          throw err.throttled("rate limit exceeded", {
-            scope_class: decision.scopeClass,
-            retry_after_seconds: decision.retryAfterSeconds,
-            current_burst: decision.currentBurst,
-            current_rate: decision.currentRate,
-          });
         }
+        throw err.throttled("rate limit exceeded", {
+          scope_class: throttleDecision.scopeClass,
+          retry_after_seconds: throttleDecision.retryAfterSeconds,
+          current_burst: throttleDecision.currentBurst,
+          current_rate: throttleDecision.currentRate,
+        });
       }
 
       // HITL gate. A destructive/HITL-floored tool requires a valid single-use elicit
