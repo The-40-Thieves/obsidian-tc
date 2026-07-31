@@ -25,7 +25,7 @@ import type { StageMetric } from "../search/graph_search_stages/instrumentation"
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { nativeLoaded } from "../search/native";
 import type { RetrievalCaches } from "../search/query_cache";
-import type { Reranker } from "../search/rerank";
+import type { Reranker, RerankOutcome } from "../search/rerank";
 import type { VecRebuildEvent } from "../search/vec";
 import type { RateLimiter } from "../throttle";
 import { createHealthTool, createIndexStatusTool } from "../tools/admin/health";
@@ -250,6 +250,9 @@ export interface DomainToolsDeps {
   retrievalCaches: RetrievalCaches;
   onVecFallback: (vault: string, reason: "error" | "underfill") => void;
   onStageMetric: (vault: string, metric: StageMetric) => void;
+  /** THE-668: optional (unlike the two required seams above) — additive and purely observational,
+   *  see M7Deps.onRerankOutcome. */
+  onRerankOutcome?: (vault: string, outcome: RerankOutcome) => void;
   activationFor?: (chunkId: string) => number | null;
   experientialOpen: boolean;
   experientialDb: Database;
@@ -351,6 +354,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // THE-585: vec0 -> brute-force degradation counter.
     onVecFallback: deps.onVecFallback,
     onStageMetric: deps.onStageMetric,
+    ...(deps.onRerankOutcome ? { onRerankOutcome: deps.onRerankOutcome } : {}),
     // THE-187/193: activation bubble lookup (dark unless experiential.activationRerank).
     ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
     // THE-258: class router (dark unless retrieval.classRouter).

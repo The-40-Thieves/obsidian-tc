@@ -3,7 +3,7 @@
 // absolute top-1 cosine otherwise), same pool default (20), same non-reranked-tail ordering.
 // Falls through to the plain (optionally bubble-safe) projection when the gate does not fire —
 // same as before the THE-465 extraction, just named as one stage instead of an inline branch.
-import { rerankWithScores } from "../rerank";
+import { reportRerankOutcome, rerankWithScores } from "../rerank";
 import type { SemanticHit } from "../semantic";
 import { projectWithBubbleSafe, toResult } from "./projection";
 import type { Candidate, GraphSearchOptions, GraphSearchResult } from "./types";
@@ -19,23 +19,42 @@ export interface GatedRerankInput {
 
 /** THE-394: hard-query gate — rerank the head of the fused list only when the dense seeds were
  *  weak (router silent + low top-1 cosine); everything else returns pure RRF/convex order
- *  (with the optional bubble-safe activation composition still applied). */
+ *  (with the optional bubble-safe activation composition still applied).
+ *
+ *  THE-668: every branch that returns WITHOUT calling rerankWithScores reports its own outcome —
+ *  rerankWithScores can only report what happens INSIDE the call it is given, so "the gate is off"
+ *  and "reranking is unconfigured" would otherwise be silently indistinguishable from "the gate
+ *  fired and the call happened", exactly the blind spot this closes. Purely additive: no branch's
+ *  return value changes. */
 export async function applyGatedRerank(input: GatedRerankInput): Promise<GraphSearchResult[]> {
   const { opts, capped, seeds, zMargin, routedToSeedsOnly, scoreOfWithPrior } = input;
   const gr = opts.gatedRerank;
-  if ((gr?.enabled ?? false) && opts.reranker) {
-    const top1 = seeds[0]?.score ?? 0;
-    // THE-400: hardZ (z-margin mode) replaces the absolute-cosine hardness rule when set.
-    const hard = gr?.hardZ !== undefined ? zMargin < gr.hardZ : top1 < (gr?.hardTop1 ?? 0.55);
-    if (!routedToSeedsOnly && hard) {
-      const head = capped.slice(0, Math.min(gr?.pool ?? 20, capped.length));
-      const ranked = await rerankWithScores(opts.query, head, head.length, opts.reranker);
-      const rerankedIds = new Set(ranked.map((r) => r.item.chunk_id));
-      const rest = capped.filter((c) => !rerankedIds.has(c.chunk_id));
-      return [
-        ...ranked.map(({ item, score }) => toResult(item, score)),
-        ...rest.map((c) => toResult(c, scoreOfWithPrior(c))),
-      ];
+  if (gr?.enabled ?? false) {
+    if (!opts.reranker) {
+      reportRerankOutcome(opts.onRerankOutcome, "not_configured");
+    } else {
+      const top1 = seeds[0]?.score ?? 0;
+      // THE-400: hardZ (z-margin mode) replaces the absolute-cosine hardness rule when set.
+      const hard = gr?.hardZ !== undefined ? zMargin < gr.hardZ : top1 < (gr?.hardTop1 ?? 0.55);
+      if (!routedToSeedsOnly && hard) {
+        const head = capped.slice(0, Math.min(gr?.pool ?? 20, capped.length));
+        const ranked = await rerankWithScores(
+          opts.query,
+          head,
+          head.length,
+          opts.reranker,
+          opts.onRerankOutcome,
+        );
+        const rerankedIds = new Set(ranked.map((r) => r.item.chunk_id));
+        const rest = capped.filter((c) => !rerankedIds.has(c.chunk_id));
+        return [
+          ...ranked.map(({ item, score }) => toResult(item, score)),
+          ...rest.map((c) => toResult(c, scoreOfWithPrior(c))),
+        ];
+      }
+      // Reranker is configured and the gate is on, but this query didn't qualify as hard: a
+      // deliberate policy decision, not an absence or a failure.
+      reportRerankOutcome(opts.onRerankOutcome, "skipped_by_policy");
     }
   }
   return projectWithBubbleSafe(capped, scoreOfWithPrior, opts);

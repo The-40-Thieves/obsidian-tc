@@ -30,6 +30,7 @@ import type { Scheduler } from "../scheduler/scheduler";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexCoordinatorStats } from "../search/index-coordinator";
 import type { RetrievalCaches } from "../search/query_cache";
+import type { RerankOutcome } from "../search/rerank";
 import type { VecRebuildEvent } from "../search/vec";
 
 /** Bounded subsystem name used in the `vault` label where a metric is process-wide rather than
@@ -59,6 +60,9 @@ export interface Observability {
   onVecFallback: (vault: string, reason: "error" | "underfill") => void;
   /** THE-585 (#6): retrieval stage duration + candidate funnel. Same seam shape as onVecFallback. */
   onStageMetric: (vault: string, metric: StageMetric) => void;
+  /** THE-668: one rerankWithScores decision (see MetricsRecorder.incRerankOutcome). Same seam
+   *  shape as onVecFallback — the search layer never imports the metrics recorder. */
+  onRerankOutcome: (vault: string, outcome: RerankOutcome) => void;
   /** THE-645 item 1: registerActivationRecompute's onRecompute stats, routed to the recorder
    *  instead of discarded. Same seam shape as onVecFallback — the experiential layer never
    *  imports the metrics recorder. */
@@ -145,6 +149,9 @@ export function createObservability(deps: ObservabilityDeps): Observability {
   // a plain callback, so the retrieval layer still never imports the metrics recorder.
   const onStageMetric = (vault: string, metric: StageMetric): void =>
     metrics.observeRetrievalStage(vault, metric);
+  // THE-668: same seam shape as onVecFallback/onStageMetric above.
+  const onRerankOutcome = (vault: string, outcome: RerankOutcome): void =>
+    metrics.incRerankOutcome(vault, outcome);
   // THE-645 item 1: same seam shape as onVecFallback/onStageMetric above.
   const onActivationRecompute = (vault: string, stats: ActivationRecomputeStats): void =>
     metrics.incActivationRecomputeChunks(vault, stats.chunks);
@@ -204,6 +211,7 @@ export function createObservability(deps: ObservabilityDeps): Observability {
     metrics,
     onVecFallback,
     onStageMetric,
+    onRerankOutcome,
     onActivationRecompute,
     onVecRebuild,
     sqlHooksFor,

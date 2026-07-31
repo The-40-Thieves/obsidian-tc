@@ -282,8 +282,15 @@ export async function buildServerRuntime(
     getSchedulerStats: () => requireBoot(schedulerRef, "scheduler").stats(),
     getHttpConstructSeconds: () => httpConstructSeconds,
   });
-  const { metrics, onVecFallback, onStageMetric, sqlHooksFor, morgiana, onSnapshotSkipped } =
-    observability;
+  const {
+    metrics,
+    onVecFallback,
+    onStageMetric,
+    onRerankOutcome,
+    sqlHooksFor,
+    morgiana,
+    onSnapshotSkipped,
+  } = observability;
 
   const { governance, indexResources } = await wireRuntimeCore({
     stores,
@@ -463,6 +470,7 @@ export async function buildServerRuntime(
       retrievalCaches,
       onVecFallback,
       onStageMetric,
+      onRerankOutcome,
       ...(activationFor ? { activationFor } : {}),
       experientialOpen,
       experientialDb,

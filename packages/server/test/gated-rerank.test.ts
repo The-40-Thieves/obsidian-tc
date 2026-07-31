@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import { graphSearch } from "../src/search/graph_search";
-import type { Reranker } from "../src/search/rerank";
+import type { Reranker, RerankOutcome } from "../src/search/rerank";
 import { floatBlob } from "../src/search/vec";
 import { openMemoryDb } from "./helpers";
 
@@ -73,48 +73,75 @@ function hardDb(): Database {
   return db;
 }
 
+function outcomeSpy(): { outcomes: RerankOutcome[]; onRerankOutcome: (o: RerankOutcome) => void } {
+  const outcomes: RerankOutcome[] = [];
+  return { outcomes, onRerankOutcome: (o) => outcomes.push(o) };
+}
+
 describe("THE-394 gated rerank", () => {
   it("an easy query (confident top-1) never calls the reranker", async () => {
     const db = seedDb();
     addChunk(db, "a", "A.md", "alpha content", vd(0.99)); // top-1 well above the gate
     addChunk(db, "b", "B.md", "beta content", vd(0.4));
     const { reranker, calls } = spyReranker();
+    const { outcomes, onRerankOutcome } = outcomeSpy();
     const out = await graphSearch(db, {
       ...BASE,
       seedCount: 2,
       reranker,
       gatedRerank: { enabled: true },
+      onRerankOutcome,
     });
     expect(calls).toHaveLength(0);
     expect(out.map((r) => r.chunk_id)).toEqual(["a", "b"]);
+    // THE-668: a reranker IS configured and the gate IS on, but this query didn't qualify as
+    // hard — a deliberate policy decision, reported distinctly from "not configured" below.
+    expect(outcomes).toEqual(["skipped_by_policy"]);
   });
 
   it("a hard query reranks the head and keeps the remainder in RRF order", async () => {
     const db = hardDb();
     const { reranker, calls } = spyReranker();
+    const { outcomes, onRerankOutcome } = outcomeSpy();
     const out = await graphSearch(db, {
       ...BASE,
       seedCount: 3,
       reranker,
       gatedRerank: { enabled: true, pool: 2 }, // rerank only the top-2; c stays below
+      onRerankOutcome,
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.docs).toEqual(["alpha content", "beta content"]);
     // Spy reverses the head: b above a; c untouched below.
     expect(out.map((r) => r.chunk_id)).toEqual(["b", "a", "c"]);
+    // THE-668 crux: the gate fired and the reranker actually ran — "executed", never confusable
+    // with the "skipped_by_policy"/"not_configured" cases above/below despite an identical-shaped
+    // GraphSearchResult[] coming back from all three.
+    expect(outcomes).toEqual(["executed"]);
   });
 
   it("disabled gate and absent reranker both preserve pure RRF order", async () => {
     const db = hardDb();
     const { reranker, calls } = spyReranker();
-    const disabled = await graphSearch(db, { ...BASE, seedCount: 3, reranker });
+    const { outcomes, onRerankOutcome } = outcomeSpy();
+    const disabled = await graphSearch(db, { ...BASE, seedCount: 3, reranker, onRerankOutcome });
     expect(calls).toHaveLength(0);
     expect(disabled.map((r) => r.chunk_id)).toEqual(["a", "b", "c"]);
+    // The feature itself is off (static config, not a runtime decision) — no rerank decision was
+    // made at all, so nothing is reported; distinct from the two cases below where a reranker
+    // decision point was reached but resolved differently.
+    expect(outcomes).toEqual([]);
+
     const noBackend = await graphSearch(db, {
       ...BASE,
       seedCount: 3,
       gatedRerank: { enabled: true },
+      onRerankOutcome,
     });
     expect(noBackend.map((r) => r.chunk_id)).toEqual(["a", "b", "c"]);
+    // THE-668 crux (the other half): the gate is ON but no reranker was ever injected — distinct
+    // from "skipped_by_policy" above, where a reranker exists and the gate legitimately passed on
+    // it, and distinct from "executed", where one ran.
+    expect(outcomes).toEqual(["not_configured"]);
   });
 });

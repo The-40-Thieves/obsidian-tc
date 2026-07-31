@@ -273,6 +273,7 @@ async function graphSearchCore(
       candidates,
       Math.min(finalTopK, candidates.length),
       opts.reranker,
+      opts.onRerankOutcome,
     );
     return { results: finalize(ranked, opts), finalTopK, routedToSeedsOnly, expansionTruncated };
   }
@@ -332,6 +333,7 @@ async function graphSearchCore(
     pool,
     Math.min(finalTopK, pool.length),
     opts.reranker,
+    opts.onRerankOutcome,
   );
   return { results: finalize(ranked, opts), finalTopK, routedToSeedsOnly, expansionTruncated };
 }

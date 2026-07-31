@@ -19,6 +19,7 @@ import { Counter, Gauge, Histogram, Registry } from "prom-client";
 // new transaction site cannot add a Prometheus series without widening the union there first.
 import type { BusyReason, WriteTxnLabel } from "../db/txn";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
+import type { RerankOutcome } from "../search/rerank";
 
 /** Per-vault gauge sample sources, read lazily at scrape time (G2.4 gauges are per `vault`). */
 export interface GaugeSources {
@@ -110,6 +111,7 @@ export class MetricsRecorder {
   private readonly outputSchemaDrift: Counter<string>;
   private readonly activationRecomputeChunks: Counter<string>;
   private readonly vecRebuild: Counter<string>;
+  private readonly rerankOutcome: Counter<string>;
   private readonly retrievalStageCandidatesIn: Counter<string>;
   private readonly retrievalStageCandidatesOut: Counter<string>;
   private readonly retrievalContentBytesIn: Counter<string>;
@@ -198,6 +200,17 @@ export class MetricsRecorder {
       name: "obsidian_tc_vec_rebuild_total",
       help: "vec_chunks DROP+rebuild events, by reason. legacy_shape is a one-time pre-partition upgrade; fingerprint_changed means the embedding provider/model/dimensions, distance metric, or chunk/enrichment representation changed since the index was built. Either way every vault's dense index is cold until it re-embeds — any non-zero count outside a deliberate model migration is worth investigating.",
       labelNames: ["reason"],
+      registers,
+    });
+    // THE-668: rerankWithScores' fallback returns the same shaped output whether the reranker was
+    // never configured, timed out, errored, answered with garbage, or was deliberately skipped by
+    // gatedRerank's policy gate — a reranker broken for a week looks identical to one that never
+    // ran. `outcome` is the closed 7-value RerankOutcome union, so the label set is bounded by
+    // construction like `stage` above.
+    this.rerankOutcome = new Counter({
+      name: "obsidian_tc_rerank_outcome_total",
+      help: "rerankWithScores decisions, by vault and outcome. executed is the only outcome where the reported ranking actually came from the reranker; every other value is the synthetic-descending-score fallback for a different reason — not_configured (no reranker injected), skipped_by_policy (gatedRerank's hardness gate did not fire), timed_out, malformed_response (the call returned but produced no usable hit), provider_error (the call rejected for any other reason), fallback_used (no more specific reason — e.g. an empty candidate set).",
+      labelNames: ["vault", "outcome"],
       registers,
     });
     // THE-417 Phase 2: the instrument that makes warn-mode runnable. Before this, a mismatch wrote
@@ -531,6 +544,11 @@ export class MetricsRecorder {
   /** THE-612: one vec_chunks DROP+rebuild event. */
   incVecRebuild(reason: "legacy_shape" | "fingerprint_changed"): void {
     this.vecRebuild.inc({ reason });
+  }
+  /** THE-668: one rerankWithScores decision (see the counter's help text for the full outcome
+   *  taxonomy). */
+  incRerankOutcome(vault: string, outcome: RerankOutcome): void {
+    this.rerankOutcome.inc({ vault, outcome });
   }
   incSqlBusy(vault: string, txn: WriteTxnLabel, reason: BusyReason): void {
     this.sqlBusy.inc({ vault, txn, reason });
