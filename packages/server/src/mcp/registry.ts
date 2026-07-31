@@ -33,6 +33,12 @@ import {
   markEffectCommitted,
   readIdempotency,
 } from "./registry/idempotency";
+import {
+  applyVaultAcl,
+  enforceVaultBinding,
+  parseInput,
+  vaultArgOf,
+} from "./registry/input-binding";
 import { ToolStore } from "./registry/tool-store";
 import {
   type CallerContext,
@@ -80,16 +86,6 @@ export function assertScopesGranted(
   if (!grantsAll(ctx.grantedScopes, requiredScopes)) {
     throw err.forbidden(message, { required: requiredScopes });
   }
-}
-
-/** THE-513 Part 2: the caller-supplied target vault id for this call, read from the tool's
- *  declared `vaultArg` field (defaulting to "vault", the name every tool used before this field
- *  existed) — the single place the four call sites below resolve it, instead of each hardcoding
- *  `.vault` on the parsed input. */
-function vaultArgOf(def: ToolDefinition, data: unknown): string | undefined {
-  if (data === null || typeof data !== "object") return undefined;
-  const v = (data as Record<string, unknown>)[def.vaultArg ?? "vault"];
-  return typeof v === "string" ? v : undefined;
 }
 
 /** THE-514: a stage-boundary cooperative-cancellation check. Throws the same modelled
@@ -435,67 +431,18 @@ export class ToolRegistry {
         throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
       scopeClass = def.scopeClass ?? scopeClassOf(def.requiredScopes);
 
-      const parsed = def.inputSchema.safeParse(rawInput);
-      if (!parsed.success)
-        throw new ObsidianTcError("validation_error", "input validation failed", {
-          issues: parsed.error.issues,
-        });
+      // WP4.3: input-schema parse, THE-267 vault-binding guard, THE-295 per-vault ACL swap — see
+      // registry/input-binding.ts for the full reasoning behind each (unchanged, only relocated).
+      const inputData = parseInput(def, rawInput);
 
       if (def.requiredScopes.length > 0 && !ctx.authenticated)
         throw new ObsidianTcError("unauthorized", "authentication required for this tool");
 
       assertScopesGranted(ctx, def.requiredScopes, "missing required scope(s)");
 
-      // Vault-binding guard (THE-267). A vault-bound caller (an HTTP token) may act only on its
-      // own vault: the ~90 vault tools resolve a caller-supplied `vault` arg against ANY configured
-      // vault under the single global ACL, so without this a token reaches every vault. resources/read
-      // already enforces the same invariant. Fires only when a `vault` arg is present, so the execute
-      // family (no vault arg) and vault-omitting calls are unaffected; trusted stdio is unbound.
-      //
-      // THE-514 item 2 — AUTHORITATIVE NOTE on the one place this guard's condition differs from
-      // resources.ts's readResource (its `if (vaultId !== ctx.vaultId)` check, which points back
-      // here): this check is CONDITIONAL on `ctx.vaultBound === true`, so a trusted stdio caller
-      // (vaultBound left unset) may still name any configured vault. readResource's equivalent
-      // check is UNCONDITIONAL — it refuses `vaultId !== ctx.vaultId` regardless of vaultBound, so
-      // even a trusted stdio caller reading a resource is pinned to its own vault.
-      //
-      // Same concern (don't let a caller reach a vault it isn't bound to), two behaviours, and this
-      // is a DELIBERATE, EVALUATED divergence, not an oversight:
-      //   - Tools stay conditional because trusted stdio operators routinely address every
-      //     configured vault by name through the `vault` argument (prefetch, admin tools, multi-vault
-      //     workflows) — that is the documented meaning of "trusted": no HTTP token, no vaultBound.
-      //   - resources/read stays unconditional because listResources only ever emits URIs for
-      //     ctx.vaultId (mcp/resources.ts's listResources) — there is no legitimate reason for ANY caller,
-      //     trusted or not, to construct a foreign-vault resource URI by hand, so the narrower rule
-      //     costs a trusted caller nothing while closing off a hand-crafted URI as an attack surface.
-      // The divergence is currently in the SAFE direction (resources is the stricter of the two). If
-      // this is ever revisited, that is a security-semantics decision — evaluate it explicitly rather
-      // than "fixing" one side to match the other; see the parity gate in
-      // dispatch-parity.test.ts ("vault-binding: documented divergence, asserted as such"), which
-      // asserts this documented state rather than sameness.
-      if (ctx.vaultBound === true) {
-        const requested = vaultArgOf(def, parsed.data);
-        if (requested !== undefined && requested !== ctx.vaultId)
-          throw new ObsidianTcError("forbidden", "vault is not the caller's bound vault", {
-            vault: requested,
-            bound_vault: ctx.vaultId,
-          });
-      }
+      enforceVaultBinding(ctx, def, inputData);
 
-      // THE-295: per-vault ACL. When the parsed input names a vault, the remainder of this
-      // dispatch (the readOnly gate below + every enforcePathAcl in the handler) runs under
-      // THAT vault's ACL — the root ACL is the inherited default. Runs AFTER the THE-267
-      // vault-binding guard, so a bound caller cannot reach another vault's ACL. The advertised
-      // tool surface (listVisible) deliberately keeps the caller's default ACL; enforcement is
-      // per-vault here at dispatch.
-      if (this.aclResolver) {
-        const requestedVault = vaultArgOf(def, parsed.data);
-        if (requestedVault !== undefined) {
-          const vaultAcl = this.aclResolver(requestedVault);
-          // Property mutation (not param reassignment): ctx objects are per-dispatch.
-          if (vaultAcl) (ctx as { acl?: typeof vaultAcl }).acl = vaultAcl;
-        }
-      }
+      applyVaultAcl(ctx, def, inputData, this.aclResolver);
 
       const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
       if (mutating && ctx.acl?.readOnly)
@@ -509,7 +456,7 @@ export class ToolRegistry {
       // touched. A no-op when no vaultKindResolver is wired (a registry built with no
       // VaultRegistry, or a unit test that omits it).
       if (this.vaultKindResolver && mutating) {
-        const effVault = vaultArgOf(def, parsed.data) ?? ctx.vaultId;
+        const effVault = vaultArgOf(def, inputData) ?? ctx.vaultId;
         const kind = this.vaultKindResolver(effVault);
         if (kind === "docs" || kind === "system")
           throw err.forbidden(`${name} cannot mutate a ${kind}-kind vault`, {
@@ -520,7 +467,7 @@ export class ToolRegistry {
 
       // Tool-specific precondition gate (D5). After scope/ACL, before HITL, so a
       // rejected precheck never consumes the single-use elicit token.
-      if (def.precheck) await def.precheck(parsed.data, ctx);
+      if (def.precheck) await def.precheck(inputData, ctx);
 
       // Idempotency gate (D3). A keyed call claims a row in idempotency_keys; a
       // replay returns the cached result without re-running the handler. Runs after
@@ -528,7 +475,7 @@ export class ToolRegistry {
       // atomically before the single-use elicit token is consumed, so two concurrent
       // identical requests can't each consume the token (TOCTOU). Authorization
       // (auth/scope/ACL) still runs before this gate, so it stays authoritative on replays.
-      idemKey = extractIdempotencyKey(parsed.data);
+      idemKey = extractIdempotencyKey(inputData);
       if (idemKey) {
         // WP4.2: the claim-or-replay decision (reclaim-and-retry, corrupt-blob recovery,
         // terminal-overflow replay) now lives in registry/idempotency.ts's claimOrReplay,
@@ -745,10 +692,10 @@ export class ToolRegistry {
         },
         async () => {
           if (def.pathAcl) {
-            const effVault = vaultArgOf(def, parsed.data) ?? ctx.vaultId;
+            const effVault = vaultArgOf(def, inputData) ?? ctx.vaultId;
             const root = this.rootResolver?.(effVault);
             if (root) {
-              for (const { op, path } of def.pathAcl(parsed.data)) {
+              for (const { op, path } of def.pathAcl(inputData)) {
                 // P1.4: pass the caller's granted scopes so a path's declared rule-scopes are
                 // enforced here (the authoritative central stage), not just the folder allowlist.
                 enforcePathAcl(ctx.acl, op, path, root, ctx.grantedScopes);
@@ -759,7 +706,7 @@ export class ToolRegistry {
           // idemClaimed's claim is still pre-effect here, so the catch below deletes it cleanly.
           checkAborted(ctx.signal);
           const handlerStart = now();
-          const r = await def.handler(parsed.data, ctx);
+          const r = await def.handler(inputData, ctx);
           handlerMs = Math.max(0, now() - handlerStart);
           handlerReturned = true;
           // #13: the default marker point — the WHOLE handler returned, so any later fault is
