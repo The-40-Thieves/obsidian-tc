@@ -379,8 +379,12 @@ Single-commit or small-PR sized. Assign tracker IDs before adding any source TOD
   **note (2026-07-30):** this was satisfied vacuously — `noExcessiveLinesPerFile` had no
   repo-wide setting, only three dead per-file `overrides` (`cli.ts`, `registry.ts`,
   `indexer.ts`) capped far above their post-refactor sizes. Closed by replacing those with a
-  single repo-wide override for `packages/*/src/**/*.ts` at `maxLines: 1100` — non-vacuous
-  today (see `biome.json`).
+  single repo-wide override for `packages/*/src/**/*.ts` — non-vacuous today (see `biome.json`).
+  **Ratcheted to `maxLines: 700` after WP8** split `notes-tools.ts` (1,042 → 51), which had been
+  the file setting the old 1,100 floor. 700 sits 72 above the true maximum: `runtime/
+  server-runtime.ts` at **628**. Note the rule counts CODE lines, not `wc -l` — comment-only
+  lines are free, so `server-runtime.ts` is 680 raw / 628 counted. Compare against the counted
+  value (lower the cap and read the diagnostic) before assuming headroom from a `wc -l`.
 - the known circular-dependency baseline is empty;
 - the unreachable-production allowlist is empty;
 - generated configuration and tool metadata are unchanged unless separately approved;
