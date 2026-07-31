@@ -1,0 +1,34 @@
+-- 20260731_001_citation_state.sql
+-- The provenance axis on chunk_retrievals: WHY a citation verdict is what it is.
+--
+-- `cited_in_response` is a nullable 0/1 that today carries three different meanings in its `1`:
+--   * the gateway judge read the transcript and confirmed the chunk was used; and
+--   * the chunk merely passed the cheap stage-1 filter (ROUGE-L / cosine) and NO judge existed to
+--     check it -- citation.ts's "stage-1-only mode", reached whenever the gateway is unconfigured
+--     (cli/commands/citation-infer.ts: `judge: gwc ? ... : null`).
+-- Those are not the same claim. Passing a candidate filter is not proof of citation, so the
+-- absence of a judge currently MANUFACTURES citations, and nothing downstream can tell the two
+-- apart: chunk_access_stats, contribution.ts and metrics.ts all count `cited_in_response = 1`.
+--
+-- This column records the distinction. It is deliberately ADDITIVE and OBSERVATIONAL:
+-- `cited_in_response` keeps its exact current semantics and every existing number is unchanged.
+-- Whether a stage-1-only survivor should stop counting as a citation is a DATA-SEMANTICS decision
+-- with visible consequences for any gateway-less deployment, and this repo gates behaviour changes
+-- on evidence rather than on a refactor. Making the conflation queryable is the prerequisite for
+-- that decision, not the decision itself.
+--
+-- Vocabulary (NULL = never processed, matching cited_in_response's existing NULL, so no backfill):
+--   'confirmed' -- stage-2 judge affirmatively said cited.
+--   'rejected'  -- stage-1 negative, or the judge said not cited. Pairs with cited_in_response = 0.
+--   'candidate' -- passed stage 1, no judge available. Pairs with cited_in_response = 1 TODAY;
+--                  this is the row whose meaning is overstated, and the one a follow-up would
+--                  reconsider.
+--   'uncertain' -- RESERVED. The judge cannot express ambiguity yet (parseVerdict returns a
+--                  boolean), so nothing emits this. Declared here because widening the vocabulary
+--                  later would need another append-only migration, and the CHECK below has to
+--                  admit it from the start.
+--
+-- NULL stays legal: kill-switch rows deliberately stay unstamped for a clean rerun (see the
+-- >5% parse-failure abort in citation.ts), and every pre-existing row is NULL by construction.
+ALTER TABLE chunk_retrievals ADD COLUMN citation_state TEXT
+  CHECK (citation_state IS NULL OR citation_state IN ('confirmed', 'rejected', 'candidate', 'uncertain'));

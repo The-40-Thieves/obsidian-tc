@@ -223,23 +223,42 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   const aborted = judged > 0 && parseFailures / judged > th.killSwitch;
   if (aborted) log(`citation-infer: kill switch — ${parseFailures}/${judged} judge parse failures`);
 
+  // `citation_state` (20260731_001) records WHY each verdict is what it is. `cited_in_response`
+  // keeps its exact prior semantics — the values written below are unchanged — because it is read
+  // as a citation count by chunk_access_stats, contribution.ts and metrics.ts, and changing what
+  // those count is a data-semantics decision, not a refactor. See the migration header.
+  //
+  // The WHERE guard still keys on `cited_in_response IS NULL`, deliberately: that is the existing
+  // idempotency contract, and moving it to citation_state would re-stamp every row written before
+  // this migration.
   const stamp = opts.edb.prepare(
-    `UPDATE chunk_retrievals SET cited_in_response = ?, citation_score = ?
+    `UPDATE chunk_retrievals SET cited_in_response = ?, citation_score = ?, citation_state = ?
      WHERE chunk_id = ? AND cited_in_response IS NULL AND ${scopeClause}`,
   );
   let cited = 0;
   for (const a of negatives) {
-    stamp.run(0, a.cosine ?? a.rouge, a.chunkId, ...scopeParams);
+    stamp.run(0, a.cosine ?? a.rouge, "rejected", a.chunkId, ...scopeParams);
   }
   for (const a of passers) {
     if (opts.judge) {
-      if (aborted) continue; // leave NULL for a clean rerun
+      if (aborted) continue; // leave NULL for a clean rerun — state stays NULL too
       const v = verdicts.get(a.chunkId);
       if (!v) continue; // this chunk's judgement failed to parse — rerun later
-      stamp.run(v.cited ? 1 : 0, v.score, a.chunkId, ...scopeParams);
+      stamp.run(
+        v.cited ? 1 : 0,
+        v.score,
+        v.cited ? "confirmed" : "rejected",
+        a.chunkId,
+        ...scopeParams,
+      );
       if (v.cited) cited += 1;
     } else {
-      stamp.run(1, a.cosine ?? a.rouge, a.chunkId, ...scopeParams);
+      // Stage-1-only: this row is stamped cited_in_response = 1 and therefore COUNTS as a citation
+      // downstream, but nothing ever checked it against the transcript — it only cleared the cheap
+      // ROUGE-L/cosine filter. `candidate` is the honest name for that, and making it queryable is
+      // the whole point of this column: `SELECT count(*) ... WHERE citation_state = 'candidate'`
+      // now answers "how much of our citation signal was never actually judged?"
+      stamp.run(1, a.cosine ?? a.rouge, "candidate", a.chunkId, ...scopeParams);
       cited += 1;
     }
   }

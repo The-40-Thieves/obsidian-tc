@@ -15,6 +15,10 @@ const EXP_CHAIN = [
   { version: "20260626_001", sql: read("20260626_001_experiential_init.sql") },
   { version: "20260711_001", sql: read("20260711_001_experiential_outcome.sql") },
   { version: "20260711_002", sql: read("20260711_002_agent_episodes.sql") },
+  // This fixture is a deliberate MINIMAL chain, not the production one, so a new experiential
+  // migration does not automatically appear here. 20260731_001 adds citation_state, which
+  // inferCitations now writes — without it every stamp fails "no such column".
+  { version: "20260731_001", sql: read("20260731_001_citation_state.sql") },
 ];
 const NOW = 1_700_000_000_000;
 
@@ -190,5 +194,136 @@ describe("citation inference (THE-170)", () => {
     expect(stats.stage1Pass).toBe(3); // all three survive stage 1
     expect(stats.judged).toBe(2); // but only maxJudged of them are actually judged
     expect(judgeCalls).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The provenance axis (20260731_001). `cited_in_response`'s `1` conflated "the judge confirmed
+// this against the transcript" with "it cleared the cheap stage-1 filter and no judge existed" —
+// and every downstream reader (chunk_access_stats, contribution.ts, metrics.ts) counts `= 1`, so
+// the absence of a gateway silently manufactures citations.
+//
+// This column separates the two WITHOUT changing a single existing number. The tests above are
+// the proof of that half: they assert the exact prior cited_in_response values and all still pass
+// untouched. The tests below pin the new half.
+// ---------------------------------------------------------------------------------------------
+const states = (edb: Database) =>
+  edb
+    .prepare("SELECT id, cited_in_response, citation_state FROM chunk_retrievals ORDER BY id")
+    .all() as Array<{
+    id: string;
+    cited_in_response: number | null;
+    citation_state: string | null;
+  }>;
+
+describe("citation provenance (citation_state)", () => {
+  function seeded() {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cA", CHUNK_CITED);
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cB", CHUNK_UNCITED);
+    seedRetrieval(edb, "r1", "cA", "s1");
+    seedRetrieval(edb, "r2", "cB", "s1");
+    return { edb, cacheDb };
+  }
+
+  it("a judge-affirmed survivor is 'confirmed'; a stage-1 negative is 'rejected'", async () => {
+    const { edb, cacheDb } = seeded();
+    await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async () => ({ text: '{"cited": true, "score": 0.9}', model: "fake" }),
+    });
+    const s = states(edb);
+    expect(s.find((x) => x.id === "r1")).toMatchObject({
+      cited_in_response: 1,
+      citation_state: "confirmed",
+    });
+    expect(s.find((x) => x.id === "r2")).toMatchObject({
+      cited_in_response: 0,
+      citation_state: "rejected",
+    });
+  });
+
+  it("a judge that says NOT cited is 'rejected', not merely unstamped", async () => {
+    const { edb, cacheDb } = seeded();
+    await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async () => ({ text: '{"cited": false, "score": 0.1}', model: "fake" }),
+    });
+    expect(states(edb).find((x) => x.id === "r1")).toMatchObject({
+      cited_in_response: 0,
+      citation_state: "rejected",
+    });
+  });
+
+  it("⭐ a stage-1-only survivor is 'candidate' — still counted, now visibly unjudged", async () => {
+    // THE POINT OF THE COLUMN. cited_in_response stays 1, so chunk_access_stats /
+    // contribution.ts / metrics.ts count it exactly as before — but the row no longer claims a
+    // judge ever looked at it. Whether these should stop counting is a separate, evidence-gated
+    // decision; this makes the question answerable.
+    const { edb, cacheDb } = seeded();
+    const stats = await inferCitations({ edb, cacheDb, transcript: TRANSCRIPT, sessionId: "s1" });
+    expect(stats.judged).toBe(0);
+    expect(states(edb).find((x) => x.id === "r1")).toMatchObject({
+      cited_in_response: 1,
+      citation_state: "candidate",
+    });
+  });
+
+  it("makes 'how much of our citation signal was never judged?' a query", async () => {
+    const { edb, cacheDb } = seeded();
+    await inferCitations({ edb, cacheDb, transcript: TRANSCRIPT, sessionId: "s1" });
+    const row = edb
+      .prepare(
+        `SELECT SUM(CASE WHEN citation_state = 'candidate' THEN 1 ELSE 0 END) AS unjudged,
+                SUM(CASE WHEN cited_in_response = 1 THEN 1 ELSE 0 END)         AS counted
+         FROM chunk_retrievals`,
+      )
+      .get() as { unjudged: number; counted: number };
+    // Every citation this run produced was unjudged — invisible before this column existed.
+    expect(row.counted).toBe(1);
+    expect(row.unjudged).toBe(1);
+  });
+
+  it("the kill switch leaves BOTH columns NULL — a clean rerun, not a recorded verdict", async () => {
+    const { edb, cacheDb } = seeded();
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async () => ({ text: "definitely not json", model: "fake" }),
+    });
+    expect(stats.aborted).toBe(true);
+    const s = states(edb);
+    expect(s.find((x) => x.id === "r1")).toMatchObject({
+      cited_in_response: null,
+      citation_state: null,
+    });
+    // The stage-1 negative still stamps, and still records WHY.
+    expect(s.find((x) => x.id === "r2")).toMatchObject({
+      cited_in_response: 0,
+      citation_state: "rejected",
+    });
+  });
+
+  it("the DB refuses a state outside the declared vocabulary", async () => {
+    // The CHECK is what makes 'candidate' mean something: an unknown state cannot be stored, so a
+    // future writer cannot quietly invent a fifth meaning the readers do not handle.
+    const { edb } = seeded();
+    expect(() =>
+      edb.prepare("UPDATE chunk_retrievals SET citation_state = 'probably' WHERE id = 'r1'").run(),
+    ).toThrow();
+    for (const ok of ["confirmed", "rejected", "candidate", "uncertain"]) {
+      expect(() =>
+        edb.prepare("UPDATE chunk_retrievals SET citation_state = ? WHERE id = 'r1'").run(ok),
+      ).not.toThrow();
+    }
   });
 });
