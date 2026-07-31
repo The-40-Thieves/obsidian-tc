@@ -11,6 +11,14 @@ import {
   RankingConfigSchema,
   RetrievalConfigSchema,
 } from "./config/retrieval.schema";
+import {
+  GovernorConfigSchema,
+  HttpConfigSchema,
+  type ThrottleConfig,
+  ThrottleConfigSchema,
+  TransportsConfigSchema,
+  WritesConfigSchema,
+} from "./config/runtime.schema";
 import type { VaultConfig, VaultConfigInput, VaultKind } from "./config/vault.schema";
 import {
   DEFAULT_MEMORY_FOLDER,
@@ -23,11 +31,12 @@ import {
 } from "./config/vault.schema";
 import { isLoopbackHost } from "./net-host";
 
-export type { IndexingConfig, VaultConfig, VaultConfigInput, VaultKind };
+export type { IndexingConfig, ThrottleConfig, VaultConfig, VaultConfigInput, VaultKind };
 // WP1.1: auth+ACL schemas now live in ./config/auth-acl.schema.ts.
 // WP1.2: vault schemas now live in ./config/vault.schema.ts.
 // WP1.3: retrieval/ranking/experiential schemas now live in ./config/retrieval.schema.ts.
 // WP1.4: embeddings/indexing schemas now live in ./config/indexing-embeddings.schema.ts.
+// WP1.5: http/transports/governor/throttle/writes schemas now live in ./config/runtime.schema.ts.
 // All are re-exported here so this stays a compatibility facade and every existing import of
 // these names keeps working.
 export {
@@ -37,144 +46,23 @@ export {
   DEFAULT_MEMORY_FOLDER,
   EmbeddingsConfigSchema,
   ExperientialConfigSchema,
+  GovernorConfigSchema,
+  HttpConfigSchema,
   IndexingConfigSchema,
   MetadataPriorRuleSchema,
   RankingConfigSchema,
   RetrievalConfigSchema,
+  ThrottleConfigSchema,
+  TransportsConfigSchema,
   VaultBridgesConfigSchema,
   VaultCommandsConfigSchema,
   VaultConfigSchema,
   VaultMemoryConfigSchema,
   VaultPluginsConfigSchema,
   VaultWorkspaceConfigSchema,
+  WritesConfigSchema,
 };
 
-export const HttpConfigSchema = z.object({
-  enabled: z.boolean().default(false).describe("Serve the MCP HTTP transport."),
-  host: z
-    .string()
-    .default("127.0.0.1")
-    .describe(
-      "Bind address. A non-loopback host is refused while auth.mode is `none`, since every request would otherwise resolve to full wildcard scopes.",
-    ),
-  port: z
-    .number()
-    .int()
-    .min(1)
-    .max(65535)
-    .default(8765)
-    .describe("TCP port for the HTTP transport."),
-  // DNS-rebinding / cross-origin protection (THE-271). On by default: reject a request whose Host is
-  // neither loopback nor operator-allowed, or whose Origin (browsers always send one) is not the same
-  // origin or operator-allowed. Server-to-server clients send no Origin and are unaffected.
-  enableDnsRebindingProtection: z
-    .boolean()
-    .default(true)
-    .describe(
-      "Reject a request whose Host is neither loopback nor operator-allowed, or whose Origin is neither same-origin nor operator-allowed. Server-to-server clients send no Origin and are unaffected.",
-    ),
-  allowedHosts: z
-    .array(z.string())
-    .default([])
-    .describe("Additional Host header values accepted by the rebinding guard."),
-  allowedOrigins: z
-    .array(z.string())
-    .default([])
-    .describe("Additional Origin header values accepted by the rebinding guard."),
-});
-
-export const TransportsConfigSchema = z.object({
-  stdio: z.boolean().default(true).describe("Serve the MCP stdio transport."),
-  http: HttpConfigSchema.prefault({}).describe("HTTP transport settings."),
-});
-
-export const GovernorConfigSchema = z.object({
-  maxResponseBytes: z
-    .number()
-    .int()
-    .positive()
-    .default(1_000_000)
-    .describe(
-      "Ceiling on a single tool or resource response in bytes, before it is refused (THE-514: resources/read honors this too, not just tools).",
-    ),
-  // THE-293: worker-time budget (ms) for one search_regex / search_vault(mode:regex) call.
-  // Only regex execution in the worker counts — file I/O does not — so a benign pattern on a
-  // large vault cannot false-positive the ReDoS guard.
-  regexTimeoutMs: z
-    .number()
-    .int()
-    .positive()
-    .default(2000)
-    .describe(
-      "Worker-time budget in ms for one regex search. Only regex execution counts — file I/O does not — so a benign pattern over a large vault cannot false-positive the ReDoS guard.",
-    ),
-});
-
-// Per-scope-class throttle tiers + write-concurrency ceiling (THE-182 / M6, G2.4
-// §Rate limits). Additive + fully defaulted, so a config predating M6 validates
-// unchanged. The M6 bulk tools enforce the `bulk` tier (10/min, burst 3); the
-// other tiers are reported by get_server_config and reserved for the M7
-// dispatch-wide rate-limit gate. get_server_config surfaces these as its `limits`
-// block (non-secret).
-const throttleTier = (kind: string, perMinute: number, burst: number) =>
-  z
-    .object({
-      perMinute: z
-        .number()
-        .int()
-        .positive()
-        .default(perMinute)
-        .describe(`Sustained ${kind}-scope calls allowed per minute.`),
-      burst: z
-        .number()
-        .int()
-        .positive()
-        .default(burst)
-        .describe(
-          `Bucket depth for ${kind}-scope calls: how many may fire back-to-back before the per-minute rate applies.`,
-        ),
-    })
-    .prefault({})
-    .describe(`Throttle tier for ${kind}-scope tools.`);
-
-export const ThrottleConfigSchema = z
-  .object({
-    enabled: z.boolean().default(true).describe("Enforce per-scope-class rate limits."),
-    tiers: z
-      .object({
-        read: throttleTier("read", 600, 100),
-        write: throttleTier("write", 60, 20),
-        delete: throttleTier("delete", 60, 20),
-        bulk: throttleTier("bulk", 10, 3),
-        execute: throttleTier("execute", 5, 1),
-        admin: throttleTier("admin", 5, 1),
-      })
-      .prefault({})
-      .describe("Per-scope-class rate limits."),
-    maxConcurrentWritesPerVault: z
-      .number()
-      .int()
-      .positive()
-      .default(16)
-      .describe("Ceiling on concurrent write operations against a single vault."),
-  })
-  .prefault({});
-export type ThrottleConfig = z.infer<typeof ThrottleConfigSchema>;
-
-// THE-252: write-safety policy. requireCas gates compare-and-swap on the destructive write paths.
-export const WritesConfigSchema = z
-  .object({
-    // When true, write_note (overwrite) and append_note to an existing note REQUIRE a prev_hash
-    // (compare-and-swap) and fail closed with invalid_input when it is absent, so a stale or absent
-    // hash cannot silently clobber. Default off; the non-configurable hard default is deferred to a major.
-    requireCas: z
-      .boolean()
-      .default(false)
-      .describe(
-        "Require a prev_hash (compare-and-swap) on overwriting writes and on appends to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber.",
-      ),
-  })
-  .prefault({});
 // Observability config (G2.4 §Observability — finalized in M7/THE-183). Three opt-in
 // export streams plus retention, all fully defaulted so a config predating M7 validates
 // unchanged. OTEL is a no-op unless `otel.endpoint` is set; the Prometheus `/metrics`
