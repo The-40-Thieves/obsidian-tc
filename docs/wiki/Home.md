@@ -22,11 +22,11 @@
 
 ## Three pillars
 
-1. **Broad.** 150 tools covering the meaningful Obsidian operations — native Bases (`.base`) with a real expression-DSL evaluator, Canvas, Excalidraw, deep plugin bridges, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
+1. **Broad.** 151 tools covering the meaningful Obsidian operations — native Bases (`.base`) with a real expression-DSL evaluator, Canvas, Excalidraw, deep plugin bridges, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
 2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS), per-vault folder ACLs, a read-only kill switch, human-in-the-loop (HITL) confirmation on destructive operations, compare-and-swap on writes, idempotency keys, and per-class rate limiting.
 3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, a CloudEvents spool, and structured event emission on every tool call.
 
-## The interface: 3 tools, 151 governed capabilities
+## The interface: 3 tools, 151 governed capabilities <!-- facts-check:ignore -->
 
 By default `tools/list` advertises just **three meta-tools**: `find_capability` (BM25 search over the capability catalog), `describe_capability` (one capability's schema, scopes, and safety hints), and `call_capability` (invoke by name — routed through the same auth/ACL/HITL/idempotency/throttle pipeline as a direct call). This keeps agent context lean while the full surface stays reachable; `toolFacade.mode` selects `triad` (default), `domain`, or `flat`. The facade is boundary-only — no gate is ever bypassed.
 
@@ -57,7 +57,7 @@ Pull the default local embeddings model once (`ollama pull nomic-embed-text`) an
 | **[[Installation]]** | Install methods, runtimes, the companion plugin, native module |
 | **[[Configuration]]** | Config schema, vaults, auth, ACL, embeddings, retrieval + experiential knobs |
 | **[[Architecture]]** | Components, dispatch pipeline, IPC contracts, multi-vault registry, memory engine |
-| **[[Tool Reference]]** | The domain index for all 150 tools with one-line descriptions |
+| **[[Tool Reference]]** | The domain index for all 151 tools with one-line descriptions |
 | **[[Deployment Modes]]** | STDIO, HTTP local, HTTP remote, Docker, MCPB, standalone binary |
 | **[[Security and ACL]]** | Scopes, HITL thresholds, kill switch, CAS, idempotency, elicit tokens |
 | **[[Plugin Bridges]]** | Companion plugin, discovery probe, supported third-party plugins |

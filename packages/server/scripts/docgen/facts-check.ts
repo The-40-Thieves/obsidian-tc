@@ -159,6 +159,19 @@ export function factRules(
         new RegExp(`${STANDALONE}(\\d+)-tool\\s+\\S+\\s+(?:surface|set)`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+typed\\s+tools`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+tool\\s+impls?`, "i"), // "across the 141 tool impls"
+        // Measured 2026-07-31: README.md said "150 tools covering the meaningful Obsidian
+        // operations" while the same file said "151 tools across 31 domains" TWICE and
+        // REGISTERED_TOOL_COUNT was 151. Every pattern above needs a specific FOLLOWING word —
+        // "across <domainCount> domains", "surface", "set", "impls" — so a bare "N tools" trailed
+        // by any other verb was invisible. The file was in the allowlist, the rule existed, the
+        // sweep ran, and it passed over a wrong number: covering a FILE is not covering a CLAIM.
+        //
+        // So: match a bare standalone "N tools". That is deliberately the widest pattern here and
+        // it WILL catch legitimate sub-counts and historical figures — which is the right default,
+        // because `facts-check:ignore` makes an exemption explicit and reviewable, where a
+        // too-narrow regex makes it silent and invisible. The two currently-marked lines are the
+        // whole cost of that choice.
+        new RegExp(`${STANDALONE}(\\d+)\\s+tools\\b`, "i"),
       ],
     },
     {

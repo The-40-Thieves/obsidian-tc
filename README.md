@@ -19,7 +19,7 @@ obsidian-tc gives agents **governed** access instead. Every tool call — no exc
 
 New here? Start with the [5-minute quickstart](./docs/QUICKSTART.md) or the [threat model and design rationale](./docs/WHY.md).
 
-## The interface: 3 tools, ~151 governed capabilities
+## The interface: 3 tools, ~151 governed capabilities <!-- facts-check:ignore -->
 
 By default the server advertises just **three meta-tools** instead of a wall of 150:
 
@@ -51,7 +51,7 @@ obsidian-tc is a comprehensive Model Context Protocol (MCP) server for [Obsidian
 
 Three pillars:
 
-1. **Broad.** 150 tools covering the meaningful Obsidian operations — including native Bases (`.base`) support with a real expression-DSL evaluator, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
+1. **Broad.** 151 tools covering the meaningful Obsidian operations — including native Bases (`.base`) support with a real expression-DSL evaluator, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
 2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS with `kid` rotation), folder ACLs (per vault), read-only kill switch, human-in-the-loop elicit on destructive operations, compare-and-swap on writes, idempotency keys, bulk throttling.
 3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, structured CloudEvents emission on every tool call — all opt-in export streams that fail soft.
 
@@ -75,12 +75,12 @@ Earlier v1.3.x hardening (per-vault ACLs, symlink-canonical enforcement, trigram
 | Milestone | Scope | Status |
 |---|---|---|
 | M0 | Walking skeleton: dispatch pipeline, folder ACL, HITL elicit, migrations | ✅ Merged |
-| M1 | Core vault access — 30 tools (CRUD, frontmatter, tags, links) | ✅ Merged |
-| M2 | Search + embeddings — 6 tools + retrieval substrate | ✅ Merged |
-| M3 | Structured formats — 23 tools (Bases, Canvas, Periodic, Attachments, Bookmarks, Workspaces) | ✅ Merged |
-| M4 | Plugin bridges + companion plugin — 20 tools across 9 domains | ✅ Merged |
-| M5 | Memory + capture substrate — 15 tools (capture queue, memory entities + `[[link]]` graph, workspace sessions + JSONL traces, plur read proxy) | ✅ Merged |
-| M6 | Bulk + admin + URI — 7 tools | ✅ Merged |
+| M1 | Core vault access — 30 tools (CRUD, frontmatter, tags, links) | ✅ Merged | <!-- facts-check:ignore -->
+| M2 | Search + embeddings — 6 tools + retrieval substrate | ✅ Merged | <!-- facts-check:ignore -->
+| M3 | Structured formats — 23 tools (Bases, Canvas, Periodic, Attachments, Bookmarks, Workspaces) | ✅ Merged | <!-- facts-check:ignore -->
+| M4 | Plugin bridges + companion plugin — 20 tools across 9 domains | ✅ Merged | <!-- facts-check:ignore -->
+| M5 | Memory + capture substrate — 15 tools (capture queue, memory entities + `[[link]]` graph, workspace sessions + JSONL traces, plur read proxy) | ✅ Merged | <!-- facts-check:ignore -->
+| M6 | Bulk + admin + URI — 7 tools | ✅ Merged | <!-- facts-check:ignore -->
 | M7 | Harden + ship: OpenTelemetry tracing, Prometheus `/metrics`, CloudEvents spool, rate limiter, 8-triple native prebuilds, release workflow | ✅ Shipped (v1.0.2) |
 | M7+ | Knowledge domain: GraphRAG (`vault_graph_search`), `knowledge_challenge`, composite `vault_context` + `reflect` | ✅ Shipped (v1.4–v1.7) |
 | M8 | Experiential work-memory tier: retrieval log, episode capture + poison defense, reader contract, preference profile, forget | ✅ Shipped (v1.6–v1.7) |
