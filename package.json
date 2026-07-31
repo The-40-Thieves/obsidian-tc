@@ -49,6 +49,7 @@
     "setup:dco-hook": "node scripts/setup-dco-hook.mjs",
     "setup:git-merge-driver": "node scripts/setup-git-merge-driver.mjs",
     "test": "bun run --filter='*' test",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "typecheck": "bun run --filter='*' typecheck",
     "vec:embed": "node scripts/gen-embedded-vec.mjs"
   },
