@@ -3,9 +3,12 @@ language: typescript
 severity: warning
 message: captureSnapshot may return null, but this mutation ignores whether rollback exists.
 note: >-
-  snapshots are disabled in the default trusted-local posture. Before a destructive mutation,
-  inspect captureSnapshot's number|null result and either reject the operation, provide another
-  recovery mechanism, or make the no-rollback posture explicit at the governed boundary.
+  captureSnapshot returns number|null and the null is NOT hypothetical: snapshots.enabled defaults
+  to true (THE-648), but a config may set it false, and a capture can also fail at runtime — so a
+  mutation that ignores the result silently loses its undo in exactly the configurations that
+  needed it. Before a destructive mutation, inspect captureSnapshot's number|null result and either
+  reject the operation, provide another recovery mechanism, or make the no-rollback posture
+  explicit at the governed boundary.
 files:
   - packages/server/src/tools/**/*.ts
   - packages/server/src/vault/persist-note.ts
