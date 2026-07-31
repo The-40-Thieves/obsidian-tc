@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 328,
-    "dependencies": 1420,
-    "subsystemPairs": 92,
-    "crossSubsystemImports": 593
+    "modules": 334,
+    "dependencies": 1474,
+    "subsystemPairs": 101,
+    "crossSubsystemImports": 668
   },
   "subsystems": {
     "auth": 3,
@@ -30,7 +30,7 @@
     "plane": 6,
     "plugin": 2,
     "plur": 2,
-    "runtime": 7,
+    "runtime": 13,
     "scheduler": 4,
     "schemas": 1,
     "search": 51,
@@ -62,9 +62,19 @@
       "weight": 36
     },
     {
+      "from": "runtime",
+      "to": "search",
+      "weight": 21
+    },
+    {
       "from": "cli",
       "to": "db",
       "weight": 20
+    },
+    {
+      "from": "runtime",
+      "to": "db",
+      "weight": 18
     },
     {
       "from": "search",
@@ -83,16 +93,26 @@
     },
     {
       "from": "runtime",
-      "to": "db",
-      "weight": 12
+      "to": "scheduler",
+      "weight": 11
     },
     {
       "from": "runtime",
-      "to": "search",
-      "weight": 10
+      "to": "tools",
+      "weight": 11
     },
     {
       "from": "mcp",
+      "to": "vault",
+      "weight": 9
+    },
+    {
+      "from": "runtime",
+      "to": "mcp",
+      "weight": 9
+    },
+    {
+      "from": "runtime",
       "to": "vault",
       "weight": 9
     },
@@ -112,9 +132,19 @@
       "weight": 8
     },
     {
+      "from": "runtime",
+      "to": "metrics",
+      "weight": 8
+    },
+    {
       "from": "tools",
       "to": "formats",
       "weight": 8
+    },
+    {
+      "from": "runtime",
+      "to": "plane",
+      "weight": 7
     },
     {
       "from": "tools",
@@ -123,7 +153,7 @@
     },
     {
       "from": "runtime",
-      "to": "metrics",
+      "to": "experiential",
       "weight": 6
     },
     {
@@ -157,23 +187,23 @@
       "weight": 5
     },
     {
+      "from": "runtime",
+      "to": "morgiana",
+      "weight": 5
+    },
+    {
       "from": "plane",
       "to": "db",
       "weight": 4
     },
     {
       "from": "runtime",
-      "to": "morgiana",
+      "to": "embeddings",
       "weight": 4
     },
     {
       "from": "runtime",
-      "to": "experiential",
-      "weight": 4
-    },
-    {
-      "from": "runtime",
-      "to": "mcp",
+      "to": "util",
       "weight": 4
     },
     {
@@ -218,7 +248,12 @@
     },
     {
       "from": "runtime",
-      "to": "vault",
+      "to": "bridge",
+      "weight": 3
+    },
+    {
+      "from": "runtime",
+      "to": "workspace",
       "weight": 3
     },
     {
@@ -278,22 +313,7 @@
     },
     {
       "from": "runtime",
-      "to": "embeddings",
-      "weight": 2
-    },
-    {
-      "from": "runtime",
-      "to": "util",
-      "weight": 2
-    },
-    {
-      "from": "runtime",
-      "to": "scheduler",
-      "weight": 2
-    },
-    {
-      "from": "runtime",
-      "to": "workspace",
+      "to": "transports",
       "weight": 2
     },
     {
@@ -447,8 +467,38 @@
       "weight": 1
     },
     {
+      "from": "runtime",
+      "to": "cli",
+      "weight": 1
+    },
+    {
+      "from": "runtime",
+      "to": "otel",
+      "weight": 1
+    },
+    {
+      "from": "runtime",
+      "to": "gateway",
+      "weight": 1
+    },
+    {
+      "from": "runtime",
+      "to": "model",
+      "weight": 1
+    },
+    {
+      "from": "runtime",
+      "to": "plur",
+      "weight": 1
+    },
+    {
       "from": "search",
       "to": "util",
+      "weight": 1
+    },
+    {
+      "from": "tools",
+      "to": "capture",
       "weight": 1
     },
     {
@@ -459,11 +509,6 @@
     {
       "from": "tools",
       "to": "config",
-      "weight": 1
-    },
-    {
-      "from": "tools",
-      "to": "capture",
       "weight": 1
     },
     {
