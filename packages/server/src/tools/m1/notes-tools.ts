@@ -10,7 +10,7 @@
 // copy_note (overwriting an existing note) gate conditionally in the handler via
 // requireConfirmation, so ordinary creates, dry moves, and non-overwriting copies
 // never demand a token.
-import { err, ObsidianTcError, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -18,19 +18,13 @@ import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../vault/links";
-import {
-  hardDelete,
-  noteExists,
-  readNote,
-  statNote,
-  trashNote,
-  writeNoteAtomic,
-} from "../../vault/notes-io";
+import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { persistGovernedNote } from "../../vault/persist-note";
 import { rewriteLinks } from "../../vault/rewrite";
 import { captureSnapshot } from "../../vault/snapshots";
 import { defineTool } from "./define";
+import { createReadNotesTool, createReadNoteTool } from "./notes/read";
 import {
   AppendInput,
   AppendNoteOutput,
@@ -45,8 +39,6 @@ import {
   NoteExistsOutput,
   PatchInput,
   PatchNoteOutput,
-  ReadNoteOutput,
-  ReadNotesOutput,
   WriteInput,
   WriteNoteOutput,
 } from "./notes/schemas";
@@ -243,75 +235,8 @@ function updateBacklinks(
 
 export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
   return [
-    defineTool({
-      name: "read_note",
-      domain: "notes",
-      pathAcl: (input) => [{ op: "read", path: input.path }],
-      description: "Read a note's raw content, parsed frontmatter, body, content hash, and stat.",
-      inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
-      outputSchema: ReadNoteOutput,
-      requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
-        const v = deps.vaultRegistry.resolve(input.vault);
-        const rel = normalizeVaultPath(input.path);
-        const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
-        const ex = noteExists(abs);
-        if (!ex.exists || ex.type === "folder")
-          throw err.noteNotFound("note not found", { vault: v.id, path: rel });
-        const { raw, hash } = readNote(abs);
-        const parsed = parseNote(raw);
-        return {
-          vault: v.id,
-          path: rel,
-          content: raw,
-          frontmatter: parsed.frontmatter,
-          body: parsed.body,
-          has_frontmatter: parsed.hasFrontmatter,
-          content_hash: hash,
-          stat: statNote(abs),
-        };
-      },
-    }),
-
-    defineTool({
-      name: "read_notes",
-      domain: "notes",
-      pathAcl: (input) => input.paths.map((p) => ({ op: "read" as const, path: p })),
-      description:
-        "Batch-read notes. Returns successful notes and a per-path error list (partial).",
-      inputSchema: z.object({ vault: VaultId, paths: z.array(VaultPath).min(1).max(100) }).strict(),
-      outputSchema: ReadNotesOutput,
-      requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
-        const v = deps.vaultRegistry.resolve(input.vault);
-        const notes: Array<Record<string, unknown>> = [];
-        const errors: Array<{ path: string; code: string; message: string }> = [];
-        for (const p of input.paths) {
-          try {
-            const rel = normalizeVaultPath(p);
-            const abs = resolveVaultPath(v.root, rel);
-            enforcePathAcl(ctx.acl, "read", rel, v.root);
-            const ex = noteExists(abs);
-            if (!ex.exists || ex.type === "folder")
-              throw err.noteNotFound("note not found", { path: rel });
-            const { raw, hash } = readNote(abs);
-            const parsed = parseNote(raw);
-            notes.push({
-              path: rel,
-              content: raw,
-              frontmatter: parsed.frontmatter,
-              body: parsed.body,
-              content_hash: hash,
-            });
-          } catch (e) {
-            const code = e instanceof ObsidianTcError ? e.code : "internal_error";
-            errors.push({ path: p, code, message: (e as Error).message });
-          }
-        }
-        return { vault: v.id, notes, errors };
-      },
-    }),
+    createReadNoteTool(deps),
+    createReadNotesTool(deps),
 
     defineTool({
       name: "list_notes",
