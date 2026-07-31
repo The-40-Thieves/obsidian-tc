@@ -6,9 +6,9 @@ filesystem, not inferred. Counts in the hand-written sections come from
 regions state their own method.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 952 tracked code files · 139,322 lines.
+**Scale:** 959 tracked code files · 139,709 lines.
 
-TypeScript 130,128 · JavaScript 5,703 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 130,497 · JavaScript 5,721 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -200,7 +200,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**353 modules · 1529 dependencies · 101 distinct subsystem pairs · 668 cross-subsystem imports.**
+**359 modules · 1574 dependencies · 101 distinct subsystem pairs · 689 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -222,7 +222,7 @@ set is 101 pairs.
 
 ```mermaid
 flowchart LR
-  tools[tools<br/>72 files]
+  tools[tools<br/>78 files]
   search[search<br/>51 files]
   cli[cli<br/>22 files]
   mcp[mcp<br/>17 files]
@@ -241,8 +241,8 @@ flowchart LR
   memory[memory<br/>2 files]
   morgiana[morgiana<br/>1 files]
 
-  tools -->|162| vault
-  tools -->|62| mcp
+  tools -->|178| vault
+  tools -->|67| mcp
   search -->|38| db
   tools -->|36| search
   runtime -->|21| search
@@ -279,9 +279,9 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 211 | `tools` | 315 |
+| `vault` | 227 | `tools` | 336 |
 | `db` | 122 | `runtime` | 126 |
-| `mcp` | 80 | `search` | 59 |
+| `mcp` | 85 | `search` | 59 |
 | `search` | 76 | `cli` | 48 |
 | `embeddings` | 22 | `mcp` | 23 |
 <!-- END GENERATED: tree-fan -->

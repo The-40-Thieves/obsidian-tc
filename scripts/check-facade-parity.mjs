@@ -64,6 +64,11 @@ export const DEFAULT_FACADES = [
   { file: "packages/server/src/search/indexer.ts", floor: 9 }, // baseline 17 -> ceil(17/2)
   { file: "packages/server/src/mcp/registry.ts", floor: 6 }, // baseline 12 -> ceil(12/2)
   { file: "packages/plugin/src/routes.ts", floor: 3 }, // baseline 5 -> ceil(5/2)
+  // WP8 (post-refactor-program follow-up, not one of the original six targets): notes-tools.ts
+  // exports exactly one name (buildNotesTools) both before and after the split into
+  // packages/server/src/tools/m1/notes/*, so its floor is as low as this gate goes — still
+  // non-empty, still fires the moment that one re-export is dropped.
+  { file: "packages/server/src/tools/m1/notes-tools.ts", floor: 1 }, // baseline 1 -> ceil(1/2)
 ];
 
 /** file -> declared floor, for O(1) lookup in main(). Falls back to MIN_EXPORTS when absent. */
