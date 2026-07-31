@@ -365,4 +365,47 @@ describe("idempotency reclaim window (THE-293)", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe("idempotency_in_flight");
   });
+
+  // Cross-vendor review (Codex), WP4.2: the extracted claimOrReplay must sample the clock at each
+  // of the (up to) four points the original inline block did — the initial claim, the expires_at
+  // check, the started_at+reclaimMs check, and the retry claim — not once, up front, reused for
+  // all four. Every OTHER reclaim test in this file uses a FIXED `now: () => constant`, which
+  // cannot distinguish "sampled once" from "sampled every time": both see the same number at every
+  // comparison. This test uses a STATEFUL clock that advances between calls, so the two
+  // implementations disagree on whether the row is reclaimable.
+  it("reclaims using a LIVE clock across claim/read/retry, not one frozen sample", async () => {
+    const db = freshDb();
+    const startedAt = 900_000;
+    // idempotencyReclaimSeconds chosen so the reclaim threshold (startedAt + reclaimMs =
+    // 1_000_250) sits strictly between the clock's 2nd reading (1_000_100, at claimOrReplay's
+    // initial claim attempt) and its 4th reading (1_000_300, at the started_at+reclaimMs check):
+    //   - a single sample taken at the FIRST reading (1_000_100) sees 1_000_250 <= 1_000_100 as
+    //     FALSE — not reclaimable, and this call returns idempotency_in_flight forever.
+    //   - a fresh sample taken at EACH point sees 1_000_250 <= 1_000_300 as TRUE by the time the
+    //     reclaim-window comparison actually runs — the row is reclaimed and the handler executes.
+    const reclaimMs = 100_250;
+    const { reg, calls } = counterReg({ idempotencyReclaimSeconds: reclaimMs / 1000 });
+    db.prepare(INSERT).run(
+      "v1",
+      "K",
+      "kv_put",
+      argsHash("kv_put", { k: "a", v: "1", idempotency_key: "K" }),
+      startedAt,
+      null,
+      null,
+      null,
+      startedAt + 50_000_000, // expires_at far in the future: TTL expiry is never the reclaim reason
+    );
+    // Advances 100ms per call. runDispatch's own `start = now()` consumes the first reading
+    // (1_000_000); claimOrReplay's four calls then see 1_000_100 / 1_000_200 / 1_000_300 / 1_000_400.
+    let reads = 0;
+    const liveClock = () => 1_000_000 + reads++ * 100;
+    const r = await reg.dispatch(
+      "kv_put",
+      { k: "a", v: "1", idempotency_key: "K" },
+      ctx(db, { now: liveClock }),
+    );
+    expect(r.ok).toBe(true);
+    expect(calls.n).toBe(1);
+  });
 });

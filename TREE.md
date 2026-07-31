@@ -6,9 +6,9 @@ filesystem, not inferred. Counts in the hand-written sections come from
 regions state their own method.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 913 tracked code files · 136,508 lines.
+**Scale:** 915 tracked code files · 136,775 lines.
 
-TypeScript 127,876 · JavaScript 5,141 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 128,143 · JavaScript 5,141 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -200,7 +200,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**318 modules · 1357 dependencies · 88 distinct subsystem pairs · 556 cross-subsystem imports.**
+**320 modules · 1367 dependencies · 88 distinct subsystem pairs · 558 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -227,13 +227,14 @@ flowchart LR
   cli[cli<br/>22 files]
   vault[vault<br/>18 files]
   db[(db<br/>13 files)]
+  mcp[mcp<br/>13 files]
   experiential[experiential<br/>11 files]
-  mcp[mcp<br/>11 files]
   bridge[bridge<br/>8 files]
   model[model<br/>7 files]
   embeddings[embeddings<br/>6 files]
   formats[formats<br/>6 files]
   plane[plane<br/>6 files]
+  otel[otel<br/>3 files]
   memory[memory<br/>2 files]
 
   tools -->|162| vault
@@ -254,6 +255,7 @@ flowchart LR
   tools -->|6| plane
   cli -->|5| search
   embeddings -->|5| search
+  mcp -->|5| otel
   memory -->|5| vault
 ```
 <!-- END GENERATED: tree-subsystem-graph -->
@@ -266,7 +268,7 @@ flowchart LR
 | `vault` | 202 | `tools` | 315 |
 | `db` | 108 | `search` | 59 |
 | `mcp` | 71 | `cli` | 48 |
-| `search` | 59 | `mcp` | 21 |
+| `search` | 59 | `mcp` | 23 |
 | `embeddings` | 18 | `experiential` | 18 |
 <!-- END GENERATED: tree-fan -->
 

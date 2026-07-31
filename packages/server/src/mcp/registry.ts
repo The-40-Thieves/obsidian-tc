@@ -1,4 +1,4 @@
-import { type Span, SpanKind, SpanStatusCode, type Tracer } from "@opentelemetry/api";
+import { SpanKind, type Tracer } from "@opentelemetry/api";
 import {
   err,
   grantsAll,
@@ -11,8 +11,6 @@ import {
   type ToolResult,
   type ToolVisibilityConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { type AuditEvent, writeEvent } from "../audit";
-import { cachedPrepare, type Database } from "../db/types";
 import { hitlSatisfiedByState } from "../elicit-request-state";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
@@ -21,12 +19,25 @@ import { withTraceCarrier } from "../otel/propagation";
 import { callerHash, type RateLimiter } from "../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../vault/acl-audit";
 import { enforcePathAcl } from "../vault/acl-path";
+import {
+  annotateSpanResult,
+  callStatusForError,
+  DispatchObservability,
+} from "./registry/dispatch-observability";
+import {
+  claimOrReplay,
+  deleteIdempotency,
+  extractIdempotencyKey,
+  finalizeIdempotency,
+  finalizeIndeterminate,
+  markEffectCommitted,
+  readIdempotency,
+} from "./registry/idempotency";
 import { ToolStore } from "./registry/tool-store";
 import {
   type CallerContext,
   type DispatchEpisode,
   type DispatchProfile,
-  type IdempotencyState,
   type RegistryOptions,
   type Status,
   TOOL_DOMAINS,
@@ -71,56 +82,6 @@ export function assertScopesGranted(
   }
 }
 
-/** Map a terminal error code to the G2.4 tool-call status label (ok | denied | error). */
-function callStatusForError(code: string): ToolCallStatus {
-  switch (code) {
-    case "unauthorized":
-    case "forbidden":
-    case "acl_denied":
-    case "elicit_required":
-    case "throttled":
-      return "denied";
-    default:
-      return "error";
-  }
-}
-
-/** Set the G2.4 result attributes + span status on the root span from a dispatch outcome. */
-function annotateSpanResult(span: Span, result: ToolResult): void {
-  span.setAttribute(SPAN_ATTR.durationMs, result.meta.duration_ms);
-  if (result.ok) {
-    span.setAttribute(SPAN_ATTR.status, "ok");
-    span.setAttribute(SPAN_ATTR.rateLimitHit, false);
-    span.setStatus({ code: SpanStatusCode.OK });
-    return;
-  }
-  const code = result.error.code;
-  span.setAttribute(SPAN_ATTR.status, callStatusForError(code));
-  span.setAttribute(SPAN_ATTR.errorCode, code);
-  span.setAttribute(SPAN_ATTR.rateLimitHit, code === "throttled");
-  if (typeof result.meta.overflow_bytes === "number") {
-    span.setAttribute(SPAN_ATTR.overflowB, result.meta.overflow_bytes);
-  }
-  // Error spans are always recorded (G2.4: sampled regardless of trace rate).
-  span.setStatus({ code: SpanStatusCode.ERROR, message: code });
-}
-
-/** The whole-operation idempotency key for a call, if any (D3). Reads a top-level
- *  `idempotency_key`, the `bulk_idempotency_key` alias, or a nested
- *  `options.idempotency_key`; never a per-item `items[].idempotency_key`. */
-function extractIdempotencyKey(data: unknown): string | undefined {
-  if (data === null || typeof data !== "object") return undefined;
-  const o = data as Record<string, unknown>;
-  const top = o.idempotency_key ?? o.bulk_idempotency_key;
-  if (typeof top === "string" && top.length > 0) return top;
-  const opts = o.options;
-  if (opts !== null && typeof opts === "object") {
-    const nested = (opts as Record<string, unknown>).idempotency_key;
-    if (typeof nested === "string" && nested.length > 0) return nested;
-  }
-  return undefined;
-}
-
 /** THE-513 Part 2: the caller-supplied target vault id for this call, read from the tool's
  *  declared `vaultArg` field (defaulting to "vault", the name every tool used before this field
  *  existed) — the single place the four call sites below resolve it, instead of each hardcoding
@@ -138,14 +99,6 @@ function vaultArgOf(def: ToolDefinition, data: unknown): string | undefined {
  *  every existing caller (no signal) sees no behavior change. */
 function checkAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw err.aborted();
-}
-
-/** Coerce a SQLite result column (string | Buffer | Uint8Array) to a UTF-8 string. */
-function bufToString(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (v instanceof Uint8Array)
-    return Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString("utf8");
-  return String(v ?? "");
 }
 
 // THE-294 — single-serialization contract. runDispatch stringifies a successful result once for
@@ -182,28 +135,25 @@ export class ToolRegistry {
   // interface seam (map constraint 6). ToolRegistry still resolves a definition by name at several
   // dispatch-body call sites below (unchanged this slice), now via toolStore.get(name).
   private readonly toolStore = new ToolStore();
+  // WP4.2: the observability sinks (meter/relay/morgianaData/relayCompletion/emitCompletion/
+  // recordOutcome) moved to registry/dispatch-observability.ts (DispatchObservability) — same
+  // concrete-composition pattern as toolStore above. ToolRegistry's own meter/relay/etc. methods
+  // below are now one-line delegations, so the dispatch-body call sites that use them (this slice
+  // does not move the dispatch body) are unchanged.
+  private readonly observability: DispatchObservability;
   private readonly _maxResponseBytes: number;
   private readonly verifyElicit?: VerifyElicit;
-  private readonly metrics?: MetricsRecorder;
   private readonly tracer?: Tracer;
-  private readonly emit?: (
-    vaultId: string,
-    type: MorgianaEventType,
-    data: Partial<MorgianaEventData>,
-  ) => void;
   private readonly rateLimiter?: RateLimiter;
   private readonly idempotencyTtlMs: number;
   private readonly idempotencyReclaimMs: number;
   private readonly toolVisibility: ToolVisibilityConfig;
   private readonly onProfile?: (p: DispatchProfile) => void;
-  private readonly sessionTracer?: RegistryOptions["sessionTracer"];
   private readonly onInternalError?: RegistryOptions["onInternalError"];
   private readonly onOutputSchemaDrift?: RegistryOptions["onOutputSchemaDrift"];
-  private readonly onAuditFailure?: RegistryOptions["onAuditFailure"];
   private readonly aclResolver?: RegistryOptions["aclResolver"];
   private readonly rootResolver?: RegistryOptions["rootResolver"];
   private readonly vaultKindResolver?: RegistryOptions["vaultKindResolver"];
-  private readonly onEpisode?: RegistryOptions["onEpisode"];
   private readonly strictOutputSchema: boolean;
 
   /** THE-514 item 2: read-only access to the configured ceiling, so mcp/server.ts can pass it to
@@ -217,78 +167,40 @@ export class ToolRegistry {
   constructor(opts: RegistryOptions = {}) {
     this._maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
     this.verifyElicit = opts.verifyElicit;
-    this.metrics = opts.metrics;
     this.tracer = opts.tracer;
-    this.emit = opts.emit;
     this.rateLimiter = opts.rateLimiter;
     this.idempotencyTtlMs = (opts.idempotencyTtlSeconds ?? 86400) * 1000;
     this.idempotencyReclaimMs = (opts.idempotencyReclaimSeconds ?? 60) * 1000;
     this.toolVisibility = opts.toolVisibility ?? ALLOW_ALL;
     this.onProfile = opts.onProfile;
-    this.sessionTracer = opts.sessionTracer;
     this.onInternalError = opts.onInternalError;
     this.onOutputSchemaDrift = opts.onOutputSchemaDrift;
-    this.onAuditFailure = opts.onAuditFailure;
     this.aclResolver = opts.aclResolver;
     this.rootResolver = opts.rootResolver;
     this.vaultKindResolver = opts.vaultKindResolver;
-    this.onEpisode = opts.onEpisode;
     this.strictOutputSchema = opts.strictOutputSchema ?? strictOutputSchemaDefault();
+    this.observability = new DispatchObservability({
+      toolStore: this.toolStore,
+      metrics: opts.metrics,
+      emit: opts.emit,
+      sessionTracer: opts.sessionTracer,
+      onAuditFailure: opts.onAuditFailure,
+      onEpisode: opts.onEpisode,
+    });
   }
 
   /** Record into the Prometheus recorder; a metrics error must never break dispatch (G2.4). */
   private meter(fn: (m: MetricsRecorder) => void): void {
-    const m = this.metrics;
-    if (!m) return;
-    try {
-      fn(m);
-    } catch {
-      /* observability must never block tool execution */
-    }
+    this.observability.meter(fn);
   }
 
   /** Emit one MORGIANA CloudEvent; a sink error must never break dispatch (G2.4 fail-soft). */
   private relay(vaultId: string, type: MorgianaEventType, data: Partial<MorgianaEventData>): void {
-    if (!this.emit) return;
-    try {
-      this.emit(vaultId, type, data);
-    } catch {
-      /* MORGIANA emission must never block tool execution */
-    }
+    this.observability.relay(vaultId, type, data);
   }
 
-  /** The shared CloudEvents data payload for a completed call. */
-  private morgianaData(
-    name: string,
-    ctx: CallerContext,
-    result: ToolResult,
-  ): Partial<MorgianaEventData> {
-    return {
-      tool: name,
-      caller_hash: callerHash(ctx.caller),
-      scopes_required: this.toolStore.get(name)?.requiredScopes ?? [],
-      status: result.ok ? "ok" : callStatusForError(result.error.code),
-      duration_ms: result.meta.duration_ms,
-      // THE-288 hardening: emit a one-way fingerprint, never the raw single-use HITL token.
-      elicit_token: ctx.elicitToken ? callerHash(ctx.elicitToken) : null,
-      result_size: result.meta.result_size,
-      overflow_bytes: result.meta.overflow_bytes ?? null,
-      error: result.ok ? null : { code: result.error.code, message: result.error.message },
-    };
-  }
-
-  /**
-   * THE-514 item 1: the MORGIANA completion-event fan-out for a terminal call outcome — always
-   * tc.tool.call.completed, plus the specific signal for the error code (if any). This used to be
-   * two copies: emitCompletion's switch (below) for tool dispatch, and a REDUCED copy inside
-   * dispatchResource's `emit` closure that fired only tc.tool.call.completed and never the
-   * per-error-code signal — so a resource read denied by path ACL never relayed tc.acl.denied,
-   * a resource over MAX_RESOURCE_BYTES never relayed tc.governor.overflow, etc., for the exact
-   * codes tool dispatch already signals on. Deliberate decision: resources gain the richer
-   * behavior (relay through this shared method) rather than tools losing it, because this is
-   * strictly more information to the same MORGIANA consumer and changes no existing tool
-   * behavior — dispatchResource's caller-visible contract (throw/return) is untouched.
-   */
+  /** See DispatchObservability.relayCompletion (registry/dispatch-observability.ts) — the MORGIANA
+   *  completion-event fan-out shared by tool dispatch and dispatchResource's `emit` closure below. */
   private relayCompletion(
     vaultId: string,
     name: string,
@@ -296,133 +208,34 @@ export class ToolRegistry {
     code: string | undefined,
     data: Partial<MorgianaEventData>,
   ): void {
-    this.relay(vaultId, "tc.tool.call.completed", data);
-    if (status === "ok") {
-      if (name === "reset_vault_cache") this.relay(vaultId, "tc.vault.cache_reset", data);
-      return;
-    }
-    switch (code) {
-      case "forbidden":
-      case "acl_denied":
-        this.relay(vaultId, "tc.acl.denied", data);
-        break;
-      case "overflow":
-        this.relay(vaultId, "tc.governor.overflow", data);
-        break;
-      case "elicit_required":
-        this.relay(vaultId, "tc.elicit.requested", data);
-        break;
-      case "throttled":
-        this.relay(vaultId, "tc.rate_limit.hit", data);
-        break;
-    }
+    this.observability.relayCompletion(vaultId, name, status, code, data);
   }
 
   /** Per-call MORGIANA events for a completed tool dispatch — see relayCompletion. */
   private emitCompletion(name: string, ctx: CallerContext, result: ToolResult): void {
-    if (!this.emit) return;
-    const data = this.morgianaData(name, ctx, result);
-    const status: ToolCallStatus = result.ok ? "ok" : callStatusForError(result.error.code);
-    this.relayCompletion(
-      ctx.vaultId,
-      name,
-      status,
-      result.ok ? undefined : result.error.code,
-      data,
-    );
+    this.observability.emitCompletion(name, ctx, result);
   }
 
-  /** Try to atomically claim the in-flight idempotency slot for (vault, key). */
-  private tryClaimIdempotency(
-    db: Database,
-    vaultId: string,
-    key: string,
-    tool: string,
-    argsHashValue: string,
-    nowMs: number,
-  ): "claimed" | "exists" {
-    try {
-      cachedPrepare(
-        db,
-        "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
-      ).run(vaultId, key, tool, argsHashValue, nowMs, nowMs + this.idempotencyTtlMs);
-      return "claimed";
-    } catch (e) {
-      if (/UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test((e as Error).message)) return "exists";
-      throw e;
-    }
-  }
-
-  private readIdempotency(
-    db: Database,
-    vaultId: string,
-    key: string,
-  ):
-    | {
-        tool_name: string;
-        args_hash: string;
-        started_at: number;
-        completed_at: number | null;
-        result: unknown;
-        result_size: number | null;
-        expires_at: number;
-        state: IdempotencyState;
-      }
-    | undefined {
-    return cachedPrepare(
-      db,
-      "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state FROM idempotency_keys WHERE vault_id = ? AND key = ?",
-    ).get(vaultId, key) as
-      | {
-          tool_name: string;
-          args_hash: string;
-          started_at: number;
-          completed_at: number | null;
-          result: unknown;
-          result_size: number | null;
-          expires_at: number;
-          state: IdempotencyState;
-        }
-      | undefined;
-  }
-
-  private finalizeIdempotency(
-    db: Database,
-    vaultId: string,
-    key: string,
-    json: string,
-    size: number,
-    nowMs: number,
+  /** THE-415: record ONE governed outcome — see DispatchObservability.recordOutcome. */
+  private recordOutcome(
+    ctx: CallerContext,
+    name: string,
+    hash: string,
+    rawInput: unknown,
+    status: Status,
+    durationMs: number,
+    resultSize: number,
+    code?: string,
   ): void {
-    cachedPrepare(
-      db,
-      "UPDATE idempotency_keys SET completed_at = ?, result = ?, result_size = ?, state = 'completed' WHERE vault_id = ? AND key = ?",
-    ).run(nowMs, json, size, vaultId, key);
-  }
-
-  /** #13: durable marker set the instant the handler returns — the effect may now be committed.
-   *  A crash after this leaves a durable 'effect_committed' row that reclaim honors (never re-runs). */
-  private markEffectCommitted(db: Database, vaultId: string, key: string, _nowMs: number): void {
-    cachedPrepare(
-      db,
-      "UPDATE idempotency_keys SET state = 'effect_committed' WHERE vault_id = ? AND key = ? AND completed_at IS NULL",
-    ).run(vaultId, key);
-  }
-
-  /** #13: a post-effect fault finalizes the claim as indeterminate (never deletes it), so a retry
-   *  returns indeterminate_outcome instead of re-executing. result_size stays NULL so the overflow
-   *  re-check never fires; the state='indeterminate' branch answers first. */
-  private finalizeIndeterminate(db: Database, vaultId: string, key: string, nowMs: number): void {
-    cachedPrepare(
-      db,
-      "UPDATE idempotency_keys SET completed_at = ?, result = 'null', result_size = NULL, state = 'indeterminate' WHERE vault_id = ? AND key = ?",
-    ).run(nowMs, vaultId, key);
-  }
-
-  private deleteIdempotency(db: Database, vaultId: string, key: string): void {
-    cachedPrepare(db, "DELETE FROM idempotency_keys WHERE vault_id = ? AND key = ?").run(
-      vaultId,
-      key,
+    this.observability.recordOutcome(
+      ctx,
+      name,
+      hash,
+      rawInput,
+      status,
+      durationMs,
+      resultSize,
+      code,
     );
   }
 
@@ -446,91 +259,6 @@ export class ToolRegistry {
   // One OTEL root span per tool call (G2.4) wraps the pipeline when a tracer is configured;
   // otherwise the tracer-less fast path runs unchanged. Span attributes come from ctx + the
   // ToolResult, so runDispatch's internals stay untouched.
-  /** THE-415: record ONE governed outcome - audit row + session trace + episode bus.
-   *  Shared by tool dispatch and by dispatchResource, so the resources/* surface cannot
-   *  drift from tools/* on audit. Fail-open throughout: observability must never break
-   *  the call. */
-  private recordOutcome(
-    ctx: CallerContext,
-    name: string,
-    hash: string,
-    rawInput: unknown,
-    status: Status,
-    durationMs: number,
-    resultSize: number,
-    code?: string,
-  ): void {
-    try {
-      const e: AuditEvent = {
-        ts: Date.now(),
-        vault_id: ctx.vaultId,
-        tool_name: name,
-        caller: ctx.caller,
-        duration_ms: durationMs,
-        result_size: resultSize,
-        status,
-        error_code: code ?? null,
-        args_hash: hash,
-        event_type: "tool_invocation",
-      };
-      writeEvent(ctx.db, e);
-    } catch {
-      // Audit stays fail-open — it must never break dispatch. But a silent failure
-      // (locked DB, disk full, migration drift) makes the security-audit trail lossy
-      // with no signal at all, so surface it as a metric. meter() is itself guarded,
-      // so this cannot throw back out of the catch. THE-457: also notify the health sink so an
-      // operator watching server_health (not metrics) sees the audit trail going lossy.
-      this.meter((m) => m.incAuditWriteFailed(ctx.vaultId, name));
-      try {
-        this.onAuditFailure?.(name, ctx.vaultId);
-      } catch {
-        /* health sink must never break dispatch */
-      }
-    }
-    // THE-209: mirror the audit row into the active session's JSONL trace, if any.
-    if (ctx.sessionId && this.sessionTracer) {
-      try {
-        this.sessionTracer(
-          { vaultId: ctx.vaultId, sessionId: ctx.sessionId, caller: ctx.caller },
-          {
-            ts: Date.now(),
-            type: "tool_invocation",
-            tool: name,
-            caller: ctx.caller,
-            duration_ms: durationMs,
-            args_hash: hash,
-            result_size: resultSize,
-            status,
-            ...(code ? { error_code: code } : {}),
-          },
-        );
-      } catch {
-        /* tracing must never break dispatch */
-      }
-    }
-    // THE-228: hand the same outcome to the experiential episode bus — every dispatch,
-    // session or not. The bus owns content policy (redaction / caps / off) + persistence.
-    if (this.onEpisode) {
-      try {
-        this.onEpisode({
-          ts: Date.now(),
-          vaultId: ctx.vaultId,
-          tool: name,
-          caller: ctx.caller,
-          sessionId: ctx.sessionId ?? null,
-          status,
-          errorCode: code ?? null,
-          durationMs,
-          resultSize,
-          argsHash: hash,
-          args: rawInput,
-        });
-      } catch {
-        /* capture must never break dispatch */
-      }
-    }
-  }
-
   /**
    * THE-415: run an MCP *resource* operation under the same governance a tool call gets -
    * rate limit, audit, metrics, MORGIANA.
@@ -802,103 +530,84 @@ export class ToolRegistry {
       // (auth/scope/ACL) still runs before this gate, so it stays authoritative on replays.
       idemKey = extractIdempotencyKey(parsed.data);
       if (idemKey) {
-        if (
-          this.tryClaimIdempotency(ctx.db, ctx.vaultId, idemKey, name, hash, now()) === "claimed"
-        ) {
-          idemClaimed = true;
-        } else {
-          let row = this.readIdempotency(ctx.db, ctx.vaultId, idemKey);
-          // Reclaim an expired or crashed (in-flight past the configured reclaim window) row,
-          // then retry once (idempotencyReclaimSeconds, THE-293).
-          if (
-            row &&
-            (row.expires_at <= now() ||
-              (row.state === "in_flight" &&
-                row.completed_at == null &&
-                row.started_at + this.idempotencyReclaimMs <= now()))
-          ) {
-            this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
-            if (
-              this.tryClaimIdempotency(ctx.db, ctx.vaultId, idemKey, name, hash, now()) ===
-              "claimed"
-            ) {
-              idemClaimed = true;
-            } else {
-              row = this.readIdempotency(ctx.db, ctx.vaultId, idemKey);
-            }
-          }
-          if (!idemClaimed) {
-            if (!row)
-              throw new ObsidianTcError("idempotency_in_flight", "operation in progress", {
-                key: idemKey,
-              });
-            if (row.tool_name !== name || row.args_hash !== hash)
-              throw new ObsidianTcError(
-                "idempotency_key_mismatch",
-                "idempotency key reused with a different tool or arguments",
-                { key: idemKey },
-              );
-            if (row.state === "indeterminate") return indeterminateReplay(idemKey);
-            if (row.state === "effect_committed") return indeterminateReplay(idemKey);
-            if (row.completed_at != null) {
-              // Terminal-overflow replay: the original call committed its side effect but its response
-              // exceeded the byte budget, so the claim was finalized with the real over-limit size and
-              // no payload. Replay the SAME overflow error rather than re-executing or returning an
-              // absent/oversized payload. A normal success always finalizes with size <= the budget,
-              // so this never fires on a legitimate cached result.
-              if (row.result_size != null && row.result_size > this._maxResponseBytes) {
-                // Hoist the narrowed size into a const so it stays `number` inside the meter closure
-                // (TS drops the `!= null` narrowing on a property access captured by a later-called fn).
-                const overSize = row.result_size;
-                const duration = Math.max(0, now() - start);
-                const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
-                  result_size: overSize,
-                  limit: this._maxResponseBytes,
-                });
-                audit("error", duration, overSize, e.code);
-                this.meter((m) => {
-                  m.incIdempotencyHit(ctx.vaultId, name);
-                  m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, overSize);
-                });
-                return {
-                  ok: false,
-                  error: e.toJSON(),
-                  meta: {
-                    duration_ms: duration,
-                    result_size: overSize,
-                    overflow_bytes: overSize - this._maxResponseBytes,
-                  },
-                };
-              }
-              try {
-                const cachedStr = bufToString(row.result);
-                const cached = JSON.parse(cachedStr) as unknown;
-                memoizeSerialized(cached, cachedStr);
-                const resultSize = row.result_size ?? Buffer.byteLength(cachedStr, "utf8");
-                const duration = Math.max(0, now() - start);
-                audit("ok", duration, resultSize);
-                this.meter((m) =>
-                  m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize),
-                );
-                this.meter((m) => m.incIdempotencyHit(ctx.vaultId, name));
-                return {
-                  ok: true,
-                  data: cached,
-                  meta: { duration_ms: duration, result_size: resultSize },
-                };
-              } catch {
-                // Corrupt cached blob: drop it (so the next call re-executes) and fail this one cleanly.
-                this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
-                throw new ObsidianTcError(
-                  "internal",
-                  "cached idempotent result was unreadable; retry",
-                );
-              }
-            }
+        // WP4.2: the claim-or-replay decision (reclaim-and-retry, corrupt-blob recovery,
+        // terminal-overflow replay) now lives in registry/idempotency.ts's claimOrReplay,
+        // returning one explicit discriminated state instead of re-deriving it inline here. Only
+        // the dispatch-shaped reaction to each state — error construction, audit/meter calls, the
+        // result-serialization memo — stays here, unchanged in behavior from before the extraction.
+        const claim = claimOrReplay(
+          ctx.db,
+          ctx.vaultId,
+          idemKey,
+          name,
+          hash,
+          // Pass the clock FUNCTION, not a single now() sample — claimOrReplay calls it at each of
+          // the (up to) four points the original inline block did (initial claim, both reclaim-
+          // window comparisons, retry claim), so it observes the same drift a stateful ctx.now
+          // would (cross-vendor review, WP4.2).
+          now,
+          this.idempotencyTtlMs,
+          this.idempotencyReclaimMs,
+          this._maxResponseBytes,
+        );
+        switch (claim.kind) {
+          case "claimed":
+            idemClaimed = true;
+            break;
+          case "mismatch":
+            throw new ObsidianTcError(
+              "idempotency_key_mismatch",
+              "idempotency key reused with a different tool or arguments",
+              { key: idemKey },
+            );
+          case "in_flight":
             throw new ObsidianTcError("idempotency_in_flight", "operation in progress", {
               key: idemKey,
             });
-          }
+          case "replay":
+            if (claim.outcome === "indeterminate") return indeterminateReplay(idemKey);
+            if (claim.outcome === "overflow") {
+              // Terminal-overflow replay: the original call committed its side effect but its
+              // response exceeded the byte budget, so the claim was finalized with the real
+              // over-limit size and no payload. Replay the SAME overflow error rather than
+              // re-executing or returning an absent/oversized payload.
+              const overSize = claim.resultSize;
+              const duration = Math.max(0, now() - start);
+              const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
+                result_size: overSize,
+                limit: this._maxResponseBytes,
+              });
+              audit("error", duration, overSize, e.code);
+              this.meter((m) => {
+                m.incIdempotencyHit(ctx.vaultId, name);
+                m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, overSize);
+              });
+              return {
+                ok: false,
+                error: e.toJSON(),
+                meta: {
+                  duration_ms: duration,
+                  result_size: overSize,
+                  overflow_bytes: overSize - this._maxResponseBytes,
+                },
+              };
+            }
+            // outcome === "ok": a normal completed call within budget — replay its cached result.
+            memoizeSerialized(claim.data, claim.json);
+            {
+              const resultSize = claim.resultSize;
+              const duration = Math.max(0, now() - start);
+              audit("ok", duration, resultSize);
+              this.meter((m) =>
+                m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize),
+              );
+              this.meter((m) => m.incIdempotencyHit(ctx.vaultId, name));
+              return {
+                ok: true,
+                data: claim.data,
+                meta: { duration_ms: duration, result_size: resultSize },
+              };
+            }
         }
       }
 
@@ -927,7 +636,7 @@ export class ToolRegistry {
           this.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
           if (idemClaimed && idemKey) {
             try {
-              this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+              deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
             } catch {
               /* best-effort */
             }
@@ -965,7 +674,7 @@ export class ToolRegistry {
           this.meter((m) => m.incHitlElicited(ctx.vaultId, name));
           if (idemClaimed && idemKey) {
             try {
-              this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+              deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
             } catch {
               /* best-effort */
             }
@@ -1022,7 +731,7 @@ export class ToolRegistry {
           );
         }
         slot.markEffectCommitted = () => {
-          this.markEffectCommitted(ctx.db, ctx.vaultId, claimedKey, now());
+          markEffectCommitted(ctx.db, ctx.vaultId, claimedKey, now());
           effectCommitted = true;
         };
         installedMarker = slot;
@@ -1060,7 +769,7 @@ export class ToolRegistry {
           // such a handler calls ctx.markEffectCommitted() at its own first durable effect, which
           // sets the same marker earlier. This call stays as the backstop for every single-effect
           // handler (and re-fires harmlessly when the handler already signalled).
-          if (idemClaimed && idemKey) this.markEffectCommitted(ctx.db, ctx.vaultId, idemKey, now());
+          if (idemClaimed && idemKey) markEffectCommitted(ctx.db, ctx.vaultId, idemKey, now());
           return r;
         },
       );
@@ -1123,7 +832,7 @@ export class ToolRegistry {
         if (idemClaimed && idemKey) {
           this.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
           try {
-            this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, "null", resultSize, now());
+            finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, "null", resultSize, now());
           } catch (finalizeErr) {
             // A finalize fault here leaves the row 'effect_committed' (not in-flight) — #13's durable
             // marker means a retry resolves to indeterminate_outcome rather than re-executing. Surface
@@ -1157,7 +866,7 @@ export class ToolRegistry {
       }
 
       if (idemClaimed && idemKey)
-        this.finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, json, resultSize, now());
+        finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, json, resultSize, now());
       audit("ok", duration, resultSize);
       this.meter((m) => m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize));
       try {
@@ -1186,7 +895,7 @@ export class ToolRegistry {
         if (effectCommitted) {
           try {
             durablyCommitted =
-              this.readIdempotency(ctx.db, ctx.vaultId, idemKey)?.state === "effect_committed";
+              readIdempotency(ctx.db, ctx.vaultId, idemKey)?.state === "effect_committed";
           } catch {
             durablyCommitted = true;
           }
@@ -1195,7 +904,7 @@ export class ToolRegistry {
           // #13: post-effect fault — NEVER delete; record indeterminate so a retry gets a definite
           // answer instead of re-executing the committed effect.
           try {
-            this.finalizeIndeterminate(ctx.db, ctx.vaultId, idemKey, now());
+            finalizeIndeterminate(ctx.db, ctx.vaultId, idemKey, now());
           } catch (finErr) {
             try {
               this.onInternalError?.(`idempotency_indeterminate:${name}`, ctx.vaultId, finErr);
@@ -1206,7 +915,7 @@ export class ToolRegistry {
         } else {
           // pre-handler failure: safe to release the slot so a legitimate retry re-runs.
           try {
-            this.deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+            deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
           } catch {
             /* cleanup best-effort; must not mask the original error */
           }
