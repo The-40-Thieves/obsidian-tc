@@ -18,6 +18,13 @@
 // an input and folding its cleanup into THIS call's unwind stack gets the same reverse-order
 // guarantee without either problem: a failure in governance or index resources still closes stores,
 // in the right order, and the boot-failure test below (extended for WP5.2) exercises exactly that.
+//
+// One more resource shares this exact shape and was flagged, not fixed, at the time: `otel` (OTEL
+// SDK init) also sits textually between `stores` and this call in `buildServerRuntime`, for the same
+// reason `stores` does — real boot's construction order forbids reordering it inside. `otel` below is
+// the same fix applied a second time: an optional param this call folds into its own unwind, sitting
+// between `stores` and `governance` (its real open position), so a throw in governance or index
+// resources closes it too — never built inside `wireRuntimeCore` itself.
 import type { Tracer } from "@opentelemetry/api";
 import type { ServerConfig, VaultConfigInput } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../../package.json";
@@ -29,7 +36,7 @@ import type { RegistryOptions } from "../mcp/registry/types";
 import { createMcpServer } from "../mcp/server";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
-import { initOtel } from "../otel/tracing";
+import { initOtel, type OtelHandle } from "../otel/tracing";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { IndexCoordinator } from "../search/index-coordinator";
 import { nativeLoaded } from "../search/native";
@@ -79,10 +86,11 @@ export function requireBoot<T>(value: T | undefined, what: string): T {
 }
 
 /** Layer names are a plain `string`, not a closed union: `wireRuntimeCore` below uses its own
- *  fixed three ("stores"/"governance"/"indexResources"), while `buildServerRuntime`'s own
- *  post-`wireRuntimeCore` unwind stack (further down this file) reuses the same `OwnedLayer` /
- *  `unwindReversed` machinery for a different set ("watcher"/"transports") — the mechanism is
- *  identical, only the inventory of what got built differs. */
+ *  fixed set ("stores"/"otel" (only when supplied)/"governance"/"indexResources"), while
+ *  `buildServerRuntime`'s own post-`wireRuntimeCore` unwind stack (further down this file) reuses
+ *  the same `OwnedLayer` / `unwindReversed` machinery for a different set
+ *  ("watcher"/"transports") — the mechanism is identical, only the inventory of what got built
+ *  differs. */
 interface OwnedLayer {
   name: string;
   close(): void | Promise<void>;
@@ -110,6 +118,13 @@ export interface RuntimeCoreDeps {
    *  this file's header comment for why stores is built outside and handed in rather than
    *  constructed here. */
   stores: Stores;
+  /** Already-initialized OTEL handle, opened between `stores` and this call in real boot — see this
+   *  file's header comment. Optional: `buildServerRuntime` always supplies it, but the direct
+   *  `wireRuntimeCore` tests below construct no OTEL and omit it, so `built` simply has one fewer
+   *  entry and behaves exactly as before this was added. When present, `shutdown()` is called
+   *  best-effort (its own rejection is swallowed) — a telemetry SDK failing to shut down during
+   *  unwind must never replace the real construction error that is propagating. */
+  otel?: Pick<OtelHandle, "shutdown">;
   // governance
   vaults: VaultConfigInput[];
   /** config.acl — root ACL, inherited by any vault without its own. */
@@ -150,11 +165,19 @@ export interface RuntimeCore {
  * parsing — the map's acceptance criterion for WP5 ("the runtime is constructible in a test without
  * parsing process arguments"), scoped to what this slice actually extracted. If governance or index
  * resources throws during construction, every already-built layer's cleanup — INCLUDING the stores
- * handed in — runs in reverse order (via `unwindReversed`) before the error propagates, so a partial
- * boot never leaks an open db handle.
+ * (and, when supplied, otel) handed in — runs in reverse order (via `unwindReversed`) before the
+ * error propagates, so a partial boot never leaks an open db handle or a live OTEL exporter.
  */
 export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCore> {
   const built: OwnedLayer[] = [{ name: "stores", close: deps.stores.close }];
+  // otel opens right after stores in real boot (see this file's header comment), so its cleanup
+  // slots in here too — before governance is attempted, after stores. Best-effort by construction:
+  // `.catch` swallows a shutdown() rejection so it can never replace the real error `unwindReversed`
+  // is already propagating (see `deps.otel`'s doc comment above).
+  if (deps.otel) {
+    const otel = deps.otel;
+    built.push({ name: "otel", close: () => otel.shutdown().catch(() => {}) });
+  }
   // THE-457 (governance's onAuditFailure): indexHealth is constructed one step AFTER the registry
   // that closes over it — same forward-reference shape as cli.ts's indexCoordinatorRef/schedulerRef.
   let indexHealthRef: IndexHealthState | undefined;
@@ -215,9 +238,12 @@ const SHUTDOWN_DRAIN_MS = 5000;
 export async function buildServerRuntime(
   config: ServerConfig,
   configPath: string | undefined,
-  /** Test-only observability: fires with each post-core layer's name, in the order its cleanup
-   *  actually ran, when a construction step AFTER `wireRuntimeCore` throws. Never invoked on the
-   *  happy path, and never passed by production callers (cli.ts). */
+  /** Test-only observability: fires with each already-built layer's name, in the order its cleanup
+   *  actually ran, on either failure window this function covers — a construction step AFTER
+   *  `wireRuntimeCore` throws (reports its own post-core layers), or `wireRuntimeCore` itself throws
+   *  (reports stores/otel/governance via the same callback, passed straight through — see the
+   *  `wireRuntimeCore` call below). Never invoked on the happy path, and never passed by production
+   *  callers (cli.ts). */
   onCleanup?: (name: string) => void,
 ): Promise<ServerRuntime> {
   const firstVault = config.vaults[0];
@@ -273,6 +299,15 @@ export async function buildServerRuntime(
     metrics,
     tracer: otel.tracer,
     morgiana,
+    // otel is opened just above, between `stores` and this call — handing it in (like `stores`)
+    // folds its shutdown into wireRuntimeCore's own unwind if governance or index resources throws,
+    // in the correct reverse-ownership position (after those, before stores). `onCleanup` is the
+    // same test-only hook this function already threads through its OWN post-core unwind below; a
+    // wireRuntimeCore-level throw is a distinct failure window (stores/otel/governance never reach
+    // postCoreLayers), so wiring it here too costs nothing on the happy path or on a post-core
+    // failure — it only ever fires when `wireRuntimeCore` itself is what threw.
+    otel,
+    onCleanup,
     embeddings: config.embeddings,
     onVecRebuild: observability.onVecRebuild,
   });
