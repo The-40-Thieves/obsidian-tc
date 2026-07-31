@@ -3,10 +3,12 @@ import {
   grantsAll,
   isMutatingScope,
   ObsidianTcError,
+  scopeRequiresHitl,
 } from "@the-40-thieves/obsidian-tc-shared";
+import { hitlSatisfiedByState } from "../../elicit-request-state";
 import { callerHash, type RateLimiter, type ThrottleDecision } from "../../throttle";
 import { vaultArgOf } from "./input-binding";
-import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
+import type { CallerContext, RegistryOptions, ToolDefinition, VerifyElicit } from "./types";
 
 // WP4.3: authorization gates pulled out of registry.ts's runDispatch, unchanged in behavior. Each
 // function throws the identical ObsidianTcError the inline block it replaces did; the audit/meter/
@@ -109,4 +111,36 @@ export function checkThrottle(
 ): ThrottleDecision | undefined {
   if (!rateLimiter) return undefined;
   return rateLimiter.check(callerHash(caller), scopeClass, vaultId, nowMs);
+}
+
+/** Whether this tool call needs a cleared HITL (human-in-the-loop) confirmation: a destructive
+ *  tool, or one whose required scopes include an HITL-floored scope. */
+export function hitlRequired(def: Pick<ToolDefinition, "destructive" | "requiredScopes">): boolean {
+  return def.destructive === true || def.requiredScopes.some(scopeRequiresHitl);
+}
+
+/**
+ * HITL gate. A destructive/HITL-floored tool requires a valid single-use elicit token;
+ * verifyElicit consumes it (UPDATE ... WHERE consumed_at IS NULL) as a SIDE EFFECT of this call
+ * when it returns true — calling this twice for the same call is not safe, matching the original
+ * inline check. `true` covers both the 2025 elicitToken path and THE-583's 2026-era
+ * transport-verified elicitState path (hitlSatisfiedByState). The reaction to `false` (metering,
+ * releasing an idempotency claim, throwing) and to `true` (relaying tc.elicit.consumed) stays with
+ * the caller, since both need dispatch-local state or sinks this function does not have.
+ */
+export function checkHitl(
+  ctx: CallerContext,
+  hash: string,
+  name: string,
+  verifyElicit: VerifyElicit | undefined,
+): boolean {
+  return (
+    (!!ctx.elicitToken && !!verifyElicit && verifyElicit(ctx.elicitToken, hash, ctx)) ||
+    hitlSatisfiedByState(ctx.elicitState, {
+      tool: name,
+      argsHash: hash,
+      vaultId: ctx.vaultId,
+      caller: ctx.caller,
+    })
+  );
 }

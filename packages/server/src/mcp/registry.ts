@@ -5,11 +5,9 @@ import {
   type MorgianaEventType,
   ObsidianTcError,
   scopeClassOf,
-  scopeRequiresHitl,
   type ToolResult,
   type ToolVisibilityConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { hitlSatisfiedByState } from "../elicit-request-state";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/attrs";
@@ -39,9 +37,11 @@ import {
 } from "./registry/input-binding";
 import {
   assertScopesGranted,
+  checkHitl,
   checkThrottle,
   enforceReadOnlyGate,
   enforceVaultKindGate,
+  hitlRequired,
   isMutatingCall,
   requireAuthenticated,
   runPrecheck,
@@ -569,22 +569,9 @@ export class ToolRegistry {
       // token; verifyElicit consumes it (UPDATE ... WHERE consumed_at IS NULL). Runs after
       // the throttle gate (so a rate-limited call doesn't burn the confirmation) and last
       // before the handler (so the token is spent only once the call is cleared to execute).
-      const needsHitl = def.destructive === true || def.requiredScopes.some(scopeRequiresHitl);
+      const needsHitl = hitlRequired(def);
       if (needsHitl) {
-        const ok =
-          (!!ctx.elicitToken &&
-            !!this.verifyElicit &&
-            this.verifyElicit(ctx.elicitToken, hash, ctx)) ||
-          // THE-583 2026-era path: transport-authenticated state, bound to THIS call. The decision
-          // lives in elicit-request-state.ts (hitlSatisfiedByState) so it is testable without a
-          // registry; this file's biome line cap was raised 1310 -> 1325 for the wiring rather than
-          // shaving the reasoning around it, matching what THE-610 did for the sweep.
-          hitlSatisfiedByState(ctx.elicitState, {
-            tool: name,
-            argsHash: hash,
-            vaultId: ctx.vaultId,
-            caller: ctx.caller,
-          });
+        const ok = checkHitl(ctx, hash, name, this.verifyElicit);
         if (!ok) {
           this.meter((m) => m.incHitlElicited(ctx.vaultId, name));
           if (idemClaimed && idemKey) {
