@@ -1,5 +1,6 @@
 // THE-291 3B — searchTextIndexed parity vs the disk scan.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,7 @@ import { ensureNotesFts } from "../src/search/fts";
 import { indexVault } from "../src/search/indexer";
 import { searchText, searchTextIndexed, type TextOptions } from "../src/search/text";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const notesSql = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260702_001_notes.sql", import.meta.url)),
@@ -48,7 +50,7 @@ async function harness(): Promise<{
     writeFileSync(abs, content);
   }
   await indexVault({ db, provider, vaultId: "v1", root, isReadable: () => true, now: Date.now });
-  return { db, root, hasFts, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return { db, root, hasFts, cleanup: () => rmTemp(root) };
 }
 
 function keyset(hits: Array<{ path: string; line: number; col: number }>): string[] {

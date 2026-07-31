@@ -1,5 +1,6 @@
 // THE-291 3B-ii — metadata tools: DB-backed path parity vs the disk scan.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,7 @@ import { indexVault } from "../src/search/indexer";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const notesSql = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260702_001_notes.sql", import.meta.url)),
@@ -60,7 +62,7 @@ async function harness(withIndex: boolean) {
   });
   const call = (name: string, input: Record<string, unknown>) =>
     registry.dispatch(name, input, ctx());
-  return { call, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return { call, cleanup: () => rmTemp(root) };
 }
 
 const CALLS: Array<[string, Record<string, unknown>]> = [

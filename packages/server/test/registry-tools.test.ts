@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { makeTestVault } from "./m1-helpers";
+import { rmTemp } from "./tmp";
 
 describe("Domain 1: multi-vault registry", () => {
   it("list_vaults returns configured vaults", async () => {
@@ -117,7 +118,7 @@ describe("THE-376 add_vault (runtime registration)", () => {
       expect(bad.ok).toBe(false);
       if (!bad.ok) expect(bad.error.code).toBe("invalid_input");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
       v.cleanup();
     }
   });

@@ -27,7 +27,8 @@
 //     observed directly, only their outcome (the `overflow` error code).
 // This is a strong regression gate for reordering/dropping stages that sit BETWEEN two observable
 // seams; it is not a complete stage-order gate for the stages listed above.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolResult, VaultKind } from "@the-40-thieves/obsidian-tc-shared";
@@ -40,6 +41,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { RateLimiter } from "../src/throttle";
 import type { AclOp } from "../src/vault/acl-path";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -325,7 +327,7 @@ const scenarios: Scenario[] = [
         const result = await dispatch({ n: 1 }, { elicitToken: "valid" });
         return { trace, result, db };
       } finally {
-        rmSync(root, { recursive: true, force: true });
+        rmTemp(root);
       }
     },
     expectedTrace: [

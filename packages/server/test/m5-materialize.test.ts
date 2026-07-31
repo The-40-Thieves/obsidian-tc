@@ -3,7 +3,8 @@
 // byte-idempotent re-materialization; UNKNOWN frontmatter preserved across a rewrite
 // (M3 round-trip discipline); parse-back recovers observations + [[link]] targets
 // including aliases/headings/blocks; path-safety (no traversal) and ACL enforcement.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -14,6 +15,7 @@ import {
   parseEntityNote,
   renderEntityNote,
 } from "../src/memory/materialize";
+import { rmTemp } from "./tmp";
 
 function tempVault(): {
   root: string;
@@ -23,7 +25,7 @@ function tempVault(): {
   const root = mkdtempSync(join(tmpdir(), "obtc-mat-"));
   return {
     root,
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
     write: (rel, c) => {
       const abs = join(root, rel);
       mkdirSync(dirname(abs), { recursive: true });

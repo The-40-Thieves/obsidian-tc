@@ -1,15 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { enforcePathAcl } from "../src/vault/acl-path";
+import { rmTemp } from "./tmp";
 
 let symlinkOk = true;
 try {
   const probe = mkdtempSync(join(tmpdir(), "sl-probe-"));
   symlinkSync(join(probe, "t"), join(probe, "l"), "dir");
-  rmSync(probe, { recursive: true, force: true });
+  rmTemp(probe);
 } catch {
   symlinkOk = false; // Windows without the privilege to create symlinks
 }
@@ -34,6 +35,6 @@ describe.skipIf(!symlinkOk)("THE-269 symlink ACL canonicalization", () => {
     expect(() => enforcePathAcl(acl, "read", "public/note.md", root)).not.toThrow();
     // The old no-root lexical bypass is no longer expressible: `root` is now a required arg
     // (THE-286), so enforcement always canonicalizes and the symlinked path above is denied.
-    rmSync(root, { recursive: true, force: true });
+    rmTemp(root);
   });
 });

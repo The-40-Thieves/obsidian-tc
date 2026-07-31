@@ -9,7 +9,8 @@
 // update this test rather than silently changing ranking behavior. Do NOT "fix" this test by
 // making it pass through a code change — if this test starts failing, the fix is to rewrite it to
 // document the NEW (now-wired) behavior, with THE-424 as the ticket that made that call.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +22,7 @@ import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const VAULT = "main";
 
@@ -69,7 +71,7 @@ function un<T>(r: unknown): T {
 }
 
 const root = mkdtempSync(join(tmpdir(), "obtc-activation-inert-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => rmTemp(root));
 
 /** Mirrors cli.ts's `activationFor = config.experiential.activationRerank ? makeActivationLookup(...)
  *  : undefined`: an activationFor that WOULD reorder cC ahead of cB if the bubble pass fired. */

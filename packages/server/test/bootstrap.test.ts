@@ -1,12 +1,14 @@
 // THE-101: session_bootstrap triage + config-driven context load. The routing table is injected
 // (never baked into the tree), so these assertions exercise the mechanism against a small synthetic
 // table and a temp vault.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildBootstrapTools } from "../src/tools/m5/bootstrap-tools";
 import { VaultRegistry } from "../src/vault/registry";
+import { rmTemp } from "./tmp";
 
 const bootstrap = {
   deepPaths: ["CLAUDE.md", "missing.md"],
@@ -41,7 +43,7 @@ describe("THE-101 session_bootstrap", () => {
     writeFileSync(join(root, "domain", "dev.md"), "dev domain");
     writeFileSync(join(root, "domain", "health.md"), "health domain");
   });
-  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  afterAll(() => rmTemp(root));
 
   it("is lightweight with no signal and no catch-up phrase", () => {
     const r = run("convert 14 lufs to dbfs");

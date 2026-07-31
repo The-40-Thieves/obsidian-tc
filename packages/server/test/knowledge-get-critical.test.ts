@@ -2,7 +2,8 @@
 // Proves the read:docs isolation gate, that only critical-frontmatter notes are returned for the
 // corpus vault (sorted by source), and the optional source narrow. Populates the notes table
 // directly (the ingestion path is a separate increment).
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -11,6 +12,7 @@ import { ToolRegistry } from "../src/mcp/registry";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
 const VAULT = "vendor-docs";
@@ -56,7 +58,7 @@ function un<T>(r: unknown): T {
 }
 
 const root = mkdtempSync(join(tmpdir(), "obtc-kcrit-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => rmTemp(root));
 
 function harness(scopes: string[], kind: "private" | "docs" | "system" = "docs") {
   const registry = new ToolRegistry({});

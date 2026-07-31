@@ -1,7 +1,8 @@
 // THE-602: closes uncovered branches in src/tools/m2/search-tools.ts (v8 AST-aware branch
 // coverage under vitest 4). Every case here asserts genuine behavior — a real hit set, a thrown
 // error code, or a logged field — never a bare "it ran" execution.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -15,6 +16,7 @@ import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeM2Vault } from "./m2-helpers";
+import { rmTemp } from "./tmp";
 
 function payload(res: ToolResult): any {
   if (!res.ok) throw new Error(`expected ok, got ${res.error.code}`);
@@ -63,7 +65,7 @@ function makeCustomVault(opts: {
   return {
     call: (name: string, input: Record<string, unknown>, over?: Partial<CallerContext>) =>
       registry.dispatch(name, input, ctx(over)),
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }
 

@@ -2,7 +2,8 @@
 // stub — no embedding backend). Covers: graceful degradation without the gateway (recall still
 // returns sources), synthesis mode with a mock roles seam, challenge-mode delegation to the
 // red-team core, persist provenance (and its write:notes gate).
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -13,6 +14,7 @@ import { ensureChunkFts } from "../src/search/chunk_fts";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
 
@@ -40,7 +42,7 @@ function un<T>(r: unknown): T {
 }
 
 const root = mkdtempSync(join(tmpdir(), "obtc-reflect-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => rmTemp(root));
 
 function harness(roles: GatewayRoles | null, scopes: string[] = ["read:notes"]) {
   const registry = new ToolRegistry({});

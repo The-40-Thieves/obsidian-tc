@@ -1,7 +1,8 @@
 // THE-602: closes uncovered branches in src/tools/m3/periodic-tools.ts left by the vitest-4
 // AST-aware branch remapping. Every test here asserts real caller-visible behavior (a returned
 // value, a file's actual content, or a thrown error's code) — never just "the branch executed".
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
@@ -15,6 +16,7 @@ import { registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeM3Vault } from "./m3-helpers";
+import { rmTemp } from "./tmp";
 
 describe("periodic-tools branch coverage: stepDate across every period", () => {
   // stepDate's if/else-if/else chain (daily/weekly/monthly/quarterly/yearly) backs both the
@@ -669,7 +671,7 @@ describe("periodic-tools branch coverage: create_periodic_note's pathAcl extract
       if (r.ok)
         expect((r.data as { template_used: string }).template_used).toBe("templates/daily.md");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -684,7 +686,7 @@ describe("periodic-tools branch coverage: create_periodic_note's pathAcl extract
       expect(r.ok).toBe(true);
       if (r.ok) expect((r.data as { template_used: string | null }).template_used).toBeNull();
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

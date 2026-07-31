@@ -10,12 +10,14 @@
 // Deliberately limited to commands that need no network, no model, and no embeddings: exit codes, usage
 // text, config handling, and the guards. That is enough to catch the failure modes a mechanical
 // extraction can actually introduce (a branch that stops returning, a wrong exit code, a lost guard).
+
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { rmTemp } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
@@ -53,7 +55,7 @@ beforeAll(() => {
 
 afterAll(() => {
   try {
-    rmSync(dir, { recursive: true, force: true });
+    rmTemp(dir);
   } catch {
     // best effort
   }

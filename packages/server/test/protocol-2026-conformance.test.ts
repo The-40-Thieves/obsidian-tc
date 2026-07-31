@@ -7,7 +7,8 @@
 //
 // The removals matter as much as the additions: a method the revision deleted, still answered, is a
 // conformance failure that no feature test would ever notice.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
@@ -21,6 +22,7 @@ import { createHealthTool } from "../src/tools/admin/health";
 import { type HttpHandle, startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
@@ -75,7 +77,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await handle?.close();
-  if (vaultRoot) rmSync(vaultRoot, { recursive: true, force: true });
+  if (vaultRoot) rmTemp(vaultRoot);
 });
 
 /** One modern JSON-RPC call. `name` fills the SEP-2243 Mcp-Name header when the method needs it. */

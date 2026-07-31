@@ -1,5 +1,6 @@
 // THE-295 — per-vault ACL: vault A writable, vault B restricted, one process.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,6 +9,7 @@ import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
+import { rmTemp } from "./tmp";
 
 const stubDb = {
   prepare() {
@@ -65,8 +67,8 @@ function harness() {
     rootB,
     call,
     cleanup: () => {
-      rmSync(rootA, { recursive: true, force: true });
-      rmSync(rootB, { recursive: true, force: true });
+      rmTemp(rootA);
+      rmTemp(rootB);
     },
   };
 }

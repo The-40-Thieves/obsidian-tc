@@ -9,7 +9,8 @@
 // read-only kill-switch, the HITL floors, graceful degradation, and the security
 // rule that the bridge bearer token never reaches a result or the audit trail —
 // hold uniformly across the mixed surface, driven entirely through dispatch.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -33,6 +34,7 @@ import { registerM2Tools } from "../src/tools/m2";
 import { registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const BASE = "http://127.0.0.1:27124";
 const API_KEY = "test-key";
@@ -154,7 +156,7 @@ function makeVault(opts: IntegrationVaultOptions = {}): IntegrationVault {
       return registry.dispatch(name, input, ctx({ elicitToken: token, ...over }));
     },
     auditDump: () => db.prepare("SELECT * FROM event_log ORDER BY rowid").all(),
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }
 

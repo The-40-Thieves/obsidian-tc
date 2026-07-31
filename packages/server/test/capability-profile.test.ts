@@ -5,11 +5,13 @@
 // hardware enricher) so it is testable off a real Obsidian install, and so the three findings that
 // shaped it are each covered: no-Obsidian is a first-class state, explicit paths are an escape
 // hatch, and a per-vault config-dir override is honoured.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveCapabilityProfile } from "../src/capability/profile";
+import { rmTemp } from "./tmp";
 
 let root: string;
 const manifest = (id: string) => ({
@@ -46,7 +48,7 @@ beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "obtc-prof-"));
 });
 afterAll(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTemp(root);
 });
 
 describe("THE-522 capability profile", () => {

@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { detectJsonIndent, readJsonFile, serializeJson } from "../src/formats/json-config";
+import { rmTemp } from "./tmp";
 
 function codeOf(fn: () => unknown): string {
   try {
@@ -29,7 +30,7 @@ describe("formats/json-config", () => {
       expect(f.data).toEqual({ items: [] });
       expect(f.hash).toBeNull();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
     }
   });
 
@@ -41,7 +42,7 @@ describe("formats/json-config", () => {
       expect(codeOf(() => readJsonFile(join(dir, "bad.json"), {}))).toBe("invalid_input");
       expect(codeOf(() => readJsonFile(join(dir, "arr.json"), {}))).toBe("invalid_input");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
     }
   });
 
@@ -65,7 +66,7 @@ describe("formats/json-config", () => {
       expect((re.items as unknown[]).length).toBe(1);
       expect(out.endsWith("\n")).toBe(true);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
     }
   });
 });

@@ -5,7 +5,8 @@
 // community plugin — everything proxy-side is exercised through the fake. The
 // CallerContext grants all scopes; callConfirmed mints + supplies an elicit token
 // for HITL-gated tools.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -26,6 +27,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const BASE = "http://127.0.0.1:27124";
 
@@ -162,6 +164,6 @@ export function makeM4Vault(opts: M4VaultOptions = {}): M4Vault {
       db
         .prepare("SELECT tool_name, status, error_code FROM event_log ORDER BY rowid")
         .all() as M4EventRow[],
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }

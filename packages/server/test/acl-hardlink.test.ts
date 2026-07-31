@@ -2,13 +2,15 @@
 // ACL that globs the alias path would serve a file living outside the allowed folder. realpath
 // cannot dereference a hard link, so enforcement must gate on the inode link count. These tests
 // place a real hard link on disk and assert the read fails closed.
-import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { linkSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { enforcePathAcl } from "../src/vault/acl-path";
 import { readFileChecked, readNote } from "../src/vault/notes-io";
+import { rmTemp } from "./tmp";
 
 function tempVault(): string {
   const root = mkdtempSync(join(tmpdir(), "otc-hardlink-"));
@@ -34,7 +36,7 @@ describe("C-1b hard-link folder-ACL bypass", () => {
       expect(() => readNote(join(root, "public", "hl.md"))).toThrow(/hard-link|inode/i);
       expect(() => readFileChecked(join(root, "public", "hl.md"))).toThrow(/hard-link|inode/i);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -49,7 +51,7 @@ describe("C-1b hard-link folder-ACL bypass", () => {
       expect(() => enforcePathAcl(acl, "read", "public/hlob.md", root)).toThrow(/hard-link|inode/i);
       expect(() => readNote(join(root, "public", "hlob.md"))).toThrow(/hard-link|inode/i);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -61,7 +63,7 @@ describe("C-1b hard-link folder-ACL bypass", () => {
       expect(() => enforcePathAcl(acl, "read", "public/ok.md", root)).not.toThrow();
       expect(readNote(join(root, "public", "ok.md")).raw).toBe("hello\n");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

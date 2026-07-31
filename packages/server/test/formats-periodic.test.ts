@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
@@ -11,6 +11,7 @@ import {
   resolvePeriodicPath,
   toISODate,
 } from "../src/formats/periodic";
+import { rmTemp } from "./tmp";
 
 function codeOf(fn: () => unknown): string {
   try {
@@ -66,7 +67,7 @@ describe("formats/periodic resolver", () => {
       expect(resolvePeriodicPath(root, "daily", d("2024-05-09")).path).toBe("2024-05-09.md");
       expect(resolvePeriodicPath(root, "weekly", d("2021-01-01")).path).toBe("2020-W53.md");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -82,7 +83,7 @@ describe("formats/periodic resolver", () => {
         "Journal/2024/05/09.md",
       );
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -99,7 +100,7 @@ describe("formats/periodic resolver", () => {
       expect(r.source).toBe("daily-notes");
       expect(resolvePeriodicPath(root, "daily", d("2024-05-09")).path).toBe("Daily/09-05-2024.md");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

@@ -5,7 +5,8 @@
 // walkVault (disk-scan) path only, so the deps.metadataIndex-ready() branches of list_properties /
 // find_notes_by_property (querying the `notes` table instead of walking the filesystem) need a
 // second, local harness that seeds that table directly.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -18,6 +19,7 @@ import { buildFrontmatterTools } from "../src/tools/m1/frontmatter-tools";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
+import { rmTemp } from "./tmp";
 
 function errCode(r: ToolResult): string {
   if (r.ok) throw new Error("expected an error result");
@@ -79,7 +81,7 @@ function makeIndexedVault(opts: { rows: IndexedRow[]; acl?: Partial<AclConfigT> 
   return {
     db,
     call: (name, input) => registry.dispatch(name, input, ctx),
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }
 

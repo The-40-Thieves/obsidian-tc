@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,7 @@ import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import { type IndexedChunk, indexNote, indexVault } from "../src/search/indexer";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const INIT_SQL = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260519_001_initial.sql", import.meta.url)),
@@ -88,7 +89,7 @@ describe("W-INGEST indexer fold", () => {
       expect(has("B.md", "A.md", "links_to")).toBe(true);
       expect(has("A.md", "Ghost", "unresolved")).toBe(true);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

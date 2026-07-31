@@ -2,7 +2,8 @@
 // cli.ts assembles it), and a note created through the M1 write path is indexed
 // and then found by both lexical and semantic M2 search — all through the full
 // M0 dispatch pipeline against a real on-disk temp vault, with audit rows asserted.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -15,6 +16,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 function dataOf(res: ToolResult): any {
   if (!res.ok) throw new Error(`expected ok, got ${res.error.code}`);
@@ -84,7 +86,7 @@ describe("M1 + M2 cross-milestone integration (one shared registry)", () => {
       expect(events.some((e) => e.tool_name === "index_vault" && e.status === "ok")).toBe(true);
       expect(events.some((e) => e.tool_name === "search_semantic" && e.status === "ok")).toBe(true);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

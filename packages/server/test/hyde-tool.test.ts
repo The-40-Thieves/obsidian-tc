@@ -2,7 +2,8 @@
 // on vault_graph_search; when present it seeds the DENSE arm instead of the raw query. The
 // sparse/ColBERT arms must keep seeing the raw query — HyDE is a dense-only substitution, never a
 // lexical/late-interaction one. Absent/null/blank must be a byte-identical no-op vs today.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -12,6 +13,7 @@ import { ToolRegistry } from "../src/mcp/registry";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const VAULT = "main";
 
@@ -20,7 +22,7 @@ function un<T>(r: unknown): T {
 }
 
 const root = mkdtempSync(join(tmpdir(), "obtc-hyde-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => rmTemp(root));
 
 /** Spy embedding provider: records every text handed to embed()/embedFull(), and returns a fixed
  *  vector/multi-vector regardless of input — the wiring under test is WHICH TEXT is sent, not

@@ -9,7 +9,8 @@
 // dispatch layer, using the same reranker-call-count spy test/gated-rerank.test.ts uses (asserting
 // on the config value alone would prove nothing — that would pass even if buildGraphSearchOptions
 // silently dropped it, which is exactly the bug this ticket closes).
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +23,7 @@ import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const VAULT = "main";
 
@@ -81,7 +83,7 @@ function spyReranker(): { reranker: Reranker; calls: Array<{ query: string; docs
 }
 
 const root = mkdtempSync(join(tmpdir(), "obtc-gated-rerank-wiring-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => rmTemp(root));
 
 function harness(retrieval: { gatedRerank?: boolean } | undefined, reranker: Reranker | null) {
   const db = hardDb();

@@ -11,7 +11,8 @@
 //    consulted (enforcePathAcl short-circuits to "allowed" when grantedScopes is undefined) — a
 //    caller holding the tool-level scope (e.g. write:periodic) but NOT the path's rule-scope could
 //    still write there. These tests fail against the pre-fix code for exactly that reason.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -25,6 +26,7 @@ import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM5Vault } from "./m5-helpers";
+import { rmTemp } from "./tmp";
 
 describe("THE-567 create_periodic_note: template_override is centrally enforced (extractor route)", () => {
   function setup() {
@@ -68,7 +70,7 @@ describe("THE-567 create_periodic_note: template_override is centrally enforced 
       expect(denied.ok).toBe(false);
       if (!denied.ok) expect(denied.error.code).toBe("acl_denied");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -93,7 +95,7 @@ describe("THE-567 create_periodic_note: template_override is centrally enforced 
           "templates/daily.md",
         );
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

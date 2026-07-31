@@ -18,19 +18,21 @@
 //
 // Exposed: memory-tools.ts's add_observation, because appendObservation READS the entity row
 // (entities.ts:135) and then runs an UPDATE on it (:140), both inside the transaction callback.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
 import { busyReason, inTransaction, inWriteTransaction } from "../src/db/txn";
 import type { Database } from "../src/db/types";
+import { rmTemp } from "./tmp";
 
 const dirs: string[] = [];
 const conns: Database[] = [];
 afterEach(() => {
   for (const c of conns.splice(0)) c.close?.();
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) rmTemp(d);
 });
 
 /** Two connections on one file, holding the shape appendObservation has: a row read back, then

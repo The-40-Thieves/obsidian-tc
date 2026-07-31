@@ -15,9 +15,10 @@
 //
 // The lexical route (classRouter + a corpus-rare term) is used throughout so no embedding
 // backend is needed — same trick as vault-context.test.ts.
+
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +38,7 @@ import {
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
 const RARE_TERM = "glorbnaxis";
@@ -90,7 +92,7 @@ interface ContextData {
 }
 
 const root = mkdtempSync(join(tmpdir(), "obtc-pwacl-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => rmTemp(root));
 
 function harness(db: Database, prewarmDir: string) {
   const registry = new ToolRegistry({});
@@ -157,7 +159,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
       const allContent = narrow.notes.flatMap((n) => n.chunks.map((c) => c.content ?? ""));
       expect(allContent.join(" ")).not.toMatch(/SECRET/);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
     }
   });
 
@@ -197,7 +199,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
       // whose notes exclude secret/b.md, or — never — the cached bundle verbatim.
       expect(res.notes.map((n) => n.path)).not.toContain("secret/b.md");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
     }
   });
 
@@ -224,7 +226,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
       expect(second.prefetched).toBeUndefined();
       expect(second.notes.map((n) => n.path)).not.toContain("public/a.md");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
     }
   });
 
@@ -244,7 +246,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
       expect(second.prefetched).toBe(true); // second call, nothing changed -> served from cache
       expect(second.notes.map((n) => n.path).sort()).toEqual(first.notes.map((n) => n.path).sort());
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
     }
   });
 
@@ -284,7 +286,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
       // the key still work, so the cache still serves a hit rather than silently disabling.
       expect(second.prefetched).toBe(true);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
     }
   });
 
@@ -382,7 +384,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
         db.close?.();
       }
     } finally {
-      rmSync(cliDir, { recursive: true, force: true });
+      rmTemp(cliDir);
     }
   }, 60_000);
 });

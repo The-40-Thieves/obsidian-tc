@@ -4,6 +4,7 @@
 // without touching a disk — that is where the security-relevant rules live. `startVaultWatch` is
 // tested against a REAL filesystem, because the whole feature is an assertion about what the OS
 // reports; a mocked fs.watch would only prove the test's own model of inotify.
+
 import {
   linkSync,
   mkdirSync,
@@ -23,6 +24,7 @@ import {
   shouldWatchPath,
   startVaultWatch,
 } from "../src/vault/watcher";
+import { rmTemp } from "./tmp";
 
 /**
  * Wait for the watcher to actually be armed before writing.
@@ -47,7 +49,7 @@ let symlinkOk = true;
 try {
   const probe = mkdtempSync(join(tmpdir(), "tc-sl-probe-"));
   symlinkSync(join(probe, "t"), join(probe, "l"), "dir");
-  rmSync(probe, { recursive: true, force: true });
+  rmTemp(probe);
 } catch {
   symlinkOk = false; // Windows without the privilege to create symlinks
 }

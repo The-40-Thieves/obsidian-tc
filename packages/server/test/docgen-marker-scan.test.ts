@@ -4,11 +4,13 @@
 // scanned (the G2 design-doc surface was previously invisible), but TREE.md must stay excluded
 // (different generator, gated by `map:check`) and docs/wiki + docs/src/content must not be
 // double-walked by the new top-level docs/ pass.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { candidateFiles, findGeneratedMarkers } from "../scripts/docgen/marker-scan";
+import { rmTemp } from "./tmp";
 
 let repoRoot: string;
 
@@ -17,7 +19,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(repoRoot, { recursive: true, force: true });
+  rmTemp(repoRoot);
 });
 
 describe("candidateFiles / findGeneratedMarkers (THE-470, widened THE-595)", () => {

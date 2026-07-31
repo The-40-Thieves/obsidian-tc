@@ -6,7 +6,8 @@
 // find_notes_by_tag (querying the `notes` table instead of walking the filesystem) need a
 // second, local harness that seeds that table directly — mirrors the pattern in
 // test/frontmatter-tools-branch-coverage.test.ts's makeIndexedVault.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -20,6 +21,7 @@ import { contentHash } from "../src/vault/paths";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
+import { rmTemp } from "./tmp";
 
 function errCode(r: ToolResult): string {
   if (r.ok) throw new Error("expected an error result");
@@ -77,7 +79,7 @@ function makeIndexedTagsVault(opts: { rows: IndexedRow[]; acl?: Partial<AclConfi
   };
   return {
     call: (name, input) => registry.dispatch(name, input, ctx),
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }
 

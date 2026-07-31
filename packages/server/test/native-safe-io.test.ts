@@ -4,11 +4,13 @@
 // pure-JS fallback retains the documented residual) and when the host cannot create a symlink
 // (Windows without admin/developer mode) — so the symlink-rejection assertions run on Linux/macOS CI
 // where the native module is built and symlinks are freely creatable.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { nativeVaultIo, readNote, writeNoteAtomic } from "../src/vault/notes-io";
+import { rmTemp } from "./tmp";
 
 /** Try to create a symlink; return false if the host forbids it (Windows without privilege). */
 function trySymlink(target: string, link: string, type: "dir" | "file"): boolean {
@@ -28,7 +30,7 @@ describe("THE-272 native symlink-safe vault I/O", () => {
       writeFileSync(join(root, "note.md"), "hello native\n");
       expect(readNote(join(root, "note.md")).raw).toBe("hello native\n");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -39,7 +41,7 @@ describe("THE-272 native symlink-safe vault I/O", () => {
       writeNoteAtomic(join(root, "sub", "note.md"), "written\n", true);
       expect(readFileSync(join(root, "sub", "note.md"), "utf8")).toBe("written\n");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -55,8 +57,8 @@ describe("THE-272 native symlink-safe vault I/O", () => {
       // safe read must refuse the symlinked ancestor, not serve the SECRET.
       expect(() => readNote(join(root, "sub", "note.md"))).toThrow();
     } finally {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
+      rmTemp(root);
+      rmTemp(outside);
     }
   });
 
@@ -70,8 +72,8 @@ describe("THE-272 native symlink-safe vault I/O", () => {
       if (!trySymlink(join(outside, "secret.md"), join(root, "pub", "link.md"), "file")) return;
       expect(() => readNote(join(root, "pub", "link.md"))).toThrow();
     } finally {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
+      rmTemp(root);
+      rmTemp(outside);
     }
   });
 });

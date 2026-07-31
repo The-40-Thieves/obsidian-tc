@@ -10,7 +10,8 @@
 //    synchronously, no mocking needed) proves the production composition unwinds already-opened
 //    resources (governance, then stores) in reverse order, and never touches indexResources' own
 //    cleanup because indexResources itself never finished constructing.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -24,6 +25,7 @@ import {
   wireRuntimeCore,
 } from "../src/runtime/server-runtime";
 import { type Stores, wireStores } from "../src/runtime/stores";
+import { rmTemp } from "./tmp";
 
 describe("unwindReversed — reverse-ownership-order cleanup", () => {
   it("closes already-built layers in REVERSE (most-recently-opened-first) order", async () => {
@@ -139,7 +141,7 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", () 
         // Already released by wireStores, or by the close() above.
       }
     }
-    for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+    for (const d of tmpDirs.splice(0)) rmTemp(d);
   });
 
   const baseDeps = async (cacheDir: string): Promise<Omit<RuntimeCoreDeps, "embeddings">> => ({
@@ -297,7 +299,7 @@ describe("buildServerRuntime — post-core unwind on a real late boot failure", 
   afterEach(() => {
     for (const d of tmpDirs.splice(0)) {
       try {
-        rmSync(d, { recursive: true, force: true });
+        rmTemp(d);
       } catch {
         // BEST-EFFORT, and deliberately so. Windows refuses to unlink a file that still has an open
         // handle (`force: true` suppresses ENOENT, never EPERM), and these cases exercise a FAILED
@@ -358,7 +360,7 @@ describe("buildServerRuntime — otel unwind when wireRuntimeCore itself throws"
   afterEach(() => {
     for (const d of tmpDirs.splice(0)) {
       try {
-        rmSync(d, { recursive: true, force: true });
+        rmTemp(d);
       } catch {
         // Same best-effort concession as the sibling describe block above: this exercises a FAILED
         // boot, and the unwind order (the thing under test) has already run and been asserted by the
