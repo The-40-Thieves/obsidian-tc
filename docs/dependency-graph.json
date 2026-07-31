@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 302,
-    "dependencies": 1230,
+    "modules": 304,
+    "dependencies": 1258,
     "subsystemPairs": 88,
-    "crossSubsystemImports": 511
+    "crossSubsystemImports": 527
   },
   "subsystems": {
     "auth": 3,
@@ -34,7 +34,7 @@
     "scheduler": 4,
     "schemas": 1,
     "search": 44,
-    "tools": 62,
+    "tools": 64,
     "transports": 3,
     "util": 4,
     "vault": 18,
@@ -44,12 +44,17 @@
     {
       "from": "tools",
       "to": "vault",
-      "weight": 154
+      "weight": 158
     },
     {
       "from": "tools",
       "to": "mcp",
-      "weight": 55
+      "weight": 57
+    },
+    {
+      "from": "tools",
+      "to": "search",
+      "weight": 33
     },
     {
       "from": "search",
@@ -57,22 +62,17 @@
       "weight": 30
     },
     {
-      "from": "tools",
-      "to": "search",
-      "weight": 25
-    },
-    {
       "from": "cli",
       "to": "db",
       "weight": 20
     },
     {
-      "from": "experiential",
+      "from": "tools",
       "to": "db",
-      "weight": 13
+      "weight": 14
     },
     {
-      "from": "tools",
+      "from": "experiential",
       "to": "db",
       "weight": 13
     },
@@ -113,6 +113,11 @@
     },
     {
       "from": "tools",
+      "to": "plane",
+      "weight": 6
+    },
+    {
+      "from": "tools",
       "to": "experiential",
       "weight": 6
     },
@@ -129,11 +134,6 @@
     {
       "from": "memory",
       "to": "vault",
-      "weight": 5
-    },
-    {
-      "from": "tools",
-      "to": "plane",
       "weight": 5
     },
     {

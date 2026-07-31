@@ -7,52 +7,45 @@
 // WP2 slice 1: this file is now a compatibility facade over ./knowledge/*. The 11 output schema
 // consts live in knowledge/schemas.ts, M7Deps in knowledge/deps.ts, and the shared retrieval
 // helpers (cache-key/policy/coverage capture, budget packing, the graphSearch options builder,
-// the tag/contradiction lookups) in knowledge/retrieval-runtime.ts. `buildKnowledgeTools` itself
-// stays here unchanged — only where its pieces are imported from moved. Every name this file
-// exported before this split (M7Deps, packBudget, buildGraphSearchOptions, noteTagsByPath,
+// the tag/contradiction lookups) in knowledge/retrieval-runtime.ts. Every name this file
+// exported before that split (M7Deps, packBudget, buildGraphSearchOptions, noteTagsByPath,
 // openContradictionsForPaths, buildKnowledgeTools) is still exported from here, so no consumer
 // needs to change its import path.
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { err, grantsAll, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+//
+// WP2 slice 2: the two largest tool factories — vault_context (~348 lines) and reflect
+// (~167 lines) — now live in knowledge/vault-context.ts and knowledge/reflect.ts as
+// createVaultContextTool(deps, retrieval) / createReflectTool(deps, retrieval). The remaining
+// five tools (vault_graph_search, knowledge_search, knowledge_get_critical, knowledge_challenge,
+// list_contradictions) stay inline here, in their original order, for slice 3. `buildKnowledgeTools`
+// still constructs the shared retrieval state (the embedQuery/embedQuerySparse/embedQueryColbert/
+// embedAll closures) exactly once, bundles it into a `RetrievalRuntime` object, and hands that same
+// object to both factories — neither factory builds its own embedder, cache, or policy state.
+import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { tableExists } from "../../db/introspect";
 import type { ToolDefinition } from "../../mcp/registry";
-import { challengeProposal, type EvidenceChunk, isDecisionChunk } from "../../plane/challenge";
-import { prompt } from "../../plane/gateway";
-import { bm25Chunks } from "../../search/chunk_fts";
-import { readGeneration } from "../../search/generation";
+import { challengeProposal, isDecisionChunk } from "../../plane/challenge";
 import type { GraphSearchResult } from "../../search/graph_search";
 import { multiQueryGraphSearch } from "../../search/multi_query";
-import {
-  callerAclFingerprint,
-  DEFAULT_PREFETCH_TTL_MS,
-  prewarmPathFor,
-  readPrewarm,
-  writePrewarm,
-} from "../../search/prefetch";
 import { cachedGraphSearch, type QueryVectors } from "../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../search/router";
 import { semanticSearch } from "../../search/semantic";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
-import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
-import { persistGovernedNote } from "../../vault/persist-note";
+import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M7Deps } from "./knowledge/deps";
+import { createReflectTool } from "./knowledge/reflect";
 import {
   buildGraphSearchOptions,
   CHALLENGE_RECALL,
   cacheContextFor,
   captureCoverage,
   capturePolicy,
-  LESSON_PATH_RE,
-  NEXT_SESSION_NOTE,
   noteTagsByPath,
   openContradictionsForPaths,
   packBudget,
-  prewarmBundlePaths,
-  REFLECT_SYSTEM_PROMPT,
+  type RetrievalRuntime,
   retrievalHits,
 } from "./knowledge/retrieval-runtime";
 import {
@@ -60,10 +53,9 @@ import {
   KnowledgeCriticalOutput,
   KnowledgeSearchOutput,
   ListContradictionsOutput,
-  ReflectOutput,
-  VaultContextOutput,
   VaultGraphSearchOutput,
 } from "./knowledge/schemas";
+import { createVaultContextTool } from "./knowledge/vault-context";
 import { resolveQueryColbert, resolveQuerySparse } from "./query-sparse";
 
 export type { M7Deps };
@@ -98,523 +90,15 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
       ...(queryColbert ? { queryColbert } : {}),
     };
   };
+  // WP2.2: the single shared retrieval-runtime object, constructed exactly once here and handed to
+  // both extracted tool factories below. Neither factory builds its own embedder, cache, or policy
+  // state — they compose entirely on this object, so a cache hit (which never calls embedAll) stays
+  // a cache hit no matter which factory reached it through.
+  const retrieval: RetrievalRuntime = { embedQuery, embedQuerySparse, embedQueryColbert, embedAll };
 
   return [
-    defineTool({
-      name: "vault_context",
-      domain: "knowledge",
-      description:
-        "Composite budgeted context in ONE call (the Honcho-style context() primitive): graph-reranked chunks packed to a token budget and grouped by note, recent synthesis patterns touching the query, open contradictions on the packed notes, and applicable past lessons (decision/lesson/postmortem chunks relevant to the query) — with source metadata and packing stats. include_work adds eligible work-memory episodes (the THE-229 reader contract; explicit opt-in, never default). Omit query for session bootstrap: the queued thread is read from the memory folder's _next-session.md signal note, so every session opens with its applicable lessons (push, not pull).",
-      inputSchema: z
-        .object({
-          vault: VaultId,
-          query: z.string().min(1).optional(),
-          token_budget: z.number().int().positive().max(64000).default(4000),
-          k: z.number().int().positive().max(60).default(30),
-          include_work: z.boolean().default(false),
-          include_lessons: z.boolean().default(true),
-        })
-        .strict(),
-      outputSchema: VaultContextOutput,
-      requiredScopes: ["read:notes"],
-      tags: ["knowledge", "search"],
-      handler: async (input, ctx) => {
-        const v = deps.vaultRegistry.resolve(input.vault);
-        // THE-231 bootstrap mode: with no query, the queued thread comes from the previous
-        // session's signal note — the session opens with its own context instead of asking.
-        let query = input.query;
-        let querySource: "input" | "next_session" = "input";
-        let signalPath: string | undefined;
-        let signalHash: string | undefined;
-        if (query === undefined) {
-          const rel = `${deps.memoryFolder?.(v.id) ?? "memory"}/${NEXT_SESSION_NOTE}`;
-          const abs = resolveVaultPath(v.root, rel);
-          if (!readableRel(ctx.acl, rel) || !existsSync(abs)) {
-            throw err.invalidInput("query omitted and no readable next-session signal note", {
-              signal: rel,
-            });
-          }
-          const text = readFileSync(abs, "utf8")
-            .replace(/^---[\s\S]*?---/, "")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, 600);
-          if (!text) throw err.invalidInput("next-session signal note is empty", { signal: rel });
-          query = text;
-          querySource = "next_session";
-          signalPath = rel;
-          // THE-136: prewarm-cache hit — the anticipatory prefetch already composed this
-          // bundle. The reader enforces the TTL and the signal hash (an edited note misses);
-          // an empty marker (the prefetch floor) falls through to a live compose. Cache hits
-          // are not retrieval-logged: no live retrieval happened, the prefetch run logged its.
-          signalHash = createHash("sha256").update(text).digest("hex");
-          if (deps.prewarmDir) {
-            // THE-543: the cache key binds the CALLER (acl_fingerprint) and the CONTENT
-            // (vault_generation) that produced the bundle — an entry written under a broader
-            // ACL, or one whose vault has since mutated, is a miss here, not a match.
-            const aclFingerprint = callerAclFingerprint(ctx.acl, ctx.grantedScopes);
-            const cached = readPrewarm(prewarmPathFor(deps.prewarmDir, v.id, aclFingerprint), {
-              nowMs: (ctx.now ?? Date.now)(),
-              signalHash,
-              aclFingerprint,
-              vaultGeneration: readGeneration(ctx.db, v.id),
-            });
-            // THE-543 layer 3: re-check every path the bundle references against THIS
-            // dispatch's ACL regardless of the key match above. A bundle is a composed whole —
-            // if any path in it is now unreadable, the whole entry is a miss, never a partial
-            // return, so it falls through to the live compose below.
-            // THE-417: layer 4 — the bundle's SHAPE. `PrewarmEntry.bundle` is
-            // `Record<string, unknown>` read from disk, so nothing here has ever guaranteed a
-            // cached entry matches what this tool returns today. A bundle written by an older
-            // build with a different response shape would have been served verbatim. Now that the
-            // shape is declared, validate it and treat a mismatch as a MISS — the same discipline
-            // as the ACL and generation layers above, and the same rule the comment there states:
-            // a bundle is a composed whole, so a partial or stale-shaped one falls through to a
-            // live compose rather than being returned in part.
-            const shaped =
-              cached?.empty === false && cached.bundle
-                ? VaultContextOutput.safeParse(cached.bundle)
-                : null;
-            if (
-              cached?.bundle &&
-              shaped?.success &&
-              prewarmBundlePaths(cached.bundle).every((rel) => readableRel(ctx.acl, rel))
-            ) {
-              return {
-                ...shaped.data,
-                prefetched: true as const,
-                prefetch_generated_at: cached.generated_at,
-              };
-            }
-          }
-        }
-        // Same front door as vault_graph_search: the class router when enabled, the measured
-        // engine otherwise — vault_context adds composition, never a second retrieval path.
-        const route = deps.classRouter
-          ? routeQuery(ctx.db, v.id, query)
-          : { class: "standard" as const, signals: [] as string[] };
-        const policy = capturePolicy(deps, v.id, route.class);
-        let results: GraphSearchResult[];
-        if (route.class === "lexical") {
-          results = lexicalRouteResults(ctx.db, v.id, query, input.k, (rel) =>
-            readableRel(ctx.acl, rel),
-          );
-        } else {
-          results = await cachedGraphSearch(
-            ctx.db,
-            buildGraphSearchOptions(deps, {
-              route,
-              query,
-              vaultId: v.id,
-              finalTopK: input.k,
-              reranker: deps.reranker,
-              isReadable: (rel) => readableRel(ctx.acl, rel),
-              onFusionWeights: policy.sink,
-            }),
-            () => embedAll(query, query),
-            cacheContextFor(deps, ctx, v.id, query),
-          );
-        }
-        deps.retrievalLog?.({
-          queryText: query,
-          surfaceType: "vault_context",
-          sessionId: ctx.sessionId ?? null,
-          caller: ctx.caller ?? null,
-          hits: retrievalHits(results),
-          policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
-        });
-
-        // Token costs from the authored store (token_count), length/4 fallback. 15% of the
-        // budget is reserved for the synthesis + contradiction legs; chunks pack the rest.
-        const tokenByChunk = new Map<string, number>();
-        const ids = results.map((r) => r.chunk_id);
-        for (let i = 0; i < ids.length; i += 200) {
-          const batch = ids.slice(i, i + 200);
-          const rows = ctx.db
-            .prepare(
-              `SELECT id, token_count FROM chunks WHERE id IN (${batch.map(() => "?").join(",")})`,
-            )
-            .all(...batch) as Array<{ id: string; token_count: number }>;
-          for (const r of rows) tokenByChunk.set(r.id, r.token_count);
-        }
-        const chunkBudget = Math.floor(input.token_budget * 0.85);
-        const { packed, tokens: chunkTokens } = packBudget(
-          results,
-          (r) => tokenByChunk.get(r.chunk_id) ?? Math.ceil((r.content?.length ?? 80) / 4),
-          chunkBudget,
-        );
-        // Group consecutive same-note chunks so the packed block reads coherently.
-        const notes: Array<{
-          path: string;
-          chunks: Array<{
-            chunk_id: string;
-            content: string | undefined;
-            score: number;
-            source: string;
-            hop: number;
-          }>;
-        }> = [];
-        for (const r of packed) {
-          const last = notes[notes.length - 1];
-          const entry = {
-            chunk_id: r.chunk_id,
-            content: r.content,
-            score: r.rerank_score,
-            source: r.source,
-            hop: r.hop,
-          };
-          if (last && last.path === r.path) last.chunks.push(entry);
-          else notes.push({ path: r.path, chunks: [entry] });
-        }
-
-        // Open contradictions on the packed notes (reuses the challenge plumbing), capped.
-        const contradictions = openContradictionsForPaths(
-          ctx.db,
-          v.id,
-          notes.map((n) => n.path),
-          (rel) => readableRel(ctx.acl, rel),
-        ).slice(0, 5);
-
-        // Recent synthesis patterns touching the query (weekly rows; LIKE over the JSON text
-        // on significant query tokens), newest first, capped to 2.
-        const sigTokens = (query.toLowerCase().match(/[a-z0-9][a-z0-9-]{3,}/g) ?? []).slice(0, 3);
-        let syntheses: Array<{
-          iso_year: number;
-          iso_week: number;
-          generated_at: number;
-          patterns: unknown;
-        }> = [];
-        if (sigTokens.length > 0 && tableExists(ctx.db, "syntheses")) {
-          const like = sigTokens.map(() => "(patterns LIKE ? OR clusters LIKE ?)").join(" OR ");
-          const params = sigTokens.flatMap((t) => [`%${t}%`, `%${t}%`]);
-          const rows = ctx.db
-            .prepare(
-              `SELECT iso_year, iso_week, generated_at, patterns FROM syntheses
-               WHERE vault_id = ? AND (${like}) ORDER BY generated_at DESC LIMIT 2`,
-            )
-            .all(v.id, ...params) as Array<{
-            iso_year: number;
-            iso_week: number;
-            generated_at: number;
-            patterns: string;
-          }>;
-          syntheses = rows.map((r) => {
-            let patterns: unknown = r.patterns;
-            try {
-              patterns = JSON.parse(r.patterns);
-            } catch {
-              /* raw string fallback */
-            }
-            return {
-              iso_year: r.iso_year,
-              iso_week: r.iso_week,
-              generated_at: r.generated_at,
-              patterns,
-            };
-          });
-        }
-
-        // THE-231 lessons leg: applicable past lessons — decision/lesson/postmortem chunks
-        // relevant to the query. Engine-ranked hits first (already relevance-ordered), then a
-        // BM25 backfill over lesson-class paths the engine's top-k missed. Composition only:
-        // packing and ranking are untouched, so no A/B is owed.
-        const lessons: Array<{
-          chunk_id: string;
-          path: string;
-          excerpt: string;
-          via: "engine" | "lexical";
-        }> = [];
-        if (input.include_lessons) {
-          const seen = new Set<string>();
-          for (const r of results) {
-            if (lessons.length >= 5) break;
-            if (!LESSON_PATH_RE.test(r.path)) continue;
-            seen.add(r.chunk_id);
-            lessons.push({
-              chunk_id: r.chunk_id,
-              path: r.path,
-              excerpt: (r.content ?? "").slice(0, 240),
-              via: "engine",
-            });
-          }
-          if (lessons.length < 5) {
-            for (const h of bm25Chunks(ctx.db, v.id, query, 40)) {
-              if (lessons.length >= 5) break;
-              if (seen.has(h.chunk_id) || !LESSON_PATH_RE.test(h.path)) continue;
-              if (!readableRel(ctx.acl, h.path)) continue;
-              seen.add(h.chunk_id);
-              lessons.push({
-                chunk_id: h.chunk_id,
-                path: h.path,
-                excerpt: h.content.slice(0, 240),
-                via: "lexical",
-              });
-            }
-          }
-        }
-
-        // Optional work-memory leg — the THE-229 reader contract verbatim (eligible-only,
-        // no tombstoned/expired, caller partition), explicit opt-in per the ticket.
-        let episodes:
-          | Array<{
-              id: string;
-              ts: number;
-              tool: string | null;
-              status: string;
-              summary: string | null;
-            }>
-          | { work_unavailable: true }
-          | undefined;
-        if (input.include_work) {
-          if (!deps.edb) {
-            episodes = { work_unavailable: true };
-          } else {
-            episodes = deps.edb
-              .prepare(
-                `SELECT id, ts, tool, status, summary FROM agent_episodes
-                 WHERE blocked = 0 AND eligibility = 'eligible'
-                   AND (valid_until IS NULL OR valid_until > ?)
-                   AND (trust IS NULL OR trust >= 0.3)
-                   AND caller IS ?
-                 ORDER BY ts DESC LIMIT 5`,
-              )
-              .all(Date.now(), ctx.caller ?? null) as Array<{
-              id: string;
-              ts: number;
-              tool: string | null;
-              status: string;
-              summary: string | null;
-            }>;
-          }
-        }
-
-        const response = {
-          vault: v.id,
-          route: route.signals,
-          query_source: querySource,
-          ...(signalPath !== undefined ? { signal: signalPath } : {}),
-          ...(signalHash !== undefined ? { signal_hash: signalHash } : {}),
-          budget: {
-            requested: input.token_budget,
-            chunk_budget: chunkBudget,
-            packed_tokens: chunkTokens,
-          },
-          stats: {
-            chunks_considered: results.length,
-            chunks_packed: packed.length,
-            notes: notes.length,
-            contradictions: contradictions.length,
-            syntheses: syntheses.length,
-            lessons: lessons.length,
-          },
-          notes,
-          syntheses,
-          contradictions,
-          lessons,
-          ...(episodes !== undefined ? { episodes } : {}),
-        };
-        // THE-136 write-through: a live bootstrap compose refreshes the prewarm cache so the
-        // next bootstrap within the TTL is a hit even without a scheduled prefetch run.
-        // Best-effort; atomic (tmp + rename) so no reader catches a torn file.
-        if (querySource === "next_session" && deps.prewarmDir && signalHash !== undefined) {
-          try {
-            const now = (ctx.now ?? Date.now)();
-            // THE-543: record the fingerprint of the ACL that actually produced `response`
-            // (results were already filtered through readableRel(ctx.acl, ...) above) and the
-            // vault generation at this instant, so a later reader under a different or wider
-            // ACL, or after content moved, misses instead of inheriting this caller's view.
-            writePrewarm(
-              prewarmPathFor(
-                deps.prewarmDir,
-                v.id,
-                callerAclFingerprint(ctx.acl, ctx.grantedScopes),
-              ),
-              {
-                generated_at: now,
-                expires_at: now + DEFAULT_PREFETCH_TTL_MS,
-                signal: signalPath ?? "",
-                signal_hash: signalHash,
-                empty: packed.length === 0,
-                acl_fingerprint: callerAclFingerprint(ctx.acl, ctx.grantedScopes),
-                vault_generation: readGeneration(ctx.db, v.id),
-                ...(packed.length === 0 ? {} : { bundle: response }),
-              },
-            );
-          } catch {
-            /* the cache is an optimization; the response is already composed */
-          }
-        }
-        return response;
-      },
-    }),
-
-    defineTool({
-      name: "reflect",
-      domain: "knowledge",
-      description:
-        "The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes). Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `obsidian-tc reflect` CLI command.",
-      inputSchema: z
-        .object({
-          vault: VaultId,
-          query: z.string().min(3).max(4000),
-          mode: z.enum(["synthesis", "challenge"]).default("synthesis"),
-          k: z.number().int().positive().max(60).default(20),
-          scope: z.string().min(1).optional(),
-          persist: z.boolean().default(false),
-        })
-        .strict(),
-      outputSchema: ReflectOutput,
-      requiredScopes: ["read:notes"],
-      tags: ["knowledge"],
-      handler: async (input, ctx) => {
-        const v = deps.vaultRegistry.resolve(input.vault);
-        // Same front door as every knowledge surface: the class router when enabled, the
-        // measured engine otherwise. reflect composes recall + a generative pass — it never
-        // adds a retrieval mechanism.
-        const route = deps.classRouter
-          ? routeQuery(ctx.db, v.id, input.query)
-          : { class: "standard" as const, signals: [] as string[] };
-        const policy = capturePolicy(deps, v.id, route.class);
-        let results: GraphSearchResult[];
-        if (route.class === "lexical") {
-          results = lexicalRouteResults(ctx.db, v.id, input.query, input.k, (rel) =>
-            readableRel(ctx.acl, rel),
-          );
-        } else {
-          results = await cachedGraphSearch(
-            ctx.db,
-            buildGraphSearchOptions(deps, {
-              route,
-              query: input.query,
-              vaultId: v.id,
-              finalTopK: input.k,
-              reranker: deps.reranker,
-              isReadable: (rel) => readableRel(ctx.acl, rel),
-              onFusionWeights: policy.sink,
-            }),
-            () => embedAll(input.query, input.query),
-            cacheContextFor(deps, ctx, v.id, input.query),
-          );
-        }
-        if (input.scope !== undefined) {
-          const scope = input.scope;
-          results = results.filter((r) => r.path.startsWith(scope));
-        }
-        deps.retrievalLog?.({
-          queryText: input.query,
-          surfaceType: "reflect",
-          sessionId: ctx.sessionId ?? null,
-          caller: ctx.caller ?? null,
-          hits: retrievalHits(results),
-          policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
-        });
-        const sources = results.map((r) => ({
-          chunk_id: r.chunk_id,
-          path: r.path,
-          score: r.rerank_score,
-        }));
-        if (!deps.roles) {
-          return {
-            vault: v.id,
-            mode: input.mode,
-            route: route.signals,
-            available: false,
-            message: "inference gateway not configured (set OBSIDIAN_TC_GATEWAY_URL)",
-            answer: null,
-            sources,
-          };
-        }
-        if (input.mode === "challenge") {
-          const paths = [...new Set(results.map((r) => r.path))];
-          const tags = noteTagsByPath(ctx.db, v.id, paths);
-          const evidence: EvidenceChunk[] = results
-            .filter((r) => isDecisionChunk({ path: r.path, tags: tags.get(r.path) ?? null }))
-            .slice(0, CHALLENGE_RECALL)
-            .map((r) => ({
-              path: r.path,
-              tags: tags.get(r.path) ?? null,
-              content: r.content ?? "",
-            }));
-          const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
-            readableRel(ctx.acl, rel),
-          );
-          const { output, model } = await challengeProposal(
-            deps.roles,
-            input.query,
-            evidence,
-            contradictions,
-          );
-          return {
-            vault: v.id,
-            mode: "challenge",
-            route: route.signals,
-            available: true,
-            model,
-            challenge: output,
-            sources,
-          };
-        }
-        const evidenceBlock = results
-          .slice(0, 20)
-          .map((r, i) => `[${i + 1}] ${r.path}\n${(r.content ?? "").slice(0, 800)}`)
-          .join("\n\n");
-        const res = await deps.roles.synthesize(
-          prompt(
-            REFLECT_SYSTEM_PROMPT,
-            `Question:\n${input.query}\n\nEvidence chunks:\n${evidenceBlock}`,
-          ),
-        );
-        // Traceable derived memory (the Hindsight "update in a traceable way" requirement):
-        // provenance frontmatter carries the model + the exact source chunk ids and paths.
-        let persisted: { path: string } | undefined;
-        if (input.persist) {
-          // Wildcard-aware, matching the dispatch path (registry.ts grantsAll): a caller holding
-          // `*` or `write:*` satisfies write:notes. A raw Set `.has("write:notes")` rejected them
-          // even though every other write tool accepts them (audit THE-562 / P1.6).
-          if (!grantsAll(ctx.grantedScopes ?? [], ["write:notes"]))
-            throw err.forbidden("reflect persist requires write:notes");
-          const folder = deps.memoryFolder?.(v.id) ?? "memory";
-          const slug =
-            input.query
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "-")
-              .replace(/^-+|-+$/g, "")
-              .slice(0, 48) || "reflection";
-          const nowMs = (ctx.now ?? Date.now)();
-          const rel = `${folder}/reflections/${new Date(nowMs).toISOString().slice(0, 10)}-${slug}.md`;
-          enforcePathAcl(ctx.acl, "write", rel, v.root);
-          const content = [
-            "---",
-            `generated_at: ${new Date(nowMs).toISOString()}`,
-            `source_model: ${res.model}`,
-            `query: ${JSON.stringify(input.query)}`,
-            `source_chunks: ${JSON.stringify(results.slice(0, 20).map((r) => r.chunk_id))}`,
-            `source_paths: ${JSON.stringify([...new Set(results.slice(0, 20).map((r) => r.path))])}`,
-            "---",
-            "",
-            res.text,
-            "",
-          ].join("\n");
-          persistGovernedNote(
-            ctx.db,
-            { snapshots: deps.snapshots, reindex: deps.reindex, now: ctx.now ?? Date.now },
-            { vaultId: v.id, root: v.root, rel, content, op: "reflect_persist", createDirs: true },
-          );
-          persisted = { path: rel };
-        }
-        return {
-          vault: v.id,
-          mode: "synthesis",
-          route: route.signals,
-          available: true,
-          answer: res.text,
-          model: res.model,
-          sources,
-          ...(persisted ? { persisted } : {}),
-        };
-      },
-    }),
-
+    createVaultContextTool(deps, retrieval),
+    createReflectTool(deps, retrieval),
     defineTool({
       name: "vault_graph_search",
       domain: "knowledge",
