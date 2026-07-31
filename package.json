@@ -30,6 +30,7 @@
     "check:dev-dep-imports": "node scripts/check-dev-dep-imports.mjs",
     "check:duplicate-exports": "node scripts/check-duplicate-exports.mjs",
     "check:duplication": "jscpd --config .jscpd.json",
+    "check:export-surface": "node scripts/check-export-surface.mjs",
     "check:ingest-telemetry-wiring": "node scripts/check-ingest-telemetry-wiring.mjs",
     "check:merge-driver": "node scripts/check-merge-driver.mjs",
     "check:nul": "node scripts/check-nul-bytes.mjs",
