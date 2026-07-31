@@ -6,6 +6,7 @@
 // vendor-KB (knowledge_chunks: severity/mcp_name) data model the converged vault-centric tree
 // does not have; it stays integration-gated (THE-233 integration follow-up).
 import { z } from "zod";
+import { renderEvidenceItem, trimToBoundary } from "../search/evidence";
 import { type GatewayRoles, prompt } from "./gateway";
 
 const DECISION_PATH_PREFIXES = [
@@ -90,16 +91,29 @@ export function parseChallengeOutput(raw: string): ChallengeOutput {
   return challengeOutputSchema.parse(JSON.parse(stripped));
 }
 
-const EVIDENCE_TRUNCATE = 1800;
+/** Per-item truncation for the challenge prompt. Exported so the callers that assemble evidence for
+ *  it build to the same cap instead of inventing their own — see CHALLENGE_EVIDENCE_BUDGET in
+ *  tools/m7/knowledge/retrieval-runtime.ts, which composes this with CHALLENGE_RECALL.
+ *
+ *  The budget lives THERE and not here on purpose: `tools/` already imports this module
+ *  (challengeProposal), so importing CHALLENGE_RECALL back the other way would close a
+ *  plane -> tools -> plane cycle, and this repo's no-circular baseline is zero. */
+export const EVIDENCE_TRUNCATE = 1800;
 
 function renderEvidence(hit: EvidenceChunk, idx: number): string {
-  const headings = (hit.headings ?? []).join(" > ");
-  const tags = (hit.tags ?? []).join(", ");
-  const content =
-    hit.content.length > EVIDENCE_TRUNCATE
-      ? `${hit.content.slice(0, EVIDENCE_TRUNCATE)}\n...[truncated]`
-      : hit.content;
-  return `[${idx}] path: ${hit.path}${headings ? `\nheadings: ${headings}` : ""}${tags ? `\ntags: ${tags}` : ""}\ncontent: ${content}`;
+  // Delegates to the shared renderer so there is exactly one `[n] path/headings/tags/content`
+  // shape in the tree. Callers now pre-trim via buildEvidence, so the `truncated` flag below is
+  // recomputed here only for a caller that hands over raw chunks — the output is byte-identical
+  // either way.
+  const trimmed = trimToBoundary(hit.content, EVIDENCE_TRUNCATE);
+  return renderEvidenceItem({
+    citation: idx,
+    path: hit.path,
+    content: trimmed,
+    headings: hit.headings,
+    tags: hit.tags,
+    truncated: trimmed.length < hit.content.length,
+  });
 }
 
 function buildUserMessage(

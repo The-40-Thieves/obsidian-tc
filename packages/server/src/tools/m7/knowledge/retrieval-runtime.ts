@@ -8,8 +8,9 @@ import { tableExists } from "../../../db/introspect";
 import type { Database } from "../../../db/types";
 import type { RetrievalPolicyRecord } from "../../../experiential/log";
 import type { CallerContext } from "../../../mcp/registry";
-import type { ContradictionContext } from "../../../plane/challenge";
+import { type ContradictionContext, EVIDENCE_TRUNCATE } from "../../../plane/challenge";
 import type { ColbertMatrix } from "../../../search/colbert";
+import type { EvidenceBudget } from "../../../search/evidence";
 import { readGeneration } from "../../../search/generation";
 import type {
   CoverageEstimate,
@@ -160,6 +161,35 @@ export function packBudget<T>(
 }
 
 export const CHALLENGE_RECALL = 30;
+
+/** The evidence budget for the challenge prompt, composed here because this is the side of the
+ *  tools -> plane edge that may name both halves: CHALLENGE_RECALL is local, EVIDENCE_TRUNCATE
+ *  comes from plane/challenge.ts, and importing CHALLENGE_RECALL the other way would close a
+ *  cycle against a zero baseline.
+ *
+ *  Both callers that assemble challenge evidence (knowledge-challenge.ts and reflect.ts's
+ *  challenge mode) build against this, so the two paths can no longer disagree about how much the
+ *  judge sees. The item count and per-item truncation are exactly what those paths already
+ *  applied. `maxPerNote` is NEW and deliberately loose — at 6 of 30 it binds only when a single
+ *  note supplies a fifth of the whole evidence set, the degenerate shape a quota exists for
+ *  rather than anything ordinary retrieval produces. */
+export const CHALLENGE_EVIDENCE_BUDGET: EvidenceBudget = {
+  maxItems: CHALLENGE_RECALL,
+  maxCharsPerItem: EVIDENCE_TRUNCATE,
+  maxPerNote: 6,
+};
+
+/** The evidence budget for reflect's SYNTHESIS prompt. Its caps are what that path already hard-
+ *  coded inline (`results.slice(0, 20)`, `content.slice(0, 800)`); naming them makes the gap
+ *  visible rather than accidental — synthesis shows the model 800 characters of a chunk where
+ *  challenge shows 1800, a 2.25x difference that nothing recorded as a decision. Left as-is here
+ *  because closing it changes what a model is shown, which is an evaluated change, not a refactor.
+ *  `maxPerNote` at 5 of 20 (25%) is the same loose quota rationale as the challenge budget. */
+export const SYNTHESIS_EVIDENCE_BUDGET: EvidenceBudget = {
+  maxItems: 20,
+  maxCharsPerItem: 800,
+  maxPerNote: 5,
+};
 
 /** THE-543 layer 3 (defence in depth): every vault-relative path a cached prewarm bundle
  *  references, so the hit path can re-run each one through readableRel before trusting the
