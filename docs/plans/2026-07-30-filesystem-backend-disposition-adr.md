@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Status** | Evidence recorded. **Decision pending owner sign-off.** No code changed. |
+| **Status** | **Decided: delete.** Owner sign-off given 2026-07-30; implemented same day (branch `mislam2/wp0.2-delete-filesystem-backend`). Re-verified before deletion: all Q1/Q2 counts below still held (1 selection point, 0 production constructions, 33 files / 215 call sites bypassing the seam). |
 | **Date** | 2026-07-30 |
-| **Verified against** | `main` @ `7567575` |
+| **Verified against** | `main` @ `7567575` (evidence); re-verified against `refactor/structural-program` before deletion |
 | **Scope** | WP0.2 of `2026-07-30-codebase-refactor-map.md` |
 | **Supersedes nothing** | Annotates `2026-06-25-headless-vaultbackend-adr.md` (THE-255), which stays the record of the original design intent |
 

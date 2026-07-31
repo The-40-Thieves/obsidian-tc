@@ -224,8 +224,8 @@ Nothing in the cutover is destructive; rollback is configuration-only:
 ## 5. The Sync story
 
 **obsidian-tc does not do Obsidian Sync — keep your existing sync mechanism.** The server
-operates on the local vault filesystem (single filesystem `VaultBackend`; the companion/
-LRA are Tier-3 bridge-only). It neither replaces nor interferes with Obsidian Sync,
+operates on the local vault filesystem directly (atomic writes via `writeNoteAtomic`; the
+companion/LRA are Tier-3 bridge-only). It neither replaces nor interferes with Obsidian Sync,
 Syncthing, iCloud, or Git-based sync: those keep replicating the same files obsidian-tc
 reads and writes. Two coherence notes (THE-283, `docs/COHERENCE.md`):
 

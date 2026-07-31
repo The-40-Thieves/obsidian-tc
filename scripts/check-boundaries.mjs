@@ -56,9 +56,13 @@ const ROOTS = [
 // Modules that are genuinely unreachable today and are TRACKED work, not accidents. Each entry
 // must name its ticket. Anything unreachable and NOT listed here fails the gate — adding to this
 // list has to be a deliberate act with a reason, which is the whole point.
-const UNREACHABLE_ALLOWLIST = new Map([
-  ["packages/server/src/vault/backend.ts", "FilesystemBackend — tested, never constructed in src/"],
-]);
+//
+// WP0.2 (2026-07-30-filesystem-backend-disposition-adr.md): this map's last entry,
+// `packages/server/src/vault/backend.ts` (`FilesystemBackend`), was resolved by deletion rather
+// than by wiring it in — the disposition ADR's evidence found zero production selection points and
+// zero second implementations. Deleting the exemption along with the class is the point: this list
+// stays empty until a genuinely new case earns its own entry.
+const UNREACHABLE_ALLOWLIST = new Map();
 
 function run(cmd, args) {
   return execFileSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });

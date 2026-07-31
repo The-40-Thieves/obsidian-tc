@@ -3,6 +3,17 @@
 **Status:** Accepted (design locked at G2, trimmed at G3). Normal PR — G1 is closed.
 **Branch:** `mislam2/the-255-obsidian-tc-headless-vaultbackend-full-vault-state`
 
+> **2026-07-30 update (WP0.2):** the `VaultBackend` interface and `FilesystemBackend` class
+> described below have been **deleted** — see
+> `docs/plans/2026-07-30-filesystem-backend-disposition-adr.md` for the evidence and decision.
+> This document stays as the record of the original design intent; it no longer describes
+> production code. What survived: the *headless* goal itself was real and was delivered, but by
+> `notes-io`/`paths` running filesystem-native (direct `writeNoteAtomic` calls from the tool
+> layer, per Central decision below), not by the `VaultBackend` interface — no production code
+> ever selected between two implementations of it, so the interface added indirection without
+> ever paying for itself. `resolveMode` / `assertLive` / the index-on-write seam / boot reconcile
+> all remain exactly as designed here.
+
 ## Context
 
 turbovault runs filesystem-native and headless; cyanheads and obsidian-tc both require

@@ -1,14 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexNote, indexVault } from "../src/search/indexer";
 import { CHUNKER_VERSION, VEC_DISTANCE_METRIC, VEC_SCHEMA_GEN } from "../src/search/representation";
 import { ensureVecChunks } from "../src/search/vec";
-import { FilesystemBackend } from "../src/vault/backend";
 import { assertLive, resolveMode } from "../src/vault/mode";
 import { openMemoryDb } from "./helpers";
 
@@ -48,58 +47,6 @@ describe("assertLive", () => {
       const err = e as { code: string; details?: { tool?: string } };
       expect(err.code).toBe("requires_live_obsidian");
       expect(err.details?.tool).toBe("execute_command");
-    }
-  });
-});
-
-describe("FilesystemBackend", () => {
-  it("writes atomically and reads back; exists / list / walk / delete behave", async () => {
-    const root = tmpVault();
-    try {
-      const be = new FilesystemBackend(root);
-      await be.write("notes/a.md", "# A\n");
-      expect(await be.read("notes/a.md")).toBe("# A\n");
-      expect(await be.exists("notes/a.md")).toBe(true);
-      expect(await be.exists("missing.md")).toBe(false);
-
-      await be.write("b.md", "B");
-      expect((await be.list()).sort()).toEqual(["b.md", "notes"]);
-      expect((await be.walk({ extensions: [".md"] })).map((f) => f.path)).toEqual([
-        "b.md",
-        "notes/a.md",
-      ]);
-
-      await be.delete("b.md");
-      expect(await be.exists("b.md")).toBe(false);
-      expect(existsSync(join(root, ".trash", "b.md"))).toBe(true);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("404s a missing read and blocks path traversal", async () => {
-    const root = tmpVault();
-    try {
-      const be = new FilesystemBackend(root);
-      await expect(be.read("nope.md")).rejects.toMatchObject({ code: "note_not_found" });
-      await expect(be.write("../escape.md", "x")).rejects.toMatchObject({ code: "path_invalid" });
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("fires the index-on-write seam on write and delete", async () => {
-    const root = tmpVault();
-    try {
-      const onWrite = vi.fn();
-      const onDelete = vi.fn();
-      const be = new FilesystemBackend(root, { onWrite, onDelete });
-      await be.write("x.md", "hello");
-      expect(onWrite).toHaveBeenCalledWith("x.md", "hello");
-      await be.delete("x.md");
-      expect(onDelete).toHaveBeenCalledWith("x.md");
-    } finally {
-      rmSync(root, { recursive: true, force: true });
     }
   });
 });
