@@ -159,19 +159,20 @@ export function factRules(
         new RegExp(`${STANDALONE}(\\d+)-tool\\s+\\S+\\s+(?:surface|set)`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+typed\\s+tools`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+tool\\s+impls?`, "i"), // "across the 141 tool impls"
-        // Measured 2026-07-31: README.md said "150 tools covering the meaningful Obsidian
-        // operations" while the same file said "151 tools across 31 domains" TWICE and
-        // REGISTERED_TOOL_COUNT was 151. Every pattern above needs a specific FOLLOWING word —
-        // "across <domainCount> domains", "surface", "set", "impls" — so a bare "N tools" trailed
-        // by any other verb was invisible. The file was in the allowlist, the rule existed, the
-        // sweep ran, and it passed over a wrong number: covering a FILE is not covering a CLAIM.
+        // Measured 2026-07-31: "150 tools" survived in FIVE places (README.md, docs/G2.1-tools.md,
+        // docs/wiki/Home.md x2, docs/src/content/docs/tools/index.md) while REGISTERED_TOOL_COUNT
+        // was 151 — README said 151 twice and 150 once, in one file. Every pattern above needs a
+        // specific FOLLOWING word, and none of these phrasings supplied one.
         //
-        // So: match a bare standalone "N tools". That is deliberately the widest pattern here and
-        // it WILL catch legitimate sub-counts and historical figures — which is the right default,
-        // because `facts-check:ignore` makes an exemption explicit and reviewable, where a
-        // too-narrow regex makes it silent and invisible. The two currently-marked lines are the
-        // whole cost of that choice.
-        new RegExp(`${STANDALONE}(\\d+)\\s+tools\\b`, "i"),
+        // A bare `(\\d+)\\s+tools\\b` was tried first and is WRONG here: docgen-facts-check.test.ts
+        // pins "the facade fronts the surface with 3 tools" and "20 tools across 9 domains" as
+        // must-NOT-flag. Nothing separates a bare "3 tools" from a bare "150 tools" except
+        // magnitude, and this gate deliberately does not guess from magnitude. So these stay
+        // narrow, one per observed leak — the same way the THE-598 pattern above was added.
+        new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+covering`, "i"),
+        new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+ship`, "i"),
+        new RegExp(`\\ball\\s+(\\d+)\\s+tools\\b`, "i"),
+        new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+across\\s+modules`, "i"),
       ],
     },
     {

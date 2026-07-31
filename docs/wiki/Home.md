@@ -26,7 +26,7 @@
 2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS), per-vault folder ACLs, a read-only kill switch, human-in-the-loop (HITL) confirmation on destructive operations, compare-and-swap on writes, idempotency keys, and per-class rate limiting.
 3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, a CloudEvents spool, and structured event emission on every tool call.
 
-## The interface: 3 tools, 151 governed capabilities <!-- facts-check:ignore -->
+## The interface: 3 tools, 151 governed capabilities
 
 By default `tools/list` advertises just **three meta-tools**: `find_capability` (BM25 search over the capability catalog), `describe_capability` (one capability's schema, scopes, and safety hints), and `call_capability` (invoke by name — routed through the same auth/ACL/HITL/idempotency/throttle pipeline as a direct call). This keeps agent context lean while the full surface stays reachable; `toolFacade.mode` selects `triad` (default), `domain`, or `flat`. The facade is boundary-only — no gate is ever bypassed.
 
