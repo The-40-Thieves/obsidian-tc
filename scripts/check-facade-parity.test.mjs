@@ -6,7 +6,7 @@
 // (parseExportedNames is imported from check-export-surface.mjs, not reimplemented here).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compareFacade, parseArgs } from "./check-facade-parity.mjs";
+import { compareFacade, DEFAULT_FACADES, parseArgs } from "./check-facade-parity.mjs";
 
 // Fixture with >= 5 names so the floor does not trip on the "lost export" / "added export" cases
 // below — those cases are about the MISSING-name check, not the floor. Mirrors the WIDE_BASELINE
@@ -95,7 +95,9 @@ test("compareFacade: a facade absent at the baseline ref is skipped, not failed"
 test("parseArgs: defaults to origin/main and DEFAULT_FACADES with no arguments", () => {
   const { baseline, files } = parseArgs([]);
   assert.equal(baseline, process.env.FACADE_PARITY_BASELINE_REF || "origin/main");
-  assert.equal(files.length, 3);
+  // Asserted against DEFAULT_FACADES itself, not a hardcoded count — a hardcoded 3 rotted the
+  // instant WP4.1 added registry.ts as a fourth facade (this test failed 4 !== 3 until fixed).
+  assert.equal(files.length, DEFAULT_FACADES.length);
 });
 
 test("parseArgs: --baseline and repeated --file override the defaults", () => {

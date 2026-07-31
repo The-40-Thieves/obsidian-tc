@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 316,
-    "dependencies": 1345,
+    "modules": 318,
+    "dependencies": 1357,
     "subsystemPairs": 88,
-    "crossSubsystemImports": 552
+    "crossSubsystemImports": 556
   },
   "subsystems": {
     "auth": 3,
@@ -21,7 +21,7 @@
     "formats": 6,
     "gateway": 2,
     "graph": 1,
-    "mcp": 9,
+    "mcp": 11,
     "memory": 2,
     "metrics": 4,
     "model": 7,
@@ -82,17 +82,17 @@
       "weight": 13
     },
     {
+      "from": "mcp",
+      "to": "vault",
+      "weight": 9
+    },
+    {
       "from": "cli",
       "to": "experiential",
       "weight": 8
     },
     {
       "from": "formats",
-      "to": "vault",
-      "weight": 8
-    },
-    {
-      "from": "mcp",
       "to": "vault",
       "weight": 8
     },
@@ -135,6 +135,11 @@
       "from": "memory",
       "to": "vault",
       "weight": 5
+    },
+    {
+      "from": "mcp",
+      "to": "otel",
+      "weight": 4
     },
     {
       "from": "plane",
@@ -182,11 +187,6 @@
       "weight": 3
     },
     {
-      "from": "mcp",
-      "to": "otel",
-      "weight": 3
-    },
-    {
       "from": "metrics",
       "to": "db",
       "weight": 3
@@ -214,6 +214,16 @@
     {
       "from": "experiential",
       "to": "plane",
+      "weight": 2
+    },
+    {
+      "from": "mcp",
+      "to": "db",
+      "weight": 2
+    },
+    {
+      "from": "mcp",
+      "to": "metrics",
       "weight": 2
     },
     {
@@ -359,16 +369,6 @@
     {
       "from": "formats",
       "to": "util",
-      "weight": 1
-    },
-    {
-      "from": "mcp",
-      "to": "db",
-      "weight": 1
-    },
-    {
-      "from": "mcp",
-      "to": "metrics",
       "weight": 1
     },
     {
