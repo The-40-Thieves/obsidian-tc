@@ -184,10 +184,29 @@ then `apiKeyEnv`, then the built-in map for the six named providers.
 declared → recorded, omitted → still `unknown` (distinct from `""`, which means "asked, and the
 real value is empty").
 
-This is load-bearing, not cosmetic. Those fields feed `vec_index_fingerprint`
-(`packages/server/src/search/vec.ts:154`), which is compared on every call — so declaring a
-`revision` is what makes a **model checkpoint upgrade** invalidate the index rather than silently
-serving vectors produced by the old checkpoint against queries embedded by the new one.
+**Correction (verified 2026-07-31): the manifest is not the live mechanism.** An earlier draft of
+this section said these fields "feed `vec_index_fingerprint`". Checking the tree shows otherwise,
+and the difference changes the work:
+
+- `RepresentationManifest` has **no production producer**. Only `test/search-representation-manifest.test.ts`
+  constructs one. It is a type awaiting wiring.
+- The live mechanism is `VecFingerprint` (`representation.ts:32`). It already carries an optional
+  `revision`, and `vecFingerprint()` already folds it in as `f.revision ?? ""`.
+- **No production site passes one.** Both construction sites —
+  `runtime/indexing-wiring.ts:107-115` and `search/indexing/index-vault.ts:76-84` — omit it, so
+  `revision` is permanently `""`.
+
+So `revision` becomes a `VecFingerprint` field threaded through **both** sites; `pooling` is
+descriptive provenance only until the manifest gains a producer, and the schema says so. Wiring
+`RepresentationManifest` is out of scope.
+
+That threading is load-bearing: it is what makes a **model checkpoint upgrade** at the same model
+name and width rebuild the index rather than silently serving vectors produced by the old
+checkpoint against queries embedded by the new one. And the two sites must fold it identically —
+if they diverge, boot and `index_vault` each DROP and rebuild the table the other just built, an
+unbounded rebuild loop that presents as a busy, healthy server.
+
+`Knowable<T>` is `T | "unknown"` — a bare string union, not an object.
 
 ### The wire shapes
 
@@ -317,9 +336,10 @@ Also assert the constructed URL for a `baseUrl` with and without a trailing slas
    not merely that it threw.
 3. An absent `reranker` block resolves to exactly today's
    `buildModelTierReranker(embeddings) ?? gatewayReranker` fallback.
-4. A declared `revision` changes the `vec_index_fingerprint` value — proving the manifest
-   passthrough is real. `packages/server/bun-smoke/vec-model-swap.test.ts` already exercises
-   fingerprint-driven invalidation and is the natural place to extend.
+4. A declared `revision` changes the `vec_index_fingerprint` value, **and both construction sites
+   fold it identically**. `packages/server/bun-smoke/vec-model-swap.test.ts` already exercises
+   fingerprint-driven invalidation and is the natural place to extend. Absent revision must be
+   byte-identical to today's fingerprint, so no existing index rebuilds merely on upgrade.
 
 **Why property 4 is the highest-risk item in this spec.** That smoke test exists because of the
 THE-460 defect: a **same-dimension** model swap was detected by the fingerprint and triggered a
