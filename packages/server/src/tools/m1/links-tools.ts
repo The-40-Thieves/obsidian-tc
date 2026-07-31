@@ -19,7 +19,7 @@ import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "..
 import { pruneHubLinks } from "../../vault/prune";
 import { rewriteLinks } from "../../vault/rewrite";
 import { defineTool } from "./define";
-import type { M1Deps } from "./index";
+import type { M1Deps } from "./shared";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

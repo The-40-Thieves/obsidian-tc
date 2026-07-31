@@ -122,9 +122,8 @@ function readEdges(
   return { edges, types };
 }
 
-// Takes no deps on purpose: these tools read only ctx.db and ctx.acl, so importing M1Deps from
-// ./index would create a genuine import cycle (index -> here -> index) for a type this file never
-// uses. The boundary gate caught it; dropping the parameter is the fix, not an exemption.
+// Takes no deps on purpose: these tools read only ctx.db and ctx.acl, so importing M1Deps (even
+// from the ./shared leaf) would add a parameter this file never uses. Dropping it is the fix.
 export function buildGraphAnalyticsTools(): ToolDefinition[] {
   return [
     defineTool({

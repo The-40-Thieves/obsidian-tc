@@ -38,7 +38,7 @@ import { persistGovernedNote } from "../../vault/persist-note";
 import { rewriteLinks } from "../../vault/rewrite";
 import { captureSnapshot } from "../../vault/snapshots";
 import { defineTool } from "./define";
-import type { M1Deps } from "./index";
+import type { M1Deps } from "./shared";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

@@ -11,7 +11,7 @@ import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { captureSnapshot, listSnapshots, readSnapshot } from "../../vault/snapshots";
 import { defineTool } from "./define";
-import type { M1Deps } from "./index";
+import type { M1Deps } from "./shared";
 
 // ── output schemas ───────────────────────────────────────────────────────────
 // THE-417 Phase 1: written from each handler's return statements, mirroring vault/snapshots.ts's

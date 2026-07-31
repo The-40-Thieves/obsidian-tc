@@ -20,7 +20,7 @@ import {
   tagMatches,
 } from "../../vault/tags";
 import { defineTool } from "./define";
-import type { M1Deps } from "./index";
+import type { M1Deps } from "./shared";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
