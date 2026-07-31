@@ -1,10 +1,11 @@
 // Bridge protocol shapes plus the minimal duck-typed models of Obsidian/community-plugin
 // internals not covered by the public `obsidian` d.ts (WP6.1 extraction from routes.ts).
-// Shared across every route-family module: probe.ts, commands.ts, git.ts and
-// remotely-save.ts import from here, and routes.ts (the facade for the families not yet
-// extracted) does too — so nothing here may import from a route-family module or from
-// routes.ts itself, or the split reintroduces the cycle it exists to avoid.
-import type { App } from "obsidian";
+// Shared across every route-family module — probe.ts, commands.ts, git.ts,
+// remotely-save.ts, and (WP6.2) dataview/quickadd/ocr/excalidraw/makemd/omnisearch/
+// datacore/metadata-menu/daily-notes/templater/tasks — import from here, so nothing here
+// may import from a route-family module or from routes.ts itself, or the split
+// reintroduces the cycle it exists to avoid.
+import { type App, normalizePath, type TFile } from "obsidian";
 
 export interface BridgeReq {
   body?: unknown;
@@ -74,4 +75,12 @@ export function communityPlugin(app: InternalApp, capKey: string): CommunityPlug
 /** Access a core (internal) plugin by id, e.g. "daily-notes". */
 export function internalPlugin(app: InternalApp, id: string): InternalPluginLite | undefined {
   return app.internalPlugins?.plugins?.[id];
+}
+
+// Shared by ocr.ts, excalidraw.ts, metadata-menu.ts and templater.ts (WP6.2) — moved here rather
+// than duplicated per family, per check:duplicate-exports/check:duplication.
+export function fileByPath(app: App, rel: string): TFile | null {
+  const f = app.vault.getAbstractFileByPath(normalizePath(rel));
+  // TFile is the leaf type; folders lack the `extension` field we duck-check here.
+  return f && "extension" in f ? (f as TFile) : null;
 }
