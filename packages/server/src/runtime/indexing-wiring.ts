@@ -83,7 +83,7 @@ export interface IndexResources {
   /** THE-507/THE-588: routes a real IndexStats pass to the Prometheus counters — importable and
    *  testable directly (see metrics/ingest-stats.ts's module doc comment for why). */
   recordIngestStatsFor: (vaultId: string, s: IndexStats) => IndexStats;
-  /** THE-625 item 4: routes every direct indexVault caller through the recorder below instead of a
+  /** THE-625 item 4: routes every direct indexVault(...) caller through the recorder instead of a
    *  per-call-site reminder (THE-590 found one caller left uninstrumented). */
   indexVaultRecorded: (opts: IndexVaultArgs) => Promise<IndexStats>;
 }

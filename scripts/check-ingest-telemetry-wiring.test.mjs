@@ -90,9 +90,23 @@ test("blankNonCode: template literals are left completely untouched, including i
 // ---------------------------------------------------------------------------------------------
 // 2. Non-vacuity: blanking must not reduce the real repo's detected call-site or sink counts.
 //    If this fails, the fix blanked real code — stop and report rather than "fixing" it away.
+//
+// Deliberately NOT a live raw-vs-blanked comparison: raw scanning is exactly the thing this fix
+// closes (bug 1 — a comment mentioning "indexVault(" inflates the RAW count), so on a tree where
+// that prose is present and accurate (as indexing-wiring.ts's doc comment now reads again, see
+// THE-590/bug-1 revert), rawCallSites > blankedCallSites is the CORRECT, expected outcome, not a
+// regression. The real invariant is against a pinned baseline: `node
+// scripts/check-ingest-telemetry-wiring.mjs` was run before and after this fix landed and printed
+// the same "294 source file(s) scanned, 2 indexVault() call site(s), 1 onIndexVaultComplete sink
+// assignment(s)" both times. If a future intentional change adds a real call site or sink, this
+// pinned expectation must be bumped in the same commit — same shape as MIN_EXPECTED_CALL_SITES /
+// MIN_EXPECTED_SINK_ASSIGNMENTS's own floor, just exact instead of a lower bound.
 // ---------------------------------------------------------------------------------------------
 
-test("non-vacuity: blanking the real repo tree finds the same call-site and sink counts as raw scanning", () => {
+const EXPECTED_REAL_CALL_SITES = 2;
+const EXPECTED_REAL_SINK_ASSIGNMENTS = 1;
+
+test("non-vacuity: blanking the real repo tree still finds the pinned baseline call-site and sink counts", () => {
   const files = execFileSync(
     "git",
     ["ls-files", "packages/server/src/*.ts", "packages/server/src/**/*.ts"],
@@ -106,33 +120,29 @@ test("non-vacuity: blanking the real repo tree finds the same call-site and sink
 
   assert.ok(files.length > 0, "expected the repo scan to find source files — fixture/setup broke");
 
-  let rawCallSites = 0;
   let blankedCallSites = 0;
-  let rawSinks = 0;
   let blankedSinks = 0;
 
   for (const file of files) {
     const absPath = join(ROOT, file);
-    const raw = readFileSync(absPath, "utf8");
-    const blanked = blankNonCode(raw);
-
-    rawCallSites += findIndexVaultCallSites(file, raw).length;
+    const blanked = blankNonCode(readFileSync(absPath, "utf8"));
     blankedCallSites += findIndexVaultCallSites(file, blanked).length;
-    rawSinks += findSinkAssignments(file, raw).length;
     blankedSinks += findSinkAssignments(file, blanked).length;
   }
 
   assert.equal(
     blankedCallSites,
-    rawCallSites,
-    `blanking changed the detected call-site count (${rawCallSites} -> ${blankedCallSites}) — ` +
-      "this means real code got blanked, not just comments/strings",
+    EXPECTED_REAL_CALL_SITES,
+    `expected ${EXPECTED_REAL_CALL_SITES} real indexVault() call site(s) on the blanked tree, got ` +
+      `${blankedCallSites} — if this is an intentional new call site, bump ` +
+      "EXPECTED_REAL_CALL_SITES; if not, blanking may have hidden or fabricated a call site",
   );
   assert.equal(
     blankedSinks,
-    rawSinks,
-    `blanking changed the detected sink count (${rawSinks} -> ${blankedSinks}) — this means real ` +
-      "code got blanked, not just comments/strings",
+    EXPECTED_REAL_SINK_ASSIGNMENTS,
+    `expected ${EXPECTED_REAL_SINK_ASSIGNMENTS} real onIndexVaultComplete sink assignment(s) on ` +
+      `the blanked tree, got ${blankedSinks} — if this is an intentional new sink, bump ` +
+      "EXPECTED_REAL_SINK_ASSIGNMENTS; if not, blanking may have hidden or fabricated a sink",
   );
 });
 
