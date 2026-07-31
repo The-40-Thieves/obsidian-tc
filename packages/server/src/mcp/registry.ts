@@ -41,6 +41,14 @@ import {
   requireAuthenticated,
   runPrecheck,
 } from "./registry/policy-gates";
+import {
+  checkOutputSchema,
+  isOverflow,
+  memoizeSerialized,
+  overflowError,
+  strictOutputSchemaDefault,
+  takeSerialized,
+} from "./registry/result-governance";
 import { ToolStore } from "./registry/tool-store";
 import {
   type CallerContext,
@@ -68,9 +76,11 @@ export type {
   ToolDomain,
   ToolIcon,
 };
-// WP4.3: moved to registry/policy-gates.ts, unchanged — re-exported so every existing importer
-// (resources.ts) keeps working unchanged (check:facade-parity pins this file's export surface).
-export { assertScopesGranted, TOOL_DOMAINS };
+// WP4.3: assertScopesGranted moved to registry/policy-gates.ts, memoizeSerialized/takeSerialized
+// to registry/result-governance.ts — both unchanged, re-exported so every existing importer
+// (resources.ts, mcp/server.ts) keeps working unchanged (check:facade-parity pins this file's
+// export surface).
+export { assertScopesGranted, memoizeSerialized, TOOL_DOMAINS, takeSerialized };
 
 /** THE-514: a stage-boundary cooperative-cancellation check. Throws the same modelled
  *  `ObsidianTcError` the rest of dispatch throws (never a raw DOMException `AbortError`), so an
@@ -79,35 +89,6 @@ export { assertScopesGranted, TOOL_DOMAINS };
  *  every existing caller (no signal) sees no behavior change. */
 function checkAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw err.aborted();
-}
-
-// THE-294 — single-serialization contract. runDispatch stringifies a successful result once for
-// the byte governor; the transport formatter (mcp/server.ts formatData) consumes that string via
-// this memo instead of re-stringifying the same object. Entries are take-and-delete (consumed by
-// exactly the request that produced them), and only non-null objects are memoized — primitives
-// fall through to the formatter's own cheap stringify. If two concurrent dispatches ever return
-// the SAME object reference, the later write wins; both stringify the identical reference, so
-// the text is correct unless the object is mutated in between (no handler does this).
-const serializedResults = new WeakMap<object, string>();
-
-export function memoizeSerialized(data: unknown, json: string): void {
-  if (data !== null && typeof data === "object") serializedResults.set(data as object, json);
-}
-
-export function takeSerialized(data: unknown): string | undefined {
-  if (data === null || typeof data !== "object") return undefined;
-  const s = serializedResults.get(data as object);
-  if (s !== undefined) serializedResults.delete(data as object);
-  return s;
-}
-
-/** THE-457 (audit #4): default strict output-schema validation ON in test/CI, so a handler whose
- *  payload drifts from its advertised outputSchema fails a test instead of shipping warn-only to a
- *  client. Vitest sets NODE_ENV=test, so the existing suite exercises every real handler under strict
- *  validation; OBSIDIAN_TC_STRICT_OUTPUT_SCHEMA=1 opts in elsewhere (a CI job, a local run). Production
- *  sets neither and stays warn-only for backward compatibility; an explicit strictOutputSchema wins. */
-function strictOutputSchemaDefault(): boolean {
-  return process.env.NODE_ENV === "test" || process.env.OBSIDIAN_TC_STRICT_OUTPUT_SCHEMA === "1";
 }
 
 export class ToolRegistry {
@@ -484,10 +465,7 @@ export class ToolRegistry {
               // re-executing or returning an absent/oversized payload.
               const overSize = claim.resultSize;
               const duration = Math.max(0, now() - start);
-              const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
-                result_size: overSize,
-                limit: this._maxResponseBytes,
-              });
+              const e = overflowError(overSize, this._maxResponseBytes);
               audit("error", duration, overSize, e.code);
               this.meter((m) => {
                 m.incIdempotencyHit(ctx.vaultId, name);
@@ -660,52 +638,22 @@ export class ToolRegistry {
           return r;
         },
       );
-      // THE-278 hardening (warn-mode): the handler's success payload must match the advertised
-      // outputSchema. Validate and surface drift to the operator, but never throw — a schema
-      // mismatch must not turn a working call into a client-visible failure.
-      if (def.outputSchema) {
-        const outCheck = def.outputSchema.safeParse(out);
-        if (!outCheck.success) {
-          try {
-            this.onInternalError?.(
-              `output_schema:${name}`,
-              ctx.vaultId,
-              new Error(`output does not match advertised outputSchema: ${outCheck.error.message}`),
-            );
-          } catch {
-            /* diagnostics sink must never break dispatch */
-          }
-          // THE-417 Phase 2: a DEDICATED seam, not the stderr line above.
-          //
-          // Warn-mode's whole job is to surface latent mismatches over real traffic, and until now
-          // its only output was one stderr line among every other internal error. Nobody greps
-          // that, so "let warn-mode run for a while" was not actually a runnable instruction — the
-          // same registered-but-never-emitting shape THE-585 found in three dead gauges.
-          //
-          // Deliberately NOT parsed back out of the `output_schema:` prefix above: a stringly-typed
-          // discriminator on a diagnostics message is exactly the kind of coupling that breaks
-          // silently when someone reworks the message.
-          try {
-            this.onOutputSchemaDrift?.(name, ctx.vaultId);
-          } catch {
-            /* observability is never load-bearing */
-          }
-          // THE-457: in strict mode (dev/CI) a schema-contract violation is a hard, typed error —
-          // caught by the dispatch handler below and returned as internal_error — rather than
-          // silently shipping a payload a conformant client may reject. Production stays warn-only.
-          if (this.strictOutputSchema) {
-            throw new ObsidianTcError(
-              "internal_error",
-              `output does not match advertised outputSchema for ${name}`,
-            );
-          }
-        }
-      }
+      // WP4.3: output-schema validation (warn vs strict) — see registry/result-governance.ts's
+      // checkOutputSchema for the full reasoning (unchanged, only relocated).
+      checkOutputSchema(
+        def,
+        out,
+        name,
+        ctx,
+        this.strictOutputSchema,
+        this.onInternalError,
+        this.onOutputSchemaDrift,
+      );
       const json = JSON.stringify(out ?? null);
       const resultSize = Buffer.byteLength(json, "utf8");
       const duration = Math.max(0, now() - start);
 
-      if (resultSize > this._maxResponseBytes) {
+      if (isOverflow(resultSize, this._maxResponseBytes)) {
         // Idempotency post-effect: the handler's side effect has ALREADY committed by here, and
         // markEffectCommitted (above) already durably marked the claim 'effect_committed' before we
         // got here. Do not delete the claim — that would let a retry with the same key re-execute the
@@ -732,10 +680,7 @@ export class ToolRegistry {
             }
           }
         }
-        const e = new ObsidianTcError("overflow", "response exceeds byte budget", {
-          result_size: resultSize,
-          limit: this._maxResponseBytes,
-        });
+        const e = overflowError(resultSize, this._maxResponseBytes);
         audit("error", duration, resultSize, e.code);
         this.meter((m) => {
           m.incGovernorTruncation(ctx.vaultId, name);
