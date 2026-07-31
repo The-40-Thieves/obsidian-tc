@@ -1,6 +1,7 @@
 # obsidian-tc — structural map
 
-Generated 2026-07-23 against `f1360b8`. Every path below was verified against the
+Generated 2026-07-23 against `f1360b8`; hand-written sections re-verified 2026-07-31
+against `17585a4` after the structural refactor program. Every path below was verified against the
 filesystem, not inferred. Counts in the hand-written sections come from
 `find` / `wc -l` / `tokei`, excluding `node_modules`, `dist`, and `target`. The generated
 regions state their own method.
@@ -49,14 +50,16 @@ packages/
     benches/       Criterion benches (dims x docs matrix)
     bench/         JS-vs-native comparison harness
   plugin/
-    src/           Obsidian plugin; routes.ts is the REST surface (953 lines)
+    src/           Obsidian plugin; routes.ts is the REST facade (80 lines)
+      routes/      one module per integration family (15) + types/envelope
   shared/
-    src/           config.schema.ts (1283 lines) — the Zod config surface
+    src/           config.schema.ts (116 lines) — re-export facade
+      config/      the Zod config surface, split by domain (8 leaves)
       schemas/     shared Zod fragments
     test/
   server/
     src/           see §3
-    test/          301 test files
+    test/          429 test files
     eval/          retrieval eval harness (run.ts, metrics, compare, stats)
       perf/        perf harness — scenarios, gate, baseline
         collectors/  per-domain metric collectors
@@ -74,54 +77,89 @@ services/
 
 ## 3. Module boundaries — `packages/server/src`
 
+Hand-maintained. **Last measured 2026-07-31 against `17585a4`** (`.ts` + `.sql`, excluding tests).
+
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 58 | 10,999 | domains m1–m8 + admin. The MCP tool surface (~144 capabilities) |
-| `search/` | 42 | 7,464 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) |
-| `mcp/` | 6 | 2,146 | registry + facade + transport binding |
-| `experiential/` | 10 | 1,868 | work-memory tier: activation, retrieval log, forget, citations |
-| `vault/` | 16 | 1,667 | filesystem primitives — paths, links, ACL, snapshots, prune |
+| `tools/` | 78 | 14,995 | domains m1–m8 + admin. The MCP tool surface (151 registered tools) |
+| `search/` | 51 | 8,795 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `mcp/` | 17 | 4,105 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `runtime/` | 13 | 2,682 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `experiential/` | 11 | 2,674 | work-memory tier: activation, retrieval log, forget, citations |
+| `vault/` | 17 | 1,968 | filesystem primitives — paths, links, ACL, snapshots, prune |
+| `cli/` | 22 | 1,820 | arg parsing + subcommands. `cli.ts` itself is now 110 lines |
+| `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
-| `scheduler/` | 2 | 796 | unified background scheduler + durable job queue (THE-517) |
-| `plane/` | 7 | 791 | generative plane; `jobs/` holds the contradiction detector |
+| `db/` | 13 | 1,118 | provisioning, migrate runner, experiential store |
+| `migrations/` | 28 | 983 | hand-registered SQL. **Two chains** — see below |
+| `plane/` | 6 | 775 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
-| `migrations/` | 19 | 722 | hand-registered SQL. **Two chains** — see below |
 | `model/` | 7 | 638 | model-service clients |
 | `embeddings/` | 6 | 608 | providers incl. the deterministic fake used in tests |
-| `capability/` | 6 | 577 | `defineTool` and the capability registry |
-| `db/` | 10 | 517 | provisioning, migrate runner, experiential store |
-| `cli/` | 2 | 506 | arg parsing |
+| `capability/` | 6 | 605 | `defineTool` and the capability registry |
 | others | — | — | auth, capture, config, doctor, gateway, memory, metrics, morgiana, otel, plur, transports, util, workspace |
 
 **Migrations have two separate chains, deliberately:**
 - `cache.db` → `CACHE_MIGRATIONS` in `src/db/provision.ts`
-- `experiential.db` → an inline array in `src/cli.ts` (~line 146)
+- `experiential.db` → `experientialMigrations` in **`src/cli/shared.ts`**
+  *(was an inline array in `src/cli.ts` before WP5 reduced that file to argument dispatch)*
 
 Neither auto-discovers. A new migration needs a `readFileSync` const **and** an array
 entry, or it silently never runs. Versions collide across chains by design.
 
 ---
 
-## 4. Oversized files (>500 lines)
+## 4. Largest files (>500 lines)
+
+Hand-maintained; re-measure with `fd -e ts . packages/*/src -x wc -l {} | sort -rn`.
+**Last measured 2026-07-31 against `17585a4`.**
 
 | lines | file |
 |---:|---|
-| **1661** | `packages/server/src/cli.ts` |
-| **1474** | `packages/server/src/search/indexer.ts` |
-| **1283** | `packages/shared/src/config.schema.ts` |
-| **1057** | `packages/server/src/mcp/registry.ts` |
-| 958 | `packages/server/src/tools/m7/knowledge-tools.ts` |
-| 953 | `packages/plugin/src/routes.ts` |
-| 787 | `packages/server/src/tools/m1/notes-tools.ts` |
-| 779 | `packages/server/eval/run.ts` |
+| 701 | `packages/server/src/mcp/server.ts` |
+| 680 | `packages/server/src/runtime/server-runtime.ts` |
+| 670 | `packages/server/src/search/derived-edges.ts` |
+| 644 | `packages/server/src/tools/m2/search-tools.ts` |
+| 602 | `packages/server/src/scheduler/job-queue.ts` |
+| 591 | `packages/server/src/tools/m8/experiential-tools.ts` |
+| 586 | `packages/server/src/tools/m3/base-tools.ts` |
+| 582 | `packages/server/src/metrics/registry.ts` |
+| 566 | `packages/server/src/cli/args.ts` |
+| 565 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
-| 514 | `packages/server/src/tools/m3/base-tools.ts` |
-| 514 | `packages/server/src/tools/m2/search-tools.ts` |
-| 510 | `packages/server/src/search/derived-edges.ts` |
+| 527 | `packages/server/src/scheduler/scheduler.ts` |
+| 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
+| 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
+| 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
-THE-466 targets `cli.ts`, `indexer.ts`, `graph_search.ts`, `registry.ts`. Two updates:
-**`graph_search.ts` is already done** (THE-465 took it 1066 → 237), and
-**`config.schema.ts` at 1283 is not in its scope but is now the third-largest file.**
+**The structural refactor program (THE-466, merged 2026-07-31) removed every entry that
+used to head this table.** Seven concentration targets, 8,380 → 791 lines:
+
+| file | before | after |
+|---|---:|---:|
+| `tools/m7/knowledge-tools.ts` | 1,588 | 98 |
+| `shared/src/config.schema.ts` | 1,565 | 116 |
+| `search/indexer.ts` | 1,518 | 56 |
+| `mcp/registry.ts` | 1,500 | 331 |
+| `cli.ts` | 1,256 | 110 |
+| `tools/m1/notes-tools.ts` | 1,042 | 51 |
+| `plugin/src/routes.ts` | 953 | 80 |
+
+`graph_search.ts` was taken 1066 → 237 earlier by THE-465.
+
+A repo-wide biome `noExcessiveLinesPerFile` cap of **700** now guards against
+re-concentration — see `biome.json`. Note it counts **code** lines, not `wc -l`:
+comment-only lines and the leading header block are free, so raw and counted
+orderings differ (`mcp/server.ts` is largest raw at 701 but 583 counted; the true
+counted maximum is `runtime/server-runtime.ts` at 628). To re-derive the cap, lower
+it until lint fails and read the diagnostic — do not compute it from `wc -l`.
+
+The remaining entries are **concentration points, not refactor debt**. Split one only
+while adding a coherent service: `server-runtime.ts` when it gains cache/model resource
+ownership; `mcp/server.ts` when protocol adaptation is separated from elicitation and
+resources/prompts; `derived-edges.ts` when tag/kNN/reconciliation policies separate;
+`m2/search-tools.ts` when shared retrieval orchestration lands; `job-queue.ts` when
+durable leases separate from execution/retry policy.
 
 ---
 
@@ -129,7 +167,7 @@ THE-466 targets `cli.ts`, `indexer.ts`, `graph_search.ts`, `registry.ts`. Two up
 
 - **CLI** — `src/cli.ts`, args in `src/cli/args.ts`. Subcommands include `index`,
   `metrics`, `contribution-report`, `citation-infer`, `reflect`, `config show`.
-- **MCP** — `src/mcp/registry.ts` dispatch; a 3-meta-tool facade fronts ~144 capabilities.
+- **MCP** — `src/mcp/registry.ts` dispatch; a 3-meta-tool facade fronts 151 registered tools.
   STDIO and Streamable HTTP transports in `src/transports/`.
 - **Obsidian plugin** — `packages/plugin/src/routes.ts` REST surface, reached via `src/bridge/`.
 - **Scheduled** — one unified scheduler (`src/scheduler/`), registrations in `cli.ts`,
@@ -140,7 +178,8 @@ THE-466 targets `cli.ts`, `indexer.ts`, `graph_search.ts`, `registry.ts`. Two up
 
 ## 6. Test topology
 
-301 test files in `packages/server/test/`, flat (not mirroring `src/`).
+429 test files in `packages/server/test/`, flat (not mirroring `src/`). The full suite is
+**3,093 tests** (417 files, 1 skipped) as of 2026-07-31.
 
 | subsystem | src files | dedicated tests |
 |---|---:|---:|
@@ -161,7 +200,7 @@ THE-466 targets `cli.ts`, `indexer.ts`, `graph_search.ts`, `registry.ts`. Two up
 | embeddings | 6 | ~1 |
 | **tools/m7** | **3** | **0** ← no dedicated test file |
 
-**`tools/m7` has no test file named for it.** That is `knowledge-tools.ts` (958 lines),
+**`tools/m7` has no test file named for it.** That is `knowledge-tools.ts` (now a 98-line facade over `tools/m7/knowledge/`),
 holding all four `graphSearch` call sites, THE-451's HyDE param, and THE-536's
 `adaptiveRrf` threading. It is covered indirectly by `vault-context`, `reflect-tool`,
 and `knowledge-search` tests, but nothing is named for the module.
@@ -293,11 +332,22 @@ files are large, but they are not tangled.
 
 ### Violations
 
-**21 total, all baselined** in `.dependency-cruiser-known-violations.json`
-(exactly 21 entries, so the baseline is neither stale nor hiding anything new):
+**Zero.** `.dependency-cruiser-known-violations.json` is an **empty array**, and the
+unreachable-production allowlist in `scripts/check-boundaries.mjs` is an **empty Map**.
 
-- **17 × `no-circular` (error)** — all the barrel-file pattern, e.g.
-  `tools/m1/index.ts` ↔ `tools/m1/notes-tools.ts`. A domain index re-exports its
-  members while members import the index for shared types. Conventional, and not
-  a layering break.
-- **4 × `no-orphans` (warn)** — modules nothing imports.
+Both were emptied on 2026-07-31:
+
+- The **17 × `no-circular`** entries were all one bug wearing 17 hats — an implementation
+  imported its family's `M{n}Deps` type from `./index`, while `index.ts` imported that
+  implementation to build its registrar. WP7 extracted the type into a leaf
+  `tools/m{1,2,3}/shared.ts` per family, following the pattern `tools/m5/shared.ts`
+  already used. Barrels stay as outward-facing registration facades; public surfaces
+  unchanged.
+- The **`no-orphans`** entry for `vault/backend.ts` (`FilesystemBackend`) was resolved by
+  **deletion** — an ADR found 1 selection point, 0 production constructions, 0 second
+  implementations, 0 external type references, and 33 files / 215 call sites already
+  bypassing the seam.
+
+**Neither zero is an inert gate.** Reintroducing a single type-only back-edge produces
+**8** `no-circular` errors; planting one unreachable module reports
+`UNWIRED … (1 unexpected)`. Both were watched failing and restored.
