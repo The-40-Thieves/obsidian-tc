@@ -27,7 +27,7 @@ import { parseNote } from "../../vault/frontmatter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import type { M2Deps } from "./index";
+import type { M2Deps } from "./shared";
 
 interface UnifiedHit {
   path: string;

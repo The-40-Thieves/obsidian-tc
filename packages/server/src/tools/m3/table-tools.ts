@@ -11,7 +11,7 @@ import { enforcePathAcl } from "../../vault/acl-path";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import type { M3Deps } from "./index";
+import type { M3Deps } from "./shared";
 
 type Align = "none" | "left" | "center" | "right";
 

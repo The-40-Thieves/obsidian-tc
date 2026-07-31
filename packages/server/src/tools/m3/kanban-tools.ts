@@ -12,7 +12,7 @@ import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import type { M3Deps } from "./index";
+import type { M3Deps } from "./shared";
 
 function isBoard(fm: Record<string, unknown> | null): boolean {
   return !!fm && fm["kanban-plugin"] === "board";

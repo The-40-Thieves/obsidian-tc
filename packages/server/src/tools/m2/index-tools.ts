@@ -9,7 +9,7 @@ import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import type { M2Deps } from "./index";
+import type { M2Deps } from "./shared";
 
 // THE-417 Phase 1: mirrors search/indexer.ts's IndexStats field for field — every field there is
 // required (no optionals), so this is a plain object, not a union.
