@@ -7,6 +7,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { hitlSatisfiedByState } from "../../elicit-request-state";
 import { callerHash, type RateLimiter, type ThrottleDecision } from "../../throttle";
+import { enforcePathAcl } from "../../vault/acl-path";
 import { vaultArgOf } from "./input-binding";
 import type { CallerContext, RegistryOptions, ToolDefinition, VerifyElicit } from "./types";
 
@@ -143,4 +144,30 @@ export function checkHitl(
       caller: ctx.caller,
     })
   );
+}
+
+/**
+ * THE-414: central folder-ACL enforcement. Extract the vault-relative paths this call touches
+ * (declared per tool via def.pathAcl) and enforce the per-op ACL HERE, right before the handler —
+ * so containment no longer depends on every handler remembering to call enforcePathAcl (the
+ * handler-side calls remain as defense-in-depth). Uses the same symlink-canonical enforcePathAcl +
+ * the (already per-vault-swapped) ctx.acl; the root is the effective vault's. A no-op when the
+ * tool declares no pathAcl, or when no root resolver is wired (matching the original's nested
+ * `if (def.pathAcl) { ... if (root) { ... } }`).
+ */
+export function enforceCentralPathAcl(
+  def: ToolDefinition,
+  data: unknown,
+  ctx: Pick<CallerContext, "acl" | "grantedScopes" | "vaultId">,
+  rootResolver: RegistryOptions["rootResolver"],
+): void {
+  if (!def.pathAcl) return;
+  const effVault = vaultArgOf(def, data) ?? ctx.vaultId;
+  const root = rootResolver?.(effVault);
+  if (!root) return;
+  for (const { op, path } of def.pathAcl(data)) {
+    // P1.4: pass the caller's granted scopes so a path's declared rule-scopes are
+    // enforced here (the authoritative central stage), not just the folder allowlist.
+    enforcePathAcl(ctx.acl, op, path, root, ctx.grantedScopes);
+  }
 }

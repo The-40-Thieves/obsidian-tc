@@ -14,7 +14,6 @@ import { SPAN_ATTR } from "../otel/attrs";
 import { withTraceCarrier } from "../otel/propagation";
 import { callerHash, type RateLimiter } from "../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../vault/acl-audit";
-import { enforcePathAcl } from "../vault/acl-path";
 import {
   annotateSpanResult,
   callStatusForError,
@@ -29,16 +28,12 @@ import {
   markEffectCommitted,
   readIdempotency,
 } from "./registry/idempotency";
-import {
-  applyVaultAcl,
-  enforceVaultBinding,
-  parseInput,
-  vaultArgOf,
-} from "./registry/input-binding";
+import { applyVaultAcl, enforceVaultBinding, parseInput } from "./registry/input-binding";
 import {
   assertScopesGranted,
   checkHitl,
   checkThrottle,
+  enforceCentralPathAcl,
   enforceReadOnlyGate,
   enforceVaultKindGate,
   hitlRequired,
@@ -646,17 +641,7 @@ export class ToolRegistry {
           auditUses: def.pathAcl != null && !isCrossNoteAuditExempt(def.name),
         },
         async () => {
-          if (def.pathAcl) {
-            const effVault = vaultArgOf(def, inputData) ?? ctx.vaultId;
-            const root = this.rootResolver?.(effVault);
-            if (root) {
-              for (const { op, path } of def.pathAcl(inputData)) {
-                // P1.4: pass the caller's granted scopes so a path's declared rule-scopes are
-                // enforced here (the authoritative central stage), not just the folder allowlist.
-                enforcePathAcl(ctx.acl, op, path, root, ctx.grantedScopes);
-              }
-            }
-          }
+          enforceCentralPathAcl(def, inputData, ctx, this.rootResolver);
           // THE-514: the last chance to bail before the handler — and any side effect — runs.
           // idemClaimed's claim is still pre-effect here, so the catch below deletes it cleanly.
           checkAborted(ctx.signal);
