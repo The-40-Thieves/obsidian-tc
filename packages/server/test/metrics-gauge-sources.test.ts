@@ -151,7 +151,10 @@ describe("THE-585 the previously-dead gauges reach the Prometheus exposition", (
   // check is the only thing that sees that, so this is a deliberate source scan.
   //
   // THE-466 slice 2 moved the recorder's construction (and this spread) out of cli.ts into
-  // runtime/observability.ts; cli.ts now reaches it one level removed, through createObservability.
+  // runtime/observability.ts; the composition root reached it one level removed, through
+  // createObservability. WP5.2 moved the composition root itself: cli.ts is now argument dispatch
+  // only, and `buildServerRuntime` (runtime/server-runtime.ts) is what actually calls
+  // createObservability — see that file's own composition-order comment.
   it("the composition root still feeds the recorder from databaseGaugeSources", () => {
     const observability = readFileSync(
       new URL("../src/runtime/observability.ts", import.meta.url),
@@ -162,8 +165,11 @@ describe("THE-585 the previously-dead gauges reach the Prometheus exposition", (
     expect(observability).not.toContain("FROM workspace_sessions WHERE ended_at IS NULL");
     expect(observability).not.toContain("FROM capture_queue WHERE committed_at IS NULL");
 
-    const cli = readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8");
-    expect(cli).toContain("createObservability({");
+    const serverRuntime = readFileSync(
+      new URL("../src/runtime/server-runtime.ts", import.meta.url),
+      "utf8",
+    );
+    expect(serverRuntime).toContain("createObservability({");
   });
 
   it("an unwired source still registers the metric but emits nothing — the old behaviour", async () => {

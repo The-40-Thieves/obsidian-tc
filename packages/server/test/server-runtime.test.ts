@@ -14,9 +14,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { configFromVaultPath } from "../src/cli/args";
 import { experientialMigrations } from "../src/cli/shared";
 import { MetricsRecorder } from "../src/metrics/registry";
 import {
+  buildServerRuntime,
   type RuntimeCoreDeps,
   unwindReversed,
   wireRuntimeCore,
@@ -211,5 +213,48 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", () 
     // stores + governance opened successfully; indexResources never did. Reverse order: governance
     // (opened second) closes before stores (opened first); indexResources contributes nothing.
     expect(cleanedUp).toEqual(["governance", "stores"]);
+  });
+});
+
+// WP5.2 (issue 16): extends the boot-failure coverage above to the layers this slice adds on top
+// of `wireRuntimeCore` — the vault watcher and the transports. `buildServerRuntime` wraps
+// everything it builds AFTER `wireRuntimeCore` in its OWN try/catch, pushing each new layer onto
+// `postCoreLayers` only once it has actually finished constructing, and unwinding that stack (plus
+// the stores/governance handed off by `wireRuntimeCore`) in reverse order on a later throw — see
+// server-runtime.ts's `buildServerRuntime`.
+describe("buildServerRuntime — post-core unwind on a real late boot failure", () => {
+  const tmpDirs: string[] = [];
+  const tmpDir = (prefix: string): string => {
+    const d = mkdtempSync(join(tmpdir(), prefix));
+    tmpDirs.push(d);
+    return d;
+  };
+
+  afterEach(() => {
+    for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it("closes the watcher, then governance, then stores — in reverse order — when a step AFTER wireIndexCoordinator throws", async () => {
+    const vaultDir = tmpDir("otc-runtime-vault-");
+    const config = configFromVaultPath(vaultDir);
+    config.cacheDir = tmpDir("otc-runtime-cache-");
+    // metrics/endpoint.ts's startMetricsEndpoint throws SYNCHRONOUSLY (before any socket is ever
+    // opened) on a non-loopback bind under auth.mode "none" (G2.2 commitment 8) — a real
+    // production safety check, not a test-only injection, and one with no hang risk (unlike an
+    // actual port conflict, which @hono/node-server's Node path never rejects on — see
+    // transports/serve.ts). This fires inside wireTransports, deep in buildServerRuntime's
+    // sequence: AFTER the watcher (wireIndexCoordinator) and M1-M8 registration have already
+    // succeeded, and BEFORE wireTransports itself finishes (so "transports" is never pushed).
+    config.observability.prometheus.enabled = true;
+    config.observability.prometheus.bind = "0.0.0.0";
+    config.transports.http.enabled = false; // avoid the real HTTP bind entirely
+
+    const cleanedUp: string[] = [];
+    await expect(
+      buildServerRuntime(config, undefined, (name) => cleanedUp.push(name)),
+    ).rejects.toThrow(/refuses a non-localhost bind/);
+    // watcher (opened third, after stores+governance) closes first; then governance; then stores.
+    // "transports" never appears — wireTransports itself is what threw, so it never finished.
+    expect(cleanedUp).toEqual(["watcher", "governance", "stores"]);
   });
 });

@@ -6,9 +6,9 @@ filesystem, not inferred. Counts in the hand-written sections come from
 regions state their own method.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 924 tracked code files · 137,745 lines.
+**Scale:** 930 tracked code files · 138,440 lines.
 
-TypeScript 129,113 · JavaScript 5,141 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 129,808 · JavaScript 5,141 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -200,7 +200,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**328 modules · 1420 dependencies · 92 distinct subsystem pairs · 593 cross-subsystem imports.**
+**334 modules · 1474 dependencies · 101 distinct subsystem pairs · 668 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -218,7 +218,7 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 92 pairs.
+set is 101 pairs.
 
 ```mermaid
 flowchart LR
@@ -228,40 +228,49 @@ flowchart LR
   vault[vault<br/>18 files]
   mcp[mcp<br/>17 files]
   db[(db<br/>13 files)]
+  runtime[runtime<br/>13 files]
   experiential[experiential<br/>11 files]
   bridge[bridge<br/>8 files]
   model[model<br/>7 files]
-  runtime[runtime<br/>7 files]
   embeddings[embeddings<br/>6 files]
   formats[formats<br/>6 files]
   plane[plane<br/>6 files]
   metrics[metrics<br/>4 files]
+  scheduler[scheduler<br/>4 files]
   otel[otel<br/>3 files]
   memory[memory<br/>2 files]
+  morgiana[morgiana<br/>1 files]
 
   tools -->|162| vault
   tools -->|62| mcp
   search -->|38| db
   tools -->|36| search
+  runtime -->|21| search
   cli -->|20| db
+  runtime -->|18| db
   search -->|14| vault
   tools -->|14| db
   experiential -->|13| db
-  runtime -->|12| db
-  runtime -->|10| search
+  runtime -->|11| scheduler
+  runtime -->|11| tools
   mcp -->|9| vault
+  runtime -->|9| mcp
+  runtime -->|9| vault
   cli -->|8| experiential
   formats -->|8| vault
   model -->|8| embeddings
+  runtime -->|8| metrics
   tools -->|8| formats
+  runtime -->|7| plane
   tools -->|7| bridge
-  runtime -->|6| metrics
+  runtime -->|6| experiential
   tools -->|6| experiential
   tools -->|6| plane
   cli -->|5| search
   embeddings -->|5| search
   mcp -->|5| otel
   memory -->|5| vault
+  runtime -->|5| morgiana
 ```
 <!-- END GENERATED: tree-subsystem-graph -->
 
@@ -270,11 +279,11 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 205 | `tools` | 315 |
-| `db` | 116 | `search` | 59 |
-| `mcp` | 75 | `runtime` | 51 |
-| `search` | 65 | `cli` | 48 |
-| `embeddings` | 20 | `mcp` | 23 |
+| `vault` | 211 | `tools` | 315 |
+| `db` | 122 | `runtime` | 126 |
+| `mcp` | 80 | `search` | 59 |
+| `search` | 76 | `cli` | 48 |
+| `embeddings` | 22 | `mcp` | 23 |
 <!-- END GENERATED: tree-fan -->
 
 The shape is layered and largely acyclic at the subsystem level: the tool surface
