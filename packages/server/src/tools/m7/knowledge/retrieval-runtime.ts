@@ -19,6 +19,7 @@ import type {
 import type { StageMetric } from "../../../search/graph_search_stages/instrumentation";
 import { callerAclFingerprint } from "../../../search/prefetch";
 import type { QueryCacheContext, QueryVectors } from "../../../search/query_cache";
+import type { RerankOutcome } from "../../../search/rerank";
 import type { SparseVec } from "../../../search/sparse";
 import type { M7Deps } from "./deps";
 
@@ -245,6 +246,14 @@ export function buildGraphSearchOptions(
     // metric is least able to survive (a missing stage reads as a stage that never ran).
     ...(deps.onStageMetric
       ? { onStageMetric: (metric: StageMetric) => deps.onStageMetric?.(site.vaultId, metric) }
+      : {}),
+    // same options-builder placement as onVecFallback/onStageMetric above, same reason —
+    // a per-call-site wiring would cover some rerank call sites and silently miss others.
+    ...(deps.onRerankOutcome
+      ? {
+          onRerankOutcome: (outcome: RerankOutcome) =>
+            deps.onRerankOutcome?.(site.vaultId, outcome),
+        }
       : {}),
   };
 }

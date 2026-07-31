@@ -226,6 +226,22 @@ describe("THE-466 slice 2: the metric-emitting seams route to the SAME recorder"
   });
 });
 
+describe("onRerankOutcome reaches the exposition", () => {
+  it("routes a rerank decision to the recorder, by vault and outcome", async () => {
+    const db = await seededDb();
+    const observability = createObservability(baseDeps(db));
+
+    observability.onRerankOutcome("main", "not_configured");
+    observability.onRerankOutcome("main", "executed");
+
+    const text = await observability.metrics.metrics();
+    expect(text).toContain(
+      'obsidian_tc_rerank_outcome_total{vault="main",outcome="not_configured"} 1',
+    );
+    expect(text).toContain('obsidian_tc_rerank_outcome_total{vault="main",outcome="executed"} 1');
+  });
+});
+
 describe("THE-645 item 1: onActivationRecompute reaches the exposition", () => {
   it("routes registerActivationRecompute's stats to the recorder instead of discarding them", async () => {
     const db = await seededDb();

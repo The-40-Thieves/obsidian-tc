@@ -50,6 +50,11 @@ const COUNTERS = [
   // huge blast radius (every vault's dense index goes cold). No `vault` label: the event is not
   // scoped to one vault, same precedent as obsidian_tc_auth_rejections_total above.
   "obsidian_tc_vec_rebuild_total",
+  // rerankWithScores' fallback returns the same shaped output whether the reranker was
+  // never configured, timed out, errored, answered with garbage, or was deliberately skipped by
+  // gatedRerank's policy gate — this is the counter that tells those apart. `outcome` is the
+  // closed 7-value RerankOutcome union, bounded by construction like `stage` above.
+  "obsidian_tc_rerank_outcome_total",
 ];
 const HISTOGRAMS = [
   "obsidian_tc_tool_duration_seconds",
@@ -89,14 +94,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 24 counters, 4 histograms, 16 gauges", async () => {
+  it("registers the full catalog: 25 counters, 4 histograms, 16 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(44);
+    expect(new Set(declared).size).toBe(45);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
@@ -224,6 +229,38 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     const text = await r.metrics();
     expect(text).toContain('obsidian_tc_vec_rebuild_total{reason="fingerprint_changed"} 2');
     expect(text).toContain('obsidian_tc_vec_rebuild_total{reason="legacy_shape"} 1');
+  });
+
+  it("counts rerank outcomes separately by vault and outcome ", async () => {
+    const r = new MetricsRecorder();
+    r.incRerankOutcome("main", "not_configured");
+    r.incRerankOutcome("main", "executed");
+    r.incRerankOutcome("main", "executed");
+    r.incRerankOutcome("main", "timed_out");
+    r.incRerankOutcome("main", "malformed_response");
+    r.incRerankOutcome("main", "provider_error");
+    r.incRerankOutcome("main", "skipped_by_policy");
+    r.incRerankOutcome("main", "fallback_used");
+    const text = await r.metrics();
+    // Every one of the 7 outcomes is its own series — collapsing any two would make "the reranker
+    // has been silently broken for a week" indistinguishable from "policy correctly skipped it".
+    expect(text).toContain(
+      'obsidian_tc_rerank_outcome_total{vault="main",outcome="not_configured"} 1',
+    );
+    expect(text).toContain('obsidian_tc_rerank_outcome_total{vault="main",outcome="executed"} 2');
+    expect(text).toContain('obsidian_tc_rerank_outcome_total{vault="main",outcome="timed_out"} 1');
+    expect(text).toContain(
+      'obsidian_tc_rerank_outcome_total{vault="main",outcome="malformed_response"} 1',
+    );
+    expect(text).toContain(
+      'obsidian_tc_rerank_outcome_total{vault="main",outcome="provider_error"} 1',
+    );
+    expect(text).toContain(
+      'obsidian_tc_rerank_outcome_total{vault="main",outcome="skipped_by_policy"} 1',
+    );
+    expect(text).toContain(
+      'obsidian_tc_rerank_outcome_total{vault="main",outcome="fallback_used"} 1',
+    );
   });
 
   it("counts vec fallbacks separately by reason (THE-585)", async () => {

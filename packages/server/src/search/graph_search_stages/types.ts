@@ -4,7 +4,7 @@
 // graph_search.ts re-exports GraphSearchOptions/GraphSearchResult/FusionMode so the public import
 // path (`from "./graph_search"` / `from "../../search/graph_search"`) is unchanged for callers.
 import type { ColbertMatrix } from "../colbert";
-import type { Reranker } from "../rerank";
+import type { OnRerankOutcome, Reranker } from "../rerank";
 import type { SparseVec } from "../sparse";
 import type { OnStageMetric } from "./instrumentation";
 
@@ -210,6 +210,12 @@ export interface GraphSearchOptions {
    *  -> no behavior change. Under multi-query fan-out (multi_query.ts) this fires once per
    *  variant; the last call wins, mirroring onFusionWeights' existing precedent. */
   onCoverage?: (coverage: CoverageEstimate) => void;
+  /** additive, observability-only: fired once per rerankWithScores decision point —
+   *  score_merge/rrf_rerank's direct call, and gatedRerank's call OR its policy-skip fallthrough
+   *  (see rerank_stage.ts) — with WHY the returned ranking is what it is (see RerankOutcome's doc
+   *  comment). Never changes the ranking or the fallback scores; same "pure side-channel" contract
+   *  as onCoverage above. Default undefined -> no behavior change. */
+  onRerankOutcome?: OnRerankOutcome;
   reranker?: Reranker | null;
   isReadable?: (path: string) => boolean;
   /** cached_activation_score lookup from vault_object_state (W-SCHEMA); inert when absent. */
