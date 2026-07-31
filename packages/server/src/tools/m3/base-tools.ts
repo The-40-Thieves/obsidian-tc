@@ -38,7 +38,7 @@ import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links"
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import type { M3Deps } from "./index";
+import type { M3Deps } from "./shared";
 
 function requireBaseExt(rel: string): void {
   if (!rel.toLowerCase().endsWith(".base"))

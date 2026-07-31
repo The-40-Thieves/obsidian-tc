@@ -32,7 +32,7 @@ import { requireConfirmation } from "../../vault/hitl";
 import { hardDelete, noteExists, readFileChecked, statNote, trashNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import type { M3Deps } from "./index";
+import type { M3Deps } from "./shared";
 
 function dirOf(rel: string): string {
   const i = rel.lastIndexOf("/");

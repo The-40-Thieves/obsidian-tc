@@ -32,7 +32,7 @@ import { parseNote } from "../../vault/frontmatter";
 import { noteExists, readNote, statNote, writeNoteAtomic } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import type { M3Deps } from "./index";
+import type { M3Deps } from "./shared";
 
 const PeriodEnum = z.enum(["daily", "weekly", "monthly", "quarterly", "yearly"]);
 

@@ -15,7 +15,7 @@ import { enforcePathAcl } from "../../vault/acl-path";
 import { requireConfirmation } from "../../vault/hitl";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import type { M3Deps } from "./index";
+import type { M3Deps } from "./shared";
 
 const WORKSPACES_PATH = ".obsidian/workspaces.json";
 
