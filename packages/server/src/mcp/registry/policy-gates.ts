@@ -79,3 +79,13 @@ export function enforceVaultKindGate(
   if (kind === "docs" || kind === "system")
     throw err.forbidden(`${name} cannot mutate a ${kind}-kind vault`, { vault: effVault, kind });
 }
+
+/** Tool-specific precondition gate (D5). After scope/ACL, before HITL, so a rejected precheck
+ *  never consumes the single-use elicit token. */
+export async function runPrecheck<I>(
+  def: Pick<ToolDefinition<I>, "precheck">,
+  data: I,
+  ctx: CallerContext,
+): Promise<void> {
+  if (def.precheck) await def.precheck(data, ctx);
+}

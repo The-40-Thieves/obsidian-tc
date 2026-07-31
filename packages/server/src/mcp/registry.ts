@@ -43,6 +43,7 @@ import {
   enforceVaultKindGate,
   isMutatingCall,
   requireAuthenticated,
+  runPrecheck,
 } from "./registry/policy-gates";
 import { ToolStore } from "./registry/tool-store";
 import {
@@ -434,9 +435,7 @@ export class ToolRegistry {
       enforceReadOnlyGate(ctx, mutating);
       enforceVaultKindGate(ctx, def, inputData, mutating, name, this.vaultKindResolver);
 
-      // Tool-specific precondition gate (D5). After scope/ACL, before HITL, so a
-      // rejected precheck never consumes the single-use elicit token.
-      if (def.precheck) await def.precheck(inputData, ctx);
+      await runPrecheck(def, inputData, ctx);
 
       // Idempotency gate (D3). A keyed call claims a row in idempotency_keys; a
       // replay returns the cached result without re-running the handler. Runs after
