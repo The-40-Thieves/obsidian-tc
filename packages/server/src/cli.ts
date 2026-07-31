@@ -10,11 +10,8 @@
 // old cap had already produced a duplicated DEFAULT_TRACE_FOLDER literal. A cap only ever raised is
 // not a gate — THE-625/THE-643 (wrapPlaneJob/errorMessage dedup + the note-quality job) is the first
 // slice to ratchet it back DOWN.
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../package.json";
-import { FolderAcl, makeIndexReadable, makeReindexGate } from "./acl";
 import {
   type BridgeClient,
   buildVaultCapabilities,
@@ -44,21 +41,12 @@ import { run_reflect } from "./cli/commands/reflect";
 import { run_token_mint } from "./cli/commands/token-mint";
 import { run_version } from "./cli/commands/version";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "./cli/shared";
-import { provisionExperientialDb } from "./db/experiential";
-import { openDatabase } from "./db/open";
-import { provisionCacheDb } from "./db/provision";
-import { elicitVerifier, setDefaultElicitTtlSeconds } from "./elicit";
-import { createEmbeddingProvider } from "./embeddings";
-import { makeActivationLookup } from "./experiential/activation";
-import { createEpisodeCapture } from "./experiential/episodes";
-import { createRetrievalLogger } from "./experiential/log";
 import { recomputeNoteQualityAll } from "./experiential/note-quality";
 import { createGatewayClient, type GatewayClient } from "./gateway";
-import { type CallerContext, ToolRegistry } from "./mcp/registry";
+import type { CallerContext } from "./mcp/registry";
 import { createMcpServer } from "./mcp/server";
 import { TASK_CALL_JOB_TYPE } from "./mcp/tasks";
 import { startMetricsEndpoint } from "./metrics/endpoint";
-import { recordIngestStats } from "./metrics/ingest-stats";
 import { buildModelTierReranker } from "./model";
 import { initOtel } from "./otel/tracing";
 import type { GatewayRoles } from "./plane/gateway";
@@ -67,33 +55,21 @@ import { checkContradictions, loadChunkForContradiction } from "./plane/jobs/con
 import { isoWeek, runSynthesis } from "./plane/jobs/synthesis";
 import { wrapPlaneJob } from "./plane/plane";
 import { createPlurBackend } from "./plur/client";
+import { wireIndexCoordinator } from "./runtime/indexing-wiring";
 import { configureMaintenance } from "./runtime/maintenance-wiring";
 import { createObservability, wireActivationRecompute } from "./runtime/observability";
 import { applyReconcileOutcome } from "./runtime/reconcile-outcome";
+import { requireBoot, wireRuntimeCore } from "./runtime/server-runtime";
+import { wireStores } from "./runtime/stores";
 import { JobQueue } from "./scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "./scheduler/job-runner";
 import { Scheduler } from "./scheduler/scheduler";
 import { makeTaskCallHandler } from "./scheduler/task-call-runner";
-import { ensureNotesFts } from "./search/fts";
-import { IndexCoordinator } from "./search/index-coordinator";
-import {
-  deindexNote,
-  type IndexHook,
-  type IndexStats,
-  indexNote,
-  indexVault,
-} from "./search/indexer";
+import type { IndexCoordinator } from "./search/index-coordinator";
+import type { IndexHook } from "./search/indexer";
 import { nativeLoaded } from "./search/native";
 import { createRetrievalCaches } from "./search/query_cache";
-import {
-  CHUNKER_VERSION,
-  ENRICHMENT_VERSION,
-  VEC_DISTANCE_METRIC,
-  VEC_SCHEMA_GEN,
-} from "./search/representation";
 import type { Reranker } from "./search/rerank";
-import { ensureVecChunks } from "./search/vec";
-import { RateLimiter } from "./throttle";
 import { createHealthTool, createIndexStatusTool } from "./tools/admin/health";
 import { registerM1Tools } from "./tools/m1";
 import { registerM2Tools } from "./tools/m2";
@@ -114,23 +90,11 @@ import { startHttp } from "./transports/http";
 import { connectStdio } from "./transports/stdio";
 import { errorMessage, schedulerPersistErrorSink, stderrOnError } from "./util/errors";
 import { resolveMode, type VaultMode } from "./vault/mode";
-import { contentHash, resolveVaultPath } from "./vault/paths";
-import { VaultRegistry } from "./vault/registry";
-import { registerVaultWatch } from "./vault/watcher";
-import { ActiveSessionTracker, appendTrace, getSession } from "./workspace/sessions";
+import { contentHash } from "./vault/paths";
 
 // VERSION derives from packages/server/package.json (imported above): single source of
 // truth, bumped by the release pipeline. Matches MCP versioning guidance (extract from
 // package metadata, do not hardcode); resolveJsonModule is on, so bun inlines it at build.
-
-/** THE-466 slice 2: indexCoordinator/scheduler are constructed after the observability module, so
- *  its gauge sources read them through a ref assigned later — read only lazily, at scrape time,
- *  always after boot has finished. A plain thrown Error (never a non-null assertion, forbidden by
- *  lint) documents the invariant if that ever stops being true. */
-function requireBoot<T>(value: T | undefined, what: string): T {
-  if (value === undefined) throw new Error(`${what} read before boot completed`);
-  return value;
-}
 
 async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   const config = resolveOrUsageExit(cmd.input);
@@ -139,36 +103,14 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   if (!firstVault) throw new Error("config.vaults must contain at least one vault");
   const startedAt = Date.now();
 
-  mkdirSync(config.cacheDir, { recursive: true });
-  const db = await openDatabase(join(config.cacheDir, "cache.db"));
-  provisionCacheDb(db, { version: VERSION });
-  // THE-233 (W-SCHEMA): provision the experiential tier as a physically separate store (the
-  // membrane — low-trust per-retrieval state cannot FK into the authored atoms in cache.db,
-  // and a reset is a file truncate).
-  const experientialDb = await provisionExperientialDb(config.cacheDir, experientialMigrations, {
+  // WP5.1: cache.db / experiential.db + the experiential capture ports (runtime/stores.ts).
+  const stores = await wireStores({
+    cacheDir: config.cacheDir,
     version: VERSION,
+    experiential: config.experiential,
+    experientialMigrations,
   });
-  // THE-230/THE-228: the experiential capture port. Retrieval logging + the episode bus share
-  // the one experiential.db handle, held open for the process lifetime when either is enabled;
-  // with both off the store is provisioned-then-released (pre-capture behavior). Sink failures
-  // go to stderr and never fail the dispatch/search that fired them (best-effort telemetry).
-  const retrievalLog = config.experiential.logRetrievals
-    ? createRetrievalLogger(experientialDb, { onError: stderrOnError("retrieval-log") })
-    : undefined;
-  // THE-228: capture-everything episode bus (agent_episodes). The content axis (raw args) is
-  // a separate gate, default OFF until the THE-238 poisoning defense lands.
-  const episodeCapture = config.experiential.captureEpisodes
-    ? createEpisodeCapture(experientialDb, {
-        captureContent: config.experiential.captureContent,
-        onError: stderrOnError("episodes"),
-      })
-    : undefined;
-  // THE-187/193: serve-side activation lookup for the bubble pass — dark unless activationRerank.
-  const activationFor = config.experiential.activationRerank
-    ? makeActivationLookup(experientialDb, { onError: stderrOnError("activation-read") })
-    : undefined;
-  const experientialOpen = !!(retrievalLog || episodeCapture || activationFor);
-  if (!experientialOpen) experientialDb.close?.();
+  const { db, experientialDb, retrievalLog, activationFor, experientialOpen } = stores;
 
   // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
   // share the same in-memory counters. The scrape endpoint is started below only when
@@ -206,152 +148,38 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   });
   const { metrics, onVecFallback, onStageMetric, sqlHooksFor, morgiana, onSnapshotSkipped } =
     observability;
-  // Shared rate limiter (G2.4 tiers) — the dispatch gate (THE-210) and get_metrics share it.
-  const rateLimiter = new RateLimiter(config.throttle.tiers);
-  const vaultRegistry = new VaultRegistry(config.vaults, process.env.OBSIDIAN_TC_DEFAULT_VAULT);
-  // THE-209: process-local active-session tracker; start_session/end_session maintain it and
-  // the stdio context factory reads it to stamp ctx.sessionId for dispatch-level tracing.
-  const activeSessions = new ActiveSessionTracker();
-  // THE-295: root ACL + per-vault overrides (root is the inherited default), hoisted above the
-  // registry so dispatch's aclResolver can swap ctx.acl per requested vault.
-  const acl = new FolderAcl(config.acl);
-  const aclByVault = new Map(
-    config.vaults
-      .filter((v) => v.acl !== undefined)
-      .map((v) => [v.id, new FolderAcl(v.acl as ConstructorParameters<typeof FolderAcl>[0])]),
-  );
-  // THE-302: the configured elicit-token TTL governs every HITL token mint (issueElicitToken falls
-  // back to this default when a caller passes no explicit ttlSeconds). Set once at startup.
-  setDefaultElicitTtlSeconds(config.elicitTtlSeconds);
-  const registry = new ToolRegistry({
+  // WP5.1: governance (ACL/rate-limiter/ToolRegistry) and index resources (embedding provider,
+  // vec0/FTS probes, indexHealth) — runtime/server-runtime.ts's wireRuntimeCore. A failure in
+  // either unwinds stores too (reverse order) rather than leaking an open db handle; see that
+  // module's header comment for why observability construction (above) cannot be folded into the
+  // same call.
+  const { governance, indexResources } = await wireRuntimeCore({
+    stores,
+    vaults: config.vaults,
+    acl: config.acl,
+    defaultVaultId: process.env.OBSIDIAN_TC_DEFAULT_VAULT,
+    elicitTtlSeconds: config.elicitTtlSeconds,
+    throttle: config.throttle,
     maxResponseBytes: config.governor.maxResponseBytes,
     idempotencyTtlSeconds: config.idempotencyTtlSeconds,
     idempotencyReclaimSeconds: config.idempotencyReclaimSeconds,
-    verifyElicit: elicitVerifier,
+    toolVisibility: config.toolVisibility,
     metrics,
     tracer: otel.tracer,
-    emit: (vaultId, type, data) => morgiana.emit(vaultId, type, data),
-    // THE-288: honor throttle.enabled — when false the dispatch gate gets no limiter and never
-    // throttles. The RateLimiter object still exists (below) so get_metrics keeps reporting.
-    rateLimiter: config.throttle.enabled ? rateLimiter : undefined,
-    toolVisibility: config.toolVisibility,
-    // THE-295: per-vault ACL enforcement at dispatch.
-    aclResolver: (vaultId) => aclByVault.get(vaultId) ?? acl,
-    // THE-414: vault-root resolver so dispatch can run central pathAcl enforcement with the same
-    // symlink-canonical enforcePathAcl the handlers use. Unknown vaults resolve to undefined
-    // (central enforcement then skips; the vault-binding guard already rejects cross-vault access).
-    rootResolver: (vaultId) => {
-      try {
-        return vaultRegistry.resolve(vaultId).root;
-      } catch {
-        return undefined;
-      }
-    },
-    // THE-569: reverse vault-kind gate — a mutating dispatch refuses to reach a docs/system-kind
-    // vault, closing the write/integrity direction of P1.5. Unknown vaults resolve to undefined
-    // (the gate then no-ops; the vault-binding guard and pathAcl stage already reject them).
-    vaultKindResolver: (vaultId) => {
-      try {
-        return vaultRegistry.resolve(vaultId).kind;
-      } catch {
-        return undefined;
-      }
-    },
-    // THE-209: append a per-invocation trace record to the active session's JSONL trace.
-    sessionTracer: (session, record) => {
-      try {
-        const row = getSession(db, session.sessionId);
-        if (!row || row.ended_at !== null || row.vault_id !== session.vaultId) return;
-        const abs = resolveVaultPath(vaultRegistry.resolve(row.vault_id).root, row.trace_path);
-        appendTrace(abs, record);
-      } catch {
-        /* best-effort: tracing never breaks a dispatch */
-      }
-    },
-    onProfile:
-      process.env.OBSIDIAN_TC_PROFILE === "1"
-        ? (p) =>
-            process.stderr.write(
-              `[profile] ${p.tool} total=${p.total_ms}ms handler=${p.handler_ms}ms overhead=${p.total_ms - p.handler_ms}ms\n`,
-            )
-        : undefined,
-    // THE-288: a non-typed handler throw is redacted to `{code:"internal"}` for the client; the
-    // real error + stack goes to stderr (never stdout, the MCP channel) for operator diagnosis.
-    onInternalError: (tool, vaultId, e) => {
-      const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
-      process.stderr.write(`[internal] ${tool} (vault ${vaultId}): ${detail}\n`);
-    },
-    // THE-457: a fail-open audit write that threw is already metered; also bump the health counter
-    // so server_health shows the audit trail going lossy. Runs only at dispatch (after indexHealth
-    // is initialized).
-    // THE-417 Phase 2: route drift to a counter so warn-mode has a readable output. The stderr
-    // line above stays — it carries the Zod issues a human needs to diagnose; this is the half a
-    // dashboard can alert on.
-    onOutputSchemaDrift: (tool, vaultId) => metrics.incOutputSchemaDrift(vaultId, tool),
-    onAuditFailure: () => {
-      indexHealth.auditWriteFailures++;
-    },
-    // THE-228: every dispatch outcome feeds the experiential episode bus (when enabled).
-    ...(episodeCapture ? { onEpisode: episodeCapture } : {}),
+    morgiana,
+    embeddings: config.embeddings,
+    onVecRebuild: observability.onVecRebuild,
   });
-  // Index-on-write (THE-255): a note mutation reindexes its path inline (best-effort and
-  // backgrounded, so it never slows or fails a write); deindex drops a removed note's chunks
-  // via an empty-content reindex (no embedding call). The boot reconcile guarantees full
-  // convergence. Shares the one embedding provider + vec-availability flag.
-  const embeddingProvider = createEmbeddingProvider(config.embeddings);
-  // GH #171/#172: thread the embed-batch knobs into every reconcile so local runners are tunable.
-  const embedConfig = {
-    batchSize: config.embeddings.batchSize,
-    concurrency: config.embeddings.concurrency,
-    maxBatchTokens: config.embeddings.maxBatchTokens,
-  };
-  // THE-460: same fingerprint scheme as indexVault — provider/model/dims + the fixed
-  // representation constants + whether chunkContext enrichment is on, so a same-dimension model
-  // swap or an enrichment/chunker change rebuilds vec_chunks instead of serving it stale.
-  const hasVec = ensureVecChunks(
-    db,
-    {
-      provider: embeddingProvider.provider,
-      model: embeddingProvider.model,
-      dimensions: embeddingProvider.dimensions,
-      distanceMetric: VEC_DISTANCE_METRIC,
-      enrichmentVersion: config.embeddings.chunkContext ? ENRICHMENT_VERSION : 0,
-      chunkerVersion: CHUNKER_VERSION,
-      schemaGen: VEC_SCHEMA_GEN,
-    },
-    { now: Date.now, onRebuild: observability.onVecRebuild },
-  );
-  // THE-291: FTS5 probe (trigram notes_fts) — false on adapters without FTS5 or when
-  // OBSIDIAN_TC_DISABLE_FTS=1; the query layer then keeps the disk-scan floor.
-  const hasFts = ensureNotesFts(db, { now: Date.now });
-  // THE-288: mutable index-health tracker surfaced by server_health. reconcile flips pending ->
-  // ok/degraded when the boot reconcile settles; writeFailures counts swallowed index-on-write
-  // errors (reindex/deindex best-effort). The health tool reads a snapshot at call time.
-  const indexHealth: {
-    reconcile: "pending" | "ok" | "degraded";
-    reconcileAt: number | null;
-    reconcileErrors: Array<{ vault: string; error: string }>;
-    writeFailures: number;
-    lastWriteError?: string;
-    /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
-    notesReady: boolean;
-    /** THE-457: fail-open audit writes that threw (locked DB / disk full) — the audit trail is lossy. */
-    auditWriteFailures: number;
-    /** THE-458 (audit #5): times the index-on-write queue depth crossed queueMax (backpressure edges). */
-    indexQueueBackpressures: number;
-    /** THE-491: chunks_upserted from the most recent index_vault tool call; null until the first
-     *  one this process (get_index_status surfaces it verbatim). */
-    lastChunksUpserted: number | null;
-  } = {
-    reconcile: "pending",
-    reconcileAt: null,
-    reconcileErrors: [],
-    writeFailures: 0,
-    notesReady: false,
-    auditWriteFailures: 0,
-    indexQueueBackpressures: 0,
-    lastChunksUpserted: null,
-  };
+  const { acl, aclByVault, vaultRegistry, activeSessions, rateLimiter, registry } = governance;
+  const {
+    embeddingProvider,
+    embedConfig,
+    hasVec,
+    hasFts,
+    indexHealth,
+    recordIngestStatsFor,
+    indexVaultRecorded,
+  } = indexResources;
   // #14: durable contradiction jobs (was an in-memory queue that dropped under backpressure).
   // Constructed here (ahead of its original ~line-1006 site) so server_health's getJobQueueStats
   // accessor below can close over it; it depends only on `db` + `Date.now`, both already
@@ -382,8 +210,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
                 reconcile_errors: indexHealth.reconcileErrors,
                 audit_write_failures: indexHealth.auditWriteFailures,
                 // THE-458 (audit #5): index-on-write coordinator depth + backpressure.
-                index_queue_depth: indexCoordinator.stats().queued,
-                index_queue_active: indexCoordinator.stats().active,
+                index_queue_depth: requireBoot(indexCoordinatorRef, "indexCoordinator").stats()
+                  .queued,
+                index_queue_active: requireBoot(indexCoordinatorRef, "indexCoordinator").stats()
+                  .active,
                 index_queue_backpressures: indexHealth.indexQueueBackpressures,
                 ...(indexHealth.lastWriteError !== undefined
                   ? { last_write_error: indexHealth.lastWriteError }
@@ -443,17 +273,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   const CONTRADICTION_MAX_ATTEMPTS = 3;
   const CONTRADICTION_DRAIN_MS = 15_000;
 
-  // THE-507/THE-588: recordIngestStats lives in ./metrics/ingest-stats so the production wiring
-  // between a real IndexStats pass and the Prometheus counters is importable and testable directly
-  // (see its module doc comment for why).
-  const recordIngestStatsFor = (vaultId: string, s: IndexStats): IndexStats => {
-    recordIngestStats(db, metrics, vaultId, s);
-    return s;
-  };
-  // THE-625 item 4: routes both direct indexVault(...) callers below through this recorder instead
-  // of a per-call-site reminder (THE-590 found one caller left uninstrumented).
-  const indexVaultRecorded = (opts: Parameters<typeof indexVault>[0]) =>
-    indexVault(opts).then((s) => recordIngestStatsFor(opts.vaultId, s));
+  // THE-507/THE-588/THE-625 item 4: recordIngestStatsFor/indexVaultRecorded now live in
+  // runtime/indexing-wiring.ts (wireIndexResources), destructured from `indexResources` above.
 
   // THE-457: cap on how long graceful shutdown waits for in-flight index work.
   const SHUTDOWN_DRAIN_MS = 5000;
@@ -528,81 +349,30 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
     // outcomes are surfaced via server_health stats, not per-job logging; onOutcome left unset
   });
 
-  // THE-291 (part 2): shared index-on-write hooks for the non-M1 writers (m3 periodic, m4
-  // tasks, m5 capture, m6 bulk). M1 keeps its identical inline closures from THE-255.
-  // THE-455: route every index-on-write mutation through a per-(vault,path) coordinator so same-path
-  // writes/deletes serialize (newest wins — no stale/out-of-order commit, no delete resurrection)
-  // while different paths stay concurrent. Handlers are the same indexNote/deindexNote as before.
-  const indexCoordinator = new IndexCoordinator(
-    {
-      write: (vaultId, path, content) =>
-        indexNote(
-          db,
-          embeddingProvider,
-          vaultId,
-          path,
-          content,
-          hasVec,
-          Date.now,
-          makeOnIndexed(vaultId),
-          config.embeddings.chunkContext,
-          sqlHooksFor(vaultId),
-        ),
-      delete: (vaultId, path) =>
-        deindexNote(
-          db,
-          vaultId,
-          path,
-          hasVec,
-          config.embeddings.chunkContext,
-          sqlHooksFor(vaultId),
-        ),
-      onError: (e) => {
-        indexHealth.writeFailures++;
-        indexHealth.lastWriteError = errorMessage(e);
-      },
-    },
-    {
-      // THE-458 (audit #5): bound concurrent index/embed fan-out so a bulk mutation cannot spawn an
-      // unbounded number of simultaneous embedding calls; surface sustained queue depth in health.
-      globalConcurrency: config.indexing.writeConcurrency,
-      perVaultConcurrency: config.indexing.writeConcurrencyPerVault,
-      queueMax: config.indexing.queueMax,
-      onBackpressure: (depth) => {
-        indexHealth.indexQueueBackpressures++;
-        process.stderr.write(
-          `[index] write-queue backpressure: ${depth} distinct paths pending (> queueMax ` +
-            `${config.indexing.queueMax}); index/embed fan-out is capped, writes are queued not dropped\n`,
-        );
-      },
-    },
-  );
+  // THE-291 (part 2)/THE-455/THE-453/THE-649: the coordinator, the reindex/deindex hooks, and the
+  // vault watcher — runtime/indexing-wiring.ts's wireIndexCoordinator. Split from wireIndexResources
+  // above (not one call) because its write handler needs `makeOnIndexed`, which depends on the job
+  // queue + gateway roles constructed just above (WP5.2 territory) — see that module's header
+  // comment for why the two halves cannot be folded into one function without reordering real boot
+  // steps.
+  const { indexCoordinator, indexReadableFor, reindexHook, deindexHook, stopVaultWatch } =
+    wireIndexCoordinator({
+      db,
+      embeddingProvider,
+      hasVec,
+      chunkContext: config.embeddings.chunkContext,
+      indexing: config.indexing,
+      vaults: config.vaults,
+      watch: config.watch,
+      sqlHooksFor,
+      indexHealth,
+      acl,
+      aclByVault,
+      makeOnIndexed,
+    });
   // THE-466 slice 2: hand the live coordinator to the observability module's lazy gauge sources
   // (indexQueueDepth / indexActive / indexCoalesced), constructed above before this existed.
   indexCoordinatorRef = indexCoordinator;
-  // indexReadableFor: per-vault ACL read-visibility filter shared by the boot reconcile, runtime
-  // add_vault, AND the index-on-write hook below (THE-453). makeIndexReadable resolves each vault's
-  // effective ACL (override ?? root), mirroring the dispatch aclResolver, so indexing never
-  // reads/embeds a vault-denied path.
-  const indexReadableFor = makeIndexReadable(acl, aclByVault);
-  // THE-453 (runtime): gate index-on-write through the effective read ACL. A write handler passes the
-  // WRITE ACL then calls reindex; a write-allowed but read-denied path (writePaths ⊃ readPaths) must
-  // not be embedded — makeReindexGate routes it to submitDelete (evicting any stale index state)
-  // instead of submitWrite. Deletes are always safe, so deindex stays a direct submitDelete.
-  const reindexHook = makeReindexGate(indexReadableFor, {
-    write: (vaultId, path, content) => indexCoordinator.submitWrite(vaultId, path, content),
-    delete: (vaultId, path) => indexCoordinator.submitDelete(vaultId, path),
-  });
-  const deindexHook = (vaultId: string, path: string): void =>
-    indexCoordinator.submitDelete(vaultId, path);
-  // THE-649: make docs/SYNC.md's long-standing claim true — every sync tier it documents delivers
-  // notes by writing to disk, and nothing was watching. Feeds the SAME reindexHook the write path
-  // uses, so a watched change is read-ACL-gated identically to a write_note. Vaults registered later
-  // by add_vault are not watched; config.vaults is the boot set, matching resolveTraceDirs' scope.
-  const stopVaultWatch = registerVaultWatch(config.vaults, config.watch, {
-    onUpsert: reindexHook,
-    onDelete: deindexHook,
-  });
   registerM1Tools(registry, {
     vaultRegistry,
     version: VERSION,
@@ -1137,7 +907,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
       /* shutdown is best-effort */
     }
     try {
-      db.close?.();
+      stores.close();
     } catch {
       /* best-effort: closing the cache DB on the way out */
     }

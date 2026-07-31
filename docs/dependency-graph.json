@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 324,
-    "dependencies": 1388,
-    "subsystemPairs": 88,
-    "crossSubsystemImports": 558
+    "modules": 328,
+    "dependencies": 1420,
+    "subsystemPairs": 92,
+    "crossSubsystemImports": 593
   },
   "subsystems": {
     "auth": 3,
@@ -30,7 +30,7 @@
     "plane": 6,
     "plugin": 2,
     "plur": 2,
-    "runtime": 3,
+    "runtime": 7,
     "scheduler": 4,
     "schemas": 1,
     "search": 51,
@@ -82,6 +82,16 @@
       "weight": 13
     },
     {
+      "from": "runtime",
+      "to": "db",
+      "weight": 12
+    },
+    {
+      "from": "runtime",
+      "to": "search",
+      "weight": 10
+    },
+    {
       "from": "mcp",
       "to": "vault",
       "weight": 9
@@ -110,6 +120,11 @@
       "from": "tools",
       "to": "bridge",
       "weight": 7
+    },
+    {
+      "from": "runtime",
+      "to": "metrics",
+      "weight": 6
     },
     {
       "from": "tools",
@@ -148,12 +163,17 @@
     },
     {
       "from": "runtime",
-      "to": "db",
+      "to": "morgiana",
       "weight": 4
     },
     {
       "from": "runtime",
-      "to": "search",
+      "to": "experiential",
+      "weight": 4
+    },
+    {
+      "from": "runtime",
+      "to": "mcp",
       "weight": 4
     },
     {
@@ -194,6 +214,11 @@
     {
       "from": "metrics",
       "to": "db",
+      "weight": 3
+    },
+    {
+      "from": "runtime",
+      "to": "vault",
       "weight": 3
     },
     {
@@ -253,7 +278,12 @@
     },
     {
       "from": "runtime",
-      "to": "morgiana",
+      "to": "embeddings",
+      "weight": 2
+    },
+    {
+      "from": "runtime",
+      "to": "util",
       "weight": 2
     },
     {
@@ -263,7 +293,7 @@
     },
     {
       "from": "runtime",
-      "to": "metrics",
+      "to": "workspace",
       "weight": 2
     },
     {
@@ -414,16 +444,6 @@
     {
       "from": "plane",
       "to": "util",
-      "weight": 1
-    },
-    {
-      "from": "runtime",
-      "to": "workspace",
-      "weight": 1
-    },
-    {
-      "from": "runtime",
-      "to": "experiential",
       "weight": 1
     },
     {
