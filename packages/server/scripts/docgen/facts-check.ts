@@ -171,7 +171,7 @@ export function factRules(
         // narrow, one per observed leak — the same way the THE-598 pattern above was added.
         new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+covering`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+ship`, "i"),
-        new RegExp(`\\ball\\s+(\\d+)\\s+tools\\b`, "i"),
+        /\ball\s+(\d+)\s+tools\b/i,
         new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+across\\s+modules`, "i"),
       ],
     },
