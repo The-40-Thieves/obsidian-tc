@@ -7,9 +7,9 @@ filesystem, not inferred. Counts in the hand-written sections come from
 regions state their own method.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 959 tracked code files · 139,709 lines.
+**Scale:** 960 tracked code files · 140,016 lines.
 
-TypeScript 130,497 · JavaScript 5,721 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 130,804 · JavaScript 5,721 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -239,7 +239,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**359 modules · 1574 dependencies · 101 distinct subsystem pairs · 689 cross-subsystem imports.**
+**359 modules · 1576 dependencies · 101 distinct subsystem pairs · 689 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
