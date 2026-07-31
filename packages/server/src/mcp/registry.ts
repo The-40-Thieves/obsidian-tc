@@ -1,8 +1,6 @@
 import { SpanKind, type Tracer } from "@opentelemetry/api";
 import {
   err,
-  grantsAll,
-  isMutatingScope,
   type MorgianaEventData,
   type MorgianaEventType,
   ObsidianTcError,
@@ -39,6 +37,13 @@ import {
   parseInput,
   vaultArgOf,
 } from "./registry/input-binding";
+import {
+  assertScopesGranted,
+  enforceReadOnlyGate,
+  enforceVaultKindGate,
+  isMutatingCall,
+  requireAuthenticated,
+} from "./registry/policy-gates";
 import { ToolStore } from "./registry/tool-store";
 import {
   type CallerContext,
@@ -66,27 +71,9 @@ export type {
   ToolDomain,
   ToolIcon,
 };
-export { TOOL_DOMAINS };
-
-/**
- * THE-514 item 1: the scope-requirement check `runDispatch`'s own scope gate (below) and
- * `resources.ts`'s readResource each wrote independently — `if (!grantsAll(...)) throw
- * forbidden(...)`. Unlike the vault-binding guard (see the AUTHORITATIVE NOTE further down),
- * this one had no semantic divergence to preserve: same primitive (`grantsAll`), same error code,
- * same shape of `details`. It had already started to drift anyway — resources.ts's version omitted
- * `details.required`, which the "forbidden" error's own documented recovery hint
- * (`shared/src/errors.ts`) promises callers can read. One function now backs both call sites, so
- * a future change to how a missing scope is reported cannot silently apply to only one surface.
- */
-export function assertScopesGranted(
-  ctx: Pick<CallerContext, "grantedScopes">,
-  requiredScopes: string[],
-  message: string,
-): void {
-  if (!grantsAll(ctx.grantedScopes, requiredScopes)) {
-    throw err.forbidden(message, { required: requiredScopes });
-  }
-}
+// WP4.3: moved to registry/policy-gates.ts, unchanged — re-exported so every existing importer
+// (resources.ts) keeps working unchanged (check:facade-parity pins this file's export surface).
+export { assertScopesGranted, TOOL_DOMAINS };
 
 /** THE-514: a stage-boundary cooperative-cancellation check. Throws the same modelled
  *  `ObsidianTcError` the rest of dispatch throws (never a raw DOMException `AbortError`), so an
@@ -435,8 +422,7 @@ export class ToolRegistry {
       // registry/input-binding.ts for the full reasoning behind each (unchanged, only relocated).
       const inputData = parseInput(def, rawInput);
 
-      if (def.requiredScopes.length > 0 && !ctx.authenticated)
-        throw new ObsidianTcError("unauthorized", "authentication required for this tool");
+      requireAuthenticated(ctx, def);
 
       assertScopesGranted(ctx, def.requiredScopes, "missing required scope(s)");
 
@@ -444,26 +430,9 @@ export class ToolRegistry {
 
       applyVaultAcl(ctx, def, inputData, this.aclResolver);
 
-      const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
-      if (mutating && ctx.acl?.readOnly)
-        throw new ObsidianTcError("forbidden", "vault is read-only (acl.readOnly)");
-
-      // THE-569: reverse vault-kind gate. P1.5 closed the READ direction (the read:docs tools
-      // refuse any vault whose kind isn't `docs`); this closes the WRITE/integrity direction — a
-      // mutating call must not be able to reach a `docs`- or `system`-kind vault just because it
-      // named that vault's id. Runs on the same effective vault (input.vault, falling back to
-      // ctx.vaultId) the pathAcl stage below resolves, so it agrees with what actually gets
-      // touched. A no-op when no vaultKindResolver is wired (a registry built with no
-      // VaultRegistry, or a unit test that omits it).
-      if (this.vaultKindResolver && mutating) {
-        const effVault = vaultArgOf(def, inputData) ?? ctx.vaultId;
-        const kind = this.vaultKindResolver(effVault);
-        if (kind === "docs" || kind === "system")
-          throw err.forbidden(`${name} cannot mutate a ${kind}-kind vault`, {
-            vault: effVault,
-            kind,
-          });
-      }
+      const mutating = isMutatingCall(def);
+      enforceReadOnlyGate(ctx, mutating);
+      enforceVaultKindGate(ctx, def, inputData, mutating, name, this.vaultKindResolver);
 
       // Tool-specific precondition gate (D5). After scope/ACL, before HITL, so a
       // rejected precheck never consumes the single-use elicit token.
