@@ -6,9 +6,9 @@ filesystem, not inferred. Counts in the hand-written sections come from
 regions state their own method.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 895 tracked code files · 135,234 lines.
+**Scale:** 900 tracked code files · 135,348 lines.
 
-TypeScript 126,908 · JavaScript 4,835 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 127,022 · JavaScript 4,835 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -200,7 +200,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**304 modules · 1258 dependencies · 88 distinct subsystem pairs · 527 cross-subsystem imports.**
+**309 modules · 1296 dependencies · 88 distinct subsystem pairs · 539 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -222,7 +222,7 @@ set is 88 pairs.
 
 ```mermaid
 flowchart LR
-  tools[tools<br/>64 files]
+  tools[tools<br/>69 files]
   search[search<br/>44 files]
   cli[cli<br/>22 files]
   vault[vault<br/>18 files]
@@ -236,9 +236,9 @@ flowchart LR
   plane[plane<br/>6 files]
   memory[memory<br/>2 files]
 
-  tools -->|158| vault
-  tools -->|57| mcp
-  tools -->|33| search
+  tools -->|162| vault
+  tools -->|62| mcp
+  tools -->|36| search
   search -->|30| db
   cli -->|20| db
   tools -->|14| db
@@ -250,8 +250,8 @@ flowchart LR
   model -->|8| embeddings
   tools -->|8| formats
   tools -->|7| bridge
-  tools -->|6| plane
   tools -->|6| experiential
+  tools -->|6| plane
   cli -->|5| search
   embeddings -->|5| search
   memory -->|5| vault
@@ -263,10 +263,10 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 195 | `tools` | 303 |
+| `vault` | 199 | `tools` | 315 |
 | `db` | 99 | `cli` | 48 |
-| `mcp` | 66 | `search` | 46 |
-| `search` | 56 | `experiential` | 18 |
+| `mcp` | 71 | `search` | 46 |
+| `search` | 59 | `experiential` | 18 |
 | `experiential` | 15 | `mcp` | 17 |
 <!-- END GENERATED: tree-fan -->
 
