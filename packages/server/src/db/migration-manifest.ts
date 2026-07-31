@@ -54,6 +54,10 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // THE-644 item 1: 20260729_001 is the gap_reports append-only pass log (persists the gap
   // detector's GapReport so the THE-611 read-only MCP tool has something to read).
   "20260729_001_gap_reports.sql",
+  // 20260731_001 is the citation provenance axis: cited_in_response's `1` conflates "the judge
+  // confirmed it" with "it passed the cheap stage-1 filter and no judge existed". Additive and
+  // observational -- cited_in_response's semantics are unchanged.
+  "20260731_001_citation_state.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

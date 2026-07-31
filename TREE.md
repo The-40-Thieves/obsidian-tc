@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 964 tracked code files · 141,382 lines.
+**Scale:** 965 tracked code files · 141,575 lines.
 
-TypeScript 132,047 · JavaScript 5,844 · Python 1,526 · SQL 983 · Rust 668 · Shell 314.
+TypeScript 132,206 · JavaScript 5,844 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -90,13 +90,13 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `search/` | 53 | 9,391 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,105 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 13 | 2,702 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `experiential/` | 11 | 2,674 | work-memory tier: activation, retrieval log, forget, citations |
+| `experiential/` | 11 | 2,693 | work-memory tier: activation, retrieval log, forget, citations |
 | `vault/` | 17 | 1,968 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `cli/` | 22 | 1,820 | arg parsing + subcommands |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
-| `db/` | 13 | 1,118 | provisioning, migrate runner, experiential store |
-| `migrations/` | 28 | 983 | hand-registered SQL. **Two chains** — see below |
+| `db/` | 13 | 1,123 | provisioning, migrate runner, experiential store |
+| `migrations/` | 29 | 1,017 | hand-registered SQL. **Two chains** — see below |
 | `metrics/` | 4 | 832 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `plane/` | 6 | 789 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
@@ -117,7 +117,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 338 files across 30 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 339 files across 30 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
