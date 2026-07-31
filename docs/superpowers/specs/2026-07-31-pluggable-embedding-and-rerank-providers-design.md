@@ -100,6 +100,19 @@ A registry entry receives a validated descriptor and returns an `EmbeddingProvid
 configuration, and each is testable by calling its factory with a literal descriptor and a stub
 `fetchFn` — the seam `embeddings/http.ts` and `embeddings/fake.ts` already use.
 
+### Prior-art check
+
+Two independent conventions corroborate the shape, which is worth recording because the per-slot
+split was a judgement call:
+
+- **Vercel AI SDK's `createProviderRegistry`** exposes *separate accessors per model type*
+  (`languageModel`, `embeddingModel`, `imageModel`) rather than one namespace, and addresses models
+  as `providerId:modelId`. That is the per-slot registry, and the id format obsidian-tc already
+  emits (`ollama:bge-m3`).
+- **LangChain's `Embeddings`** interface splits `embed_documents` from `embed_query` — the same
+  asymmetric-encoding distinction obsidian-tc carries as `EmbedOptions.input: "query" | "document"`
+  (THE-308). The existing interface is already the standard shape; nothing about it needs changing.
+
 ### Changes
 
 1. **`EmbeddingsConfigSchema.provider`: `z.enum([...])` → `z.string()`.** The enum's six values
@@ -135,8 +148,26 @@ Not touched: `EmbeddingProvider`, `Reranker`, `GatewayClient`, `graph_search.ts`
 "embeddings": { "provider": "module", "modulePath": "./my-provider.ts", "dimensions": 768 }
 ```
 
-`baseUrl` follows the existing convention: it includes any version segment (`.../v1`) and the
-adapter appends the endpoint path (`/embeddings`, `/rerank`), exactly as `openAiStyle` does today.
+### `baseUrl` has no single convention today — each entry must declare its own
+
+This was an assumption worth checking, and it was wrong. The existing adapters disagree:
+
+| adapter | `baseUrl` means | path appended |
+|---|---|---|
+| `openAiStyle` (openai, voyage) | includes the version segment (`https://api.openai.com/v1`) | `/embeddings` |
+| `cohere` | includes the version segment (`https://api.cohere.com/v2`) | `/embed` |
+| `ollama` | server root (`http://127.0.0.1:11434`) | `/api/embed` |
+| `model/tei.ts` | server root | `/v1/embeddings` |
+| `model/bge.ts` | server root | `/v1/encode` |
+
+So "set `baseUrl`" means two different things depending on which name you picked. For a slot whose
+whole purpose is dropping in an arbitrary endpoint, that ambiguity is the most likely cause of a
+confusing first-run failure — `/v1/v1/embeddings` from a base that already carried `/v1`.
+
+**Requirement.** Every registry entry declares its appended path as part of its registration, the
+generated config schema documents it per-entry, and the resolver rejects at boot a `baseUrl` whose
+trailing segment would duplicate the path the entry appends. Normalising by silently stripping a
+duplicate is wrong — it hides an operator's misunderstanding of which convention they are on.
 
 ### New field: `apiKeyEnv`
 
@@ -170,7 +201,59 @@ contract:
   `gateway/client.ts:236` already speaks. LiteLLM follows the Cohere rerank format for *all* rerank
   providers, and Jina, Voyage, TogetherAI and Infinity all speak it — which is why this one shape
   is enough.
-- **`tei`** — the existing `model/tei.ts` client, exposed under its own registry name.
+- **`tei`** — the existing `model/tei.ts` client, exposed under its own registry name. Note it
+  appends `/v1/embeddings` to a bare root, *not* `/embeddings` to a versioned base.
+
+**Cohere rerank is versioned and the dialects differ.** V2 replaced `max_chunks_per_doc` with
+`max_tokens_per_doc` (token-based, default 4096). Since the adapter appends only `/rerank`, the
+dialect is decided entirely by whether the operator's `baseUrl` ends in `/v1` or `/v2` — which
+makes the `baseUrl` requirement above load-bearing here, not merely tidy. Neither truncation
+parameter is sent by default (see the invariants below); `top_n` is the only optional field, and it
+exists in both dialects.
+
+## Wire-protocol invariants
+
+Verified 2026-07-31. These are the difference between "it works against my gateway" and "it works
+against any endpoint", and each is backed by a real published failure.
+
+**Send the minimal common request body. Every dialect-specific parameter is opt-in and off by
+default.** Three independent incidents share one shape — a parameter that is correct in one dialect
+and a hard 400 in another:
+
+| parameter | failure |
+|---|---|
+| `dimensions` | Passing it to a non-Matryoshka OpenAI-compatible backend returns 400. Clients that always send it break every such backend (mem0 #4153). |
+| `encoding_format` | The OpenAI SDK defaults to `base64`, which proxies may not support; a later fix sent `encoding_format=None`, which vLLM rejects outright — LiteLLM published an incident report for it. |
+| `max_tokens_per_doc` / `max_chunks_per_doc` | Cohere rerank v2 vs v1. Sending either to the wrong dialect is rejected. |
+
+**obsidian-tc is already immune to all three, and that must be preserved deliberately.**
+`openAiStyle` sends `{model, input}` and nothing else; `dimensions` appears in `providers.ts` only
+as a field on the *returned provider object*, never in a request body; `encoding_format` appears
+nowhere in the tree. Width is enforced client-side by `assertVectors`, with optional Matryoshka
+truncation via `truncate` — which is strictly better than asking the server to truncate, because it
+works against servers that cannot.
+
+This is currently an accident of how the adapters were written. Generalising `openAiStyle` into a
+public `openai-compatible` entry is exactly the moment someone "improves" it by adding
+`encoding_format: "float"` or reaching for the official SDK. So it becomes an explicit invariant
+with a test asserting the outgoing body has exactly the expected keys — not a comment.
+
+**The invariant binds the generic entries, not the named ones.** A named entry targets exactly one
+vendor and must send whatever that vendor requires: `cohere` already sends
+`{model, texts, input_type, embedding_types}` because Cohere v2 mandates `input_type`, and it
+should. That difference is the reason `openai-compatible` must be a **separate entry** rather than
+`openai` with the default base removed — a named entry is free to grow vendor-specific fields over
+time, and the generic entry must be provably unable to. Registering them as aliases of one factory
+would let a future vendor requirement leak into every self-hosted backend.
+
+**Corollary: no provider SDKs in the tree.** Already the standing rule for the gateway
+(`gateway/client.ts:46`). The `encoding_format` incident is the general case: an SDK's defaults are
+tuned for its own first-party endpoint and are a liability against a compatible one.
+
+**No emerging standard supersedes these two shapes.** The 2026 landscape search surfaced no
+interoperability spec beyond the de-facto OpenAI-compatible embeddings and Cohere-format rerank
+APIs; the movement is in models (Qwen3 multi-task embedding+rerank, BGE-M3, voyage-3) rather than
+protocols. Choosing these two shapes is choosing the current answer, not a legacy one.
 
 ## The module gate
 
@@ -217,6 +300,14 @@ message naming the fix. (Zod is 4.4.3; `z.ZodIssueCode.custom` is still what thi
 
 **Adapters.** Each generic adapter, via its factory with a literal descriptor and a stub `fetchFn`:
 URL construction, auth header, response unwrapping, malformed response. No network, no containers.
+
+**Wire-body invariant — one test per generic adapter.** Capture the outgoing request body from the
+stub `fetchFn` and assert its keys **exactly**: `{model, input}` for `openai-compatible`,
+`{model, query, documents}` (+ `top_n` only when set) for `cohere-compatible`. Asserting the
+absence of `dimensions` and `encoding_format` is the point — an assertion that only checks the
+present keys would pass while the adapter sends an extra one that 400s on half of all backends.
+Also assert the constructed URL for a `baseUrl` with and without a trailing slash, and that a
+`baseUrl` duplicating the entry's appended path is refused at boot.
 
 **Registry — four properties.**
 
@@ -282,6 +373,9 @@ watched failing before it is trusted.
 2. Open `EmbeddingsConfigSchema.provider` to `z.string()`; wire the boot-time unknown-name throw
    with the full name listing.
 3. Add the generic adapters (`openai-compatible`, `cohere-compatible`, `tei`) and `apiKeyEnv`.
+   Land the wire-body invariant tests **with** the adapters, not after — they are the only thing
+   standing between "works against my gateway" and "works against any endpoint". Declare each
+   entry's appended path and enforce the duplicate-segment refusal here too.
 4. Add `RerankerConfigSchema` and switch `tool-wiring.ts:146` to resolve, preserving the fallback.
 5. Add manifest passthrough (`revision`, `pooling`) and the fingerprint test.
 6. Add the `module` entry and its three refusals last — it is the only step with a security
