@@ -42,10 +42,11 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
       embed: (texts) => provider.embed(texts, { input: "query" }),
       judge: gwc ? (r) => gwc.judge(r).then((x) => ({ text: x.text, model: x.model })) : null,
       ...(cmd.maxJudged !== undefined ? { maxJudged: cmd.maxJudged } : {}),
+      ...(cmd.allowUncertain ? { allowUncertain: true } : {}),
       log: (s) => process.stderr.write(`${s}\n`),
     });
     process.stdout.write(
-      `citation-infer: scoped=${stats.scoped} stage1Pass=${stats.stage1Pass} judged=${stats.judged} cited=${stats.cited} parseFailures=${stats.parseFailures}${stats.aborted ? " ABORTED(kill-switch)" : ""}\n`,
+      `citation-infer: scoped=${stats.scoped} stage1Pass=${stats.stage1Pass} judged=${stats.judged} cited=${stats.cited} uncertain=${stats.uncertain} parseFailures=${stats.parseFailures}${stats.aborted ? " ABORTED(kill-switch)" : ""}\n`,
     );
   } finally {
     edb.close?.();

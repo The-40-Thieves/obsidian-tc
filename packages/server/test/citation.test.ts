@@ -327,3 +327,125 @@ describe("citation provenance (citation_state)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Judge abstention (`allowUncertain`). DARK BY DEFAULT: enabling it changes the judge PROMPT (a
+// model-visible input) and moves abstained rows out of the citation count. These tests pin both
+// that the default is untouched and that the mechanism works when switched on.
+// ---------------------------------------------------------------------------------------------
+describe("judge abstention (allowUncertain, dark by default)", () => {
+  function seeded() {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cA", CHUNK_CITED);
+    seedRetrieval(edb, "r1", "cA", "s1");
+    return { edb, cacheDb };
+  }
+  const UNCERTAIN_REPLY = '{"cited": "uncertain", "score": 0.4}';
+
+  it("OFF (default): an abstention is a PARSE FAILURE, exactly as before", async () => {
+    // The pre-existing contract. A widened prompt against the old parser would have turned every
+    // abstention into this — which is why prompt and parser are gated by the SAME flag.
+    const { edb, cacheDb } = seeded();
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async () => ({ text: UNCERTAIN_REPLY, model: "fake" }),
+    });
+    expect(stats.parseFailures).toBe(1);
+    expect(stats.uncertain).toBe(0);
+    // Unparsed => unstamped => rerunnable, not a recorded verdict.
+    const r = states(edb).find((x) => x.id === "r1");
+    expect(r?.cited_in_response).toBeNull();
+    expect(r?.citation_state).toBeNull();
+  });
+
+  it("OFF (default): the judge prompt is byte-identical to the shipped one", async () => {
+    // A judge prompt is model-visible input. If the default run ever starts advertising a third
+    // answer, every verdict distribution shifts and no test would otherwise notice.
+    const { edb, cacheDb } = seeded();
+    let seen = "";
+    await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async (req) => {
+        seen = JSON.stringify(req);
+        return { text: '{"cited": true, "score": 0.9}', model: "fake" };
+      },
+    });
+    expect(seen).toContain('{\\"cited\\": true|false, \\"score\\"');
+    expect(seen).not.toContain("uncertain");
+  });
+
+  it("ON: an abstention stamps 'uncertain' and does NOT count as a citation", async () => {
+    const { edb, cacheDb } = seeded();
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      allowUncertain: true,
+      judge: async () => ({ text: UNCERTAIN_REPLY, model: "fake" }),
+    });
+    expect(stats).toMatchObject({ judged: 1, cited: 0, uncertain: 1, parseFailures: 0 });
+    expect(states(edb).find((x) => x.id === "r1")).toMatchObject({
+      cited_in_response: 0, // an abstention is not a citation...
+      citation_state: "uncertain", // ...and is not the judge saying "no", either
+    });
+  });
+
+  it("ON: the widened contract reaches the judge", async () => {
+    const { edb, cacheDb } = seeded();
+    let seen = "";
+    await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      allowUncertain: true,
+      judge: async (req) => {
+        seen = JSON.stringify(req);
+        return { text: UNCERTAIN_REPLY, model: "fake" };
+      },
+    });
+    expect(seen).toContain("uncertain");
+    expect(seen).toContain("abstention is better than a confident guess");
+  });
+
+  it("ON: ordinary true/false verdicts are unaffected", async () => {
+    const { edb, cacheDb } = seeded();
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      allowUncertain: true,
+      judge: async () => ({ text: '{"cited": true, "score": 0.9}', model: "fake" }),
+    });
+    expect(stats).toMatchObject({ cited: 1, uncertain: 0, parseFailures: 0 });
+    expect(states(edb).find((x) => x.id === "r1")).toMatchObject({
+      cited_in_response: 1,
+      citation_state: "confirmed",
+    });
+  });
+
+  it("ON: garbage is still garbage — the kill switch is not weakened", async () => {
+    // Widening the vocabulary must not become a way to launder unparseable output.
+    const { edb, cacheDb } = seeded();
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      allowUncertain: true,
+      judge: async () => ({ text: '{"cited": "probably", "score": 0.4}', model: "fake" }),
+    });
+    expect(stats.parseFailures).toBe(1);
+    expect(stats.uncertain).toBe(0);
+    expect(stats.aborted).toBe(true);
+  });
+});
