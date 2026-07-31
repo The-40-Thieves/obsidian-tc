@@ -231,7 +231,24 @@ describe("buildServerRuntime — post-core unwind on a real late boot failure", 
   };
 
   afterEach(() => {
-    for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+    for (const d of tmpDirs.splice(0)) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {
+        // BEST-EFFORT, and deliberately so. Windows refuses to unlink a file that still has an open
+        // handle (`force: true` suppresses ENOENT, never EPERM), and these cases exercise a FAILED
+        // boot: the post-core unwind closes the layers it owns — watcher, governance, stores — but a
+        // failed boot intentionally does not chase every handle, because the real process is about
+        // to exit and the OS reclaims them. `stores.close()` closes `db` only (matching production
+        // shutdown), so experientialDb can still be open here depending on the config's experiential
+        // gates, and the test has no handle on it — buildServerRuntime owns those internals.
+        //
+        // Swallowing this is safe because the assertion under test is the unwind ORDER, which has
+        // already run and been asserted by the time afterEach fires. A leftover temp dir in the
+        // runner's TMP is inert. `metrics-endpoint` already carries the same concession ("still
+        // returns its metrics when temp-dir removal throws EBUSY").
+      }
+    }
   });
 
   it("closes the watcher, then governance, then stores — in reverse order — when a step AFTER wireIndexCoordinator throws", async () => {
