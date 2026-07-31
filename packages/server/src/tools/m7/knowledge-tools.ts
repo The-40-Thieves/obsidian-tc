@@ -31,6 +31,7 @@
 // embedder, cache, or policy state.
 import type { ToolDefinition } from "../../mcp/registry";
 import type { QueryVectors } from "../../search/query_cache";
+import { createQueryEncoder } from "../../search/query-encoder";
 import { createContradictionsTool } from "./knowledge/contradictions";
 import type { M7Deps } from "./knowledge/deps";
 import { createGraphSearchTool } from "./knowledge/graph-search";
@@ -52,10 +53,11 @@ export type { M7Deps };
 export { buildGraphSearchOptions, noteTagsByPath, openContradictionsForPaths, packBudget };
 
 export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
-  const embedQuery = async (q: string): Promise<number[]> => {
-    const [vec] = await deps.embeddingProvider.embed([q], { input: "query" });
-    return vec ?? [];
-  };
+  // The dense query encoding is shared with M2's search tools via search/query-encoder.ts — see
+  // that module for why the two former copies of this closure were a drift hazard rather than
+  // merely duplication. embedQuery stays a named local because RetrievalRuntime declares it.
+  const encoder = createQueryEncoder(deps.embeddingProvider);
+  const embedQuery = (q: string): Promise<number[]> => encoder.dense(q);
   const embedQuerySparse = (q: string) =>
     resolveQuerySparse(deps.embeddingProvider, q, deps.retrieval?.sparse);
   const embedQueryColbert = (q: string) =>
