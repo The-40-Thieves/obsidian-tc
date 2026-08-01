@@ -4,6 +4,19 @@ import type { FetchFn } from "../src/embeddings/http";
 import { rerankerProviderNames, resolveReranker } from "../src/providers/registry";
 import { wireGatewaySeams } from "../src/runtime/tool-wiring";
 
+// A fetch stub that hangs until its AbortSignal fires, then rejects with an AbortError — mirrors
+// how the platform fetch reacts to AbortController.abort(). Same pattern as
+// test/embeddings.test.ts's hangingFetch: pair with a short cfg.timeoutMs to prove that value
+// actually reached postJson/createGatewayClient, without a real multi-second wait.
+const hangingFetch: FetchFn = ((_url: string, init?: RequestInit) =>
+  new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => {
+      const e = new Error("aborted");
+      e.name = "AbortError";
+      reject(e);
+    });
+  })) as FetchFn;
+
 function capture(): {
   fetchFn: FetchFn;
   urls: string[];
@@ -61,13 +74,78 @@ describe("reranker slot", () => {
     for (const name of rerankerProviderNames()) expect(message).toContain(name);
   });
 
-  // The absent-config case the first draft claimed to cover but did not.
+  // The absent-config case the first draft claimed to cover but did not. No `model` here —
+  // model-tier ignores (and refuses) it; see the ignored-fields tests below.
   it("model-tier yields null when modelTier.full is unconfigured, so the caller falls back", async () => {
     const r = await resolveReranker(
-      { provider: "model-tier", model: "bge-reranker-v2-m3" },
+      { provider: "model-tier" },
       { embeddings: { provider: "model-tier", model: "q", dimensions: 1024 } },
     );
     expect(r).toBeNull();
+  });
+
+  // model-tier sources its model/endpoint/auth from embeddings.modelTier.full.* — it reads NONE
+  // of the reranker descriptor's model/baseUrl/apiKey/apiKeyEnv/timeoutMs. A schema-required
+  // `model` field would make those fields unwritable, since RerankerConfigSchema.model is required
+  // by cohere-compatible but must stay optional overall (Finding 1). Instead of silently discarding
+  // whichever of these an operator writes, this entry refuses to build and names every one it saw.
+  it("model-tier throws at boot if any field it ignores is set, naming each one and its real source", async () => {
+    let message = "";
+    try {
+      await resolveReranker(
+        { provider: "model-tier", model: "bge-reranker-v2-m3", timeoutMs: 5000 },
+        { embeddings: { provider: "model-tier", model: "q", dimensions: 1024 } },
+      );
+    } catch (e) {
+      message = JSON.stringify(e);
+    }
+    expect(message).toContain("reranker.model");
+    expect(message).toContain("reranker.timeoutMs");
+    expect(message).toContain("embeddings.modelTier.full");
+    // Only the fields actually set are named — baseUrl/apiKey/apiKeyEnv were never set above.
+    expect(message).not.toContain("reranker.baseUrl");
+  });
+
+  it("model-tier with no ignored fields set still resolves normally (the guard is opt-in, not unconditional)", async () => {
+    const r = await resolveReranker(
+      { provider: "model-tier" },
+      {
+        embeddings: {
+          provider: "model-tier",
+          model: "q",
+          dimensions: 1024,
+          modelTier: { dense: { baseUrl: "http://dense" }, full: { baseUrl: "http://full" } },
+        },
+      },
+    );
+    expect(r).not.toBeNull();
+  });
+
+  // appendsPath "" (Finding 2) means assertBaseUrlNotDuplicating no longer intercepts this with the
+  // stale "already ends with /v1/rerank" message — the ignored-fields check (Finding 1) is what
+  // catches it now, with an actionable message pointing at the real source.
+  it("a baseUrl ending in the old '/v1/rerank' suffix is caught by the ignored-fields error, not the stale duplicate-segment message", async () => {
+    let message = "";
+    try {
+      await resolveReranker(
+        { provider: "model-tier", baseUrl: "http://stale-host/v1/rerank" },
+        { embeddings: { provider: "model-tier", model: "q", dimensions: 1024 } },
+      );
+    } catch (e) {
+      message = JSON.stringify(e);
+    }
+    expect(message).toContain("reranker.baseUrl");
+    expect(message).not.toContain("already ends with");
+  });
+
+  it("cohere-compatible throws at boot if reranker.model is absent, naming the field", async () => {
+    let message = "";
+    try {
+      await resolveReranker({ provider: "cohere-compatible", baseUrl: "http://gw:4001/v2" }, {});
+    } catch (e) {
+      message = JSON.stringify(e);
+    }
+    expect(message).toContain("reranker.model");
   });
 
   it("gateway yields null when no gateway URL is configured", async () => {
@@ -98,6 +176,42 @@ describe("reranker slot", () => {
     expect(urls[0]).toBe("http://gw/rerank");
     expect(bodies[0]?.model).toBe("my-declared-rerank-model");
     expect(headers[0]?.authorization).toBe("Bearer sekret");
+  });
+
+  // registry.ts's gateway entry also forwards c.timeoutMs into createGatewayClient's per-attempt
+  // budget — not asserted above (that test only checks url/model/authorization). A hangingFetch +
+  // a tiny timeoutMs proves the value reaches the client without a real multi-second wait: if the
+  // mapping were dropped, this would hang until the DEFAULT 60s budget (and the default 3-attempt
+  // retry loop) instead of failing in well under a second.
+  it("gateway forwards the declared timeoutMs into the gateway client's request budget", async () => {
+    const r = await resolveReranker(
+      { provider: "gateway", model: "m", baseUrl: "http://gw", timeoutMs: 5 },
+      { fetchFn: hangingFetch },
+    );
+    await expect(r?.("q", ["a", "b"], 1)).rejects.toMatchObject({ code: "operation_timeout" });
+  });
+});
+
+describe("cohere-compatible forwards apiKey and timeoutMs (not just model/baseUrl)", () => {
+  it("forwards apiKey as a Bearer authorization header", async () => {
+    const { fetchFn, headers } = capture();
+    const r = await resolveReranker({ ...CFG, apiKey: "top-secret" }, { fetchFn });
+    await r?.("q", ["a", "b"], 1);
+    expect(headers[0]?.authorization).toBe("Bearer top-secret");
+  });
+
+  it("omits the authorization header entirely when no apiKey is configured", async () => {
+    const { fetchFn, headers } = capture();
+    const r = await resolveReranker(CFG, { fetchFn });
+    await r?.("q", ["a", "b"], 1);
+    expect(headers[0]).not.toHaveProperty("authorization");
+  });
+
+  // A hangingFetch + a tiny timeoutMs proves c.timeoutMs reaches postJson: if the mapping were
+  // dropped, this would hang until postJson's default 30s timeout instead of failing fast.
+  it("forwards timeoutMs into the per-request budget", async () => {
+    const r = await resolveReranker({ ...CFG, timeoutMs: 5 }, { fetchFn: hangingFetch });
+    await expect(r?.("q", ["a", "b"], 1)).rejects.toMatchObject({ code: "operation_timeout" });
   });
 });
 

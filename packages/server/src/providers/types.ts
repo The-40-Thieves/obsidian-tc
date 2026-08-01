@@ -36,10 +36,15 @@ export interface EmbeddingsConfigLike {
   };
 }
 
-/** Everything a registry entry may read off a config block, for either slot. */
+/** Everything a registry entry may read off a config block, for either slot.
+ *
+ *  `model` is OPTIONAL here (unlike EmbeddingsConfigLike's required one): the reranker schema
+ *  cannot require it, because the `model-tier` entry ignores it entirely (it sources its model
+ *  from embeddings.modelTier.full.model) — an entry that DOES need it (`cohere-compatible`) is
+ *  responsible for throwing its own actionable "reranker.model is required" error at build time. */
 export interface ProviderDescriptor {
   provider: string;
-  model: string;
+  model?: string;
   baseUrl?: string;
   apiKey?: string;
   apiKeyEnv?: string;

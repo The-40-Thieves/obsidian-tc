@@ -9,7 +9,9 @@ import { type FetchFn, postJson } from "../embeddings/http";
 import type { Reranker, RerankHit } from "../search/rerank";
 
 export interface HttpRerankOpts {
-  model: string;
+  /** Optional at the type level to match RerankerConfig (model is not uniformly required across
+   *  reranker entries) — this entry genuinely needs one and refuses to build without it. */
+  model?: string;
   baseUrl?: string;
   apiKey?: string;
   fetchFn?: FetchFn;
@@ -23,13 +25,20 @@ export function cohereCompatibleReranker(o: HttpRerankOpts): Reranker {
       hint: "set reranker.baseUrl to the prefix preceding /rerank, INCLUDING the dialect version segment (e.g. http://127.0.0.1:4000/v2)",
     });
   }
+  if (!o.model) {
+    throw err.invalidInput("reranker.model is required for provider 'cohere-compatible'", {
+      provider: "cohere-compatible",
+      hint: "set reranker.model to the rerank model name as the endpoint names it (e.g. rerank-v3.5).",
+    });
+  }
   const base = o.baseUrl.replace(/\/+$/, "");
+  const model = o.model; // narrowed non-undefined by the guard above; captured so it stays narrowed
   return async (query: string, documents: string[], topN: number): Promise<RerankHit[]> => {
     const payload = await postJson<{ results?: Array<{ index: number; relevance_score: number }> }>(
       {
         url: `${base}/rerank`,
         headers: o.apiKey ? { authorization: `Bearer ${o.apiKey}` } : {},
-        body: { model: o.model, query, documents, ...(topN > 0 ? { top_n: topN } : {}) },
+        body: { model, query, documents, ...(topN > 0 ? { top_n: topN } : {}) },
         fetchFn: o.fetchFn,
         timeoutMs: o.timeoutMs,
         provider: "cohere-compatible",

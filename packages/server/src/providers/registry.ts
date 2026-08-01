@@ -49,7 +49,12 @@ const EMBEDDINGS: Record<string, EmbeddingsEntry> = {
     build: (c, x) => openAiCompatibleProvider(adapterOpts(c, x)),
   },
   "model-tier": {
-    appendsPath: "/v1/embeddings",
+    // "" — this entry does NOT consume the descriptor's top-level baseUrl at all;
+    // buildModelTierProvider reads cfg.modelTier.{dense,full}.baseUrl instead. A non-empty
+    // appendsPath here made the duplicate-segment guard fire on a baseUrl the adapter never reads,
+    // then stay silently ignored even after the operator "fixed" it (deferred Minor from an
+    // earlier task; see assertBaseUrlNotDuplicating's appendsPath === "" branch below).
+    appendsPath: "",
     ownsPrefixing: true,
     build: (c, x) => buildModelTierProvider(c, { fetchFn: x.fetchFn }),
   },
@@ -72,6 +77,10 @@ export function assertBaseUrlNotDuplicating(
   appendsPath: string,
   slot: "embeddings" | "reranker",
 ): void {
+  // An empty appendsPath means "this entry does not consume the descriptor's baseUrl at all"
+  // (e.g. model-tier, which sources its endpoint(s) from a nested modelTier block) — there is
+  // nothing for a top-level baseUrl to duplicate, so this guard has nothing to check.
+  if (appendsPath === "") return;
   if (!baseUrl) return;
   const trimmed = baseUrl.replace(/\/+$/, "");
   if (!trimmed.endsWith(appendsPath)) return;
@@ -129,10 +138,36 @@ const RERANKERS: Record<string, RerankerEntry> = {
   // Reads the EMBEDDINGS config, not the reranker descriptor: buildModelTierReranker takes
   // ModelTierConfigLike, requiring `dimensions` and `modelTier` (model/factory.ts:87-94). Casting
   // the descriptor instead compiles and returns null forever.
+  //
+  // appendsPath "" — see assertBaseUrlNotDuplicating's comment: this entry never reads the
+  // descriptor's baseUrl at all (nor model/apiKey/apiKeyEnv/timeoutMs), so it refuses to build if
+  // an operator sets any of them — a loud boot error instead of a silently discarded field.
   "model-tier": {
-    appendsPath: "/v1/rerank",
-    build: async (_c, x) =>
-      x.embeddings ? buildModelTierReranker(x.embeddings, { fetchFn: x.fetchFn }) : null,
+    appendsPath: "",
+    build: async (c, x) => {
+      const ignored = (
+        [
+          ["model", c.model],
+          ["baseUrl", c.baseUrl],
+          ["apiKey", c.apiKey],
+          ["apiKeyEnv", c.apiKeyEnv],
+          ["timeoutMs", c.timeoutMs],
+        ] as const
+      )
+        .filter(([, value]) => value !== undefined)
+        .map(([key]) => key);
+      if (ignored.length > 0) {
+        throw err.invalidInput(
+          `reranker.provider "model-tier" does not read ${ignored.map((k) => `reranker.${k}`).join(", ")}`,
+          {
+            provider: "model-tier",
+            ignored,
+            hint: "model-tier sources its model, endpoint and auth from embeddings.modelTier.full.* — remove these reranker fields (or configure embeddings.modelTier.full if you have not).",
+          },
+        );
+      }
+      return x.embeddings ? buildModelTierReranker(x.embeddings, { fetchFn: x.fetchFn }) : null;
+    },
   },
   // Forwards the DECLARED config. GatewayClientOptions names them token / rerankModel / timeoutMs
   // (gateway/client.ts:62-74); dropping them silently falls back to env vars and model "rerank".

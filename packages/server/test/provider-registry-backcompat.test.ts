@@ -45,6 +45,23 @@ describe("provider registry back-compat", () => {
     expect(p.dimensions).toBe(1024);
   });
 
+  // Deferred Minor from an earlier task: model-tier's EmbeddingsEntry.appendsPath used to be
+  // "/v1/embeddings", but buildModelTierProvider never reads the descriptor's top-level baseUrl —
+  // it reads cfg.modelTier.{dense,full}.baseUrl instead. That mismatch made the duplicate-segment
+  // guard fire on a baseUrl this adapter never consumes, and taught a wrong mental model (the
+  // suffix it told the operator to strip would still be ignored afterwards). appendsPath is now ""
+  // for this entry, so a top-level baseUrl — even one ending in the OLD suffix — no longer throws.
+  it("model-tier tolerates (and ignores) a top-level baseUrl ending in the old '/v1/embeddings' suffix", () => {
+    const p = createEmbeddingProvider({
+      provider: "model-tier",
+      model: "Qwen/Qwen3-Embedding-0.6B",
+      dimensions: 1024,
+      baseUrl: "http://stale-host/v1/embeddings",
+      modelTier: { dense: { baseUrl: "http://tei:8080" } },
+    });
+    expect(p.provider).toBe("model-tier");
+  });
+
   it("registers every previously-supported name", () => {
     expect(embeddingsProviderNames()).toEqual([
       "bge-m3",
