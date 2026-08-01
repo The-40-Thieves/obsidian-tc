@@ -45,6 +45,20 @@ export const EmbeddingsConfigSchema = z.object({
     .describe(
       "Name of the environment variable holding the provider API key. Needed for generic providers, which have no entry in the built-in per-vendor variable map. An inline apiKey takes precedence.",
     ),
+  revision: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Model revision / commit / checkpoint id. Folded into vec_index_fingerprint, so declaring it makes a checkpoint upgrade at the SAME model name and width rebuild the index instead of silently serving the old checkpoint's vectors against queries embedded by the new one. Omitting it reproduces today's behaviour exactly.",
+    ),
+  pooling: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Pooling strategy the backend applies (e.g. 'mean', 'last-token'). Recorded for provenance. NOTE: descriptive only today — RepresentationManifest has no production producer, so this does not affect the index.",
+    ),
   // GH #171/#172: local-runner indexing robustness. Local models are far slower than hosted APIs,
   // and a stock local runner (llama-server) crashes on a token-dense batch, so these are
   // configurable with local-safe defaults. `timeoutMs` bounds each embed request (was a hardcoded

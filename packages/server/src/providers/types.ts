@@ -15,6 +15,14 @@ export interface EmbeddingsConfigLike {
   /** Name of the env var holding the provider API key — see resolveApiKey (embeddings/provider.ts).
    *  Needed for generic providers, which have no entry in the built-in per-vendor ENV_KEY map. */
   apiKeyEnv?: string;
+  /** THE-460: model revision / commit / checkpoint id, folded into vec_index_fingerprint. Declaring
+   *  it makes a checkpoint upgrade at the SAME model name and width rebuild the index instead of
+   *  silently serving the old checkpoint's vectors against queries embedded by the new one.
+   *  Undefined reproduces today's fingerprint byte-for-byte. */
+  revision?: string;
+  /** THE-460: pooling strategy the backend applies (e.g. "mean", "last-token"). Descriptive only
+   *  today — RepresentationManifest has no production producer, so this does not affect the index. */
+  pooling?: string;
   /** GH #171: per-request embed timeout (ms). Undefined -> the postJson default. */
   timeoutMs?: number;
   /** THE-387: Matryoshka (MRL) truncation of a wider native output to `dimensions`. */

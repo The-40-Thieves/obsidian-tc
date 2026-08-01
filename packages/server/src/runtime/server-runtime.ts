@@ -525,6 +525,7 @@ export async function buildServerRuntime(
       embeddingProvider,
       embedConfig,
       chunkContext: config.embeddings.chunkContext,
+      revision: config.embeddings.revision,
       densify: config.retrieval.densify,
       vaultRegistry,
       indexReadableFor,

@@ -81,6 +81,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       enrichmentVersion: args.chunkContext === true ? ENRICHMENT_VERSION : 0,
       chunkerVersion: CHUNKER_VERSION,
       schemaGen: VEC_SCHEMA_GEN,
+      // Must match runtime/indexing-wiring.ts exactly. If these diverge, boot and index_vault each
+      // DROP and rebuild the table the other just built — an unbounded rebuild loop.
+      revision: args.revision,
     },
     { now, onRebuild: args.onVecRebuild },
   );

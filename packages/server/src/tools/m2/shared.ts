@@ -30,6 +30,10 @@ export interface M2Deps {
    *  + heading-breadcrumb prefix. Must match the boot reconcile's value (cli.ts threads both from
    *  the same config field); a mismatch would re-embed the vault on every alternating pass. */
   chunkContext?: boolean;
+  /** THE-460: config.embeddings.revision, folded into the vec fingerprint. Must match the boot
+   *  reconcile's value (runtime/indexing-wiring.ts) — a mismatch makes boot and index_vault each
+   *  DROP and rebuild the table the other just built. */
+  revision?: string;
   /** Graph densification: index_vault builds derived edges (tag + kNN) when set. Threaded from
    *  config.retrieval.densify, mirroring chunkContext. */
   densify?: {

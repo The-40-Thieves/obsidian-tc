@@ -112,6 +112,9 @@ export function wireIndexResources(deps: IndexResourcesDeps): IndexResources {
       enrichmentVersion: deps.embeddings.chunkContext ? ENRICHMENT_VERSION : 0,
       chunkerVersion: CHUNKER_VERSION,
       schemaGen: VEC_SCHEMA_GEN,
+      // A checkpoint upgrade at the same model name and width is otherwise invisible. Undefined
+      // reproduces the pre-existing fingerprint byte-for-byte.
+      revision: deps.embeddings.revision,
     },
     { now: Date.now, onRebuild: deps.onVecRebuild },
   );
