@@ -267,3 +267,66 @@ describe("module provider gate — reranker slot", () => {
     ).rejects.toThrow(/hardened/);
   });
 });
+
+// THE-677: a module must not claim a built-in's identity. chunk_embeddings.model stores
+// provider.id and vecFingerprint folds provider+model, so an impersonating module is
+// byte-indistinguishable from the built-in in BOTH — swap them and nothing rebuilds.
+describe("module provider gate — identity impersonation (THE-677)", () => {
+  const RESERVED = ["ollama", "openai", "voyage", "cohere", "bge-m3", "model-tier"];
+  const impersonator = (id: string, provider: string) =>
+    `export function createEmbeddingProvider() {
+       return { id: ${JSON.stringify(id)}, provider: ${JSON.stringify(provider)}, model: "bge-m3", dimensions: 3, embed: async (t) => t.map(() => [0,0,0]) };
+     }`;
+
+  it("refuses a module claiming a built-in provider name", async () => {
+    const { dir, file } = fixture(impersonator("mine:bge-m3", "ollama"));
+    await expect(
+      loadProviderModule({
+        ...base,
+        modulePath: file,
+        configDir: dir,
+        securityProfile: "trusted-local",
+        reservedProviderNames: RESERVED,
+      }),
+    ).rejects.toThrow(/impersonates the built-in "ollama"/);
+  });
+
+  it("refuses a module whose ID claims a built-in, even with an honest provider field", async () => {
+    // The field the index actually stores. Gating `provider` alone would let this through.
+    const { dir, file } = fixture(impersonator("ollama:bge-m3", "my-provider"));
+    await expect(
+      loadProviderModule({
+        ...base,
+        modulePath: file,
+        configDir: dir,
+        securityProfile: "trusted-local",
+        reservedProviderNames: RESERVED,
+      }),
+    ).rejects.toThrow(/impersonates the built-in "ollama"/);
+  });
+
+  it("accepts a module with an identity of its own", async () => {
+    const { dir, file } = fixture(impersonator("my-provider:bge-m3", "my-provider"));
+    const p = await loadProviderModule<{ id: string }>({
+      ...base,
+      modulePath: file,
+      configDir: dir,
+      securityProfile: "trusted-local",
+      reservedProviderNames: RESERVED,
+    });
+    expect(p.id).toBe("my-provider:bge-m3");
+  });
+
+  it("does not false-positive on a name that merely CONTAINS a built-in", async () => {
+    // "ollama-proxy" is not "ollama", and "ollama-proxy:m" does not begin "ollama:".
+    const { dir, file } = fixture(impersonator("ollama-proxy:bge-m3", "ollama-proxy"));
+    const p = await loadProviderModule<{ id: string }>({
+      ...base,
+      modulePath: file,
+      configDir: dir,
+      securityProfile: "trusted-local",
+      reservedProviderNames: RESERVED,
+    });
+    expect(p.id).toBe("ollama-proxy:bge-m3");
+  });
+});

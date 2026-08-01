@@ -78,6 +78,10 @@ const EMBEDDINGS: Record<string, EmbeddingsEntry> = {
         securityProfile: x.securityProfile,
         exportName: "createEmbeddingProvider",
         slot: "embeddings",
+        // THE-677: the module must not claim a built-in's identity. Computed from EMBEDDINGS minus
+        // "module" itself — deriving it from the map means a provider added later is reserved
+        // automatically, rather than from a hand-kept list that would silently go stale.
+        reservedProviderNames: embeddingsProviderNames().filter((n) => n !== "module"),
       }),
   },
 };
@@ -237,6 +241,9 @@ const RERANKERS: Record<string, RerankerEntry> = {
         securityProfile: x.securityProfile,
         exportName: "createReranker",
         slot: "reranker",
+        // Inert for this slot today (a reranker module returns a bare function, so it declares no
+        // identity), but passed for symmetry so the two entries cannot drift if that changes.
+        reservedProviderNames: rerankerProviderNames().filter((n) => n !== "module"),
       }),
   },
 };
