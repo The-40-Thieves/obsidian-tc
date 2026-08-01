@@ -12,6 +12,15 @@ export interface LoadProviderModuleOpts {
   securityProfile: "hardened" | "trusted-local" | undefined;
   exportName: "createEmbeddingProvider" | "createReranker";
   slot: "embeddings" | "reranker";
+  /** THE-677: the registry's built-in names for this slot, so a module cannot claim one of them.
+   *
+   *  INJECTED rather than imported: registry.ts imports this module, so importing it back would be
+   *  a cycle and `check:boundaries` rejects those, type-only edges included. The caller already
+   *  holds the list.
+   *
+   *  Empty or omitted disables the check — which is correct for a direct unit test of the loader,
+   *  and is why both production call sites pass it explicitly. */
+  reservedProviderNames?: readonly string[];
 }
 
 // Review finding 1: the original check covered only `embed` and `dimensions`, so a module
@@ -68,6 +77,50 @@ function assertUsable(value: unknown, opts: LoadProviderModuleOpts): void {
         `integer dimensions, and embed(texts). Missing: ${missing.join(", ")}.`,
     });
   }
+  assertIdentityNotImpersonated(p.provider as string, p.id as string, opts);
+}
+
+/**
+ * THE-677: refuse a module that claims a built-in's identity.
+ *
+ * `chunk_embeddings.model` and `vec_chunks.model` store `provider.id`, and `vecFingerprint()` folds
+ * `provider` and `model`. So a module returning `{ id: "ollama:bge-m3", provider: "ollama", model:
+ * "bge-m3" }` is byte-indistinguishable from the built-in `ollama` provider in BOTH. Swap one for
+ * the other and the fingerprint does not move, so `ensureVecChunks` does not rebuild and
+ * `note-plan.ts`'s re-embed gate does not fire — retrieval then scores queries embedded by one
+ * model against vectors produced by a different one, silently, with no rebuild event and no log.
+ *
+ * That is the class THE-460 closed for same-dimension model swaps, reachable again through the
+ * module hatch. Refusing at boot is the only place it can be caught: by the time the wrong vectors
+ * are being served, nothing distinguishes them from the right ones.
+ *
+ * Both fields are checked. Gating `provider` alone is not enough — a module can declare
+ * `provider: "mine"` and still set `id: "ollama:bge-m3"`, and `id` is the field the index stores.
+ */
+function assertIdentityNotImpersonated(
+  provider: string,
+  id: string,
+  opts: LoadProviderModuleOpts,
+): void {
+  const reserved = opts.reservedProviderNames ?? [];
+  if (reserved.length === 0) return;
+  const claimed = reserved.find((n) => n === provider || id.startsWith(`${n}:`));
+  if (claimed === undefined) return;
+  throw err.invalidInput(
+    `${opts.slot}.modulePath returned a provider that impersonates the built-in "${claimed}"`,
+    {
+      modulePath: opts.modulePath,
+      claimed,
+      providerReturned: provider,
+      idReturned: id,
+      hint:
+        `a module provider must not report provider "${claimed}" or an id beginning "${claimed}:" — ` +
+        "those are what chunk_embeddings.model and the vec fingerprint store, so an index built by " +
+        `the built-in "${claimed}" and one built by this module would be indistinguishable, and ` +
+        "swapping between them would serve stale vectors with no rebuild. Use an identity of your " +
+        'own (e.g. provider "my-provider", id "my-provider:<model>").',
+    },
+  );
 }
 
 export async function loadProviderModule<T>(opts: LoadProviderModuleOpts): Promise<T> {
