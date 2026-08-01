@@ -84,6 +84,7 @@ export function bgeModelClient(opts: BgeClientOptions): ModelClient {
       fetchFn: opts.fetchFn,
       timeoutMs: opts.timeoutMs,
       provider: "bge-m3",
+      credentialSlot: "modelTierFull",
     });
   }
 
@@ -144,6 +145,10 @@ export function bgeModelClient(opts: BgeClientOptions): ModelClient {
         fetchFn: opts.fetchFn,
         timeoutMs: opts.timeoutMs,
         provider: "bge-reranker",
+        // The SECOND reranker on this transport (THE-680 named only the cohere-compatible one).
+        // Its credential is neither embeddings.apiKey nor reranker.apiKey — bgeModelClient is
+        // built from the modelTier.full block and authenticates with that block's authToken.
+        credentialSlot: "modelTierFull",
       });
       return {
         model: resp.model ?? "bge-reranker-v2-m3",

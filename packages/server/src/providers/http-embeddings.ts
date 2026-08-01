@@ -38,6 +38,7 @@ export function openAiCompatibleProvider(o: HttpEmbeddingsOpts): EmbeddingProvid
         fetchFn: o.fetchFn,
         timeoutMs: o.timeoutMs,
         provider: "openai-compatible",
+        credentialSlot: "embeddings",
       });
       return assertVectors(
         (r.data ?? []).map((d) => d.embedding),

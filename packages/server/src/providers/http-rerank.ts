@@ -42,6 +42,9 @@ export function cohereCompatibleReranker(o: HttpRerankOpts): Reranker {
         fetchFn: o.fetchFn,
         timeoutMs: o.timeoutMs,
         provider: "cohere-compatible",
+        // THE-680: this routes through the shared postJson, so without a slot the failure hint
+        // named embeddings.apiKey — a key the operator of a rerank endpoint never needs to set.
+        credentialSlot: "reranker",
       },
     );
     return (payload.results ?? []).map((r) => ({
