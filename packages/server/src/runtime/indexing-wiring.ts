@@ -51,8 +51,11 @@ export interface IndexResourcesDeps {
   };
   /** THE-612: ensureVecChunks' onRebuild, routed to the metrics recorder by runtime/observability.ts. */
   onVecRebuild: (event: VecRebuildEvent) => void;
-  /** Directory of the loaded config file — the trust root for embeddings.modulePath. Undefined
-   *  when the config was derived from a vault path rather than a file. */
+  /** `dirname(configPath)` — the trust root for embeddings.modulePath. See
+   *  `ResolveContext.configDir`'s doc comment (providers/types.ts) for the exact undefined-vs-set
+   *  cases: it is NOT undefined in zero-config vault-path mode, only when `configPath` itself is
+   *  absent. Review round 2 (Minor 5): corrected from a false "undefined when derived from a vault
+   *  path" claim. */
   configDir?: string;
   securityProfile?: "hardened" | "trusted-local";
 }

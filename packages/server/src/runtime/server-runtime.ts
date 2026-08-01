@@ -151,8 +151,11 @@ export interface RuntimeCoreDeps {
     chunkContext: boolean;
   };
   onVecRebuild: (event: VecRebuildEvent) => void;
-  /** Directory of the loaded config file — the trust root for embeddings.modulePath (the module
-   *  hatch). Undefined when the config was derived from a vault path rather than a file. */
+  /** `dirname(configPath)` — the trust root for embeddings.modulePath (the module hatch). See
+   *  `ResolveContext.configDir`'s doc comment (providers/types.ts) for the exact undefined-vs-set
+   *  cases: it is NOT undefined in zero-config vault-path mode, only when `configPath` itself is
+   *  absent. Review round 2 (Minor 5): corrected from a false "undefined when derived from a vault
+   *  path" claim. */
   configDir?: string;
   securityProfile?: "hardened" | "trusted-local";
   /** Test-only observability: fires with each layer's name, in the order its cleanup actually ran.
@@ -258,8 +261,15 @@ export async function buildServerRuntime(
   if (!firstVault) throw new Error("config.vaults must contain at least one vault");
   // Trust root for a `module` provider's modulePath (embeddings.modulePath / reranker.modulePath)
   // — cwd in a container is arbitrary, so a relative modulePath is resolved against the config
-  // FILE's directory instead, and refused entirely when there is no config file (see
-  // module-loader.ts).
+  // FILE's directory instead, and refused entirely when `configPath` is absent (see
+  // module-loader.ts). Review round 2 (Minor 5): `configPath` is NOT always a config file — cli.ts's
+  // zero-config vault-path mode passes the VAULT directory as `configPath`, so `configDir` here
+  // becomes that vault directory's PARENT, not undefined; the module hatch's relative-path refusal
+  // does not fire in that mode (a relative modulePath would resolve against the vault's parent
+  // instead), it's just unreachable today because nothing configures `provider: "module"` from
+  // zero-config mode. `dirname` of a RELATIVE `configPath` (e.g. `--config cfg.json`) is `"."`,
+  // i.e. still cwd-relative — passing an absolute --config is what actually makes this a fixed
+  // trust root.
   const configDir = configPath !== undefined ? dirname(configPath) : undefined;
   const startedAt = Date.now();
 

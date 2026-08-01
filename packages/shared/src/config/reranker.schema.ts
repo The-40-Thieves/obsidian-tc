@@ -54,7 +54,7 @@ export const RerankerConfigSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Module exporting createReranker, for provider 'module'. Refused under the hardened security profile.",
+      "Module exporting createReranker, for provider 'module'. Resolved against the config file's directory. Refused under the hardened security profile. The factory may be sync or async (an async factory is awaited). It must return a function: (query, documents, topN) => Promise<RerankHit[]>. Validated at load time, before first use.",
     ),
 });
 export type RerankerConfig = z.infer<typeof RerankerConfigSchema>;

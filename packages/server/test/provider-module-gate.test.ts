@@ -17,6 +17,11 @@ const GOOD = `export function createEmbeddingProvider() {
 }`;
 const base = { exportName: "createEmbeddingProvider" as const, slot: "embeddings" as const };
 
+const RERANKER_GOOD = `export function createReranker() {
+  return async (query, documents, topN) => documents.map((d, i) => ({ index: i, relevanceScore: 1 }));
+}`;
+const rerankerBase = { exportName: "createReranker" as const, slot: "reranker" as const };
+
 describe("module provider gate", () => {
   it("refuses under the hardened security profile", async () => {
     const { dir, file } = fixture(GOOD);
@@ -67,6 +72,78 @@ describe("module provider gate", () => {
     ).rejects.toThrow(/embed|dimensions/);
   });
 
+  // Review round 2, Finding 1: the original assertUsable checked only embed/dimensions, so a
+  // provider missing id/provider/model loaded fine with those fields undefined — and since
+  // withRevision derives the vec fingerprint's identity from provider.id, two DIFFERENT module
+  // providers at the same width then produced an IDENTICAL fingerprint (no rebuild on a provider
+  // swap; the exact bug class Task 6 closed). One test per newly-required field, each omitting
+  // ONLY that field so the failure is attributable to that field specifically.
+  it("refuses a provider missing id", async () => {
+    const { dir, file } = fixture(
+      `export function createEmbeddingProvider() {
+        return { provider: "module", model: "x", dimensions: 3, embed: async (t) => t.map(() => [0,0,0]) };
+      }`,
+    );
+    let message = "";
+    try {
+      await loadProviderModule({
+        ...base,
+        modulePath: file,
+        configDir: dir,
+        securityProfile: "trusted-local",
+      });
+    } catch (e) {
+      message = JSON.stringify(e);
+    }
+    expect(message).toContain('"id"');
+    expect(message).not.toContain('"provider"');
+    expect(message).not.toContain('"model"');
+  });
+
+  it("refuses a provider missing provider", async () => {
+    const { dir, file } = fixture(
+      `export function createEmbeddingProvider() {
+        return { id: "m:x", model: "x", dimensions: 3, embed: async (t) => t.map(() => [0,0,0]) };
+      }`,
+    );
+    let message = "";
+    try {
+      await loadProviderModule({
+        ...base,
+        modulePath: file,
+        configDir: dir,
+        securityProfile: "trusted-local",
+      });
+    } catch (e) {
+      message = JSON.stringify(e);
+    }
+    expect(message).toContain('"provider"');
+    expect(message).not.toContain('"id"');
+    expect(message).not.toContain('"model"');
+  });
+
+  it("refuses a provider missing model", async () => {
+    const { dir, file } = fixture(
+      `export function createEmbeddingProvider() {
+        return { id: "m:x", provider: "module", dimensions: 3, embed: async (t) => t.map(() => [0,0,0]) };
+      }`,
+    );
+    let message = "";
+    try {
+      await loadProviderModule({
+        ...base,
+        modulePath: file,
+        configDir: dir,
+        securityProfile: "trusted-local",
+      });
+    } catch (e) {
+      message = JSON.stringify(e);
+    }
+    expect(message).toContain('"model"');
+    expect(message).not.toContain('"id"');
+    expect(message).not.toContain('"provider"');
+  });
+
   it("refuses when modulePath is absent entirely", async () => {
     // A bare /modulePath/ regex also matches the unrelated "could not be imported" message from
     // the resolve-and-import step further down (resolve(configDir, "") collapses to configDir,
@@ -104,5 +181,66 @@ describe("module provider gate", () => {
         modulePath: "./p.mjs",
       }),
     ).toThrow(/boot|code path/i);
+  });
+
+  // Minor 3 (review round 2): an async factory must be AWAITED, not treated as a malformed sync
+  // return value.
+  it("awaits an async factory rather than treating the Promise as a malformed provider", async () => {
+    const { dir, file } = fixture(
+      `export async function createEmbeddingProvider() {
+        await Promise.resolve();
+        return { id: "m:x", provider: "module", model: "x", dimensions: 3, embed: async (t) => t.map(() => [0,0,0]) };
+      }`,
+    );
+    const p = await loadProviderModule<{ dimensions: number }>({
+      ...base,
+      modulePath: file,
+      configDir: dir,
+      securityProfile: "trusted-local",
+    });
+    expect(p.dimensions).toBe(3);
+  });
+});
+
+// Review round 2, Minor 4: the reranker half of the hatch (registry.ts's RERANKERS.module entry
+// and module-loader.ts's `slot === "reranker"` branch) had nothing but a name-list assertion
+// exercising it. `rerankerBase`/`RERANKER_GOOD` are declared above, alongside the embeddings ones.
+describe("module provider gate — reranker slot", () => {
+  it("loads a well-formed reranker module under trusted-local", async () => {
+    const { dir, file } = fixture(RERANKER_GOOD);
+    const reranker = await loadProviderModule<
+      (query: string, documents: string[], topN: number) => Promise<unknown>
+    >({ ...rerankerBase, modulePath: file, configDir: dir, securityProfile: "trusted-local" });
+    const hits = await reranker("q", ["a", "b"], 2);
+    expect(hits).toEqual([
+      { index: 0, relevanceScore: 1 },
+      { index: 1, relevanceScore: 1 },
+    ]);
+  });
+
+  it("refuses a reranker module whose export is not a function", async () => {
+    const { dir, file } = fixture(
+      `export function createReranker() { return { not: "a function" }; }`,
+    );
+    await expect(
+      loadProviderModule({
+        ...rerankerBase,
+        modulePath: file,
+        configDir: dir,
+        securityProfile: "trusted-local",
+      }),
+    ).rejects.toThrow(/Reranker function/);
+  });
+
+  it("refuses the reranker module hatch under the hardened security profile", async () => {
+    const { dir, file } = fixture(RERANKER_GOOD);
+    await expect(
+      loadProviderModule({
+        ...rerankerBase,
+        modulePath: file,
+        configDir: dir,
+        securityProfile: "hardened",
+      }),
+    ).rejects.toThrow(/hardened/);
   });
 });
