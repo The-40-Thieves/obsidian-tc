@@ -609,6 +609,51 @@
         }
       }
     },
+    "reranker": {
+      "description": "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else a graceful no-op.",
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), and the profile-gated module."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Rerank model name as the provider names it."
+        },
+        "baseUrl": {
+          "description": "Endpoint prefix preceding /rerank. Include the dialect version segment: Cohere rerank v2 replaced v1's max_chunks_per_doc with max_tokens_per_doc, and this prefix selects the dialect.",
+          "type": "string",
+          "format": "uri"
+        },
+        "apiKey": {
+          "description": "Provider API key. Secret — never logged.",
+          "type": "string"
+        },
+        "apiKeyEnv": {
+          "description": "Environment variable holding the API key. Inline apiKey wins.",
+          "type": "string",
+          "minLength": 1
+        },
+        "timeoutMs": {
+          "description": "Timeout in ms for a single rerank request.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "modulePath": {
+          "description": "Module exporting createReranker, for provider 'module'. Refused under the hardened security profile.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ]
+    },
     "indexing": {
       "description": "Index-on-write concurrency and backpressure.",
       "default": {},

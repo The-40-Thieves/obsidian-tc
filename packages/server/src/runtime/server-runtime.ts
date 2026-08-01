@@ -376,7 +376,7 @@ export async function buildServerRuntime(
       getJobQueueStats: () => jobQueue.stats(),
     });
 
-    const { reranker, roles } = wireGatewaySeams(config.embeddings);
+    const { reranker, roles } = await wireGatewaySeams(config.embeddings, config.reranker);
 
     // W-INGEST onIndexed hook -> contradiction-check enqueue.
     const makeOnIndexed = createOnIndexedHook({ jobQueue, roles });

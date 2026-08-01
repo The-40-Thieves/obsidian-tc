@@ -21,6 +21,7 @@ import type { ToolRegistry } from "../mcp/registry";
 import { buildModelTierReranker } from "../model";
 import type { GatewayRoles } from "../plane/gateway";
 import { createPlurBackend } from "../plur/client";
+import { resolveReranker } from "../providers/registry";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { nativeLoaded } from "../search/native";
@@ -129,7 +130,10 @@ export interface GatewaySeams {
  * OBSIDIAN_TC_GATEWAY_URL) -> null; every generative seam degrades gracefully rather than failing
  * boot (createGatewayClient throws without a base URL, so guarded with try).
  */
-export function wireGatewaySeams(embeddings: ServerConfig["embeddings"]): GatewaySeams {
+export async function wireGatewaySeams(
+  embeddings: ServerConfig["embeddings"],
+  rerankerCfg?: ServerConfig["reranker"],
+): Promise<GatewaySeams> {
   let gateway: GatewayClient | null = null;
   try {
     gateway = createGatewayClient({});
@@ -142,8 +146,11 @@ export function wireGatewaySeams(embeddings: ServerConfig["embeddings"]): Gatewa
     ? (q, docs, topN) => gw.rerank({ query: q, documents: docs, topN }).then((r) => r.results)
     : null;
   // Prefer the model-tier BGE /v1/rerank when its service is configured; else the gateway
-  // passthrough. Dark until a rerank stage is enabled in graphSearch.
-  const reranker: Reranker | null = buildModelTierReranker(embeddings) ?? gatewayReranker;
+  // passthrough. Dark until a rerank stage is enabled in graphSearch. A declared `reranker` block
+  // wins over that default entirely — ABSENT preserves the historical precedence exactly.
+  const reranker: Reranker | null = rerankerCfg
+    ? await resolveReranker(rerankerCfg, { embeddings })
+    : (buildModelTierReranker(embeddings) ?? gatewayReranker);
   // W-WORKERS generative seam -> gateway extract/synthesize/judge roles (null -> jobs/challenge
   // no-op).
   const roles: GatewayRoles | null = gw

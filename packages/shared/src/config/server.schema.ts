@@ -18,6 +18,7 @@ import {
   SnapshotsConfigSchema,
   WatchConfigSchema,
 } from "./observability.schema";
+import { RerankerConfigSchema } from "./reranker.schema";
 import {
   ExperientialConfigSchema,
   RankingConfigSchema,
@@ -69,6 +70,9 @@ export const ServerConfigObject = z.object({
   ),
   embeddings: EmbeddingsConfigSchema.prefault({}).describe(
     "Embedding provider and indexing throughput.",
+  ),
+  reranker: RerankerConfigSchema.optional().describe(
+    "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else a graceful no-op.",
   ),
   indexing: IndexingConfigSchema.describe("Index-on-write concurrency and backpressure."),
   retrieval: RetrievalConfigSchema.prefault({}).describe(

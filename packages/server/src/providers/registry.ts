@@ -9,9 +9,18 @@ import {
   openaiProvider,
   voyageProvider,
 } from "../embeddings/providers";
-import { buildModelTierProvider } from "../model";
+import { createGatewayClient } from "../gateway/client";
+import { buildModelTierProvider, buildModelTierReranker } from "../model";
+import type { Reranker } from "../search/rerank";
 import { openAiCompatibleProvider } from "./http-embeddings";
-import type { EmbeddingsConfigLike, EmbeddingsEntry, ResolveContext } from "./types";
+import { cohereCompatibleReranker } from "./http-rerank";
+import type {
+  EmbeddingsConfigLike,
+  EmbeddingsEntry,
+  ProviderDescriptor,
+  RerankerEntry,
+  ResolveContext,
+} from "./types";
 
 function adapterOpts(cfg: EmbeddingsConfigLike, ctx: ResolveContext) {
   return {
@@ -103,4 +112,67 @@ export function resolveEmbeddings(
   }
   assertBaseUrlNotDuplicating(cfg.baseUrl, entry.appendsPath, "embeddings");
   return { provider: entry.build(cfg, ctx), entry };
+}
+
+const RERANKERS: Record<string, RerankerEntry> = {
+  "cohere-compatible": {
+    appendsPath: "/rerank",
+    build: async (c, x) =>
+      cohereCompatibleReranker({
+        model: c.model,
+        baseUrl: c.baseUrl,
+        apiKey: resolveApiKey(c.provider, c.apiKey, c.apiKeyEnv),
+        fetchFn: x.fetchFn,
+        timeoutMs: c.timeoutMs,
+      }),
+  },
+  // Reads the EMBEDDINGS config, not the reranker descriptor: buildModelTierReranker takes
+  // ModelTierConfigLike, requiring `dimensions` and `modelTier` (model/factory.ts:87-94). Casting
+  // the descriptor instead compiles and returns null forever.
+  "model-tier": {
+    appendsPath: "/v1/rerank",
+    build: async (_c, x) =>
+      x.embeddings ? buildModelTierReranker(x.embeddings, { fetchFn: x.fetchFn }) : null,
+  },
+  // Forwards the DECLARED config. GatewayClientOptions names them token / rerankModel / timeoutMs
+  // (gateway/client.ts:62-74); dropping them silently falls back to env vars and model "rerank".
+  gateway: {
+    appendsPath: "/rerank",
+    build: async (c, x) => {
+      let gw: ReturnType<typeof createGatewayClient>;
+      try {
+        gw = createGatewayClient({
+          baseUrl: c.baseUrl,
+          token: resolveApiKey(c.provider, c.apiKey, c.apiKeyEnv),
+          rerankModel: c.model,
+          timeoutMs: c.timeoutMs,
+          fetchFn: x.fetchFn,
+        });
+      } catch {
+        return null; // no base URL configured -> graceful no-op, as today
+      }
+      return (q, docs, topN) =>
+        gw.rerank({ query: q, documents: docs, topN }).then((r) => r.results);
+    },
+  },
+};
+
+/** Sorted so the unknown-name error message is stable and diffable. */
+export function rerankerProviderNames(): string[] {
+  return Object.keys(RERANKERS).sort();
+}
+
+export async function resolveReranker(
+  cfg: ProviderDescriptor,
+  ctx: ResolveContext = {},
+): Promise<Reranker | null> {
+  const entry = RERANKERS[cfg.provider];
+  if (!entry) {
+    throw err.invalidInput(`unknown reranker provider: ${cfg.provider}`, {
+      provider: cfg.provider,
+      hint: `set reranker.provider to one of: ${rerankerProviderNames().join(", ")}`,
+    });
+  }
+  assertBaseUrlNotDuplicating(cfg.baseUrl, entry.appendsPath, "reranker");
+  return entry.build(cfg, ctx);
 }

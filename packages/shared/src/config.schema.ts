@@ -13,6 +13,7 @@ import {
   SnapshotsConfigSchema,
   WatchConfigSchema,
 } from "./config/observability.schema";
+import { type RerankerConfig, RerankerConfigSchema } from "./config/reranker.schema";
 import {
   ExperientialConfigSchema,
   MetadataPriorRuleSchema,
@@ -56,6 +57,7 @@ import {
 export type {
   BootstrapConfig,
   IndexingConfig,
+  RerankerConfig,
   ServerConfig,
   ThrottleConfig,
   ToolVisibilityConfig,
@@ -96,6 +98,7 @@ export {
   PlaneConfigSchema,
   PlurConfigSchema,
   RankingConfigSchema,
+  RerankerConfigSchema,
   RetrievalConfigSchema,
   SchedulerConfigSchema,
   ServerConfigObject,
