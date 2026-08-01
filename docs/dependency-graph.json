@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 361,
-    "dependencies": 1586,
-    "subsystemPairs": 101,
-    "crossSubsystemImports": 699
+    "modules": 367,
+    "dependencies": 1612,
+    "subsystemPairs": 107,
+    "crossSubsystemImports": 714
   },
   "subsystems": {
     "auth": 3,
@@ -13,7 +13,7 @@
     "capability": 6,
     "capture": 1,
     "cli": 22,
-    "config": 11,
+    "config": 12,
     "db": 13,
     "doctor": 5,
     "embeddings": 6,
@@ -30,6 +30,7 @@
     "plane": 6,
     "plugin": 19,
     "plur": 2,
+    "providers": 5,
     "runtime": 13,
     "scheduler": 4,
     "schemas": 1,
@@ -140,6 +141,11 @@
       "from": "tools",
       "to": "formats",
       "weight": 8
+    },
+    {
+      "from": "providers",
+      "to": "embeddings",
+      "weight": 7
     },
     {
       "from": "runtime",
@@ -257,6 +263,11 @@
       "weight": 3
     },
     {
+      "from": "providers",
+      "to": "search",
+      "weight": 3
+    },
+    {
       "from": "runtime",
       "to": "bridge",
       "weight": 3
@@ -284,6 +295,11 @@
     {
       "from": "doctor",
       "to": "capability",
+      "weight": 2
+    },
+    {
+      "from": "embeddings",
+      "to": "providers",
       "weight": 2
     },
     {
@@ -397,8 +413,8 @@
       "weight": 1
     },
     {
-      "from": "embeddings",
-      "to": "model",
+      "from": "doctor",
+      "to": "providers",
       "weight": 1
     },
     {
@@ -467,6 +483,16 @@
       "weight": 1
     },
     {
+      "from": "providers",
+      "to": "gateway",
+      "weight": 1
+    },
+    {
+      "from": "providers",
+      "to": "model",
+      "weight": 1
+    },
+    {
       "from": "runtime",
       "to": "cli",
       "weight": 1
@@ -489,6 +515,11 @@
     {
       "from": "runtime",
       "to": "plur",
+      "weight": 1
+    },
+    {
+      "from": "runtime",
+      "to": "providers",
       "weight": 1
     },
     {

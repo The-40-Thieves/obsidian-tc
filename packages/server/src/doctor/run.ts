@@ -1,13 +1,15 @@
 // THE-521 — assembling and running the default doctor check set.
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
-import type { RetrievalHeadsView, TokenClaims } from "./checks";
+import { embeddingsProviderNames, rerankerProviderNames } from "../providers/registry";
+import type { ProviderRegistrationView, RetrievalHeadsView, TokenClaims } from "./checks";
 import {
   authMaxAgeCheck,
   authPolicyCheck,
   bridgeCheck,
   nativeCheck,
   obsidianCheck,
+  providerRegistrationCheck,
   retrievalHeadsCheck,
   runtimeCheck,
   snapshotsCheck,
@@ -42,6 +44,9 @@ export interface DoctorConfigView {
   /** THE-648: destructive-write snapshot policy (config.snapshots). Optional, same reasoning as
    *  retrieval above. */
   snapshots?: { enabled: boolean; retention: number };
+  /** Final-review blocker 2: the configured provider names to validate against the registry.
+   *  Optional, same reasoning as retrieval/snapshots above. */
+  providers?: ProviderRegistrationView;
 }
 
 export interface AssembleOptions {
@@ -72,6 +77,18 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   if (config.retrieval) checks.push(retrievalHeadsCheck(config.retrieval));
   // THE-648: snapshot policy, same optional-view reasoning.
   if (config.snapshots) checks.push(snapshotsCheck(config.snapshots));
+  // Final-review blocker 2: an unregistered embeddings.provider/reranker.provider name parses
+  // cleanly (both are open z.string().min(1) since the drop-in registry shipped) and is only
+  // caught by the server's own boot path otherwise — doctor must catch it too, same optional-view
+  // reasoning as retrieval/snapshots above.
+  if (config.providers) {
+    checks.push(
+      providerRegistrationCheck(config.providers, {
+        embeddings: embeddingsProviderNames(),
+        reranker: rerankerProviderNames(),
+      }),
+    );
+  }
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".
   if (opts.bridgeReports) checks.push(bridgeCheck(opts.bridgeReports));

@@ -143,6 +143,8 @@ export interface IndexVaultArgs {
    *  every index path (boot reconcile, index_vault tool, index-on-write): the chunk content hash
    *  covers the enriched text, so mixed values would re-embed the same chunks back and forth. */
   chunkContext?: boolean;
+  /** Model revision folded into the vec fingerprint. MUST match runtime/indexing-wiring.ts. */
+  revision?: string;
   /** Graph densification (docs/plans/2026-07-13-graph-densification.md): build derived edges during
    *  index_vault. tagEdges = shared-frontmatter-tag co-occurrence; knnEdges = vec0 kNN neighbors.
    *  Off unless threaded from config.retrieval.densify. Full-state per kind (toggling off prunes). */

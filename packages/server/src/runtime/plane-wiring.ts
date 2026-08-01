@@ -165,6 +165,9 @@ export interface ReconcileRunnerDeps {
   embedConfig: { batchSize: number; concurrency: number; maxBatchTokens: number };
   /** config.embeddings.chunkContext */
   chunkContext: boolean;
+  /** config.embeddings.revision, folded into the vec fingerprint. Must match indexing-wiring.ts's
+   *  VecFingerprint construction site — see that file's comment for the rebuild-loop risk. */
+  revision?: string;
   /** config.retrieval.densify */
   densify: ServerConfig["retrieval"]["densify"];
   vaultRegistry: VaultRegistry;
@@ -195,6 +198,7 @@ export function createReconcileRunner(deps: ReconcileRunnerDeps): () => Promise<
             provider: deps.embeddingProvider,
             embed: deps.embedConfig,
             chunkContext: deps.chunkContext,
+            revision: deps.revision,
             densify: deps.densify,
             vaultId: v.id,
             root: deps.vaultRegistry.resolve(v.id).root,

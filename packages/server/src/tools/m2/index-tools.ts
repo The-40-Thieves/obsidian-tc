@@ -63,6 +63,7 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
           db: ctx.db,
           provider: deps.embeddingProvider,
           chunkContext: deps.chunkContext,
+          revision: deps.revision,
           densify: deps.densify,
           vaultId: v.id,
           root: v.root,
