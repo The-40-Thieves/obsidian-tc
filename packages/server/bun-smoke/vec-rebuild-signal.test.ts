@@ -20,10 +20,15 @@ import {
 import { ensureVecChunks, floatBlob, loadVec, type VecRebuildEvent } from "../src/search/vec";
 
 const DIMS = 16;
+const PROVIDER = "fake";
+
+/** Production shape: `provider.id`, e.g. "fake:model-old" — what chunk_embeddings.model actually
+ *  stores (THE-460 fix A, review round 1). Distinct from `fp.model`, the bare name. */
+const activeModelId = (model: string): string => `${PROVIDER}:${model}`;
 
 function fp(overrides: Partial<VecFingerprint> = {}): VecFingerprint {
   return {
-    provider: "fake",
+    provider: PROVIDER,
     model: "model-a",
     dimensions: DIMS,
     distanceMetric: VEC_DISTANCE_METRIC,
@@ -48,10 +53,14 @@ test("does not fire onRebuild on first creation or an unchanged fingerprint", as
 test("fires onRebuild with reason=fingerprint_changed and the skipped-vector count", async () => {
   const db = await openDatabase(":memory:");
   provisionCacheDb(db);
-  expect(ensureVecChunks(db, fp({ model: "model-old" }))).toBe(true);
+  expect(
+    ensureVecChunks(db, fp({ model: "model-old" }), { activeModel: activeModelId("model-old") }),
+  ).toBe(true);
 
   // One vector at the OLD model (will be skipped by the rebuild's model-filtered backfill) and
   // one that will match the NEW fingerprint's model, so skippedVectors is exactly 1, not 0 or 2.
+  // Stored at the production-shaped `provider.id` (THE-460 fix A) — a bare-model row here would
+  // never match the backfill predicate regardless of which model it's "for".
   const insChunk = db.prepare(
     `INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash,
                          token_count, created_at, updated_at)
@@ -63,13 +72,16 @@ test("fires onRebuild with reason=fingerprint_changed and the skipped-vector cou
   );
   const vec = new Float32Array(DIMS).fill(0.1);
   insChunk.run("old-1", "old-1.md", "hash-old-1");
-  insEmb.run("old-1", "model-old", DIMS, floatBlob(vec));
+  insEmb.run("old-1", activeModelId("model-old"), DIMS, floatBlob(vec));
   insChunk.run("new-1", "new-1.md", "hash-new-1");
-  insEmb.run("new-1", "model-new", DIMS, floatBlob(vec));
+  insEmb.run("new-1", activeModelId("model-new"), DIMS, floatBlob(vec));
 
   const events: VecRebuildEvent[] = [];
   expect(
-    ensureVecChunks(db, fp({ model: "model-new" }), { onRebuild: (e) => events.push(e) }),
+    ensureVecChunks(db, fp({ model: "model-new" }), {
+      onRebuild: (e) => events.push(e),
+      activeModel: activeModelId("model-new"),
+    }),
   ).toBe(true);
 
   expect(events).toEqual([{ reason: "fingerprint_changed", skippedVectors: 1 }]);

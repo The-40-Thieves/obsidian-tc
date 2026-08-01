@@ -7,6 +7,17 @@
 // Retrieval then scores queries from the new model against embeddings from the old one, which is
 // silently and subtly wrong rather than an error.
 //
+// THE-460 fix A (review round 1): the model predicate itself was ALSO wrong in a way these tests
+// never caught, because they hand-seeded `chunk_embeddings.model` with the bare `fp.model`
+// ("model-old") — a row shape production never writes. Every production writer
+// (persist-note-plan.ts's upsertVec / chunk_embeddings insert) stores `provider.id`
+// (`${provider}:${model}`, e.g. "fake:model-old"; `embeddings/index.ts`'s `withRevision` can widen
+// it further to "fake:model-old@rev1"), and the backfill's bare-`fp.model` bind could therefore
+// never match a real row — it silently selected ZERO rows after ANY fingerprint-triggered rebuild,
+// not just a model swap. `ensureVecChunks`'s new `activeModel` opt (bound instead of `fp.model` in
+// the backfill WHERE clause) fixes the predicate; these tests now seed and assert against
+// production-shaped ids to actually exercise it.
+//
 // Lives in bun-smoke because node:sqlite cannot load sqlite-vec — this is the only runtime where
 // the real vec0 rebuild path executes.
 import { expect, test } from "bun:test";
@@ -21,10 +32,16 @@ import {
 import { ensureVecChunks, floatBlob } from "../src/search/vec";
 
 const DIMS = 32;
+const PROVIDER = "fake";
+
+/** Production shape: `provider.id`, e.g. "fake:model-old" — what chunk_embeddings.model /
+ *  vec_chunks.model actually store. Distinct from `fp.model`, the bare name folded into the
+ *  canonical fingerprint string. */
+const activeModelId = (model: string): string => `${PROVIDER}:${model}`;
 
 function fp(overrides: Partial<VecFingerprint> = {}): VecFingerprint {
   return {
-    provider: "fake",
+    provider: PROVIDER,
     model: "model-old",
     dimensions: DIMS,
     distanceMetric: VEC_DISTANCE_METRIC,
@@ -35,8 +52,9 @@ function fp(overrides: Partial<VecFingerprint> = {}): VecFingerprint {
   };
 }
 
-/** Seed one chunk + one active embedding attributed to `model`. */
-function seed(db: Awaited<ReturnType<typeof openDatabase>>, id: string, model: string): void {
+/** Seed one chunk + one active embedding attributed to `storedModel` — pass a `provider.id`-shaped
+ *  value (activeModelId(...)) to match what production actually writes. */
+function seed(db: Awaited<ReturnType<typeof openDatabase>>, id: string, storedModel: string): void {
   db.prepare(
     `INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash,
                          token_count, created_at, updated_at)
@@ -46,7 +64,7 @@ function seed(db: Awaited<ReturnType<typeof openDatabase>>, id: string, model: s
   db.prepare(
     `INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at)
      VALUES (?, ?, ?, ?, 1, 0)`,
-  ).run(id, model, DIMS, floatBlob(vec));
+  ).run(id, storedModel, DIMS, floatBlob(vec));
 }
 
 function indexedModels(db: Awaited<ReturnType<typeof openDatabase>>): string[] {
@@ -60,31 +78,61 @@ test("a same-dimension model swap does not backfill the old model's vectors", as
   const db = await openDatabase(":memory:");
   provisionCacheDb(db);
 
-  expect(ensureVecChunks(db, fp())).toBe(true);
+  expect(ensureVecChunks(db, fp(), { activeModel: activeModelId("model-old") })).toBe(true);
 
-  // Two active embeddings at the SAME dimensionality, from different models — the exact shape the
-  // length-only filter cannot distinguish.
-  seed(db, "old-1", "model-old");
-  seed(db, "new-1", "model-new");
+  // Two active embeddings at the SAME dimensionality, from different models, stored at the
+  // production-shaped identity — the exact shape the length-only filter cannot distinguish.
+  seed(db, "old-1", activeModelId("model-old"));
+  seed(db, "new-1", activeModelId("model-new"));
 
   // Swap the model. Same dims, so the fingerprint changes but every byte length still matches.
-  expect(ensureVecChunks(db, fp({ model: "model-new" }))).toBe(true);
+  expect(
+    ensureVecChunks(db, fp({ model: "model-new" }), { activeModel: activeModelId("model-new") }),
+  ).toBe(true);
 
-  expect(indexedModels(db)).toEqual(["model-new"]);
+  expect(indexedModels(db)).toEqual([activeModelId("model-new")]);
 });
 
 test("the rebuild still backfills vectors that DO match the current model", async () => {
   const db = await openDatabase(":memory:");
   provisionCacheDb(db);
-  expect(ensureVecChunks(db, fp())).toBe(true);
+  expect(ensureVecChunks(db, fp(), { activeModel: activeModelId("model-old") })).toBe(true);
 
-  seed(db, "a", "model-old");
-  seed(db, "b", "model-old");
+  seed(db, "a", activeModelId("model-old"));
+  seed(db, "b", activeModelId("model-old"));
 
   // A non-model fingerprint field changes: same model, so both vectors must survive the rebuild.
-  expect(ensureVecChunks(db, fp({ enrichmentVersion: 1 }))).toBe(true);
+  expect(
+    ensureVecChunks(db, fp({ enrichmentVersion: 1 }), { activeModel: activeModelId("model-old") }),
+  ).toBe(true);
 
   const n = db.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get() as { n: number };
   expect(n.n).toBe(2);
-  expect(indexedModels(db)).toEqual(["model-old"]);
+  expect(indexedModels(db)).toEqual([activeModelId("model-old")]);
+});
+
+// THE-460 fix A regression test (review round 1): dedicated coverage for the exact defect the
+// reviewer measured — a fingerprint-triggered rebuild UNRELATED to the model (no model/revision
+// change at all) dropped every production-shaped vector because the backfill bound the bare
+// `fp.model` against a column that stores `provider.id`. This must FAIL against the pre-fix
+// predicate (binding `fp.model` unconditionally): "fake:model-a" (stored) never equals "model-a"
+// (fp.model), so the old code backfills zero rows here regardless of `activeModel`.
+test("fix A: a rebuild unrelated to the model preserves production-shaped (provider.id) vectors", async () => {
+  const db = await openDatabase(":memory:");
+  provisionCacheDb(db);
+  const idA = activeModelId("model-a");
+  expect(ensureVecChunks(db, fp({ model: "model-a" }), { activeModel: idA })).toBe(true);
+
+  seed(db, "p1", idA);
+  seed(db, "p2", idA);
+  seed(db, "p3", idA);
+
+  // schemaGen bump: a representation change with nothing to do with the model at all.
+  expect(ensureVecChunks(db, fp({ model: "model-a", schemaGen: "v2" }), { activeModel: idA })).toBe(
+    true,
+  );
+
+  const n = db.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get() as { n: number };
+  expect(n.n).toBe(3); // backfill count > 0 (all 3 preserved) — the Critical's assertion.
+  expect(indexedModels(db)).toEqual([idA]);
 });

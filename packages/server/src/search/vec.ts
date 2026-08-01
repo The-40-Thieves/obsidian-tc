@@ -134,6 +134,14 @@ export function ensureVecChunks(
      *  injected logger and never imports the metrics recorder. Optional and additive, same shape as
      *  the other `opts` callbacks in this file's siblings (log.ts, activation.ts). */
     onRebuild?: (event: VecRebuildEvent) => void;
+    /** The value `chunk_embeddings.model` / `vec_chunks.model` actually stores, i.e. `provider.id`
+     *  (e.g. "ollama:bge-m3", or "ollama:bge-m3@rev1" once a revision is set — see
+     *  embeddings/index.ts's withRevision). Distinct from `fp.model`, which is the BARE model name
+     *  and part of the canonical fingerprint string folded by vecFingerprint() — redefining
+     *  `fp.model` to `provider.id` would change every existing fingerprint in the field and force
+     *  every deployed index to rebuild. Undefined preserves today's behaviour exactly (bind
+     *  `fp.model`), so no non-production caller changes. */
+    activeModel?: string;
   } = {},
 ): boolean {
   if (!loadVec(db)) return false;
@@ -207,12 +215,19 @@ export function ensureVecChunks(
         // Retrieval would then score new-model queries against old-model embeddings: not an error,
         // just quietly wrong results. Vectors from any other model are left for the re-embed to
         // regenerate, which is the same posture already taken for a dimension change.
+        // THE-460 fix A: chunk_embeddings.model stores provider.id (e.g. "ollama:bge-m3"), not the
+        // bare fp.model — binding fp.model here could never match a production row, so the
+        // backfill silently selected zero rows after ANY fingerprint-triggered rebuild whose
+        // provider.id didn't ALSO change (revision is the first operator-settable field that moves
+        // the fingerprint while leaving provider.id untouched). opts.activeModel carries the
+        // actually-stored identity; fall back to fp.model only when it's absent (non-production
+        // callers, back-compat).
         db.prepare(
           `INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding)
            SELECT e.chunk_id, c.vault_id, c.path, e.model, e.embedding
            FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id
            WHERE e.is_active = 1 AND length(e.embedding) = ${dims * 4} AND e.model = ?`,
-        ).run(fp.model);
+        ).run(opts.activeModel ?? fp.model);
         // THE-612: NOT `.changes` from the INSERT above — vec0 virtual tables are backed by
         // several shadow tables, so `.changes` reports shadow-table writes rather than logical
         // rows (measured: 6 for a single logical row backfilled). vec_chunks was DROPped and

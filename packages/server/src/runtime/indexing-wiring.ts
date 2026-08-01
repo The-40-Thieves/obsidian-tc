@@ -116,7 +116,12 @@ export function wireIndexResources(deps: IndexResourcesDeps): IndexResources {
       // reproduces the pre-existing fingerprint byte-for-byte.
       revision: deps.embeddings.revision,
     },
-    { now: Date.now, onRebuild: deps.onVecRebuild },
+    {
+      now: Date.now,
+      onRebuild: deps.onVecRebuild,
+      // Fix A: the backfill must match what chunk_embeddings.model actually stores.
+      activeModel: embeddingProvider.id,
+    },
   );
   const hasFts = ensureNotesFts(deps.db, { now: Date.now });
   const indexHealth: IndexHealthState = {
