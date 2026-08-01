@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 994 tracked code files · 147,006 lines.
+**Scale:** 994 tracked code files · 147,017 lines.
 
-TypeScript 137,327 · JavaScript 6,154 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
+TypeScript 137,338 · JavaScript 6,154 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -92,7 +92,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `runtime/` | 13 | 2,799 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `experiential/` | 11 | 2,756 | work-memory tier: activation, retrieval log, forget, citations |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `cli/` | 22 | 1,907 | arg parsing + subcommands |
+| `cli/` | 22 | 1,918 | arg parsing + subcommands |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 13 | 1,137 | provisioning, migrate runner, experiential store |
@@ -273,7 +273,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**368 modules · 1618 dependencies · 107 distinct subsystem pairs · 720 cross-subsystem imports.**
+**368 modules · 1619 dependencies · 107 distinct subsystem pairs · 721 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -338,10 +338,10 @@ flowchart LR
   providers -->|7| embeddings
   runtime -->|7| plane
   tools -->|7| bridge
+  cli -->|6| search
   runtime -->|6| experiential
   tools -->|6| experiential
   tools -->|6| plane
-  cli -->|5| search
   embeddings -->|5| search
   mcp -->|5| otel
   memory -->|5| vault
@@ -357,8 +357,8 @@ flowchart LR
 |---|---:|---|---:|
 | `vault` | 227 | `tools` | 343 |
 | `db` | 122 | `runtime` | 131 |
-| `search` | 91 | `search` | 60 |
-| `mcp` | 85 | `cli` | 49 |
+| `search` | 92 | `search` | 60 |
+| `mcp` | 85 | `cli` | 50 |
 | `embeddings` | 31 | `mcp` | 23 |
 <!-- END GENERATED: tree-fan -->
 
