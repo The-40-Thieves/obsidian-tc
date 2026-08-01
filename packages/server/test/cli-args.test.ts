@@ -34,8 +34,19 @@ afterEach(() => {
 });
 
 describe("parseCliArgs doctor (THE-521)", () => {
-  it("bare doctor -> doctor with json:false", () => {
-    expect(parseCliArgs(["doctor"])).toEqual({ kind: "doctor", json: false });
+  it("bare doctor -> doctor with json:false AND probe:false (offline by default)", () => {
+    // THE-688 fix 2: probe:false on a bare invocation is the contract, not an incidental shape.
+    // A doctor that reaches the network because someone ran it is a different tool than the one
+    // people reach for when something is already broken, so the default must be pinned here.
+    expect(parseCliArgs(["doctor"])).toEqual({ kind: "doctor", json: false, probe: false });
+  });
+  it("doctor --probe opts in, and does not eat the config path", () => {
+    const c = parseCliArgs(["doctor", "cfg.json", "--probe"]);
+    expect(c.kind).toBe("doctor");
+    if (c.kind === "doctor") {
+      expect(c.probe).toBe(true);
+      expect(c.configPath).toBe("cfg.json");
+    }
   });
   it("doctor --json sets json:true", () => {
     const c = parseCliArgs(["doctor", "--json"]);

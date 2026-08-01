@@ -4,6 +4,9 @@
 // a versioned JSON envelope with human text rendered from it. Motivated by the 5-day MCP outage where
 // every layer reported success in its own terms (empty tools/list, a valid 401, an exp reading 2027)
 // — doctor exists to answer "is this install healthy right now?" in one artifact.
+// THE-688 fix 2: the opt-in probe's result type, so the CLI can build a probe without importing
+// through the checks module directly.
+export type { DenseProbeResult } from "./checks";
 export { renderText, runDoctor } from "./report";
 export type { AssembleOptions, DoctorConfigView } from "./run";
 export { assembleDoctorReport, decodeTokenClaims } from "./run";

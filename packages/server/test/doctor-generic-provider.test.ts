@@ -19,9 +19,15 @@ const VIEW: RetrievalHeadsView = {
 };
 
 describe("doctor with a generic provider", () => {
-  it("does not claim model-tier rerank capability for an unknown provider name", () => {
-    const c = retrievalHeadsCheck(VIEW).run(ctx);
+  // THE-688 fix 2 made `run` async. This MUST await: JSON.stringify of a pending promise is "{}",
+  // which satisfies `not.toMatch` for a reason that has nothing to do with the provider name — the
+  // assertion would have gone permanently, silently green. Its sibling below failed loudly on the
+  // same change; this one did not, which is the more dangerous half.
+  it("does not claim model-tier rerank capability for an unknown provider name", async () => {
+    const c = await retrievalHeadsCheck(VIEW).run(ctx);
     expect(JSON.stringify(c)).not.toMatch(/model-tier \/ ColBERT rerank capable/);
+    // Guard the guard: prove the payload is real, so the negative above cannot pass on an empty one.
+    expect(JSON.stringify(c)).toMatch(/RRF-only/);
   });
 
   // Review round 2 (Important): the no-reranker-configured branch's wording ALSO changed from the
@@ -50,10 +56,12 @@ describe("doctor with a generic provider", () => {
     expect(JSON.stringify(r)).not.toMatch(/reranking depends on the inference gateway/);
   });
 
-  it("still reports model-tier capability when it genuinely applies", () => {
-    const c = retrievalHeadsCheck({ ...VIEW, denseProvider: "model-tier", multiVector: true }).run(
-      ctx,
-    );
+  it("still reports model-tier capability when it genuinely applies", async () => {
+    const c = await retrievalHeadsCheck({
+      ...VIEW,
+      denseProvider: "model-tier",
+      multiVector: true,
+    }).run(ctx);
     expect(JSON.stringify(c)).toMatch(/model-tier \/ ColBERT rerank capable/);
   });
 });
