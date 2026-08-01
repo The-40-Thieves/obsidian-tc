@@ -10,7 +10,7 @@
 // runs AFTER it, because M2's dataviewBridge / M3's templaterBridge / M4 itself all read the
 // composed M4Deps object bridge-wiring.ts returns.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
+import { DEFAULT_MEMORY_FOLDER, err } from "@the-40-thieves/obsidian-tc-shared";
 import type { CapabilityCache } from "../bridge";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
@@ -126,6 +126,46 @@ export interface GatewaySeams {
 }
 
 /**
+ * A DECLARED `reranker` block must never resolve to a silent `null` — only an ABSENT block may
+ * (the zero-config-migration guarantee `buildModelTierReranker(embeddings) ?? gatewayReranker`
+ * relies on). `resolveReranker` itself legitimately returns `null` for two entries whose
+ * prerequisite is missing (`model-tier` without `embeddings.modelTier.full`; `gateway` without a
+ * base URL) — that is the right contract for a resolver primitive other callers may share. This
+ * wrapper is the DECLARED-block-only enforcement point: it turns that null into a boot-time
+ * failure naming the provider and what it needed, matching the actionable-hint idiom used
+ * throughout providers/registry.ts.
+ */
+async function resolveDeclaredReranker(
+  cfg: NonNullable<ServerConfig["reranker"]>,
+  ctx: Parameters<typeof resolveReranker>[1],
+): Promise<Reranker> {
+  const reranker = await resolveReranker(cfg, ctx);
+  if (reranker) return reranker;
+  if (cfg.provider === "model-tier") {
+    throw err.invalidInput(
+      'reranker.provider "model-tier" could not be built: embeddings.modelTier.full is not configured',
+      {
+        provider: "model-tier",
+        hint: "set embeddings.modelTier.full (baseUrl, ...) so the model-tier reranker has an endpoint to call, or remove the reranker block entirely to fall back to the default precedence.",
+      },
+    );
+  }
+  if (cfg.provider === "gateway") {
+    throw err.invalidInput(
+      'reranker.provider "gateway" could not be built: no gateway base URL is configured',
+      {
+        provider: "gateway",
+        hint: "set reranker.baseUrl or the OBSIDIAN_TC_GATEWAY_URL environment variable so the gateway reranker has an endpoint to call, or remove the reranker block entirely to fall back to the default precedence.",
+      },
+    );
+  }
+  throw err.invalidInput(`reranker.provider "${cfg.provider}" resolved to no reranker`, {
+    provider: cfg.provider,
+    hint: "this provider's registry entry returned null instead of a reranker (or throwing) for a declared reranker block; that is a bug in the registry entry.",
+  });
+}
+
+/**
  * THE-233 integration — the optional inference gateway (W-GATEWAY-CLIENT). Unconfigured (no
  * OBSIDIAN_TC_GATEWAY_URL) -> null; every generative seam degrades gracefully rather than failing
  * boot (createGatewayClient throws without a base URL, so guarded with try).
@@ -152,7 +192,7 @@ export async function wireGatewaySeams(
   // passthrough. Dark until a rerank stage is enabled in graphSearch. A declared `reranker` block
   // wins over that default entirely — ABSENT preserves the historical precedence exactly.
   const reranker: Reranker | null = rerankerCfg
-    ? await resolveReranker(rerankerCfg, { embeddings, configDir, securityProfile })
+    ? await resolveDeclaredReranker(rerankerCfg, { embeddings, configDir, securityProfile })
     : (buildModelTierReranker(embeddings) ?? gatewayReranker);
   // W-WORKERS generative seam -> gateway extract/synthesize/judge roles (null -> jobs/challenge
   // no-op).

@@ -12,6 +12,7 @@ import {
   authPolicyCheck,
   nativeCheck,
   obsidianCheck,
+  providerRegistrationCheck,
   type RetrievalHeadsView,
   retrievalHeadsCheck,
   runtimeCheck,
@@ -250,6 +251,62 @@ describe("#16 retrievalHeadsCheck (dense/sparse/ColBERT/reranker readiness)", ()
     expect(r.details?.sparse).toContain("ready");
     expect(r.details?.colbert).toContain("ready");
     expect(r.details?.reranker).toContain("rerank capable");
+  });
+});
+
+// Final-review blocker 2: embeddings.provider/reranker.provider are open strings resolved against
+// the registry at boot — an unregistered name parses cleanly (ServerConfigSchema no longer rejects
+// it) and is otherwise only caught by the server's own boot path. This check is doctor's catch.
+describe("providers.registered check (final-review blocker 2)", () => {
+  const REGISTERED = {
+    embeddings: ["ollama", "openai", "openai-compatible"],
+    reranker: ["gateway", "model-tier"],
+  };
+
+  it("ok when embeddings.provider is registered and no reranker is configured", async () => {
+    const r = await providerRegistrationCheck({ embeddingsProvider: "ollama" }, REGISTERED).run(
+      ctx,
+    );
+    expect(r.status).toBe("ok");
+    expect(r.details?.embeddings).toBe("ollama");
+    expect(r.details?.reranker).toBeUndefined();
+  });
+
+  it("ok when the configured reranker is also registered", async () => {
+    const r = await providerRegistrationCheck(
+      { embeddingsProvider: "openai", rerankerProvider: "gateway" },
+      REGISTERED,
+    ).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.reranker).toBe("gateway");
+  });
+
+  it("fails and lists every registered name when embeddings.provider is unregistered", async () => {
+    const r = await providerRegistrationCheck({ embeddingsProvider: "ollma" }, REGISTERED).run(ctx);
+    expect(r.status).toBe("fail");
+    expect(r.details?.embeddings).toContain("UNREGISTERED");
+    expect(r.issues?.join(" ")).toContain('embeddings.provider "ollma"');
+    for (const name of REGISTERED.embeddings) expect(r.issues?.join(" ")).toContain(name);
+  });
+
+  it("fails when reranker.provider is configured but unregistered", async () => {
+    const r = await providerRegistrationCheck(
+      { embeddingsProvider: "ollama", rerankerProvider: "no-such-reranker" },
+      REGISTERED,
+    ).run(ctx);
+    expect(r.status).toBe("fail");
+    expect(r.details?.reranker).toContain("UNREGISTERED");
+    expect(r.issues?.join(" ")).toContain('reranker.provider "no-such-reranker"');
+    for (const name of REGISTERED.reranker) expect(r.issues?.join(" ")).toContain(name);
+  });
+
+  it("reports both issues when both provider names are unregistered", async () => {
+    const r = await providerRegistrationCheck(
+      { embeddingsProvider: "ollma", rerankerProvider: "no-such-reranker" },
+      REGISTERED,
+    ).run(ctx);
+    expect(r.status).toBe("fail");
+    expect(r.issues?.length).toBe(2);
   });
 });
 

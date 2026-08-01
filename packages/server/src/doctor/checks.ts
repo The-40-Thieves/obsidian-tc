@@ -89,6 +89,68 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
   };
 }
 
+/** #Final-review blocker 2: `embeddings.provider` and `reranker.provider` are open strings resolved
+ *  against the provider registry at boot (embeddingsEntryOrThrow / resolveReranker); an unregistered
+ *  name used to be rejected by `ServerConfigSchema.parse` and now parses cleanly. The ONLY thing
+ *  that still catches it is the server's own boot path — doctor, whose entire job is finding
+ *  misconfigurations, previously reported an unregistered name as "ready". `registered` is injected
+ *  (not imported from providers/registry.ts here) so this check stays testable with no live
+ *  registry, matching every other check in this file. */
+export interface ProviderRegistrationView {
+  embeddingsProvider: string;
+  /** config.reranker?.provider — absent means no reranker block is configured, which is always valid
+   *  and not checked here. */
+  rerankerProvider?: string;
+}
+
+/** providers.registered — fails loudly, with the same registered-name list boot's own error would
+ *  show, when either configured provider name is not in the registry. */
+export function providerRegistrationCheck(
+  view: ProviderRegistrationView,
+  registered: { embeddings: string[]; reranker: string[] },
+): Check {
+  return {
+    id: "providers.registered",
+    category: "retrieval",
+    run: () => {
+      const details: Record<string, string> = { embeddings: view.embeddingsProvider };
+      const issues: string[] = [];
+
+      if (!registered.embeddings.includes(view.embeddingsProvider)) {
+        details.embeddings = `${view.embeddingsProvider} (UNREGISTERED)`;
+        issues.push(
+          `embeddings.provider "${view.embeddingsProvider}" is not registered; set embeddings.provider to one of: ${registered.embeddings.join(", ")}`,
+        );
+      }
+
+      if (view.rerankerProvider !== undefined) {
+        details.reranker = view.rerankerProvider;
+        if (!registered.reranker.includes(view.rerankerProvider)) {
+          details.reranker = `${view.rerankerProvider} (UNREGISTERED)`;
+          issues.push(
+            `reranker.provider "${view.rerankerProvider}" is not registered; set reranker.provider to one of: ${registered.reranker.join(", ")}`,
+          );
+        }
+      }
+
+      if (issues.length > 0) {
+        return {
+          status: "fail",
+          summary: `${issues.length} configured provider name(s) are not registered`,
+          details,
+          issues,
+          remediation: issues.join(" "),
+        };
+      }
+      return {
+        status: "ok",
+        summary: "embeddings.provider and reranker.provider (if configured) are registered",
+        details,
+      };
+    },
+  };
+}
+
 /** runtime.versions — server, runtime and native module, read from the capability profile. */
 export function runtimeCheck(profile: CapabilityProfile): Check {
   return {

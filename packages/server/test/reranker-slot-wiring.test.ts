@@ -80,8 +80,12 @@ describe("reranker slot", () => {
   });
 
   // The absent-config case the first draft claimed to cover but did not. No `model` here —
-  // model-tier ignores (and refuses) it; see the ignored-fields tests below.
-  it("model-tier yields null when modelTier.full is unconfigured, so the caller falls back", async () => {
+  // model-tier ignores (and refuses) it; see the ignored-fields tests below. resolveReranker
+  // itself legitimately returns null here — it is a shared resolution primitive, and other
+  // callers (e.g. eval/CLI entry points) may want the raw null. The DECLARED-block-only
+  // "null is a boot-time failure" enforcement lives one layer up, in tool-wiring.ts's
+  // resolveDeclaredReranker — see the wireGatewaySeams describe block below for that behaviour.
+  it("model-tier yields null when modelTier.full is unconfigured (resolveReranker's own contract, not the declared-block caller's)", async () => {
     const r = await resolveReranker(
       { provider: "model-tier" },
       { embeddings: { provider: "model-tier", model: "q", dimensions: 1024 } },
@@ -308,5 +312,64 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
     );
     await reranker?.("q", ["a"], 1);
     expect(hits).toEqual(["http://declared/v2/rerank"]);
+  });
+});
+
+// Final-review blocker 1: the spec's error table permits a `null` reranker only for an ABSENT
+// `reranker` block. A DECLARED block that resolves to null (model-tier without modelTier.full;
+// gateway without a base URL) must throw at boot instead of silently degrading retrieval to
+// RRF-only — the two cases above prove the absent-block path is unchanged, these two prove the
+// declared-block path now fails loudly instead of falling back.
+describe("wireGatewaySeams — a DECLARED block that resolves to null throws at boot", () => {
+  const prevGatewayUrl = process.env.OBSIDIAN_TC_GATEWAY_URL;
+
+  afterEach(() => {
+    if (prevGatewayUrl === undefined) delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    else process.env.OBSIDIAN_TC_GATEWAY_URL = prevGatewayUrl;
+  });
+
+  it("declared model-tier without embeddings.modelTier.full throws, naming the missing field", async () => {
+    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    const embeddings = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      embeddings: { provider: "ollama" },
+    }).embeddings;
+    const rerankerCfg = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      reranker: { provider: "model-tier" },
+    }).reranker;
+
+    let message = "";
+    await expect(
+      wireGatewaySeams(embeddings, rerankerCfg).catch((e) => {
+        message = JSON.stringify(e);
+        throw e;
+      }),
+    ).rejects.toBeTruthy();
+    expect(message).toContain("model-tier");
+    expect(message).toContain("embeddings.modelTier.full");
+  });
+
+  it("declared gateway with no baseUrl and no OBSIDIAN_TC_GATEWAY_URL throws, naming both sources", async () => {
+    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    const embeddings = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      embeddings: { provider: "ollama" },
+    }).embeddings;
+    const rerankerCfg = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      reranker: { provider: "gateway" },
+    }).reranker;
+
+    let message = "";
+    await expect(
+      wireGatewaySeams(embeddings, rerankerCfg).catch((e) => {
+        message = JSON.stringify(e);
+        throw e;
+      }),
+    ).rejects.toBeTruthy();
+    expect(message).toContain("gateway");
+    expect(message).toContain("reranker.baseUrl");
+    expect(message).toContain("OBSIDIAN_TC_GATEWAY_URL");
   });
 });

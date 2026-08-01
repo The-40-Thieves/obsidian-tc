@@ -110,6 +110,28 @@ describe("THE-521 assembleDoctorReport", () => {
     expect(report.checks["auth.maxAge"]?.notes?.length).toBeGreaterThan(0);
   });
 
+  it("final-review blocker 2: adds providers.registered only when the config view supplies it", async () => {
+    const without = await assembleDoctorReport({ config, profile, now: () => "t" });
+    expect(without.checks["providers.registered"]).toBeUndefined();
+
+    const withProviders = await assembleDoctorReport({
+      config: { ...config, providers: { embeddingsProvider: "ollama" } },
+      profile,
+      now: () => "t",
+    });
+    expect(withProviders.checks["providers.registered"]?.status).toBe("ok");
+  });
+
+  it("final-review blocker 2: an unregistered embeddings.provider fails the check and the overall report", async () => {
+    const report = await assembleDoctorReport({
+      config: { ...config, providers: { embeddingsProvider: "ollma" } },
+      profile,
+      now: () => "t",
+    });
+    expect(report.checks["providers.registered"]?.status).toBe("fail");
+    expect(report.overallStatus).toBe("fail");
+  });
+
   it("THE-648: adds snapshots.policy only when the config view supplies it", async () => {
     const without = await assembleDoctorReport({ config, profile, now: () => "t" });
     expect(without.checks["snapshots.policy"]).toBeUndefined();

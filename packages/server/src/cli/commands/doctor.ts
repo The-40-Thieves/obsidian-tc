@@ -83,6 +83,15 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
       // THE-648: snapshots default to enabled; surface the effective posture either way.
       snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
+      // Final-review blocker 2: validate the configured provider names against the registry —
+      // an unregistered name parses cleanly now (embeddings.provider/reranker.provider are open
+      // strings) and was previously invisible to doctor.
+      providers: {
+        embeddingsProvider: config.embeddings.provider,
+        ...(config.reranker?.provider !== undefined
+          ? { rerankerProvider: config.reranker.provider }
+          : {}),
+      },
     },
     profile,
     bridgeReports,
