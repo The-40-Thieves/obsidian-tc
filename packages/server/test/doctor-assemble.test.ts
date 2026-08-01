@@ -85,7 +85,9 @@ describe("THE-521 assembleDoctorReport", () => {
     const head = withRetrieval.checks["retrieval.heads"];
     expect(head).toBeDefined();
     expect(head?.status).toBe("ok");
-    expect(head?.details?.sparse).toContain("ready");
+    // THE-688: "configured", not "ready" — the check is offline and never probes the provider.
+    expect(head?.details?.sparse).toContain("configured");
+    expect(head?.details?.sparse).not.toMatch(/\bready\b/);
     expect(head?.details?.colbert).toContain("off");
   });
 
