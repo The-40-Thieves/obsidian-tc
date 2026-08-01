@@ -167,3 +167,31 @@ describe("THE-691: the count is EXACT, not a sample of the first page", () => {
     expect(buried.signals).toEqual(bare.signals);
   });
 });
+
+describe("THE-691: the paging loop terminates at every page boundary", () => {
+  // The cursor advances on `rowid > last`, so a page that lands exactly on the boundary is the
+  // case worth pinning: the loop issues one more query, gets zero rows, and stops. An off-by-one
+  // here is either an infinite loop on a hot path or a silently skipped row at the seam.
+  const hidden = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `h${i}`,
+      path: `09-private/h${i}.md`,
+      content: "zarquon",
+    }));
+
+  it("a match set of EXACTLY one page, none readable", () => {
+    const r = routeQuery(dbWith(hidden(200)), VAULT, "zarquon", { isReadable: readable });
+    expect(r.class).toBe("standard");
+  });
+
+  it("exactly one full page hidden, with the only readable match on page two", () => {
+    const rows = [...hidden(200), { id: "v", path: "00-v.md", content: "zarquon" }];
+    const r = routeQuery(dbWith(rows), VAULT, "zarquon", { isReadable: readable });
+    expect(r.signals.join(" ")).toContain("df=1");
+  });
+
+  it("two full pages, none readable", () => {
+    const r = routeQuery(dbWith(hidden(400)), VAULT, "zarquon", { isReadable: readable });
+    expect(r.class).toBe("standard");
+  });
+});

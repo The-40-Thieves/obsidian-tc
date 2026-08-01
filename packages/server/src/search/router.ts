@@ -174,7 +174,10 @@ export function routeQuery(
   );
   if (tokens.length > 0 && tokens.length <= 5) {
     const rareDfMax = opts.rareDfMax ?? 3;
-    const candidates = [...tokens].sort((a, b) => b.length - a.length).slice(0, 4);
+    // THE-691: DEDUPE before slicing. A query repeating a token ("zarquon zarquon") would
+    // otherwise run the same paged scan up to four times for one answer — pure waste, and it
+    // multiplies the worst case (a term with many denied matches) by the repeat count.
+    const candidates = [...new Set(tokens)].sort((a, b) => b.length - a.length).slice(0, 4);
     for (const t of candidates) {
       const df = termDf(db, vaultId, t, opts.isReadable, rareDfMax);
       if (df >= 1 && df <= rareDfMax) {
