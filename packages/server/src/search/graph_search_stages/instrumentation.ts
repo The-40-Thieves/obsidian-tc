@@ -38,6 +38,43 @@ export interface StageMetric {
 
 export type OnStageMetric = (metric: StageMetric) => void;
 
+/**
+ * THE-632: one stage's answer to "where was this specific note, and did it survive?"
+ *
+ * Separate from StageMetric on purpose. StageMetric is AGGREGATE by construction — candidatesIn /
+ * candidatesOut / durationMs and nothing else — so it can say 40 candidates entered fusion and 12
+ * left, but never WHICH. That is why "the per-stage scores are already computed, this is ~50 lines"
+ * does not hold: the scores were never in this seam to begin with.
+ *
+ * TARGETED rather than a dump of every candidate. The question is always about one note the user
+ * expected, so each stage costs one lookup instead of serializing the whole pool — which also keeps
+ * the payload from becoming its own ACL problem.
+ *
+ * `present: false` is the single most useful answer and the one a score-oriented design misses: a
+ * chunk that never entered the pool has no number anywhere, and "it was never a candidate" is
+ * usually the real finding.
+ */
+export interface RetrievalTraceRecord {
+  stage: StageName;
+  /** Was any chunk of the traced note in this stage's OUTPUT? */
+  present: boolean;
+  /** How many chunks of it survived — a note is many chunks, and "1 of 7 survived" is a different
+   *  diagnosis from "all 7 did". */
+  chunksPresent: number;
+  candidatesIn: number;
+  candidatesOut: number;
+  /** Best score for the note at this stage, when the stage produces one. Absent where the stage
+   *  has no notion of a score (seed generation, expansion) rather than defaulted to 0 — an
+   *  invented 0 reads as "scored terribly" instead of "not scored here". */
+  score?: number;
+  /** 0-based position among this stage's output, when ordered. Same absent-not-zero rule. */
+  rank?: number;
+  /** Why it is gone, when the orchestrator can say so from the transition it just observed. */
+  note?: string;
+}
+
+export type OnRetrievalTrace = (record: RetrievalTraceRecord) => void;
+
 /** Runs `fn`, timing it and reporting a StageMetric to `onStageMetric` (if provided). Never
  *  alters `fn`'s return value or throws behavior — a stage that throws still propagates the
  *  error after nothing is reported (no partial/misleading metric on failure).

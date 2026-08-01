@@ -37,12 +37,31 @@ export function generateSeeds(input: SeedGenerationInput): SeedGenerationResult 
     // THE-585: forward the vec0 -> brute-force degradation signal. Absent by default.
     ...(opts.onVecFallback ? { onFallback: opts.onVecFallback } : {}),
   });
+  // THE-632 (security): the read ACL is threaded into the lexical and sparse arms HERE, at query
+  // time — not left to candidate_assembly. Filtering downstream removes unreadable hits from the
+  // RESULTS but not from the counts, and any aggregate over these arrays (a diagnostic's
+  // candidatesIn, for instance) then leaks their existence: query a rare term, watch the count
+  // move, learn it appears in a note you cannot read. It also lets unreadable chunks crowd out
+  // readable ones inside each arm's own top-k. The dense arm above has had this since THE-287;
+  // these two never did.
   const lexicalEnabled = opts.lexical?.enabled ?? true;
   const lexHits: LexicalHit[] = lexicalEnabled
-    ? bm25Chunks(db, opts.vaultId, opts.query, opts.lexical?.count ?? seedCount)
+    ? bm25Chunks(
+        db,
+        opts.vaultId,
+        opts.query,
+        opts.lexical?.count ?? seedCount,
+        ...(isReadable ? ([isReadable] as const) : ([] as const)),
+      )
     : [];
   const sparseHits: SparseHit[] = opts.querySparse
-    ? sparseSearch(db, opts.vaultId, opts.querySparse as SparseVec, opts.sparseCount ?? seedCount)
+    ? sparseSearch(
+        db,
+        opts.vaultId,
+        opts.querySparse as SparseVec,
+        opts.sparseCount ?? seedCount,
+        ...(isReadable ? ([isReadable] as const) : ([] as const)),
+      )
     : [];
   return { seeds, lexHits, sparseHits };
 }

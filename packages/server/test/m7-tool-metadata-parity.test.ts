@@ -1,5 +1,5 @@
 // WP2 slice 1 (THE-233 follow-up): the invariant the schema/deps/retrieval-runtime extraction
-// must hold provably still. `buildKnowledgeTools(deps)` returns the 7 M7 tools in a fixed array
+// must hold provably still. `buildKnowledgeTools(deps)` returns the 8 M7 tools in a fixed array
 // order; a caller-visible tool has exactly the shape it declares — name, description, domain,
 // requiredScopes, tags, whether it declares a `pathAcl` extractor, and the top-level keys of its
 // input/output schema. None of that is allowed to move while the file underneath it is split into
@@ -123,6 +123,17 @@ const EXPECTED: ToolSnapshot[] = [
     ],
   },
   {
+    name: "diagnose_retrieval",
+    description:
+      "Explain why a specific note was or was not returned for a query. Re-runs the retrieval pipeline with per-stage tracing and reports, for that one note, where it was present, its score and rank where a stage produces them, and the first stage that dropped it. Read-only and non-mutating; reports nothing about paths the caller cannot read.",
+    domain: "knowledge",
+    requiredScopes: ["read:notes"],
+    tags: ["diagnostics", "knowledge", "search"],
+    hasPathAcl: false,
+    inputKeys: ["final_top_k", "path", "query", "vault"],
+    outputKeys: ["dropped_at", "path", "query", "returned", "stages", "summary", "vault"],
+  },
+  {
     name: "knowledge_search",
     description:
       "Semantic + keyword search over a vendor / external-docs corpus (a reserved read-only docs vault), with wikilink graph expansion and RRF fusion. The docs-scoped analogue of vault_graph_search: bind `vault` to the docs corpus id. Returns source-attributed chunks tagged seed|expansion. Gated on read:docs so it stays isolated from the private vault.",
@@ -194,7 +205,7 @@ function stubDeps(): M7Deps {
 }
 
 describe("m7 tool metadata parity (WP2 invariant)", () => {
-  it("keeps the ordered public metadata of the 7 M7 tools byte-identical", () => {
+  it("keeps the ordered public metadata of the 8 M7 tools byte-identical", () => {
     const tools = buildKnowledgeTools(stubDeps());
     const actual = tools.map(toSnapshot);
     expect(stableStringify(actual)).toBe(stableStringify(EXPECTED));

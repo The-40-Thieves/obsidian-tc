@@ -162,10 +162,63 @@ export interface LexicalHit {
  * then contributes nothing and graph_search behaves as dense-only. `rank` is the raw bm25 score
  * (RRF ranks by position, not this value; kept for debugging / score_merge).
  */
-export function bm25Chunks(db: Database, vaultId: string, query: string, k: number): LexicalHit[] {
+/**
+ * THE-632 (security): `isReadable` applies the read ACL BEFORE the top-k cut.
+ *
+ * candidate_assembly does filter unreadable hits out of the returned set, but by then they have
+ * already been counted and have already occupied slots in this array. Two consequences, and the
+ * first is a disclosure bug rather than a recall one:
+ *
+ *   - any aggregate derived from this array leaks the existence of unreadable content. A
+ *     diagnostic reporting candidate counts turns into a cross-ACL membership oracle: query a rare
+ *     term, watch the count move, learn the term appears in a note you cannot read.
+ *   - unreadable chunks crowd out readable ones inside the SQL LIMIT, so a caller can lose real
+ *     hits to notes they are not allowed to see.
+ *
+ * THE-287 established exactly this for the dense arm (semantic.ts over-fetches, then filters, then
+ * falls back to an exhaustive scan). The lexical and sparse arms never received the same treatment.
+ *
+ * FTS ranks and limits in SQL, so the fix is the same shape: over-fetch by the THE-287 factor,
+ * filter in JS, then cut.
+ *
+ * The residual, stated honestly, because an earlier draft of this comment called it "a recall
+ * limit, not a leak" as though that were structural. It is not — it is contingent on corpus
+ * statistics, and it is worth re-checking if either input moves:
+ *
+ *   GUARANTEED unconditionally: an unreadable chunk is never RETURNED. The result set contains
+ *   only rows the caller may read, whatever the corpus looks like. That part fails closed.
+ *
+ *   NOT GUARANTEED: the returned LENGTH. It is min(k, readable rows inside the window), so it
+ *   depends on how many EXCLUDED rows outrank the caller's — an interference channel on the count,
+ *   with no unreadable content in it.
+ *
+ * The threshold, corrected. A first version of this note computed the window as a share of the
+ * whole corpus and concluded "safe today". Wrong denominator: what matters is the hidden fraction
+ * of the top-F MATCH prefix, not of the vault. With F = 20k + 50, underfill begins once that
+ * fraction exceeds 1 - k/F — 95.38% at k=30, 96% at k=10, 98.57% at k=1. Cross-vendor review
+ * reproduced the boundary directly on this query shape: at k=1 (F=70), 69 higher-scoring hidden
+ * matches return the readable row, 70 return nothing. One row's existence flips the length.
+ *
+ * chunkFtsMatch joins terms with OR, so filling F still takes a corpus-common term, which bounds
+ * how casually this is reached. It does NOT dismiss it: the row that crosses the boundary can
+ * itself be the note whose existence is in question. Treat this as a live residual (THE-695),
+ * not as a closed case, and re-derive the sum rather than inheriting this verdict if k, the
+ * over-fetch factor, or the OR-vs-AND shape of the MATCH ever changes.
+ */
+export function bm25Chunks(
+  db: Database,
+  vaultId: string,
+  query: string,
+  k: number,
+  isReadable?: (path: string) => boolean,
+): LexicalHit[] {
   if (k <= 0) return [];
   const match = chunkFtsMatch(query);
   if (match === null) return [];
+  const readable = isReadable ?? (() => true);
+  // Same constant as semantic.ts's KNN over-fetch, deliberately — one number to reason about when
+  // asking "how hidden can a vault be before an arm underfills?".
+  const overFetch = isReadable ? k * 20 + 50 : k;
   try {
     // THE-406: match/rank on chunk_fts.content (context-enriched when embeddings.chunkContext is
     // on) but RETURN chunks.content — the raw display text — so enrichment never leaks into
@@ -174,7 +227,9 @@ export function bm25Chunks(db: Database, vaultId: string, query: string, k: numb
       .prepare(
         "SELECT chunk_fts.chunk_id AS chunk_id, chunk_fts.path AS path, chunks.content AS content, bm25(chunk_fts) AS rank FROM chunk_fts JOIN chunks ON chunks.id = chunk_fts.chunk_id WHERE chunk_fts.vault_id = ? AND chunk_fts MATCH ? ORDER BY rank LIMIT ?",
       )
-      .all(vaultId, match, k) as LexicalHit[];
+      .all(vaultId, match, overFetch)
+      .filter((r) => readable((r as LexicalHit).path))
+      .slice(0, k) as LexicalHit[];
   } catch {
     return [];
   }

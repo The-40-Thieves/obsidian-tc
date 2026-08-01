@@ -4,7 +4,7 @@ import { classify, seedZMargin } from "./graph_search_stages/classify";
 import { applyDiversity } from "./graph_search_stages/diversity";
 import { clampMetadataBoost, fuseScores } from "./graph_search_stages/fusion";
 import { expandGraph } from "./graph_search_stages/graph_expansion";
-import { runStage } from "./graph_search_stages/instrumentation";
+import { runStage, type StageName } from "./graph_search_stages/instrumentation";
 import { colbertRerankResults, finalize } from "./graph_search_stages/projection";
 import { applyGatedRerank } from "./graph_search_stages/rerank_stage";
 import { generateSeeds } from "./graph_search_stages/seed_generation";
@@ -115,6 +115,9 @@ export async function graphSearch(
     (r) => r.length,
     opts.onStageMetric,
   );
+  // THE-632: the LAST word — what the caller actually receives. A note present here was returned;
+  // absent here after being present at gatedRerank means projection (ColBERT rerank) dropped it.
+  traceStage(opts, "projection", core.results.length, results, candidateId);
   // THE-631: fired AFTER projection so the estimate describes exactly what the caller receives,
   // never fed back into the pipeline above — see estimateCoverage()'s doc comment.
   opts.onCoverage?.(
@@ -125,6 +128,74 @@ export async function graphSearch(
   );
   return results;
 }
+
+/**
+ * THE-632: emit one trace record for the followed path at a stage boundary.
+ *
+ * Lives HERE rather than inside the nine stage modules because this function already holds every
+ * intermediate array between stages — so tracing costs no change to any stage's own logic, and a
+ * stage cannot drift from what the trace claims about it.
+ *
+ * Pure side-channel, on the same contract as onCoverage: it reads the arrays and reports. It never
+ * filters, reorders, or feeds anything back, so results are byte-identical with tracing on or off.
+ * When `traceNotePath` is unset this returns before touching anything.
+ */
+function traceStage<T>(
+  opts: GraphSearchOptions,
+  stage: StageName,
+  candidatesIn: number,
+  out: readonly T[],
+  idOf: (item: T) => { path: string; id: string },
+  // Takes the ITEM, not an id: the pipeline's own scorers (scoreOfWithPrior) are item-shaped, and
+  // reshaping them here would mean re-deriving a lookup the stage already has.
+  scoreOf?: (item: T) => number | undefined,
+  note?: string,
+): void {
+  const target = opts.traceNotePath;
+  const emit = opts.onRetrievalTrace;
+  if (target === undefined || emit === undefined) return;
+  let chunksPresent = 0;
+  let rank: number | undefined;
+  let score: number | undefined;
+  for (let i = 0; i < out.length; i++) {
+    const item = out[i];
+    if (item === undefined) continue;
+    const { path } = idOf(item);
+    if (path !== target) continue;
+    chunksPresent++;
+    // First occurrence is the best one: every array reaching here is already in the stage's own
+    // order, so index 0 of the matches IS the note's rank.
+    if (rank === undefined) {
+      rank = i;
+      score = scoreOf?.(item);
+    }
+  }
+  // Exception-isolated. Cross-vendor review caught that an unguarded emit() made the "pure
+  // side-channel" claim false in one direction: a throwing callback turned a SUCCESSFUL search
+  // into an error. A diagnostic that can break the thing it observes is not a side-channel, and
+  // this mirrors how deps.observability.meter is guarded on the dispatch path.
+  try {
+    emit({
+      stage,
+      present: chunksPresent > 0,
+      chunksPresent,
+      candidatesIn,
+      candidatesOut: out.length,
+      // Omitted, never defaulted to 0 — an invented zero reads as "scored terribly" rather than
+      // "this stage does not score".
+      ...(score !== undefined ? { score } : {}),
+      ...(rank !== undefined ? { rank } : {}),
+      ...(note !== undefined ? { note } : {}),
+    });
+  } catch {
+    /* a trace sink must never break the search it is observing */
+  }
+}
+
+const candidateId = (c: { chunk_id: string; path: string }): { path: string; id: string } => ({
+  path: c.path,
+  id: c.chunk_id,
+});
 
 interface GraphSearchCoreResult {
   results: GraphSearchResult[];
@@ -165,6 +236,21 @@ async function graphSearchCore(
     () => generateSeeds({ db, opts, seedCount }),
     (r) => r.seeds.length + r.lexHits.length + r.sparseHits.length,
     onStageMetric,
+  );
+  // THE-632: traced BEFORE the early return below, so the no-seed case produces a REAL record
+  // instead of an empty trace. Cross-vendor review found the previous arrangement misdiagnosed it:
+  // graphSearchCore returned early while graphSearch still traced projection, so summarize() saw a
+  // single projection record and reported "never entered the candidate pool at projection" — an
+  // absurd stage to name. All three arms are ACL-filtered at query time (seed_generation), so this
+  // count never includes a chunk the caller cannot read.
+  traceStage(
+    opts,
+    "seedGeneration",
+    0,
+    [...seeds, ...lexHits, ...sparseHits],
+    candidateId,
+    undefined,
+    "the retrieval arms: dense seeds, lexical (BM25) and sparse. Absent here means no arm matched the note directly — graph expansion may still reach it.",
   );
   if (seeds.length === 0 && lexHits.length === 0 && sparseHits.length === 0)
     return { results: [], finalTopK, routedToSeedsOnly: false, expansionTruncated: false };
@@ -216,7 +302,35 @@ async function graphSearchCore(
     expansionChunks = r.expansionChunks;
     expSimById = r.expSimById;
     expansionTruncated = r.truncated;
-  } else if (onStageMetric) {
+    // THE-632: without this, absence at candidateAssembly could not distinguish "the graph walk
+    // never reached this note" from "it reached it and dropped it on the similarity threshold, the
+    // hub-degree cap, a per-seed cap, or the global expansion cap". The summary previously claimed
+    // "not retrieved by any arm", which is stronger than the evidence supported.
+    traceStage(
+      opts,
+      "graphExpansion",
+      seedPaths.length,
+      expansionChunks,
+      candidateId,
+      undefined,
+      expansionTruncated
+        ? "expansion found MORE qualifying candidates than the caps kept — absence here may be truncation rather than distance"
+        : "the links_to walk from the seed notes; absence here means the walk did not reach the note, or it was cut by the similarity threshold or a hub/per-seed cap",
+    );
+  } else {
+    // Router skipped expansion entirely (seeds judged strong enough). A trace that omitted this
+    // would leave the reader inferring a drop where no stage ever ran.
+    traceStage(
+      opts,
+      "graphExpansion",
+      seedPaths.length,
+      [],
+      candidateId,
+      undefined,
+      "SKIPPED — the seed-strength router judged the seeds strong enough and never ran expansion. Absence here is a deliberate decision, not a coverage gap.",
+    );
+  }
+  if (routedToSeedsOnly && onStageMetric) {
     onStageMetric({
       stage: "graphExpansion",
       candidatesIn: seedPaths.length,
@@ -262,6 +376,17 @@ async function graphSearchCore(
       out: (r) => contentBytes(r.candidates),
     },
   );
+  traceStage(
+    opts,
+    "candidateAssembly",
+    seeds.length + expansionChunks.length + lexHits.length + sparseHits.length,
+    candidates,
+    candidateId,
+    undefined,
+    // The single most valuable answer, and the one a score-oriented design cannot give: a note that
+    // never became a candidate has no score at any later stage to explain its absence.
+    "absent here means the note never entered the candidate pool — no later stage can score it",
+  );
   if (candidates.length === 0)
     return { results: [], finalTopK, routedToSeedsOnly, expansionTruncated };
 
@@ -302,6 +427,8 @@ async function graphSearchCore(
     onStageMetric,
   );
 
+  traceStage(opts, "scoreFusion", candidates.length, fused, candidateId, scoreOfWithPrior);
+
   if (fusionMode === "graph_rrf" || isConvex) {
     // Stage: diversity (note-collapse, cluster cap, MMR). THE-585 (#12): this is the top-K cut
     // the ticket names — `fused` carries every hydrated candidate; `capped` is what survives.
@@ -323,6 +450,16 @@ async function graphSearchCore(
       onStageMetric,
       { in: contentBytes(capped), out: (r) => contentBytes(r) },
     );
+    traceStage(
+      opts,
+      "diversity",
+      fused.length,
+      capped,
+      candidateId,
+      scoreOfWithPrior,
+      "the top-K cut: note-collapse (diversify.maxPerNote), cluster cap, then MMR",
+    );
+    traceStage(opts, "gatedRerank", capped.length, gated, candidateId, undefined);
     return { results: gated, finalTopK, routedToSeedsOnly, expansionTruncated };
   }
 

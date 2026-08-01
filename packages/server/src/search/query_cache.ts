@@ -260,13 +260,39 @@ const FUNCTION_FIELDS = [
   "onVecFallback",
   "onCoverage",
   "onRerankOutcome",
+  // THE-632 — onRetrievalTrace: diagnose_retrieval's per-note trace sink. Same reasoning as every
+  // sink above: it is a pure side-channel that cannot change results, so two calls differing only
+  // in it must share a cache entry.
+  "onRetrievalTrace",
 ] as const;
+
+/** THE-632: `traceNotePath` selects which note the trace FOLLOWS. It never filters, boosts or
+ *  reorders — results are byte-identical with it set, unset, or pointed at a different note.
+ *
+ *  CORRECTION (cross-vendor review): an earlier version of this comment said the field was
+ *  "deliberately UNKEYED". It is not. `graphSearchKey` deletes only DERIVED_VECTOR_FIELDS and
+ *  normalizes `reranker`; FUNCTION_FIELDS drop out because JSON serialization discards functions,
+ *  but `traceNotePath` is a STRING and therefore lands in the key. This list is the declaration of
+ *  intent that the coverage gate reads, not a filter the key applies.
+ *
+ *  That mismatch is inert rather than wrong: `cachedGraphSearch` bypasses the cache outright
+ *  whenever tracing is set, so the fragmenting entries the comment worried about are never written.
+ *  Anyone making tracing cacheable must strip this field in `graphSearchKey` as well as listing it
+ *  here — listing it here alone does nothing.
+ *
+ *  The cache-HIT caveat bites harder here than for the sinks, so it is written down rather than
+ *  left to be rediscovered: a hit returns the cached results WITHOUT running the pipeline, so no
+ *  trace records are produced and the caller sees an empty trace for a search that "worked". That
+ *  is why `diagnose_retrieval` calls `graphSearch` DIRECTLY and never `cachedGraphSearch`. Anyone
+ *  wiring tracing into the cached path must handle that explicitly — a silently empty trace reads
+ *  as "the note was never anywhere", which is a wrong answer, not a missing one. */
+const TRACE_SELECTOR_FIELDS = ["traceNotePath"] as const;
 
 /** Fields excluded from the key because they are derived from (query text, representation), both
  *  of which the key already carries — see the header note on circularity. */
 const DERIVED_VECTOR_FIELDS = ["queryVec", "querySparse", "queryColbert"] as const;
 
-export { DERIVED_VECTOR_FIELDS, FUNCTION_FIELDS };
+export { DERIVED_VECTOR_FIELDS, FUNCTION_FIELDS, TRACE_SELECTOR_FIELDS };
 
 /**
  * Fold an arbitrary value into a hash, deterministically and injectively.
@@ -458,7 +484,13 @@ export async function cachedGraphSearch(
   embed: () => Promise<QueryVectors>,
   cache?: QueryCacheContext,
 ): Promise<GraphSearchResult[]> {
-  if (!cache) {
+  // THE-632: tracing STRUCTURALLY bypasses the result cache. A cache hit returns stored results
+  // without running the pipeline, so no trace records are produced and the caller receives an
+  // EMPTY trace for a search that "worked" — which reads as "the note was never anywhere", a wrong
+  // answer rather than a missing one. diagnose_retrieval calls graphSearch directly today, so this
+  // never fires; it exists so the guarantee is enforced by the code rather than by remembering.
+  // Bypassing (not throwing) keeps a future caller correct instead of broken.
+  if (!cache || base.traceNotePath !== undefined) {
     const v = await embed();
     return graphSearch(db, { ...base, ...v });
   }

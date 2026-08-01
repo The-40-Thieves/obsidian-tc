@@ -25,6 +25,7 @@ import {
   FUNCTION_FIELDS,
   graphSearchKey,
   type QueryCacheBinding,
+  TRACE_SELECTOR_FIELDS,
 } from "../src/search/query_cache";
 
 const TYPES_SRC = fileURLToPath(
@@ -151,6 +152,9 @@ describe("THE-497 graph-search cache key covers every option", () => {
       ...MUTATIONS.map(([name]) => name),
       ...FUNCTION_FIELDS,
       ...DERIVED_VECTOR_FIELDS,
+      // THE-632: selects WHICH note the trace follows; never changes results, so unkeyed. See
+      // TRACE_SELECTOR_FIELDS in query_cache.ts for the cache-HIT caveat that comes with it.
+      ...TRACE_SELECTOR_FIELDS,
       "reranker",
     ]);
     const unaccounted = [...declared].filter((f) => !accounted.has(f));

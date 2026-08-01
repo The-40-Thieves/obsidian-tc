@@ -169,6 +169,37 @@ export const ReflectOutput = z.object({
 /** vault_graph_search: `route` appears only on the lexical arm; hyde/variants_used are spread in
  *  conditionally. Kept as one object with optionals rather than a union, because the two arms
  *  differ only by which optional keys are present. */
+/** THE-632: one pipeline stage's answer for the traced note. `score`/`rank` are OPTIONAL because
+ *  stages that do not produce them omit them rather than reporting 0 — an invented zero reads as
+ *  "scored terribly" when the truth is "not scored at this stage". */
+export const RetrievalTraceStageSchema = z.object({
+  stage: z.string(),
+  present: z.boolean(),
+  chunks_present: z.number(),
+  candidates_in: z.number(),
+  candidates_out: z.number(),
+  score: z.number().optional(),
+  rank: z.number().optional(),
+  note: z.string().optional(),
+});
+
+/** THE-632: diagnose_retrieval's envelope. `returned` is the plain answer to the question asked;
+ *  `dropped_at` names the FIRST stage where the note stopped being present, which is the actionable
+ *  part — everything after it is downstream of the real cause. */
+export const DiagnoseRetrievalOutput = z.object({
+  vault: z.string(),
+  query: z.string(),
+  path: z.string(),
+  returned: z.boolean(),
+  /** null when the note was returned, or when it was never a candidate at all (in which case the
+   *  first stage already reports present:false and there is no "drop" to locate). */
+  dropped_at: z.string().nullable(),
+  /** A plain-language reading of the trace. Never remediation advice — that needs counterfactual
+   *  scoring and is deliberately out of v1 scope. */
+  summary: z.string(),
+  stages: z.array(RetrievalTraceStageSchema),
+});
+
 export const VaultGraphSearchOutput = z.object({
   vault: z.string(),
   mode_used: z.enum(["lexical-route", "graph"]),

@@ -6,7 +6,7 @@
 import type { ColbertMatrix } from "../colbert";
 import type { OnRerankOutcome, Reranker } from "../rerank";
 import type { SparseVec } from "../sparse";
-import type { OnStageMetric } from "./instrumentation";
+import type { OnRetrievalTrace, OnStageMetric } from "./instrumentation";
 
 // THE-398: "convex" fuses per-query min-max-NORMALIZED raw stream scores instead of ranks (Bruch
 // et al., arXiv:2210.11934) — it preserves the dense model's confidence margins where RRF sees
@@ -210,6 +210,16 @@ export interface GraphSearchOptions {
    *  -> no behavior change. Under multi-query fan-out (multi_query.ts) this fires once per
    *  variant; the last call wins, mirroring onFusionWeights' existing precedent. */
   onCoverage?: (coverage: CoverageEstimate) => void;
+  /** THE-632: vault-relative path to FOLLOW through the pipeline. Additive and
+   *  observability-only, on the same "pure side-channel" contract as onCoverage above — it never
+   *  filters, boosts, or reorders anything, and the returned results are byte-identical with and
+   *  without it. Default undefined -> the tracing branches are skipped entirely, so normal search
+   *  pays one `!== undefined` per stage and nothing else. Diagnostics ride the SAME pipeline
+   *  rather than a parallel one, because a debug path that drifts from production answers a
+   *  question about itself. */
+  traceNotePath?: string;
+  /** THE-632: receives one RetrievalTraceRecord per stage while `traceNotePath` is set. */
+  onRetrievalTrace?: OnRetrievalTrace;
   /** additive, observability-only: fired once per rerankWithScores decision point —
    *  score_merge/rrf_rerank's direct call, and gatedRerank's call OR its policy-skip fallthrough
    *  (see rerank_stage.ts) — with WHY the returned ranking is what it is (see RerankOutcome's doc

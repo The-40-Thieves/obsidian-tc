@@ -1,6 +1,6 @@
 # Tool Reference
 
-**151 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
+**152 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
 
 Every tool carries four annotations enforced by the dispatch pipeline: **acl** (`read` / `write` / `delete` / `execute` / `admin`), **hitl** (`never` / `required` / conditional), **idem** (`pure` / `natural` / `keyed` / `non-idem`), and **ratelimit** (`read` / `write` / `bulk`). See **[[Security and ACL]]**.
 
@@ -77,7 +77,7 @@ Every error also carries a **`recovery`** string: bounded next-step guidance for
 _Auto-generated from the tool registry — the exhaustive, always-current list. Run `bun run docgen:render`; do not hand-edit between the markers._
 
 <!-- BEGIN GENERATED: tools -->
-_151 tools. Access is a coarse hint; the required scopes are authoritative._
+_152 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -103,6 +103,7 @@ _151 tools. Access is a coarse hint; the required scopes are authoritative._
 | `create_periodic_note` | write | `write:periodic` | Create the periodic note for a period + date using the configured (or overridden) template. Fails if it already exists. Set expand_template=true to expand the template through Templater (requires write:templater; degrades to a verbatim copy when the companion/plugin is unavailable). |
 | `delete_attachment` | destructive | `delete:attachments` | Delete an attachment (to the vault's .trash mirror, or permanently). Destructive — requires confirmation. Reports notes that still reference it. |
 | `delete_note` | destructive | `delete:notes` | Delete a note (to the vault's .trash mirror, or permanently). Destructive — requires confirmation. restore_note reads its undo from a snapshot, which is captured only when the server's snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so a deleted note has a restore_note path back unless snapshots have been explicitly disabled. |
+| `diagnose_retrieval` | read | `read:notes` | Explain why a specific note was or was not returned for a query. Re-runs the retrieval pipeline with per-stage tracing and reports, for that one note, where it was present, its score and rank where a stage produces them, and the first stage that dropped it. Read-only and non-mutating; reports nothing about paths the caller cannot read. |
 | `end_session` | write | `write:workspace` | Finalize a workspace session, appending a session_end record to its JSONL trace. |
 | `enqueue_capture` | write | `write:capture` | Stage content in the SQLite capture queue for later commit to the vault (no vault write at enqueue time). |
 | `eval_dataview_field` | read | `read:dataview` | Evaluate a Dataview field expression against a single note (useful for property derivation). |
