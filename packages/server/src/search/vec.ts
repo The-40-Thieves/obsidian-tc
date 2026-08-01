@@ -13,7 +13,10 @@ const requireFromHere = createRequire(import.meta.url);
 
 // Encode a JS number[] as a little-endian float32 BLOB — the on-disk wire format
 // shared by sqlite-vec's vec0 columns and the brute-force scan in search/semantic.
-export function floatBlob(vector: number[]): Uint8Array {
+// THE-687: ArrayLike<number>, not number[] — `Float32Array.from` already accepts any ArrayLike, so
+// a Float32Array (what every caller that just decoded a row is holding) was rejected by the
+// signature while working perfectly at runtime. Surfaced once bun-smoke joined the typechecker.
+export function floatBlob(vector: ArrayLike<number>): Uint8Array {
   return new Uint8Array(Float32Array.from(vector).buffer);
 }
 

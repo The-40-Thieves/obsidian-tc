@@ -63,7 +63,9 @@ test("sqlite-vec loads under bun:sqlite and vec0 recall ranks by cosine", async 
   const hits = semanticSearch(db, "v", q ?? [], { k: 3, returnContent: true });
   expect(hits.length).toBe(3);
   // notes containing "lazy dog" outrank the unrelated weather note
-  expect(["fox.md", "dog.md"]).toContain(hits[0]?.path);
+  const [top] = hits;
+  if (!top) throw new Error("expected a top hit — hits.length was asserted 3 above");
+  expect(["fox.md", "dog.md"]).toContain(top.path);
   expect(hits[hits.length - 1]?.path).toBe("weather.md");
   // cosine similarity is in range and descending
   expect(hits[0]?.score).toBeGreaterThan(hits[2]?.score ?? 1);
