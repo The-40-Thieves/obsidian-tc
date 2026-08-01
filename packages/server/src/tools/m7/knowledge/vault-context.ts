@@ -277,7 +277,9 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           });
         }
         if (lessons.length < 5) {
-          for (const h of bm25Chunks(ctx.db, v.id, query, 40)) {
+          // THE-632: ACL in, so unreadable chunks cannot consume slots of the 40 before the
+          // lesson-path filter runs. The readableRel check below stays as defense-in-depth.
+          for (const h of bm25Chunks(ctx.db, v.id, query, 40, (p) => readableRel(ctx.acl, p))) {
             if (lessons.length >= 5) break;
             if (seen.has(h.chunk_id) || !LESSON_PATH_RE.test(h.path)) continue;
             if (!readableRel(ctx.acl, h.path)) continue;

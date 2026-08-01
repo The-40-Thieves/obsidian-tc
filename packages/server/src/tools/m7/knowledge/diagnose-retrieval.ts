@@ -65,11 +65,24 @@ export function summarize(
   // Never a candidate: the most common real answer, and the one that has no score anywhere to
   // explain it. Distinguished from "was a candidate and got cut" because the fixes differ —
   // indexing/embedding vs ranking.
+  //
+  // The claim is now bounded by what was actually traced. It used to assert "not retrieved by any
+  // arm" from absence at candidateAssembly alone, which cross-vendor review showed is stronger
+  // than the evidence: expansion may have reached the note and dropped it on a threshold or cap.
+  // seedGeneration and graphExpansion are traced now, so the arms that were genuinely checked can
+  // be named — and only those.
   if (first && !first.present) {
+    const checked = records
+      .filter((r) => !r.present && (r.stage === "seedGeneration" || r.stage === "graphExpansion"))
+      .map((r) => r.stage);
+    const arms =
+      checked.length > 0
+        ? ` Absent at: ${checked.join(", ")} — see each stage's note below for what that rules out.`
+        : "";
     return {
       returned: false,
       droppedAt: first.stage,
-      summary: `${path} never entered the candidate pool at ${first.stage}, so no later stage ever scored it. It was not retrieved by any arm (dense seeds, lexical, sparse, or graph expansion) — check that the note is indexed and that the query shares vocabulary or a link path with it.`,
+      summary: `${path} never entered the candidate pool, so no later stage ever scored it.${arms} Check that the note is indexed and that the query shares vocabulary or a link path with it.`,
     };
   }
   const dropIdx = records.findIndex((r) => !r.present);
@@ -118,21 +131,19 @@ export function createDiagnoseRetrievalTool(
       const rel = normalizeVaultPath(input.path);
       const records: RetrievalTraceRecord[] = [];
 
-      // ACL, stated up front rather than left to the pipeline's own filtering. An unreadable path
-      // takes the SAME branch as one that never matched, so the response cannot be used to probe
-      // for a note's existence — see this file's header.
-      if (!readableRel(ctx.acl, rel)) {
-        return {
-          vault: v.id,
-          query: input.query,
-          path: rel,
-          returned: false,
-          dropped_at: null,
-          summary: `${rel} never entered the candidate pool, so no later stage ever scored it. It was not retrieved by any arm — check that the note is indexed and that the query shares vocabulary or a link path with it.`,
-          stages: [],
-        };
-      }
-
+      // NO early return for an unreadable path — deliberately, and this is the second version of
+      // this code. The first short-circuited with a hand-written "never a candidate" envelope, and
+      // cross-vendor review showed that was trivially distinguishable from a genuinely-unmatched
+      // readable path: `stages: []` instead of real records, a summary missing the arm-list
+      // parenthetical, no embedding call (so far lower latency), and during a provider outage a
+      // clean error oracle — readable paths error, unreadable ones return success.
+      //
+      // Running the SAME pipeline is what makes the two observationally equivalent, and it is only
+      // sound because every arm is now ACL-filtered AT QUERY TIME (seed_generation threads
+      // isReadable into the dense, lexical and sparse arms; graph expansion filters in its walk).
+      // An unreadable note is therefore genuinely absent from every traced array, and produces the
+      // real never-a-candidate answer rather than a manufactured one. Padding the response or
+      // adding an artificial delay would not have worked: the error behaviour would still differ.
       const vectors = await retrieval.embedAll(input.query, input.query);
       const options = buildGraphSearchOptions(deps, {
         route: { class: "standard" },

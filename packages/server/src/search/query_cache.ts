@@ -476,7 +476,13 @@ export async function cachedGraphSearch(
   embed: () => Promise<QueryVectors>,
   cache?: QueryCacheContext,
 ): Promise<GraphSearchResult[]> {
-  if (!cache) {
+  // THE-632: tracing STRUCTURALLY bypasses the result cache. A cache hit returns stored results
+  // without running the pipeline, so no trace records are produced and the caller receives an
+  // EMPTY trace for a search that "worked" — which reads as "the note was never anywhere", a wrong
+  // answer rather than a missing one. diagnose_retrieval calls graphSearch directly today, so this
+  // never fires; it exists so the guarantee is enforced by the code rather than by remembering.
+  // Bypassing (not throwing) keeps a future caller correct instead of broken.
+  if (!cache || base.traceNotePath !== undefined) {
     const v = await embed();
     return graphSearch(db, { ...base, ...v });
   }

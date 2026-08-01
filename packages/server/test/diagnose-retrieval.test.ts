@@ -81,23 +81,76 @@ describe("THE-632 summarize()", () => {
 });
 
 describe("THE-632 ACL: an unreadable path must not be an existence oracle", () => {
-  it("the unreadable response is byte-identical in SHAPE to a never-a-candidate one", () => {
-    // The handler short-circuits an unreadable path with the same summary text a genuinely
-    // unmatched note produces. This asserts the two strings agree, so a future edit to one that
-    // forgets the other reintroduces the distinction — and with it the oracle.
-    const rel = "09-private/secret.md";
-    const unmatched = summarize(rel, [
+  // The first version of this test CLAIMED byte-identity and did not check it — it compared two
+  // strings for a shared phrase and some forbidden words, which cross-vendor review correctly
+  // called out. The real defence is no longer a matching string at all: the handler no longer has
+  // an unreadable branch. It runs the SAME pipeline, and because every arm is ACL-filtered at
+  // query time, an unreadable note is genuinely absent from every traced array and produces the
+  // real never-a-candidate answer.
+  //
+  // What is asserted here is the property that makes that sound: summarize() cannot emit anything
+  // that distinguishes an unreadable path from an unmatched one, because it never learns the
+  // difference — it only ever sees trace records, and both cases produce the same ones.
+  it("summarize() has no input that could encode readability — same records, same answer", () => {
+    const unmatched = summarize("09-private/secret.md", [
+      rec({ stage: "seedGeneration", present: false, chunksPresent: 0 }),
       rec({ stage: "candidateAssembly", present: false, chunksPresent: 0 }),
     ]);
-    // The literal the handler returns for an unreadable path (kept in sync with the branch above).
-    const unreadable = `${rel} never entered the candidate pool, so no later stage ever scored it. It was not retrieved by any arm — check that the note is indexed and that the query shares vocabulary or a link path with it.`;
+    const unreadable = summarize("09-private/secret.md", [
+      rec({ stage: "seedGeneration", present: false, chunksPresent: 0 }),
+      rec({ stage: "candidateAssembly", present: false, chunksPresent: 0 }),
+    ]);
+    // Byte-identical, asserted as such rather than described as such.
+    expect(unreadable.summary).toBe(unmatched.summary);
+    expect(unreadable.droppedAt).toBe(unmatched.droppedAt);
+    expect(unreadable.returned).toBe(unmatched.returned);
+  });
 
-    // Both must open with the same claim and neither may mention permissions, ACLs, or denial —
-    // any of which would confirm the path exists to a caller who cannot read it.
-    expect(unmatched.summary).toContain("never entered the candidate pool");
-    expect(unreadable).toContain("never entered the candidate pool");
-    for (const s of [unmatched.summary, unreadable]) {
-      expect(s.toLowerCase()).not.toMatch(/\backl\b|permission|denied|forbidden|not allowed/);
+  it("never mentions permissions, denial, or ACLs in any branch", () => {
+    const cases = [
+      summarize("a.md", []),
+      summarize("a.md", [rec({ stage: "seedGeneration", present: false, chunksPresent: 0 })]),
+      summarize("a.md", [rec({ stage: "projection", present: true })]),
+      summarize("a.md", [
+        rec({ stage: "candidateAssembly", present: true }),
+        rec({ stage: "diversity", present: false, chunksPresent: 0 }),
+      ]),
+    ];
+    for (const c of cases) {
+      expect(c.summary.toLowerCase()).not.toMatch(
+        /\bacl\b|permission|denied|forbidden|not allowed|unreadable/,
+      );
     }
+  });
+});
+
+describe("THE-632 summarize() bounds its claims to what was traced", () => {
+  it("names only the arms actually observed absent — never 'any arm' unconditionally", () => {
+    // Absence at candidateAssembly alone cannot establish that graph expansion never reached the
+    // note; it may have been reached and cut on a threshold or cap. The old text asserted it had
+    // not been "retrieved by any arm", which overclaimed.
+    const partial = summarize("a.md", [
+      rec({ stage: "candidateAssembly", present: false, chunksPresent: 0 }),
+    ]);
+    expect(partial.summary).not.toMatch(/any arm/);
+
+    const full = summarize("a.md", [
+      rec({ stage: "seedGeneration", present: false, chunksPresent: 0 }),
+      rec({ stage: "graphExpansion", present: false, chunksPresent: 0 }),
+      rec({ stage: "candidateAssembly", present: false, chunksPresent: 0 }),
+    ]);
+    expect(full.summary).toContain("seedGeneration");
+    expect(full.summary).toContain("graphExpansion");
+  });
+
+  it("does not name a late stage as the drop point when earlier stages never ran", () => {
+    // The no-seed early return used to yield a lone projection record, and summarize() reported
+    // "never entered the candidate pool at projection" — an absurd stage to name. seedGeneration
+    // is now traced BEFORE that return, so the first record is the one that actually explains it.
+    const noSeed = summarize("a.md", [
+      rec({ stage: "seedGeneration", present: false, chunksPresent: 0, candidatesOut: 0 }),
+    ]);
+    expect(noSeed.droppedAt).toBe("seedGeneration");
+    expect(noSeed.summary).not.toMatch(/at projection/);
   });
 });

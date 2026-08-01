@@ -170,18 +170,26 @@ function traceStage<T>(
       score = scoreOf?.(item);
     }
   }
-  emit({
-    stage,
-    present: chunksPresent > 0,
-    chunksPresent,
-    candidatesIn,
-    candidatesOut: out.length,
-    // Omitted, never defaulted to 0 — an invented zero reads as "scored terribly" rather than
-    // "this stage does not score".
-    ...(score !== undefined ? { score } : {}),
-    ...(rank !== undefined ? { rank } : {}),
-    ...(note !== undefined ? { note } : {}),
-  });
+  // Exception-isolated. Cross-vendor review caught that an unguarded emit() made the "pure
+  // side-channel" claim false in one direction: a throwing callback turned a SUCCESSFUL search
+  // into an error. A diagnostic that can break the thing it observes is not a side-channel, and
+  // this mirrors how deps.observability.meter is guarded on the dispatch path.
+  try {
+    emit({
+      stage,
+      present: chunksPresent > 0,
+      chunksPresent,
+      candidatesIn,
+      candidatesOut: out.length,
+      // Omitted, never defaulted to 0 — an invented zero reads as "scored terribly" rather than
+      // "this stage does not score".
+      ...(score !== undefined ? { score } : {}),
+      ...(rank !== undefined ? { rank } : {}),
+      ...(note !== undefined ? { note } : {}),
+    });
+  } catch {
+    /* a trace sink must never break the search it is observing */
+  }
 }
 
 const candidateId = (c: { chunk_id: string; path: string }): { path: string; id: string } => ({
@@ -228,6 +236,21 @@ async function graphSearchCore(
     () => generateSeeds({ db, opts, seedCount }),
     (r) => r.seeds.length + r.lexHits.length + r.sparseHits.length,
     onStageMetric,
+  );
+  // THE-632: traced BEFORE the early return below, so the no-seed case produces a REAL record
+  // instead of an empty trace. Cross-vendor review found the previous arrangement misdiagnosed it:
+  // graphSearchCore returned early while graphSearch still traced projection, so summarize() saw a
+  // single projection record and reported "never entered the candidate pool at projection" — an
+  // absurd stage to name. All three arms are ACL-filtered at query time (seed_generation), so this
+  // count never includes a chunk the caller cannot read.
+  traceStage(
+    opts,
+    "seedGeneration",
+    0,
+    [...seeds, ...lexHits, ...sparseHits],
+    candidateId,
+    undefined,
+    "the retrieval arms: dense seeds, lexical (BM25) and sparse. Absent here means no arm matched the note directly — graph expansion may still reach it.",
   );
   if (seeds.length === 0 && lexHits.length === 0 && sparseHits.length === 0)
     return { results: [], finalTopK, routedToSeedsOnly: false, expansionTruncated: false };
@@ -279,7 +302,35 @@ async function graphSearchCore(
     expansionChunks = r.expansionChunks;
     expSimById = r.expSimById;
     expansionTruncated = r.truncated;
-  } else if (onStageMetric) {
+    // THE-632: without this, absence at candidateAssembly could not distinguish "the graph walk
+    // never reached this note" from "it reached it and dropped it on the similarity threshold, the
+    // hub-degree cap, a per-seed cap, or the global expansion cap". The summary previously claimed
+    // "not retrieved by any arm", which is stronger than the evidence supported.
+    traceStage(
+      opts,
+      "graphExpansion",
+      seedPaths.length,
+      expansionChunks,
+      candidateId,
+      undefined,
+      expansionTruncated
+        ? "expansion found MORE qualifying candidates than the caps kept — absence here may be truncation rather than distance"
+        : "the links_to walk from the seed notes; absence here means the walk did not reach the note, or it was cut by the similarity threshold or a hub/per-seed cap",
+    );
+  } else {
+    // Router skipped expansion entirely (seeds judged strong enough). A trace that omitted this
+    // would leave the reader inferring a drop where no stage ever ran.
+    traceStage(
+      opts,
+      "graphExpansion",
+      seedPaths.length,
+      [],
+      candidateId,
+      undefined,
+      "SKIPPED — the seed-strength router judged the seeds strong enough and never ran expansion. Absence here is a deliberate decision, not a coverage gap.",
+    );
+  }
+  if (routedToSeedsOnly && onStageMetric) {
     onStageMetric({
       stage: "graphExpansion",
       candidatesIn: seedPaths.length,

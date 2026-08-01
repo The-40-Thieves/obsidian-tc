@@ -162,10 +162,40 @@ export interface LexicalHit {
  * then contributes nothing and graph_search behaves as dense-only. `rank` is the raw bm25 score
  * (RRF ranks by position, not this value; kept for debugging / score_merge).
  */
-export function bm25Chunks(db: Database, vaultId: string, query: string, k: number): LexicalHit[] {
+/**
+ * THE-632 (security): `isReadable` applies the read ACL BEFORE the top-k cut.
+ *
+ * candidate_assembly does filter unreadable hits out of the returned set, but by then they have
+ * already been counted and have already occupied slots in this array. Two consequences, and the
+ * first is a disclosure bug rather than a recall one:
+ *
+ *   - any aggregate derived from this array leaks the existence of unreadable content. A
+ *     diagnostic reporting candidate counts turns into a cross-ACL membership oracle: query a rare
+ *     term, watch the count move, learn the term appears in a note you cannot read.
+ *   - unreadable chunks crowd out readable ones inside the SQL LIMIT, so a caller can lose real
+ *     hits to notes they are not allowed to see.
+ *
+ * THE-287 established exactly this for the dense arm (semantic.ts over-fetches, then filters, then
+ * falls back to an exhaustive scan). The lexical and sparse arms never received the same treatment.
+ *
+ * FTS ranks and limits in SQL, so the fix is the same shape: over-fetch by the THE-287 factor,
+ * filter in JS, then cut. A vault whose ACL hides more than ~95% of matches can still underfill —
+ * that is a recall limit, not a leak, and it fails CLOSED (fewer hits, never someone else's).
+ */
+export function bm25Chunks(
+  db: Database,
+  vaultId: string,
+  query: string,
+  k: number,
+  isReadable?: (path: string) => boolean,
+): LexicalHit[] {
   if (k <= 0) return [];
   const match = chunkFtsMatch(query);
   if (match === null) return [];
+  const readable = isReadable ?? (() => true);
+  // Same constant as semantic.ts's KNN over-fetch, deliberately — one number to reason about when
+  // asking "how hidden can a vault be before an arm underfills?".
+  const overFetch = isReadable ? k * 20 + 50 : k;
   try {
     // THE-406: match/rank on chunk_fts.content (context-enriched when embeddings.chunkContext is
     // on) but RETURN chunks.content — the raw display text — so enrichment never leaks into
@@ -174,7 +204,9 @@ export function bm25Chunks(db: Database, vaultId: string, query: string, k: numb
       .prepare(
         "SELECT chunk_fts.chunk_id AS chunk_id, chunk_fts.path AS path, chunks.content AS content, bm25(chunk_fts) AS rank FROM chunk_fts JOIN chunks ON chunks.id = chunk_fts.chunk_id WHERE chunk_fts.vault_id = ? AND chunk_fts MATCH ? ORDER BY rank LIMIT ?",
       )
-      .all(vaultId, match, k) as LexicalHit[];
+      .all(vaultId, match, overFetch)
+      .filter((r) => readable((r as LexicalHit).path))
+      .slice(0, k) as LexicalHit[];
   } catch {
     return [];
   }

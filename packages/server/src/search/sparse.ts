@@ -93,8 +93,12 @@ export function sparseSearch(
   vaultId: string,
   query: SparseVec,
   k: number,
+  /** THE-632: the read ACL, applied BEFORE the top-k cut. Omitted -> no filtering (unchanged).
+   *  See the security note on the filter below for why this must not be left to a later stage. */
+  isReadable?: (path: string) => boolean,
 ): SparseHit[] {
   if (k <= 0 || Object.keys(query).length === 0) return [];
+  const readable = isReadable ?? (() => true);
   let rows: Array<{ chunk_id: string; path: string; content: string; weights: string }>;
   try {
     rows = db
@@ -107,6 +111,15 @@ export function sparseSearch(
   }
   const scored: SparseHit[] = [];
   for (const r of rows) {
+    // THE-632 (security): filter HERE, before scoring and before the top-k slice — not in a later
+    // stage. candidate_assembly does filter these out of the returned set, but by then the
+    // unreadable hits have already been counted, and any aggregate derived from this array
+    // (candidate counts, a diagnostic's candidatesIn) leaks their existence. THE-287 established
+    // exactly this for the dense arm; the lexical and sparse arms never received it.
+    //
+    // This scan is exhaustive (no SQL LIMIT above), so filtering is exact: an unreadable chunk can
+    // neither crowd out a readable one nor influence the cut. No over-fetch needed.
+    if (!readable(r.path)) continue;
     let w: SparseVec;
     try {
       w = JSON.parse(r.weights) as SparseVec;

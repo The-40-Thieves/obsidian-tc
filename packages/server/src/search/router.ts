@@ -202,7 +202,16 @@ export function lexicalRouteResults(
   k: number,
   isReadable?: (path: string) => boolean,
 ): GraphSearchResult[] {
-  const hits = bm25Chunks(db, vaultId, query, Math.max(k * 2, k));
+  // THE-632: the ACL goes IN, so unreadable chunks never occupy slots inside the SQL limit and
+  // crowd out readable ones. The post-filter below stays as defense-in-depth — it is free, and a
+  // future caller that omits the argument must still fail closed.
+  const hits = bm25Chunks(
+    db,
+    vaultId,
+    query,
+    Math.max(k * 2, k),
+    ...(isReadable ? ([isReadable] as const) : ([] as const)),
+  );
   const out: GraphSearchResult[] = [];
   for (const h of hits) {
     if (isReadable && !isReadable(h.path)) continue;
