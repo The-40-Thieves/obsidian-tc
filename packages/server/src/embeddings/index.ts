@@ -1,40 +1,11 @@
-import { err } from "@the-40-thieves/obsidian-tc-shared";
-import { buildModelTierProvider } from "../model";
+import { resolveEmbeddings } from "../providers/registry";
+// EmbeddingsConfigLike now lives in providers/types.ts (see the comment there) — re-exported here
+// for compatibility since every existing caller imports it from this module.
+import type { EmbeddingsConfigLike } from "../providers/types";
 import type { FetchFn } from "./http";
-import { type EmbeddingProvider, type EmbedOptions, resolveApiKey } from "./provider";
-import {
-  bgeM3Provider,
-  cohereProvider,
-  ollamaProvider,
-  openaiProvider,
-  voyageProvider,
-} from "./providers";
-export interface EmbeddingsConfigLike {
-  provider: string;
-  model: string;
-  dimensions: number;
-  baseUrl?: string;
-  apiKey?: string;
-  /** GH #171: per-request embed timeout (ms). Undefined -> the postJson default. */
-  timeoutMs?: number;
-  /** THE-387: Matryoshka (MRL) truncation of a wider native output to `dimensions`. */
-  truncate?: boolean;
-  /** THE-405: asymmetric instruct prefixes (see config schema docs). Both default empty. */
-  queryPrefix?: string;
-  documentPrefix?: string;
-  /** #237: polyglot model tier — Qwen3 dense (Rust TEI) + BGE-M3 multi-vector (Python service).
-   *  Required when `provider === "model-tier"`. */
-  modelTier?: {
-    dense: { baseUrl: string; model?: string; revision?: string; pooling?: string };
-    full?: {
-      baseUrl: string;
-      model?: string;
-      revision?: string;
-      authToken?: string;
-      dimensions?: number;
-    };
-  };
-}
+import type { EmbeddingProvider, EmbedOptions } from "./provider";
+
+export type { EmbeddingsConfigLike } from "../providers/types";
 
 /** THE-405: prefix seam applied at the factory so EVERY provider shares it — embeds marked
  *  input:"query" get `queryPrefix`, everything else (indexing is the default path) gets
@@ -60,37 +31,9 @@ export function createEmbeddingProvider(
   opts: { fetchFn?: FetchFn; override?: EmbeddingProvider } = {},
 ): EmbeddingProvider {
   if (opts.override) return opts.override;
-  // The model tier owns its own (asymmetric) prefixing — Qwen Instruct on the dense query, BGE bare —
-  // so it bypasses the shared withPrefixes wrapper below.
-  if (cfg.provider === "model-tier") return buildModelTierProvider(cfg, { fetchFn: opts.fetchFn });
-  const apiKey = resolveApiKey(cfg.provider, cfg.apiKey);
-  const base = {
-    model: cfg.model,
-    dimensions: cfg.dimensions,
-    baseUrl: cfg.baseUrl,
-    apiKey,
-    fetchFn: opts.fetchFn,
-    timeoutMs: cfg.timeoutMs,
-    truncate: cfg.truncate,
-  };
-  const provider = (() => {
-    switch (cfg.provider) {
-      case "ollama":
-        return ollamaProvider(base);
-      case "openai":
-        return openaiProvider(base);
-      case "voyage":
-        return voyageProvider(base);
-      case "cohere":
-        return cohereProvider(base);
-      case "bge-m3":
-        return bgeM3Provider(base);
-      default:
-        throw err.invalidInput(`unknown embeddings provider: ${cfg.provider}`, {
-          provider: cfg.provider,
-        });
-    }
-  })();
+  const { provider, entry } = resolveEmbeddings(cfg, { fetchFn: opts.fetchFn });
+  // model-tier owns its own asymmetric prefixing and must not be double-wrapped.
+  if (entry.ownsPrefixing) return provider;
   const qp = cfg.queryPrefix ?? "";
   const dp = cfg.documentPrefix ?? "";
   return qp === "" && dp === "" ? provider : withPrefixes(provider, qp, dp);
