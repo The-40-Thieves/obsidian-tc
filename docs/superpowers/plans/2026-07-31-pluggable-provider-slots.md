@@ -437,23 +437,68 @@ The default stays `"ollama"`.
 Run: `cd packages/server && bun run test:local test/provider-registry-unknown-name.test.ts`
 Expected: PASS — 2 tests
 
-- [ ] **Step 5: Commit (docs and the docgen test are Task 7)**
+- [ ] **Step 5: Fix what this change breaks — same task, same commit**
 
-```bash
-cd ~/obsidian-tc && bun run config:schema
-git add packages/shared/src/config/indexing-embeddings.schema.ts docs/obsidian-tc.config.schema.json \
-        packages/server/test/provider-registry-unknown-name.test.ts
-git commit -s -m "feat: open embeddings.provider from a closed enum to a registry name
+Opening the enum breaks two things immediately. They are fixed here, not later, so no commit is ever
+red. (An earlier draft deferred them to a separate task and accepted a known-red window; that was
+the wrong shape — the task that breaks something fixes it.)
 
-Typo detection moves from Zod parse to registry resolve, which is only
-acceptable because the resolve error lists every registered name. Docs and
-docgen-config.test.ts still assert the closed enum — Task 7 fixes both, so CI
-is expected red between here and there."
+**5a — the docgen test's enum assertion.** `packages/server/test/docgen-config.test.ts:25` asserts:
+
+```ts
+    expect(byPath.get("embeddings.provider")?.type).toMatch(/^enum\(ollama\|/);
 ```
 
-> **Known-red window.** `docgen-config.test.ts:25` asserts `embeddings.provider` renders as
-> `enum(ollama|...)`, and three committed docs enumerate the list. Both are fixed in Task 7. If you
-> need each commit green, do Task 7 immediately after this one.
+That is now false by design. Replace that single line with:
+
+```ts
+    expect(byPath.get("embeddings.provider")).toMatchObject({ type: "string", default: "ollama" });
+```
+
+Leave the `auth.mode` assertion on line 24 untouched — it still renders as an enum, and keeping it
+is what proves the enum renderer itself did not regress.
+
+**5b — the three committed docs that print the closed list.**
+
+```bash
+cd ~/obsidian-tc
+bun run docgen:render > /tmp/dg.log 2>&1; echo "render=$?"
+bun run docgen:render -- --check > /tmp/dgc.log 2>&1; echo "check=$?"
+git diff --stat docs/
+```
+
+Expected: both `=0`. The diff touches `docs/wiki/Configuration.md` (~line 249) and
+`docs/src/content/docs/configuration/config-reference.md` (~line 100), which are marker-region
+generated. **`docs/wiki/Configuration.md` line 123 is hand-written prose** carrying
+`Providers: \`ollama | openai | voyage | cohere | bge-m3 | model-tier\`` — docgen will NOT touch it.
+Edit that sentence by hand to describe the registry and name the built-ins as examples rather than
+as an exhaustive set.
+
+- [ ] **Step 6: Verify green, then commit**
+
+```bash
+cd packages/server && bun run test:local test/provider-registry-unknown-name.test.ts test/docgen-config.test.ts > /tmp/t2.log 2>&1; echo "tests=$?"
+cd ~/obsidian-tc && bun run config:schema && bun run config:schema:check > /tmp/css.log 2>&1; echo "schema=$?"
+bun run docgen:facts-check > /tmp/facts.log 2>&1; echo "facts=$?"
+```
+
+Expected: every line `=0`.
+
+```bash
+git add packages/shared/src/config/indexing-embeddings.schema.ts docs/ \
+        packages/server/test/provider-registry-unknown-name.test.ts \
+        packages/server/test/docgen-config.test.ts
+git commit -s -m "feat: open embeddings.provider from a closed enum to a registry name
+
+The six enum values survive as registry keys, so no config migrates. Typo
+detection moves from Zod parse to registry resolve, which is only acceptable
+because the resolve error lists every registered name — the test asserts the
+listing, not just that it threw.
+
+Fixes what the change breaks in the same commit: docgen-config.test.ts asserted
+the provider renders as enum(ollama|...), and three committed docs enumerated
+the closed list."
+```
 
 ---
 
@@ -1215,59 +1260,59 @@ Does NOT wire RepresentationManifest: it still has no production producer."
 
 ---
 
-### Task 7: Regenerate the docs and stop `doctor` assuming the closed provider set
+### Task 7: Stop `doctor` inferring capability from hardcoded provider names
 
-Exists because opening the enum breaks a test and three committed docs, and because `doctor` derives
-its answers from hardcoded provider names.
+`doctor` answers two questions from a closed set of provider names, so every drop-in provider gets a
+wrong answer. (The docgen test and the three docs this used to also cover moved into Task 2, where
+the change that breaks them lives.)
 
 **Files:**
-- Modify: `packages/server/test/docgen-config.test.ts:25`, `packages/server/src/cli/commands/doctor.ts:68-80`
-- Regenerate: `docs/wiki/Configuration.md`, `docs/src/content/docs/configuration/config-reference.md`
+- Modify: `packages/server/src/cli/commands/doctor.ts:68-80`, `packages/server/src/doctor/checks.ts:10-56`
 - Test: `packages/server/test/doctor-generic-provider.test.ts`
 
-- [ ] **Step 1: Fix the docgen test's enum assertion**
+**Interfaces — verified, do not guess:** the export is
+`retrievalHeadsCheck(view: RetrievalHeadsView): Check` at `doctor/checks.ts:25`. `RetrievalHeadsView`
+(`checks.ts:11-19`) is `{ denseProvider, denseModel, denseDimensions, multiVector, sparseEnabled,
+colbertEnabled }`. Add one optional field to it; do not rename the function.
 
-`docgen-config.test.ts:25` asserts `byPath.get("embeddings.provider")?.type` matches
-`/^enum\(ollama\|/`. That is now false by design. Replace with:
-
-```ts
-    expect(byPath.get("embeddings.provider")).toMatchObject({ type: "string", default: "ollama" });
-```
-
-Leave the `auth.mode` enum assertion in the same test untouched — it still renders as an enum, and
-keeping it is what proves the enum renderer itself did not regress.
-
-- [ ] **Step 2: Write the doctor test**
+- [ ] **Step 1: Write the doctor test**
 
 ```ts
 // packages/server/test/doctor-generic-provider.test.ts
-// doctor derives multiVector from hardcoded provider names, so every drop-in provider reports
-// multiVector:false and a misleading reranker line. Both must key on capability, not on a name.
+// doctor derives multiVector and reranker readiness from hardcoded provider names, so every
+// drop-in provider reports multiVector:false and "reranking depends on the inference gateway"
+// even with a reranker block configured. Both must key on what is CONFIGURED, not on a name.
 import { describe, expect, it } from "vitest";
-import { retrievalDetails } from "../src/doctor/checks";
+import { retrievalHeadsCheck, type RetrievalHeadsView } from "../src/doctor/checks";
+
+const VIEW: RetrievalHeadsView = {
+  denseProvider: "openai-compatible", denseModel: "BAAI/bge-m3", denseDimensions: 1024,
+  multiVector: false, sparseEnabled: false, colbertEnabled: false,
+};
 
 describe("doctor with a generic provider", () => {
-  it("does not claim multi-vector for an unknown provider name", () => {
-    const d = retrievalDetails({
-      denseProvider: "openai-compatible", denseModel: "BAAI/bge-m3", denseDimensions: 1024,
-      multiVector: false, sparseEnabled: false, colbertEnabled: false,
-    });
-    expect(JSON.stringify(d)).not.toMatch(/model-tier \/ ColBERT rerank capable/);
+  it("does not claim model-tier rerank capability for an unknown provider name", () => {
+    const c = retrievalHeadsCheck(VIEW);
+    expect(JSON.stringify(c)).not.toMatch(/model-tier \/ ColBERT rerank capable/);
   });
 
-  it("reports a configured reranker instead of claiming gateway dependence", () => {
-    const d = retrievalDetails({
-      denseProvider: "openai-compatible", denseModel: "m", denseDimensions: 1024,
-      multiVector: false, sparseEnabled: false, colbertEnabled: false,
-      rerankerConfigured: "cohere-compatible",
-    });
-    expect(String(d.reranker)).toContain("cohere-compatible");
+  it("names a configured reranker instead of claiming gateway dependence", () => {
+    const c = retrievalHeadsCheck({ ...VIEW, rerankerConfigured: "cohere-compatible" });
+    expect(JSON.stringify(c)).toContain("cohere-compatible");
+    expect(JSON.stringify(c)).not.toMatch(/reranking depends on the inference gateway/);
+  });
+
+  it("still reports model-tier capability when it genuinely applies", () => {
+    const c = retrievalHeadsCheck({ ...VIEW, denseProvider: "model-tier", multiVector: true });
+    expect(JSON.stringify(c)).toMatch(/model-tier \/ ColBERT rerank capable/);
   });
 });
 ```
 
-Read `packages/server/src/doctor/checks.ts:30-56` first and adapt the import/call to the real
-exported shape — do not rename production code to match this test.
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd packages/server && bun run test:local test/doctor-generic-provider.test.ts`
+Expected: FAIL on test 2 — `RetrievalHeadsView` has no `rerankerConfigured` field yet.
 
 - [ ] **Step 3: Make doctor key on capability**
 
@@ -1290,43 +1335,27 @@ Then in `doctor/checks.ts`, prefer `view.rerankerConfigured` when present, and s
 branch to say multi-vector could not be determined from the provider name rather than that
 reranking depends on the gateway.
 
-- [ ] **Step 4: Regenerate the docs**
+- [ ] **Step 4: Run the tests**
 
 ```bash
-cd ~/obsidian-tc
-bun run docgen:render > /tmp/dg.log 2>&1; echo "render=$?"
-bun run docgen:render -- --check > /tmp/dgc.log 2>&1; echo "check=$?"
-git diff --stat docs/
+cd packages/server && bun run test:local test/doctor-generic-provider.test.ts test/doctor-checks.test.ts > /tmp/dgt.log 2>&1; echo "tests=$?"
 ```
 
-Expected: both `=0`, and the diff touches `docs/wiki/Configuration.md` (lines ~123 and ~249) and
-`docs/src/content/docs/configuration/config-reference.md` (~line 100), which currently print
-`enum(ollama|openai|voyage|cohere|bge-m3|model-tier)`. **Line 123 of Configuration.md is hand-written
-prose**, not a marker region — edit it by hand to describe the registry rather than a fixed list.
+Expected: `=0`. `doctor-checks.test.ts` is the existing suite for this module — it must still pass,
+since `rerankerConfigured` is optional and its absence must reproduce today's output exactly.
 
-- [ ] **Step 5: Run the gates**
+- [ ] **Step 5: Commit**
 
 ```bash
-cd packages/server && bun run test:local test/docgen-config.test.ts test/doctor-checks.test.ts test/doctor-generic-provider.test.ts > /tmp/dgt.log 2>&1; echo "tests=$?"
-cd ~/obsidian-tc && bun run docgen:facts-check > /tmp/facts.log 2>&1; echo "facts=$?"
-```
+git add packages/server/test/doctor-generic-provider.test.ts \
+        packages/server/src/cli/commands/doctor.ts packages/server/src/doctor/checks.ts
+git commit -s -m "fix: stop doctor inferring retrieval capability from provider names
 
-Expected: all `=0`.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add packages/server/test/docgen-config.test.ts packages/server/test/doctor-generic-provider.test.ts \
-        packages/server/src/cli/commands/doctor.ts packages/server/src/doctor/checks.ts docs/
-git commit -s -m "docs: regenerate config reference and stop doctor assuming the provider set
-
-Opening embeddings.provider broke docgen-config.test.ts's enum assertion and
-left three committed docs enumerating the closed list, which ci-docgen checks.
-
-doctor derived multiVector and reranker readiness from hardcoded provider
+doctor derived multiVector and reranker readiness from a closed set of provider
 names, so every drop-in provider reported multiVector:false and 'reranking
 depends on the inference gateway' even with a reranker block configured. It now
-reports what is configured rather than inferring from a name."
+reports what is configured rather than inferring from a name; an absent
+reranker block reproduces today's output exactly."
 ```
 
 ---
