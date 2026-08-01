@@ -1,13 +1,37 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   configFromVaultPath,
   parseCliArgs,
   redactConfig,
   resolveServeConfig,
 } from "../src/cli/args";
+import { rmTemp } from "./tmp";
+
+// THE-685: every temp dir this suite creates is tracked and removed. These calls previously had NO
+// teardown at all - a leak on every OS, invisible on POSIX (where /tmp is reaped) and unbounded on
+// Windows (where %TEMP% is not): 7,655 stale dirs measured on one box, this suite’s prefixes among
+// the largest contributors. Distinct from the teardown-that-FAILS class #627 fixes; that sweep is
+// derived from suites that already had teardown, so by construction it could not reach this one.
+const tmpDirs: string[] = [];
+const tmpDir = (prefix: string): string => {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  tmpDirs.push(d);
+  return d;
+};
+
+afterEach(() => {
+  for (const d of tmpDirs.splice(0)) {
+    try {
+      rmTemp(d);
+    } catch {
+      // Best-effort by design: a leaked temp dir is cheaper than failing a suite in TEARDOWN with
+      // every assertion passing - the exact shape #627 exists to remove.
+    }
+  }
+});
 
 describe("parseCliArgs doctor (THE-521)", () => {
   it("bare doctor -> doctor with json:false", () => {
@@ -89,7 +113,7 @@ describe("parseCliArgs", () => {
 
 describe("resolveServeConfig / configFromVaultPath", () => {
   it("a directory boots a single vault 'main'", () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-vault-"));
+    const dir = tmpDir("otc-vault-");
     const cfg = resolveServeConfig(dir);
     expect(cfg.vaults).toHaveLength(1);
     expect(cfg.vaults[0]?.id).toBe("main");
@@ -100,13 +124,13 @@ describe("resolveServeConfig / configFromVaultPath", () => {
     expect(cfg.cacheDir).toBe(join(homedir(), ".obsidian-tc"));
   });
   it("a config file is loaded as written", () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-cfg-"));
+    const dir = tmpDir("otc-cfg-");
     const file = join(dir, "c.json");
     writeFileSync(file, JSON.stringify({ vaults: [{ id: "v1", path: dir }] }));
     expect(resolveServeConfig(file).vaults[0]?.id).toBe("v1");
   });
   it("cacheDir: explicit absolute is preserved; relative is anchored to home", () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-cache-"));
+    const dir = tmpDir("otc-cache-");
     const abs = join(dir, "cache");
     writeFileSync(
       join(dir, "abs.json"),
@@ -125,7 +149,7 @@ describe("resolveServeConfig / configFromVaultPath", () => {
     );
   });
   it("configFromVaultPath fills schema defaults", () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-def-"));
+    const dir = tmpDir("otc-def-");
     const cfg = configFromVaultPath(dir);
     expect(cfg.auth.mode).toBe("none");
     expect(cfg.governor.maxResponseBytes).toBeGreaterThan(0);

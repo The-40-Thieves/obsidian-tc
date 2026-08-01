@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import type { Database } from "../src/db/types";
 import { getPrompt, listPrompts } from "../src/mcp/prompts";
@@ -14,6 +14,31 @@ import {
   readResource,
 } from "../src/mcp/resources";
 import { VaultRegistry } from "../src/vault/registry";
+import { rmTemp } from "./tmp";
+
+// THE-685: every temp dir this suite creates is tracked and removed. These calls previously had NO
+// teardown at all — a leak on every OS, invisible on POSIX (where /tmp is reaped) and unbounded on
+// Windows (where %TEMP% is not): 7,655 stale dirs measured on one box, this suite's prefixes among
+// the largest contributors. Distinct from the teardown-that-FAILS class #627 fixes; that sweep is
+// derived from suites that already had teardown, so by construction it could not reach this one.
+const tmpDirs: string[] = [];
+const tmpDir = (prefix: string): string => {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  tmpDirs.push(d);
+  return d;
+};
+
+afterEach(() => {
+  for (const d of tmpDirs.splice(0)) {
+    try {
+      rmTemp(d);
+    } catch {
+      // Best-effort by design: a leaked temp dir is cheaper than failing a suite in TEARDOWN with
+      // every assertion passing — the exact shape #627 exists to remove. Same posture as
+      // provider-module-threading.test.ts and scheduler.ts's cleanupReadOnlyDb.
+    }
+  }
+});
 
 // THE-514 item 2: readResource's maxResourceBytes is a REQUIRED parameter (mcp/server.ts's only
 // production caller always has a registry in scope, so there is no legitimate default). Tests not
@@ -22,7 +47,7 @@ import { VaultRegistry } from "../src/vault/registry";
 const DEFAULT_TEST_CEILING = 1_000_000;
 
 function tempVault(): VaultRegistry {
-  const dir = mkdtempSync(join(tmpdir(), "otc-res-"));
+  const dir = tmpDir("otc-res-");
   writeFileSync(join(dir, "alpha.md"), "# Alpha\nhello");
   mkdirSync(join(dir, "sub"));
   writeFileSync(join(dir, "sub", "beta.md"), "# Beta\nworld");
@@ -34,9 +59,9 @@ function tempVault(): VaultRegistry {
 
 /** A two-vault registry ("main" + "other"), each holding a distinct note, for cross-vault tests. */
 function tempMultiVault(): VaultRegistry {
-  const mainDir = mkdtempSync(join(tmpdir(), "otc-res-main-"));
+  const mainDir = tmpDir("otc-res-main-");
   writeFileSync(join(mainDir, "alpha.md"), "# Alpha\nhello");
-  const otherDir = mkdtempSync(join(tmpdir(), "otc-res-other-"));
+  const otherDir = tmpDir("otc-res-other-");
   writeFileSync(join(otherDir, "secret.md"), "# Secret\ntop secret");
   const cfg = ServerConfigSchema.parse({
     vaults: [
@@ -49,7 +74,7 @@ function tempMultiVault(): VaultRegistry {
 
 /** A single-vault ("main") registry seeded with the given relPath -> content notes. */
 function tempVaultWith(files: Record<string, string>): VaultRegistry {
-  const dir = mkdtempSync(join(tmpdir(), "otc-res-"));
+  const dir = tmpDir("otc-res-");
   for (const [rel, content] of Object.entries(files)) {
     const abs = join(dir, rel);
     mkdirSync(dirname(abs), { recursive: true });
@@ -281,7 +306,7 @@ describe("Greptile review fixes", () => {
 
 describe("listResources pagination", () => {
   it("pages with a cursor and stops when exhausted", () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-page-"));
+    const dir = tmpDir("otc-page-");
     for (const n of ["a.md", "b.md", "c.md"]) writeFileSync(join(dir, n), "x");
     const reg = new VaultRegistry(
       ServerConfigSchema.parse({ vaults: [{ id: "main", path: dir }] }).vaults,
