@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveApiKey } from "../src/embeddings/provider";
 
-// Save/restore rather than a blind delete: vitest's default thread-pool isolation resets the
-// module registry per file, not process.env, so a bare `delete` here could still leak into (or
-// stomp) another file's OPENAI_API_KEY sharing the same worker.
+// Save/restore rather than a blind delete. Concurrent test *files* cannot race on process.env —
+// each tinypool worker gets its own process.env at spawn (worker_threads doesn't share env without
+// Worker.SHARE_ENV, which vitest doesn't pass; forked workers are separate processes entirely).
+// The real risks this guards against: a worker being REUSED across files sequentially within a
+// run, and a value lingering from this file when an assertion throws before cleanup runs.
 let prevGatewayKey: string | undefined;
 let prevOpenAiKey: string | undefined;
 
@@ -34,5 +36,23 @@ describe("resolveApiKey with apiKeyEnv", () => {
   });
   it("returns undefined for an unknown provider with no apiKeyEnv", () => {
     expect(resolveApiKey("openai-compatible", undefined, undefined)).toBeUndefined();
+  });
+
+  describe("fall-through when apiKeyEnv names an unset or empty variable", () => {
+    it("falls through to the built-in map when the named variable is unset", () => {
+      Reflect.deleteProperty(process.env, "DEFINITELY_UNSET_VAR");
+      process.env.OPENAI_API_KEY = "sk-builtin";
+      expect(resolveApiKey("openai", undefined, "DEFINITELY_UNSET_VAR")).toBe("sk-builtin");
+    });
+    it("falls through to the built-in map when the named variable is the empty string", () => {
+      // The case a naive `process.env[name] ?? fallback` gets wrong: "" is not nullish.
+      process.env.MY_GATEWAY_KEY = "";
+      process.env.OPENAI_API_KEY = "sk-builtin";
+      expect(resolveApiKey("openai", undefined, "MY_GATEWAY_KEY")).toBe("sk-builtin");
+    });
+    it("returns undefined when the named variable is unset and the provider has no built-in entry", () => {
+      Reflect.deleteProperty(process.env, "DEFINITELY_UNSET_VAR");
+      expect(resolveApiKey("openai-compatible", undefined, "DEFINITELY_UNSET_VAR")).toBeUndefined();
+    });
   });
 });
