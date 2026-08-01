@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 992 tracked code files · 146,454 lines.
+**Scale:** 993 tracked code files · 146,712 lines.
 
-TypeScript 136,775 · JavaScript 6,154 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
+TypeScript 137,033 · JavaScript 6,154 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -88,7 +88,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 |---|---:|---:|---|
 | `tools/` | 78 | 15,090 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 53 | 9,526 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `mcp/` | 17 | 4,105 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `mcp/` | 17 | 4,128 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 13 | 2,799 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `experiential/` | 11 | 2,756 | work-memory tier: activation, retrieval log, forget, citations |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
@@ -97,7 +97,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 13 | 1,137 | provisioning, migrate runner, experiential store |
 | `migrations/` | 29 | 1,017 | hand-registered SQL. **Two chains** — see below |
-| `metrics/` | 4 | 832 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
+| `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `plane/` | 6 | 789 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
 | `providers/` | 6 | 731 |  |
@@ -142,12 +142,12 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 701 | `packages/server/src/mcp/server.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
+| 620 | `packages/server/src/metrics/registry.ts` |
 | 602 | `packages/server/src/scheduler/job-queue.ts` |
-| 600 | `packages/server/src/metrics/registry.ts` |
 | 591 | `packages/server/src/tools/m8/experiential-tools.ts` |
+| 588 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
 | 571 | `packages/server/src/cli/args.ts` |
-| 565 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 527 | `packages/server/src/scheduler/scheduler.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
