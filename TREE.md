@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 985 tracked code files · 144,969 lines.
+**Scale:** 985 tracked code files · 144,978 lines.
 
-TypeScript 135,600 · JavaScript 5,844 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
+TypeScript 135,609 · JavaScript 5,844 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -101,7 +101,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `plane/` | 6 | 789 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
 | `providers/` | 5 | 671 |  |
-| `embeddings/` | 6 | 656 | providers incl. the deterministic fake used in tests |
+| `embeddings/` | 6 | 665 | providers incl. the deterministic fake used in tests |
 | `model/` | 7 | 646 | model-service clients |
 | `doctor/` | 5 | 642 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `capability/` | 6 | 605 | `defineTool` and the capability registry |

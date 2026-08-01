@@ -34,8 +34,8 @@ export function ollamaProvider(o: AdapterOpts): EmbeddingProvider {
         fetchFn: o.fetchFn,
         timeoutMs: o.timeoutMs,
         provider: "ollama",
-        // Ollama is sent no authorization header. The hint short-circuits on provider "ollama"
-        // anyway, but the slot stays truthful so the short-circuit is not load-bearing.
+        // Ollama is sent no authorization header. Its provider-specific hint lives inside the
+        // "none" branch of providerHint, so this slot is what selects it.
         credentialSlot: "none",
       });
       return assertVectors(r.embeddings ?? [], o.dimensions, texts.length, {

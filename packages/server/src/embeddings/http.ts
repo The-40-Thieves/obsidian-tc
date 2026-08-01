@@ -25,10 +25,15 @@ export interface PostJsonOptions {
   credentialSlot: CredentialSlot;
 }
 
-/** Provider-aware, actionable hint attached to embedding-provider failures. */
+/** Provider-aware, actionable hint attached to embedding-provider failures.
+ *
+ *  The SLOT is authoritative and is examined first. An earlier revision short-circuited on
+ *  `provider === "ollama"` before looking at the slot, which meant a caller passing
+ *  `{provider: "ollama", credentialSlot: "reranker"}` got a hint naming `embeddings.model` — the
+ *  exact wrong-config-block failure this function exists to prevent, reintroduced one branch above
+ *  the fix. Provider-specific advice is now nested INSIDE the slot it is valid for, so no reachable
+ *  input can produce a key belonging to a slot the caller did not declare. */
 function providerHint(provider: string, url: string, slot: CredentialSlot): string {
-  if (provider === "ollama")
-    return `is Ollama running at ${url}? Start it, then pull the embedding model (e.g. \`ollama pull nomic-embed-text\`, or whatever embeddings.model is set to).`;
   const reach = `check that the ${provider} endpoint (${url}) is reachable`;
   switch (slot) {
     case "embeddings":
@@ -38,6 +43,10 @@ function providerHint(provider: string, url: string, slot: CredentialSlot): stri
     case "modelTierFull":
       return `${reach} and a token is configured — set embeddings.modelTier.full.authToken.`;
     case "none":
+      // Ollama is credential-less, so its advice belongs here and nowhere else: "is it running,
+      // and is the model pulled" is the actual first-run failure, not a missing key.
+      if (provider === "ollama")
+        return `is Ollama running at ${url}? Start it, then pull the embedding model (e.g. \`ollama pull nomic-embed-text\`, or whatever embeddings.model is set to).`;
       // Saying "configure a key" here would send the operator to a knob that reaches nothing: this
       // client sends no authorization header. A 401/403 therefore means something in FRONT of the
       // service is authenticating, which is a different fix entirely.
