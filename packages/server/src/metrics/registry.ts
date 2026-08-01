@@ -156,7 +156,7 @@ export class MetricsRecorder {
     });
     this.idempotencyReleaseFailed = new Counter({
       name: "obsidian_tc_idempotency_release_failed_total",
-      help: "Idempotency claims that could not be RELEASED after a dispatch was rejected at the throttle or HITL gate, by vault, tool and gate. The release is best-effort so a failure never masks the rejection the caller must see — which also means this counter is its only signal. Non-zero has a concrete cost: the claim survives, and because an orphaned row is neither expired (idempotencyTtlSeconds, default 24h) nor reclaimable (idempotencyReclaimSeconds, default 60s) yet, the retry the rejection explicitly invited comes back as idempotency_in_flight instead. There is no benign value.",
+      help: "Idempotency claims left ORPHANED because the final release attempt on a pre-handler failure failed, by vault, tool and the rejection gate that led there (throttle | hitl | other). Release is best-effort so it never masks the error the caller must see, which also makes this counter its only signal. Counted at the LAST attempt, not at the gate: the gates get a retry in the outer catch, so a gate-site failure that retry then cleans up leaves no orphan and is deliberately not counted. When this does fire the claim survives, and a matching retry inside the reclaim window (idempotencyReclaimSeconds, default 60s) returns idempotency_in_flight; at or after that window claimOrReplay reclaims the row. The 24h idempotencyTtlSeconds is the later alternate expiry, not the blocking bound.",
       labelNames: ["vault", "tool", "gate"],
       registers,
     });
@@ -581,10 +581,14 @@ export class MetricsRecorder {
   incAuditWriteFailed(vault: string, tool: string): void {
     this.auditWriteFailed.inc({ vault, tool });
   }
-  /** THE-667: `gate` names WHICH rejection path failed to release the claim — the two sites behave
+  /** THE-667: `gate` names WHICH rejection path led to the orphaned claim — the sites behave
    *  identically but are reached under different conditions, and a counter that cannot tell them
-   *  apart cannot point at the one that is failing. */
-  incIdempotencyReleaseFailed(vault: string, tool: string, gate: "throttle" | "hitl"): void {
+   *  apart cannot point at the one that is failing. `other` is every non-gate pre-handler failure. */
+  incIdempotencyReleaseFailed(
+    vault: string,
+    tool: string,
+    gate: "throttle" | "hitl" | "other",
+  ): void {
     this.idempotencyReleaseFailed.inc({ vault, tool, gate });
   }
   incIdempotencyHit(vault: string, tool: string): void {

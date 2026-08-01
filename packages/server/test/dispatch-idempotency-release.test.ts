@@ -10,9 +10,16 @@
 //   3. the caller proceeds as if it succeeded — and this is the sharp one. Both sites sit on a
 //      REJECTION path that releases the idempotency claim so the caller's retry can re-take it, and
 //      both rejections explicitly invite that retry (`retry_after_seconds`, `elicit_required`).
-//      An orphaned claim is neither expired (idempotencyTtlSeconds, default 24h) nor yet
-//      reclaimable (idempotencyReclaimSeconds, default 60s), so claimOrReplay falls through to
-//      `in_flight` and the invited retry returns idempotency_in_flight instead.
+//      When a claim is genuinely orphaned, a matching retry INSIDE the reclaim window
+//      (idempotencyReclaimSeconds, default 60s) returns idempotency_in_flight; at or after that
+//      window claimOrReplay deletes and reclaims the row. The 24h idempotencyTtlSeconds is the
+//      later alternate expiry, NOT the blocking bound — an earlier draft of this file said 24h and
+//      cross-vendor review refuted it.
+//
+// Counted at the LAST release attempt, not at the gate. The outer catch retries the delete for
+// every pre-handler failure, so a gate-site failure that the retry then cleans up orphans nothing
+// and must not alert — the third test below is that case, and it is the one that keeps this
+// counter worth paging on.
 //
 // The fix does NOT change behaviour: the release stays best-effort, because replacing a `throttled`
 // or `elicit_required` error with a cleanup error would be strictly worse. It only gives the
@@ -128,6 +135,50 @@ describe("THE-667: a failed idempotency-claim release is no longer silent", () =
     expect(JSON.stringify(res)).not.toMatch(/disk I\/O error/);
     expect(await releaseFailures(metrics, "hitl")).toBe(1);
     // The two gates are distinguishable — a counter that merges them cannot point at the failure.
+    expect(await releaseFailures(metrics, "throttle")).toBe(0);
+  });
+
+  it("stays silent when the FIRST release fails but the outer-catch retry succeeds — no orphan, no alert", async () => {
+    // The case cross-vendor review caught. Counting at the gate would fire here, while the claim
+    // was in fact cleaned up microseconds later and no retry ever saw idempotency_in_flight. A
+    // counter that fires on a self-healed transient is a counter operators learn to ignore.
+    const metrics = new MetricsRecorder();
+    let deletes = 0;
+    const db = {
+      prepare: (sql: string) => ({
+        run: () => {
+          if (/DELETE\s+FROM\s+idempotency_keys/i.test(sql)) {
+            deletes++;
+            if (deletes === 1) throw new Error("transient disk I/O error");
+          }
+          return undefined;
+        },
+        get: () => undefined,
+        all: () => [],
+      }),
+    } as unknown as Database;
+    const r = new ToolRegistry({
+      rateLimiter: new RateLimiter(),
+      verifyElicit: () => true,
+      metrics,
+    });
+    r.register(tool("exec", ["execute:shell"]));
+    const ctx = (): CallerContext => ({
+      caller: "c4",
+      authenticated: true,
+      grantedScopes: new Set(["*"]),
+      vaultId: "main",
+      db,
+      now: () => 0,
+      elicitToken: "tok",
+    });
+
+    expect((await r.dispatch("exec", { idempotency_key: "t1" }, ctx())).ok).toBe(true);
+    const res = await r.dispatch("exec", { idempotency_key: "t2" }, ctx());
+
+    expect(res.ok).toBe(false);
+    // Both attempts ran, the first threw, the second cleaned up.
+    expect(deletes).toBeGreaterThanOrEqual(2);
     expect(await releaseFailures(metrics, "throttle")).toBe(0);
   });
 

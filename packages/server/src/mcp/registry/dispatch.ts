@@ -104,6 +104,12 @@ export async function runDispatch(
   // we own its in-flight row, so the catch/overflow paths can release it.
   let idemKey: string | undefined;
   let idemClaimed = false;
+  // THE-667: which rejection gate's release attempt failed, if any. Recorded rather than counted at
+  // the gate, because the outer catch makes a SECOND delete attempt for every pre-handler failure
+  // (see the `else` branch below) — so a gate-site failure alone does NOT mean the claim survived.
+  // Counting there would fire on a transient failure that the retry then cleaned up, and the
+  // counter has to mean "a claim was actually orphaned" to be worth alerting on.
+  let releaseFailedGate: "throttle" | "hitl" | undefined;
   // #13: set true the instant the handler returns — after this, a fault is post-effect
   // (the effect may be durably committed) and the catch below must never delete the claim.
   let handlerReturned = false;
@@ -295,16 +301,10 @@ export async function runDispatch(
           deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
         } catch {
           // THE-667: best-effort by necessity — releasing the claim must never replace the
-          // `throttled` error the caller has to see. But "best-effort" was the whole comment, and
-          // the failure had no channel at all. It is not cosmetic: the orphaned row is neither
-          // expired (idempotencyTtlSeconds, default 24h) nor yet reclaimable
-          // (idempotencyReclaimSeconds, default 60s), so claimOrReplay falls through to
-          // `in_flight` and the retry this very error invites via retry_after_seconds comes back
-          // as idempotency_in_flight instead. Surface it on the channel dispatch already uses for
-          // exactly this shape (incAuditWriteFailed); meter() is itself guarded.
-          deps.observability.meter((m) =>
-            m.incIdempotencyReleaseFailed(ctx.vaultId, name, "throttle"),
-          );
+          // `throttled` error the caller has to see. "best-effort" was the whole comment though,
+          // and the failure had no channel at all. Record the gate; the outer catch retries this
+          // delete and only counts it if that retry ALSO fails.
+          releaseFailedGate = "throttle";
         }
       }
       throw err.throttled("rate limit exceeded", {
@@ -329,11 +329,8 @@ export async function runDispatch(
             deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
           } catch {
             // THE-667: same shape as the throttle gate above — the release must not replace the
-            // `elicit_required` the caller has to see, and the caller is expected to retry once
-            // confirmed. An unreleased claim turns that confirmed retry into idempotency_in_flight.
-            deps.observability.meter((m) =>
-              m.incIdempotencyReleaseFailed(ctx.vaultId, name, "hitl"),
-            );
+            // `elicit_required` the caller has to see. Recorded, not counted; see the outer catch.
+            releaseFailedGate = "hitl";
           }
         }
         throw new ObsidianTcError("elicit_required", "human confirmation required", {
@@ -533,7 +530,18 @@ export async function runDispatch(
         try {
           deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
         } catch {
-          /* cleanup best-effort; must not mask the original error */
+          // THE-667: cleanup stays best-effort — it must not mask the original error. But this is
+          // the LAST release attempt, so its failure is the point at which the claim is genuinely
+          // orphaned, and until now that had no channel at all. Counted here rather than at the
+          // gates precisely because they get this retry: a gate-site failure that this call then
+          // cleans up has no consequence and must not alert.
+          //
+          // `gate` names the rejection that led here when one did; `other` covers every other
+          // pre-handler failure (schema, ACL, resolution), which orphans a claim just the same.
+          // meter() is itself guarded, so a metrics fault cannot escape this catch.
+          deps.observability.meter((m) =>
+            m.incIdempotencyReleaseFailed(ctx.vaultId, name, releaseFailedGate ?? "other"),
+          );
         }
       }
     }
