@@ -9,18 +9,20 @@
 //     probes `.obsidian` first, then scans for a dot-dir carrying app.json/community-plugins.json,
 //     then honours an explicit override. The override name is not derivable from the vault name.
 //   - "no Obsidian" is a first-class state: an absent registry yields an empty vault list, not a throw.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { discoverPlugins, parseRegistry, resolveConfigDir } from "../src/capability/discovery";
+import { rmTemp } from "./tmp";
 
 let root: string;
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "obtc-cap-"));
 });
 afterAll(() => {
-  rmSync(root, { recursive: true, force: true });
+  rmTemp(root);
 });
 
 function vault(name: string, configDirName = ".obsidian"): string {

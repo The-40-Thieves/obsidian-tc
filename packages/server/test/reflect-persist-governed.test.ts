@@ -3,7 +3,8 @@
 // write_note (M1) uses. This pins reflect.persist routed through the shared persistGovernedNote
 // helper: a second persist of the same query snapshots the first note's prior content, and every
 // persist reindexes so the note is searchable and the vault generation bumps.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -14,6 +15,7 @@ import { ensureChunkFts } from "../src/search/chunk_fts";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
 
@@ -29,7 +31,7 @@ function cacheDb0() {
 }
 
 const root = mkdtempSync(join(tmpdir(), "obtc-reflect-persist-governed-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => rmTemp(root));
 
 const mockRoles: GatewayRoles = {
   extract: async () => ({ text: "{}", model: "mock" }),

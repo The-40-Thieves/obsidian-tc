@@ -1,5 +1,6 @@
 // THE-291 part 3A — notes metadata + FTS substrate.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +12,7 @@ import type { EmbeddingProvider } from "../src/embeddings";
 import { ensureNotesFts, hasNotesTable } from "../src/search/fts";
 import { deindexNote, indexNote, indexVault } from "../src/search/indexer";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const notesSql = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260702_001_notes.sql", import.meta.url)),
@@ -90,7 +92,7 @@ describe("notes metadata + FTS substrate (THE-291 3A)", () => {
         { n: 1 },
       );
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -115,7 +117,7 @@ describe("notes metadata + FTS substrate (THE-291 3A)", () => {
         db.prepare("SELECT COUNT(*) AS n FROM chunks WHERE path = 'gone.md'").get(),
       ).toMatchObject({ n: 0 });
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -155,7 +157,7 @@ safe outro paragraph
         .get(`%${secret}%`) as { n: number };
       expect(c.n).toBe(0);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -198,7 +200,7 @@ safe outro paragraph
       expect(notesPass).toBe(true);
       expect(db.prepare("SELECT COUNT(*) AS n FROM notes").get()).toMatchObject({ n: 1 });
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

@@ -5,7 +5,8 @@
 // deterministic), and a shared RateLimiter. callConfirmed mints a single-use elicit
 // token bound to argsHash(name, input) and supplies it via ctx — the canonical path
 // (the token is never part of the tool input, which would change the args hash).
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ServerConfigSchema, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -21,6 +22,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import type { M6Deps } from "../src/tools/m6/shared";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const DEFAULT_THROTTLE = ServerConfigSchema.parse({ vaults: [{ id: "x", path: "/x" }] }).throttle;
 
@@ -156,6 +158,6 @@ export function makeM6Vault(opts: M6VaultOptions): M6Vault {
       db
         .prepare("SELECT tool_name, status, error_code FROM event_log ORDER BY id")
         .all() as M6EventRow[],
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import { CHUNKER_VERSION, VEC_DISTANCE_METRIC, VEC_SCHEMA_GEN } from "../src/sea
 import { ensureVecChunks } from "../src/search/vec";
 import { assertLive, resolveMode } from "../src/vault/mode";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -128,7 +129,7 @@ describe("index-on-write + boot reconcile (mechanism)", () => {
       expect(stats.notes_indexed).toBeGreaterThan(0);
       expect(chunkCount(db, "notes/external.md")).toBeGreaterThan(0);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

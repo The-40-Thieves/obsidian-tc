@@ -2,7 +2,8 @@
 // committed schema, a ToolRegistry with the M3 tools registered (verifyElicit wired
 // so the HITL elicit cycle runs end-to-end through dispatch), and a CallerContext
 // factory granting all scopes. Mirrors makeTestVault (M1) / makeM2Vault (M2).
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -15,6 +16,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { type M3Deps, registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 export interface M3VaultOptions {
   files?: Record<string, string>;
@@ -114,6 +116,6 @@ export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
       db
         .prepare("SELECT tool_name, status, error_code FROM event_log ORDER BY id")
         .all() as EventRow[],
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }

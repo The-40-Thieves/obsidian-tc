@@ -6,7 +6,8 @@
 // in contention.ts's module note (quiet 43.2ms / cv 0.123; under three concurrent fsync writers
 // 498.0ms / cv 0.105). The detector was watched firing on that load before these were written — a
 // detector that has never been observed to fire is not known to work.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -18,13 +19,14 @@ import {
   detectContentionVector,
   formatCalibrationVector,
 } from "../eval/perf/contention";
+import { rmTemp } from "./tmp";
 
 const vec = (cpuMs: number, ioMs: number): CalibrationVector => ({ cpuMs, ioMs });
 
 describe("THE-584 calibrateIo()", () => {
   it("returns a positive, finite wall-time measurement and leaves no temp files behind", () => {
     const before = mkdtempSync(join(tmpdir(), "obtc-iocal-probe-"));
-    rmSync(before, { recursive: true, force: true });
+    rmTemp(before);
     const ms = calibrateIo(2, 4096); // tiny — this is a unit test, not a benchmark
     expect(ms).toBeGreaterThan(0);
     expect(Number.isFinite(ms)).toBe(true);

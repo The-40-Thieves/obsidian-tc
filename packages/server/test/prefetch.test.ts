@@ -4,7 +4,8 @@
 // atomicity residue, and malformed-file misses.
 // THE-543: adds the ACL-fingerprint and vault-generation halves of the cache key (the security
 // fix — see prewarm-acl.test.ts for the end-to-end leak/staleness pins against vault_context).
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -15,9 +16,10 @@ import {
   readPrewarm,
   writePrewarm,
 } from "../src/search/prefetch";
+import { rmTemp } from "./tmp";
 
 const dir = mkdtempSync(join(tmpdir(), "obtc-prewarm-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+afterAll(() => rmTemp(dir));
 
 const FP = "fp-test";
 function readOpts(

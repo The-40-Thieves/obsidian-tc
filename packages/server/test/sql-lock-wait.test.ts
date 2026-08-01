@@ -2,6 +2,7 @@
 // database file rather than stubbing a clock — the whole value of the metric is that it reflects
 // SQLite's actual locking behavior, and a mocked timer would happily pass while measuring nothing
 // (the failure mode that made boot.tools_list_ms read 0.3 ms for a 59.6 ms path).
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,12 +12,13 @@ import { busyReason, inWriteTransaction, type WriteTxnLabel } from "../src/db/tx
 import type { Database } from "../src/db/types";
 import { indexVault } from "../src/search/indexer";
 import { makeM2Vault } from "./m2-helpers";
+import { rmTemp } from "./tmp";
 
 const dirs: string[] = [];
 const conns: Database[] = [];
 afterEach(() => {
   for (const c of conns.splice(0)) c.close?.();
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) rmTemp(d);
 });
 
 /** Two independent connections to one file, as a reindex and a live tool call would be. */

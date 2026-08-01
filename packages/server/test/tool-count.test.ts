@@ -4,7 +4,8 @@
 // live backends are needed. Bump REGISTERED_TOOL_COUNT together with the docs headline when the
 // surface changes; the docs side is asserted by scripts/check-version-coherence.mjs, which since
 // THE-580 READS this constant rather than keeping its own copy.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -22,11 +23,11 @@ import { registerM7Tools } from "../src/tools/m7";
 import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-
 // The count lives in its own module so tool-facade-domain-coverage.test.ts can share it rather
 // than keeping a second literal in step by remembering (THE-548). See that file for the parsing
 // contract check-version-coherence.mjs depends on.
 import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
+import { rmTemp } from "./tmp";
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },
@@ -38,7 +39,7 @@ const NO_THROTTLE = {
 
 describe("THE-306 registered tool count", () => {
   const root = mkdtempSync(join(tmpdir(), "obtc-count-"));
-  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  afterAll(() => rmTemp(root));
 
   it("registers exactly the documented tool surface", () => {
     const db = openMemoryDb();

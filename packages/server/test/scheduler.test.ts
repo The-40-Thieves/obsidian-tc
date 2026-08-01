@@ -13,6 +13,7 @@ import type { Database } from "../src/db/types";
 import type { SchedulerPersistFailure } from "../src/scheduler/scheduler";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 // THE-666: a REAL file-backed sqlite handle (not a stub) whose writes fail once the file's write
 // bit is removed — node:sqlite falls back to read-only at open() time and every write then throws
@@ -49,7 +50,7 @@ function cleanupReadOnlyDb(dir: string, dbPath: string, db?: Database): void {
   } catch {
     /* already gone, or was never made read-only on this platform; fall through regardless */
   }
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 }
 
 describe("Scheduler (THE-462)", () => {

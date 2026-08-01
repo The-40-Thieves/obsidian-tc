@@ -23,6 +23,7 @@
 // (an extra snapshot row, an extra .trash entry) or a misleading retry answer rather than
 // duplicated user content. `append_note` — covered below — is the member of that group whose write
 // is genuinely non-idempotent.
+
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,6 +43,7 @@ import { openMemoryDb } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM5Vault } from "./m5-helpers";
+import { rmTemp } from "./tmp";
 
 // THE-573 #2 interleave test below needs to observe a real BEGIN IMMEDIATE landing (or not)
 // exactly while add_observation is rendering its note projection. materializeEntity is the only
@@ -826,8 +828,8 @@ describe("THE-573 #2: add_observation's read + render + append now share ONE wri
     } finally {
       dbA?.close?.();
       dbB?.close?.();
-      rmSync(dbDir, { recursive: true, force: true });
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(dbDir);
+      rmTemp(root);
     }
   });
 });

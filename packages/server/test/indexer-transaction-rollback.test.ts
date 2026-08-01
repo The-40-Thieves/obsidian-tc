@@ -12,7 +12,8 @@
 // sees uncommitted writes either way. The distinguishing behaviour this test needs — writes made
 // under BEGIN IMMEDIATE actually reverting on ROLLBACK versus surviving because they were committed
 // early — only exists against a real connection/transaction.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,6 +22,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database, Statement } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexNote } from "../src/search/indexer";
+import { rmTemp } from "./tmp";
 
 const VAULT_ID = "test";
 const PATH = "note.md";
@@ -61,7 +63,7 @@ describe("indexNote transaction rollback (WP3 invariant)", () => {
 
   afterEach(() => {
     real.close?.();
-    rmSync(dir, { recursive: true, force: true });
+    rmTemp(dir);
   });
 
   it("a failure on the LAST statement of the transaction leaves no partial state", async () => {

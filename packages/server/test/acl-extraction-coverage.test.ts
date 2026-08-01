@@ -8,7 +8,8 @@
 //
 // Assembly mirrors tool-count.test.ts: registration only builds tool definitions (handlers close
 // over deps), so cheap stubs suffice and no live backend is needed.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
@@ -30,6 +31,7 @@ import { registerM7Tools } from "../src/tools/m7";
 import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },
@@ -81,7 +83,7 @@ const EXEMPT_NO_PATH = new Set<string>([
 
 describe("THE-414 folder-ACL path-extraction coverage", () => {
   const root = mkdtempSync(join(tmpdir(), "obtc-acl-cov-"));
-  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  afterAll(() => rmTemp(root));
 
   function buildRegistry(): ToolRegistry {
     const db = openMemoryDb();
@@ -240,7 +242,7 @@ describe("THE-414 central pathAcl enforcement (handler does not gate)", () => {
       const allowed = await call("allowed/in.md");
       expect(allowed.ok).toBe(true); // no over-denial on an in-whitelist path
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

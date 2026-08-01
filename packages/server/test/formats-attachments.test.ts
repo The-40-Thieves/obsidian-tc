@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import {
   resolveAttachmentFolder,
   rewriteAttachmentReferences,
 } from "../src/formats/attachments";
+import { rmTemp } from "./tmp";
 
 function makeRoot(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), "obtc-att-"));
@@ -47,7 +48,7 @@ describe("formats/attachments", () => {
       expect(resolveAttachmentFolder(r3)).toBe("");
       expect(resolveAttachmentFolder(r4)).toBe("");
     } finally {
-      for (const r of [r1, r2, r3, r4]) rmSync(r, { recursive: true, force: true });
+      for (const r of [r1, r2, r3, r4]) rmTemp(r);
     }
   });
 
@@ -62,7 +63,7 @@ describe("formats/attachments", () => {
       expect(findAttachmentReferences(root, "docs/spec.pdf")).toEqual(["a.md"]);
       expect(findAttachmentReferences(root, "absent.png")).toEqual([]);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -79,7 +80,7 @@ describe("formats/attachments", () => {
       expect(r2).toEqual({ notes: 1, refs: 1 });
       expect(readFileSync(join(root, "a.md"), "utf8")).toContain("[pdf](archive/spec.pdf)");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -99,7 +100,7 @@ describe("formats/attachments", () => {
       expect(r.notes).toBe(1);
       expect(r.refs).toBe(1);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -115,7 +116,7 @@ describe("formats/attachments", () => {
       expect(txt).toContain("[x](a/renamed.png)");
       expect(txt).toContain("[y](b/diagram.png)");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -134,7 +135,7 @@ describe("formats/attachments", () => {
       expect(txt).toContain("![[c/diagram.png]]");
       expect(txt).not.toContain("![[diagram.png]]");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

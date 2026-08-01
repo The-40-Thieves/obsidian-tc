@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VaultPath } from "@the-40-thieves/obsidian-tc-shared";
@@ -22,6 +22,7 @@ import {
 } from "../src/vault/paths";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -73,7 +74,7 @@ describe("paths: safety + content hash", () => {
       expect(abs.startsWith(root)).toBe(true);
       expect(() => resolveVaultPath(root, "../../etc/passwd")).toThrow();
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
   it("blocks escapes through an in-vault symlink (real-path containment)", () => {
@@ -95,7 +96,7 @@ describe("paths: safety + content hash", () => {
         expect(() => resolveVaultPath(root, "link/secret.md")).toThrow(/escapes the vault root/);
       expect(resolveVaultPath(root, "notes/a.md").startsWith(root)).toBe(true);
     } finally {
-      rmSync(base, { recursive: true, force: true });
+      rmTemp(base);
     }
   });
   it("walks a vault, skipping dot-dirs", () => {
@@ -110,7 +111,7 @@ describe("paths: safety + content hash", () => {
       const md = walkVault(root, { extensions: [".md"] }).map((e) => e.relPath);
       expect(md).toEqual(["b.md", "notes/a.md"]);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });
@@ -146,7 +147,7 @@ describe("paths: walkVaultStream (THE-490 streaming walk)", () => {
       expect(new Set(streamed)).toEqual(new Set(array));
       expect(streamed).toHaveLength(array.length);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -165,7 +166,7 @@ describe("paths: walkVaultStream (THE-490 streaming walk)", () => {
         [...xs].sort((x, y) => x.relPath.localeCompare(y.relPath));
       expect(sortByPath(streamed)).toEqual(sortByPath(array));
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -175,7 +176,7 @@ describe("paths: walkVaultStream (THE-490 streaming walk)", () => {
       const streamed = await drain(walkVaultStream(join(root, "does-not-exist")));
       expect(streamed).toEqual([]);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 
@@ -209,7 +210,7 @@ describe("paths: walkVaultStream (THE-490 streaming walk)", () => {
         // Same SET either way — nothing is lost or duplicated, only the order differs.
         expect(new Set(streamed)).toEqual(new Set(array));
       } finally {
-        rmSync(root, { recursive: true, force: true });
+        rmTemp(root);
       }
     },
   );

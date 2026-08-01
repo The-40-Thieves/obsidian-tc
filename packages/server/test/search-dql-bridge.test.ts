@@ -3,7 +3,8 @@
 // unreachable or unconfigured, and that the router's dql mode enforces read:dataview
 // inline (deny-by-default). Self-contained inline harness — the M2 search harness
 // stays bridge-free, so the existing "plugin_missing (no bridge)" test is unchanged.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
@@ -21,6 +22,7 @@ import type { M2Deps } from "../src/tools/m2";
 import { buildSearchTools } from "../src/tools/m2/search-tools";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 interface Rig {
   call: (
@@ -74,7 +76,7 @@ function makeRig(opts: {
         db,
       }),
     requests,
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }
 

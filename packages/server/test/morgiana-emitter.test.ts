@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MorgianaEmitter, safeVault } from "../src/morgiana/emitter";
+import { rmTemp } from "./tmp";
 
 let dirs: string[] = [];
 function tmp(): string {
@@ -11,7 +12,7 @@ function tmp(): string {
   return d;
 }
 afterEach(() => {
-  for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs) rmTemp(d);
   dirs = [];
 });
 

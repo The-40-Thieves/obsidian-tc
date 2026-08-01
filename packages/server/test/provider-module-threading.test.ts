@@ -13,12 +13,13 @@
 // exercises every hop the value crosses — including `dirname(configPath)` and the
 // RuntimeCoreDeps/IndexResourcesDeps plumbing — rather than assuming the outer boot code forwards
 // it correctly.
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
+import { rmTemp } from "./tmp";
 
 describe("module hatch — securityProfile threading (embeddings + reranker)", () => {
   const tmpDirs: string[] = [];
@@ -31,7 +32,7 @@ describe("module hatch — securityProfile threading (embeddings + reranker)", (
   afterEach(() => {
     for (const d of tmpDirs.splice(0)) {
       try {
-        rmSync(d, { recursive: true, force: true });
+        rmTemp(d);
       } catch {
         // Best-effort: this exercises a FAILED boot, and the assertion under test has already run.
       }

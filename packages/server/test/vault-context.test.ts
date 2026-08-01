@@ -3,8 +3,9 @@
 // the include_work leg honoring the THE-229 reader contract (explicit opt-in; eligible-only;
 // work_unavailable without the experiential handle). Uses the lexical route (classRouter +
 // rare term) so no embedding backend is needed — same dispatch path as serve.
+
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,7 @@ import { registerM7Tools } from "../src/tools/m7";
 import { packBudget } from "../src/tools/m7/knowledge-tools";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const expSql = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260626_001_experiential_init.sql", import.meta.url)),
@@ -124,7 +126,7 @@ function un<T>(r: unknown): T {
 }
 
 const root = mkdtempSync(join(tmpdir(), "obtc-vc-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => rmTemp(root));
 
 function harness(edb?: Database, rootOverride?: string, prewarmDir?: string) {
   const cache = cacheDb0();
@@ -266,7 +268,7 @@ describe("vault_context (THE-132)", () => {
       expect(res.stats.chunks_packed).toBeGreaterThan(0);
       expect(res.lessons.map((l) => l.chunk_id)).toContain("d1");
     } finally {
-      rmSync(root2, { recursive: true, force: true });
+      rmTemp(root2);
     }
   });
 
@@ -323,8 +325,8 @@ describe("vault_context (THE-132)", () => {
       expect(res.prefetched).toBe(true);
       expect(res.prefetch_generated_at).toBe(111);
     } finally {
-      rmSync(root4, { recursive: true, force: true });
-      rmSync(warmDir, { recursive: true, force: true });
+      rmTemp(root4);
+      rmTemp(warmDir);
     }
   });
 
@@ -377,8 +379,8 @@ describe("vault_context (THE-132)", () => {
       expect(again.prefetched).toBeUndefined();
       expect(again.stats.chunks_packed).toBeGreaterThan(0);
     } finally {
-      rmSync(root5, { recursive: true, force: true });
-      rmSync(warm5, { recursive: true, force: true });
+      rmTemp(root5);
+      rmTemp(warm5);
     }
   });
 
@@ -392,7 +394,7 @@ describe("vault_context (THE-132)", () => {
       };
       expect(r.ok).toBe(false);
     } finally {
-      rmSync(root3, { recursive: true, force: true });
+      rmTemp(root3);
     }
   });
 

@@ -1,5 +1,6 @@
 // THE-291 part 1 — every M1 note mutation must fire the index-on-write seam.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,6 +9,7 @@ import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
+import { rmTemp } from "./tmp";
 
 const stubDb = {
   prepare() {
@@ -49,7 +51,7 @@ function harness() {
     call,
     reindexed,
     deindexed,
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }
 

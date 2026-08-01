@@ -10,7 +10,8 @@
 // direction (a `vault_name` colliding with the hardcoded match, forcing a rename instead of a
 // declaration). Mirrors cross-vault-binding.test.ts / per-vault-acl.test.ts /
 // the-569-vault-kind-gate.test.ts / acl-extraction-coverage.test.ts's own per-mechanism harnesses.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -20,6 +21,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -169,7 +171,7 @@ describe("THE-513 Part 2: vaultArgOf drives all four dispatch-stage vault reads"
       const allowed = await call("allowed/in.md");
       expect(allowed.ok).toBe(true);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmTemp(root);
     }
   });
 });

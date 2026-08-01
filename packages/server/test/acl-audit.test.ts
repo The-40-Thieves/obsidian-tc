@@ -3,7 +3,8 @@
 // synthetic tools (like the THE-414 central-enforcement test) so no live backend is needed: the
 // handler resolves paths via resolveVaultPath, and the audit reports any it touches that the
 // central stage never ACL-checked.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -17,6 +18,7 @@ import {
   setAclAuditMode,
 } from "../src/vault/acl-audit";
 import { resolveVaultPath } from "../src/vault/paths";
+import { rmTemp } from "./tmp";
 
 const stubDb = {
   prepare() {
@@ -34,7 +36,7 @@ describe("ACL audit: pathAcl mirrors handler fs usage (issue #280)", () => {
   });
   afterEach(() => {
     setAclAuditMode("off");
-    rmSync(root, { recursive: true, force: true });
+    rmTemp(root);
   });
 
   // A synthetic tool whose handler resolves `resolves` for fs ops ("$path" == the input path) and

@@ -3,11 +3,34 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { loadProviderModule } from "../src/providers/module-loader";
+import { rmTemp } from "./tmp";
+
+// Every fixture dir is tracked and removed in afterEach. This suite is the worst case for the
+// Windows teardown class this file's `rmTemp` exists for: each fixture writes a `.mjs` that
+// `loadProviderModule` then **dynamically imports**, so the file stays mapped by the ESM loader and
+// Windows refuses to DELETE it. Leaving these uncollected (as this suite originally did) leaks one
+// directory per fixture call and seeds exactly the undeletable population #627 is fixing.
+const tmpDirs: string[] = [];
+
+afterEach(() => {
+  for (const d of tmpDirs.splice(0)) {
+    try {
+      rmTemp(d);
+    } catch {
+      // Best-effort, and deliberately so: `rmTemp`'s retry outlasts a handle released moments
+      // later, but NOT one the ESM loader holds for the process lifetime. Letting this throw would
+      // fail the suite in TEARDOWN with every assertion passing — the exact shape this PR exists to
+      // remove. A leaked temp dir is the cheaper failure. Same posture as
+      // provider-module-threading.test.ts and scheduler.ts's cleanupReadOnlyDb.
+    }
+  }
+});
 
 function fixture(contents: string): { dir: string; file: string } {
   const dir = mkdtempSync(join(tmpdir(), "otc-provider-"));
+  tmpDirs.push(dir);
   writeFileSync(join(dir, "provider.mjs"), contents, "utf8");
   return { dir, file: "provider.mjs" };
 }

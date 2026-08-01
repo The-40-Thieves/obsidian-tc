@@ -6,7 +6,8 @@
 // back via the M1 read_note tool, proving the surfaces share the registry); append +
 // replay a workspace JSONL trace; a plur proxy call against the fake AND its degraded
 // path. Asserts DB/file state and event_log audit rows. No live plur, no live Obsidian.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -22,6 +23,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM5Tools } from "../src/tools/m5";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const PLUR_TOKEN = "plur-key";
 
@@ -102,7 +104,7 @@ function makeVault(opts: { plur?: boolean } = {}): IntegrationVault {
         tool_name: string | null;
         status: string;
       }>,
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }
 

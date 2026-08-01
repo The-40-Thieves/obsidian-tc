@@ -3,7 +3,8 @@
 // attribution chain); note forget clears derived state (activation always, retrieval history
 // only under erase — the audit default KEEPS it), invalidates a prewarm bundle that mentions
 // the target, and reports (never mutates) syntheses/contradictions/reflections.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,7 @@ import {
   verifyForgetLog,
 } from "../src/experiential/forget";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const sql = (p: string): string =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${p}`, import.meta.url)), "utf8");
@@ -36,7 +38,7 @@ function edb0(): Database {
 }
 
 const dir = mkdtempSync(join(tmpdir(), "obtc-forget-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+afterAll(() => rmTemp(dir));
 
 describe("forget_log hash chain (THE-239)", () => {
   it("verifies clean chains and detects tampering", () => {

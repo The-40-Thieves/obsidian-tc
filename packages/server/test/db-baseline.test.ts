@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openBetterSqlite3 } from "../src/db/node-better-sqlite3";
 import { cachedPrepare, type Database, type Statement } from "../src/db/types";
+import { rmTemp } from "./tmp";
 
 // better-sqlite3's native binding is not built in every local env (the suite otherwise uses
 // node:sqlite); probe once and skip the adapter integration test when it cannot load. CI's
@@ -62,6 +63,6 @@ describe.skipIf(!bsqlOk)("THE-273 db adapter baseline + statement cache", () => 
     expect(a).toBe(b);
     expect((a?.get() as { x: number } | undefined)?.x).toBe(1);
     db.close?.();
-    rmSync(dir, { recursive: true, force: true });
+    rmTemp(dir);
   });
 });

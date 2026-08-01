@@ -10,7 +10,8 @@
 // row with a defined numeric column under real SQLite semantics, so their `?? 0` / ternary
 // fallback legs cannot fire without fabricating a non-conforming db driver — that would be
 // coverage theater, not a real test. See the final report for detail.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -25,6 +26,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
+import { rmTemp } from "./tmp";
 
 // A second, lower-level harness (mirrors m1-helpers' makeTestVault) that accepts arbitrary M1Deps
 // overrides — configPath / indexVault are baked into the registry at construction time in the
@@ -56,7 +58,7 @@ function makeCustomVault(deps: Partial<M1Deps> = {}) {
     db,
     call: (name: string, input: Record<string, unknown>, over?: Partial<CallerContext>) =>
       registry.dispatch(name, input, ctx(over)),
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }
 
@@ -177,7 +179,7 @@ describe("THE-602 registry-tools branch coverage", () => {
         expect(r.error.message).toMatch(/not a directory/);
       }
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
       v.cleanup();
     }
   });
@@ -201,7 +203,7 @@ describe("THE-602 registry-tools branch coverage", () => {
       }
       expect(seen).toEqual(["extra"]);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmTemp(dir);
       harness.cleanup();
     }
   });
@@ -220,7 +222,7 @@ describe("THE-602 registry-tools branch coverage", () => {
         expect(typeof d.reloaded_at).toBe("string");
       }
     } finally {
-      rmSync(cfgDir, { recursive: true, force: true });
+      rmTemp(cfgDir);
       harness.cleanup();
     }
   });
@@ -237,8 +239,8 @@ describe("THE-602 registry-tools branch coverage", () => {
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.error.code).toBe("vault_not_found");
     } finally {
-      rmSync(cfgDir, { recursive: true, force: true });
-      rmSync(otherDir, { recursive: true, force: true });
+      rmTemp(cfgDir);
+      rmTemp(otherDir);
       harness.cleanup();
     }
   });

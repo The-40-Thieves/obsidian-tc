@@ -3,7 +3,8 @@
 // CallerContext factory, and an optional deterministic fake plur transport (per-route,
 // capturing every request) so the plur proxy is exercised with no live plur. Mirrors
 // m4-helpers; capture/memory/workspace need no bridge, so plur is opt-in per test.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -18,6 +19,7 @@ import { createPlurClient } from "../src/plur/client";
 import { registerM5Tools } from "../src/tools/m5";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const PLUR_ENDPOINT = "http://127.0.0.1:7077";
 export const PLUR_TOKEN = "plur-secret";
@@ -139,6 +141,6 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
       db
         .prepare("SELECT tool_name, status, error_code FROM event_log ORDER BY rowid")
         .all() as M5EventRow[],
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }

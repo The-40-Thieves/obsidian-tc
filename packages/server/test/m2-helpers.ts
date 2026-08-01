@@ -2,7 +2,8 @@
 // committed schema, a ToolRegistry with the M2 tools registered against an
 // injected deterministic fake embedding provider (no live service), and a
 // CallerContext factory granting all scopes.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -15,6 +16,7 @@ import type { IndexStats } from "../src/search/indexer";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 export interface M2VaultOptions {
   files?: Record<string, string>;
@@ -92,6 +94,6 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
     write,
     ctx,
     call: (name, input, over) => registry.dispatch(name, input, ctx(over)),
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }

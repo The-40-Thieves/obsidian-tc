@@ -4,7 +4,8 @@
 // claim: unset/false is a byte-identical no-op on the ordered chunk_id list, and enabled:true on a
 // rare-term query reorders the results identically to calling graphSearch directly with the same
 // adaptiveRrf option.
-import { mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -16,6 +17,7 @@ import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const VAULT = "main";
 
@@ -64,7 +66,7 @@ function fusionDb() {
 }
 
 const root = mkdtempSync(join(tmpdir(), "obtc-adaptive-rrf-wiring-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => rmTemp(root));
 
 function harness(retrieval?: { adaptiveRrf?: { enabled?: boolean; gain?: number } }) {
   const db = fusionDb();

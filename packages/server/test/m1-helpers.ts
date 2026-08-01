@@ -2,7 +2,8 @@
 // real temp vault on disk, an in-memory cache DB on the committed schema, a
 // ToolRegistry with the M1 tools registered (verifyElicit wired so the HITL
 // cycle runs end-to-end through dispatch), and a CallerContext factory.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -14,6 +15,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 export interface TestVaultOptions {
   files?: Record<string, string>;
@@ -108,6 +110,6 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
       db
         .prepare("SELECT tool_name, status, error_code, event_type FROM event_log ORDER BY id")
         .all() as EventRow[],
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmTemp(root),
   };
 }
