@@ -90,6 +90,7 @@ test("MCP and /metrics both serve real responses from one process", async () => 
   } finally {
     await http.close();
     await metrics.close();
-    db.close();
+    // `close` is optional on the Database port (src/db/types.ts) — not every adapter implements it.
+    db.close?.();
   }
 });

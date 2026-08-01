@@ -35,10 +35,17 @@ lived only there.
 
 ```bash
 bun run lint        # ONLY biome. It runs no check:* gate — see below
-bun run typecheck   # all four packages
+bun run typecheck   # all four packages, PLUS packages/server/tsconfig.bun-smoke.json
 bun run test        # per-workspace; server is vitest under Node, native is cargo test
 just                # list recipes (build, test, lint, format, bundle, map, release)
 ```
+
+**`bun-smoke/` is a SEPARATE tsc project** (`packages/server/tsconfig.bun-smoke.json`, THE-687). It
+is not in the main config's `include`, because it is the only code allowed to see Bun's globals —
+`src`/`test` pin `types: ["node"]` so they keep compiling against the Node floor that `build-test`
+runs on. Before it was wired in, `bun run typecheck` reported 0 while nine bun-smoke files did not
+compile, and CI's `bun-smoke` job found them as *runtime* failures instead. If you change a
+signature in the vec/indexing path, the bun-smoke project is what catches those call sites.
 
 **`bun run lint` is `biome check` and nothing else.** The gates run as separate *steps* of CI's
 `lint` **job**, which is a different thing with a confusingly similar name. Green locally on

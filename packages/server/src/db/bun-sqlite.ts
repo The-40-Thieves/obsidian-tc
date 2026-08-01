@@ -15,8 +15,16 @@ import type { Database as Db, RunResult, Statement } from "./types";
  * same bundle also loads under Node (which then uses the better-sqlite3 adapter).
  */
 export async function openBunSqlite(path: string): Promise<Db> {
-  // @ts-expect-error bun:sqlite resolves only under the Bun runtime; this module
-  // is imported (and this line reached) only when openDatabase detects Bun.
+  // THE-687: an unconditional ignore, NOT `expect-error`, and the distinction is load-bearing.
+  // This file is compiled by TWO projects with different `types`: the main one pins ["node"], where
+  // bun:sqlite does not resolve and the suppression is REQUIRED; tsconfig.bun-smoke.json adds
+  // "bun", where it DOES resolve and an `expect-error` would itself fail as an unused directive.
+  // A directive that must hold under one configuration and not the other cannot be `expect-error`,
+  // which asserts the error is always present.
+  // bun:sqlite resolves only under the Bun runtime; this module is imported (and this line
+  // reached) only when openDatabase detects Bun.
+  // biome-ignore lint/suspicious/noTsIgnore: expect-error is unusable here (see above) — bun:sqlite resolves under the bun-smoke project but not the main one, so the suppression is conditional by construction.
+  // @ts-ignore
   const { Database: BunDatabase } = await import("bun:sqlite");
   const db = new BunDatabase(path, { create: true });
   // Server-tuned per-connection baseline (THE-273): WAL + synchronous=NORMAL is the documented
@@ -35,10 +43,16 @@ export async function openBunSqlite(path: string): Promise<Db> {
     db.exec(p);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
+    // THE-687: bun:sqlite types its bind parameters as SQLQueryBindings, while the Statement port
+    // this adapter implements accepts `unknown[]` — the boundary is genuinely untyped, since the
+    // caller's values come from arbitrary tool input. The cast is at that boundary and nowhere
+    // else. Invisible under the main tsconfig (bun:sqlite is unresolved there, so `st` is `any`);
+    // the bun-smoke project is the only one that checks these calls at all.
+    const bind = (params: unknown[]) => params as never[];
     return {
-      run: (...params: unknown[]): RunResult => st.run(...params) as RunResult,
-      get: (...params: unknown[]): unknown => st.get(...params) ?? undefined,
-      all: (...params: unknown[]): unknown[] => st.all(...params),
+      run: (...params: unknown[]): RunResult => st.run(...bind(params)) as RunResult,
+      get: (...params: unknown[]): unknown => st.get(...bind(params)) ?? undefined,
+      all: (...params: unknown[]): unknown[] => st.all(...bind(params)),
     };
   };
   // bun:sqlite's db.prepare is UNCACHED (fresh Statement each call) — memoize the compiled

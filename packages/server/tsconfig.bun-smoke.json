@@ -1,0 +1,19 @@
+{
+  // THE-687: bun-smoke/ was outside the main tsconfig's `include: ["src", "test"]`, so
+  // `bun run typecheck` reported 0 errors while those files did not compile. THE-683 changed
+  // ensureVecChunks' parameter type and CI discovered it as NINE runtime failures in the bun-smoke
+  // job — every one of them an error the compiler catches instantly anywhere under test/.
+  //
+  // A SEPARATE project rather than widening the main `include`, because these files are the only
+  // ones allowed to see Bun's globals. The main config pins `types: ["node"]` deliberately: src/
+  // and test/ must also run under Node (build-test runs vitest on Node across three OSes), and
+  // adding "bun" there would let a Bun-only global compile into code that fails on the Node floor.
+  // Isolating it here keeps that guarantee while still typechecking these files.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // "bun" is @types/bun, which supplies bun:test, bun:sqlite and the Bun global. "node" stays
+    // because these files also import node:fs / node:path.
+    "types": ["bun", "node"]
+  },
+  "include": ["bun-smoke"]
+}
