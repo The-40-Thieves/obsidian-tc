@@ -16,6 +16,9 @@ export interface RetrievalHeadsView {
   multiVector: boolean;
   sparseEnabled: boolean;
   colbertEnabled: boolean;
+  /** config.reranker?.provider — a drop-in reranker slot is a name, not a member of a closed set, so
+   *  this is reported as configured-or-not rather than inferred from denseProvider. */
+  rerankerConfigured?: string;
 }
 
 /** retrieval.heads — dense / sparse / ColBERT / reranker readiness, reported INDEPENDENTLY so an
@@ -46,11 +49,17 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
 
       if (view.multiVector) {
         details.reranker = `model-tier / ColBERT rerank capable (${view.denseProvider}); or the inference gateway /rerank passthrough when configured`;
-      } else {
-        details.reranker =
-          "RRF-only unless the inference gateway is configured for /rerank passthrough";
+      } else if (view.rerankerConfigured) {
+        // A provider name no longer implies a capability set, so this is reported as CONFIGURED
+        // rather than inferred from denseProvider — a generic provider may still be multi-vector.
+        details.reranker = `reranker configured: ${view.rerankerConfigured} (multi-vector capability could not be determined from the '${view.denseProvider}' provider name)`;
         notes.push(
-          "no model-tier reranker for this provider — reranking depends on the inference gateway (env-configured)",
+          `reranker configured (${view.rerankerConfigured}); multi-vector capability could not be determined from the '${view.denseProvider}' provider name`,
+        );
+      } else {
+        details.reranker = `RRF-only — no reranker configured, and multi-vector capability could not be determined from the '${view.denseProvider}' provider name`;
+        notes.push(
+          `no reranker configured, and multi-vector capability could not be determined from the '${view.denseProvider}' provider name`,
         );
       }
 

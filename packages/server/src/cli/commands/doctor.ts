@@ -75,6 +75,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           config.embeddings.provider === "bge-m3" ||
           (config.embeddings.provider === "model-tier" &&
             config.embeddings.modelTier?.full !== undefined),
+        // A provider name no longer implies a capability set: a generic provider may well point at
+        // a bge-m3 endpoint. Report what is CONFIGURED rather than inferring from the name.
+        rerankerConfigured: config.reranker?.provider,
         sparseEnabled: config.retrieval.sparse,
         colbertEnabled: config.retrieval.colbert,
       },
