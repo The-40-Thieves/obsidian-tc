@@ -120,7 +120,7 @@ Asymmetric (RS256 / ES256 / EdDSA) via a JWKS — inline `jwks` or a `jwksFile` 
 }
 ```
 
-Providers: `ollama | openai | voyage | cohere | bge-m3 | model-tier` (the last two target a vLLM/TEI pooling server; `model-tier` splits dense and multi-vector across two services). `chunkContext` (default **true**) embeds each chunk with its note title + heading breadcrumb — measured **+0.223 nDCG**; the first reconcile after enabling re-embeds in full. Further knobs (local-runner robustness + model-specific behavior): `timeoutMs` (120000), `batchSize` (512), `maxBatchTokens` (2048 — keeps a batch inside a local runner's context), `concurrency` (4), `truncate` (false — Matryoshka/MRL truncation for wider models), `queryPrefix`/`documentPrefix` (`""` — instruct prefixes for models that require them; a document-prefix change needs a fresh `cacheDir`).
+`provider` is a name resolved against the provider registry at startup, not a closed enum — an unregistered name is a startup error listing every valid option. Built-ins: `ollama | openai | voyage | cohere | bge-m3 | model-tier` (the last two target a vLLM/TEI pooling server; `model-tier` splits dense and multi-vector across two services). `chunkContext` (default **true**) embeds each chunk with its note title + heading breadcrumb — measured **+0.223 nDCG**; the first reconcile after enabling re-embeds in full. Further knobs (local-runner robustness + model-specific behavior): `timeoutMs` (120000), `batchSize` (512), `maxBatchTokens` (2048 — keeps a batch inside a local runner's context), `concurrency` (4), `truncate` (false — Matryoshka/MRL truncation for wider models), `queryPrefix`/`documentPrefix` (`""` — instruct prefixes for models that require them; a document-prefix change needs a fresh `cacheDir`).
 
 ## Transports
 
@@ -246,7 +246,7 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `embeddings.modelTier.full.dimensions` | `number` | `1024` |  | Dense width of the multi-vector model, separate from embeddings.dimensions. |
 | `embeddings.modelTier.full.model` | `string` | `"BAAI/bge-m3"` |  | Multi-vector model id. |
 | `embeddings.modelTier.full.revision` | `string` | — |  | Pinned model revision for the multi-vector service. |
-| `embeddings.provider` | `enum(ollama\|openai\|voyage\|cohere\|bge-m3\|model-tier)` | `"ollama"` |  | Embeddings backend. `model-tier` splits dense and multi-vector across two services. |
+| `embeddings.provider` | `string` | `"ollama"` |  | Embeddings backend name, resolved against the provider registry at startup. Built-ins: ollama, openai, voyage, cohere, bge-m3, model-tier (splits dense and multi-vector across two services), the generic openai-compatible, and the profile-gated module. An unregistered name is a startup error listing every valid option. |
 | `embeddings.queryPrefix` | `string` | `""` |  | Instruct prefix prepended to query-side embeds, for models whose cards require one. Empty by default — such prefixes measured harmful on this corpus. |
 | `embeddings.timeoutMs` | `number` | `120000` |  | Timeout in ms for a single embed request. Defaults high because local runners are far slower than hosted APIs. |
 | `embeddings.truncate` | `boolean` | `false` |  | Matryoshka (MRL) truncation: accept a provider vector WIDER than `dimensions` by keeping the first `dimensions` components and renormalising. Off by default so a non-MRL width mismatch errors instead of silently storing a meaningless prefix. |

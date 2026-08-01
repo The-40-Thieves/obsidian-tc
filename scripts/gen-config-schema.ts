@@ -29,7 +29,7 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // hash is the second, independent witness. A deliberate schema change updates this constant in
 // its own behavioral PR, not as a side effect of an unrelated refactor.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "ae8bb2801214f351b12af60e174285f2672a0a72f02c0500725f9badfa976745";
+  "7cf05224e5b5071bb9b119cbcd7f38a322cf200fd9cac8bf8af4367e91fc4ef2";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

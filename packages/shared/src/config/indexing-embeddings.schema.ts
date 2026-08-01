@@ -9,10 +9,11 @@ import { z } from "zod";
 
 export const EmbeddingsConfigSchema = z.object({
   provider: z
-    .enum(["ollama", "openai", "voyage", "cohere", "bge-m3", "model-tier"])
+    .string()
+    .min(1)
     .default("ollama")
     .describe(
-      "Embeddings backend. `model-tier` splits dense and multi-vector across two services.",
+      "Embeddings backend name, resolved against the provider registry at startup. Built-ins: ollama, openai, voyage, cohere, bge-m3, model-tier (splits dense and multi-vector across two services), the generic openai-compatible, and the profile-gated module. An unregistered name is a startup error listing every valid option.",
     ),
   model: z
     .string()
