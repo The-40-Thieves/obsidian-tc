@@ -56,7 +56,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
       // measured engine otherwise. reflect composes recall + a generative pass — it never
       // adds a retrieval mechanism.
       const route = deps.classRouter
-        ? routeQuery(ctx.db, v.id, input.query)
+        ? routeQuery(ctx.db, v.id, input.query, { isReadable: (p) => readableRel(ctx.acl, p) })
         : { class: "standard" as const, signals: [] as string[] };
       const policy = capturePolicy(deps, v.id, route.class);
       let results: GraphSearchResult[];

@@ -49,7 +49,7 @@ export function createKnowledgeSearchTool(
           kind: v.kind,
         });
       const route = deps.classRouter
-        ? routeQuery(ctx.db, v.id, input.query)
+        ? routeQuery(ctx.db, v.id, input.query, { isReadable: (p) => readableRel(ctx.acl, p) })
         : { class: "standard" as const, signals: [] as string[] };
       const policy = capturePolicy(deps, v.id, route.class);
       const coverage = captureCoverage();

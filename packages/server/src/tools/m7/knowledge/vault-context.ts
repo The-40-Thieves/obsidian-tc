@@ -130,7 +130,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       // Same front door as vault_graph_search: the class router when enabled, the measured
       // engine otherwise — vault_context adds composition, never a second retrieval path.
       const route = deps.classRouter
-        ? routeQuery(ctx.db, v.id, query)
+        ? routeQuery(ctx.db, v.id, query, { isReadable: (p) => readableRel(ctx.acl, p) })
         : { class: "standard" as const, signals: [] as string[] };
       const policy = capturePolicy(deps, v.id, route.class);
       let results: GraphSearchResult[];

@@ -58,13 +58,59 @@ const STOPWORDS = new Set([
   "between",
 ]);
 
-/** Document frequency of one term over the enriched BM25 index (0 on any FTS failure). */
-function termDf(db: Database, vaultId: string, term: string): number {
+/** Upper bound on rows examined when an ACL is supplied — see the note in `termDf`. */
+const DF_SCAN_CAP = 200;
+
+/**
+ * Document frequency of one term over the enriched BM25 index (0 on any FTS failure), counted over
+ * the chunks THIS CALLER CAN READ.
+ *
+ * THE-691 (security): this previously counted every match with no ACL, and the number reached
+ * callers verbatim — `routeQuery` embeds it as `rare-term:<token>(df=<n>)`, and `route.signals` is
+ * returned by vault_graph_search, knowledge_search, vault_context and reflect. Any caller holding
+ * `read:notes` could probe a term and learn, from an ordinary successful response, whether it
+ * occurs in notes they are denied and in how many chunks. A CONTENT-membership oracle, not merely
+ * a path one.
+ *
+ * Counting readable rows fixes both halves: the reported number stops describing hidden content,
+ * and the routing DECISION stops resting on evidence the caller cannot see — a term that is
+ * rare-but-invisible should not send them down the lexical arm.
+ *
+ * Bounded, because this sits on the routing path ahead of every search. The decision only needs to
+ * know whether the readable count lands in [1, rareDfMax], so the scan exits as soon as it exceeds
+ * that and never examines more than DF_SCAN_CAP rows. Residual case — more than DF_SCAN_CAP
+ * matches with every readable one beyond the cap — under-counts and declines to route lexical.
+ * That is a recall limit and it fails CLOSED: a missed lexical route costs a cheaper path, never a
+ * disclosure.
+ *
+ * Without `isReadable` the fast COUNT(*) is kept, so non-ACL callers pay nothing.
+ */
+function termDf(
+  db: Database,
+  vaultId: string,
+  term: string,
+  isReadable?: (path: string) => boolean,
+  rareDfMax = 3,
+): number {
+  const quoted = `"${term.replace(/"/g, "")}"`;
   try {
-    const row = db
-      .prepare("SELECT COUNT(*) AS n FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ?")
-      .get(vaultId, `"${term.replace(/"/g, "")}"`) as { n: number } | undefined;
-    return row?.n ?? 0;
+    if (!isReadable) {
+      const row = db
+        .prepare("SELECT COUNT(*) AS n FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ?")
+        .get(vaultId, quoted) as { n: number } | undefined;
+      return row?.n ?? 0;
+    }
+    const rows = db
+      .prepare("SELECT path FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ? LIMIT ?")
+      .all(vaultId, quoted, DF_SCAN_CAP) as Array<{ path: string }>;
+    let n = 0;
+    for (const r of rows) {
+      if (!isReadable(r.path)) continue;
+      n++;
+      // Past the rare window the exact value is irrelevant to every caller of this function.
+      if (n > rareDfMax) return n;
+    }
+    return n;
   } catch {
     return 0;
   }
@@ -78,7 +124,14 @@ export function routeQuery(
   db: Database,
   vaultId: string,
   query: string,
-  opts: { nowMs?: number; rareDfMax?: number } = {},
+  opts: {
+    nowMs?: number;
+    rareDfMax?: number;
+    /** THE-691: the caller's read predicate. Without it the rare-term signal — and the routing
+     *  decision itself — are computed over content the caller may not be allowed to see, and the
+     *  signal is returned to them verbatim. Every tool call site supplies it. */
+    isReadable?: (path: string) => boolean;
+  } = {},
 ): RouteDecision {
   const signals: string[] = [];
 
@@ -105,7 +158,7 @@ export function routeQuery(
     const rareDfMax = opts.rareDfMax ?? 3;
     const candidates = [...tokens].sort((a, b) => b.length - a.length).slice(0, 4);
     for (const t of candidates) {
-      const df = termDf(db, vaultId, t);
+      const df = termDf(db, vaultId, t, opts.isReadable, rareDfMax);
       if (df >= 1 && df <= rareDfMax) {
         signals.push(`rare-term:${t}(df=${df})`);
         return { class: "lexical", signals };
