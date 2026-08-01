@@ -92,6 +92,21 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           ? { rerankerProvider: config.reranker.provider }
           : {}),
       },
+      // THE-679: names alone are not enough. A declared block naming a registered provider can
+      // still be unbuildable (model-tier without embeddings.modelTier.full; gateway with no URL),
+      // which hard-fails boot while doctor reported ok. Offline: reads config + env only.
+      rerankerBuildable: {
+        ...(config.reranker?.provider !== undefined
+          ? { rerankerProvider: config.reranker.provider }
+          : {}),
+        ...(config.reranker?.baseUrl !== undefined
+          ? { rerankerBaseUrl: config.reranker.baseUrl }
+          : {}),
+        embeddings: config.embeddings,
+        ...(process.env.OBSIDIAN_TC_GATEWAY_URL !== undefined
+          ? { gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL }
+          : {}),
+      },
     },
     profile,
     bridgeReports,

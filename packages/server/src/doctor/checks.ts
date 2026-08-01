@@ -3,6 +3,10 @@
 
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
+import {
+  type RerankerPreflightEmbeddings,
+  rerankerBuildBlocker,
+} from "../providers/reranker-preflight";
 import type { Check, CheckStatus } from "./types";
 
 /** #16 (audit THE-562): the readiness inputs for the four retrieval heads, derived from
@@ -47,15 +51,17 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
       details.sparse = streamStatus(view.sparseEnabled, "sparse");
       details.colbert = streamStatus(view.colbertEnabled, "colbert");
 
-      if (view.multiVector) {
+      // THE-681: rerankerConfigured is checked FIRST, ahead of the name-derived multiVector
+      // branch. A declared `reranker` block WINS at runtime — tool-wiring.ts uses it instead of the
+      // model-tier fallback — so with `embeddings.provider: "model-tier"` + modelTier.full AND a
+      // declared cohere-compatible reranker, the old order printed "model-tier / ColBERT rerank
+      // capable" and never named the backend actually wired. Reporting an inference over an
+      // explicit declaration is wrong precisely when the operator has taken an override.
+      if (view.rerankerConfigured) {
+        details.reranker = `reranker configured: ${view.rerankerConfigured}`;
+        notes.push(`reranker configured (${view.rerankerConfigured}) — a declared block wins`);
+      } else if (view.multiVector) {
         details.reranker = `model-tier / ColBERT rerank capable (${view.denseProvider}); or the inference gateway /rerank passthrough when configured`;
-      } else if (view.rerankerConfigured) {
-        // A provider name no longer implies a capability set, so this is reported as CONFIGURED
-        // rather than inferred from denseProvider — a generic provider may still be multi-vector.
-        details.reranker = `reranker configured: ${view.rerankerConfigured} (multi-vector capability could not be determined from the '${view.denseProvider}' provider name)`;
-        notes.push(
-          `reranker configured (${view.rerankerConfigured}); multi-vector capability could not be determined from the '${view.denseProvider}' provider name`,
-        );
       } else {
         // This branch's wording changed too, not just the rerankerConfigured-present one above: the
         // old text ("reranking depends on the inference gateway (env-configured)") predated
@@ -385,6 +391,59 @@ export function obsidianCheck(profile: CapabilityProfile): Check {
           vaultNames: names,
           localRestApiEnabled: `${withRest}/${vaults.length}`,
         },
+      };
+    },
+  };
+}
+
+/** THE-679 view: enough to answer "would this declared reranker block build?" without executing
+ *  anything. Absent `rerankerProvider` means no block is declared, which is always fine. */
+export interface RerankerBuildableView {
+  rerankerProvider?: string;
+  rerankerBaseUrl?: string;
+  embeddings?: RerankerPreflightEmbeddings;
+  gatewayUrlEnv?: string;
+}
+
+/**
+ * THE-679. `providers.registered` validates provider NAMES; this validates that a declared block
+ * can actually be BUILT.
+ *
+ * The gap it closes: a config naming "model-tier" without `embeddings.modelTier.full`, or "gateway"
+ * with no base URL, hard-fails boot — while doctor reported ok and exited 0, because both are
+ * perfectly valid names. Doctor was silent about the one configuration guaranteed not to start.
+ *
+ * Shares `rerankerBuildBlocker` with runtime/tool-wiring.ts so the pre-boot verdict and the
+ * boot-time throw cannot drift. Offline by construction: a `module` provider is NEVER probed here,
+ * because diagnosing must not execute operator-supplied code.
+ */
+export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
+  return {
+    id: "reranker.buildable",
+    category: "retrieval",
+    run: () => {
+      if (view.rerankerProvider === undefined) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: "reranker: no block declared (default precedence applies)",
+        };
+      }
+      const blocker = rerankerBuildBlocker(view.rerankerProvider, view.embeddings, {
+        baseUrl: view.rerankerBaseUrl,
+        gatewayUrlEnv: view.gatewayUrlEnv,
+      });
+      if (blocker === null) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: `reranker: "${view.rerankerProvider}" has no known build blocker`,
+          details: { provider: view.rerankerProvider },
+        };
+      }
+      return {
+        status: "fail" as CheckStatus,
+        summary: blocker.reason,
+        details: { provider: view.rerankerProvider },
+        remediation: blocker.hint,
       };
     },
   };

@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 985 tracked code files · 144,787 lines.
+**Scale:** 987 tracked code files · 145,001 lines.
 
-TypeScript 135,418 · JavaScript 5,844 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
+TypeScript 135,632 · JavaScript 5,844 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -89,10 +89,10 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `tools/` | 78 | 15,080 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 53 | 9,416 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,105 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `runtime/` | 13 | 2,809 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 13 | 2,801 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `experiential/` | 11 | 2,756 | work-memory tier: activation, retrieval log, forget, citations |
 | `vault/` | 17 | 1,968 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `cli/` | 22 | 1,838 | arg parsing + subcommands |
+| `cli/` | 22 | 1,853 | arg parsing + subcommands |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 13 | 1,123 | provisioning, migrate runner, experiential store |
@@ -100,8 +100,8 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `metrics/` | 4 | 832 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `plane/` | 6 | 789 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
-| `providers/` | 5 | 667 |  |
-| `doctor/` | 5 | 642 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `providers/` | 6 | 726 |  |
+| `doctor/` | 5 | 714 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `model/` | 7 | 638 | model-service clients |
 | `embeddings/` | 6 | 614 | providers incl. the deterministic fake used in tests |
 | `capability/` | 6 | 605 | `defineTool` and the capability registry |
@@ -118,7 +118,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 344 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 345 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -273,7 +273,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**367 modules · 1612 dependencies · 107 distinct subsystem pairs · 714 cross-subsystem imports.**
+**368 modules · 1614 dependencies · 107 distinct subsystem pairs · 716 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -308,7 +308,7 @@ flowchart LR
   embeddings[embeddings<br/>6 files]
   formats[formats<br/>6 files]
   plane[plane<br/>6 files]
-  providers[providers<br/>5 files]
+  providers[providers<br/>6 files]
   metrics[metrics<br/>4 files]
   scheduler[scheduler<br/>4 files]
   otel[otel<br/>3 files]
@@ -356,7 +356,7 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 227 | `tools` | 342 |
-| `db` | 122 | `runtime` | 128 |
+| `db` | 122 | `runtime` | 129 |
 | `search` | 88 | `search` | 60 |
 | `mcp` | 85 | `cli` | 48 |
 | `embeddings` | 30 | `mcp` | 23 |
