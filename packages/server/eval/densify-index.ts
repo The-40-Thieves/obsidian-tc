@@ -67,6 +67,11 @@ if (settleOnly) {
   await indexVault({
     db,
     provider: createEmbeddingProvider(config.embeddings),
+    // THE-460 fix B: createEmbeddingProvider suffixes provider.id with `@<revision>` when
+    // config.embeddings.revision is set, so this MUST fold the same value into the fingerprint —
+    // otherwise this harness and the server compute different fingerprints against the same
+    // cache.db and each DROPs and rebuilds what the other just built.
+    revision: config.embeddings.revision,
     vaultId: vault.id,
     root: vault.path,
     isReadable: () => true,

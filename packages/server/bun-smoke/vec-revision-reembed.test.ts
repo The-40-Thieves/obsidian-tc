@@ -16,32 +16,44 @@
 // (embeddings/index.ts's withRevision — see test/provider-revision-identity.test.ts for the direct
 // unit test of that wrapper), so a revision bump changes the identity the re-embed gate compares.
 //
+// Review round 2 (Important): the round-1 version of this test built its providers by HAND
+// (fakeEmbeddingProvider + a manual `@revision` suffix), so its assertions passed unconditionally
+// regardless of whether createEmbeddingProvider's withRevision wrapper (fix B) actually worked —
+// reverting fix B in production left this whole test green. Fixed by routing through the REAL
+// createEmbeddingProvider (production's factory, `testProvider` below) so a fix-B regression
+// changes what gets stored; only `.embed` is replaced with a fast deterministic function (the same
+// one fakeEmbeddingProvider itself uses) so indexing needs no reachable ollama server.
+//
 // This test reproduces the reviewer's exact probe against indexVault with a real vec0 table (lives
 // in bun-smoke: node:sqlite cannot load sqlite-vec, so this is the only runtime the real DROP+
-// backfill path executes). The revision-suffixed id below is EXACTLY what withRevision produces;
-// hand-constructing it here (rather than routing through createEmbeddingProvider, which would need
-// a network-reachable adapter) exercises the same indexVault-level integration that production
-// wiring produces, since indexVault only ever reads `args.provider.id` — it has no idea how that id
-// was built.
+// backfill path executes).
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
-import type { EmbeddingProvider } from "../src/embeddings";
-import { fakeEmbeddingProvider } from "../src/embeddings";
+import type { EmbeddingProvider, EmbeddingsConfigLike } from "../src/embeddings";
+import { createEmbeddingProvider, deterministicVector } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
 import { semanticSearch } from "../src/search/semantic";
 
-function revisedProvider(opts: {
-  dimensions: number;
-  model: string;
-  revision?: string;
-}): EmbeddingProvider {
-  const base = fakeEmbeddingProvider({ dimensions: opts.dimensions, model: opts.model });
-  if (!opts.revision) return base;
-  return { ...base, id: `${base.id}@${opts.revision}` };
+const DIMS = 32;
+
+/** Routes through the REAL createEmbeddingProvider — including fix B's withRevision wrapper — so
+ *  `.id` is exactly what production computes from `cfg`. Only `.embed` (the network-calling part)
+ *  is replaced with a deterministic local function; `.id`/`.provider`/`.model`/`.dimensions` are
+ *  untouched, so a fix-B regression is visible in what gets stored. */
+function testProvider(cfg: EmbeddingsConfigLike): EmbeddingProvider {
+  const real = createEmbeddingProvider(cfg);
+  return {
+    id: real.id,
+    provider: real.provider,
+    model: real.model,
+    dimensions: real.dimensions,
+    embed: (texts: string[]) =>
+      Promise.resolve(texts.map((t) => deterministicVector(t, real.dimensions))),
+  };
 }
 
 test("THE-460 Critical: declaring a revision reindexes, and vec_chunks + dense hits recover", async () => {
@@ -53,8 +65,11 @@ test("THE-460 Critical: declaring a revision reindexes, and vec_chunks + dense h
   writeFileSync(join(root, "dog.md"), "# Dog\n\nthe lazy dog sleeps under the warm sun");
   const opts = { db, vaultId: "v", root, isReadable: () => true };
 
+  const baseCfg: EmbeddingsConfigLike = { provider: "ollama", model: "bge-m3", dimensions: DIMS };
+
   // 1. Index with NO revision declared — the pre-existing, always-worked path. Dense hits > 0.
-  const base = revisedProvider({ dimensions: 32, model: "bge-m3" });
+  const base = testProvider(baseCfg);
+  expect(base.id).toBe("ollama:bge-m3"); // sanity: no revision -> no suffix
   const stats1 = await indexVault({ ...opts, provider: base });
   expect(stats1.vec_enabled).toBe(true);
   expect((db.prepare("SELECT count(*) AS c FROM vec_chunks").get() as { c: number }).c).toBe(2);
@@ -65,7 +80,7 @@ test("THE-460 Critical: declaring a revision reindexes, and vec_chunks + dense h
   // are unchanged — ONLY `revision` moves the fingerprint, and ONLY the revision-suffixed
   // provider.id moves the re-embed gate + the backfill's activeModel. This is exactly the
   // reviewer's reproduction.
-  const revised = revisedProvider({ dimensions: 32, model: "bge-m3", revision: "chk2" });
+  const revised = testProvider({ ...baseCfg, revision: "chk2" });
   const stats2 = await indexVault({ ...opts, provider: revised, revision: "chk2" });
   expect(stats2.vec_enabled).toBe(true);
 
@@ -75,6 +90,24 @@ test("THE-460 Critical: declaring a revision reindexes, and vec_chunks + dense h
   expect(rows2.c).toBe(2);
   const [q2] = await revised.embed(["lazy dog"]);
   expect(semanticSearch(db, "v", q2 ?? [], { k: 2 }).length).toBeGreaterThan(0); // hits recover
+
+  // Review round 2 (Important): a row COUNT is identical whether the corpus was genuinely
+  // re-embedded under the new checkpoint (fix B doing its job) or fix A's repaired backfill
+  // merely PRESERVED the OLD checkpoint's vectors and relabeled them under a fingerprint that now
+  // claims the new revision — with fix B reverted, chunk_embeddings.model / vec_chunks.model stay
+  // "ollama:bge-m3" even after this step (the re-reviewer's measured reproduction), which is
+  // exactly the "silently and subtly wrong" state THE-460 exists to prevent. Assert the STORED
+  // IDENTITY against a HARDCODED literal — never `revised.id`, which would just echo back
+  // whatever (possibly broken) value production computed and could never fail. Every active row
+  // must carry the id the fingerprint now claims.
+  expect(db.prepare("SELECT DISTINCT model FROM vec_chunks ORDER BY model").all()).toEqual([
+    { model: "ollama:bge-m3@chk2" },
+  ]);
+  expect(
+    db
+      .prepare("SELECT DISTINCT model FROM chunk_embeddings WHERE is_active = 1 ORDER BY model")
+      .all(),
+  ).toEqual([{ model: "ollama:bge-m3@chk2" }]);
 
   // 3. A further reconcile at the SAME revision is a stable no-op (not "still 0 after a further
   // reconcile", the reviewer's second measured symptom).
@@ -91,6 +124,17 @@ test("THE-460 Critical: declaring a revision reindexes, and vec_chunks + dense h
   expect((db.prepare("SELECT count(*) AS c FROM vec_chunks").get() as { c: number }).c).toBe(2);
   const [q4] = await base.embed(["lazy dog"]);
   expect(semanticSearch(db, "v", q4 ?? [], { k: 2 }).length).toBeGreaterThan(0);
+
+  // Identity reverts too: the stored rows must now carry the un-suffixed id again, not the
+  // revisioned one left over from step 2/3 — same property, opposite direction, still hardcoded.
+  expect(db.prepare("SELECT DISTINCT model FROM vec_chunks ORDER BY model").all()).toEqual([
+    { model: "ollama:bge-m3" },
+  ]);
+  expect(
+    db
+      .prepare("SELECT DISTINCT model FROM chunk_embeddings WHERE is_active = 1 ORDER BY model")
+      .all(),
+  ).toEqual([{ model: "ollama:bge-m3" }]);
 
   rmSync(root, { recursive: true, force: true });
   db.close?.();
