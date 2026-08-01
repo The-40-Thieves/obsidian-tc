@@ -39,8 +39,24 @@ try {
   process.exit(0);
 }
 
+// Absolute, and correctly so: this script SPAWNS check-merge-driver.mjs itself below, so it needs a
+// path resolvable from wherever node was invoked. Only the value written into git config must be
+// relative — see the comment on driverScript.
 const here = path.dirname(fileURLToPath(import.meta.url));
-const driverScript = path.join(here, "merge-drivers", "defer-regeneration.mjs");
+
+// REPO-RELATIVE, deliberately — never an absolute path built from import.meta.url.
+//
+// `.git/config` is SHARED by every linked worktree (git only splits it when
+// extensions.worktreeConfig is set, which this repo does not set). An absolute path therefore made
+// this script's last caller win for the whole repo: a `bun install` inside a throwaway worktree
+// rewrote the MAIN checkout's driver to point into that worktree, and deleting the worktree left a
+// dangling path. Git then failed to run the driver and fell back to an ordinary text merge — the
+// exact conflict-prone behaviour this driver exists to prevent, silently.
+//
+// Git runs a merge driver with its working directory at the top of the working tree being merged,
+// so one relative command resolves correctly in EVERY worktree simultaneously and cannot be
+// invalidated by another worktree's install or removal.
+const driverScript = path.posix.join("scripts", "merge-drivers", "defer-regeneration.mjs");
 
 git([
   "config",
