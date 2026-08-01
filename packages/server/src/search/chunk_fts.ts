@@ -188,17 +188,22 @@ export interface LexicalHit {
  *   GUARANTEED unconditionally: an unreadable chunk is never RETURNED. The result set contains
  *   only rows the caller may read, whatever the corpus looks like. That part fails closed.
  *
- *   CONTINGENT: the returned LENGTH is min(k, readable rows inside the over-fetch window), so it
- *   can in principle depend on how many excluded rows outrank the caller's. Underfilling needs the
- *   window to fill first — 650 rows at the seedCount=30 default (k*20+50), 850 at vault_context's
- *   k=40, ~4.8% and ~6.3% of a 13.4k-chunk vault. chunkFtsMatch joins terms with OR, so match
- *   count is the union and is driven by the COMMONEST term. A term matching 5% of the corpus is
- *   common enough that its presence in any one note is not news, while a rare term — the only case
- *   where membership would be informative — matches far fewer rows than the window, so the window
- *   never fills and filtering there is exact. The two cases do not overlap at this corpus size.
+ *   NOT GUARANTEED: the returned LENGTH. It is min(k, readable rows inside the window), so it
+ *   depends on how many EXCLUDED rows outrank the caller's — an interference channel on the count,
+ *   with no unreadable content in it.
  *
- * So: safe today, on arithmetic rather than construction. A much larger vault, a smaller
- * over-fetch factor, or a MATCH that becomes conjunctive would each require redoing that sum.
+ * The threshold, corrected. A first version of this note computed the window as a share of the
+ * whole corpus and concluded "safe today". Wrong denominator: what matters is the hidden fraction
+ * of the top-F MATCH prefix, not of the vault. With F = 20k + 50, underfill begins once that
+ * fraction exceeds 1 - k/F — 95.38% at k=30, 96% at k=10, 98.57% at k=1. Cross-vendor review
+ * reproduced the boundary directly on this query shape: at k=1 (F=70), 69 higher-scoring hidden
+ * matches return the readable row, 70 return nothing. One row's existence flips the length.
+ *
+ * chunkFtsMatch joins terms with OR, so filling F still takes a corpus-common term, which bounds
+ * how casually this is reached. It does NOT dismiss it: the row that crosses the boundary can
+ * itself be the note whose existence is in question. Treat this as a live residual (THE-695),
+ * not as a closed case, and re-derive the sum rather than inheriting this verdict if k, the
+ * over-fetch factor, or the OR-vs-AND shape of the MATCH ever changes.
  */
 export function bm25Chunks(
   db: Database,

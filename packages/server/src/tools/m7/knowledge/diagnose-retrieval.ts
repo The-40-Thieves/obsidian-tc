@@ -19,18 +19,30 @@
 // thing makes that safe, and it is stated precisely here because an earlier version of this comment
 // claimed a second one that the code deliberately does not have:
 //
-//   `isReadable` is threaded into every arm AT QUERY TIME — dense, lexical and sparse in
-//   seed_generation (THE-287 for dense, THE-632 for the other two), plus graph expansion's own
-//   walk. Every array the trace inspects is therefore ACL-filtered before it exists, an unreadable
-//   note is genuinely absent from all of them, and it falls out as the REAL never-a-candidate
-//   answer rather than a manufactured one.
+//   `isReadable` is threaded into the three SEED arms AT QUERY TIME — dense, lexical and sparse in
+//   seed_generation (THE-287 for dense, THE-632 for the other two). Every array the trace inspects
+//   is ACL-filtered before it exists, an unreadable note is genuinely absent from all of them, and
+//   it falls out as the REAL never-a-candidate answer rather than a manufactured one.
+//
+// TWO RESIDUALS, both pre-existing and both confirmed by cross-vendor review of this PR. Neither is
+// introduced here and neither returns unreadable CONTENT, but both mean stage COUNTS are not fully
+// noninterfering, so this comment must not claim they are:
+//
+//   1. GRAPH EXPANSION DOES NOT FILTER IN ITS WALK (THE-695). An earlier draft of this comment said
+//      it did. It does not: expandGraphLiteral's recursive CTE traverses vault_edges with no ACL
+//      at all, and graph_expansion.ts filters isReadable only on the hydrated chunk rows AFTER the
+//      walk. So on `readable A -> unreadable S -> readable B`, S is a hidden bridge that makes B
+//      reachable at hop 2; delete S and B is unreachable. The presence of an unreadable note
+//      therefore changes the READABLE result set.
+//   2. The BM25 over-fetch boundary — see the residual note in chunk_fts.ts.
 //
 // There is deliberately NO up-front readability check on the target path, and this comment
 // previously said there was. That earlier version short-circuited with a hand-written envelope, and
 // cross-vendor review showed it was trivially distinguishable from a genuinely-unmatched readable
 // path — see the four tells at the handler. Query-time filtering is consequently the ONLY mechanism
-// providing this property. Do not thin it out on the assumption that a branch in the handler is
-// backstopping it; nothing is.
+// providing what IS guaranteed here. Do not thin it out on the assumption that a branch in the
+// handler is backstopping it; nothing is.
+//
 import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";

@@ -266,11 +266,19 @@ const FUNCTION_FIELDS = [
   "onRetrievalTrace",
 ] as const;
 
-/** THE-632: `traceNotePath` is the one non-function field that is deliberately UNKEYED.
+/** THE-632: `traceNotePath` selects which note the trace FOLLOWS. It never filters, boosts or
+ *  reorders — results are byte-identical with it set, unset, or pointed at a different note.
  *
- *  It selects which note the trace FOLLOWS. It never filters, boosts or reorders — results are
- *  byte-identical with it set, unset, or pointed at a different note — so keying on it would
- *  fragment the cache into one entry per diagnosed note for identical result sets.
+ *  CORRECTION (cross-vendor review): an earlier version of this comment said the field was
+ *  "deliberately UNKEYED". It is not. `graphSearchKey` deletes only DERIVED_VECTOR_FIELDS and
+ *  normalizes `reranker`; FUNCTION_FIELDS drop out because JSON serialization discards functions,
+ *  but `traceNotePath` is a STRING and therefore lands in the key. This list is the declaration of
+ *  intent that the coverage gate reads, not a filter the key applies.
+ *
+ *  That mismatch is inert rather than wrong: `cachedGraphSearch` bypasses the cache outright
+ *  whenever tracing is set, so the fragmenting entries the comment worried about are never written.
+ *  Anyone making tracing cacheable must strip this field in `graphSearchKey` as well as listing it
+ *  here — listing it here alone does nothing.
  *
  *  The cache-HIT caveat bites harder here than for the sinks, so it is written down rather than
  *  left to be rediscovered: a hit returns the cached results WITHOUT running the pipeline, so no

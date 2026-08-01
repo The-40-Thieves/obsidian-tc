@@ -203,8 +203,13 @@ export function lexicalRouteResults(
   isReadable?: (path: string) => boolean,
 ): GraphSearchResult[] {
   // THE-632: the ACL goes IN, so unreadable chunks never occupy slots inside the SQL limit and
-  // crowd out readable ones. The post-filter below stays as defense-in-depth — it is free, and a
-  // future caller that omits the argument must still fail closed.
+  // crowd out readable ones. The post-filter below is kept because it is free.
+  //
+  // It is NOT a fail-closed backstop, and an earlier version of this comment claimed it was. Both
+  // filters are conditional on the SAME optional argument, so a caller that omits `isReadable` gets
+  // neither — the loop's guard is `isReadable && !isReadable(...)`, which is skipped entirely when
+  // the argument is absent. What actually keeps this correct is that every production caller passes
+  // it (verified repo-wide, THE-632). The API shape provides nothing; call-site coverage does.
   const hits = bm25Chunks(
     db,
     vaultId,
