@@ -217,10 +217,16 @@ describe("#16 retrievalHeadsCheck (dense/sparse/ColBERT/reranker readiness)", ()
     ...over,
   });
 
-  it("dense-only provider with streams off: ok, dense ready, sparse/ColBERT off", async () => {
+  it("dense-only provider with streams off: ok, dense CONFIGURED (never 'ready'), sparse/ColBERT off", async () => {
     const r = await retrievalHeadsCheck(view()).run(ctx);
     expect(r.status).toBe("ok");
-    expect(r.details?.dense).toContain("ready");
+    expect(r.details?.dense).toContain("configured");
+    // THE-688: the negative half is the point of this assertion. Every field on the view is
+    // config-derived and this check never probes, so claiming readiness is a claim it cannot
+    // support — a removed provider read as `dense: ready (ollama, ...)` for two days while every
+    // semantic query failed. Regressing the wording must fail here, not in production.
+    expect(r.details?.dense).not.toMatch(/\bready\b/);
+    expect(r.summary).not.toMatch(/\bready\b/);
     expect(r.details?.sparse).toContain("off");
     expect(r.details?.colbert).toContain("off");
     // no model-tier reranker on a dense-only provider
@@ -238,7 +244,7 @@ describe("#16 retrievalHeadsCheck (dense/sparse/ColBERT/reranker readiness)", ()
     expect(r.remediation).toContain("bge-m3");
   });
 
-  it("multi-vector provider with streams on: all heads ready, ok", async () => {
+  it("multi-vector provider with streams on: all heads CONFIGURED (never 'ready'), ok", async () => {
     const r = await retrievalHeadsCheck(
       view({
         denseProvider: "bge-m3",
@@ -248,8 +254,13 @@ describe("#16 retrievalHeadsCheck (dense/sparse/ColBERT/reranker readiness)", ()
       }),
     ).run(ctx);
     expect(r.status).toBe("ok");
-    expect(r.details?.sparse).toContain("ready");
-    expect(r.details?.colbert).toContain("ready");
+    expect(r.details?.sparse).toContain("configured");
+    expect(r.details?.colbert).toContain("configured");
+    // THE-688: `multiVector` is inferred from the PROVIDER NAME, not observed, so these streams
+    // are no better attested than the dense line. Leaving them as `ready` beside a dense line
+    // saying `configured` would read as the stronger claim being the more trustworthy one.
+    expect(r.details?.sparse).not.toMatch(/\bready\b/);
+    expect(r.details?.colbert).not.toMatch(/\bready\b/);
     expect(r.details?.reranker).toContain("rerank capable");
   });
 });

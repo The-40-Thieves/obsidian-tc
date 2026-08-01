@@ -34,15 +34,34 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
     id: "retrieval.heads",
     category: "retrieval",
     run: () => {
+      // THE-688: says `configured`, NOT `ready`. Every field on RetrievalHeadsView is derived from
+      // config.embeddings + config.retrieval — there is no liveness input here and this check is
+      // offline by construction (see rerankerBuildableCheck below), so it cannot know whether the
+      // provider answers. `ready` was a literal in this template with no branch, which made it
+      // structurally impossible for the check to report anything else.
+      //
+      // That is not hypothetical. Ollama was removed from a deployment on 2026-07-31 while the
+      // config still named it; for two days every semantic query returned embedding_provider_error
+      // while doctor printed `dense: ready (ollama, nomic-embed-text, dim 768)` and exited 0 —
+      // actively pointing an operator AWAY from the cause. The same is true on a fresh install,
+      // where the zero-config default names a provider most new users are not running.
+      //
+      // Reporting what the config SAYS is genuinely useful; claiming it works is what was wrong.
+      // A probe would be a different feature and needs an opt-in flag — it must not become a
+      // side effect of diagnosing (THE-688 fix 2).
       const details: Record<string, string> = {
-        dense: `ready (${view.denseProvider}, ${view.denseModel}, dim ${view.denseDimensions})`,
+        dense: `configured (${view.denseProvider}, ${view.denseModel}, dim ${view.denseDimensions}) — not probed`,
       };
       const issues: string[] = [];
       const notes: string[] = [];
 
       const streamStatus = (enabled: boolean, name: string): string => {
         if (!enabled) return `off (opt-in via retrieval.${name})`;
-        if (view.multiVector) return `ready (${view.denseProvider} multi-vector head)`;
+        // THE-688: `configured`, for the same reason as dense above — `multiVector` is inferred
+        // from the PROVIDER NAME, not from anything observed. Left as `ready` it would have read
+        // as a stronger claim than the dense line right beside it, which is worse than either
+        // wording used consistently.
+        if (view.multiVector) return `configured (${view.denseProvider} multi-vector head)`;
         issues.push(
           `retrieval.${name} is enabled but the '${view.denseProvider}' embeddings provider emits no multi-vector head — the ${name} stream is a no-op`,
         );
@@ -79,7 +98,7 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
         status,
         summary:
           status === "ok"
-            ? "retrieval heads: dense ready; sparse/ColBERT/reranker reported per config"
+            ? "retrieval heads (from CONFIG, not probed): dense configured; sparse/ColBERT/reranker per config"
             : "a retrieval stream is enabled but inert (provider emits no multi-vector head)",
         details,
         ...(issues.length ? { issues } : {}),
