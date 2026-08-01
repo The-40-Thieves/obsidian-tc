@@ -37,9 +37,11 @@ const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform ===
 // longest is under 20 chars — so the ceiling is deliberately generous and never trips in practice.
 const MAX_GLOB_LENGTH = 512;
 
-// THE-618: globToRegExp compiles on every call, and it sits on the per-note ACL hot path
-// (globMatch, called per rule per path from scopesForPath/makeIndexReadable/acl-read-filter/
-// acl-path/graph-health-tools' include-exclude scan). Memoize the compiled regex.
+// THE-618: globToRegExp compiles on every call, and it sits on the per-note ACL hot path.
+// Memoize the compiled regex. Since this landed, FolderAcl additionally precompiles its rule globs
+// and per-op whitelists at construction (see below), so the ACL paths no longer reach this cache on
+// every check at all — it now serves the caller-supplied globs (graph-health-tools' include/exclude)
+// and any direct globMatch caller.
 //
 // Key design: a NESTED Map, outer keyed by the exact glob string and inner keyed by the
 // `caseInsensitive` boolean — NOT a concatenated string key. `caseInsensitive` changes the
@@ -127,17 +129,90 @@ export function isDefaultDenied(path: string): boolean {
   return DEFAULT_DENY_ROOTS.some((r) => lower === r || lower.startsWith(`${r}/`));
 }
 
+/** The three per-path operation kinds carrying an independent whitelist. */
+export type AclPathOp = "read" | "write" | "delete";
+
+/** A whitelist entry: the compiled matcher plus the ORIGINAL glob string, which is what
+ *  evaluatePathAcl reports back as `matchedGlob` (callers surface it in ACL diagnostics). */
+interface CompiledGlobT {
+  readonly glob: string;
+  readonly re: RegExp;
+}
+
+// THE-618 item 3: compile a whitelist once. `undefined` (no whitelist for that op) is preserved and
+// is NOT the same as an empty list — undefined means unrestricted (M0 back-compat), [] means
+// deny-all. Collapsing the two turns a deny-all into an allow-all.
+function compileGlobList(
+  list: readonly string[] | undefined,
+): readonly CompiledGlobT[] | undefined {
+  if (list === undefined) return undefined;
+  return list.map((glob) => ({ glob, re: globToRegExp(glob.normalize("NFC")) }));
+}
+
 export class FolderAcl {
-  constructor(private readonly cfg: AclConfigT) {}
+  private readonly cfg: AclConfigT;
+  // THE-618 item 1: the rule globs, compiled once, IN CONFIG ORDER. Order is load-bearing —
+  // scopesForPath is last-match-wins and aclFingerprint preserves rules order for exactly that
+  // reason — so this array is built with .map() and never sorted, deduped or short-circuited.
+  private readonly compiledRules: readonly { readonly re: RegExp; readonly scopes: string[] }[];
+  private readonly compiledPaths: Readonly<Record<AclPathOp, readonly CompiledGlobT[] | undefined>>;
+
+  constructor(cfg: AclConfigT) {
+    // Snapshot the config. Precompiling the rules freezes the ACL at construction, and
+    // aclFingerprint — "the only thing that keeps caller A's cached results from reaching caller B"
+    // — must be frozen against the SAME source. Reading a live `cfg` for the fingerprint while the
+    // enforced rules were compiled from a since-mutated array would move the cache key without
+    // moving the ACL it claims to describe: two callers could then share an entry computed under a
+    // different rule set. Copying once here makes that divergence unrepresentable, and extends the
+    // no-live-reference guarantee the accessors already give (see below) to the config as a whole.
+    this.cfg = {
+      ...cfg,
+      defaultScopes: [...cfg.defaultScopes],
+      rules: cfg.rules.map((r) => ({ glob: r.glob, scopes: [...r.scopes] })),
+      readPaths: cfg.readPaths ? [...cfg.readPaths] : undefined,
+      writePaths: cfg.writePaths ? [...cfg.writePaths] : undefined,
+      deletePaths: cfg.deletePaths ? [...cfg.deletePaths] : undefined,
+    };
+    this.compiledRules = this.cfg.rules.map((r) => ({
+      // The glob is normalized ONCE here; the PATH is still normalized per call in the matchers
+      // below. Both halves stay load-bearing (THE-272) — only the redundancy is removed.
+      re: globToRegExp(r.glob.normalize("NFC")),
+      scopes: r.scopes,
+    }));
+    this.compiledPaths = {
+      read: compileGlobList(this.cfg.readPaths),
+      write: compileGlobList(this.cfg.writePaths),
+      delete: compileGlobList(this.cfg.deletePaths),
+    };
+  }
   // Every accessor below returns a COPY. A FolderAcl is built once per vault and shared across all
   // dispatches, so handing back the live config array would let any caller that mutates it rewrite
   // the ACL for every subsequent call — a privilege escalation with no trace in the config file.
   scopesForPath(path: string): string[] {
+    // THE-618 item 2: one normalize for the whole loop, not one per rule. The compiled regexes
+    // carry no `g`/`y` flag, so `.test` holds no lastIndex state and is safe to reuse across calls.
+    const p = path.normalize("NFC");
     let scopes = this.cfg.defaultScopes;
-    for (const r of this.cfg.rules) {
-      if (globMatch(r.glob, path)) scopes = r.scopes;
+    for (const r of this.compiledRules) {
+      if (r.re.test(p)) scopes = r.scopes;
     }
     return [...scopes];
+  }
+  /**
+   * THE-618 item 3: the per-op whitelist decision, against precompiled globs.
+   *
+   * Returns the matched glob string, `null` when a whitelist exists but nothing matched, and
+   * `undefined` when the op has NO whitelist (unrestricted — M0 back-compat). Callers must keep
+   * `undefined` and `null` distinct: they are allow-all and deny respectively.
+   *
+   * This replaces three separate `list.some/find((g) => globMatch(g, path))` scans that each first
+   * allocated a defensive copy of the whitelist via the accessors, on per-note hot paths.
+   */
+  matchedPathGlob(op: AclPathOp, path: string): string | null | undefined {
+    const list = this.compiledPaths[op];
+    if (list === undefined) return undefined;
+    const p = path.normalize("NFC");
+    return list.find((c) => c.re.test(p))?.glob ?? null;
   }
   get readOnly(): boolean {
     return this.cfg.readOnly;
@@ -201,11 +276,13 @@ export function makeIndexReadable(
   return (vaultId) => (rel) => {
     const a = aclByVault.get(vaultId) ?? rootAcl;
     if (isDefaultDenied(rel)) return false;
-    // Read the whitelist ONCE: the accessor returns a defensive copy and this predicate runs per
-    // note for a whole vault, so a second read would allocate a second copy for nothing.
-    const readPaths = a.readPaths;
-    if (readPaths === undefined) return a.strictReadDefault !== true;
-    return readPaths.some((g) => globMatch(g, rel));
+    // THE-618: match against the ACL's precompiled read whitelist. This predicate runs per note for
+    // a whole vault; the previous form allocated a defensive copy of readPaths per note and then
+    // re-normalized `rel` once per glob in it. `undefined` = no whitelist (unrestricted unless
+    // strictReadDefault fails it closed); `null` = a whitelist exists and this path is outside it.
+    const matched = a.matchedPathGlob("read", rel);
+    if (matched === undefined) return a.strictReadDefault !== true;
+    return matched !== null;
   };
 }
 

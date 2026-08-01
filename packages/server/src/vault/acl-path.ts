@@ -8,7 +8,7 @@ import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 // tool's declarative pathAcl extractor, runDispatch calls enforcePathAcl before the
 // handler) AND here at the handler level as defense-in-depth. The M0 dispatch
 // read-only kill switch (forbidden) fires first for scope-mutating tools.
-import { type FolderAcl, globMatch, isDefaultDenied } from "../acl";
+import { type FolderAcl, isDefaultDenied } from "../acl";
 import { recordAclCheck } from "./acl-audit";
 import { resolveVaultPathChecked } from "./paths";
 
@@ -43,15 +43,17 @@ export function evaluatePathAcl(
     };
   if (op !== "read" && acl.readOnly)
     return { allowed: false, deniedBy: "read_only", matchedGlob: null };
-  const list = op === "read" ? acl.readPaths : op === "write" ? acl.writePaths : acl.deletePaths;
-  if (list === undefined) {
+  // THE-618: match against the op's PRECOMPILED whitelist rather than re-reading a defensive copy
+  // of it and recompiling/re-normalizing per glob. `undefined` = the op has no whitelist at all;
+  // `null` = a whitelist exists and nothing in it matched. The two are different decisions.
+  const matchedGlob = acl.matchedPathGlob(op, path);
+  if (matchedGlob === undefined) {
     // M0 back-compat: an undefined whitelist is unrestricted, UNLESS strictReadDefault fails the
     // read path closed (THE-268). strictReadDefault governs reads only.
     if (op === "read" && acl.strictReadDefault)
       return { allowed: false, deniedBy: "read_paths", matchedGlob: null };
     return { allowed: true, deniedBy: null, matchedGlob: null };
   }
-  const matchedGlob = list.find((g) => globMatch(g, path)) ?? null;
   if (matchedGlob === null)
     return {
       allowed: false,

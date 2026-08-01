@@ -4,7 +4,7 @@
 // DEFINED, every returned item must be attributable to an allowed vault path; an item
 // that cannot be attributed FAILS CLOSED (acl_denied) rather than leaking.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import { type FolderAcl, globMatch, isDefaultDenied } from "../acl";
+import { type FolderAcl, isDefaultDenied } from "../acl";
 import { normalizeVaultPath } from "./paths";
 
 /** True when read enumeration is unrestricted: no ACL, or readPaths undefined and
@@ -40,11 +40,12 @@ export function bridgeItemPath(
 export function readableRel(acl: FolderAcl | undefined, rel: string): boolean {
   if (!acl) return true;
   if (isDefaultDenied(rel)) return false;
-  // Read the whitelist ONCE: the accessor returns a defensive copy, and this runs per bridge item
-  // and per note during index-time read filtering (THE-453).
-  const readPaths = acl.readPaths;
-  if (readPaths === undefined) return acl.strictReadDefault !== true;
-  return readPaths.some((g) => globMatch(g, rel));
+  // THE-618: match against the ACL's precompiled read whitelist. This runs per bridge item and per
+  // note during index-time read filtering (THE-453); the previous form allocated a defensive copy
+  // of readPaths per call and re-normalized `rel` once per glob in it.
+  const matched = acl.matchedPathGlob("read", rel);
+  if (matched === undefined) return acl.strictReadDefault !== true;
+  return matched !== null;
 }
 
 /**
