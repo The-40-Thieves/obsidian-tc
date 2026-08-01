@@ -45,12 +45,8 @@ describe("doctor with a generic provider", () => {
     const r = await retrievalHeadsCheck({ ...VIEW, rerankerConfigured: "cohere-compatible" }).run(
       ctx,
     );
-    expect(r.details?.reranker).toBe(
-      "reranker configured: cohere-compatible (multi-vector capability could not be determined from the 'openai-compatible' provider name)",
-    );
-    expect(r.notes).toEqual([
-      "reranker configured (cohere-compatible); multi-vector capability could not be determined from the 'openai-compatible' provider name",
-    ]);
+    expect(r.details?.reranker).toBe("reranker configured: cohere-compatible");
+    expect(r.notes).toEqual(["reranker configured (cohere-compatible) — a declared block wins"]);
     expect(JSON.stringify(r)).not.toMatch(/reranking depends on the inference gateway/);
   });
 

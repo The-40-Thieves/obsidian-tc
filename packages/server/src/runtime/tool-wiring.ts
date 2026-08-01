@@ -22,6 +22,7 @@ import { buildModelTierReranker } from "../model";
 import type { GatewayRoles } from "../plane/gateway";
 import { createPlurBackend } from "../plur/client";
 import { resolveReranker } from "../providers/registry";
+import { rerankerBuildBlocker } from "../providers/reranker-preflight";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { nativeLoaded } from "../search/native";
@@ -141,23 +142,14 @@ async function resolveDeclaredReranker(
 ): Promise<Reranker> {
   const reranker = await resolveReranker(cfg, ctx);
   if (reranker) return reranker;
-  if (cfg.provider === "model-tier") {
-    throw err.invalidInput(
-      'reranker.provider "model-tier" could not be built: embeddings.modelTier.full is not configured',
-      {
-        provider: "model-tier",
-        hint: "set embeddings.modelTier.full (baseUrl, ...) so the model-tier reranker has an endpoint to call, or remove the reranker block entirely to fall back to the default precedence.",
-      },
-    );
-  }
-  if (cfg.provider === "gateway") {
-    throw err.invalidInput(
-      'reranker.provider "gateway" could not be built: no gateway base URL is configured',
-      {
-        provider: "gateway",
-        hint: "set reranker.baseUrl or the OBSIDIAN_TC_GATEWAY_URL environment variable so the gateway reranker has an endpoint to call, or remove the reranker block entirely to fall back to the default precedence.",
-      },
-    );
+  // THE-679: the REASON comes from providers/reranker-preflight.ts, which doctor also reads, so a
+  // pre-boot check and this boot-time throw can never disagree about why a block cannot build.
+  const blocker = rerankerBuildBlocker(cfg.provider, ctx?.embeddings, {
+    baseUrl: cfg.baseUrl,
+    gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
+  });
+  if (blocker) {
+    throw err.invalidInput(blocker.reason, { provider: cfg.provider, hint: blocker.hint });
   }
   throw err.invalidInput(`reranker.provider "${cfg.provider}" resolved to no reranker`, {
     provider: cfg.provider,
