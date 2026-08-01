@@ -241,6 +241,11 @@ export function buildGraphSearchOptions(
     onFusionWeights?: GraphSearchOptions["onFusionWeights"];
     /** THE-631: per-query coverage-estimate sink, mirrors onFusionWeights above. */
     onCoverage?: GraphSearchOptions["onCoverage"];
+    /** THE-632: diagnose_retrieval's per-note trace. Same pure-side-channel contract as the two
+     *  sinks above — supplied only by diagnose_retrieval, never by a normal search, so the
+     *  production path is byte-identical to before. */
+    traceNotePath?: GraphSearchOptions["traceNotePath"];
+    onRetrievalTrace?: GraphSearchOptions["onRetrievalTrace"];
   },
 ): Omit<GraphSearchOptions, "queryVec"> & { queryVec?: number[] } {
   return {
@@ -261,6 +266,11 @@ export function buildGraphSearchOptions(
     isReadable: site.isReadable,
     ...(site.onFusionWeights ? { onFusionWeights: site.onFusionWeights } : {}),
     ...(site.onCoverage ? { onCoverage: site.onCoverage } : {}),
+    // THE-632: both or neither — a trace path with no sink traces into nothing, and a sink with no
+    // path has nothing to follow. Gating them together keeps that unrepresentable.
+    ...(site.traceNotePath && site.onRetrievalTrace
+      ? { traceNotePath: site.traceNotePath, onRetrievalTrace: site.onRetrievalTrace }
+      : {}),
     ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
     // THE-585: vec0 -> brute-force degradation signal, bound to this vault. Threaded through the
     // options builder so EVERY graph-search site gets it — wiring it per call site is how a
