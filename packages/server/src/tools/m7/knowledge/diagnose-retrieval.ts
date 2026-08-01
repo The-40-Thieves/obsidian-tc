@@ -61,17 +61,19 @@ export function summarize(
       summary: `${path} WAS returned (${last?.chunksPresent} chunk(s) survived to projection). If it is not where you expected in the ranking, compare its rank across the stages below.`,
     };
   }
-  const first = records[0];
-  // Never a candidate: the most common real answer, and the one that has no score anywhere to
-  // explain it. Distinguished from "was a candidate and got cut" because the fixes differ —
-  // indexing/embedding vs ranking.
+  // NEVER-A-CANDIDATE is "absent at EVERY traced stage", not "absent at the first one".
   //
-  // The claim is now bounded by what was actually traced. It used to assert "not retrieved by any
-  // arm" from absence at candidateAssembly alone, which cross-vendor review showed is stronger
-  // than the evidence: expansion may have reached the note and dropped it on a threshold or cap.
-  // seedGeneration and graphExpansion are traced now, so the arms that were genuinely checked can
-  // be named — and only those.
-  if (first && !first.present) {
+  // That distinction is a regression I introduced and did not catch. Before seedGeneration was
+  // traced, records[0] WAS candidateAssembly, so absence there did mean never-a-candidate. Adding
+  // the earlier trace silently invalidated the assumption: a note reached only through GRAPH
+  // EXPANSION is legitimately absent at seedGeneration and present immediately after. The old
+  // check reported "never entered the candidate pool" for exactly the multi-hop retrieval this
+  // engine exists to do, and blamed seedGeneration for a drop that happened at diversity.
+  //
+  // Caught from the adversarial test case a re-review was building when its run was cut short —
+  // seedGeneration:absent, graphExpansion:present, ... diversity:absent. Pinned below.
+  const everPresent = records.some((r) => r.present);
+  if (!everPresent) {
     const checked = records
       .filter((r) => !r.present && (r.stage === "seedGeneration" || r.stage === "graphExpansion"))
       .map((r) => r.stage);
@@ -79,13 +81,19 @@ export function summarize(
       checked.length > 0
         ? ` Absent at: ${checked.join(", ")} — see each stage's note below for what that rules out.`
         : "";
+    // Name candidateAssembly when it was traced — that is the stage where "candidate" is decided.
+    // Falling back to the first record keeps this honest if the trace set ever changes again.
+    const pool = records.find((r) => r.stage === "candidateAssembly") ?? records[0];
     return {
       returned: false,
-      droppedAt: first.stage,
+      droppedAt: pool?.stage ?? null,
       summary: `${path} never entered the candidate pool, so no later stage ever scored it.${arms} Check that the note is indexed and that the query shares vocabulary or a link path with it.`,
     };
   }
-  const dropIdx = records.findIndex((r) => !r.present);
+  // The drop is the first absence AFTER the note was seen — searching from index 0 would name a
+  // stage the note had not reached yet (seedGeneration for an expansion-only hit).
+  const firstPresent = records.findIndex((r) => r.present);
+  const dropIdx = records.findIndex((r, i) => i > firstPresent && !r.present);
   const drop = dropIdx >= 0 ? records[dropIdx] : undefined;
   const prev = dropIdx > 0 ? records[dropIdx - 1] : undefined;
   if (!drop) {

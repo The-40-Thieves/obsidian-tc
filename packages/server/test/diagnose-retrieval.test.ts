@@ -154,3 +154,49 @@ describe("THE-632 summarize() bounds its claims to what was traced", () => {
     expect(noSeed.summary).not.toMatch(/at projection/);
   });
 });
+
+describe("THE-632: a graph-expansion-only hit is not mistaken for never-a-candidate", () => {
+  // REGRESSION. Adding the seedGeneration trace silently invalidated summarize()'s assumption that
+  // records[0] absent means never-a-candidate: a note reached only through the links_to walk is
+  // legitimately absent at seedGeneration and present immediately after. The broken version
+  // reported "never entered the candidate pool" for exactly the multi-hop retrieval this engine
+  // exists to do, and blamed seedGeneration for a drop that happened at diversity.
+  //
+  // The shape came from the adversarial case a re-review was constructing when its run was cut
+  // short by the vendor's own content filter. The verdict never arrived; the test case still did.
+  it("names the real drop stage, not the arm the note never came from", () => {
+    const r = summarize("bridge.md", [
+      rec({ stage: "seedGeneration", present: false, chunksPresent: 0, candidatesOut: 5 }),
+      rec({ stage: "graphExpansion", present: true, candidatesIn: 2, candidatesOut: 4 }),
+      rec({ stage: "candidateAssembly", present: true, candidatesIn: 9, candidatesOut: 7 }),
+      rec({ stage: "scoreFusion", present: true, candidatesIn: 7, candidatesOut: 7 }),
+      rec({
+        stage: "diversity",
+        present: false,
+        chunksPresent: 0,
+        candidatesIn: 7,
+        candidatesOut: 3,
+      }),
+      rec({
+        stage: "projection",
+        present: false,
+        chunksPresent: 0,
+        candidatesIn: 3,
+        candidatesOut: 3,
+      }),
+    ]);
+    expect(r.droppedAt).toBe("diversity");
+    expect(r.summary).not.toMatch(/never entered/);
+  });
+
+  it("still reports never-a-candidate when the note is absent at EVERY stage", () => {
+    const r = summarize("nowhere.md", [
+      rec({ stage: "seedGeneration", present: false, chunksPresent: 0 }),
+      rec({ stage: "graphExpansion", present: false, chunksPresent: 0 }),
+      rec({ stage: "candidateAssembly", present: false, chunksPresent: 0 }),
+    ]);
+    expect(r.summary).toContain("never entered the candidate pool");
+    // Names the stage where "candidate" is actually decided, not the first arm traced.
+    expect(r.droppedAt).toBe("candidateAssembly");
+  });
+});
