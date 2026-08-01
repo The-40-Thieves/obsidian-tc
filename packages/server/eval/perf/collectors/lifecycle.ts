@@ -1,9 +1,5 @@
 import { performance } from "node:perf_hooks";
-import {
-  CHUNKER_VERSION,
-  VEC_DISTANCE_METRIC,
-  VEC_SCHEMA_GEN,
-} from "../../../src/search/representation";
+import { buildRepresentationManifest } from "../../../src/search/representation";
 import { ensureVecChunks } from "../../../src/search/vec";
 import type { VaultCtx } from "../harness";
 import type { MetricSample } from "../report";
@@ -28,15 +24,10 @@ export async function collectLifecycle(vault: VaultCtx): Promise<MetricSample[]>
   // not loaded, so `ensureVecChunks` returns false -> `migration.rebuilt` is 0; that's expected
   // here and NOT asserted true by the test.
   const t0 = performance.now();
-  const rebuilt = ensureVecChunks(vault.db, {
-    provider: "perf",
-    model: "perf-model",
-    dimensions: 64,
-    distanceMetric: VEC_DISTANCE_METRIC,
-    enrichmentVersion: 0,
-    chunkerVersion: CHUNKER_VERSION,
-    schemaGen: VEC_SCHEMA_GEN,
-  });
+  const rebuilt = ensureVecChunks(
+    vault.db,
+    buildRepresentationManifest({ provider: "perf", model: "perf-model", dimensions: 64 }, {}),
+  );
   const migMs = performance.now() - t0;
 
   // Family 13: time closing the DB under a deadline.

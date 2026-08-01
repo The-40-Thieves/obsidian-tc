@@ -11,6 +11,7 @@ import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import { ensureNotesFts, hasNotesTable } from "../src/search/fts";
 import { deindexNote, indexNote, indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
 import { rmTemp } from "./tmp";
 
@@ -46,15 +47,19 @@ function tmpVault(files: Record<string, string>): string {
   return root;
 }
 
-const args = (db: Database, root: string, over: Record<string, unknown> = {}) => ({
-  db,
-  provider,
-  vaultId: "v1",
-  root,
-  isReadable: () => true,
-  now: Date.now,
-  ...over,
-});
+const args = (db: Database, root: string, over: Record<string, unknown> = {}) => {
+  const effectiveProvider = (over.provider as EmbeddingProvider | undefined) ?? provider;
+  return {
+    db,
+    provider,
+    vaultId: "v1",
+    root,
+    isReadable: () => true,
+    now: Date.now,
+    representation: buildRepresentationManifest(effectiveProvider, {}),
+    ...over,
+  };
+};
 
 describe("notes metadata + FTS substrate (THE-291 3A)", () => {
   it("indexVault writes notes rows (and fts rows when available); backfill needs no embeds", async () => {

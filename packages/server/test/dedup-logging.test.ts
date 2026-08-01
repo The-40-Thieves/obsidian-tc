@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
 
 // Two notes with an IDENTICAL body -> same content_hash -> the second is dedup-skipped (its vector is
@@ -33,6 +34,10 @@ describe("THE-499 aggregate dedup logging", () => {
     const stats = await indexVault({
       db: v.db,
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      representation: buildRepresentationManifest(
+        fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+        {},
+      ),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -57,6 +62,10 @@ describe("THE-499 aggregate dedup logging", () => {
     await indexVault({
       db: v.db,
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      representation: buildRepresentationManifest(
+        fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+        {},
+      ),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

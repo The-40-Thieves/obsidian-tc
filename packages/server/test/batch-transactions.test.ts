@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { Database } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
 
 /** Count BEGIN statements (one per committed write transaction — notes flush + chunk flushes). Uses
@@ -44,6 +45,10 @@ describe("THE-500 bounded batch transactions", () => {
     await indexVault({
       db: ct.db,
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      representation: buildRepresentationManifest(
+        fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+        {},
+      ),
       vaultId: tight.id,
       root: tight.root,
       isReadable: () => true,
@@ -56,6 +61,10 @@ describe("THE-500 bounded batch transactions", () => {
     await indexVault({
       db: cl.db,
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      representation: buildRepresentationManifest(
+        fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+        {},
+      ),
       vaultId: loose.id,
       root: loose.root,
       isReadable: () => true,
@@ -73,6 +82,10 @@ describe("THE-500 bounded batch transactions", () => {
     await indexVault({
       db: v.db,
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      representation: buildRepresentationManifest(
+        fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+        {},
+      ),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -93,6 +106,10 @@ describe("THE-500 bounded batch transactions", () => {
     await indexVault({
       db: ct.db,
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      representation: buildRepresentationManifest(
+        fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+        {},
+      ),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

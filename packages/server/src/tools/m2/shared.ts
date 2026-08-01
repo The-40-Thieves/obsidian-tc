@@ -6,6 +6,7 @@ import type { BridgeClient } from "../../bridge";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { RetrievalLogger } from "../../experiential/log";
 import type { IndexStats } from "../../search/indexer";
+import type { RepresentationManifest } from "../../search/representation";
 import type { VaultRegistry } from "../../vault/registry";
 
 export interface M2Deps {
@@ -30,10 +31,11 @@ export interface M2Deps {
    *  + heading-breadcrumb prefix. Must match the boot reconcile's value (cli.ts threads both from
    *  the same config field); a mismatch would re-embed the vault on every alternating pass. */
   chunkContext?: boolean;
-  /** THE-460: config.embeddings.revision, folded into the vec fingerprint. Must match the boot
-   *  reconcile's value (runtime/indexing-wiring.ts) — a mismatch makes boot and index_vault each
-   *  DROP and rebuild the table the other just built. */
-  revision?: string;
+  /** THE-683: the representation identity, built ONCE at boot by wireIndexResources and passed
+   *  in. Replaces a loose `revision` field whose doc had to warn that it "must match the boot
+   *  reconcile's value ... a mismatch makes boot and index_vault each DROP and rebuild the table
+   *  the other just built". Sharing the built manifest makes that mismatch unrepresentable. */
+  representation: RepresentationManifest;
   /** Graph densification: index_vault builds derived edges (tag + kNN) when set. Threaded from
    *  config.retrieval.densify, mirroring chunkContext. */
   densify?: {

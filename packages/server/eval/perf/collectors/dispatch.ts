@@ -26,6 +26,7 @@ import { performance } from "node:perf_hooks";
 import { FolderAcl } from "../../../src/acl";
 import { fakeEmbeddingProvider } from "../../../src/embeddings/fake";
 import { type CallerContext, ToolRegistry } from "../../../src/mcp/registry";
+import { buildRepresentationManifest } from "../../../src/search/representation";
 import { registerM2Tools } from "../../../src/tools/m2";
 import { VaultRegistry } from "../../../src/vault/registry";
 import type { VaultCtx } from "../harness";
@@ -46,9 +47,11 @@ export async function collectDispatch(vault: VaultCtx): Promise<MetricSample[]> 
     },
   });
   const vaultRegistry = new VaultRegistry([{ id: vault.vaultId, path: vault.root }]);
+  const embeddingProvider = fakeEmbeddingProvider({ dimensions: 32 });
   registerM2Tools(registry, {
     vaultRegistry,
-    embeddingProvider: fakeEmbeddingProvider({ dimensions: 32 }),
+    embeddingProvider,
+    representation: buildRepresentationManifest(embeddingProvider, {}),
   });
   const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
   const ctx: CallerContext = {

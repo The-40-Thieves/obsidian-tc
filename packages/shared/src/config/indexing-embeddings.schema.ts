@@ -64,7 +64,7 @@ export const EmbeddingsConfigSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Pooling strategy the backend applies (e.g. 'mean', 'last-token'). Recorded for provenance. NOTE: descriptive only today — RepresentationManifest has no production producer, so this does not affect the index.",
+      "Pooling strategy the backend applies (e.g. 'mean', 'last-token'). Folded into the representation identity persisted as vec_index_fingerprint, so changing it rebuilds the vector index rather than serving vectors pooled a different way against queries pooled the new way. The rebuild reuses the stored embeddings — it does not re-embed, and costs no provider calls.",
     ),
   // GH #171/#172: local-runner indexing robustness. Local models are far slower than hosted APIs,
   // and a stock local runner (llama-server) crashes on a token-dense batch, so these are

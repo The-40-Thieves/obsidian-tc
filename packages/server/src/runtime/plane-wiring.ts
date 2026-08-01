@@ -29,6 +29,7 @@ import { type JobHandler, makeJobRunner } from "../scheduler/job-runner";
 import type { Scheduler } from "../scheduler/scheduler";
 import { makeTaskCallHandler } from "../scheduler/task-call-runner";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
+import type { RepresentationManifest } from "../search/representation";
 import type { VecRebuildEvent } from "../search/vec";
 import { errorMessage, stderrOnError } from "../util/errors";
 import { contentHash } from "../vault/paths";
@@ -165,9 +166,10 @@ export interface ReconcileRunnerDeps {
   embedConfig: { batchSize: number; concurrency: number; maxBatchTokens: number };
   /** config.embeddings.chunkContext */
   chunkContext: boolean;
-  /** config.embeddings.revision, folded into the vec fingerprint. Must match indexing-wiring.ts's
-   *  VecFingerprint construction site — see that file's comment for the rebuild-loop risk. */
-  revision?: string;
+  /** THE-683: the representation identity built ONCE by wireIndexResources and passed through,
+   *  never re-derived here. Replaces the loose `revision` field, whose doc had to warn that it
+   *  "must match indexing-wiring.ts" — a constraint the type system now enforces instead. */
+  representation: RepresentationManifest;
   /** config.retrieval.densify */
   densify: ServerConfig["retrieval"]["densify"];
   vaultRegistry: VaultRegistry;
@@ -198,7 +200,7 @@ export function createReconcileRunner(deps: ReconcileRunnerDeps): () => Promise<
             provider: deps.embeddingProvider,
             embed: deps.embedConfig,
             chunkContext: deps.chunkContext,
-            revision: deps.revision,
+            representation: deps.representation,
             densify: deps.densify,
             vaultId: v.id,
             root: deps.vaultRegistry.resolve(v.id).root,

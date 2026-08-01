@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cachedPrepare, type Database } from "../db/types";
-import { type VecFingerprint, vecFingerprint } from "./representation";
+import { type RepresentationManifest, representationFingerprint } from "./representation";
 import { EMBEDDED_VEC_BASE64 } from "./vec-embedded";
 
 export type { VecFingerprint } from "./representation";
@@ -123,9 +123,21 @@ export interface VecRebuildEvent {
   skippedVectors: number;
 }
 
+/**
+ * THE-683: takes the full RepresentationManifest, not a VecFingerprint.
+ *
+ * The manifest is a structural SUPERSET of VecFingerprint, so nothing is lost — but the extra axes
+ * (pooling, the instruct prefixes, MRL truncation, the multi-vector heads) are exactly the ones
+ * that can make two "same provider, same model" representations produce non-interchangeable
+ * vectors. Taking the fingerprint alone is what let `embeddings.pooling` be a validated, documented
+ * config key that changed nothing.
+ *
+ * Callers build it with `buildRepresentationManifest` — the single derivation, which is what makes
+ * the two production sites unable to disagree about the identity of the index they share.
+ */
 export function ensureVecChunks(
   db: Database,
-  fp: VecFingerprint,
+  manifest: RepresentationManifest,
   opts: {
     now?: () => number;
     /** THE-612: this event is RARE (a deploy changed the embedding model, or a pre-partition db is
@@ -146,7 +158,7 @@ export function ensureVecChunks(
 ): boolean {
   if (!loadVec(db)) return false;
   const now = opts.now ?? Date.now;
-  const dims = fp.dimensions;
+  const dims = manifest.dimensions;
   const version = `20260519_002_vec_chunks_${dims}`;
   // THE-277 item 3 (sqlite-vec >= 0.1.9): vault_id as a PARTITION KEY pre-shards the KNN per
   // vault (the cross-vault crowding THE-287 worked around becomes structurally impossible when
@@ -161,7 +173,7 @@ export function ensureVecChunks(
   db.exec(
     "CREATE TABLE IF NOT EXISTS vec_index_fingerprint (id INTEGER PRIMARY KEY CHECK (id = 1), fingerprint TEXT NOT NULL)",
   );
-  const computedFp = vecFingerprint(fp);
+  const computedFp = representationFingerprint(manifest);
   const storedFp = (
     db.prepare("SELECT fingerprint FROM vec_index_fingerprint WHERE id = 1").get() as
       | { fingerprint: string }
@@ -227,7 +239,7 @@ export function ensureVecChunks(
            SELECT e.chunk_id, c.vault_id, c.path, e.model, e.embedding
            FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id
            WHERE e.is_active = 1 AND length(e.embedding) = ${dims * 4} AND e.model = ?`,
-        ).run(opts.activeModel ?? fp.model);
+        ).run(opts.activeModel ?? manifest.model);
         // THE-612: NOT `.changes` from the INSERT above — vec0 virtual tables are backed by
         // several shadow tables, so `.changes` reports shadow-table writes rather than logical
         // rows (measured: 6 for a single logical row backfilled). vec_chunks was DROPped and

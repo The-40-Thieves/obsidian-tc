@@ -37,12 +37,6 @@ import {
   upsertNoteRow,
 } from "../fts";
 import { bumpGeneration } from "../generation";
-import {
-  CHUNKER_VERSION,
-  ENRICHMENT_VERSION,
-  VEC_DISTANCE_METRIC,
-  VEC_SCHEMA_GEN,
-} from "../representation";
 import { ensureChunkSparse } from "../sparse";
 import { ensureVecChunks } from "../vec";
 import {
@@ -68,30 +62,20 @@ const DEFAULT_BATCH_MAX_BYTES = 8 * 1024 * 1024;
 
 export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const now = args.now ?? Date.now;
-  // THE-460: fold the embedding provider/model/dims + the fixed representation constants +
-  // whether chunkContext enrichment is on (it changes the embedded text) into one fingerprint,
-  // so ANY representation change — not only a dimension change — rebuilds vec_chunks.
-  const hasVec = ensureVecChunks(
-    args.db,
-    {
-      provider: args.provider.provider,
-      model: args.provider.model,
-      dimensions: args.provider.dimensions,
-      distanceMetric: VEC_DISTANCE_METRIC,
-      enrichmentVersion: args.chunkContext === true ? ENRICHMENT_VERSION : 0,
-      chunkerVersion: CHUNKER_VERSION,
-      schemaGen: VEC_SCHEMA_GEN,
-      // Must match runtime/indexing-wiring.ts exactly. If these diverge, boot and index_vault each
-      // DROP and rebuild the table the other just built — an unbounded rebuild loop.
-      revision: args.revision,
-    },
-    {
-      now,
-      onRebuild: args.onVecRebuild,
-      // Fix A: the backfill must match what chunk_embeddings.model actually stores.
-      activeModel: args.provider.id,
-    },
-  );
+  // THE-683: the caller passes the manifest it already built; this no longer re-derives one.
+  // The old hand-built copy carried a comment warning that if it drifted from
+  // runtime/indexing-wiring.ts, "boot and index_vault each DROP and rebuild the table the other
+  // just built — an unbounded rebuild loop". Accepting the identity instead of recomputing it
+  // makes that drift unrepresentable rather than merely tested-against.
+  //
+  // A caller without one (tests, eval harnesses) builds it with buildRepresentationManifest, which
+  // is the same function boot uses — so there is still exactly one derivation in the codebase.
+  const hasVec = ensureVecChunks(args.db, args.representation, {
+    now,
+    onRebuild: args.onVecRebuild,
+    // Fix A: the backfill must match what chunk_embeddings.model actually stores.
+    activeModel: args.provider.id,
+  });
   // THE-291: notes metadata + FTS ride the reconcile. The UNFILTERED walk backs the stale-path
   // sweep (ACL-invisible-but-present files must never be deindexed); the readable subset drives
   // indexing exactly as before.

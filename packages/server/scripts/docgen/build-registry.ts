@@ -7,6 +7,7 @@
 // surface to audit pathAcl coverage).
 
 import { ToolRegistry } from "../../src/mcp/registry";
+import { buildRepresentationManifest } from "../../src/search/representation";
 import { RateLimiter } from "../../src/throttle";
 import { createHealthTool, createIndexStatusTool } from "../../src/tools/admin/health";
 import { registerM1Tools } from "../../src/tools/m1";
@@ -73,6 +74,13 @@ export function buildFullRegistry(): ToolRegistry {
   });
   registerM2Tools(registry, {
     vaultRegistry,
+    // docgen only walks the tool SCHEMAS; no index is opened, so the manifest just has to be a
+    // valid one. Built by the same producer boot uses rather than hand-written, so a new manifest
+    // field cannot leave this fixture silently stale.
+    representation: buildRepresentationManifest(
+      { provider: "ollama", model: "nomic-embed-text", dimensions: 768 },
+      {},
+    ),
     embeddingProvider: embeddingProvider as never,
     dataviewBridge: bridge as never,
     regexTimeoutMs: 1000,

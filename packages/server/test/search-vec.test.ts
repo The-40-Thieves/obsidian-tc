@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import {
+  buildRepresentationManifest,
   CHUNKER_VERSION,
   ENRICHMENT_VERSION,
   VEC_DISTANCE_METRIC,
@@ -46,7 +47,12 @@ describe("sqlite-vec degradation under node:sqlite", () => {
   it("ensureVecChunks returns false and records no migration row", () => {
     const db = openMemoryDb();
     runMigrations(db, []);
-    expect(ensureVecChunks(db, fp())).toBe(false);
+    expect(
+      ensureVecChunks(
+        db,
+        buildRepresentationManifest({ provider: "fake", model: "model-a", dimensions: 768 }, {}),
+      ),
+    ).toBe(false);
     const row = db.prepare("SELECT count(*) c FROM schema_migrations").get() as { c: number };
     expect(row.c).toBe(0);
   });

@@ -11,6 +11,7 @@ import { type EmbeddingProvider, fakeEmbeddingProvider } from "../src/embeddings
 import { recordIngestStats } from "../src/metrics/ingest-stats";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
 
 const POISON = "POISON-OVER-CONTEXT";
@@ -101,6 +102,10 @@ describe("THE-588 chunks_dedup_unresolved stays 0 on a normal (resolved) dedup",
     const stats = await indexVault({
       db: v.db,
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      representation: buildRepresentationManifest(
+        fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+        {},
+      ),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -117,6 +122,7 @@ describe("THE-588 feeds the real Prometheus counter through recordIngestStats, n
     const stats = await indexVault({
       db: v.db,
       provider: poisonRejectingProvider(),
+      representation: buildRepresentationManifest(poisonRejectingProvider(), {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

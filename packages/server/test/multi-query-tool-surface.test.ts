@@ -10,6 +10,7 @@ import { type AclConfigT, FolderAcl } from "../src/acl";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { makeM2Vault } from "./m2-helpers";
@@ -30,6 +31,10 @@ async function harness() {
   await indexVault({
     db: v.db,
     provider: fakeEmbeddingProvider({ dimensions: DIMS, model: "A" }),
+    representation: buildRepresentationManifest(
+      fakeEmbeddingProvider({ dimensions: DIMS, model: "A" }),
+      {},
+    ),
     vaultId: v.id,
     root: v.root,
     isReadable: () => true,

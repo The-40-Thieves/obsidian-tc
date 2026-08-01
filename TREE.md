@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 988 tracked code files · 145,342 lines.
+**Scale:** 988 tracked code files · 145,722 lines.
 
-TypeScript 135,973 · JavaScript 5,844 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
+TypeScript 136,353 · JavaScript 5,844 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,10 +86,10 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 78 | 15,080 | domains m1–m8 + admin. The MCP tool surface |
-| `search/` | 53 | 9,416 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `tools/` | 78 | 15,082 | domains m1–m8 + admin. The MCP tool surface |
+| `search/` | 53 | 9,523 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,105 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `runtime/` | 13 | 2,801 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 13 | 2,799 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `experiential/` | 11 | 2,756 | work-memory tier: activation, retrieval log, forget, citations |
 | `vault/` | 17 | 1,968 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `cli/` | 22 | 1,853 | arg parsing + subcommands |
@@ -100,7 +100,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `metrics/` | 4 | 832 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `plane/` | 6 | 789 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
-| `providers/` | 6 | 730 |  |
+| `providers/` | 6 | 731 |  |
 | `doctor/` | 5 | 714 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `embeddings/` | 6 | 665 | providers incl. the deterministic fake used in tests |
 | `model/` | 7 | 646 | model-service clients |
@@ -138,7 +138,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 <!-- BEGIN GENERATED: tree-largest-files -->
 | lines | file |
 |---:|---|
-| 719 | `packages/server/src/runtime/server-runtime.ts` |
+| 721 | `packages/server/src/runtime/server-runtime.ts` |
 | 701 | `packages/server/src/mcp/server.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
@@ -151,10 +151,9 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 527 | `packages/server/src/scheduler/scheduler.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
-| 508 | `packages/server/src/search/indexing/index-vault.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
 
-15 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
+14 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
 <!-- END GENERATED: tree-largest-files -->
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
@@ -273,7 +272,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**368 modules · 1614 dependencies · 107 distinct subsystem pairs · 716 cross-subsystem imports.**
+**368 modules · 1617 dependencies · 107 distinct subsystem pairs · 719 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -317,9 +316,9 @@ flowchart LR
 
   tools -->|178| vault
   tools -->|67| mcp
-  tools -->|42| search
+  tools -->|43| search
   search -->|38| db
-  runtime -->|22| search
+  runtime -->|24| search
   cli -->|20| db
   runtime -->|18| db
   search -->|14| vault
@@ -355,9 +354,9 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 227 | `tools` | 342 |
-| `db` | 122 | `runtime` | 129 |
-| `search` | 88 | `search` | 60 |
+| `vault` | 227 | `tools` | 343 |
+| `db` | 122 | `runtime` | 131 |
+| `search` | 91 | `search` | 60 |
 | `mcp` | 85 | `cli` | 48 |
 | `embeddings` | 30 | `mcp` | 23 |
 <!-- END GENERATED: tree-fan -->

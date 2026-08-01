@@ -11,6 +11,7 @@ import { openNodeSqlite } from "../src/db/node-node-sqlite";
 import { busyReason, inWriteTransaction, type WriteTxnLabel } from "../src/db/txn";
 import type { Database } from "../src/db/types";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
 import { rmTemp } from "./tmp";
 
@@ -200,6 +201,7 @@ describe("THE-585 #5 — indexVault actually emits samples through the seam", ()
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

@@ -4,6 +4,7 @@
 // is exactly the kind of change that typechecks while quietly dropping the value on the floor. The floor
 // filter itself is covered in densify-knn-floor.test.ts; this file proves the number gets there.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildRepresentationManifest } from "../src/search/representation";
 
 // Typed to computeKnnEdges' real shape, so mock.calls[0][2] is the opts object, not a zero-arg tuple.
 const knnSpy = vi.hoisted(() =>
@@ -35,6 +36,7 @@ describe("index_vault forwards the configured kNN floor", () => {
     await indexVault({
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -50,6 +52,7 @@ describe("index_vault forwards the configured kNN floor", () => {
     await indexVault({
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -64,6 +67,7 @@ describe("index_vault forwards the configured kNN floor", () => {
     await indexVault({
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

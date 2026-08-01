@@ -206,6 +206,12 @@ and the difference changes the work:
 
 - `RepresentationManifest` has **no production producer**. Only `test/search-representation-manifest.test.ts`
   constructs one. It is a type awaiting wiring.
+
+  > **Superseded by THE-683 (2026-08-01).** `buildRepresentationManifest`
+  > (`search/representation.ts`) is now that producer, called once at the composition root; both
+  > former `VecFingerprint` construction sites consume the manifest instead of building their own,
+  > and `representationFingerprint` is what `vec_index_fingerprint` stores. The paragraphs below
+  > describe the state this spec was written against, not the shipped one.
 - The live mechanism is `VecFingerprint` (`representation.ts:32`). It already carries an optional
   `revision`, and `vecFingerprint()` already folds it in as `f.revision ?? ""`.
 - **No production site passes one.** Both construction sites —

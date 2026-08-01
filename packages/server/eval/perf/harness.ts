@@ -8,6 +8,7 @@ import type { Database, Statement } from "../../src/db/types";
 import { type EmbeddingProvider, fakeEmbeddingProvider } from "../../src/embeddings";
 import { estimateTokens } from "../../src/search/chunk";
 import { type IndexStats, indexVault } from "../../src/search/indexer";
+import { buildRepresentationManifest } from "../../src/search/representation";
 import type { Scenario } from "./scenarios";
 
 /** Deterministic PRNG (Mulberry32). No Date/Math.random in corpus generation. */
@@ -236,6 +237,7 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
     root,
     isReadable: () => true,
     chunkContext: false,
+    representation: buildRepresentationManifest(provider, { chunkContext: false }),
     // THE-581: the missing option. Densification is opt-in and off by default, so omitting this —
     // as every scenario did before — meant the pass never ran and no metric could observe it.
     ...(sc.densify ? { densify: sc.densify } : {}),
