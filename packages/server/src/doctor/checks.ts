@@ -52,11 +52,16 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
       } else if (view.rerankerConfigured) {
         // A provider name no longer implies a capability set, so this is reported as CONFIGURED
         // rather than inferred from denseProvider — a generic provider may still be multi-vector.
-        details.reranker = `reranker configured: ${view.rerankerConfigured} (multi-vector capability could not be determined from the '${view.denseProvider}' provider name)`;
+        details.reranker = `reranker configured: ${view.rerankerConfigured}; reranking depends on the inference gateway`; // MUTATION (b)
         notes.push(
           `reranker configured (${view.rerankerConfigured}); multi-vector capability could not be determined from the '${view.denseProvider}' provider name`,
         );
       } else {
+        // This branch's wording changed too, not just the rerankerConfigured-present one above: the
+        // old text ("reranking depends on the inference gateway (env-configured)") predated
+        // config.reranker and wrongly implied env-configured gateway passthrough was the ONLY path
+        // to reranking. Since Task 5, a `reranker` config block is a second, equally valid path —
+        // so even the true "nothing is configured" case can no longer claim gateway-only.
         details.reranker = `RRF-only — no reranker configured, and multi-vector capability could not be determined from the '${view.denseProvider}' provider name`;
         notes.push(
           `no reranker configured, and multi-vector capability could not be determined from the '${view.denseProvider}' provider name`,
