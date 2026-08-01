@@ -6,7 +6,9 @@ import { embeddingsProviderNames } from "../src/providers/registry";
 
 describe("unknown embeddings provider", () => {
   it("throws naming the offending value", () => {
-    expect(() => createEmbeddingProvider({ provider: "olama", model: "m", dimensions: 3 })).toThrow(/olama/);
+    expect(() => createEmbeddingProvider({ provider: "olama", model: "m", dimensions: 3 })).toThrow(
+      /olama/,
+    );
   });
 
   it("lists EVERY registered name in the message", () => {
