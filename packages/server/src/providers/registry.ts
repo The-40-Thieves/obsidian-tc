@@ -14,6 +14,7 @@ import { buildModelTierProvider, buildModelTierReranker } from "../model";
 import type { Reranker } from "../search/rerank";
 import { openAiCompatibleProvider } from "./http-embeddings";
 import { cohereCompatibleReranker } from "./http-rerank";
+import { loadProviderModule } from "./module-loader";
 import type {
   EmbeddingsConfigLike,
   EmbeddingsEntry,
@@ -57,6 +58,27 @@ const EMBEDDINGS: Record<string, EmbeddingsEntry> = {
     appendsPath: "",
     ownsPrefixing: true,
     build: (c, x) => buildModelTierProvider(c, { fetchFn: x.fetchFn }),
+  },
+  // The profile-gated escape hatch — see module-loader.ts's header comment. asyncOnly: true means
+  // the sync `build` below is never actually called on a correctly-wired path; it exists only so
+  // resolveEmbeddings' asyncOnly guard has something to refuse BEFORE reaching it (a documented
+  // invariant, not a reachable code path).
+  module: {
+    appendsPath: "",
+    asyncOnly: true,
+    build: () => {
+      throw err.invalidInput("module providers cannot be built synchronously", {
+        hint: "this is a bug: resolveEmbeddings must refuse asyncOnly entries before calling build",
+      });
+    },
+    buildAsync: (c, x) =>
+      loadProviderModule<EmbeddingProvider>({
+        modulePath: c.modulePath ?? "",
+        configDir: x.configDir,
+        securityProfile: x.securityProfile,
+        exportName: "createEmbeddingProvider",
+        slot: "embeddings",
+      }),
   },
 };
 
@@ -120,6 +142,19 @@ export function resolveEmbeddings(
     );
   }
   assertBaseUrlNotDuplicating(cfg.baseUrl, entry.appendsPath, "embeddings");
+  return { provider: entry.build(cfg, ctx), entry };
+}
+
+/** Async resolution — the only path that can build an asyncOnly (module) entry. Boot-wiring only;
+ *  CLI/eval entry points call the synchronous `resolveEmbeddings` above and get an actionable
+ *  refusal instead of silently needing to become async themselves. */
+export async function resolveEmbeddingsAsync(
+  cfg: EmbeddingsConfigLike,
+  ctx: ResolveContext = {},
+): Promise<{ provider: EmbeddingProvider; entry: EmbeddingsEntry }> {
+  const entry = embeddingsEntryOrThrow(cfg.provider);
+  assertBaseUrlNotDuplicating(cfg.baseUrl, entry.appendsPath, "embeddings");
+  if (entry.buildAsync) return { provider: await entry.buildAsync(cfg, ctx), entry };
   return { provider: entry.build(cfg, ctx), entry };
 }
 
@@ -189,6 +224,20 @@ const RERANKERS: Record<string, RerankerEntry> = {
       return (q, docs, topN) =>
         gw.rerank({ query: q, documents: docs, topN }).then((r) => r.results);
     },
+  },
+  // The profile-gated escape hatch — see module-loader.ts's header comment. Unlike the embeddings
+  // entry above, RerankerEntry.build is already async, so there is no sync/asyncOnly split to make
+  // here.
+  module: {
+    appendsPath: "",
+    build: (c, x) =>
+      loadProviderModule<Reranker>({
+        modulePath: c.modulePath ?? "",
+        configDir: x.configDir,
+        securityProfile: x.securityProfile,
+        exportName: "createReranker",
+        slot: "reranker",
+      }),
   },
 };
 

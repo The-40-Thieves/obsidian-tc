@@ -14,7 +14,7 @@ import { type FolderAcl, makeIndexReadable, makeReindexGate } from "../acl";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
-import { createEmbeddingProvider, type EmbeddingsConfigLike } from "../embeddings";
+import { createEmbeddingProviderAsync, type EmbeddingsConfigLike } from "../embeddings";
 import { recordIngestStats } from "../metrics/ingest-stats";
 import type { MetricsRecorder } from "../metrics/registry";
 import { ensureNotesFts } from "../search/fts";
@@ -51,6 +51,13 @@ export interface IndexResourcesDeps {
   };
   /** THE-612: ensureVecChunks' onRebuild, routed to the metrics recorder by runtime/observability.ts. */
   onVecRebuild: (event: VecRebuildEvent) => void;
+  /** `dirname(configPath)` — the trust root for embeddings.modulePath. See
+   *  `ResolveContext.configDir`'s doc comment (providers/types.ts) for the exact undefined-vs-set
+   *  cases: it is NOT undefined in zero-config vault-path mode, only when `configPath` itself is
+   *  absent. Review round 2 (Minor 5): corrected from a false "undefined when derived from a vault
+   *  path" claim. */
+  configDir?: string;
+  securityProfile?: "hardened" | "trusted-local";
 }
 
 /** THE-288: mutable index-health tracker surfaced by server_health. reconcile flips pending ->
@@ -95,8 +102,11 @@ export interface IndexResources {
  * enrichment/chunker change rebuilds vec_chunks instead of serving it stale. THE-291: the FTS5 probe
  * is false on adapters without FTS5 or when OBSIDIAN_TC_DISABLE_FTS=1.
  */
-export function wireIndexResources(deps: IndexResourcesDeps): IndexResources {
-  const embeddingProvider = createEmbeddingProvider(deps.embeddings);
+export async function wireIndexResources(deps: IndexResourcesDeps): Promise<IndexResources> {
+  const embeddingProvider = await createEmbeddingProviderAsync(deps.embeddings, {
+    configDir: deps.configDir,
+    securityProfile: deps.securityProfile,
+  });
   const embedConfig = {
     batchSize: deps.embeddings.batchSize,
     concurrency: deps.embeddings.concurrency,

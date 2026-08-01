@@ -45,6 +45,13 @@ export const EmbeddingsConfigSchema = z.object({
     .describe(
       "Name of the environment variable holding the provider API key. Needed for generic providers, which have no entry in the built-in per-vendor variable map. An inline apiKey takes precedence.",
     ),
+  modulePath: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Module exporting createEmbeddingProvider, for provider 'module'. Resolved against the config file's directory. Refused under the hardened security profile, and refused on CLI/eval entry points (module providers load only from the server's boot wiring). The factory may be sync or async (an async factory is awaited). It must return an object with a non-empty string id, provider, and model — id is what chunk_embeddings.model and the vec fingerprint identify the provider by, so two module providers sharing (or omitting) id are indistinguishable to the index — a positive integer dimensions, and embed(texts). Validated at load time, before first use.",
+    ),
   revision: z
     .string()
     .min(1)

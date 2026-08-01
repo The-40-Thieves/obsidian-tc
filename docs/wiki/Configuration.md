@@ -229,6 +229,7 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `embeddings.apiKey` | `string` | — |  | Provider API key. Secret — never logged or returned by a tool. |
+| `embeddings.apiKeyEnv` | `string` | — |  | Name of the environment variable holding the provider API key. Needed for generic providers, which have no entry in the built-in per-vendor variable map. An inline apiKey takes precedence. |
 | `embeddings.baseUrl` | `string` | — |  | Provider base URL. Required for self-hosted runners; hosted providers default to their public API. |
 | `embeddings.batchSize` | `number` | `512` |  | Maximum inputs per embed request. |
 | `embeddings.chunkContext` | `boolean` | `true` |  | Embed and BM25-index each chunk as "{title}{ — heading breadcrumb}\\n\\n{content}" rather than bare section text, so title- and heading-only evidence is visible to both retrieval streams. Displayed content stays raw. The chunk hash covers the enriched text, so changing this re-embeds the vault on the next reconcile. |
@@ -246,8 +247,11 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `embeddings.modelTier.full.dimensions` | `number` | `1024` |  | Dense width of the multi-vector model, separate from embeddings.dimensions. |
 | `embeddings.modelTier.full.model` | `string` | `"BAAI/bge-m3"` |  | Multi-vector model id. |
 | `embeddings.modelTier.full.revision` | `string` | — |  | Pinned model revision for the multi-vector service. |
+| `embeddings.modulePath` | `string` | — |  | Module exporting createEmbeddingProvider, for provider 'module'. Resolved against the config file's directory. Refused under the hardened security profile, and refused on CLI/eval entry points (module providers load only from the server's boot wiring). The factory may be sync or async (an async factory is awaited). It must return an object with a non-empty string id, provider, and model — id is what chunk_embeddings.model and the vec fingerprint identify the provider by, so two module providers sharing (or omitting) id are indistinguishable to the index — a positive integer dimensions, and embed(texts). Validated at load time, before first use. |
+| `embeddings.pooling` | `string` | — |  | Pooling strategy the backend applies (e.g. 'mean', 'last-token'). Recorded for provenance. NOTE: descriptive only today — RepresentationManifest has no production producer, so this does not affect the index. |
 | `embeddings.provider` | `string` | `"ollama"` |  | Embeddings backend name, resolved against the provider registry at startup. Built-ins: ollama, openai, voyage, cohere, bge-m3, model-tier (splits dense and multi-vector across two services), the generic openai-compatible, and the profile-gated module. An unregistered name is a startup error listing every valid option. |
 | `embeddings.queryPrefix` | `string` | `""` |  | Instruct prefix prepended to query-side embeds, for models whose cards require one. Empty by default — such prefixes measured harmful on this corpus. |
+| `embeddings.revision` | `string` | — |  | Model revision / commit / checkpoint id. Folded into vec_index_fingerprint, so declaring it makes a checkpoint upgrade at the SAME model name and width rebuild the index instead of silently serving the old checkpoint's vectors against queries embedded by the new one. Omitting it reproduces today's behaviour exactly. |
 | `embeddings.timeoutMs` | `number` | `120000` |  | Timeout in ms for a single embed request. Defaults high because local runners are far slower than hosted APIs. |
 | `embeddings.truncate` | `boolean` | `false` |  | Matryoshka (MRL) truncation: accept a provider vector WIDER than `dimensions` by keeping the first `dimensions` components and renormalising. Off by default so a non-MRL width mismatch errors instead of silently storing a meaningless prefix. |
 
@@ -342,6 +346,18 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `ranking.metadataPrior.rules[].boost` | `number` | — | **yes** | Amount added to the fused score on a match. May be negative, which makes the rule an archive-style penalty. |
 | `ranking.metadataPrior.rules[].field` | `string` | — | **yes** | Frontmatter field name to test on a candidate note. |
 | `ranking.metadataPrior.rules[].value` | `string` | — | **yes** | Value that frontmatter[field] must equal for the boost to apply. |
+
+### `reranker`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `reranker.apiKey` | `string` | — |  | Provider API key. Secret — never logged. Ignored — and refused at boot if set — by model-tier, which sources auth from embeddings.modelTier.full.authToken. |
+| `reranker.apiKeyEnv` | `string` | — |  | Environment variable holding the API key. Inline apiKey wins. Ignored — and refused at boot if set — by model-tier (see apiKey). |
+| `reranker.baseUrl` | `string` | — |  | Endpoint prefix preceding /rerank. Include the dialect version segment: Cohere rerank v2 replaced v1's max_chunks_per_doc with max_tokens_per_doc, and this prefix selects the dialect. Ignored — and refused at boot if set — by model-tier, which sources its endpoint from embeddings.modelTier.full.baseUrl. |
+| `reranker.model` | `string` | — |  | Rerank model name as the provider names it. Required by cohere-compatible (refused at boot if absent). Ignored — and refused at boot if set — by model-tier, which sources its model from embeddings.modelTier.full.model. Optional for gateway: omitting it silently falls back to the model literal "rerank". |
+| `reranker.modulePath` | `string` | — |  | Module exporting createReranker, for provider 'module'. Resolved against the config file's directory. Refused under the hardened security profile. The factory may be sync or async (an async factory is awaited). It must return a function: (query, documents, topN) => Promise<RerankHit[]>. Validated at load time, before first use. |
+| `reranker.provider` | `string` | — | **yes** | Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), and the profile-gated module. |
+| `reranker.timeoutMs` | `number` | — |  | Timeout in ms for a single rerank request. Ignored — and refused at boot if set — by model-tier, which uses embeddings.timeoutMs instead. |
 
 ### `retrieval`
 

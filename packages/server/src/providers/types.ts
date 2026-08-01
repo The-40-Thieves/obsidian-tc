@@ -15,6 +15,8 @@ export interface EmbeddingsConfigLike {
   /** Name of the env var holding the provider API key — see resolveApiKey (embeddings/provider.ts).
    *  Needed for generic providers, which have no entry in the built-in per-vendor ENV_KEY map. */
   apiKeyEnv?: string;
+  /** Module exporting createEmbeddingProvider, for provider "module". See providers/module-loader.ts. */
+  modulePath?: string;
   /** THE-460: model revision / commit / checkpoint id, folded into vec_index_fingerprint. Declaring
    *  it makes a checkpoint upgrade at the SAME model name and width rebuild the index instead of
    *  silently serving the old checkpoint's vectors against queries embedded by the new one.
@@ -62,8 +64,15 @@ export interface ProviderDescriptor {
 
 export interface ResolveContext {
   fetchFn?: FetchFn;
-  /** Directory of the loaded config file — the trust root for `modulePath`. Undefined when the
-   *  config was derived from a vault path rather than a file. */
+  /** `dirname(configPath)` — the trust root for `modulePath`. `configPath` is whatever was passed
+   *  to `buildServerRuntime`: undefined when it is genuinely absent (no `--config`, no
+   *  `OBSIDIAN_TC_CONFIG`), but in zero-config vault-path mode `configPath` is the VAULT directory,
+   *  not a config file — so this is NOT undefined there, it's that vault directory's parent (an
+   *  accidental value, not a deliberate trust root; the module hatch is unreachable from that mode
+   *  today only because nothing constructs a `module` provider without an actual config file). A
+   *  relative `configPath` (e.g. `--config cfg.json`) makes this `"."`, i.e. cwd-relative — see
+   *  module-loader.ts's resolution comment. Review round 2 (Minor 5): this comment previously
+   *  claimed "undefined when derived from a vault path", which was false. */
   configDir?: string;
   securityProfile?: "hardened" | "trusted-local";
   /** The EMBEDDINGS config, needed by the model-tier reranker entry: buildModelTierReranker takes

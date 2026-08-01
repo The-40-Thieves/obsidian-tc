@@ -1,7 +1,7 @@
-import { resolveEmbeddings } from "../providers/registry";
+import { resolveEmbeddings, resolveEmbeddingsAsync } from "../providers/registry";
 // EmbeddingsConfigLike now lives in providers/types.ts (see the comment there) — re-exported here
 // for compatibility since every existing caller imports it from this module.
-import type { EmbeddingsConfigLike } from "../providers/types";
+import type { EmbeddingsConfigLike, EmbeddingsEntry, ResolveContext } from "../providers/types";
 import type { FetchFn } from "./http";
 import type { EmbeddingProvider, EmbedOptions } from "./provider";
 
@@ -44,18 +44,47 @@ function withRevision(p: EmbeddingProvider, revision: string | undefined): Embed
   if (full) wrapped.embedFull = (texts, o) => full(texts, o);
   return wrapped;
 }
-export function createEmbeddingProvider(
+/** Shared by both createEmbeddingProvider (sync) and createEmbeddingProviderAsync (boot-only,
+ *  module hatch) — the revision/prefix wrapping is identical either way, only HOW the raw
+ *  provider was resolved differs. */
+function applyWrappers(
+  resolved: EmbeddingProvider,
+  entry: EmbeddingsEntry,
   cfg: EmbeddingsConfigLike,
-  opts: { fetchFn?: FetchFn; override?: EmbeddingProvider } = {},
 ): EmbeddingProvider {
-  if (opts.override) return opts.override;
-  const { provider: resolved, entry } = resolveEmbeddings(cfg, { fetchFn: opts.fetchFn });
   const provider = withRevision(resolved, cfg.revision);
   // model-tier owns its own asymmetric prefixing and must not be double-wrapped.
   if (entry.ownsPrefixing) return provider;
   const qp = cfg.queryPrefix ?? "";
   const dp = cfg.documentPrefix ?? "";
   return qp === "" && dp === "" ? provider : withPrefixes(provider, qp, dp);
+}
+
+export function createEmbeddingProvider(
+  cfg: EmbeddingsConfigLike,
+  opts: { fetchFn?: FetchFn; override?: EmbeddingProvider } = {},
+): EmbeddingProvider {
+  if (opts.override) return opts.override;
+  const { provider: resolved, entry } = resolveEmbeddings(cfg, { fetchFn: opts.fetchFn });
+  return applyWrappers(resolved, entry, cfg);
+}
+
+/** Boot-wiring-only counterpart of createEmbeddingProvider: the only path that can resolve an
+ *  asyncOnly entry (the module hatch). CLI/eval entry points must keep calling the sync
+ *  createEmbeddingProvider above, which refuses `provider: "module"` with an actionable error
+ *  rather than needing to become async themselves. */
+export async function createEmbeddingProviderAsync(
+  cfg: EmbeddingsConfigLike,
+  opts: { override?: EmbeddingProvider } & ResolveContext = {},
+): Promise<EmbeddingProvider> {
+  if (opts.override) return opts.override;
+  const { provider: resolved, entry } = await resolveEmbeddingsAsync(cfg, {
+    fetchFn: opts.fetchFn,
+    configDir: opts.configDir,
+    securityProfile: opts.securityProfile,
+    embeddings: opts.embeddings,
+  });
+  return applyWrappers(resolved, entry, cfg);
 }
 export { deterministicVector, fakeEmbeddingProvider } from "./fake";
 export type { EmbeddingProvider } from "./provider";

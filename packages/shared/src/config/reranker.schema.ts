@@ -19,7 +19,7 @@ export const RerankerConfigSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Rerank model name as the provider names it. Required by cohere-compatible (refused at boot if absent). Ignored — and refused at boot if set — by model-tier, which sources its model from embeddings.modelTier.full.model.",
+      'Rerank model name as the provider names it. Required by cohere-compatible (refused at boot if absent). Ignored — and refused at boot if set — by model-tier, which sources its model from embeddings.modelTier.full.model. Optional for gateway: omitting it silently falls back to the model literal "rerank".',
     ),
   // z.url(), not z.string().url() — the latter is deprecated in Zod 4.
   baseUrl: z
@@ -54,7 +54,7 @@ export const RerankerConfigSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Module exporting createReranker, for provider 'module'. Refused under the hardened security profile.",
+      "Module exporting createReranker, for provider 'module'. Resolved against the config file's directory. Refused under the hardened security profile. The factory may be sync or async (an async factory is awaited). It must return a function: (query, documents, topN) => Promise<RerankHit[]>. Validated at load time, before first use.",
     ),
 });
 export type RerankerConfig = z.infer<typeof RerankerConfigSchema>;

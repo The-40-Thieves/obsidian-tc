@@ -42,7 +42,12 @@ const CFG = { provider: "cohere-compatible", model: "rerank-v3.5", baseUrl: "htt
 
 describe("reranker slot", () => {
   it("registers the expected names", () => {
-    expect(rerankerProviderNames()).toEqual(["cohere-compatible", "gateway", "model-tier"]);
+    expect(rerankerProviderNames()).toEqual([
+      "cohere-compatible",
+      "gateway",
+      "model-tier",
+      "module",
+    ]);
   });
 
   it("sends EXACTLY {model, query, documents} when topN is 0", async () => {
