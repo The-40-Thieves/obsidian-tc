@@ -8,7 +8,7 @@ export type CliCommand =
   | { kind: "config-show"; configPath?: string }
   | { kind: "config-validate"; configPath?: string }
   | { kind: "config-explain"; configPath?: string; json?: boolean; source?: string }
-  | { kind: "doctor"; configPath?: string; json?: boolean; token?: string }
+  | { kind: "doctor"; configPath?: string; json?: boolean; token?: string; probe?: boolean }
   | {
       kind: "token-mint";
       configPath?: string;
@@ -76,11 +76,16 @@ Usage:
   obsidian-tc serve [path]                Same as above; path may be a vault folder or a config file
   obsidian-tc config show [path]          Print the effective config with secrets redacted
   obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
-  obsidian-tc doctor [path] [--json] [--token <jwt>]
+  obsidian-tc doctor [path] [--json] [--token <jwt>] [--probe]
                                           Probe runtime health: runtime, native module, auth policy,
                                           token max-age vs expiry, detected Obsidian vaults/plugins.
                                           --json emits the versioned report; --token checks a deployed
                                           credential's age. Exits non-zero when a check fails.
+                                          --probe additionally EMBEDS a short string against the
+                                          configured embeddings provider, so the dense head is
+                                          reported as observed rather than as configured. Off by
+                                          default: every other check is offline, and a "module"
+                                          provider is never probed at all.
   obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
   obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval (THE-73)
   obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history (THE-227)
@@ -216,8 +221,13 @@ export function parseCliArgs(argv: string[]): CliCommand {
       // mistaken for it. --token takes a raw JWT whose iat/exp are read (not verified) by auth.maxAge.
       const json = rest.includes("--json");
       const token = flagValue(rest, "--token");
+      // THE-688: --probe is OPT-IN and off by default. Doctor is otherwise offline by construction,
+      // and a diagnostic that reaches the network as a side effect of being run is a different tool
+      // than the one people reach for when something is already broken.
+      const probe = rest.includes("--probe");
       const scan = rest.filter((a, i) => {
         if (a === "--json") return false;
+        if (a === "--probe") return false;
         if (a === "--token") return false;
         if (i > 0 && rest[i - 1] === "--token") return false;
         return true;
@@ -227,6 +237,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         kind: "doctor",
         ...(configPath !== undefined ? { configPath } : {}),
         json,
+        probe,
         ...(token !== undefined ? { token } : {}),
       };
     }

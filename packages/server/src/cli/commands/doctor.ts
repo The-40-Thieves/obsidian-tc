@@ -5,7 +5,8 @@ import {
   type RestApiOnDisk,
 } from "../../bridge";
 import { resolveCapabilityProfile } from "../../capability";
-import { assembleDoctorReport, renderText } from "../../doctor";
+import { assembleDoctorReport, type DenseProbeResult, renderText } from "../../doctor";
+import { createEmbeddingProvider } from "../../embeddings";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
 // THE-523: derive the Local REST API plugin's on-disk state for a vault from the THE-522 capability
@@ -20,6 +21,46 @@ function restApiOnDisk(
   const plugin = vault.plugins.installed.find((p) => p.id === "obsidian-local-rest-api");
   if (!plugin) return "absent";
   return plugin.enabled ? "enabled" : "disabled";
+}
+
+/**
+ * THE-688 fix 2 — the opt-in dense liveness probe behind `doctor --probe`.
+ *
+ * Embeds one short fixed string. That is the smallest call that exercises the whole path an
+ * operator cares about: config resolution, credential lookup, network reach, and a response the
+ * adapter can parse. A cheaper check (a TCP connect, a HEAD on the base URL) would have passed for
+ * the failure this closes — Ollama's container was simply gone, but a wrong model name or a missing
+ * API key look identical to a reachability test and are just as fatal.
+ *
+ * Deliberately uses the SYNC `createEmbeddingProvider`, not the async one: the sync factory refuses
+ * `provider: "module"` with an actionable error, so doctor's "never execute operator-supplied code"
+ * rule holds BY CONSTRUCTION rather than through a special case here that could drift away from it.
+ *
+ * Never throws — every failure becomes a reason string. A diagnostic that dies while diagnosing is
+ * useless exactly when it is needed.
+ */
+async function probeDenseProvider(
+  embeddings: Parameters<typeof createEmbeddingProvider>[0],
+): Promise<DenseProbeResult> {
+  const started = Date.now();
+  try {
+    const provider = createEmbeddingProvider(embeddings);
+    const vectors = await provider.embed(["obsidian-tc doctor probe"], { input: "query" });
+    const ms = Date.now() - started;
+    const dim = vectors[0]?.length;
+    if (dim === undefined) return { ok: false, reason: "provider returned no vector" };
+    // A dimension mismatch is a silent corruption, not a nicety: the vec index is built at the
+    // configured width, so a provider answering at a different one indexes garbage while every
+    // reachability signal stays green.
+    if (dim !== embeddings.dimensions)
+      return {
+        ok: false,
+        reason: `provider answered with dim ${dim}, but embeddings.dimensions is ${embeddings.dimensions}`,
+      };
+    return { ok: true, ms };
+  } catch (e) {
+    return { ok: false, reason: (e as Error)?.message ?? String(e) };
+  }
 }
 
 // THE-521 — runtime health probe. Loads config, detects the environment (THE-522), runs the default
@@ -80,6 +121,8 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         rerankerConfigured: config.reranker?.provider,
         sparseEnabled: config.retrieval.sparse,
         colbertEnabled: config.retrieval.colbert,
+        // THE-688 fix 2: attached ONLY under --probe, so the default run stays offline.
+        ...(cmd.probe ? { probe: () => probeDenseProvider(config.embeddings) } : {}),
       },
       // THE-648: snapshots default to enabled; surface the effective posture either way.
       snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },

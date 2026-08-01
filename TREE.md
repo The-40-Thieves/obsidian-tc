@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 993 tracked code files · 146,744 lines.
+**Scale:** 994 tracked code files · 147,006 lines.
 
-TypeScript 137,065 · JavaScript 6,154 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
+TypeScript 137,327 · JavaScript 6,154 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -92,15 +92,15 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `runtime/` | 13 | 2,799 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `experiential/` | 11 | 2,756 | work-memory tier: activation, retrieval log, forget, citations |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `cli/` | 22 | 1,853 | arg parsing + subcommands |
+| `cli/` | 22 | 1,907 | arg parsing + subcommands |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 13 | 1,137 | provisioning, migrate runner, experiential store |
 | `migrations/` | 29 | 1,017 | hand-registered SQL. **Two chains** — see below |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
+| `doctor/` | 5 | 793 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `plane/` | 6 | 789 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
-| `doctor/` | 5 | 733 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `providers/` | 6 | 731 |  |
 | `embeddings/` | 6 | 665 | providers incl. the deterministic fake used in tests |
 | `model/` | 7 | 646 | model-service clients |
@@ -147,13 +147,14 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 591 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 588 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
-| 571 | `packages/server/src/cli/args.ts` |
+| 582 | `packages/server/src/cli/args.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 527 | `packages/server/src/scheduler/scheduler.ts` |
+| 526 | `packages/server/src/doctor/checks.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
 
-14 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
+15 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
 <!-- END GENERATED: tree-largest-files -->
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
@@ -272,7 +273,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**368 modules · 1617 dependencies · 107 distinct subsystem pairs · 719 cross-subsystem imports.**
+**368 modules · 1618 dependencies · 107 distinct subsystem pairs · 720 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -357,8 +358,8 @@ flowchart LR
 | `vault` | 227 | `tools` | 343 |
 | `db` | 122 | `runtime` | 131 |
 | `search` | 91 | `search` | 60 |
-| `mcp` | 85 | `cli` | 48 |
-| `embeddings` | 30 | `mcp` | 23 |
+| `mcp` | 85 | `cli` | 49 |
+| `embeddings` | 31 | `mcp` | 23 |
 <!-- END GENERATED: tree-fan -->
 
 The shape is layered and largely acyclic at the subsystem level: the tool surface
