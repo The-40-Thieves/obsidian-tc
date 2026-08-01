@@ -58,8 +58,9 @@ const STOPWORDS = new Set([
   "between",
 ]);
 
-/** Upper bound on rows examined when an ACL is supplied — see the note in `termDf`. */
-const DF_SCAN_CAP = 200;
+/** Rows fetched per round trip when an ACL is supplied. A BATCHING detail, not a cap — the scan
+ *  keeps paging until it can answer exactly. See `termDf`. */
+const DF_PAGE = 200;
 
 /**
  * Document frequency of one term over the enriched BM25 index (0 on any FTS failure), counted over
@@ -69,21 +70,29 @@ const DF_SCAN_CAP = 200;
  * callers verbatim — `routeQuery` embeds it as `rare-term:<token>(df=<n>)`, and `route.signals` is
  * returned by vault_graph_search, knowledge_search, vault_context and reflect. Any caller holding
  * `read:notes` could probe a term and learn, from an ordinary successful response, whether it
- * occurs in notes they are denied and in how many chunks. A CONTENT-membership oracle, not merely
- * a path one.
+ * occurs in notes they are denied and in how many chunks. A CONTENT-membership oracle.
  *
- * Counting readable rows fixes both halves: the reported number stops describing hidden content,
- * and the routing DECISION stops resting on evidence the caller cannot see — a term that is
- * rare-but-invisible should not send them down the lexical arm.
+ * EXACT, not sampled. The first version of this fix took a single LIMIT-200 page and filtered it,
+ * which cross-vendor review correctly refused: with the true readable count at 5 but only one
+ * readable row inside those 200, it reports df=1 and routes lexical — undercounting INTO the rare
+ * window rather than away from it, so my "fails closed" claim was simply false. Worse for the
+ * actual goal, the number of HIDDEN rows decides which readable rows land in the sample, so the
+ * reported value stayed a function of content the caller cannot see: a weaker, noisier channel
+ * than the one being closed, but not non-interference. There was no ORDER BY either, so which 200
+ * rows got examined was not even a defined contract.
  *
- * Bounded, because this sits on the routing path ahead of every search. The decision only needs to
- * know whether the readable count lands in [1, rareDfMax], so the scan exits as soon as it exceeds
- * that and never examines more than DF_SCAN_CAP rows. Residual case — more than DF_SCAN_CAP
- * matches with every readable one beyond the cap — under-counts and declines to route lexical.
- * That is a recall limit and it fails CLOSED: a missed lexical route costs a cheaper path, never a
- * disclosure.
+ * Paging until the answer is known removes both problems. The result depends only on readable
+ * rows, and the early exit is a genuine optimisation rather than a correctness assumption: once
+ * `rareDfMax + 1` readable matches are seen, every caller only needs "outside the window".
  *
- * Without `isReadable` the fast COUNT(*) is kept, so non-ACL callers pay nothing.
+ * Cost: for a common term in a mostly-readable vault this exits inside the first page after ~4
+ * readable rows. The worst case — a term with many matches, nearly all denied — pages the whole
+ * match set, which is the price of an exact answer that leaks nothing. `ORDER BY rowid` makes the
+ * paging deterministic rather than leaving row order to the FTS implementation.
+ *
+ * Without `isReadable` the fast COUNT(*) is kept. Note that every PRODUCTION tool supplies the
+ * predicate (even where `ctx.acl` is absent), so that branch serves the eval harness and internal
+ * callers, not API traffic.
  */
 function termDf(
   db: Database,
@@ -100,17 +109,26 @@ function termDf(
         .get(vaultId, quoted) as { n: number } | undefined;
       return row?.n ?? 0;
     }
-    const rows = db
-      .prepare("SELECT path FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ? LIMIT ?")
-      .all(vaultId, quoted, DF_SCAN_CAP) as Array<{ path: string }>;
+    const page = db.prepare(
+      "SELECT rowid AS rid, path FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ? AND rowid > ? ORDER BY rowid LIMIT ?",
+    );
     let n = 0;
-    for (const r of rows) {
-      if (!isReadable(r.path)) continue;
-      n++;
-      // Past the rare window the exact value is irrelevant to every caller of this function.
-      if (n > rareDfMax) return n;
+    let after = 0;
+    for (;;) {
+      const rows = page.all(vaultId, quoted, after, DF_PAGE) as Array<{
+        rid: number;
+        path: string;
+      }>;
+      if (rows.length === 0) return n; // match set exhausted -> n is exact
+      for (const r of rows) {
+        if (!isReadable(r.path)) continue;
+        n++;
+        // Past the rare window the exact value is irrelevant to every caller of this function.
+        if (n > rareDfMax) return n;
+      }
+      after = rows[rows.length - 1]?.rid ?? after;
+      if (rows.length < DF_PAGE) return n; // short page -> exhausted
     }
-    return n;
   } catch {
     return 0;
   }

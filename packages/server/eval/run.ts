@@ -363,7 +363,13 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
     // BM25 (no embed on serve; the eval already has the vec but ranks identically);
     // temporal auto-enables the stream; standard is byte-identical to the static engine.
     const route = opts.classRouter
-      ? routeQuery(opts.db, opts.vaultId, q.query_text)
+      ? routeQuery(opts.db, opts.vaultId, q.query_text, {
+          // THE-691: the eval must route on the SAME evidence as serving. It already hands this
+          // predicate to lexicalRouteResults immediately below; omitting it here let an
+          // ACL-filtered eval pick a different route than production for the same query, which
+          // silently breaks the "same rules as serve" claim the comment above makes.
+          ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
+        })
       : { class: "standard" as const, signals: [] as string[] };
     let graphHits =
       route.class === "lexical"
