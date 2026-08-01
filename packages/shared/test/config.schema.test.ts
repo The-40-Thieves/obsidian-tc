@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ExperientialConfigSchema, ObsidianTcError, ServerConfigSchema } from "../src/index";
+import {
+  EmbeddingsConfigSchema,
+  ExperientialConfigSchema,
+  ObsidianTcError,
+  ServerConfigSchema,
+} from "../src/index";
 
 const base = { vaults: [{ id: "main", path: "/v" }] };
 
@@ -180,6 +185,41 @@ describe("retrieval.gatedRerank / indexing.streamingWalk (THE-591)", () => {
     });
     expect(c.retrieval.gatedRerank).toBe(true);
     expect(c.indexing.streamingWalk).toBe(true);
+  });
+});
+
+// Task 2 follow-up (pluggable-provider-slots): the commit that opened `embeddings.provider`
+// from `z.enum([...six...])` to `z.string().min(1)` shipped with no test that ever called
+// EmbeddingsConfigSchema.parse() — its own new test file only exercises createEmbeddingProvider,
+// which never touches this schema. These pin the actual Zod boundary that changed: a config file
+// naming a non-legacy provider (e.g. a future registry entry like "openai-compatible") must not
+// fail validation the way the old closed enum would have rejected it, the original six names must
+// still parse, `provider` must still default to "ollama", and `.min(1)` must still reject empty.
+describe("EmbeddingsConfigSchema.provider (Task 2 follow-up)", () => {
+  it("accepts a non-legacy provider name that the old z.enum would have rejected", () => {
+    const parsed = EmbeddingsConfigSchema.parse({
+      provider: "openai-compatible",
+      model: "m",
+      dimensions: 3,
+    });
+    expect(parsed.provider).toBe("openai-compatible");
+  });
+
+  it("still accepts every original enum name", () => {
+    for (const provider of ["ollama", "openai", "voyage", "cohere", "bge-m3", "model-tier"]) {
+      const parsed = EmbeddingsConfigSchema.parse({ provider, model: "m", dimensions: 3 });
+      expect(parsed.provider).toBe(provider);
+    }
+  });
+
+  it("defaults provider to 'ollama' when omitted", () => {
+    const parsed = EmbeddingsConfigSchema.parse({});
+    expect(parsed.provider).toBe("ollama");
+  });
+
+  it("still rejects an empty-string provider (.min(1) survived the enum -> string change)", () => {
+    const r = EmbeddingsConfigSchema.safeParse({ provider: "", model: "m", dimensions: 3 });
+    expect(r.success).toBe(false);
   });
 });
 
