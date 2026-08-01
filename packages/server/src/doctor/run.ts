@@ -2,7 +2,12 @@
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import { embeddingsProviderNames, rerankerProviderNames } from "../providers/registry";
-import type { ProviderRegistrationView, RetrievalHeadsView, TokenClaims } from "./checks";
+import type {
+  ProviderRegistrationView,
+  RerankerBuildableView,
+  RetrievalHeadsView,
+  TokenClaims,
+} from "./checks";
 import {
   authMaxAgeCheck,
   authPolicyCheck,
@@ -10,6 +15,7 @@ import {
   nativeCheck,
   obsidianCheck,
   providerRegistrationCheck,
+  rerankerBuildableCheck,
   retrievalHeadsCheck,
   runtimeCheck,
   snapshotsCheck,
@@ -47,6 +53,8 @@ export interface DoctorConfigView {
   /** Final-review blocker 2: the configured provider names to validate against the registry.
    *  Optional, same reasoning as retrieval/snapshots above. */
   providers?: ProviderRegistrationView;
+  /** THE-679: enough to answer whether a DECLARED reranker block can be built, offline. */
+  rerankerBuildable?: RerankerBuildableView;
 }
 
 export interface AssembleOptions {
@@ -89,6 +97,11 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
       }),
     );
   }
+  // THE-679: providers.registered above validates NAMES; this validates that a declared block can
+  // actually be BUILT. A config naming model-tier without embeddings.modelTier.full hard-fails boot
+  // while every name in it is perfectly valid, so doctor reported ok and exited 0.
+  if (config.rerankerBuildable) checks.push(rerankerBuildableCheck(config.rerankerBuildable));
+
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".
   if (opts.bridgeReports) checks.push(bridgeCheck(opts.bridgeReports));
