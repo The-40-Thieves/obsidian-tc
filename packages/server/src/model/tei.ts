@@ -79,6 +79,9 @@ export function teiModelClient(opts: TeiClientOptions): ModelClient {
         fetchFn: opts.fetchFn,
         timeoutMs: opts.timeoutMs,
         provider: "tei",
+        // TeiClientOptions carries no token and this client sets no headers — the dense half of the
+        // model tier is unauthenticated by construction.
+        credentialSlot: "none",
       });
       // TEI returns one {embedding, index} per input; re-order by index before validating.
       const rows = (resp.data ?? [])

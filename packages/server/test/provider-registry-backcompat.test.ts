@@ -45,6 +45,44 @@ describe("provider registry back-compat", () => {
     expect(p.dimensions).toBe(1024);
   });
 
+  // THE-678: the nested modelTier.*.revision knobs are provenance-only, and their describe() now
+  // says so and points the operator at the top-level embeddings.revision instead. That redirection
+  // is only honest while the top-level knob actually reaches model-tier — applyWrappers calls
+  // withRevision BEFORE the `ownsPrefixing` early return, which is the one line holding it up. This
+  // pins the claim so a reordering there fails here instead of silently making the doc a lie.
+  it("top-level embeddings.revision reaches model-tier, despite it owning its own prefixing", () => {
+    const base = {
+      provider: "model-tier",
+      model: "Qwen/Qwen3-Embedding-0.6B",
+      dimensions: 1024,
+      modelTier: { dense: { baseUrl: "http://tei:8080" } },
+    } as const;
+    const plain = createEmbeddingProvider(base);
+    const pinned = createEmbeddingProvider({ ...base, revision: "chk2" });
+    expect(pinned.id).toContain("chk2");
+    expect(pinned.id).not.toBe(plain.id);
+  });
+
+  // The other half of the same claim: the NESTED knob is inert. If someone later folds
+  // modelTier.dense.revision into provider.id, this fails and the describe() must be rewritten —
+  // which is the point, since folding it would invalidate every existing model-tier index.
+  it("nested modelTier.dense.revision moves nothing, as its describe() states", () => {
+    const base = {
+      provider: "model-tier",
+      model: "Qwen/Qwen3-Embedding-0.6B",
+      dimensions: 1024,
+    } as const;
+    const plain = createEmbeddingProvider({
+      ...base,
+      modelTier: { dense: { baseUrl: "http://tei:8080" } },
+    });
+    const nested = createEmbeddingProvider({
+      ...base,
+      modelTier: { dense: { baseUrl: "http://tei:8080", revision: "chk2" } },
+    });
+    expect(nested.id).toBe(plain.id);
+  });
+
   // Deferred Minor from an earlier task: model-tier's EmbeddingsEntry.appendsPath used to be
   // "/v1/embeddings", but buildModelTierProvider never reads the descriptor's top-level baseUrl —
   // it reads cfg.modelTier.{dense,full}.baseUrl instead. That mismatch made the duplicate-segment

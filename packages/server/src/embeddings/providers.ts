@@ -34,6 +34,9 @@ export function ollamaProvider(o: AdapterOpts): EmbeddingProvider {
         fetchFn: o.fetchFn,
         timeoutMs: o.timeoutMs,
         provider: "ollama",
+        // Ollama is sent no authorization header. Its provider-specific hint lives inside the
+        // "none" branch of providerHint, so this slot is what selects it.
+        credentialSlot: "none",
       });
       return assertVectors(r.embeddings ?? [], o.dimensions, texts.length, {
         truncate: o.truncate,
@@ -57,6 +60,7 @@ function openAiStyle(provider: string, defaultBase: string) {
           fetchFn: o.fetchFn,
           timeoutMs: o.timeoutMs,
           provider,
+          credentialSlot: "embeddings",
         });
         return assertVectors(
           (r.data ?? []).map((d) => d.embedding),
@@ -91,6 +95,7 @@ export function cohereProvider(o: AdapterOpts): EmbeddingProvider {
         fetchFn: o.fetchFn,
         timeoutMs: o.timeoutMs,
         provider: "cohere",
+        credentialSlot: "embeddings",
       });
       return assertVectors(r.embeddings?.float ?? [], o.dimensions, texts.length, {
         truncate: o.truncate,
@@ -119,6 +124,8 @@ export function bgeM3Provider(o: AdapterOpts): EmbeddingProvider {
         fetchFn: o.fetchFn,
         timeoutMs: o.timeoutMs,
         provider: "bge-m3-vllm",
+        // A bare vLLM server: this client sends no credential.
+        credentialSlot: "none",
       });
       return assertVectors(
         (r.data ?? []).map((d) => d.embedding),

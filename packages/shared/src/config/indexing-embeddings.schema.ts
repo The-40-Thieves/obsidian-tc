@@ -160,7 +160,12 @@ export const EmbeddingsConfigSchema = z.object({
             .string()
             .default("Qwen/Qwen3-Embedding-0.6B")
             .describe("Dense model id. Its width is what embeddings.dimensions must match."),
-          revision: z.string().optional().describe("Pinned model revision for the dense service."),
+          revision: z
+            .string()
+            .optional()
+            .describe(
+              "Pinned model revision for the dense service. PROVENANCE ONLY: it moves neither provider.id nor vec_index_fingerprint, so changing it does not rebuild the index. Use the top-level embeddings.revision to force a re-embed — it applies to model-tier too.",
+            ),
           pooling: z
             .string()
             .default("last-token")
@@ -174,7 +179,9 @@ export const EmbeddingsConfigSchema = z.object({
           revision: z
             .string()
             .optional()
-            .describe("Pinned model revision for the multi-vector service."),
+            .describe(
+              "Pinned model revision for the multi-vector service. PROVENANCE ONLY: it moves neither provider.id nor vec_index_fingerprint, so changing it does not rebuild the index. Use the top-level embeddings.revision to force a re-embed — it applies to model-tier too.",
+            ),
           authToken: z
             .string()
             .optional()

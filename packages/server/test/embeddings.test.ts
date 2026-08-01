@@ -172,9 +172,89 @@ describe("provider adapters over a stub fetch", () => {
         url: "http://127.0.0.1:0/embed",
         body: {},
         provider: "ollama",
+        credentialSlot: "none",
         timeoutMs: 5,
         fetchFn: hangingFetch,
       }),
     ).rejects.toMatchObject({ code: "operation_timeout" });
+  });
+});
+
+// THE-680: postJson is shared by the embedding adapters, BOTH reranker adapters and the two
+// model-tier service clients. Before credentialSlot every failure named embeddings.apiKey, so a
+// rerank operator was sent to a key they never need to set. These pin the hint per slot — the text
+// is the whole product of providerHint, and nothing asserted it before.
+describe("postJson failure hints name the right config block", () => {
+  const failingFetch: typeof fetch = async () =>
+    new Response("nope", { status: 401, statusText: "Unauthorized" });
+
+  async function hintFor(o: Omit<Parameters<typeof postJson>[0], "url" | "body" | "fetchFn">) {
+    try {
+      await postJson({
+        url: "http://127.0.0.1:9/x",
+        body: {},
+        fetchFn: failingFetch,
+        ...o,
+      });
+    } catch (e) {
+      return String((e as ObsidianTcError).details?.hint ?? "");
+    }
+    throw new Error("expected postJson to throw");
+  }
+
+  it("names reranker.apiKey for a rerank endpoint, never embeddings.apiKey", async () => {
+    const hint = await hintFor({ provider: "cohere-compatible", credentialSlot: "reranker" });
+    expect(hint).toContain("reranker.apiKey");
+    expect(hint).toContain("reranker.apiKeyEnv");
+    expect(hint).not.toContain("embeddings.apiKey");
+  });
+
+  it("names embeddings.apiKey for an embedding endpoint", async () => {
+    const hint = await hintFor({ provider: "openai-compatible", credentialSlot: "embeddings" });
+    expect(hint).toContain("embeddings.apiKey");
+    expect(hint).not.toContain("reranker.apiKey");
+  });
+
+  // The second reranker (bge-reranker, model/bge.ts) authenticates from the modelTier.full block,
+  // so BOTH of the other two answers would be wrong for it.
+  it("names modelTier.full.authToken for the model-tier services", async () => {
+    const hint = await hintFor({ provider: "bge-reranker", credentialSlot: "modelTierFull" });
+    expect(hint).toContain("embeddings.modelTier.full.authToken");
+    expect(hint).not.toContain("reranker.apiKey");
+    expect(hint).not.toMatch(/set embeddings\.apiKey/);
+  });
+
+  // TEI and bare vLLM are sent no credential at all: "configure a key" is a third wrong answer.
+  it("tells an unauthenticated endpoint that no key applies", async () => {
+    const hint = await hintFor({ provider: "tei", credentialSlot: "none" });
+    expect(hint).toMatch(/no credential/);
+    expect(hint).not.toContain("apiKey");
+    expect(hint).not.toContain("authToken");
+  });
+
+  it("keeps the Ollama-specific hint, which names no key at all", async () => {
+    const hint = await hintFor({ provider: "ollama", credentialSlot: "none" });
+    expect(hint).toContain("ollama pull");
+    expect(hint).not.toContain("apiKey");
+  });
+
+  // All three throw sites carry the hint, not just the wire-failure one. The malformed-JSON path is
+  // a 2xx, so it is the easiest of the three to leave behind when this function changes.
+  it("carries the slot-correct hint on a malformed 2xx body, not only on a wire failure", async () => {
+    const badJson: typeof fetch = async () =>
+      new Response("<html>not json</html>", { status: 200 });
+    try {
+      await postJson({
+        url: "http://127.0.0.1:9/rerank",
+        body: {},
+        provider: "cohere-compatible",
+        credentialSlot: "reranker",
+        fetchFn: badJson,
+      });
+      throw new Error("expected postJson to throw");
+    } catch (e) {
+      expect((e as ObsidianTcError).code).toBe("embedding_provider_error");
+      expect(String((e as ObsidianTcError).details?.hint)).toContain("reranker.apiKey");
+    }
   });
 });

@@ -28,8 +28,11 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // going STALE, but regenerating both together would silently hide an unintended CHANGE — this
 // hash is the second, independent witness. A deliberate schema change updates this constant in
 // its own behavioral PR, not as a side effect of an unrelated refactor.
+// THE-678: rebaselined deliberately. The only emitted change is the description text on
+// embeddings.modelTier.dense.revision and .full.revision, which now state they are provenance-only
+// and point at the top-level embeddings.revision. No key, type, default or constraint moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "5217383ce4e8235d109bbb1f68c16c8418e32b77d4c01cf5104cbfde065eaa6c";
+  "a876f7f686df180180dea9ff2d1a85f86f65c02e732ee6e9dca569ee13f26cda";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

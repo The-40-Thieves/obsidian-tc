@@ -100,7 +100,13 @@ export async function bgeM3VllmEncode(
   const model = opts.model ?? DEFAULT_MODEL;
   const base = opts.baseUrl.replace(/\/$/, "");
   const root = base.replace(/\/v1$/, "");
-  const common = { fetchFn: opts.fetchFn, timeoutMs: opts.timeoutMs, provider: "bge-m3-vllm" };
+  const common = {
+    fetchFn: opts.fetchFn,
+    timeoutMs: opts.timeoutMs,
+    provider: "bge-m3-vllm",
+    // A bare vLLM server; BgeM3VllmOptions carries no token and no headers are set here.
+    credentialSlot: "none",
+  } as const;
 
   const dense = await postJson<EmbeddingsResponse>({
     url: `${base}/embeddings`,
