@@ -10,6 +10,7 @@ import {
   voyageProvider,
 } from "../embeddings/providers";
 import { buildModelTierProvider } from "../model";
+import { openAiCompatibleProvider } from "./http-embeddings";
 import type { EmbeddingsConfigLike, EmbeddingsEntry, ResolveContext } from "./types";
 
 function adapterOpts(cfg: EmbeddingsConfigLike, ctx: ResolveContext) {
@@ -34,6 +35,10 @@ const EMBEDDINGS: Record<string, EmbeddingsEntry> = {
   voyage: { appendsPath: "/embeddings", build: (c, x) => voyageProvider(adapterOpts(c, x)) },
   cohere: { appendsPath: "/embed", build: (c, x) => cohereProvider(adapterOpts(c, x)) },
   "bge-m3": { appendsPath: "/embeddings", build: (c, x) => bgeM3Provider(adapterOpts(c, x)) },
+  "openai-compatible": {
+    appendsPath: "/embeddings",
+    build: (c, x) => openAiCompatibleProvider(adapterOpts(c, x)),
+  },
   "model-tier": {
     appendsPath: "/v1/embeddings",
     ownsPrefixing: true,

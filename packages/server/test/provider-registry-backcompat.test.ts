@@ -52,6 +52,7 @@ describe("provider registry back-compat", () => {
       "model-tier",
       "ollama",
       "openai",
+      "openai-compatible",
       "voyage",
     ]);
   });
