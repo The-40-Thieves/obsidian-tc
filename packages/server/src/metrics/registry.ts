@@ -99,6 +99,10 @@ export class MetricsRecorder {
   private readonly morgianaDropped: Counter<string>;
   private readonly authRejections: Counter<string>;
   private readonly auditWriteFailed: Counter<string>;
+  // THE-667: the idempotency-claim RELEASE on a rejected dispatch. Sibling of auditWriteFailed
+  // above, and for the same reason — the write is deliberately best-effort, so a failure has no
+  // other signal.
+  private readonly idempotencyReleaseFailed: Counter<string>;
   // THE-507 (folding in THE-489): ingest work counters. Additive to the [ingest]/[index] stderr
   // lines the indexer already writes — these make the same events queryable instead of grep-able.
   private readonly ingestSecretsSkipped: Counter<string>;
@@ -148,6 +152,12 @@ export class MetricsRecorder {
       name: "obsidian_tc_audit_write_failed_total",
       help: "Security-audit event writes that failed, by vault and tool. Audit is fail-open by design (a failed write must never break dispatch), so this counter is the only signal that the audit trail has gone lossy.",
       labelNames: ["vault", "tool"],
+      registers,
+    });
+    this.idempotencyReleaseFailed = new Counter({
+      name: "obsidian_tc_idempotency_release_failed_total",
+      help: "Idempotency claims that could not be RELEASED after a dispatch was rejected at the throttle or HITL gate, by vault, tool and gate. The release is best-effort so a failure never masks the rejection the caller must see — which also means this counter is its only signal. Non-zero has a concrete cost: the claim survives, and because an orphaned row is neither expired (idempotencyTtlSeconds, default 24h) nor reclaimable (idempotencyReclaimSeconds, default 60s) yet, the retry the rejection explicitly invited comes back as idempotency_in_flight instead. There is no benign value.",
+      labelNames: ["vault", "tool", "gate"],
       registers,
     });
     this.ingestSecretsSkipped = new Counter({
@@ -570,6 +580,12 @@ export class MetricsRecorder {
   }
   incAuditWriteFailed(vault: string, tool: string): void {
     this.auditWriteFailed.inc({ vault, tool });
+  }
+  /** THE-667: `gate` names WHICH rejection path failed to release the claim — the two sites behave
+   *  identically but are reached under different conditions, and a counter that cannot tell them
+   *  apart cannot point at the one that is failing. */
+  incIdempotencyReleaseFailed(vault: string, tool: string, gate: "throttle" | "hitl"): void {
+    this.idempotencyReleaseFailed.inc({ vault, tool, gate });
   }
   incIdempotencyHit(vault: string, tool: string): void {
     this.idempotencyHits.inc({ vault, tool });

@@ -294,7 +294,17 @@ export async function runDispatch(
         try {
           deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
         } catch {
-          /* best-effort */
+          // THE-667: best-effort by necessity — releasing the claim must never replace the
+          // `throttled` error the caller has to see. But "best-effort" was the whole comment, and
+          // the failure had no channel at all. It is not cosmetic: the orphaned row is neither
+          // expired (idempotencyTtlSeconds, default 24h) nor yet reclaimable
+          // (idempotencyReclaimSeconds, default 60s), so claimOrReplay falls through to
+          // `in_flight` and the retry this very error invites via retry_after_seconds comes back
+          // as idempotency_in_flight instead. Surface it on the channel dispatch already uses for
+          // exactly this shape (incAuditWriteFailed); meter() is itself guarded.
+          deps.observability.meter((m) =>
+            m.incIdempotencyReleaseFailed(ctx.vaultId, name, "throttle"),
+          );
         }
       }
       throw err.throttled("rate limit exceeded", {
@@ -318,7 +328,12 @@ export async function runDispatch(
           try {
             deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
           } catch {
-            /* best-effort */
+            // THE-667: same shape as the throttle gate above — the release must not replace the
+            // `elicit_required` the caller has to see, and the caller is expected to retry once
+            // confirmed. An unreleased claim turns that confirmed retry into idempotency_in_flight.
+            deps.observability.meter((m) =>
+              m.incIdempotencyReleaseFailed(ctx.vaultId, name, "hitl"),
+            );
           }
         }
         throw new ObsidianTcError("elicit_required", "human confirmation required", {

@@ -14,6 +14,9 @@ const COUNTERS = [
   "obsidian_tc_governor_truncations_total",
   "obsidian_tc_morgiana_emit_dropped_total",
   "obsidian_tc_audit_write_failed_total",
+  // THE-667: the idempotency-claim release on a rejected dispatch. Best-effort by necessity (it
+  // must not replace the rejection the caller has to see), so this counter is its only signal.
+  "obsidian_tc_idempotency_release_failed_total",
   "obsidian_tc_auth_rejections_total", // THE-520
   // THE-507 (folding in THE-489): ingest work counters. This list plus the size assertion below is
   // the "no unlisted obsidian_tc_* metric" gate — adding a metric without declaring it here fails.
@@ -94,14 +97,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 25 counters, 4 histograms, 16 gauges", async () => {
+  it("registers the full catalog: 26 counters, 4 histograms, 16 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(45);
+    expect(new Set(declared).size).toBe(46);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
