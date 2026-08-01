@@ -11,24 +11,19 @@ import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
 import {
-  CHUNKER_VERSION,
-  VEC_DISTANCE_METRIC,
-  VEC_SCHEMA_GEN,
-  type VecFingerprint,
-  vecFingerprint,
+  buildRepresentationManifest,
+  type RepresentationManifest,
+  representationFingerprint,
 } from "../src/search/representation";
 import { semanticSearch } from "../src/search/semantic";
 import { ensureVecChunks } from "../src/search/vec";
 
-function fp(overrides: Partial<VecFingerprint> = {}): VecFingerprint {
+// THE-683: ensureVecChunks now takes the full RepresentationManifest. Built by the production
+// producer rather than hand-listed, so a new manifest field cannot leave this fixture stale — the
+// override spread keeps every existing call site (fp({ model: ... }) etc.) working unchanged.
+function fp(overrides: Partial<RepresentationManifest> = {}): RepresentationManifest {
   return {
-    provider: "fake",
-    model: "fake-model",
-    dimensions: 32,
-    distanceMetric: VEC_DISTANCE_METRIC,
-    enrichmentVersion: 0,
-    chunkerVersion: CHUNKER_VERSION,
-    schemaGen: VEC_SCHEMA_GEN,
+    ...buildRepresentationManifest({ provider: "fake", model: "fake-model", dimensions: 32 }, {}),
     ...overrides,
   };
 }
@@ -50,7 +45,14 @@ test("sqlite-vec loads under bun:sqlite and vec0 recall ranks by cosine", async 
   writeFileSync(join(root, "dog.md"), "# Dog\n\nthe lazy dog sleeps under the warm sun");
 
   const provider = fakeEmbeddingProvider({ dimensions: 32 });
-  const stats = await indexVault({ db, provider, vaultId: "v", root, isReadable: () => true });
+  const stats = await indexVault({
+    db,
+    provider,
+    representation: buildRepresentationManifest(provider, {}),
+    vaultId: "v",
+    root,
+    isReadable: () => true,
+  });
   expect(stats.vec_enabled).toBe(true); // vec0 path active, not the brute-force fallback
   expect(stats.chunks_upserted).toBe(3);
 
@@ -78,7 +80,14 @@ test("semanticSearch degrades to brute force when the query dimension mismatches
   const root = mkdtempSync(join(tmpdir(), "obtc-vecdim-"));
   writeFileSync(join(root, "a.md"), "# A\n\nthe quick brown fox jumps");
   const provider = fakeEmbeddingProvider({ dimensions: 32 });
-  const stats = await indexVault({ db, provider, vaultId: "v", root, isReadable: () => true });
+  const stats = await indexVault({
+    db,
+    provider,
+    representation: buildRepresentationManifest(provider, {}),
+    vaultId: "v",
+    root,
+    isReadable: () => true,
+  });
   expect(stats.vec_enabled).toBe(true);
 
   // Query with a DIFFERENT dimension (8) — simulates switching embedding models. sqlite-vec's
@@ -183,7 +192,7 @@ test("THE-460: a same-dimension MODEL swap rebuilds vec_chunks (fingerprint mism
   const storedAfterFirst = db
     .prepare("SELECT fingerprint FROM vec_index_fingerprint WHERE id = 1")
     .get() as { fingerprint: string } | undefined;
-  expect(storedAfterFirst?.fingerprint).toBe(vecFingerprint(fpA));
+  expect(storedAfterFirst?.fingerprint).toBe(representationFingerprint(fpA));
 
   // A second chunk lands ONLY between the two ensureVecChunks calls, embedded under a DIFFERENT
   // model at the SAME dimensionality (32). A no-op ensureVecChunks call would never see it — it
@@ -218,7 +227,7 @@ test("THE-460: a same-dimension MODEL swap rebuilds vec_chunks (fingerprint mism
   const storedAfterSecond = db
     .prepare("SELECT fingerprint FROM vec_index_fingerprint WHERE id = 1")
     .get() as { fingerprint: string } | undefined;
-  expect(storedAfterSecond?.fingerprint).toBe(vecFingerprint(fpB));
+  expect(storedAfterSecond?.fingerprint).toBe(representationFingerprint(fpB));
   expect(storedAfterSecond?.fingerprint).not.toBe(storedAfterFirst?.fingerprint);
 
   // Sentinel: a vec_chunks row NOT backed by an active chunk_embeddings row. A genuine no-op

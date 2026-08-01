@@ -36,6 +36,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { EmbeddingProvider, EmbeddingsConfigLike } from "../src/embeddings";
 import { createEmbeddingProvider, deterministicVector } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { semanticSearch } from "../src/search/semantic";
 
 const DIMS = 32;
@@ -70,7 +71,11 @@ test("THE-460 Critical: declaring a revision reindexes, and vec_chunks + dense h
   // 1. Index with NO revision declared — the pre-existing, always-worked path. Dense hits > 0.
   const base = testProvider(baseCfg);
   expect(base.id).toBe("ollama:bge-m3"); // sanity: no revision -> no suffix
-  const stats1 = await indexVault({ ...opts, provider: base });
+  const stats1 = await indexVault({
+    ...opts,
+    provider: base,
+    representation: buildRepresentationManifest(base, {}),
+  });
   expect(stats1.vec_enabled).toBe(true);
   expect((db.prepare("SELECT count(*) AS c FROM vec_chunks").get() as { c: number }).c).toBe(2);
   const [q1] = await base.embed(["lazy dog"]);
@@ -81,7 +86,11 @@ test("THE-460 Critical: declaring a revision reindexes, and vec_chunks + dense h
   // provider.id moves the re-embed gate + the backfill's activeModel. This is exactly the
   // reviewer's reproduction.
   const revised = testProvider({ ...baseCfg, revision: "chk2" });
-  const stats2 = await indexVault({ ...opts, provider: revised, revision: "chk2" });
+  const stats2 = await indexVault({
+    ...opts,
+    provider: revised,
+    representation: buildRepresentationManifest(revised, { revision: "chk2" }),
+  });
   expect(stats2.vec_enabled).toBe(true);
 
   // The Critical's assertion: vec_chunks must be NON-EMPTY, not dropped and left stranded.
@@ -111,7 +120,11 @@ test("THE-460 Critical: declaring a revision reindexes, and vec_chunks + dense h
 
   // 3. A further reconcile at the SAME revision is a stable no-op (not "still 0 after a further
   // reconcile", the reviewer's second measured symptom).
-  const stats3 = await indexVault({ ...opts, provider: revised, revision: "chk2" });
+  const stats3 = await indexVault({
+    ...opts,
+    provider: revised,
+    representation: buildRepresentationManifest(revised, { revision: "chk2" }),
+  });
   expect(stats3.vec_enabled).toBe(true);
   expect((db.prepare("SELECT count(*) AS c FROM vec_chunks").get() as { c: number }).c).toBe(2);
   const [q3] = await revised.embed(["lazy dog"]);
@@ -119,7 +132,11 @@ test("THE-460 Critical: declaring a revision reindexes, and vec_chunks + dense h
 
   // 4. Removing the revision setting again (a further fingerprint change) also recovers rather
   // than staying stranded (the reviewer's third measured symptom).
-  const stats4 = await indexVault({ ...opts, provider: base });
+  const stats4 = await indexVault({
+    ...opts,
+    provider: base,
+    representation: buildRepresentationManifest(base, {}),
+  });
   expect(stats4.vec_enabled).toBe(true);
   expect((db.prepare("SELECT count(*) AS c FROM vec_chunks").get() as { c: number }).c).toBe(2);
   const [q4] = await base.embed(["lazy dog"]);

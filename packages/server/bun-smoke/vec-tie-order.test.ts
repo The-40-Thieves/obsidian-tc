@@ -18,6 +18,7 @@ import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { semanticSearch } from "../src/search/semantic";
 import { loadVec, vecKnn } from "../src/search/vec";
 
@@ -41,6 +42,10 @@ async function indexedVault(): Promise<{
   await indexVault({
     db,
     provider: fakeEmbeddingProvider({ dimensions: 32, model: "fake-tie" }),
+    representation: buildRepresentationManifest(
+      fakeEmbeddingProvider({ dimensions: 32, model: "fake-tie" }),
+      { chunkContext: false },
+    ),
     vaultId: "main",
     root,
     isReadable: () => true,

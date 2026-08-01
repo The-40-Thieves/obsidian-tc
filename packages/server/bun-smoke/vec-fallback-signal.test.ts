@@ -12,6 +12,7 @@ import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { semanticSearch } from "../src/search/semantic";
 import { loadVec } from "../src/search/vec";
 
@@ -29,6 +30,10 @@ async function indexedVault(notes: number): Promise<{
   await indexVault({
     db,
     provider: fakeEmbeddingProvider({ dimensions: DIMS, model: "fake-fallback" }),
+    representation: buildRepresentationManifest(
+      fakeEmbeddingProvider({ dimensions: DIMS, model: "fake-fallback" }),
+      { chunkContext: false },
+    ),
     vaultId: "main",
     root,
     isReadable: () => true,
