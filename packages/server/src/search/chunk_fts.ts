@@ -179,8 +179,26 @@ export interface LexicalHit {
  * falls back to an exhaustive scan). The lexical and sparse arms never received the same treatment.
  *
  * FTS ranks and limits in SQL, so the fix is the same shape: over-fetch by the THE-287 factor,
- * filter in JS, then cut. A vault whose ACL hides more than ~95% of matches can still underfill —
- * that is a recall limit, not a leak, and it fails CLOSED (fewer hits, never someone else's).
+ * filter in JS, then cut.
+ *
+ * The residual, stated honestly, because an earlier draft of this comment called it "a recall
+ * limit, not a leak" as though that were structural. It is not — it is contingent on corpus
+ * statistics, and it is worth re-checking if either input moves:
+ *
+ *   GUARANTEED unconditionally: an unreadable chunk is never RETURNED. The result set contains
+ *   only rows the caller may read, whatever the corpus looks like. That part fails closed.
+ *
+ *   CONTINGENT: the returned LENGTH is min(k, readable rows inside the over-fetch window), so it
+ *   can in principle depend on how many excluded rows outrank the caller's. Underfilling needs the
+ *   window to fill first — 650 rows at the seedCount=30 default (k*20+50), 850 at vault_context's
+ *   k=40, ~4.8% and ~6.3% of a 13.4k-chunk vault. chunkFtsMatch joins terms with OR, so match
+ *   count is the union and is driven by the COMMONEST term. A term matching 5% of the corpus is
+ *   common enough that its presence in any one note is not news, while a rare term — the only case
+ *   where membership would be informative — matches far fewer rows than the window, so the window
+ *   never fills and filtering there is exact. The two cases do not overlap at this corpus size.
+ *
+ * So: safe today, on arithmetic rather than construction. A much larger vault, a smaller
+ * over-fetch factor, or a MATCH that becomes conjunctive would each require redoing that sum.
  */
 export function bm25Chunks(
   db: Database,

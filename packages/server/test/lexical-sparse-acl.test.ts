@@ -53,6 +53,19 @@ function addChunk(db: Database, id: string, path: string, content: string): void
 /** Deny exactly the private folder — the shape a real folder ACL produces. */
 const readable = (p: string): boolean => !p.startsWith("09-private/");
 
+/** FTS5 is REQUIRED, not silently skipped — the same contract THE-691's suite adopted, for the
+ *  same reason. These two BM25 tests originally `return`ed early when FTS5 was missing, so they
+ *  could report PASSED having asserted nothing, and a security suite that is green because it ran
+ *  nothing states the property as HELD. CI compiles FTS5 on all four build-test platforms — proven
+ *  by router-df-oracle.test.ts, which already throws without it — so requiring it costs nothing. */
+function requireFts(db: Database): void {
+  if (!ensureChunkFts(db)) {
+    throw new Error(
+      "FTS5 unavailable — THE-632's assertions cannot run. Refusing to pass vacuously.",
+    );
+  }
+}
+
 describe("THE-632: BM25 applies the read ACL before its top-k cut", () => {
   it("never returns an unreadable chunk, even when it is the ONLY match", () => {
     const db = seedDb();
@@ -60,7 +73,7 @@ describe("THE-632: BM25 applies the read ACL before its top-k cut", () => {
     // filtering the caller gets a hit — and, worse, a COUNT that betrays the term's existence.
     addChunk(db, "priv", PRIVATE, "zarquon classified codeword");
     addChunk(db, "pub", "00-public.md", "ordinary public words");
-    if (!ensureChunkFts(db)) return; // FTS5 not compiled in this runtime
+    requireFts(db);
 
     const leaky = bm25Chunks(db, VAULT, "zarquon", 10);
     const guarded = bm25Chunks(db, VAULT, "zarquon", 10, readable);
@@ -77,7 +90,7 @@ describe("THE-632: BM25 applies the read ACL before its top-k cut", () => {
     // SQL limit would return nothing — the private chunks would have consumed the slot.
     for (let i = 0; i < 12; i++) addChunk(db, `p${i}`, `09-private/n${i}.md`, "shared term here");
     addChunk(db, "vis", "00-visible.md", "shared term here");
-    if (!ensureChunkFts(db)) return;
+    requireFts(db);
 
     const hits = bm25Chunks(db, VAULT, "shared term", 1, readable);
     expect(hits).toHaveLength(1);

@@ -15,14 +15,22 @@
 // diverges from production answers a question about itself.
 //
 // ACL (THE-563/564): this is a disclosure surface. Reporting "note X scored 0.41" for a path the
-// caller cannot read leaks both the path's existence and its similarity to the query. Two things
-// make that safe here:
-//   1. `isReadable` already filters at seedGeneration, graphExpansion and candidateAssembly — every
-//      array the trace inspects is ACL-filtered before it exists. The guarantee is structural.
-//   2. The handler ALSO checks the target up front, rather than relying on that emergent property.
-//      An unreadable path returns the SAME shape as a path that simply never matched — no branch,
-//      no distinct error, no timing tell. A refusal that says "you may not read that" is an
-//      existence oracle; this deliberately is not one.
+// caller cannot read leaks both the path's existence and its similarity to the query. Exactly ONE
+// thing makes that safe, and it is stated precisely here because an earlier version of this comment
+// claimed a second one that the code deliberately does not have:
+//
+//   `isReadable` is threaded into every arm AT QUERY TIME — dense, lexical and sparse in
+//   seed_generation (THE-287 for dense, THE-632 for the other two), plus graph expansion's own
+//   walk. Every array the trace inspects is therefore ACL-filtered before it exists, an unreadable
+//   note is genuinely absent from all of them, and it falls out as the REAL never-a-candidate
+//   answer rather than a manufactured one.
+//
+// There is deliberately NO up-front readability check on the target path, and this comment
+// previously said there was. That earlier version short-circuited with a hand-written envelope, and
+// cross-vendor review showed it was trivially distinguishable from a genuinely-unmatched readable
+// path — see the four tells at the handler. Query-time filtering is consequently the ONLY mechanism
+// providing this property. Do not thin it out on the assumption that a branch in the handler is
+// backstopping it; nothing is.
 import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
