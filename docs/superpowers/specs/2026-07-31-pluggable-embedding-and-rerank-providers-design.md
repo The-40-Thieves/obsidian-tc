@@ -25,7 +25,11 @@ hardcoded `ENV_KEY` map in `provider.ts` (which knows only `openai`, `voyage`, `
 
 **Reranker — open door, no handle.** `Reranker` (`packages/server/src/search/rerank.ts`) is a
 bare function type, `(query, documents, topN) => Promise<RerankHit[]>`. Genuinely pluggable. But
-there is **no config surface for it at all**. The wiring is hardcoded at
+there is **no way to select a backend**. To be precise (an earlier draft said "no config surface at
+all", which a cross-vendor audit correctly refuted): rerank *behaviour* flags do exist —
+`retrieval.gatedRerank` and `retrieval.colbert` (`retrieval.schema.ts:41-60`) and
+`experiential.activationRerank` (`:286-300`). What has never existed is a **provider descriptor**:
+a way to say *which* backend answers. The wiring is hardcoded at
 `packages/server/src/runtime/tool-wiring.ts:146`:
 
 ```ts
