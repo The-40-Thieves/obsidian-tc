@@ -260,13 +260,31 @@ const FUNCTION_FIELDS = [
   "onVecFallback",
   "onCoverage",
   "onRerankOutcome",
+  // THE-632 — onRetrievalTrace: diagnose_retrieval's per-note trace sink. Same reasoning as every
+  // sink above: it is a pure side-channel that cannot change results, so two calls differing only
+  // in it must share a cache entry.
+  "onRetrievalTrace",
 ] as const;
+
+/** THE-632: `traceNotePath` is the one non-function field that is deliberately UNKEYED.
+ *
+ *  It selects which note the trace FOLLOWS. It never filters, boosts or reorders — results are
+ *  byte-identical with it set, unset, or pointed at a different note — so keying on it would
+ *  fragment the cache into one entry per diagnosed note for identical result sets.
+ *
+ *  The cache-HIT caveat bites harder here than for the sinks, so it is written down rather than
+ *  left to be rediscovered: a hit returns the cached results WITHOUT running the pipeline, so no
+ *  trace records are produced and the caller sees an empty trace for a search that "worked". That
+ *  is why `diagnose_retrieval` calls `graphSearch` DIRECTLY and never `cachedGraphSearch`. Anyone
+ *  wiring tracing into the cached path must handle that explicitly — a silently empty trace reads
+ *  as "the note was never anywhere", which is a wrong answer, not a missing one. */
+const TRACE_SELECTOR_FIELDS = ["traceNotePath"] as const;
 
 /** Fields excluded from the key because they are derived from (query text, representation), both
  *  of which the key already carries — see the header note on circularity. */
 const DERIVED_VECTOR_FIELDS = ["queryVec", "querySparse", "queryColbert"] as const;
 
-export { DERIVED_VECTOR_FIELDS, FUNCTION_FIELDS };
+export { DERIVED_VECTOR_FIELDS, FUNCTION_FIELDS, TRACE_SELECTOR_FIELDS };
 
 /**
  * Fold an arbitrary value into a hash, deterministically and injectively.
