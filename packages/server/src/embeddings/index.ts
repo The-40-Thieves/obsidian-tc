@@ -26,12 +26,31 @@ function withPrefixes(p: EmbeddingProvider, qp: string, dp: string): EmbeddingPr
   if (full) wrapped.embedFull = (texts, o) => full(affix(texts, o), o);
   return wrapped;
 }
+/** THE-460 fix B: a declared revision must change `provider.id`, because that's the identity
+ *  chunk_embeddings.model / vec_chunks.model store AND what note-plan.ts's re-embed gate compares
+ *  (`ex.active_model !== model`) — model/dimensions/provider stay untouched, so this is purely an
+ *  identity relabel, not a different model. Applied at the factory (the same seam withPrefixes
+ *  uses) so no individual adapter needs to know about it. Absent/empty revision -> `p` unchanged. */
+function withRevision(p: EmbeddingProvider, revision: string | undefined): EmbeddingProvider {
+  if (!revision) return p;
+  const wrapped: EmbeddingProvider = {
+    id: `${p.id}@${revision}`,
+    provider: p.provider,
+    model: p.model,
+    dimensions: p.dimensions,
+    embed: (texts, o) => p.embed(texts, o),
+  };
+  const full = p.embedFull?.bind(p);
+  if (full) wrapped.embedFull = (texts, o) => full(texts, o);
+  return wrapped;
+}
 export function createEmbeddingProvider(
   cfg: EmbeddingsConfigLike,
   opts: { fetchFn?: FetchFn; override?: EmbeddingProvider } = {},
 ): EmbeddingProvider {
   if (opts.override) return opts.override;
-  const { provider, entry } = resolveEmbeddings(cfg, { fetchFn: opts.fetchFn });
+  const { provider: resolved, entry } = resolveEmbeddings(cfg, { fetchFn: opts.fetchFn });
+  const provider = withRevision(resolved, cfg.revision);
   // model-tier owns its own asymmetric prefixing and must not be double-wrapped.
   if (entry.ownsPrefixing) return provider;
   const qp = cfg.queryPrefix ?? "";
