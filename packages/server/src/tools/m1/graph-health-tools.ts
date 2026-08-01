@@ -5,7 +5,7 @@
 // the readable note set (wikilinks/markdown links resolved via the shared vault index).
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globMatch } from "../../acl";
+import { type FolderAcl, globToRegExp } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
@@ -392,9 +392,17 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           "**/*.excalidraw.md",
         ];
         const exclude = [...DEFAULT_EXCLUDE, ...(input.exclude ?? [])];
+        // THE-618: compile the include/exclude globs ONCE for the whole scan instead of per note.
+        // These are the only CALLER-supplied globs that reach globToRegExp (up to 64 each per call),
+        // so compiling here also surfaces an over-long glob as a single up-front `glob too long`
+        // rather than on whichever note happened to be scanned first — and not at all when the
+        // readable set is empty, which previously let an invalid argument pass silently.
+        const includeRes = (input.include ?? []).map((g) => globToRegExp(g.normalize("NFC")));
+        const excludeRes = exclude.map((g) => globToRegExp(g.normalize("NFC")));
         const inScope = (rel: string): boolean => {
-          if (input.include?.length && !input.include.some((g) => globMatch(g, rel))) return false;
-          return !exclude.some((g) => globMatch(g, rel));
+          const p = rel.normalize("NFC");
+          if (includeRes.length && !includeRes.some((re) => re.test(p))) return false;
+          return !excludeRes.some((re) => re.test(p));
         };
         const notes = readableNotes(v.root, ctx.acl).filter(inScope);
         const field = input.field;
