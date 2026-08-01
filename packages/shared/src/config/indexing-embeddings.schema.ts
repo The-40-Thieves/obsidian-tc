@@ -38,6 +38,13 @@ export const EmbeddingsConfigSchema = z.object({
     .string()
     .optional()
     .describe("Provider API key. Secret — never logged or returned by a tool."),
+  apiKeyEnv: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Name of the environment variable holding the provider API key. Needed for generic providers, which have no entry in the built-in per-vendor variable map. An inline apiKey takes precedence.",
+    ),
   // GH #171/#172: local-runner indexing robustness. Local models are far slower than hosted APIs,
   // and a stock local runner (llama-server) crashes on a token-dense batch, so these are
   // configurable with local-safe defaults. `timeoutMs` bounds each embed request (was a hardcoded

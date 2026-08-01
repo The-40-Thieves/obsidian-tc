@@ -12,6 +12,9 @@ export interface EmbeddingsConfigLike {
   dimensions: number;
   baseUrl?: string;
   apiKey?: string;
+  /** Name of the env var holding the provider API key — see resolveApiKey (embeddings/provider.ts).
+   *  Needed for generic providers, which have no entry in the built-in per-vendor ENV_KEY map. */
+  apiKeyEnv?: string;
   /** GH #171: per-request embed timeout (ms). Undefined -> the postJson default. */
   timeoutMs?: number;
   /** THE-387: Matryoshka (MRL) truncation of a wider native output to `dimensions`. */

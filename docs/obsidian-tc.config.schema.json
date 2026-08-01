@@ -483,6 +483,11 @@
           "description": "Provider API key. Secret — never logged or returned by a tool.",
           "type": "string"
         },
+        "apiKeyEnv": {
+          "description": "Name of the environment variable holding the provider API key. Needed for generic providers, which have no entry in the built-in per-vendor variable map. An inline apiKey takes precedence.",
+          "type": "string",
+          "minLength": 1
+        },
         "timeoutMs": {
           "default": 120000,
           "description": "Timeout in ms for a single embed request. Defaults high because local runners are far slower than hosted APIs.",

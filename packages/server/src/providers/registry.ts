@@ -18,7 +18,7 @@ function adapterOpts(cfg: EmbeddingsConfigLike, ctx: ResolveContext) {
     model: cfg.model,
     dimensions: cfg.dimensions,
     baseUrl: cfg.baseUrl,
-    apiKey: resolveApiKey(cfg.provider, cfg.apiKey),
+    apiKey: resolveApiKey(cfg.provider, cfg.apiKey, cfg.apiKeyEnv),
     fetchFn: ctx.fetchFn,
     timeoutMs: cfg.timeoutMs,
     truncate: cfg.truncate,
