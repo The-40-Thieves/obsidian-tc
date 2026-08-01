@@ -103,7 +103,23 @@ describe("unwindReversed — reverse-ownership-order cleanup", () => {
   });
 });
 
-describe("wireRuntimeCore — argv-free composition with unwind on failure", () => {
+// Every test below opens a REAL SQLite store in a fresh temp dir and runs the migrations, so its
+// duration is bounded by filesystem latency rather than by anything this file asserts. Vitest's
+// 5s default is calibrated for the pure spy-driven tests above (2-5ms); these run ~60ms locally,
+// and on windows-latest one of them once blew the whole 5s — an 86x margin — while its siblings,
+// doing identical work in the same run, passed at their usual speed. That shape is an environment
+// stall (Defender scanning the freshly-created .db, or a starved runner), not slow code: the only
+// awaited cleanup here is `otel.shutdown().catch(() => {})`, which always settles.
+//
+// The timeout is a LIVENESS BOUND, not a performance assertion — no test here measures duration —
+// so raising it where real I/O happens costs nothing and removes a class of false failures. A
+// genuine hang still fails, just 30s later. Deliberately NOT a retry: retries would also hide a
+// real intermittent bug, and one observed stall is not evidence of one.
+const STORE_IO_TIMEOUT_MS = 30_000;
+
+describe("wireRuntimeCore — argv-free composition with unwind on failure", {
+  timeout: STORE_IO_TIMEOUT_MS,
+}, () => {
   const tmpDirs: string[] = [];
   const tmpCacheDir = (): string => {
     const d = mkdtempSync(join(tmpdir(), "otc-runtime-core-"));
@@ -288,7 +304,9 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", () 
 // `postCoreLayers` only once it has actually finished constructing, and unwinding that stack (plus
 // the stores/governance handed off by `wireRuntimeCore`) in reverse order on a later throw — see
 // server-runtime.ts's `buildServerRuntime`.
-describe("buildServerRuntime — post-core unwind on a real late boot failure", () => {
+describe("buildServerRuntime — post-core unwind on a real late boot failure", {
+  timeout: STORE_IO_TIMEOUT_MS,
+}, () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
     const d = mkdtempSync(join(tmpdir(), prefix));
@@ -349,7 +367,9 @@ describe("buildServerRuntime — post-core unwind on a real late boot failure", 
 // scenario forces a LATER failure instead). Before this fix, `buildServerRuntime` never passed
 // `otel` (or `onCleanup`) into its `wireRuntimeCore` call at all, so this exact scenario leaked the
 // OTEL SDK with no unwind covering it whatsoever.
-describe("buildServerRuntime — otel unwind when wireRuntimeCore itself throws", () => {
+describe("buildServerRuntime — otel unwind when wireRuntimeCore itself throws", {
+  timeout: STORE_IO_TIMEOUT_MS,
+}, () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
     const d = mkdtempSync(join(tmpdir(), prefix));
