@@ -16,6 +16,9 @@ export interface RetrievalHeadsView {
   multiVector: boolean;
   sparseEnabled: boolean;
   colbertEnabled: boolean;
+  /** config.reranker?.provider — a drop-in reranker slot is a name, not a member of a closed set, so
+   *  this is reported as configured-or-not rather than inferred from denseProvider. */
+  rerankerConfigured?: string;
 }
 
 /** retrieval.heads — dense / sparse / ColBERT / reranker readiness, reported INDEPENDENTLY so an
@@ -46,11 +49,22 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
 
       if (view.multiVector) {
         details.reranker = `model-tier / ColBERT rerank capable (${view.denseProvider}); or the inference gateway /rerank passthrough when configured`;
-      } else {
-        details.reranker =
-          "RRF-only unless the inference gateway is configured for /rerank passthrough";
+      } else if (view.rerankerConfigured) {
+        // A provider name no longer implies a capability set, so this is reported as CONFIGURED
+        // rather than inferred from denseProvider — a generic provider may still be multi-vector.
+        details.reranker = `reranker configured: ${view.rerankerConfigured} (multi-vector capability could not be determined from the '${view.denseProvider}' provider name)`;
         notes.push(
-          "no model-tier reranker for this provider — reranking depends on the inference gateway (env-configured)",
+          `reranker configured (${view.rerankerConfigured}); multi-vector capability could not be determined from the '${view.denseProvider}' provider name`,
+        );
+      } else {
+        // This branch's wording changed too, not just the rerankerConfigured-present one above: the
+        // old text ("reranking depends on the inference gateway (env-configured)") predated
+        // config.reranker and wrongly implied env-configured gateway passthrough was the ONLY path
+        // to reranking. Since Task 5, a `reranker` config block is a second, equally valid path —
+        // so even the true "nothing is configured" case can no longer claim gateway-only.
+        details.reranker = `RRF-only — no reranker configured, and multi-vector capability could not be determined from the '${view.denseProvider}' provider name`;
+        notes.push(
+          `no reranker configured, and multi-vector capability could not be determined from the '${view.denseProvider}' provider name`,
         );
       }
 
@@ -70,6 +84,68 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
                 "Set embeddings.provider to bge-m3 or model-tier (with modelTier.full) to activate the sparse/ColBERT streams, or disable retrieval.sparse / retrieval.colbert.",
             }
           : {}),
+      };
+    },
+  };
+}
+
+/** #Final-review blocker 2: `embeddings.provider` and `reranker.provider` are open strings resolved
+ *  against the provider registry at boot (embeddingsEntryOrThrow / resolveReranker); an unregistered
+ *  name used to be rejected by `ServerConfigSchema.parse` and now parses cleanly. The ONLY thing
+ *  that still catches it is the server's own boot path — doctor, whose entire job is finding
+ *  misconfigurations, previously reported an unregistered name as "ready". `registered` is injected
+ *  (not imported from providers/registry.ts here) so this check stays testable with no live
+ *  registry, matching every other check in this file. */
+export interface ProviderRegistrationView {
+  embeddingsProvider: string;
+  /** config.reranker?.provider — absent means no reranker block is configured, which is always valid
+   *  and not checked here. */
+  rerankerProvider?: string;
+}
+
+/** providers.registered — fails loudly, with the same registered-name list boot's own error would
+ *  show, when either configured provider name is not in the registry. */
+export function providerRegistrationCheck(
+  view: ProviderRegistrationView,
+  registered: { embeddings: string[]; reranker: string[] },
+): Check {
+  return {
+    id: "providers.registered",
+    category: "retrieval",
+    run: () => {
+      const details: Record<string, string> = { embeddings: view.embeddingsProvider };
+      const issues: string[] = [];
+
+      if (!registered.embeddings.includes(view.embeddingsProvider)) {
+        details.embeddings = `${view.embeddingsProvider} (UNREGISTERED)`;
+        issues.push(
+          `embeddings.provider "${view.embeddingsProvider}" is not registered; set embeddings.provider to one of: ${registered.embeddings.join(", ")}`,
+        );
+      }
+
+      if (view.rerankerProvider !== undefined) {
+        details.reranker = view.rerankerProvider;
+        if (!registered.reranker.includes(view.rerankerProvider)) {
+          details.reranker = `${view.rerankerProvider} (UNREGISTERED)`;
+          issues.push(
+            `reranker.provider "${view.rerankerProvider}" is not registered; set reranker.provider to one of: ${registered.reranker.join(", ")}`,
+          );
+        }
+      }
+
+      if (issues.length > 0) {
+        return {
+          status: "fail",
+          summary: `${issues.length} configured provider name(s) are not registered`,
+          details,
+          issues,
+          remediation: issues.join(" "),
+        };
+      }
+      return {
+        status: "ok",
+        summary: "embeddings.provider and reranker.provider (if configured) are registered",
+        details,
       };
     },
   };

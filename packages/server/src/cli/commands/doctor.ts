@@ -75,11 +75,23 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           config.embeddings.provider === "bge-m3" ||
           (config.embeddings.provider === "model-tier" &&
             config.embeddings.modelTier?.full !== undefined),
+        // A provider name no longer implies a capability set: a generic provider may well point at
+        // a bge-m3 endpoint. Report what is CONFIGURED rather than inferring from the name.
+        rerankerConfigured: config.reranker?.provider,
         sparseEnabled: config.retrieval.sparse,
         colbertEnabled: config.retrieval.colbert,
       },
       // THE-648: snapshots default to enabled; surface the effective posture either way.
       snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
+      // Final-review blocker 2: validate the configured provider names against the registry —
+      // an unregistered name parses cleanly now (embeddings.provider/reranker.provider are open
+      // strings) and was previously invisible to doctor.
+      providers: {
+        embeddingsProvider: config.embeddings.provider,
+        ...(config.reranker?.provider !== undefined
+          ? { rerankerProvider: config.reranker.provider }
+          : {}),
+      },
     },
     profile,
     bridgeReports,

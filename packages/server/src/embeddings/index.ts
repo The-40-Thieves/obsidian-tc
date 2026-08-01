@@ -1,40 +1,11 @@
-import { err } from "@the-40-thieves/obsidian-tc-shared";
-import { buildModelTierProvider } from "../model";
+import { resolveEmbeddings, resolveEmbeddingsAsync } from "../providers/registry";
+// EmbeddingsConfigLike now lives in providers/types.ts (see the comment there) — re-exported here
+// for compatibility since every existing caller imports it from this module.
+import type { EmbeddingsConfigLike, EmbeddingsEntry, ResolveContext } from "../providers/types";
 import type { FetchFn } from "./http";
-import { type EmbeddingProvider, type EmbedOptions, resolveApiKey } from "./provider";
-import {
-  bgeM3Provider,
-  cohereProvider,
-  ollamaProvider,
-  openaiProvider,
-  voyageProvider,
-} from "./providers";
-export interface EmbeddingsConfigLike {
-  provider: string;
-  model: string;
-  dimensions: number;
-  baseUrl?: string;
-  apiKey?: string;
-  /** GH #171: per-request embed timeout (ms). Undefined -> the postJson default. */
-  timeoutMs?: number;
-  /** THE-387: Matryoshka (MRL) truncation of a wider native output to `dimensions`. */
-  truncate?: boolean;
-  /** THE-405: asymmetric instruct prefixes (see config schema docs). Both default empty. */
-  queryPrefix?: string;
-  documentPrefix?: string;
-  /** #237: polyglot model tier — Qwen3 dense (Rust TEI) + BGE-M3 multi-vector (Python service).
-   *  Required when `provider === "model-tier"`. */
-  modelTier?: {
-    dense: { baseUrl: string; model?: string; revision?: string; pooling?: string };
-    full?: {
-      baseUrl: string;
-      model?: string;
-      revision?: string;
-      authToken?: string;
-      dimensions?: number;
-    };
-  };
-}
+import type { EmbeddingProvider, EmbedOptions } from "./provider";
+
+export type { EmbeddingsConfigLike } from "../providers/types";
 
 /** THE-405: prefix seam applied at the factory so EVERY provider shares it — embeds marked
  *  input:"query" get `queryPrefix`, everything else (indexing is the default path) gets
@@ -55,45 +26,65 @@ function withPrefixes(p: EmbeddingProvider, qp: string, dp: string): EmbeddingPr
   if (full) wrapped.embedFull = (texts, o) => full(affix(texts, o), o);
   return wrapped;
 }
+/** THE-460 fix B: a declared revision must change `provider.id`, because that's the identity
+ *  chunk_embeddings.model / vec_chunks.model store AND what note-plan.ts's re-embed gate compares
+ *  (`ex.active_model !== model`) — model/dimensions/provider stay untouched, so this is purely an
+ *  identity relabel, not a different model. Applied at the factory (the same seam withPrefixes
+ *  uses) so no individual adapter needs to know about it. Absent/empty revision -> `p` unchanged. */
+function withRevision(p: EmbeddingProvider, revision: string | undefined): EmbeddingProvider {
+  if (!revision) return p;
+  const wrapped: EmbeddingProvider = {
+    id: `${p.id}@${revision}`,
+    provider: p.provider,
+    model: p.model,
+    dimensions: p.dimensions,
+    embed: (texts, o) => p.embed(texts, o),
+  };
+  const full = p.embedFull?.bind(p);
+  if (full) wrapped.embedFull = (texts, o) => full(texts, o);
+  return wrapped;
+}
+/** Shared by both createEmbeddingProvider (sync) and createEmbeddingProviderAsync (boot-only,
+ *  module hatch) — the revision/prefix wrapping is identical either way, only HOW the raw
+ *  provider was resolved differs. */
+function applyWrappers(
+  resolved: EmbeddingProvider,
+  entry: EmbeddingsEntry,
+  cfg: EmbeddingsConfigLike,
+): EmbeddingProvider {
+  const provider = withRevision(resolved, cfg.revision);
+  // model-tier owns its own asymmetric prefixing and must not be double-wrapped.
+  if (entry.ownsPrefixing) return provider;
+  const qp = cfg.queryPrefix ?? "";
+  const dp = cfg.documentPrefix ?? "";
+  return qp === "" && dp === "" ? provider : withPrefixes(provider, qp, dp);
+}
+
 export function createEmbeddingProvider(
   cfg: EmbeddingsConfigLike,
   opts: { fetchFn?: FetchFn; override?: EmbeddingProvider } = {},
 ): EmbeddingProvider {
   if (opts.override) return opts.override;
-  // The model tier owns its own (asymmetric) prefixing — Qwen Instruct on the dense query, BGE bare —
-  // so it bypasses the shared withPrefixes wrapper below.
-  if (cfg.provider === "model-tier") return buildModelTierProvider(cfg, { fetchFn: opts.fetchFn });
-  const apiKey = resolveApiKey(cfg.provider, cfg.apiKey);
-  const base = {
-    model: cfg.model,
-    dimensions: cfg.dimensions,
-    baseUrl: cfg.baseUrl,
-    apiKey,
+  const { provider: resolved, entry } = resolveEmbeddings(cfg, { fetchFn: opts.fetchFn });
+  return applyWrappers(resolved, entry, cfg);
+}
+
+/** Boot-wiring-only counterpart of createEmbeddingProvider: the only path that can resolve an
+ *  asyncOnly entry (the module hatch). CLI/eval entry points must keep calling the sync
+ *  createEmbeddingProvider above, which refuses `provider: "module"` with an actionable error
+ *  rather than needing to become async themselves. */
+export async function createEmbeddingProviderAsync(
+  cfg: EmbeddingsConfigLike,
+  opts: { override?: EmbeddingProvider } & ResolveContext = {},
+): Promise<EmbeddingProvider> {
+  if (opts.override) return opts.override;
+  const { provider: resolved, entry } = await resolveEmbeddingsAsync(cfg, {
     fetchFn: opts.fetchFn,
-    timeoutMs: cfg.timeoutMs,
-    truncate: cfg.truncate,
-  };
-  const provider = (() => {
-    switch (cfg.provider) {
-      case "ollama":
-        return ollamaProvider(base);
-      case "openai":
-        return openaiProvider(base);
-      case "voyage":
-        return voyageProvider(base);
-      case "cohere":
-        return cohereProvider(base);
-      case "bge-m3":
-        return bgeM3Provider(base);
-      default:
-        throw err.invalidInput(`unknown embeddings provider: ${cfg.provider}`, {
-          provider: cfg.provider,
-        });
-    }
-  })();
-  const qp = cfg.queryPrefix ?? "";
-  const dp = cfg.documentPrefix ?? "";
-  return qp === "" && dp === "" ? provider : withPrefixes(provider, qp, dp);
+    configDir: opts.configDir,
+    securityProfile: opts.securityProfile,
+    embeddings: opts.embeddings,
+  });
+  return applyWrappers(resolved, entry, cfg);
 }
 export { deterministicVector, fakeEmbeddingProvider } from "./fake";
 export type { EmbeddingProvider } from "./provider";

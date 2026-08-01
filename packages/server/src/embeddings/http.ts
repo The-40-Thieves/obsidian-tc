@@ -13,7 +13,7 @@ export interface PostJsonOptions {
 function providerHint(provider: string, url: string): string {
   if (provider === "ollama")
     return `is Ollama running at ${url}? Start it, then pull the embedding model (e.g. \`ollama pull nomic-embed-text\`, or whatever embeddings.model is set to).`;
-  return `check that the ${provider} endpoint (${url}) is reachable and embeddings.api_key is set (or the provider's API-key env var).`;
+  return `check that the ${provider} endpoint (${url}) is reachable and a key is configured — set embeddings.apiKey, or name an environment variable with embeddings.apiKeyEnv.`;
 }
 
 export async function postJson<T>(o: PostJsonOptions): Promise<T> {

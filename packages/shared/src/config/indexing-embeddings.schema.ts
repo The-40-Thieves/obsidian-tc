@@ -9,10 +9,11 @@ import { z } from "zod";
 
 export const EmbeddingsConfigSchema = z.object({
   provider: z
-    .enum(["ollama", "openai", "voyage", "cohere", "bge-m3", "model-tier"])
+    .string()
+    .min(1)
     .default("ollama")
     .describe(
-      "Embeddings backend. `model-tier` splits dense and multi-vector across two services.",
+      "Embeddings backend name, resolved against the provider registry at startup. Built-ins: ollama, openai, voyage, cohere, bge-m3, model-tier (splits dense and multi-vector across two services), the generic openai-compatible, and the profile-gated module. An unregistered name is a startup error listing every valid option.",
     ),
   model: z
     .string()
@@ -37,6 +38,34 @@ export const EmbeddingsConfigSchema = z.object({
     .string()
     .optional()
     .describe("Provider API key. Secret — never logged or returned by a tool."),
+  apiKeyEnv: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Name of the environment variable holding the provider API key. Needed for generic providers, which have no entry in the built-in per-vendor variable map. An inline apiKey takes precedence.",
+    ),
+  modulePath: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Module exporting createEmbeddingProvider, for provider 'module'. Resolved against the config file's directory. Refused under the hardened security profile, and refused on CLI/eval entry points (module providers load only from the server's boot wiring). The factory may be sync or async (an async factory is awaited). It must return an object with a non-empty string id, provider, and model — id is what chunk_embeddings.model and the vec fingerprint identify the provider by, so two module providers sharing (or omitting) id are indistinguishable to the index — a positive integer dimensions, and embed(texts). Validated at load time, before first use.",
+    ),
+  revision: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Model revision / commit / checkpoint id. Folded into vec_index_fingerprint, so declaring it makes a checkpoint upgrade at the SAME model name and width rebuild the index instead of silently serving the old checkpoint's vectors against queries embedded by the new one. Omitting it reproduces today's behaviour exactly.",
+    ),
+  pooling: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Pooling strategy the backend applies (e.g. 'mean', 'last-token'). Recorded for provenance. NOTE: descriptive only today — RepresentationManifest has no production producer, so this does not affect the index.",
+    ),
   // GH #171/#172: local-runner indexing robustness. Local models are far slower than hosted APIs,
   // and a stock local runner (llama-server) crashes on a token-dense batch, so these are
   // configurable with local-safe defaults. `timeoutMs` bounds each embed request (was a hardcoded

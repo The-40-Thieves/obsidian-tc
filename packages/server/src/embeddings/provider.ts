@@ -31,8 +31,23 @@ const ENV_KEY: Record<string, string> = {
   voyage: "VOYAGE_API_KEY",
   cohere: "COHERE_API_KEY",
 };
-export function resolveApiKey(provider: string, configKey?: string): string | undefined {
+/**
+ * Resolve a provider API key. Precedence: inline `apiKey`, then the variable named by `apiKeyEnv`,
+ * then the built-in per-provider variable.
+ *
+ * `apiKeyEnv` exists because ENV_KEY is a closed map of vendor names — a generic endpoint has no
+ * entry in it and therefore had no way to supply a key at all.
+ */
+export function resolveApiKey(
+  provider: string,
+  configKey?: string,
+  apiKeyEnv?: string,
+): string | undefined {
   if (configKey && configKey.length > 0) return configKey;
+  if (apiKeyEnv && apiKeyEnv.length > 0) {
+    const fromNamed = process.env[apiKeyEnv];
+    if (fromNamed && fromNamed.length > 0) return fromNamed;
+  }
   const name = ENV_KEY[provider];
   return name ? process.env[name] : undefined;
 }

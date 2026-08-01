@@ -81,8 +81,16 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       enrichmentVersion: args.chunkContext === true ? ENRICHMENT_VERSION : 0,
       chunkerVersion: CHUNKER_VERSION,
       schemaGen: VEC_SCHEMA_GEN,
+      // Must match runtime/indexing-wiring.ts exactly. If these diverge, boot and index_vault each
+      // DROP and rebuild the table the other just built — an unbounded rebuild loop.
+      revision: args.revision,
     },
-    { now, onRebuild: args.onVecRebuild },
+    {
+      now,
+      onRebuild: args.onVecRebuild,
+      // Fix A: the backfill must match what chunk_embeddings.model actually stores.
+      activeModel: args.provider.id,
+    },
   );
   // THE-291: notes metadata + FTS ride the reconcile. The UNFILTERED walk backs the stale-path
   // sweep (ACL-invisible-but-present files must never be deindexed); the readable subset drives
