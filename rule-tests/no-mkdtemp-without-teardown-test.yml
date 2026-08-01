@@ -1,0 +1,55 @@
+id: no-mkdtemp-without-teardown
+valid:
+  # The shape THE-685 landed on: one tracked helper, removed best-effort in afterEach.
+  - |
+    const tmpDirs: string[] = [];
+    const tmpDir = (prefix: string): string => {
+      const d = mkdtempSync(join(tmpdir(), prefix));
+      tmpDirs.push(d);
+      return d;
+    };
+    afterEach(() => {
+      for (const d of tmpDirs.splice(0)) {
+        try {
+          rmTemp(d);
+        } catch {}
+      }
+    });
+    it("works", () => {
+      const root = tmpDir("otc-x-");
+    });
+  # afterAll is equally acceptable — some suites own the dir for the whole file.
+  - |
+    const dir = mkdtempSync(join(tmpdir(), "otc-y-"));
+    afterAll(() => {
+      rmTemp(dir);
+    });
+  # Inline removal is not this gate's business. It is more fragile than a hook (a throw above the
+  # rmSync skips it) but it does NOT leak, and flagging it made an earlier draft 88% false-positive.
+  - |
+    it("round-trips", () => {
+      const dir = mkdtempSync(join(tmpdir(), "otc-z-"));
+      try {
+        expect(readdirSync(dir)).toEqual([]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  # A file that never mkdtemps is not this rule's business, teardown or not.
+  - |
+    it("reads a fixture", () => {
+      const body = readFileSync(join(__dirname, "fixture.md"), "utf8");
+    });
+invalid:
+  # The exact THE-685 shape: mkdtemp, no teardown hook anywhere in the file.
+  - |
+    it("installs the plugin", () => {
+      const src = mkdtempSync(join(tmpdir(), "otc-plugin-src-"));
+      const vault = mkdtempSync(join(tmpdir(), "otc-vault-"));
+    });
+  # Same via the namespaced call.
+  - |
+    const dir = fs.mkdtempSync(join(tmpdir(), "otc-res-"));
+    it("serves a resource", () => {
+      expect(dir).toBeTruthy();
+    });
