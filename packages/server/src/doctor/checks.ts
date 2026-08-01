@@ -52,7 +52,7 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
       } else if (view.rerankerConfigured) {
         // A provider name no longer implies a capability set, so this is reported as CONFIGURED
         // rather than inferred from denseProvider — a generic provider may still be multi-vector.
-        details.reranker = `reranker configured: ${view.rerankerConfigured}; reranking depends on the inference gateway`; // MUTATION (b)
+        details.reranker = `reranker configured: ${view.rerankerConfigured} (multi-vector capability could not be determined from the '${view.denseProvider}' provider name)`;
         notes.push(
           `reranker configured (${view.rerankerConfigured}); multi-vector capability could not be determined from the '${view.denseProvider}' provider name`,
         );
