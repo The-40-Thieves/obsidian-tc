@@ -1,0 +1,38 @@
+id: no-mkdtemp-without-teardown
+snapshots:
+  ? |
+    const dir = fs.mkdtempSync(join(tmpdir(), "otc-res-"));
+    it("serves a resource", () => {
+      expect(dir).toBeTruthy();
+    });
+  : labels:
+    - source: fs.mkdtempSync(join(tmpdir(), "otc-res-"))
+      style: primary
+      start: 12
+      end: 54
+    - source: |
+        const dir = fs.mkdtempSync(join(tmpdir(), "otc-res-"));
+        it("serves a resource", () => {
+          expect(dir).toBeTruthy();
+        });
+      style: secondary
+      start: 0
+      end: 120
+  ? |
+    it("installs the plugin", () => {
+      const src = mkdtempSync(join(tmpdir(), "otc-plugin-src-"));
+      const vault = mkdtempSync(join(tmpdir(), "otc-vault-"));
+    });
+  : labels:
+    - source: mkdtempSync(join(tmpdir(), "otc-plugin-src-"))
+      style: primary
+      start: 48
+      end: 94
+    - source: |
+        it("installs the plugin", () => {
+          const src = mkdtempSync(join(tmpdir(), "otc-plugin-src-"));
+          const vault = mkdtempSync(join(tmpdir(), "otc-vault-"));
+        });
+      style: secondary
+      start: 0
+      end: 159

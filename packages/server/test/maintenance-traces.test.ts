@@ -4,16 +4,41 @@
 import { mkdirSync, mkdtempSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { sweepTraceFiles } from "../src/db/maintenance";
 import { appendTrace, resolveTraceDirs, traceRelPath } from "../src/workspace/sessions";
+
+import { rmTemp } from "./tmp";
+
+// THE-685: every mkdtempSync here was previously never removed — measured leaking on Linux and
+// accumulating unbounded in %TEMP% on Windows, which never reaps it. Route them through one tracked
+// helper and remove best-effort in afterEach: a cleanup that THROWS would fail the suite in
+// teardown with every assertion passing, the exact shape PR #627 exists to remove.
+const tmpDirs: string[] = [];
+const tmpDir = (prefix: string): string => {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  tmpDirs.push(d);
+  return d;
+};
+// afterAll, not afterEach: a fixture created at DESCRIBE scope (maintenance-traces does this) is
+// built once for the whole block, and an afterEach would delete it out from under the second test
+// in that block. afterAll is correct whatever the scope; the dirs simply live until the file ends.
+afterAll(() => {
+  for (const d of tmpDirs.splice(0)) {
+    try {
+      rmTemp(d);
+    } catch {
+      // Best-effort: a leaked dir is cheaper than a teardown failure.
+    }
+  }
+});
 
 const DAY = 86_400_000;
 const NOW = 1_800_000_000_000;
 
 /** A trace dir with files aged in days-before-NOW. */
 function makeDir(files: Record<string, number>): string {
-  const dir = mkdtempSync(join(tmpdir(), "tc-traces-"));
+  const dir = tmpDir("tc-traces-");
   for (const [name, ageDays] of Object.entries(files)) {
     const p = join(dir, name);
     writeFileSync(p, '{"ts":1}\n', "utf8");
@@ -62,7 +87,7 @@ describe("sweepTraceFiles (THE-610)", () => {
   });
 
   it("a vault that has never started a session is a no-op, not an error", () => {
-    const dir = join(mkdtempSync(join(tmpdir(), "tc-traces-")), "never-created");
+    const dir = join(tmpDir("tc-traces-"), "never-created");
     expect(sweepTraceFiles([{ vaultId: "v1", dir }], { now: NOW, tracesDays: 30 })).toBe(0);
   });
 
@@ -96,7 +121,7 @@ describe("sweepTraceFiles (THE-610)", () => {
 // of this feature found it used a bare `path.join`, which is not a containment check —
 // join("/v", "../../tmp/evil") === "/tmp/evil". These tests pin the fix.
 describe("resolveTraceDirs containment (THE-610)", () => {
-  const root = mkdtempSync(join(tmpdir(), "tc-vault-"));
+  const root = tmpDir("tc-vault-");
 
   it("resolves a normal folder under the vault", () => {
     const [d] = resolveTraceDirs([{ id: "v1", path: root }], ".obsidian-tc/traces");

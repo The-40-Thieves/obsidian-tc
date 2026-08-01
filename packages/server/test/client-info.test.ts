@@ -8,12 +8,37 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { CLIENT_INFO_META_KEY, extractClientInfo } from "../src/mcp/client-info";
 import { getSession, insertSession } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
+
+import { rmTemp } from "./tmp";
+
+// THE-685: every mkdtempSync here was previously never removed — measured leaking on Linux and
+// accumulating unbounded in %TEMP% on Windows, which never reaps it. Route them through one tracked
+// helper and remove best-effort in afterEach: a cleanup that THROWS would fail the suite in
+// teardown with every assertion passing, the exact shape PR #627 exists to remove.
+const tmpDirs: string[] = [];
+const tmpDir = (prefix: string): string => {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  tmpDirs.push(d);
+  return d;
+};
+// afterAll, not afterEach: a fixture created at DESCRIBE scope (maintenance-traces does this) is
+// built once for the whole block, and an afterEach would delete it out from under the second test
+// in that block. afterAll is correct whatever the scope; the dirs simply live until the file ends.
+afterAll(() => {
+  for (const d of tmpDirs.splice(0)) {
+    try {
+      rmTemp(d);
+    } catch {
+      // Best-effort: a leaked dir is cheaper than a teardown failure.
+    }
+  }
+});
 
 const meta = (info: unknown) => ({ [CLIENT_INFO_META_KEY]: info });
 
@@ -77,7 +102,7 @@ describe("session row round-trip (THE-627)", () => {
     vaultId: "v1",
     caller: "c",
     startedAt: 1_000,
-    tracePath: join(mkdtempSync(join(tmpdir(), "tc-sess-")), "s1.jsonl"),
+    tracePath: join(tmpDir("tc-sess-"), "s1.jsonl"),
   };
 
   it("stores the client identity when the request carried one", () => {

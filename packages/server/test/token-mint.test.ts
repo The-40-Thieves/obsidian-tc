@@ -12,8 +12,33 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { jwtVerify } from "jose";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { planMint, readAuthBlock, type TokenMintCmd } from "../src/cli/commands/token-mint";
+
+import { rmTemp } from "./tmp";
+
+// THE-685: every mkdtempSync here was previously never removed — measured leaking on Linux and
+// accumulating unbounded in %TEMP% on Windows, which never reaps it. Route them through one tracked
+// helper and remove best-effort in afterEach: a cleanup that THROWS would fail the suite in
+// teardown with every assertion passing, the exact shape PR #627 exists to remove.
+const tmpDirs: string[] = [];
+const tmpDir = (prefix: string): string => {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  tmpDirs.push(d);
+  return d;
+};
+// afterAll, not afterEach: a fixture created at DESCRIBE scope (maintenance-traces does this) is
+// built once for the whole block, and an afterEach would delete it out from under the second test
+// in that block. afterAll is correct whatever the scope; the dirs simply live until the file ends.
+afterAll(() => {
+  for (const d of tmpDirs.splice(0)) {
+    try {
+      rmTemp(d);
+    } catch {
+      // Best-effort: a leaked dir is cheaper than a teardown failure.
+    }
+  }
+});
 
 const NOW = 1_800_000_000;
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
@@ -114,7 +139,7 @@ describe("planMint — what it produces", () => {
 
 describe("readAuthBlock", () => {
   const write = (body: string): string => {
-    const dir = mkdtempSync(join(tmpdir(), "tc-mint-"));
+    const dir = tmpDir("tc-mint-");
     const p = join(dir, "config.json");
     writeFileSync(p, body, "utf8");
     return p;
@@ -149,7 +174,7 @@ describe("readAuthBlock — OBSIDIAN_TC_JWT_SECRET overlay (THE-658 mint-on-env-
   // it off disk" — previously could not mint at all, because readAuthBlock read the raw file and
   // skipped applyEnvOverlays, the only thing that injects the env secret into auth.jwtSecret.
   const write = (body: string): string => {
-    const dir = mkdtempSync(join(tmpdir(), "tc-mint-env-"));
+    const dir = tmpDir("tc-mint-env-");
     const p = join(dir, "config.json");
     writeFileSync(p, body, "utf8");
     return p;
