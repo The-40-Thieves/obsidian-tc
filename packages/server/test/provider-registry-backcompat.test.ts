@@ -67,6 +67,7 @@ describe("provider registry back-compat", () => {
       "bge-m3",
       "cohere",
       "model-tier",
+      "module",
       "ollama",
       "openai",
       "openai-compatible",

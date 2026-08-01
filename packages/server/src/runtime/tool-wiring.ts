@@ -133,6 +133,9 @@ export interface GatewaySeams {
 export async function wireGatewaySeams(
   embeddings: ServerConfig["embeddings"],
   rerankerCfg?: ServerConfig["reranker"],
+  /** Trust root for reranker.modulePath (the module hatch) — see providers/module-loader.ts. */
+  configDir?: string,
+  securityProfile?: "hardened" | "trusted-local",
 ): Promise<GatewaySeams> {
   let gateway: GatewayClient | null = null;
   try {
@@ -149,7 +152,7 @@ export async function wireGatewaySeams(
   // passthrough. Dark until a rerank stage is enabled in graphSearch. A declared `reranker` block
   // wins over that default entirely — ABSENT preserves the historical precedence exactly.
   const reranker: Reranker | null = rerankerCfg
-    ? await resolveReranker(rerankerCfg, { embeddings })
+    ? await resolveReranker(rerankerCfg, { embeddings, configDir, securityProfile })
     : (buildModelTierReranker(embeddings) ?? gatewayReranker);
   // W-WORKERS generative seam -> gateway extract/synthesize/judge roles (null -> jobs/challenge
   // no-op).

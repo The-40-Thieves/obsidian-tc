@@ -19,7 +19,7 @@ export const RerankerConfigSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Rerank model name as the provider names it. Required by cohere-compatible (refused at boot if absent). Ignored — and refused at boot if set — by model-tier, which sources its model from embeddings.modelTier.full.model.",
+      'Rerank model name as the provider names it. Required by cohere-compatible (refused at boot if absent). Ignored — and refused at boot if set — by model-tier, which sources its model from embeddings.modelTier.full.model. Optional for gateway: omitting it silently falls back to the model literal "rerank".',
     ),
   // z.url(), not z.string().url() — the latter is deprecated in Zod 4.
   baseUrl: z

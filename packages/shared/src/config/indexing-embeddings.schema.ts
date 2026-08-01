@@ -45,6 +45,13 @@ export const EmbeddingsConfigSchema = z.object({
     .describe(
       "Name of the environment variable holding the provider API key. Needed for generic providers, which have no entry in the built-in per-vendor variable map. An inline apiKey takes precedence.",
     ),
+  modulePath: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Module exporting createEmbeddingProvider, for provider 'module'. Resolved against the config file's directory. Refused under the hardened security profile, and refused on CLI/eval entry points (module providers load only from the server's boot wiring).",
+    ),
   revision: z
     .string()
     .min(1)

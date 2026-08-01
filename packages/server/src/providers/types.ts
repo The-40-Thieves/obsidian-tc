@@ -15,6 +15,8 @@ export interface EmbeddingsConfigLike {
   /** Name of the env var holding the provider API key — see resolveApiKey (embeddings/provider.ts).
    *  Needed for generic providers, which have no entry in the built-in per-vendor ENV_KEY map. */
   apiKeyEnv?: string;
+  /** Module exporting createEmbeddingProvider, for provider "module". See providers/module-loader.ts. */
+  modulePath?: string;
   /** THE-460: model revision / commit / checkpoint id, folded into vec_index_fingerprint. Declaring
    *  it makes a checkpoint upgrade at the SAME model name and width rebuild the index instead of
    *  silently serving the old checkpoint's vectors against queries embedded by the new one.

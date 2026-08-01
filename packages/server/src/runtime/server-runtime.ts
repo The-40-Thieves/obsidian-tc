@@ -25,6 +25,8 @@
 // the same fix applied a second time: an optional param this call folds into its own unwind, sitting
 // between `stores` and `governance` (its real open position), so a throw in governance or index
 // resources closes it too — never built inside `wireRuntimeCore` itself.
+
+import { dirname } from "node:path";
 import type { Tracer } from "@opentelemetry/api";
 import type { ServerConfig, VaultConfigInput } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../../package.json";
@@ -149,6 +151,10 @@ export interface RuntimeCoreDeps {
     chunkContext: boolean;
   };
   onVecRebuild: (event: VecRebuildEvent) => void;
+  /** Directory of the loaded config file — the trust root for embeddings.modulePath (the module
+   *  hatch). Undefined when the config was derived from a vault path rather than a file. */
+  configDir?: string;
+  securityProfile?: "hardened" | "trusted-local";
   /** Test-only observability: fires with each layer's name, in the order its cleanup actually ran.
    *  Only invoked when a later step throws during construction — never on the happy path, and never
    *  by production callers, which omit it. */
@@ -201,11 +207,13 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
     });
     built.push({ name: "governance", close: governance.close });
 
-    const indexResources = wireIndexResources({
+    const indexResources = await wireIndexResources({
       db: deps.stores.db,
       metrics: deps.metrics,
       embeddings: deps.embeddings,
       onVecRebuild: deps.onVecRebuild,
+      configDir: deps.configDir,
+      securityProfile: deps.securityProfile,
     });
     indexHealthRef = indexResources.indexHealth;
     built.push({ name: "indexResources", close: () => {} });
@@ -248,6 +256,11 @@ export async function buildServerRuntime(
 ): Promise<ServerRuntime> {
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults must contain at least one vault");
+  // Trust root for a `module` provider's modulePath (embeddings.modulePath / reranker.modulePath)
+  // — cwd in a container is arbitrary, so a relative modulePath is resolved against the config
+  // FILE's directory instead, and refused entirely when there is no config file (see
+  // module-loader.ts).
+  const configDir = configPath !== undefined ? dirname(configPath) : undefined;
   const startedAt = Date.now();
 
   const stores = await wireStores({
@@ -317,6 +330,8 @@ export async function buildServerRuntime(
     onCleanup,
     embeddings: config.embeddings,
     onVecRebuild: observability.onVecRebuild,
+    configDir,
+    securityProfile: config.securityProfile,
   });
   const { acl, aclByVault, vaultRegistry, activeSessions, rateLimiter, registry } = governance;
   const {
@@ -376,7 +391,12 @@ export async function buildServerRuntime(
       getJobQueueStats: () => jobQueue.stats(),
     });
 
-    const { reranker, roles } = await wireGatewaySeams(config.embeddings, config.reranker);
+    const { reranker, roles } = await wireGatewaySeams(
+      config.embeddings,
+      config.reranker,
+      configDir,
+      config.securityProfile,
+    );
 
     // W-INGEST onIndexed hook -> contradiction-check enqueue.
     const makeOnIndexed = createOnIndexedHook({ jobQueue, roles });
