@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -11,6 +11,31 @@ import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { openMemoryDb } from "./helpers";
+
+import { rmTemp } from "./tmp";
+
+// THE-685: every mkdtempSync here was previously never removed — measured leaking on Linux and
+// accumulating unbounded in %TEMP% on Windows, which never reaps it. Route them through one tracked
+// helper and remove best-effort in afterEach: a cleanup that THROWS would fail the suite in
+// teardown with every assertion passing, the exact shape PR #627 exists to remove.
+const tmpDirs: string[] = [];
+const tmpDir = (prefix: string): string => {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  tmpDirs.push(d);
+  return d;
+};
+// afterAll, not afterEach: a fixture created at DESCRIBE scope (maintenance-traces does this) is
+// built once for the whole block, and an afterEach would delete it out from under the second test
+// in that block. afterAll is correct whatever the scope; the dirs simply live until the file ends.
+afterAll(() => {
+  for (const d of tmpDirs.splice(0)) {
+    try {
+      rmTemp(d);
+    } catch {
+      // Best-effort: a leaked dir is cheaper than a teardown failure.
+    }
+  }
+});
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -53,7 +78,7 @@ describe("dispatch guards", () => {
 
   it("P1.4: central stage denies a path whose rule-scope the caller lacks; allows when held", async () => {
     const db = freshDb();
-    const root = mkdtempSync(join(tmpdir(), "acl-scope-"));
+    const root = tmpDir("acl-scope-");
     mkdirSync(join(root, "finance"), { recursive: true });
     writeFileSync(join(root, "finance", "q1.md"), "secret");
 

@@ -23,7 +23,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ObsidianTcError, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
 import { forgetEpisodeAudited, forgetNoteAudited } from "../src/cli/commands/forget";
@@ -39,6 +39,31 @@ import { registerM8Tools } from "../src/tools/m8";
 import { startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+
+import { rmTemp } from "./tmp";
+
+// THE-685: every mkdtempSync here was previously never removed — measured leaking on Linux and
+// accumulating unbounded in %TEMP% on Windows, which never reaps it. Route them through one tracked
+// helper and remove best-effort in afterEach: a cleanup that THROWS would fail the suite in
+// teardown with every assertion passing, the exact shape PR #627 exists to remove.
+const tmpDirs: string[] = [];
+const tmpDir = (prefix: string): string => {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  tmpDirs.push(d);
+  return d;
+};
+// afterAll, not afterEach: a fixture created at DESCRIBE scope (maintenance-traces does this) is
+// built once for the whole block, and an afterEach would delete it out from under the second test
+// in that block. afterAll is correct whatever the scope; the dirs simply live until the file ends.
+afterAll(() => {
+  for (const d of tmpDirs.splice(0)) {
+    try {
+      rmTemp(d);
+    } catch {
+      // Best-effort: a leaked dir is cheaper than a teardown failure.
+    }
+  }
+});
 
 const NOW = 1_700_000_000_000;
 
@@ -339,7 +364,7 @@ describe("THE-514 item 2 — vault-binding: documented divergence, asserted as s
 // ---------------------------------------------------------------------------------------------
 
 function tempVaultRegistry(): VaultRegistry {
-  const dir = mkdtempSync(join(tmpdir(), "otc-parity-scope-"));
+  const dir = tmpDir("otc-parity-scope-");
   writeFileSync(join(dir, "alpha.md"), "hello");
   return new VaultRegistry(
     ServerConfigSchema.parse({ vaults: [{ id: "main", path: dir }] }).vaults,
@@ -431,7 +456,7 @@ describe("THE-514 item 2 — the same lowered maxResponseBytes refuses an oversi
   });
 
   it("the SAME registry's configured ceiling refuses an oversized resource read", () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-parity-ceiling-"));
+    const dir = tmpDir("otc-parity-ceiling-");
     writeFileSync(join(dir, "big.md"), "x".repeat(100));
     const vaultRegistry = new VaultRegistry(
       ServerConfigSchema.parse({ vaults: [{ id: "main", path: dir }] }).vaults,

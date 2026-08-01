@@ -1,0 +1,47 @@
+id: no-mkdtemp-without-teardown
+language: typescript
+severity: error
+message: This test file creates a temp dir with mkdtempSync and never removes it anywhere in the file.
+note: >-
+  A suite that mkdtemps and never cleans up leaks one directory per call, per run, forever. It is
+  silent on POSIX because the OS reaps /tmp, and silent in CI because the runner is discarded — so
+  it only surfaces on Windows, where %TEMP% is never reaped. THE-685 measured 7,655 accumulated
+  directories from three suites in exactly this shape (5, 7 and 4 call sites with zero teardown
+  between them), and +28 per run on Linux once someone looked.
+
+  PR #627's sweep could not catch these: it rewrote the EXISTING teardown call sites, a set derived
+  from suites that already had teardown, so a suite that never cleaned up at all was invisible to
+  it. This rule closes that blind spot at the source instead.
+
+  Fix: route every mkdtempSync through one tracked helper and remove them in afterEach via
+  test/tmp.ts's rmTemp, which retries the Windows file-lock errors. Keep the removal BEST-EFFORT
+  (wrap in try/catch) — a cleanup that throws fails the suite in teardown with every assertion
+  passing, which is the failure shape #627 exists to remove.
+files:
+  - packages/server/test/**/*.test.ts
+  - packages/server/bun-smoke/**/*.test.ts
+rule:
+  all:
+    - any:
+        - pattern: mkdtempSync($$$ARGS)
+        - pattern: fs.mkdtempSync($$$ARGS)
+    # Deliberately keyed on "removes it NOWHERE", not "has no afterEach". An earlier draft of this
+    # rule required an afterEach/afterAll hook and was ~88% false-positive: 36 of the 41 files it
+    # flagged DO remove their temp dirs, just inline in the test body rather than via a hook. It
+    # passed its own unit tests and was still wrong about the property. Flag only the provable
+    # leak — no removal call anywhere in the file — so every hit is actionable.
+    #
+    # This does not endorse inline removal: a bare `rmSync` at the end of an `it` is skipped when an
+    # assertion throws above it, so a hook or a `finally` is still better. That is a review comment,
+    # not an error-level gate.
+    - inside:
+        stopBy: end
+        all:
+          - kind: program
+          - not:
+              has:
+                stopBy: end
+                any:
+                  - pattern: rmSync($$$RM)
+                  - pattern: fs.rmSync($$$RM)
+                  - pattern: rmTemp($$$RM)
