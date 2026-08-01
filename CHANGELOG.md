@@ -25,7 +25,41 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (`GapBatchSearchFn`); `singleQuerySearch` adapts a plain per-query function back to that shape
   for simple callers.
 
+- **Pluggable embedding and rerank provider slots (THE-677 and the provider-slots branch).** The
+  hardcoded `switch` over embedding provider names is now a per-slot registry: `embeddings.provider`
+  and `reranker.provider` resolve against it at boot, and an unknown name is a startup error that
+  lists every name registered for *that* slot. Eight embedding entries ship (`ollama`, `openai`,
+  `voyage`, `cohere`, `bge-m3`, `model-tier`, `openai-compatible`, `module`) and four reranker
+  entries (`cohere-compatible`, `model-tier`, `gateway`, `module`).
+
+  `openai-compatible` and `cohere-compatible` are the generic "any web address" adapters — point
+  them at LiteLLM, vLLM, Infinity, Jina, Voyage or TogetherAI without a code change. New alongside
+  them: `embeddings.apiKeyEnv` / `reranker.apiKeyEnv` (name the environment variable holding the
+  key, for generic providers that have no entry in the built-in per-vendor variable map), and
+  `embeddings.revision` (a model checkpoint id folded into `vec_index_fingerprint` and
+  `provider.id`, so a checkpoint bump at the same model name and width rebuilds the index instead of
+  silently serving the old checkpoint's vectors — it applies to `model-tier` too).
+
+  Existing configs need no migration; the six previously-supported names resolve to byte-identical
+  provider ids. The one deliberate exception is the `baseUrl` guard below.
+
 ### Changed
+
+- **A `baseUrl` that already contains the path its provider appends is now refused at boot
+  (THE-684).** `"baseUrl": "https://api.openai.com/v1/embeddings"` for provider `openai` previously
+  *built* and then 404'd on the first embed, because the request went to `/v1/embeddings/embeddings`.
+  It now throws at startup, naming the duplicated segment and what to set instead.
+
+  The adapters genuinely disagree about what `baseUrl` means — `openai`/`voyage` append
+  `/embeddings` to a base carrying `/v1`, `cohere` appends `/embed`, `ollama` appends `/api/embed` —
+  and for a slot whose whole purpose is dropping in an arbitrary endpoint, that ambiguity is the
+  likeliest first-run failure. The guard refuses loudly rather than stripping the segment silently,
+  which would conceal that the operator is on the wrong convention.
+
+  **Effect on upgrade:** this is the sole exception to the "no config migration" line above, and it
+  is narrow by construction — the guard can only fire on a config that was *already* producing a
+  doubled path, and therefore already failing at runtime. `model-tier` and `module` declare no
+  appended path (neither consumes the descriptor's `baseUrl`) and are exempt.
 
 - **`snapshots.enabled` now defaults to `true` (THE-648).** `trusted-local`'s permissive posture was
   meant to guard against untrusted *callers* — THE-603 showed the real gap was our own write path

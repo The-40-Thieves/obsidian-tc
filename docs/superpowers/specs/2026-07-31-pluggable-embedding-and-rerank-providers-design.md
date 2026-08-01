@@ -87,17 +87,29 @@ config.reranker.provider  ──┘         │
 
 **The registry is per-slot.** One module, two maps — an embeddings map and a reranker map — sharing
 one `resolve()` and one set of error semantics. A name is only meaningful within its slot, so an
-unknown-name error lists the names registered for *that* slot, and `tei` can appear in both maps
-with a different factory in each (TEI serves embeddings and rerank on separate endpoints).
+unknown-name error lists the names registered for *that* slot, so one name could appear in both maps
+with a different factory in each.
 
 | slot | entries | role |
 |---|---|---|
 | embeddings | `ollama`, `openai`, `voyage`, `cohere`, `bge-m3`, `model-tier` | today's six, moved from the `switch` verbatim — behaviour unchanged |
-| embeddings | `openai-compatible`, `tei` | the generic "any web address" embedders |
+| embeddings | `openai-compatible` | the generic "any web address" embedder |
 | embeddings | `module` | reads `modulePath`, profile-gated |
 | reranker | `model-tier`, `gateway` | the two sources hardcoded at `tool-wiring.ts:146` today, now nameable |
-| reranker | `cohere-compatible`, `tei` | the generic "any web address" rerankers |
+| reranker | `cohere-compatible` | the generic "any web address" reranker |
 | reranker | `module` | reads `modulePath`, profile-gated |
+
+That is 8 embeddings entries and 4 reranker entries as shipped — `embeddingsProviderNames()` and
+`rerankerProviderNames()` are the authority, and both are asserted exactly in
+`test/provider-registry-backcompat.test.ts`.
+
+> **`tei` was DEFERRED, not shipped (THE-682).** Earlier drafts of this spec listed a `tei` entry in
+> both slots. No such entry exists in `providers/registry.ts` and no `.describe()` mentions one.
+> TEI is already reachable through `model-tier`, so a standalone entry enables nothing new while
+> adding a *third* `baseUrl` convention to document (it appends `/v1/embeddings` to a bare root,
+> unlike the OpenAI-style adapters that append `/embeddings` to a versioned base) — which is exactly
+> the ambiguity the duplicate-segment guard below exists to contain. The deferral was recorded in
+> the plan's "Known deferrals"; this spec is corrected to match.
 
 A registry entry receives a validated descriptor and returns an `EmbeddingProvider` or a
 `Reranker`. It never receives the whole `ServerConfig`, so an adapter cannot reach into unrelated
@@ -224,8 +236,11 @@ contract:
   `gateway/client.ts:236` already speaks. LiteLLM follows the Cohere rerank format for *all* rerank
   providers, and Jina, Voyage, TogetherAI and Infinity all speak it — which is why this one shape
   is enough.
-- **`tei`** — the existing `model/tei.ts` client, exposed under its own registry name. Note it
-  appends `/v1/embeddings` to a bare root, *not* `/embeddings` to a versioned base.
+- **`tei`** — *deferred, not registered (THE-682).* Would have exposed the existing `model/tei.ts`
+  client under its own registry name. It appends `/v1/embeddings` to a bare root, *not*
+  `/embeddings` to a versioned base — a third `baseUrl` convention for no new capability, since TEI
+  already serves the dense half of `model-tier`. Reconsider only if TEI is wanted *without* the
+  model-tier pairing.
 
 **Cohere rerank is versioned and the dialects differ.** V2 replaced `max_chunks_per_doc` with
 `max_tokens_per_doc` (token-based, default 4096). Since the adapter appends only `/rerank`, the
@@ -396,7 +411,8 @@ watched failing before it is trusted.
    back-compat property 1 before anything else changes.
 2. Open `EmbeddingsConfigSchema.provider` to `z.string()`; wire the boot-time unknown-name throw
    with the full name listing.
-3. Add the generic adapters (`openai-compatible`, `cohere-compatible`, `tei`) and `apiKeyEnv`.
+3. Add the generic adapters (`openai-compatible`, `cohere-compatible`) and `apiKeyEnv`. (`tei` was
+   deferred — see above.)
    Land the wire-body invariant tests **with** the adapters, not after — they are the only thing
    standing between "works against my gateway" and "works against any endpoint". Declare each
    entry's appended path and enforce the duplicate-segment refusal here too.
