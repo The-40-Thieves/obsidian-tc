@@ -15,7 +15,17 @@ import { rmTemp } from "./tmp";
 const tmpDirs: string[] = [];
 
 afterEach(() => {
-  for (const d of tmpDirs.splice(0)) rmTemp(d);
+  for (const d of tmpDirs.splice(0)) {
+    try {
+      rmTemp(d);
+    } catch {
+      // Best-effort, and deliberately so: `rmTemp`'s retry outlasts a handle released moments
+      // later, but NOT one the ESM loader holds for the process lifetime. Letting this throw would
+      // fail the suite in TEARDOWN with every assertion passing — the exact shape this PR exists to
+      // remove. A leaked temp dir is the cheaper failure. Same posture as
+      // provider-module-threading.test.ts and scheduler.ts's cleanupReadOnlyDb.
+    }
+  }
 });
 
 function fixture(contents: string): { dir: string; file: string } {
