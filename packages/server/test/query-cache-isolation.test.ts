@@ -23,6 +23,7 @@ import {
   createRetrievalCaches,
   type QueryCacheBinding,
 } from "../src/search/query_cache";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
 
 const DIMS = 32;
@@ -65,6 +66,7 @@ async function setup() {
   await indexVault({
     db: v.db,
     provider: provider(),
+    representation: buildRepresentationManifest(provider(), {}),
     vaultId: v.id,
     root: v.root,
     isReadable: () => true,

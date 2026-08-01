@@ -31,8 +31,11 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // THE-678: rebaselined deliberately. The only emitted change is the description text on
 // embeddings.modelTier.dense.revision and .full.revision, which now state they are provenance-only
 // and point at the top-level embeddings.revision. No key, type, default or constraint moved.
+// THE-683: rebaselined deliberately. The only emitted change is embeddings.pooling's description,
+// which no longer says the key "does not affect the index" — it now does. No key, type, default or
+// constraint moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "a876f7f686df180180dea9ff2d1a85f86f65c02e732ee6e9dca569ee13f26cda";
+  "63e31c41390f202ccc1a327156cd014c82b11111172ba1362921efbda61fe6f7";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

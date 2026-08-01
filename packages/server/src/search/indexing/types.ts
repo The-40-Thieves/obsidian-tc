@@ -6,6 +6,7 @@ import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { chunkNote } from "../chunk";
 import type { ColbertMatrix } from "../colbert";
+import type { RepresentationManifest } from "../representation";
 import type { SparseVec } from "../sparse";
 import type { VecRebuildEvent } from "../vec";
 
@@ -143,8 +144,14 @@ export interface IndexVaultArgs {
    *  every index path (boot reconcile, index_vault tool, index-on-write): the chunk content hash
    *  covers the enriched text, so mixed values would re-embed the same chunks back and forth. */
   chunkContext?: boolean;
-  /** Model revision folded into the vec fingerprint. MUST match runtime/indexing-wiring.ts. */
-  revision?: string;
+  /** THE-683: the representation identity of the index this pass writes into, built ONCE by the
+   *  caller with `buildRepresentationManifest`. Required, and deliberately not defaulted: this used
+   *  to be re-derived here from loose fields (`chunkContext`, `revision`) that had to match
+   *  runtime/indexing-wiring.ts exactly, and a mismatch means boot and index_vault each DROP and
+   *  rebuild the table the other just built — an unbounded rebuild loop. Passing the built manifest
+   *  makes that divergence unrepresentable. Note `chunkContext` above stays: the chunker consumes it
+   *  for text enrichment, which is a separate consumer from the fingerprint. */
+  representation: RepresentationManifest;
   /** Graph densification (docs/plans/2026-07-13-graph-densification.md): build derived edges during
    *  index_vault. tagEdges = shared-frontmatter-tag co-occurrence; knnEdges = vec0 kNN neighbors.
    *  Off unless threaded from config.retrieval.densify. Full-state per kind (toggling off prunes). */

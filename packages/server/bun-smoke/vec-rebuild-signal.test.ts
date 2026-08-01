@@ -12,10 +12,8 @@ import { expect, test } from "bun:test";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import {
-  CHUNKER_VERSION,
-  VEC_DISTANCE_METRIC,
-  VEC_SCHEMA_GEN,
-  type VecFingerprint,
+  buildRepresentationManifest,
+  type RepresentationManifest,
 } from "../src/search/representation";
 import { ensureVecChunks, floatBlob, loadVec, type VecRebuildEvent } from "../src/search/vec";
 
@@ -26,15 +24,12 @@ const PROVIDER = "fake";
  *  stores (THE-460 fix A, review round 1). Distinct from `fp.model`, the bare name. */
 const activeModelId = (model: string): string => `${PROVIDER}:${model}`;
 
-function fp(overrides: Partial<VecFingerprint> = {}): VecFingerprint {
+// THE-683: ensureVecChunks now takes the full RepresentationManifest. Built by the production
+// producer rather than hand-listed, so a new manifest field cannot leave this fixture stale — the
+// override spread keeps every existing call site (fp({ model: ... }) etc.) working unchanged.
+function fp(overrides: Partial<RepresentationManifest> = {}): RepresentationManifest {
   return {
-    provider: PROVIDER,
-    model: "model-a",
-    dimensions: DIMS,
-    distanceMetric: VEC_DISTANCE_METRIC,
-    enrichmentVersion: 0,
-    chunkerVersion: CHUNKER_VERSION,
-    schemaGen: VEC_SCHEMA_GEN,
+    ...buildRepresentationManifest({ provider: PROVIDER, model: "model-a", dimensions: DIMS }, {}),
     ...overrides,
   };
 }

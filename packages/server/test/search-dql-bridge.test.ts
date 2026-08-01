@@ -18,6 +18,7 @@ import {
 import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { ToolRegistry } from "../src/mcp/registry";
+import { buildRepresentationManifest } from "../src/search/representation";
 import type { M2Deps } from "../src/tools/m2";
 import { buildSearchTools } from "../src/tools/m2/search-tools";
 import { VaultRegistry } from "../src/vault/registry";
@@ -62,6 +63,7 @@ function makeRig(opts: {
   for (const tool of buildSearchTools({
     vaultRegistry,
     embeddingProvider: fakeEmbeddingProvider({ dimensions: 8 }),
+    representation: buildRepresentationManifest(fakeEmbeddingProvider({ dimensions: 8 }), {}),
     dataviewBridge,
   }))
     registry.register(tool);

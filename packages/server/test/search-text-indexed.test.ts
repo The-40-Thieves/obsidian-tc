@@ -11,6 +11,7 @@ import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import { ensureNotesFts } from "../src/search/fts";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { searchText, searchTextIndexed, type TextOptions } from "../src/search/text";
 import { openMemoryDb } from "./helpers";
 import { rmTemp } from "./tmp";
@@ -49,7 +50,15 @@ async function harness(): Promise<{
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, content);
   }
-  await indexVault({ db, provider, vaultId: "v1", root, isReadable: () => true, now: Date.now });
+  await indexVault({
+    db,
+    provider,
+    vaultId: "v1",
+    root,
+    isReadable: () => true,
+    now: Date.now,
+    representation: buildRepresentationManifest(provider, {}),
+  });
   return { db, root, hasFts, cleanup: () => rmTemp(root) };
 }
 

@@ -7,6 +7,7 @@ import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import { type IndexedChunk, indexNote, indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
 import { rmTemp } from "./tmp";
 
@@ -74,6 +75,7 @@ describe("W-INGEST indexer fold", () => {
       const stats = await indexVault({
         db,
         provider: fakeProvider,
+        representation: buildRepresentationManifest(fakeProvider, {}),
         vaultId: "v1",
         root,
         isReadable: () => true,

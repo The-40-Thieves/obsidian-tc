@@ -2,6 +2,7 @@ import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../src/db/types";
 import { indexNote, indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { blobToFloats, loadVec } from "../src/search/vec";
 import { makeM2Vault } from "./m2-helpers";
 
@@ -188,6 +189,7 @@ describe("index_vault (incremental chunk + embed)", () => {
     await indexVault({
       db: counting,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -234,6 +236,7 @@ describe("index_vault (incremental chunk + embed)", () => {
       indexVault({
         db: failing,
         provider: v.provider,
+        representation: buildRepresentationManifest(v.provider, {}),
         vaultId: v.id,
         root: v.root,
         isReadable: () => true,
@@ -249,6 +252,7 @@ describe("index_vault (incremental chunk + embed)", () => {
     await indexVault({
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -264,6 +268,7 @@ describe("index_vault (incremental chunk + embed)", () => {
     await indexVault({
       db: counting,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

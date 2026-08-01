@@ -10,6 +10,7 @@ import {
   tagCooccurrenceEdges,
 } from "../src/search/derived-edges";
 import { indexVault, readNoteTags } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
 
 function sharedTagRows(
@@ -45,6 +46,7 @@ describe("THE-486 tag-cooccurrence delta — end to end via indexVault", () => {
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -78,6 +80,7 @@ describe("THE-486 tag-cooccurrence delta — end to end via indexVault", () => {
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -110,6 +113,7 @@ describe("THE-486 tag-cooccurrence delta — end to end via indexVault", () => {
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -137,6 +141,7 @@ describe("THE-486 tag-cooccurrence delta — end to end via indexVault", () => {
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

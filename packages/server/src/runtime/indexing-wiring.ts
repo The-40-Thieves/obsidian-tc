@@ -27,12 +27,7 @@ import {
   indexNote,
   indexVault,
 } from "../search/indexer";
-import {
-  CHUNKER_VERSION,
-  ENRICHMENT_VERSION,
-  VEC_DISTANCE_METRIC,
-  VEC_SCHEMA_GEN,
-} from "../search/representation";
+import { buildRepresentationManifest, type RepresentationManifest } from "../search/representation";
 import { ensureVecChunks, type VecRebuildEvent } from "../search/vec";
 import { errorMessage } from "../util/errors";
 import { registerVaultWatch } from "../vault/watcher";
@@ -82,6 +77,9 @@ export interface IndexHealthState {
 
 export interface IndexResources {
   embeddingProvider: EmbeddingProvider;
+  /** THE-683: the representation identity this boot computed, published so every downstream
+   *  indexVault caller passes the SAME one instead of re-deriving it from loose config fields. */
+  representation: RepresentationManifest;
   /** GH #171/#172: the embed-batch knobs, threaded into every reconcile so local runners are tunable. */
   embedConfig: { batchSize: number; concurrency: number; maxBatchTokens: number };
   hasVec: boolean;
@@ -112,27 +110,17 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     concurrency: deps.embeddings.concurrency,
     maxBatchTokens: deps.embeddings.maxBatchTokens,
   };
-  const hasVec = ensureVecChunks(
-    deps.db,
-    {
-      provider: embeddingProvider.provider,
-      model: embeddingProvider.model,
-      dimensions: embeddingProvider.dimensions,
-      distanceMetric: VEC_DISTANCE_METRIC,
-      enrichmentVersion: deps.embeddings.chunkContext ? ENRICHMENT_VERSION : 0,
-      chunkerVersion: CHUNKER_VERSION,
-      schemaGen: VEC_SCHEMA_GEN,
-      // A checkpoint upgrade at the same model name and width is otherwise invisible. Undefined
-      // reproduces the pre-existing fingerprint byte-for-byte.
-      revision: deps.embeddings.revision,
-    },
-    {
-      now: Date.now,
-      onRebuild: deps.onVecRebuild,
-      // Fix A: the backfill must match what chunk_embeddings.model actually stores.
-      activeModel: embeddingProvider.id,
-    },
-  );
+  // THE-683: the ONE derivation. This manifest is also handed to indexVault (IndexVaultArgs
+  // .representation) rather than rebuilt there, so boot and the index_vault tool cannot compute
+  // different identities for the same table — the unbounded-rebuild-loop hazard the old
+  // hand-built pair carried, previously guarded only by a parity test.
+  const representation = buildRepresentationManifest(embeddingProvider, deps.embeddings);
+  const hasVec = ensureVecChunks(deps.db, representation, {
+    now: Date.now,
+    onRebuild: deps.onVecRebuild,
+    // Fix A: the backfill must match what chunk_embeddings.model actually stores.
+    activeModel: embeddingProvider.id,
+  });
   const hasFts = ensureNotesFts(deps.db, { now: Date.now });
   const indexHealth: IndexHealthState = {
     reconcile: "pending",
@@ -153,6 +141,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
 
   return {
     embeddingProvider,
+    representation,
     embedConfig,
     hasVec,
     hasFts,

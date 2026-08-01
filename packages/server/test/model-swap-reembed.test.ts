@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
 
 function activeEmbeddings(
@@ -29,13 +30,23 @@ describe("THE-531 model-swap re-embed", () => {
     });
     const opts = { db: v.db, vaultId: v.id, root: v.root, isReadable: () => true };
 
-    await indexVault({ ...opts, provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }) });
+    const providerA = fakeEmbeddingProvider({ dimensions: 32, model: "A" });
+    await indexVault({
+      ...opts,
+      provider: providerA,
+      representation: buildRepresentationManifest(providerA, {}),
+    });
     const before = activeEmbeddings(v.db);
     expect(before.length).toBeGreaterThan(0);
     expect(before.every((r) => r.model === "fake:A")).toBe(true);
 
     // Swap the model. Same dimension, SAME content. Nothing in the notes changed.
-    await indexVault({ ...opts, provider: fakeEmbeddingProvider({ dimensions: 32, model: "B" }) });
+    const providerB = fakeEmbeddingProvider({ dimensions: 32, model: "B" });
+    await indexVault({
+      ...opts,
+      provider: providerB,
+      representation: buildRepresentationManifest(providerB, {}),
+    });
 
     const after = activeEmbeddings(v.db);
     // every chunk is now active under the new model — full corpus searchable again
@@ -53,8 +64,18 @@ describe("THE-531 model-swap re-embed", () => {
     });
     const opts = { db: v.db, vaultId: v.id, root: v.root, isReadable: () => true };
 
-    await indexVault({ ...opts, provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }) });
-    await indexVault({ ...opts, provider: fakeEmbeddingProvider({ dimensions: 32, model: "B" }) });
+    const providerA = fakeEmbeddingProvider({ dimensions: 32, model: "A" });
+    const providerB = fakeEmbeddingProvider({ dimensions: 32, model: "B" });
+    await indexVault({
+      ...opts,
+      provider: providerA,
+      representation: buildRepresentationManifest(providerA, {}),
+    });
+    await indexVault({
+      ...opts,
+      provider: providerB,
+      representation: buildRepresentationManifest(providerB, {}),
+    });
 
     // The old (chunk_id, "fake:A") rows still exist (PRIMARY KEY chunk_id,model lets both coexist)
     // but must be is_active = 0 — "active" now means "current representation".
@@ -77,7 +98,12 @@ describe("THE-531 model-swap re-embed", () => {
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
     });
     const opts = { db: v.db, vaultId: v.id, root: v.root, isReadable: () => true };
-    await indexVault({ ...opts, provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }) });
+    const providerA = fakeEmbeddingProvider({ dimensions: 32, model: "A" });
+    await indexVault({
+      ...opts,
+      provider: providerA,
+      representation: buildRepresentationManifest(providerA, {}),
+    });
     const first = (
       v.db
         .prepare("SELECT generated_at FROM chunk_embeddings WHERE is_active = 1 LIMIT 1")
@@ -87,7 +113,11 @@ describe("THE-531 model-swap re-embed", () => {
     ).generated_at;
 
     // Same model, same content -> the second pass must be a warm no-op (generated_at unchanged).
-    await indexVault({ ...opts, provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }) });
+    await indexVault({
+      ...opts,
+      provider: providerA,
+      representation: buildRepresentationManifest(providerA, {}),
+    });
     const second = (
       v.db
         .prepare("SELECT generated_at FROM chunk_embeddings WHERE is_active = 1 LIMIT 1")

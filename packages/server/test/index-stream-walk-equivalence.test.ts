@@ -58,6 +58,7 @@ vi.mock("../src/search/vec", async (importOriginal) => {
 const { provisionCacheDb } = await import("../src/db/provision");
 const { fakeEmbeddingProvider } = await import("../src/embeddings");
 const { indexVault } = await import("../src/search/indexer");
+const { buildRepresentationManifest } = await import("../src/search/representation");
 const { makeM2Vault } = await import("./m2-helpers");
 
 const dupBodyOne =
@@ -139,6 +140,7 @@ async function indexInto(
     root,
     isReadable: () => true,
     chunkContext: false,
+    representation: buildRepresentationManifest(provider, { chunkContext: false }),
     densify: { tagEdges: true, knnEdges: true, knnK: 1 },
     now: () => 1_700_000_000_000, // pin created_at/updated_at/indexed_at across both runs
     walk: { streaming },
@@ -159,6 +161,7 @@ describe("THE-490 acceptance: index output unchanged (default walk vs streaming 
         root: v.root,
         isReadable: () => true,
         chunkContext: false,
+        representation: buildRepresentationManifest(provider, { chunkContext: false }),
         densify: { tagEdges: true, knnEdges: true, knnK: 1 },
         now: () => 1_700_000_000_000,
         // walk.streaming omitted -> default (eager, globally-sorted) path.
@@ -221,6 +224,7 @@ describe("THE-490 acceptance: index output unchanged (default walk vs streaming 
           root: v.root,
           isReadable: () => true,
           chunkContext: false,
+          representation: buildRepresentationManifest(provider, { chunkContext: false }),
           densify: { tagEdges: true, knnEdges: true, knnK: 1 },
           now: () => 1_700_000_000_000,
         });
@@ -235,6 +239,7 @@ describe("THE-490 acceptance: index output unchanged (default walk vs streaming 
           root: v.root,
           isReadable: () => true,
           chunkContext: false,
+          representation: buildRepresentationManifest(provider, { chunkContext: false }),
           densify: { tagEdges: true, knnEdges: true, knnK: 1 },
           now: () => 1_700_000_000_000,
           walk: { streaming: true },

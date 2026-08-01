@@ -1256,6 +1256,7 @@ and rebuild the table the other just built. Absent revision is byte-identical
 to the old fingerprint, so no existing index rebuilds on upgrade.
 
 Does NOT wire RepresentationManifest: it still has no production producer."
+(Deferral closed by THE-683 on 2026-08-01 — the manifest now has one.)
 ```
 
 ---

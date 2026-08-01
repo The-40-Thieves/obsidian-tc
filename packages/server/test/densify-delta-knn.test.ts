@@ -10,6 +10,7 @@
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { buildRepresentationManifest } from "../src/search/representation";
 
 const vecKnnCalls = vi.hoisted(() => ({ count: 0 }));
 
@@ -96,6 +97,7 @@ describe("THE-486 kNN delta — end to end via indexVault", () => {
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -127,6 +129,7 @@ describe("THE-486 kNN delta — end to end via indexVault", () => {
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -179,6 +182,7 @@ describe("THE-486 kNN delta — end to end via indexVault", () => {
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

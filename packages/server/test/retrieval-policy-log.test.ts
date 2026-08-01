@@ -16,6 +16,7 @@ import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-man
 import type { Database } from "../src/db/types";
 import { recomputeActivation } from "../src/experiential/activation";
 import { createRetrievalLogger } from "../src/experiential/log";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
 
 const read = (name: string) =>
@@ -231,6 +232,7 @@ describe("THE-538 acceptance: one vault_graph_search call, end to end", () => {
     await indexVault({
       db: v.db,
       provider: provider(),
+      representation: buildRepresentationManifest(provider(), {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

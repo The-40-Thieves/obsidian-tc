@@ -27,6 +27,7 @@ import type { StageMetric } from "../search/graph_search_stages/instrumentation"
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { nativeLoaded } from "../search/native";
 import type { RetrievalCaches } from "../search/query_cache";
+import type { RepresentationManifest } from "../search/representation";
 import type { Reranker, RerankOutcome } from "../search/rerank";
 import type { VecRebuildEvent } from "../search/vec";
 import type { RateLimiter } from "../throttle";
@@ -207,6 +208,8 @@ export interface M1WiringDeps {
   vaultRegistry: VaultRegistry;
   db: Database;
   embeddingProvider: EmbeddingProvider;
+  /** THE-683: the boot-built representation identity, passed to indexVault rather than re-derived. */
+  representation: RepresentationManifest;
   embedConfig: { batchSize: number; concurrency: number; maxBatchTokens: number };
   hasFts: boolean;
   indexHealth: IndexHealthState;
@@ -249,7 +252,7 @@ export function wireM1Tools(deps: M1WiringDeps): void {
         provider: deps.embeddingProvider,
         embed: deps.embedConfig,
         chunkContext: config.embeddings.chunkContext,
-        revision: config.embeddings.revision,
+        representation: deps.representation,
         densify: config.retrieval.densify,
         vaultId,
         root: deps.vaultRegistry.resolve(vaultId).root,
@@ -274,6 +277,8 @@ export interface DomainToolsDeps {
   config: ServerConfig;
   vaultRegistry: VaultRegistry;
   embeddingProvider: EmbeddingProvider;
+  /** THE-683: the boot-built representation identity, forwarded to M2's index_vault. */
+  representation: RepresentationManifest;
   retrievalLog?: RetrievalLogger;
   m4Deps: M4Deps;
   hasFts: boolean;
@@ -319,7 +324,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     chunkContext: config.embeddings.chunkContext,
     // THE-460: index_vault must fold the same revision as the boot reconcile — see
     // search/indexing/index-vault.ts's VecFingerprint construction site.
-    revision: config.embeddings.revision,
+    representation: deps.representation,
     densify: config.retrieval.densify,
     // THE-490/THE-591: index_vault must walk with the same strategy as the boot reconcile.
     streamingWalk: config.indexing.streamingWalk,

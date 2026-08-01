@@ -12,6 +12,7 @@ import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
@@ -40,6 +41,7 @@ describe("M1 + M2 cross-milestone integration (one shared registry)", () => {
     registerM2Tools(registry, {
       vaultRegistry,
       embeddingProvider: fakeEmbeddingProvider({ dimensions: 32 }),
+      representation: buildRepresentationManifest(fakeEmbeddingProvider({ dimensions: 32 }), {}),
     });
 
     const ctx = (): CallerContext => ({

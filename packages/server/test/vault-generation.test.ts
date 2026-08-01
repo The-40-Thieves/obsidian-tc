@@ -12,12 +12,22 @@ import { assignClusters } from "../src/search/cluster";
 import { reconcileDerivedEdges, reconcileDerivedEdgesScoped } from "../src/search/derived-edges";
 import { bumpGeneration, readGeneration } from "../src/search/generation";
 import { deindexNote, indexNote, indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
 import { makeM2Vault } from "./m2-helpers";
 
 const provider = () => fakeEmbeddingProvider({ dimensions: 32, model: "A" });
-const reindex = (db: Database, v: ReturnType<typeof makeM2Vault>) =>
-  indexVault({ db, provider: provider(), vaultId: v.id, root: v.root, isReadable: () => true });
+const reindex = (db: Database, v: ReturnType<typeof makeM2Vault>) => {
+  const p = provider();
+  return indexVault({
+    db,
+    provider: p,
+    vaultId: v.id,
+    root: v.root,
+    isReadable: () => true,
+    representation: buildRepresentationManifest(p, {}),
+  });
+};
 
 describe("THE-496 vault_generation counter", () => {
   it("bumpGeneration increments monotonically; readGeneration reads it", () => {

@@ -174,3 +174,107 @@ export function representationManifestHash(m: RepresentationManifest): string {
   const digest = createHash("sha256").update(payload, "utf8").digest("hex");
   return `v${MANIFEST_HASH_VERSION}:${digest}`;
 }
+
+// ---------------------------------------------------------------------------------------------
+// THE-683: the production producer. Before this, RepresentationManifest was a type with a hash and
+// no caller, which is why `embeddings.pooling` reached nothing and its own .describe() had to admit
+// the key did not affect the index.
+
+/** The provider fields the manifest reads. Structural, so any EmbeddingProvider satisfies it and
+ *  tests can pass a literal. `embedFull`'s PRESENCE is the multiVector axis — see the field's doc. */
+export interface ManifestProviderLike {
+  provider: string;
+  model: string;
+  dimensions: number;
+  embedFull?: unknown;
+}
+
+/** The config fields the manifest reads. A narrow slice of EmbeddingsConfigLike plus `chunkContext`,
+ *  which lives outside it (the chunker consumes that key too, not only the fingerprint). */
+export interface ManifestConfigLike {
+  chunkContext?: boolean;
+  revision?: string;
+  pooling?: string;
+  truncate?: boolean;
+  queryPrefix?: string;
+  documentPrefix?: string;
+}
+
+/**
+ * Build the manifest for a running configuration — the ONE place a representation identity is
+ * derived.
+ *
+ * Being the only derivation is the point, not a side benefit. `runtime/indexing-wiring.ts` and
+ * `search/indexing/index-vault.ts` each used to construct a VecFingerprint by hand from the same
+ * inputs, with a comment on the second warning that if they diverge "boot and index_vault each DROP
+ * and rebuild the table the other just built — an unbounded rebuild loop". That hazard was guarded
+ * only by a parity TEST; routing both through this function makes the divergence unrepresentable.
+ *
+ * Sentinels follow the Knowable<T> rule above: a field this config surface genuinely cannot report
+ * is the literal "unknown", never omitted and never a plausible-looking default, so "checked, found
+ * nothing" and "never asked" stay distinguishable in the hash.
+ */
+export function buildRepresentationManifest(
+  provider: ManifestProviderLike,
+  cfg: ManifestConfigLike,
+): RepresentationManifest {
+  return {
+    provider: provider.provider,
+    model: provider.model,
+    dimensions: provider.dimensions,
+    distanceMetric: VEC_DISTANCE_METRIC,
+    // Folded only when enrichment is ON, so toggling chunkContext itself moves the fingerprint.
+    enrichmentVersion: cfg.chunkContext === true ? ENRICHMENT_VERSION : 0,
+    chunkerVersion: CHUNKER_VERSION,
+    schemaGen: VEC_SCHEMA_GEN,
+    revision: cfg.revision ?? "unknown",
+    pooling: cfg.pooling ?? "unknown",
+    // Always knowable: "" is the real (default, off) value, distinct from never having looked.
+    queryPrefix: cfg.queryPrefix ?? "",
+    documentPrefix: cfg.documentPrefix ?? "",
+    truncate: cfg.truncate ?? false,
+    // No adapter surfaces a per-input truncation ceiling; maxBatchTokens is a request-BATCHING cap,
+    // which is a different thing and deliberately not folded in here.
+    maxInputTokens: "unknown",
+    multiVector: typeof provider.embedFull === "function",
+    // Only reported at RUNTIME (model/tei.ts's EmbedResult.normalized); nothing states it up front.
+    normalized: "unknown",
+  };
+}
+
+/**
+ * The canonical fingerprint string persisted in `vec_index_fingerprint`, extended to the axes
+ * `VecFingerprint` cannot see.
+ *
+ * The first eight fields are `vecFingerprint`'s, in its exact order, so this is a strict suffix
+ * extension rather than a re-ordering — a legacy string is a prefix of the new one, which makes a
+ * mismatch obvious when read by a human debugging a rebuild.
+ *
+ * UPGRADE COST — read before assuming this is expensive. A fingerprint change does NOT re-embed.
+ * `ensureVecChunks` drops `vec_chunks` and backfills from `chunk_embeddings` (the already-stored
+ * vectors), filtered on `e.model = activeModel` where activeModel is `provider.id`. None of the
+ * axes added here move `provider.id`, so the filter still matches every stored row and the index
+ * refills locally: no provider calls, no re-embed, no billing. That is why no compatibility shim
+ * is carried — one would buy immunity from a cost that does not exist, at the price of
+ * conditional-equivalence logic inside the identity comparison.
+ */
+export function representationFingerprint(m: RepresentationManifest): string {
+  return [
+    // --- vecFingerprint's fields, same order (see manifestVecFingerprint for the projection). ---
+    m.provider,
+    m.model,
+    String(m.dimensions),
+    m.distanceMetric,
+    String(m.enrichmentVersion),
+    String(m.chunkerVersion),
+    m.schemaGen,
+    m.revision === "unknown" ? "" : m.revision,
+    // --- axes VecFingerprint ignores; each can change what a stored vector MEANS. ---
+    m.pooling === "unknown" ? "" : m.pooling,
+    m.queryPrefix,
+    m.documentPrefix,
+    String(m.truncate),
+    String(m.multiVector),
+    m.normalized === "unknown" ? "" : String(m.normalized),
+  ].join("|");
+}

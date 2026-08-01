@@ -11,6 +11,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { EmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -43,7 +44,15 @@ async function harness(withIndex: boolean) {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, content);
   }
-  await indexVault({ db, provider, vaultId: "t", root, isReadable: () => true, now: Date.now });
+  await indexVault({
+    db,
+    provider,
+    vaultId: "t",
+    root,
+    isReadable: () => true,
+    now: Date.now,
+    representation: buildRepresentationManifest(provider, {}),
+  });
   const registry = new ToolRegistry();
   registerM1Tools(registry, {
     vaultRegistry: new VaultRegistry([{ id: "t", path: root }]),

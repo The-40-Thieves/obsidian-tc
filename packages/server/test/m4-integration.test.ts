@@ -30,6 +30,7 @@ import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM2Tools } from "../src/tools/m2";
 import { registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
@@ -120,6 +121,7 @@ function makeVault(opts: IntegrationVaultOptions = {}): IntegrationVault {
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider: fakeEmbeddingProvider({ dimensions: 8 }),
+    representation: buildRepresentationManifest(fakeEmbeddingProvider({ dimensions: 8 }), {}),
     dataviewBridge: () => ({ client, timeoutMs: 5000 }),
   });
   // M4: nine plugin-bridge domains over the same client + probed snapshot.

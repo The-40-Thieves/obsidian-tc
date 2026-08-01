@@ -13,6 +13,7 @@ import type { Database } from "../src/db/types";
 import { type EmbeddingProvider, fakeEmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import type { IndexStats } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -69,6 +70,7 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider: provider,
+    representation: buildRepresentationManifest(provider, {}),
     chunkContext: opts.chunkContext,
     streamingWalk: opts.streamingWalk,
     onIndexVaultComplete: opts.onIndexVaultComplete,

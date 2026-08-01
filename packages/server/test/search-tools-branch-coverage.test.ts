@@ -12,6 +12,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { type EmbeddingProvider, fakeEmbeddingProvider } from "../src/embeddings";
 import type { RetrievalLogEvent } from "../src/experiential/log";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -50,6 +51,7 @@ function makeCustomVault(opts: {
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider: fakeEmbeddingProvider({ dimensions: 32 }),
+    representation: buildRepresentationManifest(fakeEmbeddingProvider({ dimensions: 32 }), {}),
     metadataIndex: opts.metadataIndex,
     retrievalLog: opts.retrievalLog,
   });

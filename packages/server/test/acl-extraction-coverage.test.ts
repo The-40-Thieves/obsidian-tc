@@ -19,6 +19,7 @@ import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { RateLimiter } from "../src/throttle";
 import { createHealthTool } from "../src/tools/admin/health";
 import { registerM1Tools } from "../src/tools/m1";
@@ -124,6 +125,7 @@ describe("THE-414 folder-ACL path-extraction coverage", () => {
       dataviewBridge: bridge,
       regexTimeoutMs: 1000,
       metadataIndex,
+      representation: buildRepresentationManifest(embeddingProvider, {}),
     });
     registerM3Tools(registry, { vaultRegistry, reindex: noop, templaterBridge: bridge });
     registerM4Tools(registry, {

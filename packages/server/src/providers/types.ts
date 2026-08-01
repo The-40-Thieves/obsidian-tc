@@ -22,8 +22,9 @@ export interface EmbeddingsConfigLike {
    *  silently serving the old checkpoint's vectors against queries embedded by the new one.
    *  Undefined reproduces today's fingerprint byte-for-byte. */
   revision?: string;
-  /** THE-460: pooling strategy the backend applies (e.g. "mean", "last-token"). Descriptive only
-   *  today — RepresentationManifest has no production producer, so this does not affect the index. */
+  /** THE-460/THE-683: pooling strategy the backend applies (e.g. "mean", "last-token"). Read by
+   *  buildRepresentationManifest and folded into vec_index_fingerprint, so changing it rebuilds the
+   *  vector index (from the stored embeddings — no re-embed). */
   pooling?: string;
   /** GH #171: per-request embed timeout (ms). Undefined -> the postJson default. */
   timeoutMs?: number;

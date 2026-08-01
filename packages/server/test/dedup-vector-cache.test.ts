@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { Database } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
 
 const DEDUP_SOURCE = /FROM chunk_embeddings e JOIN chunks c.*body_sha/s;
@@ -48,6 +49,10 @@ describe("THE-488 dedup-vector lookup memoization", () => {
     await indexVault({
       db: c.db,
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      representation: buildRepresentationManifest(
+        fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+        {},
+      ),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -67,6 +72,10 @@ describe("THE-488 dedup-vector lookup memoization", () => {
     await indexVault({
       db: v.db,
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      representation: buildRepresentationManifest(
+        fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+        {},
+      ),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

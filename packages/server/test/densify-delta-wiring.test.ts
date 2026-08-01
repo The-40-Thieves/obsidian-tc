@@ -4,6 +4,7 @@
 // numeric correctness (that's densify-delta-knn.test.ts / densify-delta-tags.test.ts) — same split
 // densify-knn-floor.test.ts / densify-knn-wiring.test.ts already use for the kNN floor.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildRepresentationManifest } from "../src/search/representation";
 
 // The full-recompute spies return ONE real edge (not []) — an always-empty mock would leave
 // countDerivedEdges at 0 forever, permanently misreading every later pass as "cold start" too
@@ -81,6 +82,7 @@ describe("THE-486: index_vault routes cold-start vs delta densification", () => 
     await indexVault({
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -101,6 +103,7 @@ describe("THE-486: index_vault routes cold-start vs delta densification", () => 
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -127,6 +130,7 @@ describe("THE-486: index_vault routes cold-start vs delta densification", () => 
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -160,6 +164,7 @@ describe("THE-486: index_vault routes cold-start vs delta densification", () => 
     const args = {
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
@@ -187,6 +192,7 @@ describe("THE-486: index_vault routes cold-start vs delta densification", () => 
     await indexVault({
       db: v.db,
       provider: v.provider,
+      representation: buildRepresentationManifest(v.provider, {}),
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

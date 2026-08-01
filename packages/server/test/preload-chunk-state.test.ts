@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { Database } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault, preloadChunkState } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
 
 const PER_NOTE = /FROM chunks c LEFT JOIN chunk_embeddings.*c\.path = \?/s;
@@ -53,21 +54,24 @@ describe("THE-501 bulk chunk-state preload", () => {
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
     });
     // Seed an initial index so there is existing chunk state to load on the second pass.
+    const providerA = fakeEmbeddingProvider({ dimensions: 32, model: "A" });
     await indexVault({
       db: v.db,
-      provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      provider: providerA,
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
+      representation: buildRepresentationManifest(providerA, {}),
     });
 
     const c = countingDb(v.db);
     await indexVault({
       db: c.db,
-      provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      provider: providerA,
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
+      representation: buildRepresentationManifest(providerA, {}),
     });
 
     expect(c.bulk()).toBe(1); // one bulk load for the whole vault
@@ -80,12 +84,14 @@ describe("THE-501 bulk chunk-state preload", () => {
       files: { "a.md": "# A\n\nalpha alpha", "b.md": "# B\n\nbeta beta" },
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
     });
+    const providerA = fakeEmbeddingProvider({ dimensions: 32, model: "A" });
     await indexVault({
       db: v.db,
-      provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      provider: providerA,
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
+      representation: buildRepresentationManifest(providerA, {}),
     });
 
     const map = preloadChunkState(v.db, v.id);
@@ -102,11 +108,13 @@ describe("THE-501 bulk chunk-state preload", () => {
       files: { "a.md": "# A\n\nalpha", "b.md": "# B\n\nbeta" },
       provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
     });
+    const providerA = fakeEmbeddingProvider({ dimensions: 32, model: "A" });
     const opts = {
-      provider: fakeEmbeddingProvider({ dimensions: 32, model: "A" }),
+      provider: providerA,
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,
+      representation: buildRepresentationManifest(providerA, {}),
     };
     await indexVault({ db: v.db, ...opts });
 
