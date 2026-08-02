@@ -23,6 +23,8 @@ export const CACHE_MIGRATION_FILES = [
   "20260727_001_session_client_info.sql",
   "20260728_001_jobs_owner.sql",
   "20260728_002_jobs_outcome.sql",
+  // THE-694/695: the read-ACL predicate, joinable from SQL.
+  "20260802_001_acl_path_sets.sql",
 ] as const;
 
 /**
