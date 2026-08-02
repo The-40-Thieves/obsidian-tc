@@ -9,7 +9,7 @@ import type { GraphSearchResult } from "../../../search/graph_search";
 import { multiQueryGraphSearch } from "../../../search/multi_query";
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
-import { readableRel } from "../../../vault/acl-read-filter";
+import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {
@@ -72,7 +72,11 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
       // short-circuits BEFORE the embedding round-trip — the router's cost win; temporal
       // auto-enables the THE-221 stream; standard falls through unchanged.
       const route = deps.classRouter
-        ? routeQuery(ctx.db, v.id, input.query, { isReadable: (p) => readableRel(ctx.acl, p) })
+        ? routeQuery(ctx.db, v.id, input.query, {
+            isReadable: (p) => readableRel(ctx.acl, p),
+            // THE-694: the rare-term probe is only issued for callers who can read everything.
+            readUnrestricted: readEnumerationUnrestricted(ctx.acl),
+          })
         : { class: "standard" as const, signals: [] as string[] };
       const policy = capturePolicy(deps, v.id, route.class);
       const coverage = captureCoverage();
