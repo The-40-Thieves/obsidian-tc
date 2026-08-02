@@ -211,6 +211,11 @@ export function bm25Chunks(
   query: string,
   k: number,
   isReadable?: (path: string) => boolean,
+  /** THE-695: an `acl_path_members` set_id. When present the read filter is applied IN SQL and the
+   *  over-fetch is not needed at all — the returned LENGTH stops depending on how many
+   *  higher-scoring hidden rows exist, which is the channel this closes. Absent (no substrate, or
+   *  a pre-migration cache.db) falls back to the over-fetch path below, byte-identical to before. */
+  aclSetId?: number,
 ): LexicalHit[] {
   if (k <= 0) return [];
   const match = chunkFtsMatch(query);
@@ -220,6 +225,14 @@ export function bm25Chunks(
   // asking "how hidden can a vault be before an arm underfills?".
   const overFetch = isReadable ? k * 20 + 50 : k;
   try {
+    if (aclSetId !== undefined) {
+      // Exact: LIMIT k over the already-filtered set, so there is no window to fall outside of.
+      return db
+        .prepare(
+          "SELECT chunk_fts.chunk_id AS chunk_id, chunk_fts.path AS path, chunks.content AS content, bm25(chunk_fts) AS rank FROM chunk_fts JOIN chunks ON chunks.id = chunk_fts.chunk_id JOIN acl_path_members a ON a.set_id = ? AND a.path = chunk_fts.path WHERE chunk_fts.vault_id = ? AND chunk_fts MATCH ? ORDER BY rank LIMIT ?",
+        )
+        .all(aclSetId, vaultId, match, k) as LexicalHit[];
+    }
     // THE-406: match/rank on chunk_fts.content (context-enriched when embeddings.chunkContext is
     // on) but RETURN chunks.content — the raw display text — so enrichment never leaks into
     // search output. Rows are 1:1 by construction (written in the same transaction).

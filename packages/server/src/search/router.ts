@@ -58,77 +58,37 @@ const STOPWORDS = new Set([
   "between",
 ]);
 
-/** Rows fetched per round trip when an ACL is supplied. A BATCHING detail, not a cap — the scan
- *  keeps paging until it can answer exactly. See `termDf`. */
-const DF_PAGE = 200;
-
 /**
  * Document frequency of one term over the enriched BM25 index (0 on any FTS failure), counted over
- * the chunks THIS CALLER CAN READ.
+ * the WHOLE vault.
  *
- * THE-691 (security): this previously counted every match with no ACL, and the number reached
- * callers verbatim — `routeQuery` embeds it as `rare-term:<token>(df=<n>)`, and `route.signals` is
- * returned by vault_graph_search, knowledge_search, vault_context and reflect. Any caller holding
- * `read:notes` could probe a term and learn, from an ordinary successful response, whether it
- * occurs in notes they are denied and in how many chunks. A CONTENT-membership oracle.
+ * No ACL parameter, deliberately, and the paged readable-count scan that used to live here has been
+ * DELETED rather than left reachable.
  *
- * EXACT, not sampled. The first version of this fix took a single LIMIT-200 page and filtered it,
- * which cross-vendor review correctly refused: with the true readable count at 5 but only one
- * readable row inside those 200, it reports df=1 and routes lexical — undercounting INTO the rare
- * window rather than away from it, so my "fails closed" claim was simply false. Worse for the
- * actual goal, the number of HIDDEN rows decides which readable rows land in the sample, so the
- * reported value stayed a function of content the caller cannot see: a weaker, noisier channel
- * than the one being closed, but not non-interference. There was no ORDER BY either, so which 200
- * rows got examined was not even a defined contract.
+ * THE-691 made the readable count exact by paging and filtering in JS, which closed the VALUE
+ * channel: the emitted `rare-term:<token>(df=<n>)` signal and the routing class came to depend only
+ * on permitted matches. THE-694 then measured the residual. With a restricted ACL, a term present
+ * only in denied notes took a mean 3.381 ms against 0.047 ms for an absent term — both answering 0
+ * — which is 72x with non-overlapping distributions. Latency still correlated with how much denied
+ * content matched a caller-supplied token.
  *
- * Paging until the answer is known removes both problems. The result depends only on readable
- * rows, and the early exit is a genuine optimisation rather than a correctness assumption: once
- * `rareDfMax + 1` readable matches are seen, every caller only needs "outside the window".
- *
- * Cost: for a common term in a mostly-readable vault this exits inside the first page after ~4
- * readable rows. The worst case — a term with many matches, nearly all denied — pages the whole
- * match set, which is the price of an exact answer that leaks nothing. `ORDER BY rowid` makes the
- * paging deterministic rather than leaving row order to the FTS implementation.
- *
- * Without `isReadable` the fast COUNT(*) is kept. Note that every PRODUCTION tool supplies the
- * predicate (even where `ctx.acl` is absent), so that branch serves the eval harness and internal
- * callers, not API traffic.
+ * No in-SQL predicate closes that. Joining a materialized permitted set plans as `SCAN chunk_fts
+ * VIRTUAL TABLE` followed by a per-row membership probe, so the work stays proportional to TOTAL
+ * matches however the filter is expressed; moving the scan out of JS makes it faster and
+ * lower-variance, which is worse, not better. The only fix is to not ask the question, so
+ * `routeQuery` issues this ONLY for callers who can read the whole vault — for whom a whole-vault
+ * count discloses nothing they could not already retrieve.
  */
-function termDf(
-  db: Database,
-  vaultId: string,
-  term: string,
-  isReadable?: (path: string) => boolean,
-  rareDfMax = 3,
-): number {
+function termDf(db: Database, vaultId: string, term: string, rareDfMax = 3): number {
   const quoted = `"${term.replace(/"/g, "")}"`;
   try {
-    if (!isReadable) {
-      const row = db
-        .prepare("SELECT COUNT(*) AS n FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ?")
-        .get(vaultId, quoted) as { n: number } | undefined;
-      return row?.n ?? 0;
-    }
-    const page = db.prepare(
-      "SELECT rowid AS rid, path FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ? AND rowid > ? ORDER BY rowid LIMIT ?",
-    );
-    let n = 0;
-    let after = 0;
-    for (;;) {
-      const rows = page.all(vaultId, quoted, after, DF_PAGE) as Array<{
-        rid: number;
-        path: string;
-      }>;
-      if (rows.length === 0) return n; // match set exhausted -> n is exact
-      for (const r of rows) {
-        if (!isReadable(r.path)) continue;
-        n++;
-        // Past the rare window the exact value is irrelevant to every caller of this function.
-        if (n > rareDfMax) return n;
-      }
-      after = rows[rows.length - 1]?.rid ?? after;
-      if (rows.length < DF_PAGE) return n; // short page -> exhausted
-    }
+    const row = db
+      .prepare("SELECT COUNT(*) AS n FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ?")
+      .get(vaultId, quoted) as { n: number } | undefined;
+    const n = row?.n ?? 0;
+    // Past the rare window the exact value is irrelevant to every caller of this function, so it is
+    // clamped rather than returned — the signal string should not carry a precise corpus statistic.
+    return n > rareDfMax ? rareDfMax + 1 : n;
   } catch {
     return 0;
   }
@@ -149,6 +109,12 @@ export function routeQuery(
      *  decision itself — are computed over content the caller may not be allowed to see, and the
      *  signal is returned to them verbatim. Every tool call site supplies it. */
     isReadable?: (path: string) => boolean;
+    /** THE-694: true when the caller can read the whole vault (`readEnumerationUnrestricted`). The
+     *  rare-term probe runs ONLY then. For a restricted caller it is skipped entirely — not
+     *  filtered, not capped, not issued — because its LATENCY is the disclosure and no in-SQL
+     *  predicate removes that. Restricted callers lose a ranking optimization, not correctness:
+     *  they fall through to `standard`, the same path they took before the router existed. */
+    readUnrestricted?: boolean;
   } = {},
 ): RouteDecision {
   const signals: string[] = [];
@@ -172,14 +138,17 @@ export function routeQuery(
   const tokens = (query.toLowerCase().match(/[a-z0-9_][a-z0-9_-]{3,}/g) ?? []).filter(
     (t) => !STOPWORDS.has(t),
   );
-  if (tokens.length > 0 && tokens.length <= 5) {
+  // THE-694: probe ONLY when the caller sees everything. `isReadable` absent means no ACL at all
+  // (the eval harness and internal callers), which is likewise unrestricted.
+  const mayProbe = opts.isReadable === undefined || opts.readUnrestricted === true;
+  if (mayProbe && tokens.length > 0 && tokens.length <= 5) {
     const rareDfMax = opts.rareDfMax ?? 3;
     // THE-691: DEDUPE before slicing. A query repeating a token ("zarquon zarquon") would
     // otherwise run the same paged scan up to four times for one answer — pure waste, and it
     // multiplies the worst case (a term with many denied matches) by the repeat count.
     const candidates = [...new Set(tokens)].sort((a, b) => b.length - a.length).slice(0, 4);
     for (const t of candidates) {
-      const df = termDf(db, vaultId, t, opts.isReadable, rareDfMax);
+      const df = termDf(db, vaultId, t, rareDfMax);
       if (df >= 1 && df <= rareDfMax) {
         signals.push(`rare-term:${t}(df=${df})`);
         return { class: "lexical", signals };

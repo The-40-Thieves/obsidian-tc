@@ -55,10 +55,27 @@ const DERIVED_EDGE_TYPES = ["similar_to", "shared_tag", "semantically_similar_to
 export function expandGraphLiteral(
   db: Database,
   seedPaths: string[],
-  opts: { vaultId: string; hopLimit?: number; includeDerived?: boolean },
+  opts: {
+    vaultId: string;
+    hopLimit?: number;
+    includeDerived?: boolean;
+    /** THE-695: an `acl_path_members` set_id. When present a node the caller cannot read cannot be
+     *  TRAVERSED — not merely omitted from the results. Filtering only the hydrated rows (which is
+     *  what graph_expansion.ts does) leaves an unreadable note usable as a BRIDGE: with hopLimit=2,
+     *  readable A -> unreadable S -> readable B reaches B only because S exists, so the readable
+     *  result set depends on unreadable material. Absent, the walk is byte-identical to before. */
+    aclSetId?: number;
+  },
 ): ExpansionNode[] {
   const hopLimit = opts.hopLimit ?? 2;
   if (seedPaths.length === 0 || hopLimit < 1) return [];
+
+  // Joined inside the RECURSIVE step, not applied to the result: the point is that an unreadable
+  // node must not be a stepping stone, and a post-filter cannot express that.
+  const aclJoin =
+    opts.aclSetId === undefined
+      ? ""
+      : "JOIN acl_path_members am ON am.set_id = ? AND am.path = u.target_path";
 
   // links_to always; derived types join only under includeDerived, so the default is the historical
   // literal walk unchanged.
@@ -83,6 +100,7 @@ export function expandGraphLiteral(
                 w.hop + 1, w.visited || u.target_path || char(10)
          FROM walk w
          JOIN undirected u ON u.source_path = w.current_path
+         ${aclJoin}
          WHERE w.hop < ? AND instr(w.visited, char(10) || u.target_path || char(10)) = 0
        )
        SELECT root_seed, current_path AS path, predecessor_path, via_provenance,
@@ -98,6 +116,8 @@ export function expandGraphLiteral(
       opts.vaultId,
       ...edgeTypes,
       JSON.stringify(seedPaths),
+      // Binds between the seed list and hopLimit — the order the placeholders appear above.
+      ...(opts.aclSetId === undefined ? [] : [opts.aclSetId]),
       hopLimit,
     ) as WalkRow[];
 

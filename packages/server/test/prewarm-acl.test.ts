@@ -13,8 +13,18 @@
 //   3. RE-FILTER ON READ — even a bundle whose key checks out is re-run through readableRel
 //      before being trusted; a bundle that fails partially is a full miss, never a partial return.
 //
-// The lexical route (classRouter + a corpus-rare term) is used throughout so no embedding
-// backend is needed — same trick as vault-context.test.ts.
+// THE-694 changed what this fixture needs. It used to rely on the lexical route (classRouter + a
+// corpus-rare term) so that no embedding backend was required, and asserted that by making `embed`
+// throw. That worked because the rare-term probe ran for every caller. It no longer does: the probe
+// is a TIMING oracle over denied content (measured 72x, non-overlapping), so a RESTRICTED caller —
+// which is exactly what this suite's narrow ACL creates — no longer issues it and therefore no
+// longer routes lexical. Both callers here now take the standard path and DO embed.
+//
+// That is a real cost of THE-694, not a test artifact: restricted callers lose the lexical
+// short-circuit for rare-term queries and pay an embedding round-trip they previously avoided.
+// Quoted-phrase and temporal routing are unaffected — both branches sit before the probe. The
+// fixture therefore supplies vectors and a working embed stub; the ACL assertions below are
+// unchanged, because the leak they guard has nothing to do with which route was taken.
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -35,6 +45,7 @@ import {
   prewarmPathFor,
   writePrewarm,
 } from "../src/search/prefetch";
+import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -75,6 +86,12 @@ function cacheDb(): Database {
   );
   ins.run("pub1", "public/a.md", "0", `the ${RARE_TERM} pattern, public copy`, "hp", 40, NOW, NOW);
   ins.run("sec1", "secret/b.md", "0", `the ${RARE_TERM} pattern, SECRET copy`, "hs", 40, NOW, NOW);
+  // THE-694: both chunks carry the SAME vector, so the dense stream returns both and the ACL is
+  // the only thing that can separate them — the sharpest form of the leak assertion.
+  const emb = db.prepare(
+    "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, 'stub', ?, ?, 1, 0)",
+  );
+  for (const id of ["pub1", "sec1"]) emb.run(id, UNIT_VEC.length, floatBlob(UNIT_VEC));
   ensureChunkFts(db, { now: () => NOW, enrich: false });
   return db;
 }
@@ -91,6 +108,9 @@ interface ContextData {
   prefetched?: boolean;
 }
 
+/** THE-694: one shared unit vector — see the embed stub. */
+const UNIT_VEC = [1, 0, 0, 0];
+
 const root = mkdtempSync(join(tmpdir(), "obtc-pwacl-"));
 afterAll(() => rmTemp(root));
 
@@ -100,10 +120,11 @@ function harness(db: Database, prewarmDir: string) {
   const embeddingProvider = {
     provider: "ollama",
     model: "stub",
-    dimensions: 768,
-    embed: async () => {
-      throw new Error("embed must not be called on the lexical route");
-    },
+    dimensions: UNIT_VEC.length,
+    // THE-694: the standard route is now taken by restricted callers, so embed IS called. A fixed
+    // unit vector keeps retrieval deterministic — every chunk shares it, so ordering is decided by
+    // the ACL filter rather than by cosine, which is precisely what these assertions are about.
+    embed: async (texts: string[]) => texts.map(() => UNIT_VEC),
   };
   registerM7Tools(registry, {
     vaultRegistry,

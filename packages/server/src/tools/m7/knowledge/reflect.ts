@@ -13,7 +13,7 @@ import type { GraphSearchResult } from "../../../search/graph_search";
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { enforcePathAcl } from "../../../vault/acl-path";
-import { readableRel } from "../../../vault/acl-read-filter";
+import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { persistGovernedNote } from "../../../vault/persist-note";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
@@ -56,7 +56,11 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
       // measured engine otherwise. reflect composes recall + a generative pass — it never
       // adds a retrieval mechanism.
       const route = deps.classRouter
-        ? routeQuery(ctx.db, v.id, input.query, { isReadable: (p) => readableRel(ctx.acl, p) })
+        ? routeQuery(ctx.db, v.id, input.query, {
+            isReadable: (p) => readableRel(ctx.acl, p),
+            // THE-694: the rare-term probe is only issued for callers who can read everything.
+            readUnrestricted: readEnumerationUnrestricted(ctx.acl),
+          })
         : { class: "standard" as const, signals: [] as string[] };
       const policy = capturePolicy(deps, v.id, route.class);
       let results: GraphSearchResult[];

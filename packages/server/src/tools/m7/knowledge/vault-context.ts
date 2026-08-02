@@ -20,7 +20,7 @@ import {
 } from "../../../search/prefetch";
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
-import { readableRel } from "../../../vault/acl-read-filter";
+import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { resolveVaultPath } from "../../../vault/paths";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
@@ -130,7 +130,11 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       // Same front door as vault_graph_search: the class router when enabled, the measured
       // engine otherwise — vault_context adds composition, never a second retrieval path.
       const route = deps.classRouter
-        ? routeQuery(ctx.db, v.id, query, { isReadable: (p) => readableRel(ctx.acl, p) })
+        ? routeQuery(ctx.db, v.id, query, {
+            isReadable: (p) => readableRel(ctx.acl, p),
+            // THE-694: the rare-term probe is only issued for callers who can read everything.
+            readUnrestricted: readEnumerationUnrestricted(ctx.acl),
+          })
         : { class: "standard" as const, signals: [] as string[] };
       const policy = capturePolicy(deps, v.id, route.class);
       let results: GraphSearchResult[];

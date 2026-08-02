@@ -62,7 +62,14 @@ const ROOTS = [
 // than by wiring it in — the disposition ADR's evidence found zero production selection points and
 // zero second implementations. Deleting the exemption along with the class is the point: this list
 // stays empty until a genuinely new case earns its own entry.
-const UNREACHABLE_ALLOWLIST = new Map();
+const UNREACHABLE_ALLOWLIST = new Map([
+  // THE-694/695: the permitted-path set substrate, landed AHEAD of its consumers on purpose. The
+  // graph-walk filter it feeds is a recall change (measured 583 -> 57 nodes on a harsh test ACL)
+  // that the three-arm eval decides, so the module ships dark and is reachable only from
+  // acl-path-set.test.ts until the consumers are wired. The staleAllowlist check below is what
+  // forces this entry out again the moment that happens — it cannot rot into decoration.
+  ["packages/server/src/search/acl_path_set.ts", "THE-694/695: dark until the consumers are wired"],
+]);
 
 function run(cmd, args) {
   return execFileSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
