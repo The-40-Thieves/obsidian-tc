@@ -6,10 +6,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-08-02
+
 ### Fixed
 
 - **The macOS standalone binaries can load `sqlite-vec` at all now — dense retrieval was silently
-  off on every darwin release.** `bun:sqlite` uses **Apple's system SQLite**, which is built without
+  off on every darwin release (#652).** `bun:sqlite` uses **Apple's system SQLite**, built without
   extension support, so `db.loadExtension()` fails there no matter how correctly `vec0` is embedded:
 
   ```
