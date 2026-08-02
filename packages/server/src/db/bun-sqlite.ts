@@ -1,4 +1,42 @@
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { EMBEDDED_SQLITE_BASE64 } from "./sqlite-embedded";
 import type { Database as Db, RunResult, Statement } from "./types";
+
+// THE-663 follow-up: bun:sqlite uses APPLE'S SYSTEM SQLite on macOS, and Apple builds it without
+// extension support — `This build of sqlite3 does not support dynamic extension loading`, measured
+// directly on macos-14 and macos-26. So loadVec()'s db.loadExtension() cannot work on darwin no
+// matter how correctly vec0 is embedded, and every darwin standalone binary silently served the
+// brute-force cosine scan. Bun's documented escape hatch is Database.setCustomSQLite(), pointing at
+// a vanilla build, called BEFORE any Database is constructed.
+//
+// openBunSqlite is the only `new Database(...)` in the tree, so "before any Database" is satisfied
+// by calling this at the top of it — no process-wide ordering discipline to maintain.
+//
+// Guarded to darwin AND to a non-empty constant: linux and windows get an extension-capable SQLite
+// from bun itself, and outside a compiled darwin release binary the constant is the empty
+// placeholder. Both mean "nothing to do", so `bun run`, the npm dist build and every test suite are
+// untouched by this.
+let customSqliteApplied = false;
+function useEmbeddedSqlite(BunDatabase: { setCustomSQLite?: (p: string) => void }): void {
+  if (customSqliteApplied) return;
+  customSqliteApplied = true; // once per process, success or failure — a retry cannot help
+  if (process.platform !== "darwin" || !EMBEDDED_SQLITE_BASE64) return;
+  try {
+    const dir = mkdtempSync(join(tmpdir(), "otc-sqlite-"));
+    chmodSync(dir, 0o700);
+    const out = join(dir, "libsqlite3.dylib");
+    writeFileSync(out, Buffer.from(EMBEDDED_SQLITE_BASE64, "base64"));
+    chmodSync(out, 0o755);
+    BunDatabase.setCustomSQLite?.(out);
+  } catch {
+    // Deliberately swallowed. Failing here would turn a DEGRADED retrieval path into a server that
+    // will not boot: without the custom SQLite, bun:sqlite still opens databases fine against
+    // Apple's build and everything except vec0 works. loadVec() already reports its own failure,
+    // and doctor's dense check (THE-688) is what surfaces it to an operator.
+  }
+}
 
 /**
  * Bun runtime adapter over the built-in bun:sqlite (synchronous, no flag, no
@@ -26,6 +64,8 @@ export async function openBunSqlite(path: string): Promise<Db> {
   // biome-ignore lint/suspicious/noTsIgnore: expect-error is unusable here (see above) — bun:sqlite resolves under the bun-smoke project but not the main one, so the suppression is conditional by construction.
   // @ts-ignore
   const { Database: BunDatabase } = await import("bun:sqlite");
+  // Must precede the constructor below — setCustomSQLite is a no-op once a Database exists.
+  useEmbeddedSqlite(BunDatabase);
   const db = new BunDatabase(path, { create: true });
   // Server-tuned per-connection baseline (THE-273): WAL + synchronous=NORMAL is the documented
   // safe pairing; busy_timeout waits instead of throwing SQLITE_BUSY when the reindex, the boot

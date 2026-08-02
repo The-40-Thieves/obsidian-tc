@@ -6,6 +6,36 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **The macOS standalone binaries can load `sqlite-vec` at all now — dense retrieval was silently
+  off on every darwin release.** `bun:sqlite` uses **Apple's system SQLite**, which is built without
+  extension support, so `db.loadExtension()` fails there no matter how correctly `vec0` is embedded:
+
+  ```
+  This build of sqlite3 does not support dynamic extension loading
+  ```
+
+  measured directly on `macos-14` and `macos-26` runners. THE-663 fixed the *embedding* (and the
+  linux binaries genuinely do report `vec=on`); the *loader* was a second, independent blocker that
+  only darwin has. It surfaced in v1.14.0 because that was the first time THE-663's smoke gate ever
+  executed — it lives in `publish.yml`, which only runs on a tag, so no PR could have caught it.
+
+  The darwin binaries now carry a universal2 vanilla SQLite 3.53.4, materialized to a private temp
+  file at startup, and `Database.setCustomSQLite()` points `bun:sqlite` at it before any database is
+  opened. `openBunSqlite` is the only `new Database(...)` in the tree, so that ordering requirement
+  is satisfied at one call site. Guarded on darwin *and* a non-empty embedded constant, so linux,
+  windows, `bun run`, the npm dist build and every test suite are untouched.
+
+  Universal2 rather than a thin per-target build because GitHub no longer offers an x86_64 macOS
+  runner: `bun-darwin-x64` is cross-compiled on an arm64 host and never executed in CI. Both darwin
+  targets embedding the same fat dylib means the arm64 slice is runtime-tested every release, and a
+  future drift in the host-to-target mapping cannot ship arm64 code inside the x64 binary.
+
+  **Effect on upgrade:** macOS users of the *standalone binaries* gain dense retrieval, which was
+  previously falling back to the brute-force cosine scan without saying so. The npm and Docker
+  distributions are unaffected — neither goes through this path.
+
 ## [1.14.0] - 2026-08-02
 
 ### Added

@@ -431,6 +431,16 @@ jobs:
       - name: embed sqlite-vec for this target
         run: node scripts/gen-embedded-vec.mjs --target ${{ matrix.target }}
         shell: bash
+      # Darwin only. Embedding vec0 is necessary but NOT sufficient there: bun:sqlite uses Apple's
+      # system SQLite, which is built without extension support, so db.loadExtension() throws
+      # regardless. v1.14.0 is where this surfaced — the first time the smoke gate below ever ran,
+      # since it only executes on a tag. Builds a universal2 vanilla SQLite and bakes it in; the
+      # adapter calls setCustomSQLite() with it before opening any database. linux and windows get
+      # an extension-capable SQLite from bun itself and skip this entirely.
+      - name: embed vanilla SQLite (darwin only)
+        if: startsWith(matrix.target, 'bun-darwin')
+        run: node scripts/gen-embedded-sqlite.mjs --target ${{ matrix.target }}
+        shell: bash
       - name: compile standalone binary
         run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
         shell: bash
