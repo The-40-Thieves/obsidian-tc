@@ -6,6 +6,44 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **The weekly synthesis job stopped producing anything — its prompt had no aggregate bound.**
+  `RECENT_LIMIT` (200 chunks) x `CONTENT_TRUNCATE` (1000 chars) is a **per-item** cap, not a budget:
+  200 chunks each under the per-item limit is still 200,000 characters. In production the built
+  prompt reached 169,258 chars and every run failed with
+  `litellm.ContextWindowExceededError` — measured at **51,380 tokens against a 32,768-token serving
+  window**, 1.57x over. `syntheses` sat at 0 rows as a result, and the failure was terminal by
+  design (`maxAttempts: 1`, because a 4xx is an answer and retrying identical oversized input only
+  burns quota), so it could never self-heal.
+
+  `plane.maxPromptChars` (default 60000) now caps the **whole request**, system prompt included.
+  Contradictions are filled first — the output schema requires the model to cite
+  `contradiction_ids`, so dropping them silently would ask for citations of evidence never supplied
+  — and chunks take the remainder, since they are already a "newest 200" sample where using fewer is
+  a smaller sample rather than a missing input. Whole items are dropped, never half-rendered: a
+  partially rendered chunk misrepresents what a note says, and cross-note patterns are drawn from
+  exactly that content. The per-chunk trim now uses `trimToBoundary` (the same helper the shared
+  evidence builder uses) instead of a hard slice, because cutting mid-word reads to a model as though
+  the source itself is malformed.
+
+  **The drop is reported, not silent.** The job's result carries `chunks_used` / `chunks_dropped` /
+  `contradictions_used` / `contradictions_dropped`, and logs a line naming the config key when
+  anything is dropped. A pass that quietly used 9 of 200 chunks would otherwise be indistinguishable
+  from one that used all 200 — which is the same class of defect as the missing bound.
+
+  Sized in characters rather than tokens because no tokenizer is available on this side. Measured by
+  bisection against the live endpoint: **3.294 chars/token** on real vault prose (107,475 chars =
+  32,625 tokens). Dense content — code, CJK — runs nearer 2.5, so 60000 is ~18.2k tokens of prose
+  or ~24k of code, both leaving room for the model's own JSON output inside a 32,768 window.
+  Verified end to end against the endpoint that rejected the old prompt: **HTTP 200, 17,757 prompt
+  tokens, 15,011 left for output.**
+
+  **The 32,768 is the server's limit, not the model's.** Qwen3-4B-Instruct-2507 is natively 262,144;
+  vLLM's `--max-model-len` is an operator-set memory lever. The ceiling can therefore move without
+  the model changing, which is exactly why this side bounds its own prompt rather than inferring a
+  limit from a model name — and why the cap is configurable rather than hardcoded.
+
 ## [1.14.2] - 2026-08-02
 
 ### Fixed

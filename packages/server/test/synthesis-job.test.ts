@@ -36,6 +36,59 @@ describe("synthesis job (kb-synthesis-worker collapse)", () => {
     expect(parseSynthesis('{"patterns":[],"clusters":[]}').patterns).toEqual([]);
   });
 
+  // THE-663 follow-up / prod incident 2026-08-02: the synthesis job 400'd on every run with
+  // litellm.ContextWindowExceededError. RECENT_LIMIT=200 chunks x CONTENT_TRUNCATE=1000 chars is a
+  // PER-ITEM cap with no aggregate bound, so the built prompt reached 169,258 chars against a
+  // 32,768-token window. Measured on the live vault: 3.29 chars/token, so that prompt was ~51.4k
+  // tokens — 57% over. A per-item cap is not a budget.
+  it("bounds the TOTAL prompt, not just each chunk (context-overflow regression)", async () => {
+    const db = withChunksDb();
+    // 200 chunks x 1000 chars each = 200,000 chars of content alone, all under the per-item cap.
+    for (let i = 0; i < 200; i++) {
+      db.prepare(
+        "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'v1', ?, '0', '[]', ?, ?, 1, 0, ?)",
+      ).run(`c${i}`, `N${i}.md`, "x".repeat(1000), `h${i}`, i);
+    }
+    let seen = 0;
+    const roles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "m" }),
+      judge: async () => ({ text: "", model: "m" }),
+      synthesize: async (req) => {
+        seen = req.messages.map((m) => m.content).join("").length;
+        return { text: '{"patterns":[],"clusters":[]}', model: "m" };
+      },
+    };
+    const res = await runSynthesis({ db, roles, now: () => 0, maxPromptChars: 20_000 });
+    expect(res.ok).toBe(true);
+    // The whole request, system prompt included, must fit the budget.
+    expect(seen).toBeLessThanOrEqual(20_000);
+    // Non-vacuity: the budget must have actually BOUND here, or this test proves nothing about
+    // trimming — 200 unbounded chunks would be >200,000 chars.
+    expect(seen).toBeGreaterThan(1_000);
+  });
+
+  it("reports what the budget dropped instead of silently truncating", async () => {
+    const db = withChunksDb();
+    for (let i = 0; i < 50; i++) {
+      db.prepare(
+        "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'v1', ?, '0', '[]', ?, ?, 1, 0, ?)",
+      ).run(`c${i}`, `N${i}.md`, "y".repeat(1000), `h${i}`, i);
+    }
+    const res = await runSynthesis({
+      db,
+      roles: rolesReturning('{"patterns":[],"clusters":[]}'),
+      now: () => 0,
+      maxPromptChars: 12_000,
+    });
+    expect(res.ok).toBe(true);
+    const vaults = res.detail?.vaults as Array<Record<string, unknown>> | undefined;
+    expect(vaults).toBeDefined();
+    const v = (vaults as Array<Record<string, unknown>>)[0] as Record<string, unknown>;
+    // A pass that quietly used 9 of 50 chunks is indistinguishable from one that used all 50.
+    expect(v.chunks_used).toBeLessThan(50);
+    expect(v.chunks_dropped).toBe(50 - (v.chunks_used as number));
+  });
+
   it("pulls recent chunks, calls the synthesize role, and stores the record", async () => {
     const db = withChunksDb();
     db.prepare(

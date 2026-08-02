@@ -17,6 +17,10 @@ export interface JobContext {
   roles: GatewayRoles | null;
   now: () => number;
   log?: (msg: string) => void;
+  /** Aggregate character cap on a generative job's whole request (system + user). Absent -> the
+   *  job's own conservative default. Exists because the model behind a gateway ROLE is swappable
+   *  at the gateway, so this side cannot know the context window. */
+  maxPromptChars?: number | undefined;
 }
 
 export interface JobResult {

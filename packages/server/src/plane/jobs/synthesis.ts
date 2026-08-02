@@ -4,6 +4,7 @@
 // vault note is an integration concern. Anchor-folder pulls are simplified to "recent chunks +
 // open contradictions" (folder taxonomy is vault-specific and lands at integration).
 
+import { trimToBoundary } from "../../search/evidence";
 import { type IsoWeek, isoWeek } from "../../util/iso-week";
 import { type GatewayRoles, prompt } from "../gateway";
 import type { JobContext, JobResult } from "../plane";
@@ -13,6 +14,35 @@ export { type IsoWeek, isoWeek };
 const RECENT_LIMIT = 200;
 const CONTRADICTION_LIMIT = 50;
 const CONTENT_TRUNCATE = 1000;
+
+/**
+ * Aggregate cap on the whole request (system + user), in characters.
+ *
+ * RECENT_LIMIT x CONTENT_TRUNCATE is a PER-ITEM cap, not a budget: 200 chunks each under 1000 chars
+ * is still 200,000 chars. In production on 2026-08-02 this job 400'd on every run —
+ * `litellm.ContextWindowExceededError`, prompt 169,258 chars against a 32,768-token serving window.
+ *
+ * That 32,768 is the SERVER's limit, not the model's. Qwen3-4B-Instruct-2507 is natively 262,144;
+ * vLLM's `--max-model-len` is an operator-set memory lever ("reduces memory usage by setting a
+ * maximum sequence length"), and the deployment behind this role picks 32,768 to fit KV cache on
+ * its GPU. So the ceiling can move without the model changing at all — which is precisely why this
+ * side must bound its own prompt instead of inferring a limit from the model name.
+ *
+ * The default is conservative because the model behind a gateway ROLE is swappable at the gateway
+ * (that is the point of the indirection) and the server does not advertise `max_model_len` through
+ * the LiteLLM `/v1/models` passthrough, so this side cannot discover the real ceiling.
+ *
+ * Measured on the live vault: **3.294 chars/token** (107,475 chars = 32,625 tokens, bisected
+ * against the real endpoint). Denser content tokenizes worse — code and CJK run nearer 2.5.
+ *
+ * This number is the TOTAL: buildUserMessage subtracts `reserved` (the system prompt) from it, so
+ * the system prompt is inside the 60,000, not on top of it. Worst case at 2.5 chars/token is
+ * therefore 24,000 tokens, leaving 8,768 for the model's own JSON output inside a 32,768 window.
+ * On this vault's actual prose (3.294) it is 18,214 tokens, leaving 14,554.
+ *
+ * Raise it via `plane.maxPromptChars` when the role points at a larger serving window.
+ */
+const DEFAULT_MAX_PROMPT_CHARS = 60_000;
 
 interface ChunkRow {
   path: string;
@@ -63,30 +93,89 @@ export function parseSynthesis(raw: string): SynthesisOutput {
 }
 
 function renderChunk(c: ChunkRow, idx: number): string {
+  // trimToBoundary rather than a hard slice: cutting mid-word reads to a model as though the source
+  // itself is malformed. Same helper the shared evidence builder uses (THE-632 / #623).
   const content =
     c.content.length > CONTENT_TRUNCATE
-      ? `${c.content.slice(0, CONTENT_TRUNCATE)}\n...[truncated]`
+      ? `${trimToBoundary(c.content, CONTENT_TRUNCATE)}\n...[truncated]`
       : c.content;
   return `[${idx}] path: ${c.path} (chunk ${c.chunk_index})\ncontent: ${content}`;
 }
 
-function buildUserMessage(recent: ChunkRow[], contradictions: ContradictionRow[]): string {
-  const parts: string[] = ["RECENT CHUNKS:"];
-  parts.push(
-    recent.length === 0 ? "(none)" : recent.map((c, i) => renderChunk(c, i + 1)).join("\n\n"),
-  );
-  parts.push("\n\nOPEN CONTRADICTIONS:");
-  parts.push(
-    contradictions.length === 0
-      ? "(none)"
-      : contradictions
-          .map(
-            (c) =>
-              `id: ${c.id}\nsource: ${c.source_path}\nconflict: ${c.conflict_path}\nverdict: ${c.judge_verdict}\nrationale: ${c.judge_rationale}`,
-          )
-          .join("\n\n"),
-  );
-  return parts.join("\n");
+function renderContradiction(c: ContradictionRow): string {
+  return `id: ${c.id}\nsource: ${c.source_path}\nconflict: ${c.conflict_path}\nverdict: ${c.judge_verdict}\nrationale: ${c.judge_rationale}`;
+}
+
+export interface BuiltMessage {
+  message: string;
+  chunksUsed: number;
+  chunksDropped: number;
+  contradictionsUsed: number;
+  contradictionsDropped: number;
+}
+
+/**
+ * Build the user message within a TOTAL character budget.
+ *
+ * `reserved` is what the caller already spends on the system prompt, so the budget bounds the whole
+ * request rather than just this half — the model counts both.
+ *
+ * Contradictions are placed FIRST and get the budget ahead of chunks. They are compact, and the
+ * output schema requires the model to cite `contradiction_ids`: dropping them silently would ask
+ * for citations of evidence never supplied. Chunks are the elastic side — they are already a
+ * "newest 200" sample, so using fewer is a smaller sample, not a missing input.
+ *
+ * Whole items are dropped rather than half-included. A partially rendered chunk misrepresents what a
+ * note says, and the model is being asked to draw cross-note patterns from exactly that content.
+ */
+export function buildUserMessage(
+  recent: ChunkRow[],
+  contradictions: ContradictionRow[],
+  maxChars: number,
+  reserved = 0,
+): BuiltMessage {
+  const budget = Math.max(0, maxChars - reserved);
+  const CHUNK_HEADER = "RECENT CHUNKS:\n";
+  const CONTRA_HEADER = "\n\nOPEN CONTRADICTIONS:\n";
+  const NONE = "(none)";
+  // Fixed scaffolding is charged first, so a tiny budget yields a small valid message rather than
+  // one that silently exceeds it.
+  let spent = CHUNK_HEADER.length + CONTRA_HEADER.length + NONE.length;
+
+  const contraParts: string[] = [];
+  let contradictionsUsed = 0;
+  for (const c of contradictions) {
+    const rendered = renderContradiction(c);
+    if (spent + rendered.length + 2 > budget) break;
+    contraParts.push(rendered);
+    spent += rendered.length + 2;
+    contradictionsUsed++;
+  }
+
+  const chunkParts: string[] = [];
+  let chunksUsed = 0;
+  for (const [i, c] of recent.entries()) {
+    const rendered = renderChunk(c, i + 1);
+    if (spent + rendered.length + 2 > budget) break;
+    chunkParts.push(rendered);
+    spent += rendered.length + 2;
+    chunksUsed++;
+  }
+
+  const message = [
+    "RECENT CHUNKS:",
+    chunkParts.length === 0 ? NONE : chunkParts.join("\n\n"),
+    "\n\nOPEN CONTRADICTIONS:",
+    contraParts.length === 0 ? NONE : contraParts.join("\n\n"),
+  ].join("\n");
+
+  return {
+    message,
+    chunksUsed,
+    chunksDropped: recent.length - chunksUsed,
+    contradictionsUsed,
+    contradictionsDropped: contradictions.length - contradictionsUsed,
+  };
 }
 
 export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
@@ -106,7 +195,15 @@ export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
       .get() !== undefined;
 
   const iso = isoWeek(new Date(ctx.now()));
-  const perVault: Array<{ vault_id: string; patterns: number; clusters: number }> = [];
+  const perVault: Array<{
+    vault_id: string;
+    patterns: number;
+    clusters: number;
+    chunks_used: number;
+    chunks_dropped: number;
+    contradictions_used: number;
+    contradictions_dropped: number;
+  }> = [];
 
   for (const vaultId of vaults) {
     const recent = ctx.db
@@ -124,9 +221,20 @@ export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
           .all(vaultId, CONTRADICTION_LIMIT) as ContradictionRow[])
       : [];
 
-    const res = await roles.synthesize(
-      prompt(SYSTEM_PROMPT, buildUserMessage(recent, contradictions)),
+    // The budget bounds the WHOLE request, so the system prompt is charged against it here rather
+    // than left as invisible overhead the caller cannot see.
+    const built = buildUserMessage(
+      recent,
+      contradictions,
+      ctx.maxPromptChars ?? DEFAULT_MAX_PROMPT_CHARS,
+      SYSTEM_PROMPT.length,
     );
+    if (built.chunksDropped > 0 || built.contradictionsDropped > 0) {
+      ctx.log?.(
+        `synthesis: prompt budget dropped ${built.chunksDropped} chunk(s) and ${built.contradictionsDropped} contradiction(s) for vault ${vaultId} — raise plane.maxPromptChars if the synthesize role has a larger context`,
+      );
+    }
+    const res = await roles.synthesize(prompt(SYSTEM_PROMPT, built.message));
     let synthesis: SynthesisOutput;
     try {
       synthesis = parseSynthesis(res.text);
@@ -153,6 +261,10 @@ export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
       vault_id: vaultId,
       patterns: synthesis.patterns.length,
       clusters: synthesis.clusters.length,
+      chunks_used: built.chunksUsed,
+      chunks_dropped: built.chunksDropped,
+      contradictions_used: built.contradictionsUsed,
+      contradictions_dropped: built.contradictionsDropped,
     });
   }
 

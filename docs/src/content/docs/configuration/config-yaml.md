@@ -213,7 +213,8 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
   },
   "plane": {
     "enabled": true,
-    "intervalMinutes": 240
+    "intervalMinutes": 240,
+    "maxPromptChars": 60000
   },
   "idempotencyTtlSeconds": 86400,
   "idempotencyReclaimSeconds": 60,

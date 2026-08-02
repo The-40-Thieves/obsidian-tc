@@ -325,6 +325,7 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 |---|---|---|---|---|
 | `plane.enabled` | `boolean` | `true` |  | Run ambient sleep-time consolidation (synthesis and audit jobs). Only meaningful when the inference gateway roles are configured. |
 | `plane.intervalMinutes` | `number` | `240` |  | Minutes between consolidation passes. |
+| `plane.maxPromptChars` | `number` | `60000` |  | Aggregate character cap on a consolidation job's WHOLE gateway request (system prompt + user message). Not a per-item cap: the synthesis job already truncated each chunk to 1000 chars and still built a 169,258-char prompt from 200 of them, which the serving window rejected as ContextWindowExceeded. Sized in characters, not tokens, because no tokenizer is available on this side. The default is conservative on purpose — the model behind a gateway role is swappable at the gateway, and the server does not advertise its max_model_len through the LiteLLM /v1/models passthrough, so this side cannot discover the real ceiling. Measured on a real vault at 3.294 chars/token, 60000 is ~18.2k tokens; dense content (code, CJK) runs nearer 2.5 chars/token, giving ~24k. Both leave room for the model's own output inside a 32768 window. Raise it when the role points at a larger serving window. |
 
 ### `plur`
 
