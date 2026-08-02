@@ -82,6 +82,25 @@ if (!body) {
   process.exit(1);
 }
 
+// Conventional-commit type is a coarse proxy for "user-visible" and it over-selects: a `fix(` on a
+// CI script, the typechecker config or the merge driver changes nothing an operator can observe.
+// The escape hatch the gate below suggests ("reclassify the commit") is only available BEFORE the
+// commit is on main, so record the judgement here instead — keyed by PR number or 8-char sha, one
+// line of reason each, where it is reviewable in a diff rather than argued once in a terminal.
+const NOT_USER_VISIBLE = new Map([
+  ["583", "CI only: cross-platform dependency-cruiser invocation in the boundary gate (WP0.1)"],
+  ["599", "CI only: config-threading parser had to read the split WP1 schema leaves"],
+  [
+    "604",
+    "pure refactor: WP4.2 dispatch observability/idempotency extraction, no behaviour change",
+  ],
+  ["606", "pure refactor: WP5.1 runtime store/governance/index wiring extraction"],
+  ["608", "CI only: made the ingest-telemetry gate comment-aware (false negative in the gate)"],
+  ["624", "docs tooling: TREE.md §3/§4 generation and a facts-check pattern"],
+  ["635", "dev tooling: merge-driver registration path, not reachable from the product"],
+  ["637", "dev tooling: brought bun-smoke into the typechecker as its own tsc project"],
+]);
+
 // Completeness gate. release.mjs only RENAMES [Unreleased] -> [next]; it does not generate notes.
 // A PR that never wrote an entry is silently dropped from the release notes and nothing catches it.
 // v1.10.0 nearly shipped documenting 1 of 5 changes, omitting #270 — the packaging fix that was the
@@ -114,25 +133,96 @@ if (haveTag) {
     );
     process.exit(1);
   }
-  const subjects = execSync(`git log ${prevTag}..HEAD --format=%s`, { encoding: "utf8" })
+  // Attribute each commit to a PR. Three merge styles land on main and only two leave a mark in
+  // the commit graph:
+  //   squash merge  -> `(#N)` in the commit's own subject
+  //   merge commit  -> `Merge pull request #N from ...` on the MERGE COMMIT; every commit it
+  //                    brings in carries no marker at all
+  //   rebase merge  -> no marker anywhere
+  // Reading subjects alone therefore sees only the squashes. At the v1.14.0 cut that was 18 of 61
+  // user-visible commits: the gate printed "coverage OK (18 user-visible PR(s))" while 43 commits
+  // were structurally invisible to it, among them the docker-compose quick start (THE-638) and the
+  // PRM `bearer_methods` fix (THE-661). A gate whose domain is narrower than its name launders an
+  // omission as a green check, which is worse than having no gate at all.
+  //
+  // Second-parent-minus-first-parent is exactly the set a merge brought in. Outer merges are
+  // visited first (a merge inside a PR branch necessarily predates the merge OF that branch) and
+  // `--not <first parent>` already excludes everything reachable from main at that point, so
+  // first-claim-wins needs no further ordering care.
+  const prOfCommit = new Map();
+  for (const line of execSync(`git log ${prevTag}..HEAD --merges --format=%H%x09%P%x09%s`, {
+    encoding: "utf8",
+  })
     .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
+    .filter(Boolean)) {
+    const [, parents, subject] = line.split("\t");
+    const pr = /^Merge pull request #(\d+)\b/.exec(subject);
+    if (!pr) continue;
+    const [first, second] = parents.split(" ");
+    if (!second) continue;
+    for (const sha of execSync(`git rev-list ${second} --not ${first}`, { encoding: "utf8" })
+      .split("\n")
+      .filter(Boolean)) {
+      if (!prOfCommit.has(sha)) prOfCommit.set(sha, pr[1]);
+    }
+  }
+
+  const commits = execSync(`git log ${prevTag}..HEAD --format=%H%x09%s`, { encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => {
+      const tab = l.indexOf("\t");
+      return { sha: l.slice(0, tab), subject: l.slice(tab + 1).trim() };
+    });
   // User-visible by type. docs/chore/test/ci/refactor/style are exempt.
-  const userVisible = subjects.filter((l) => /^(feat|fix|perf|build)[(!:]/.test(l));
-  const prs = [
-    ...new Set(userVisible.flatMap((l) => [...l.matchAll(/\(#(\d+)\)/g)].map((m) => m[1]))),
-  ];
-  const missing = prs.filter((n) => !body.includes(`#${n}`));
-  if (missing.length) {
-    console.error(
-      `\nFAIL: user-visible PRs with no [Unreleased] entry: ${missing.map((n) => `#${n}`).join(", ")}\n` +
-        `release.mjs only renames [Unreleased] -> [${next}], so these would ship undocumented.\n` +
-        `Cite each PR in a note, or reclassify the commit if it is genuinely not user-visible.`,
+  const userVisible = commits.filter((c) => /^(feat|fix|perf|build)[(!:]/.test(c.subject));
+
+  const prs = new Set();
+  const orphans = [];
+  for (const c of userVisible) {
+    if (NOT_USER_VISIBLE.has(c.sha.slice(0, 8))) continue;
+    const inline = [...c.subject.matchAll(/\(#(\d+)\)/g)].map((m) => m[1]);
+    if (inline.length) {
+      for (const n of inline) prs.add(n);
+      continue;
+    }
+    const viaMerge = prOfCommit.get(c.sha);
+    if (viaMerge) {
+      prs.add(viaMerge);
+      continue;
+    }
+    orphans.push(c);
+  }
+
+  const missing = [...prs].filter((n) => !NOT_USER_VISIBLE.has(n) && !body.includes(`#${n}`));
+  // A rebase-merged commit carries no PR number anywhere, so it has to be cited by ticket. Require
+  // EVERY ticket in the subject, not just one: a commit that lands three tickets and gets credited
+  // for one leaves the other two undocumented, which is the same silent drop one level down.
+  const uncited = orphans
+    .map((c) => ({
+      c,
+      tickets: [...c.subject.matchAll(/\bTHE-\d+\b/g)].map((m) => m[0]),
+    }))
+    .map(({ c, tickets }) => ({ c, missing: tickets.filter((t) => !body.includes(t)) }))
+    .filter(({ c, missing: m }) => m.length > 0 || c.subject.search(/\bTHE-\d+\b/) === -1);
+  if (missing.length || uncited.length) {
+    const lines = [`\nFAIL: user-visible work with no [Unreleased] entry.`];
+    if (missing.length) lines.push(`  PRs:      ${missing.map((n) => `#${n}`).join(", ")}`);
+    for (const { c, missing: m } of uncited) {
+      lines.push(
+        `  commit:   ${c.sha.slice(0, 8)}  ${m.length ? `[${m.join(", ")}] ` : "(no ticket) "}${c.subject}`,
+      );
+    }
+    lines.push(
+      `release.mjs only renames [Unreleased] -> [${next}], so these would ship undocumented.`,
+      `Cite each one in a note, or add it to NOT_USER_VISIBLE above with a reason.`,
     );
+    console.error(lines.join("\n"));
     process.exit(1);
   }
-  console.log(`  CHANGELOG coverage OK (${prs.length} user-visible PR(s) since ${prevTag})`);
+  console.log(
+    `  CHANGELOG coverage OK (${prs.size} user-visible PR(s) + ${orphans.length} direct commit(s) since ${prevTag})`,
+  );
 }
 
 // Core version set; packages/plugin is bumped separately below — it now tracks the repo

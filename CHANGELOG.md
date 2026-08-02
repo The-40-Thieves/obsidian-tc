@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-08-02
+
 ### Added
 
 - **`gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616,
@@ -25,7 +27,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (`GapBatchSearchFn`); `singleQuerySearch` adapts a plain per-query function back to that shape
   for simple callers.
 
-- **Pluggable embedding and rerank provider slots (THE-677 and the provider-slots branch).** The
+- **Pluggable embedding and rerank provider slots (THE-677, #628, #631).** The
   hardcoded `switch` over embedding provider names is now a per-slot registry: `embeddings.provider`
   and `reranker.provider` resolve against it at boot, and an unknown name is a startup error that
   lists every name registered for *that* slot. Eight embedding entries ship (`ollama`, `openai`,
@@ -40,8 +42,176 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `provider.id`, so a checkpoint bump at the same model name and width rebuilds the index instead of
   silently serving the old checkpoint's vectors — it applies to `model-tier` too).
 
+  A `module` provider may not impersonate a built-in identity (#631). `chunk_embeddings.model` and
+  `vec_chunks.model` store `provider.id`, and `vecFingerprint()` folds `provider` + `model` — so a
+  module declaring `{ id: "ollama:bge-m3", provider: "ollama" }` was byte-indistinguishable from the
+  real `ollama` provider in both. Swap one for the other and the fingerprint does not move, no
+  rebuild fires, and retrieval scores queries embedded by one model against vectors produced by
+  another, with no log line: the class THE-460 closed for same-dimension swaps, reachable again
+  through the hatch. `assertUsable` now refuses a module whose `provider` is a registered built-in
+  **or** whose `id` begins `<built-in>:`. Both halves are load-bearing — a module can declare an
+  honest `provider` and still claim a built-in `id`, and `id` is the field the index stores. The
+  reserved set is derived from the registry, not hand-kept, so a provider added later is covered
+  automatically. Boot is the only place this is catchable: once the wrong vectors are being served,
+  nothing distinguishes them from the right ones.
+
   Existing configs need no migration; the six previously-supported names resolve to byte-identical
   provider ids. The one deliberate exception is the `baseUrl` guard below.
+
+- **`diagnose_retrieval` — ask why an expected note was *not* returned (THE-632, #644).** Re-runs the
+  real retrieval pipeline with per-note tracing and reports, per stage, where a note was and the
+  first stage that dropped it. A separate tool rather than a debug flag on the hot path. The
+  ticket's premise that per-stage scores were "already computed and discarded, ~50 lines" did not
+  hold: `StageMetric` carries counts and durations with zero chunk identity, so nothing retained
+  could be read back and the seam had to be built.
+
+- **`doctor --probe` — opt-in dense-embeddings liveness (THE-688, #643).** Embeds one short fixed
+  string against the configured provider and reports what it *observed*. `ready` is now a word only
+  the probed path may use. Off by default and staying that way: a diagnostic that reaches the
+  network as a side effect of being run is a different tool from the one people reach for when
+  something is already broken.
+
+- **`obsidian-tc index` — the derived-state command that was missing (THE-697, #648).** Every other
+  derived-state job (`cluster`, `activation-recompute`, `note-quality`, `gaps`) had a CLI; indexing
+  was reachable only through the `index_vault` tool or boot reconcile. Before this, `obsidian-tc
+  index` parsed as `{ kind: "serve", input: "index" }` — the word was read as a config path. Unlike
+  its siblings it provisions `cache.db`, because it is the one command reached for before the server
+  has ever run. Exits non-zero when any note failed to embed: those notes are indexed but *not*
+  retrievable.
+
+- **Scheduled episode evaluation (THE-698, #648).** `evaluateEpisodes` had no scheduled caller —
+  only the manual `obsidian-tc reflect` — so rows born `pending` stayed pending and `work_search`,
+  which serves evaluator-approved rows only, returned nothing. It now runs on the maintenance
+  cadence beside `activation-recompute`. A `doctor` signal (`experiential.evaluator`) reports the
+  backlog, keyed on *promotable* rows rather than raw pending count, since rows held for cause stay
+  pending forever by design.
+
+- **`retrieval.graphStream` config surface (THE-693, #650).** The hub-degree cap was read by
+  `graph_expansion.ts` but had zero production assignments — only the eval harness ever set it — and
+  was absent from the config schema, so `config validate` accepted `retrieval.graphStream.enabled`
+  with exit 0 while the key reached nothing. Now a real config block
+  (`enabled`/`expansionSeeds`/`perSeedCap`/`hubDegreeCap`), **off by default**: measured neutral on
+  ranking quality at n=250 (0 of 8 metrics significant after BH-FDR) though non-inferior, so it is a
+  cost lever — it removes roughly a fifth of the expansion candidate pool — not a quality one.
+
+- **`--max-per-cluster` in the eval harness (THE-692, #646).** The gate THE-692 required and did not
+  have; `maxPerCluster` appeared nowhere in `eval/run.ts`, so the ranking decision the ticket asks
+  for could not be measured at all. Threading it required four separate places, two of them silent
+  on omission — options are forwarded field-by-field rather than spread, and the artifact flag list
+  is a second array from the human-readable one.
+
+- **Gateway retry with backoff, and a liveness probe (THE-615, THE-617, #566).** The
+  `AbortController` was constructed once *outside* the request path, so its 60s budget was
+  per-call, not per-attempt — any retry inherited an already-fired signal and failed instantly.
+  Retries now happen only on 5xx and network throws; a 4xx is an answer and retrying it burns quota
+  to reach the same one. Bare 429 is terminal; `Retry-After` is honoured. Also extends the gaps
+  percentiles past the median and reports malformed JSONL by line number instead of silently
+  reinterpreting a truncated fragment as a query.
+
+- **Error catalog, generated config defaults, and an error-envelope gate (THE-470, #561).** The
+  error taxonomy had reached no reader since THE-471; it is now rendered, with THE-512 recovery
+  hints folded in from the same source. `config-yaml`'s defaults block is generated from
+  `ServerConfigSchema.parse()` after five entire defaulted blocks were found missing.
+  `api-reference.md` is gated rather than generated — every derivable fact on it was already
+  correct, so `check-error-envelope` validates envelope fields against the live taxonomy instead.
+
+- **Contributor tooling and an MCP client compatibility matrix (THE-624, THE-510, #567).** Adds
+  `just doctor` / `link-plugin` / DCO-hook installer and a synthetic scratch vault, and pins `just
+  test` to the Node vitest path so the default matches CI byte-for-byte. The Node-vs-Bun divergence
+  is not cosmetic: `open.ts` branches on `typeof Bun`, so the two invocations can resolve different
+  SQLite adapters. The matrix cites passing tests per capability row; every live third-party client
+  is labelled NOT TESTED, and the one live probe attempted is recorded as having failed rather than
+  omitted.
+
+- **Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645,
+  THE-612, #563).** `prevByCaller` was a process-local `Map`, so the chain silently broke at every
+  restart; it now falls back to the caller's most recent episode id in the database.
+  `makeActivationLookup`'s bare catch made a corrupt or full database indistinguishable from a cache
+  miss. `ensureVecChunks` DROPs and rebuilds `vec_chunks` — a full re-embed of every vault — with no
+  log, metric or audit row; it is now counted and logged.
+
+- **A Docker Compose quick start, and the vault-only boundary stated in the docs (THE-638,
+  THE-640).** A prospective user can now run the server against their vault with no local install:
+  `docker-compose.yml` bind-mounts a vault plus a config *directory* — never a single file, because
+  a file bind pins the host inode and an in-place config edit would leave the container reading the
+  stale original — and reuses `examples/config.scratch.json` as the template rather than adding a
+  second example config. README's Quick start points at the compose file instead of duplicating the
+  install instructions. Alongside it, `docs/WHY.md` now states plainly that every retrieval mode is
+  vault-only and never reaches web search, and why that is deliberate (THE-640).
+
+- **`RepresentationManifest` has a production producer, and `embeddings.pooling` now moves the index
+  identity (THE-683, #636).** `pooling` was a validated, documented config key that reached no
+  consumer — its own `.describe()` had to admit it "does not affect the index" — and
+  `RepresentationManifest` was a type with a hash and no caller. `representationFingerprint` now
+  extends the stored `vec_index_fingerprint` with the axes `VecFingerprint` cannot see (`pooling`,
+  the instruct prefixes, MRL `truncate`, the multi-vector heads) as a strict *suffix* extension, so
+  an old stored string is a prefix of the new one.
+
+  It also removes a standing hazard. `runtime/indexing-wiring.ts` and `search/indexing/index-vault.ts`
+  each hand-built a fingerprint from the same inputs, guarded only by a source-reading parity test,
+  and the second carried the warning that divergence makes boot and `index_vault` each DROP and
+  rebuild the table the other just built — an unbounded rebuild loop. The manifest is now built once
+  at the composition root and passed through `IndexVaultArgs.representation`, so the divergence is
+  unrepresentable rather than merely detected.
+
+  **Effect on upgrade: a fingerprint change here does not re-embed.** `ensureVecChunks` handles a
+  mismatch by dropping `vec_chunks` and backfilling from the already-stored `chunk_embeddings`,
+  filtered on `e.model = provider.id`. None of the added axes move `provider.id`, so the filter
+  still matches every stored row and the index refills locally — no provider calls, no billing.
+
+- **`obsidian_tc_rerank_outcome_total` — the reranker's silent fallback is now observable (#621).**
+  `rerankWithScores` catches every error and returns synthetic descending scores, which protects
+  availability but left six situations emitting identical-looking output: not configured, skipped by
+  policy, genuinely produced this order, timed out, returned garbage, provider errored. A reranker
+  broken for a week was indistinguishable from one that was working. A `RerankOutcome` is now
+  reported through an optional `onOutcome` sink and surfaces as
+  `obsidian_tc_rerank_outcome_total{vault,outcome}`. Purely additive — the return type, the fallback
+  path and the fallback *scores* are unchanged for every existing caller. `skipped_by_policy` is
+  reported one layer up in `rerank_stage.ts`, at each branch that decides not to call the function at
+  all, which is a distinction the function itself cannot see.
+
+- **Scheduled `note_quality` recompute (THE-643, THE-625 items 1-3).** `note_quality` (THE-537) sat
+  at 0 rows because `recomputeNoteQuality` was reachable only from the `obsidian-tc note-quality`
+  CLI, which nothing runs in production. It is now a fourth durable job handler beside
+  synthesis/audit/contradiction, fanned out across every configured vault and scheduled on the
+  maintenance cadence — gated on `experientialOpen` rather than `roles`, since the pass has no
+  gateway dependency. Verifying it end to end is what surfaced the bun:sqlite named-parameter bug
+  below.
+
+- **The episode amendment chain is exposed, and `graphSearch` reports coverage (THE-655,
+  THE-631).** `agent_episodes.prev_id` was selected in SQL from the original capture bus but never
+  carried by `projectEpisode()`; `work_search`/`work_episodes` now surface it. The chain is built
+  strictly per-caller, so it cannot cross the caller partition on its own — the one gap was a link
+  pointing at a since-tombstoned predecessor, which must stay invisible even by id, so
+  `visiblePrevIds()` resolves the referenced batch against `blocked = 0` and nulls out the rest.
+
+  THE-631 adds an additive, non-ranking-affecting `coverage` field on `vault_graph_search` and
+  `knowledge_search`, built from three grounded signals rather than a fabricated 0-1 score: which of
+  the five source arms actually contributed a hit; whether graph expansion was skipped by the
+  seed-strength router versus ran and got truncated; and whether the page came back under the
+  requested `finalTopK`. Present only when `graphSearch` actually ran — absent on a query-cache hit
+  or the lexical-route arm — and registered in `query_cache.ts`'s `FUNCTION_FIELDS` so the cache-key
+  coverage gate stays honest about the new callback.
+
+- **`bearer_methods_supported` in Protected Resource Metadata, and a per-vault audit breakdown
+  (THE-661, THE-606, THE-625, THE-614).** THE-661's premise — that RFC 9728 makes
+  `authorization_servers` optional, so the `isPrmConfigured` guard wrongly blocks a resource-only
+  PRM — does not survive contact with the spec this feature actually implements. RFC 9728 alone does
+  treat the field as OPTIONAL, but the MCP authorization spec overlays it and is stricter: the PRM
+  document returned by an MCP server MUST include `authorization_servers` with at least one entry,
+  word for word in both the 2025-11-25 and 2026-07-28 dated specs. The guard is correct and not
+  era-dependent. What was genuinely missing is `bearer_methods_supported` (RFC 9728 §5.2, OPTIONAL);
+  the token verifier reads only the `Authorization` header, so it is a fixed deployment fact rather
+  than a config knob and ships as a static `["header"]`. Recorded alongside it: obsidian-tc stays
+  pre-registration-only, to be revisited when a third-party client needs access with no prior
+  relationship, or access becomes multi-user.
+
+  THE-606: `runAudit`'s two health checks had no vault predicate on the null-embeddings `COUNT`, and
+  collapsed the duplicate-position `GROUP BY vault_id` back into one global number — so a
+  multi-vault deployment saw totals presented as if they described one vault, with no way to tell
+  which vault needed attention. `AuditReport.per_vault` adds the breakdown. The existing
+  single-vault test could not have caught this: every row belongs to the same vault either way, so a
+  correct global total and a mislabelled single-vault one are indistinguishable.
 
 ### Changed
 
@@ -61,7 +231,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   doubled path, and therefore already failing at runtime. `model-tier` and `module` declare no
   appended path (neither consumes the descriptor's `baseUrl`) and are exempt.
 
-- **`snapshots.enabled` now defaults to `true` (THE-648).** `trusted-local`'s permissive posture was
+- **`snapshots.enabled` now defaults to `true` (THE-648, #569).** `trusted-local`'s permissive posture was
   meant to guard against untrusted *callers* — THE-603 showed the real gap was our own write path
   (a `patch_note` replace on a lone H1 silently discarding a whole note), and the default posture
   left no rollback for it. Snapshots are unconditionally pruned inline (newest 10 versions per
@@ -77,6 +247,241 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
   **To opt out**, set `snapshots: { enabled: false }` explicitly in your config. `obsidian-tc
   doctor` now reports the effective policy (`snapshots.policy`) and warns when it is off.
+
+- **`doctor` says "configured", not "ready", for the dense retrieval head (THE-688, #642).** `ready`
+  was a literal in a template string with no branch, and `RetrievalHeadsView` carried no liveness
+  field at all, so it was structurally impossible for the check to report anything else. The cost
+  was real: Ollama was removed from a deployment while the config still named it, and for two days
+  every semantic query returned `embedding_provider_error` while `doctor` printed
+  `dense: ready (ollama, nomic-embed-text, dim 768)` and exited 0 — actively pointing an operator
+  away from the cause. It is a fresh-install failure too, since the zero-config default names a
+  provider most new users are not running.
+
+- **Bun's 10-second default request timeout no longer kills long MCP calls (THE-697, #648).**
+  `serveHono` passed no `idleTimeout`, so every request the MCP plane served inherited Bun's
+  10s default. `index_vault` over a 1,147-note vault returned `RemoteProtocolError: Server
+  disconnected` to the caller while the work completed asynchronously — a hard failure reported for
+  a successful operation. Now 120s, chosen rather than maxed: Bun accepts up to 255 and `0` disables
+  entirely, and this applies per-process to every request.
+
+- **The ACL predicates no longer recompile a glob per rule per path (THE-618, #638).**
+  `scopesForPath` called `globMatch` once per rule, and `globMatch` NFC-normalizes *both* operands
+  every call — so a path check against a 20-rule ACL paid 20 redundant `normalize("NFC")` calls on
+  the same path, plus a defensive copy of the whitelist per check. `FolderAcl` now compiles its rule
+  globs once in the constructor, in config order (last-match-wins is load-bearing, so the array is
+  never sorted or deduped), and normalizes the path once per lookup.
+
+- **One shared dense query encoder for M2 and M7 (#622).** Both surfaces built a private copy of the
+  same four-line encode closure. The duplication is not the problem — the problem is that neither
+  copy was reachable from the other's module, so nothing could assert they agreed. Add a query
+  prefix, a normalisation step or a retry to one and the two surfaces encode the *same string* into
+  *different vectors*, rank the same query differently, and every existing suite stays green.
+  `search/query-encoder.ts` is now the single owner, so the assertion has a symbol to be written
+  against. Behaviour is unchanged by construction, including the `?? []` degradation: `semanticSearch`
+  and `graphSearch` already read an empty dense vector as "no dense arm", so throwing here would turn
+  a survivable provider hiccup into a failed tool call. The batch paths (`cli/gaps.ts`,
+  `cli/citation-infer.ts`) and the sparse/late-interaction heads are deliberately out of scope — a
+  single-query encoder would reinstate exactly the N round trips THE-616 removed.
+
+- **One shared evidence builder for `reflect` and `challenge` (#623).** Three surfaces assembled
+  evidence for a model three different ways and two of them fed the *same* judge prompt, with a 2.25×
+  difference in how much of a chunk the model saw (800 vs 1800 chars) depending on which tool the
+  caller reached. None could dedupe a chunk retrieval returned twice; none could stop one large note
+  from consuming the whole context. `search/evidence.ts` now owns that mechanic — dedup (by chunk id,
+  else a **length-prefixed** `path+content` key so `{ab,c}` and `{a,bc}` cannot collide), per-note
+  quota, item cap, character budget, boundary-aware trimming, and stable citation numbers assigned
+  *after* drops.
+
+  Mechanics, deliberately not policy. Rank order in is rank order out; the proposals to prefer
+  authored links over derived edges, or to balance supporting against conflicting evidence, change
+  *which* evidence is selected, and this repo gates retrieval policy on the golden set rather than on
+  a refactor. `vault-context.ts` is untouched — it already packs to a real token budget and is the
+  one surface doing this properly. Each path's existing caps are preserved exactly, so the text
+  handed to a model is unchanged apart from dedup (strictly an improvement: counting one source twice
+  reads to a model as two sources agreeing) and the new, deliberately loose `maxPerNote`, which binds
+  only when one note supplies 20-25% of the whole evidence set.
+
+### Fixed
+
+- **`token mint` honours `OBSIDIAN_TC_JWT_SECRET` (THE-662, #562).** `readAuthBlock` bypassed
+  `loadConfig` deliberately — boot validation should not stand between an operator and a token — but
+  that also bypassed `applyEnvOverlays`, the only thing that injects the secret. So the sanctioned
+  mint tool refused on exactly the secret-handling shape the docs recommend, claiming the secret did
+  not exist while it sat in the environment.
+
+- **`vec0` is embedded in `--compile` release binaries (THE-663, #568).** Every published standalone
+  binary silently lost `vec0` on any machine that was not the CI runner: `vec.ts` resolved
+  sqlite-vec through `createRequire(import.meta.url)`, which `bun --compile` freezes to the *build*
+  machine's path. `loadVec` degrades rather than throws, so retrieval fell back to brute-force
+  cosine and still returned results — nothing detected it for two releases. The smoke gate now wipes
+  `node_modules` first, because asserting `vec_enabled` alone passed even on unfixed code (the job
+  runs in the same checkout that compiled the binary).
+
+- **QueryCache expiry sweep, `via_edge` deep copy, and two smaller correctness fixes (THE-626,
+  THE-620, THE-622, #565).** `set()` ran LRU eviction with no expiry sweep, so a live entry could be
+  evicted while an expired one held capacity; and `GraphSearchResult` is not flat, so the shallow
+  spread handed out aliased nested objects from a cache on the per-search hot path. The
+  `columnExists` probe is now memoized per *connection* rather than per module — a module-level
+  cache would leak one database's schema answer into another's.
+
+- **The idempotency-claim release has an error channel (THE-667, #641).** Triaging all 67 strictly
+  inert catch blocks against the ticket's own three-condition filter left exactly two that
+  qualified, both on a rejection path that releases the idempotency claim so a caller's retry can
+  proceed. The other 65 are correct by construction and deliberately untouched: instrumenting
+  telemetry sinks in bulk produces log noise that trains people to ignore the log, which reaches the
+  same end state as no signal from the opposite direction.
+
+- **`notes_fts` integrity is checkable, and repairable (THE-696, #648).** `ensureNotesFts`
+  provisioned with `CREATE VIRTUAL TABLE IF NOT EXISTS` — an existence test a malformed table
+  passes — and `health.fts_enabled` reported availability, so a corrupt index that kept answering
+  `MATCH` queries with plausible counts was undetectable from inside the system. Adds
+  `verifyNotesFtsIntegrity`/`repairNotesFts` (the repair re-verifies rather than trusting
+  `rebuild`'s silence), an opt-in boot gate via `OBSIDIAN_TC_VERIFY_FTS=1`, and a
+  `doctor --probe` check. On unrepairable damage `ensureNotesFts` now returns false, routing queries
+  to the disk-scan fallback instead of serving a corrupt index.
+
+- **Every durable job enqueue was broken under Bun, the production runtime (THE-665).**
+  `JobQueue.enqueue()` and the `Scheduler`'s persistence bound named `@param` placeholders against
+  bare-key objects. `bun:sqlite`'s `Statement.run()` does not throw on that — it silently binds every
+  named parameter to NULL. `node:sqlite` and `better-sqlite3` both accept the bare-key form and the
+  whole suite defaults to `node:sqlite`, so CI could never see it. Under Bun, `enqueue()` hit
+  `jobs.type`'s NOT NULL constraint and threw; `job_schedule` has no such constraint, so the
+  scheduler's writes corrupted silently — every tick failed its `ON CONFLICT(name)` match because
+  `name` was NULL and INSERTed a fresh all-NULL row instead of upserting, an unbounded leak on top of
+  the silent NULLing.
+
+  Measured across all three adapters this repo supports, positional `?` binds are the only form all
+  three apply correctly: a sigil-prefixed object key (`{"@id": …}`) fixes `bun:sqlite` but throws
+  "Missing named parameter" on `better-sqlite3`. The two affected call sites are converted; the ~209
+  others already used positional binds. `test/param-binding.test.ts` is a conformance gate over the
+  real adapters and the real call sites, with `bun:sqlite` exercised through a spawned `bun`
+  subprocess since vitest runs under Node. It asserts stored column values, never a row count — a
+  count check is exactly what let this through.
+
+  **Blast radius:** the ordinary synchronous MCP request/response path (retrieval, reads, writes)
+  never touches `JobQueue`. Only durable and task work was affected — the contradiction, synthesis
+  and audit background jobs, and opt-in MCP Tasks.
+
+- **The scheduler's durable-persistence failures have an error channel (THE-666).**
+  `ensureTable`/`seedNextRun`/`persistRunStart`/`persist` each had a bare `catch {}`, so a broken
+  `job_schedule` table and a healthy one were byte-identical from outside the process. A guarded
+  `onPersistError` channel now reports them, throttled to one call per distinct (op, job) failure
+  streak — the job-queue runner alone ticks every 15s, so an unthrottled signal would be a log flood
+  that trains people to ignore the log. The dedup key clears on the next successful write, so a later
+  failure alerts again. `seedNextRun`'s null stays collapsed for both "no stored row" and "a read that
+  threw", because the scheduling fallback is identical either way, but the read failure now reports
+  through the channel. None of this changes the best-effort contract: persistence stays disabled for
+  that write and scheduling continues regardless. The tests induce a real read-only SQLite file and a
+  real dropped table rather than stubbing errors.
+
+- **A boot failure no longer leaves the OTEL SDK running (#614).** `buildServerRuntime` composes
+  `stores → otel → wireRuntimeCore → … → transports → scheduler`, and two separate unwind stacks
+  existed — neither of which covered `otel`, which is constructed *before* `wireRuntimeCore`. A throw
+  there left telemetry running with nothing to shut it down; the original `cli.ts` had no unwind at
+  all. `otel` is now pushed onto the existing reverse-order stack in its real construction position.
+  Its `shutdown()` is deliberately wrapped in a swallowing catch: an unguarded one *replaces* the
+  boot error with the telemetry error, so an operator debugging a bad embeddings provider would be
+  shown an OTEL shutdown failure instead.
+
+- **`doctor` pre-detects an unbuildable reranker, and names the declared one (THE-679, THE-681,
+  #632).** Both gaps shared one cause — doctor answered from provider *names*. `providers.registered`
+  validates names only, and `model-tier` and `gateway` are perfectly valid names, so a config naming
+  `model-tier` without `embeddings.modelTier.full` hard-failed boot while doctor reported `ok` and
+  exited 0: silent about the one configuration guaranteed not to start. `providers/reranker-preflight.ts`
+  is now the single source of truth for why a declared block cannot build, consumed by both the boot
+  throw and the new `reranker.buildable` check, so a pre-boot verdict and the boot error cannot
+  drift. It is offline by construction — a `module` provider is never probed, because diagnosing must
+  not execute operator-supplied code.
+
+  THE-681: `retrieval.heads` checked the name-derived `multiVector` branch *before*
+  `rerankerConfigured`, so with `model-tier` plus a declared `cohere-compatible` reranker the runtime
+  used cohere-compatible while doctor printed "model-tier / ColBERT rerank capable" and never named
+  the backend actually wired. Reporting an inference over an explicit declaration is wrong precisely
+  when the operator has taken an override.
+
+- **A credential error names the config block that actually holds the key (THE-680, THE-678, #633).**
+  A `cohere-compatible` rerank failure routed through the shared `postJson` and told the operator to
+  set `embeddings.apiKey`, when the key they need is `reranker.apiKey`. Enumerating `postJson`'s call
+  sites rather than trusting the ticket's inventory found **four** distinct credential owners across
+  13 production sites, two of which the ticket did not mention: `model/bge.ts` is a second reranker on
+  this transport and authenticates with `embeddings.modelTier.full.authToken`, so a binary
+  embeddings/reranker split would have fixed the reported case and left this one wrong; and `tei.ts`
+  and `embeddings/bge-m3.ts` send no authorization header at all, making "configure a key" a third
+  wrong answer pointing at a knob that reaches nothing.
+
+  `credentialSlot` is a **required** field on `PostJsonOptions` rather than a defaulted one — a
+  default is precisely what let every adapter inherit the `embeddings` hint silently, and making it
+  required turns the typechecker into the gate against the next adapter guessing. That is what
+  surfaced the `bge-reranker` site, which no grep in the ticket's terms would have found. Nothing
+  asserted the hint text anywhere before this, which is why the wrong prefix survived. THE-678
+  documents that `modelTier.dense.revision`/`.full.revision` are provenance-only and redirects to the
+  top-level `embeddings.revision`, with both halves of that redirection now pinned by tests.
+
+- **The published container image no longer advertises Bun's commit as its own.** OCI labels are
+  inherited from the base image unless overridden, and `oven/bun:1-slim` carries its own
+  `org.opencontainers.image.revision` and `.created`. The publish workflow set `source`, `version`
+  and `licenses` but not those two, so every image since has shipped
+  `revision=0d9b296af33f2b851fcbf4df3e9ec89751734ba4` — a commit that exists in no obsidian-tc
+  history — and `created=2026-05-13`, Bun's base build date, directly beside our own source URL.
+  That pairing is worse than either label alone: a correct `source` lends credibility to a
+  `revision` that resolves to nothing, so anyone asking which commit produced an image got a
+  confidently wrong answer. `revision`, `created` and `title` are now set explicitly in both
+  `publish.yml` and `release-image.yml`.
+
+- **`bun run map` and `check:boundaries` refuse to run against a stale `dist/` (THE-664, THE-607,
+  THE-604).** `gen-tree-map.mjs`'s own header already documented the hazard — with `packages/*/dist`
+  present, dependency-cruiser resolves workspace packages differently and reports a
+  wrong-but-internally-deterministic module count, so `drift-gate` then fails in CI for reasons that
+  look unrelated to the developer's change. It was commented, not guarded. Measured at 287 modules /
+  1184 dependencies clean versus 286 / 1089 with a real `packages/shared/dist`, which is not merely
+  cosmetic: the bare specifier resolves through the published `exports` instead of the tsconfig
+  `paths` mapping to `src`. Both guards were watched firing and clearing. THE-607 runs the ACL
+  extractor audit in strict mode over real dispatch in CI; THE-604 records, in `docs/README.md`, why
+  `docs/` stays on TypeScript ^6.0.3 — `@astrojs/check` declares `^5.0.0 || ^6.0.0` and no released
+  version admits TypeScript 7, and `astro check` is on the build path.
+
+### Security
+
+- **The query router's rare-term signal no longer leaks term existence across the ACL (THE-691,
+  #645).** `termDf` counted every FTS match with no ACL, and `routeQuery` embeds the result as
+  `rare-term:<token>(df=<n>)` — returned verbatim by `vault_graph_search`, `knowledge_search`,
+  `vault_context` and `reflect`. Any caller holding `read:notes` could probe a guessed term with one
+  ordinary search and read the answer out of a normal successful response. A content-membership
+  oracle, not merely a path one: it revealed which *words* appear in notes the caller is denied.
+
+- **The lexical and sparse arms filter by ACL at query time (THE-632, #644).** The dense arm has
+  filtered in SQL since THE-287; `bm25Chunks` and `sparseSearch` did not — they queried the whole
+  vault and were filtered downstream, which removes unreadable hits from the *results* but not from
+  the *counts*. Beyond the disclosure, unreadable chunks occupied slots in each arm's top-k,
+  crowding out readable ones.
+
+- **The router's timing oracle is closed, and BM25 no longer leaks its result length (THE-694,
+  THE-695, #649).** THE-691 closed the *value* channel; latency still correlated with how much
+  denied content matched a caller-supplied term — measured at 72× with non-overlapping
+  distributions, both queries returning 0. No in-SQL filter removes that (the plan is a full
+  `chunk_fts` scan plus a per-row membership probe, so work tracks *total* matches however the
+  predicate is written), so the probe is no longer issued for restricted callers and the paged scan
+  is deleted rather than left reachable. Separately, `bm25Chunks` over-fetched and filtered in JS,
+  so an underfill meant hidden rows had outranked the caller's and the returned *length* depended on
+  hidden content; it now filters in SQL with an exact `LIMIT`.
+
+  **Effect on upgrade:** callers with a restricted read ACL lose rare-term lexical routing and will
+  pay an embedding round-trip on those queries where they previously took a lexical short-circuit.
+  Quoted-phrase and temporal routing are unaffected.
+
+- **The poison-scan capture path is bounded, and the secret patterns cover more token shapes
+  (THE-619).** `assessPoison` had no input size cap, so a large tool-arg payload made every regex
+  family walk the full string on every dispatch. `MAX_TEXT_LENGTH` (64 KiB) truncates and scans
+  rather than refusing — refusing would drop the episode row entirely through the capture bus's
+  best-effort try/catch — and an over-cap payload always carries an `oversized` signal, so it can
+  never be graded `none` merely because the truncated prefix looked clean. `CHANNEL_TRUST` and
+  `RISK_TRUST_MULTIPLIER` are now `Readonly<>` and frozen; nothing mutates them today, and the
+  frozen-table test demonstrated the risk by showing an unfrozen mutation bleeding into a later test.
+
+  The ticket placed `SECRET_PATTERNS` in `poison.ts`; it actually lives in `experiential/episodes.ts`,
+  and the gaps were verified empirically by running `redactSecrets` against each candidate rather
+  than by reading the table. Redact-before-truncate ordering is now pinned, so a secret straddling
+  the truncation point cannot survive as a partial literal.
 
 ## [1.13.1] - 2026-07-28
 
