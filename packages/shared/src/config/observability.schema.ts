@@ -243,6 +243,14 @@ export const PlaneConfigSchema = z
       .positive()
       .default(240)
       .describe("Minutes between consolidation passes."),
+    gatewayMaxAttempts: z
+      .number()
+      .int()
+      .positive()
+      .default(6)
+      .describe(
+        "Attempts a consolidation job's gateway call may make before failing, each with its own fresh timeout. Higher than the interactive default (3) because the models behind the gateway roles may be serverless and scale to zero: a cold start measured at over 180s exceeded 3 attempts x 60s, so every scheduled pass failed with a timeout while the same request against a warm endpoint took 4.8s. More ATTEMPTS rather than a longer per-attempt timeout — each attempt still fails fast while the endpoint warms in the background, whereas a per-attempt budget wider than a cold start would hold the caller for the whole wake-up. Separate from the interactive path on purpose: a multi-minute budget suits a background weekly pass and not a user-facing call.",
+      ),
     maxPromptChars: z
       .number()
       .int()

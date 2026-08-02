@@ -189,14 +189,45 @@ export async function wireGatewaySeams(
     : (buildModelTierReranker(embeddings) ?? gatewayReranker);
   // W-WORKERS generative seam -> gateway extract/synthesize/judge roles (null -> jobs/challenge
   // no-op).
-  const roles: GatewayRoles | null = gw
-    ? {
-        extract: (r) => gw.extract(r).then((x) => ({ text: x.text, model: x.model })),
-        synthesize: (r) => gw.synthesize(r).then((x) => ({ text: x.text, model: x.model })),
-        judge: (r) => gw.judge(r).then((x) => ({ text: x.text, model: x.model })),
-      }
-    : null;
+  const roles: GatewayRoles | null = gw ? rolesFrom(gw) : null;
   return { gateway, reranker, roles };
+}
+
+/** Adapt a GatewayClient to the three-role seam the workers consume. */
+function rolesFrom(gw: GatewayClient): GatewayRoles {
+  return {
+    extract: (r) => gw.extract(r).then((x) => ({ text: x.text, model: x.model })),
+    synthesize: (r) => gw.synthesize(r).then((x) => ({ text: x.text, model: x.model })),
+    judge: (r) => gw.judge(r).then((x) => ({ text: x.text, model: x.model })),
+  };
+}
+
+/**
+ * THE-700: a SEPARATE roles seam for the background plane, with a longer retry budget.
+ *
+ * The Modal endpoints behind the gateway roles scale to zero, and a cold start was measured at
+ * >180s — longer than the default 3 attempts x 60s, so every scheduled synthesis pass died with
+ * `gateway timed out` while the same request against a warm endpoint took 4.8s.
+ *
+ * MORE ATTEMPTS, not a longer per-attempt timeout. Each attempt still fails fast; the endpoint
+ * warms in the background between them, and a later attempt lands on a hot container. Widening the
+ * per-attempt budget instead would hold the caller through the entire wake-up, which is exactly
+ * what gateway/client.ts's own comment argues against.
+ *
+ * SEPARATE from the interactive roles on purpose. `roles` is shared with the M7 challenge tool,
+ * where a ~6 minute budget is absurd — a user is waiting. A weekly consolidation pass is not.
+ *
+ * NOT a ping()-based pre-warm, which was the obvious idea and is wrong: ping() hits LiteLLM's
+ * /health, and LiteLLM health-checks EVERY configured model — measured at 60.8s across 470 models
+ * spanning 9 hosted providers. Using it to warm one Modal endpoint would issue real billable calls
+ * to every unrelated vendor.
+ */
+export function planeRoles(attempts: number): GatewayRoles | null {
+  try {
+    return rolesFrom(createGatewayClient({ maxAttempts: attempts }));
+  } catch {
+    return null; // unconfigured gateway — same graceful degradation as the interactive seam
+  }
 }
 
 export interface M1WiringDeps {
