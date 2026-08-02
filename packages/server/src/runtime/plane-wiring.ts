@@ -38,6 +38,7 @@ import type { VaultRegistry } from "../vault/registry";
 import type { IndexHealthState } from "./indexing-wiring";
 import { type Observability, wireActivationRecompute } from "./observability";
 import { applyReconcileOutcome } from "./reconcile-outcome";
+import { planeRoles } from "./tool-wiring";
 
 // #14 (contradiction handler): a completed/dead-lettered job for a given key must not permanently
 // block re-judging recurring identical content — see EnqueueOptions.replaceIfTerminal.
@@ -97,6 +98,9 @@ export interface JobHandlersDeps {
   /** config.plane.maxPromptChars — aggregate cap on a generative job's whole gateway request.
    *  Absent -> each job's own conservative default. */
   maxPromptChars?: number | undefined;
+  /** config.plane.gatewayMaxAttempts — retry budget for the PLANE's gateway calls, separate from
+   *  the interactive seam. Absent -> the interactive client's own default. */
+  gatewayMaxAttempts?: number | undefined;
   /** config.vaults */
   vaults: VaultConfigInput[];
 }
@@ -135,9 +139,14 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
     });
     // #14: synthesis/audit are durable jobs; wrapPlaneJob turns their ok:false into the THROW its
     // dead-letter/retry needs.
+    // THE-700: the SCHEDULED jobs get their own longer-budget client. The Modal endpoints scale
+    // to zero and a cold start measured >180s, past the interactive 3x60s. Falls back to the
+    // interactive roles when unconfigured, so behaviour is unchanged without the knob.
+    const bgRoles =
+      (deps.gatewayMaxAttempts !== undefined ? planeRoles(deps.gatewayMaxAttempts) : null) ?? roles;
     const planeCtx = {
       db: deps.db,
-      roles,
+      roles: bgRoles,
       now: Date.now,
       ...(deps.maxPromptChars !== undefined ? { maxPromptChars: deps.maxPromptChars } : {}),
     };
@@ -274,16 +283,24 @@ export function registerPlaneSchedule(
     intervalMs: deps.plane.intervalMinutes * 60_000,
     run: () => {
       const iso = isoWeek(new Date());
+      // THE-700: replaceIfTerminal, or one failure costs the WHOLE period. enqueue() dedups
+      // against a terminal row, so a `failed` synthesis keeps `synthesis:<iso-week>` and every
+      // later enqueue that week is a silent no-op — a single cold-start timeout locked out the
+      // entire week's consolidation until the row was deleted by hand. maxAttempts stays 1: the
+      // gateway client owns the retry budget (plane.gatewayMaxAttempts), and a job-level retry of
+      // a genuine 4xx would only repeat the same mistake.
       deps.jobQueue.enqueue("synthesis", {
         class: "plane",
         idempotencyKey: `synthesis:${iso.year}-${iso.week}`,
         maxAttempts: 1,
+        replaceIfTerminal: true,
       });
       const day = new Date().toISOString().slice(0, 10);
       deps.jobQueue.enqueue("audit", {
         class: "plane",
         idempotencyKey: `audit:${day}`,
         maxAttempts: 1,
+        replaceIfTerminal: true,
       });
     },
     onError: (e) => process.stderr.write(`[plane-enqueue] enqueue failed: ${errorMessage(e)}\n`),

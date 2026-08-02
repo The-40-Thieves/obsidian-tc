@@ -6,6 +6,32 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every scheduled consolidation pass died on a serverless cold start, and one failure cost the
+  whole period (THE-700).** Two independent single-shot budgets stacked badly. The gateway client
+  allows 3 attempts x 60s; the models behind the gateway roles scale to zero and a cold start was
+  measured at **over 180s**, so the whole budget expired before the endpoint woke. The same request
+  against a warm endpoint takes **4.8s** — this was never about the workload.
+
+  Worse, `enqueue()` dedups against a *terminal* row unless `replaceIfTerminal` is set, and the
+  plane schedule did not set it. So the `failed` row kept `synthesis:<iso-week>` and every later
+  enqueue that week was a **silent no-op**: a single cold-start timeout locked out the entire
+  week's consolidation, and clearing it required deleting the row by hand.
+
+  `plane.gatewayMaxAttempts` (default 6) now gives the background plane its own retry budget —
+  365s, past the observed cold start — while the interactive seam keeps 3 attempts, because a
+  six-minute budget is right for a weekly pass and absurd for a user-facing call. More **attempts**
+  rather than a longer per-attempt timeout: each attempt still fails fast while the endpoint warms
+  between them, whereas widening the per-attempt budget would hold the caller through the entire
+  wake-up. The plane's enqueues now set `replaceIfTerminal`, so a failed period is retried on the
+  next tick instead of being locked out until the key rolls.
+
+  **Not** a `ping()`-based pre-warm, which was the obvious idea and is wrong: `ping()` hits
+  LiteLLM's `/health`, and LiteLLM health-checks *every* configured model — measured at 60.8s
+  across 470 models spanning 9 providers. Warming one endpoint that way would issue real billable
+  calls to every unrelated vendor.
+
 ## [1.14.3] - 2026-08-02
 
 ### Fixed
