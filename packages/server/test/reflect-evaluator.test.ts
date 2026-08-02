@@ -1,6 +1,6 @@
-// THE-222 — sleep-time half pins. Safety invariants first: born-ineligible rows are never
-// raised, the judge can only lower (and a malformed response aborts the judge layer with the
-// deterministic promotions standing), unstable ok/error clusters are held. Preference profile:
+// THE-222 — sleep-time half pins. Safety invariants first: born-ineligible rows are never raised,
+// unstable ok/error clusters are held, and (THE-701) a plain error PROMOTES — errors are lessons
+// too. The judge layer was removed after measurement; see reflect.ts's header. Preference profile:
 // typed deltas only (the ACE constraint) — add/strengthen/weaken/retract with weight counters,
 // monotonic batch versions, retraction keeps the row at weight 0, and rows not named by a
 // delta are untouched.
@@ -77,7 +77,7 @@ describe("evaluateEpisodes (THE-222)", () => {
     seed(db, "e2", { status: "error" });
     seed(db, "poisoned", { eligibility: "ineligible" });
     const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000 });
-    expect(stats).toMatchObject({ scanned: 2, promoted: 2, held: 0, denied: 0, judged: 0 });
+    expect(stats).toMatchObject({ scanned: 2, promoted: 2, held: 0, denied: 0 });
     expect(elig(db, "e1")).toBe("eligible");
     expect(elig(db, "e2")).toBe("eligible"); // errors are lessons too
     expect(elig(db, "poisoned")).toBe("ineligible"); // the invariant
@@ -108,38 +108,28 @@ describe("evaluateEpisodes (THE-222)", () => {
     expect(elig(db, "stable")).toBe("eligible");
   });
 
-  it("judge can only lower: hold -> pending, deny -> ineligible", async () => {
+  // THE-701. The test above pins that a born-ineligible row STAYS ineligible. This pins the
+  // complement, which it does not: that no PENDING row is ever lowered INTO that state. Those are
+  // different properties — the removed judge satisfied the first while violating the second on 35
+  // rows, so a test asserting only "the poisoned row is still poisoned" would have passed
+  // throughout. 'ineligible' is now reachable solely from assessPoison at capture time.
+  it("the pass denies NOTHING — 'ineligible' is only ever set at capture", async () => {
     const db = edb0();
-    seed(db, "j1");
-    seed(db, "j2");
-    seed(db, "j3");
-    const judge = async () => ({
-      text: JSON.stringify({
-        verdicts: [
-          { id: "j1", verdict: "hold" },
-          { id: "j2", verdict: "deny" },
-          { id: "j3", verdict: "ok" },
-        ],
-      }),
-      model: "mock",
-    });
-    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000, judge });
-    expect(stats).toMatchObject({ judged: 3, promoted: 1, held: 1, denied: 1 });
-    expect(elig(db, "j1")).toBe("pending");
-    expect(elig(db, "j2")).toBe("ineligible");
-    expect(elig(db, "j3")).toBe("eligible");
-  });
-
-  it("a malformed judge response aborts the layer; deterministic promotions stand", async () => {
-    const db = edb0();
-    seed(db, "k1");
-    seed(db, "k2");
-    const judge = async () => ({ text: "not json at all", model: "mock" });
-    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000, judge });
-    expect(stats.judgeAborted).toBe(true);
-    expect(stats.promoted).toBe(2);
-    expect(elig(db, "k1")).toBe("eligible");
-    expect(elig(db, "k2")).toBe("eligible");
+    seed(db, "p1", { status: "error" });
+    seed(db, "p2", { status: "ok" });
+    seed(db, "p3", { eligibility: "ineligible" });
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+    expect(stats.denied).toBe(0);
+    expect(elig(db, "p3")).toBe("ineligible");
+    expect(
+      (
+        db
+          .prepare("SELECT COUNT(*) AS n FROM agent_episodes WHERE eligibility = 'ineligible'")
+          .get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(1);
   });
 });
 
