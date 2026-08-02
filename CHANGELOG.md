@@ -70,6 +70,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **The model service answered 500, not 401, for an `Authorization` header carrying a raw byte
+  `>= 0x80` (THE-704, #663).** `hmac.compare_digest` refuses a `str` with any non-ASCII character —
+  it raises `TypeError` rather than returning `False` — and Starlette decodes header bytes as
+  latin-1, so one high byte on the wire became an unhandled exception on a path any unauthenticated
+  caller can reach. Fail-closed throughout (the raise preceded any comparison, so nothing leaked and
+  no timing signal existed), but a 401 is the honest answer. It compares bytes now.
+
+  A conventional client cannot reach it — `httpx` encodes header values as ASCII and raises
+  client-side — which is why it sat unnoticed. Raw bytes on the wire are another matter.
+
+  The same fault also meant a **non-ASCII `auth_token` in config could never authenticate at all**,
+  since the `TypeError` fired on the matching path too.
+
+  Nine tests now cover the bearer comparison, six of which fail against the old code. Before this,
+  the only auth assertion in the suite sent no header at all, so `compare_digest` itself — the one
+  line here carrying a security rationale comment — had never been exercised.
+
 - **The documented companion-plugin route table was 11 routes and 3 verbs behind the code
   (THE-703, #662).** `ARCHITECTURE.md` §3.1 listed 17 routes across 9 families; the companion
   ships **28 across 15**. `git` (5 routes), `remotely-save` (2), `omnisearch`, `datacore`,

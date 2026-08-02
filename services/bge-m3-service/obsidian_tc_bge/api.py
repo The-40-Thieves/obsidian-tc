@@ -60,9 +60,28 @@ def require_auth(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=503, detail="service auth token not configured")
     # Constant-time comparison: a plain `!=` on the bearer string leaks, via response timing, how
     # many leading bytes matched, letting an attacker recover the token byte-by-byte. compare_digest
-    # is short-circuit-free. Guard the None header first (compare_digest requires a str).
-    expected = f"Bearer {settings.auth_token}"
-    if authorization is None or not hmac.compare_digest(authorization, expected):
+    # is short-circuit-free.
+    #
+    # Compare BYTES, not str (THE-704). compare_digest REFUSES a str containing any non-ASCII
+    # character — it raises TypeError rather than returning False — and Starlette decodes header
+    # bytes as latin-1, so a single raw byte >= 0x80 on the wire arrives here as a non-ASCII
+    # codepoint. Measured against the old str comparison: `b"Bearer \xff"` produced HTTP 500, an
+    # unhandled exception on a path any unauthenticated caller can reach. Fail-closed either way —
+    # the raise happened before any comparison, so nothing leaked — but a 401 is the honest answer
+    # and an unhandled TypeError is not. A conventional client cannot even send it (httpx encodes
+    # header values as ASCII and raises client-side); raw bytes on the wire can.
+    #
+    # latin-1 is the exact inverse of Starlette's decode, so this recovers the bytes the client
+    # actually sent — including a multi-byte UTF-8 token, whose bytes then match `expected` as
+    # encoded below. `errors="replace"` cannot raise, which matters because this runs before
+    # authentication; a codepoint above U+00FF can only arrive from a direct in-process call, and
+    # mapping it to b"?" is no weaker than the caller sending b"?" themselves.
+    #
+    # The missing-header case folds into the same comparison rather than short-circuiting ahead of
+    # it, so both rejection paths run one code path instead of two.
+    expected = f"Bearer {settings.auth_token}".encode()
+    provided = (authorization or "").encode("latin-1", "replace")
+    if not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
