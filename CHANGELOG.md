@@ -6,9 +6,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-08-02
+
 ### Removed
 
-- **The episode-eligibility judge (THE-701).** An LLM call in the sleep-time evaluator has been
+- **The episode-eligibility judge (THE-701, #661).** An LLM call in the sleep-time evaluator has been
   removed after measuring it, not on principle.
 
   Over 333 live candidates it denied 35 episodes — **all 35 `status=error`**, zero false positives
@@ -39,7 +41,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
-- **`--acl-allow` — the eval harness can finally vary ACL state (THE-699).** Every ACL-dependent
+- **`--acl-allow` — the eval harness can finally vary ACL state (THE-699, #660).** Every ACL-dependent
   retrieval change was unfalsifiable on the golden set: `eval/run.ts` only ever *forwarded* an
   optional `isReadable` that nothing set, and the two harnesses that did set it
   (`densify-index.ts`, `perf/harness.ts`) set it to `() => true` — a constant that makes the filter
@@ -106,7 +108,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   passing.
 
 - **Every scheduled consolidation pass died on a serverless cold start, and one failure cost the
-  whole period (THE-700).** Two independent single-shot budgets stacked badly. The gateway client
+  whole period (THE-700, #659).** Two independent single-shot budgets stacked badly. The gateway client
   allows 3 attempts x 60s; the models behind the gateway roles scale to zero and a cold start was
   measured at **over 180s**, so the whole budget expired before the endpoint woke. The same request
   against a warm endpoint takes **4.8s** — this was never about the workload.
