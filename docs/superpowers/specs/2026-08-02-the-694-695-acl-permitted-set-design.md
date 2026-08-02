@@ -234,6 +234,31 @@ sequentially.
 1. Migration + module + tests. Closes nothing on its own.
 2. `termDf` restricted-caller skip. **Closes THE-694.**
 3. `bm25Chunks` join. **Closes THE-695 item 2.**
-4. Walk filter behind a config flag, dark. Three-arm eval (off / hard cap / smooth damping) at
-   n=250 against the standing bar, sigma_d 0.204 / MDE 0.036 (THE-674), jointly with THE-693.
-   **Closes THE-695 item 1 and THE-693** on the measured outcome, whichever way it falls.
+4. Walk filter behind a config flag, dark.
+
+## Measured after implementation: the walk filter cannot be evaluated on this corpus
+
+The plan called for a three-arm eval covering both THE-693's hub defence and THE-695's walk filter.
+Only the first is measurable here.
+
+`eval/run.ts` never populates `isReadable` — there is no `--acl` flag and no assignment anywhere in
+the harness — so the eval runs **fully unrestricted**. With every path readable the permitted set
+contains the whole universe, and the walk join prunes nothing. Demonstrated rather than argued, on
+the real store: a set built with `isReadable: () => true` held all **1,146** paths, and across 60
+real seeds the 2-hop walk returned **identical** node sets with and without the join — 13,130 nodes
+both ways, **0 differing seeds**.
+
+So an `--acl-walk-filter` arm would return a guaranteed null, and reporting that as "no measured
+effect" would be false: it is *no possible* effect, which is a different claim.
+
+This also settles the production question. Cave is single-principal, so
+`readEnumerationUnrestricted(acl)` is true, the fast path never calls `ensureAclPathSet`, and the
+walk filter never engages — it is **inert in this deployment by construction**. Its recall cost is
+borne only by restricted callers, who are exactly the callers the non-interference property
+protects. That is a design argument, not a measurement, and it should be recorded as one.
+
+Evaluating it properly would need a golden set scored against a *restricted* principal — a
+different corpus and a different question than THE-674's bar answers.
+
+5. **THE-693 only:** three-arm eval (off / hard cap / smooth damping) at n=250 against the standing
+   bar, sigma_d 0.204 / MDE 0.036 (THE-674). **Closes THE-693** on the measured outcome.
