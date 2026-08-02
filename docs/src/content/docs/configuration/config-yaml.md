@@ -70,6 +70,12 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "sparse": false,
     "colbert": false,
     "gatedRerank": false,
+    "graphStream": {
+      "enabled": false,
+      "expansionSeeds": 8,
+      "perSeedCap": 3,
+      "hubDegreeCap": 40
+    },
     "densify": {
       "tagEdges": false,
       "maxTagFanout": 25,

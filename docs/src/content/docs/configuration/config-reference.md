@@ -231,6 +231,10 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `retrieval.densify.maxTagFanout` | `number` | `25` |  | A tag applied to more notes than this is treated as a hub rather than a signal and emits no edges. |
 | `retrieval.densify.tagEdges` | `boolean` | `false` |  | Emit shared-frontmatter-tag co-occurrence edges (edge_type shared_tag). |
 | `retrieval.gatedRerank` | `boolean` | `false` |  | Gate a cross-encoder rerank of the fused top-K onto hard queries only (weak top-1 seed, router silent). A no-op without a configured reranker (model-tier BGE or the gateway /rerank passthrough). |
+| `retrieval.graphStream.enabled` | `boolean` | `false` |  |  |
+| `retrieval.graphStream.expansionSeeds` | `number` | `8` |  |  |
+| `retrieval.graphStream.hubDegreeCap` | `number` | `40` |  |  |
+| `retrieval.graphStream.perSeedCap` | `number` | `3` |  |  |
 | `retrieval.rrfK` | `number` | `10` |  | Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits. |
 | `retrieval.sparse` | `boolean` | `false` |  | Fuse a bge-m3 learned-sparse stream into RRF at serve time. A no-op unless the embeddings provider emits the multi-vector heads (bge-m3 or model-tier). |
 
