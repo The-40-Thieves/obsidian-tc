@@ -74,7 +74,7 @@ Thirteen named components in V1. Each component has an owner of state, a languag
 
 ### Obsidian-side (separate process, lives inside the Obsidian app)
 
-**(12) Companion plugin.** TypeScript, standard Obsidian plugin packaged as `obsidian-tc`. Extends Local REST API plugin with `/obsidian-tc/v1/*` routes. Owns command palette dispatch and the per-plugin bridge endpoints (Dataview, Tasks, Templater, QuickAdd, Text Extractor OCR, Excalidraw, make.md). Runs a startup shape self-check over the Obsidian internals it duck-types (THE-282), surfaced on `/probe` as `shape_ok` / `shape_warnings`. Ships `versions.json` (version → `minAppVersion`) for community-store submission. NOT responsible for vault data — Obsidian owns it.
+**(12) Companion plugin.** TypeScript, standard Obsidian plugin packaged as `obsidian-tc`. Extends Local REST API plugin with `/obsidian-tc/v1/*` routes. Owns command palette dispatch and the per-plugin bridge endpoints (Dataview, Tasks, Templater, QuickAdd, Text Extractor OCR, Excalidraw, make.md, Omnisearch, Datacore, Metadata Menu, Obsidian Git, Remotely Save, plus the **core** Daily Notes plugin) — see §3.1 for the shipped route table. Runs a startup shape self-check over the Obsidian internals it duck-types (THE-282), surfaced on `/probe` as `shape_ok` / `shape_warnings`. Ships `versions.json` (version → `minAppVersion`) for community-store submission. NOT responsible for vault data — Obsidian owns it.
 
 **(13) Local REST API plugin.** Third-party dependency (`coddingtonbear/obsidian-local-rest-api`). HTTP server inside Obsidian process on port 27124 (default). Owns filesystem-level vault access via HTTP. NOT responsible for obsidian-tc-specific endpoints — companion plugin extends.
 
@@ -277,27 +277,46 @@ Success envelope:
 }
 ```
 
-**Routes (as shipped — `packages/plugin/src/routes.ts`, all under `/obsidian-tc/v1`):**
+**Routes (as shipped — assembled by `buildRoutes` in `packages/plugin/src/routes.ts` from the
+per-family modules in `packages/plugin/src/routes/`, all under `/obsidian-tc/v1`).** `/probe` is the
+only `GET`; every other route is `POST`, including the `list`-shaped ones — they take a JSON body
+(filters, vault-relative paths) rather than a query string.
 
 ```
-GET    /obsidian-tc/v1/probe                → capability discovery (see §6)
-GET    /obsidian-tc/v1/commands/list        → list command palette commands
-POST   /obsidian-tc/v1/commands/execute     → run command palette command
-POST   /obsidian-tc/v1/dataview/dql         → execute DQL query
-POST   /obsidian-tc/v1/dataview/eval        → eval Dataview field expression
-POST   /obsidian-tc/v1/dataview/validate    → parse DQL without exec
-POST   /obsidian-tc/v1/tasks/filter         → run Tasks plugin filter expression
-GET    /obsidian-tc/v1/templater/list       → list templates with metadata
-POST   /obsidian-tc/v1/templater/execute    → run Templater template
-GET    /obsidian-tc/v1/quickadd/actions     → list configured QuickAdd actions
-POST   /obsidian-tc/v1/quickadd/trigger     → fire QuickAdd action by name
-POST   /obsidian-tc/v1/ocr/attachment       → Text Extractor OCR, one attachment
-POST   /obsidian-tc/v1/ocr/bulk             → Text Extractor OCR, bulk
-POST   /obsidian-tc/v1/excalidraw/read      → read Excalidraw note
-POST   /obsidian-tc/v1/excalidraw/write     → create/update Excalidraw
-POST   /obsidian-tc/v1/makemd/spaces        → list make.md spaces
-POST   /obsidian-tc/v1/makemd/query         → query make.md space
+GET    /obsidian-tc/v1/probe                 → capability discovery (see §6)
+POST   /obsidian-tc/v1/commands/list         → list command palette commands
+POST   /obsidian-tc/v1/commands/execute      → run command palette command
+POST   /obsidian-tc/v1/dataview/dql          → execute DQL query
+POST   /obsidian-tc/v1/dataview/eval         → eval Dataview field expression
+POST   /obsidian-tc/v1/dataview/validate     → parse DQL without exec
+POST   /obsidian-tc/v1/tasks/filter          → run Tasks plugin filter expression
+POST   /obsidian-tc/v1/templater/list        → list templates with metadata
+POST   /obsidian-tc/v1/templater/execute     → run Templater template
+POST   /obsidian-tc/v1/quickadd/actions      → list configured QuickAdd actions
+POST   /obsidian-tc/v1/quickadd/trigger      → fire QuickAdd action by name
+POST   /obsidian-tc/v1/ocr/attachment        → Text Extractor OCR, one attachment
+POST   /obsidian-tc/v1/ocr/bulk              → Text Extractor OCR, bulk
+POST   /obsidian-tc/v1/excalidraw/read       → read Excalidraw note
+POST   /obsidian-tc/v1/excalidraw/write      → create/update Excalidraw
+POST   /obsidian-tc/v1/makemd/spaces         → list make.md spaces
+POST   /obsidian-tc/v1/makemd/query          → query make.md space
+POST   /obsidian-tc/v1/omnisearch/search     → Omnisearch full-text query
+POST   /obsidian-tc/v1/datacore/query        → run a Datacore query
+POST   /obsidian-tc/v1/metadata-menu/fields  → read Metadata Menu field definitions for a note
+POST   /obsidian-tc/v1/daily-notes/resolve   → resolve the daily-note path for a date (CORE plugin)
+POST   /obsidian-tc/v1/git/status            → obsidian-git working-tree status
+POST   /obsidian-tc/v1/git/diff              → obsidian-git diff for a path
+POST   /obsidian-tc/v1/git/log               → obsidian-git commit log
+POST   /obsidian-tc/v1/git/stage             → obsidian-git stage a path
+POST   /obsidian-tc/v1/git/commit            → obsidian-git commit (HITL-gated server-side)
+POST   /obsidian-tc/v1/remotely-save/status  → Remotely Save sync status
+POST   /obsidian-tc/v1/remotely-save/trigger → fire a Remotely Save sync
 ```
+
+Every bridge duck-types the third-party plugin's internals; absence degrades onto the error taxonomy
+(`plugin_missing` / `plugin_unreachable`, §3.1 envelope) rather than throwing. `daily-notes` is an
+Obsidian **core** plugin, resolved through the internal-plugin registry, which is why it has no
+`CAP_IDS` entry (§6).
 
 There are no `/active`, `/smart-connections/*`, `/context/bundle`, `/workspaces/*`, `/bookmarks/*`, or `/periodic-notes/*` routes: the workspace / bookmark / periodic-note tools operate on `.obsidian/*.json` and vault files directly (component chain, §1), and the Smart Connections / Smart Context embedding bridge was never shipped.
 
@@ -490,7 +509,7 @@ Server fires `GET /obsidian-tc/v1/probe` to the configured Local REST API plugin
 }
 ```
 
-The capability keys are exactly the companion's bridgeable plugin set (`CAP_IDS` in `packages/plugin/src/routes.ts`): dataview, tasks, templater, quickadd, excalidraw, text-extractor, make-md. `vault_path` is the **vault name** (`app.vault.getName()`), not a filesystem path. `shape_ok` / `shape_warnings` report the companion's startup shape self-check over the Obsidian internals it duck-types (THE-282). Companion plugin uses Obsidian's plugin registry to populate `capabilities` — no probes to individual plugins; the companion already runs in the same Obsidian process and has the inventory.
+The capability keys are exactly the companion's bridgeable **community**-plugin set (`CAP_IDS` in `packages/plugin/src/routes/types.ts`, which maps each key to the community plugin id it duck-types): excalidraw, dataview, tasks, templater, quickadd, text-extractor, make-md, omnisearch, datacore, metadata-menu, git, remotely-save. Obsidian **core** plugins reached by a bridge — currently only `daily-notes` — resolve through the internal-plugin registry instead and deliberately carry no `CAP_IDS` entry, so they never appear in `capabilities`. `vault_path` is the **vault name** (`app.vault.getName()`), not a filesystem path. `shape_ok` / `shape_warnings` report the companion's startup shape self-check over the Obsidian internals it duck-types (THE-282). Companion plugin uses Obsidian's plugin registry to populate `capabilities` — no probes to individual plugins; the companion already runs in the same Obsidian process and has the inventory.
 
 ### Validation
 

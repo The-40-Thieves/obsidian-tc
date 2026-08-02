@@ -85,6 +85,16 @@ jobs:
       # cleanly and silently does nothing. This is the mechanized guard against that recurring.
       - name: config-path existence (source scan)
         run: bun run check:config-paths
+      # THE-703: ARCHITECTURE.md §3.1's companion-plugin route block is prose that happens to look
+      # like a spec, and nothing could tell it apart from one — it drifted 11 routes and 6 families
+      # behind the code, and listed three routes under the wrong verb (GET where they ship POST),
+      # while the wiki pages covering the same surface stayed correct. Every other structural fact
+      # here is generated or pinned by a parsed constant; this makes that block the same kind of
+      # fact. Derived on BOTH sides, so a sixteenth route family is covered rather than exempt, and
+      # floored on both, so a moved directory or a reworded heading fails instead of comparing two
+      # empty sets and passing.
+      - name: plugin route table vs ARCHITECTURE.md (source scan)
+        run: bun run check:plugin-routes
 
       # DRY, as a detector rather than a principle. Every duplication that has cost time here was
       # invisible to the test suite because the copies AGREED — DEFAULT_MEMORY_FOLDER three ways
