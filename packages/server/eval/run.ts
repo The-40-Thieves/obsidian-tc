@@ -180,6 +180,11 @@ export interface RunEvalOptions {
   /** THE-448: collapse the graph arm to one hit per path (see dedupeByPath). Required for a
    *  readable fan-out A/B; harmless and off elsewhere. */
   pathDedup?: boolean;
+  /** THE-692: cap chunks per cluster_id (diversity.ts's diversifyByCluster). MUST also be
+   *  forwarded into `searchOptions` below — this object is the eval's options, not graphSearch's,
+   *  and every field is threaded through explicitly rather than spread. Setting it here alone is
+   *  silent: the run reports the flag, the artifact records it, and the stage never sees it. */
+  maxPerCluster?: number;
   /** THE-404 spike: for z-HARD queries only (z1 < zThreshold, default 2.54), decompose the query
    *  into 2–3 atomic sub-queries via a small local instruct LLM (Ollama /api/chat), run the full
    *  graph search per sub-query (original included), and RRF-merge the ranked lists. Easy queries
@@ -315,6 +320,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ...(opts.graphStream ? { graphStream: opts.graphStream } : {}),
         ...(opts.smoothExpansion ? { smoothExpansion: opts.smoothExpansion } : {}),
         ...(opts.diversify ? { diversify: opts.diversify } : {}),
+        ...(opts.maxPerCluster !== undefined ? { maxPerCluster: opts.maxPerCluster } : {}),
         ...(opts.gatedRerank ? { gatedRerank: opts.gatedRerank } : {}),
         ...(opts.fusionConvex ? { fusionMode: "convex" as const, convex: opts.fusionConvex } : {}),
         ...(opts.temporal || temporalOverride ? { temporal: { enabled: true } } : {}),
@@ -513,6 +519,17 @@ async function main(): Promise<void> {
   // doc side lives in the index; this closes the query side to the SAME embedder.
   const qvIdx = argv.indexOf("--query-vecs");
   const queryVecsPath = qvIdx >= 0 ? argv[qvIdx + 1] : undefined;
+  // THE-692: `--max-per-cluster <n>` caps how many chunks one cluster_id may contribute
+  // (diversity.ts's diversifyByCluster). It had NO harness surface at all, so the ranking change
+  // this repo requires an eval gate for could not be measured — a third layer of inertness on top
+  // of the two THE-692 records (unset in config, and every cluster_id NULL until `obsidian-tc
+  // cluster` was first run on 2026-08-01).
+  //
+  // Requires a CLUSTERED corpus: diversifyByCluster skips rows whose cluster_id is NULL, so on an
+  // unclustered index this flag is silently a no-op and the A/B would report "no effect" for the
+  // wrong reason. The run asserts the corpus is clustered rather than trusting the caller.
+  const mpcIdx = argv.indexOf("--max-per-cluster");
+  const maxPerCluster = mpcIdx >= 0 ? Number(argv[mpcIdx + 1]) : undefined;
   const positional = argv.filter(
     (a, i) =>
       !a.startsWith("--") &&
@@ -520,6 +537,7 @@ async function main(): Promise<void> {
       (fusionIdx < 0 || i !== fusionIdx + 1) &&
       (zRouterIdx < 0 || i !== zRouterIdx + 1) &&
       (fanoutIdx < 0 || i !== fanoutIdx + 1) &&
+      (mpcIdx < 0 || i !== mpcIdx + 1) &&
       (qvIdx < 0 || i !== qvIdx + 1),
   );
   const configPath = positional[0];
@@ -536,6 +554,7 @@ async function main(): Promise<void> {
         "--decompose enables THE-404 sub-query decomposition for z-hard queries (Ollama; DECOMPOSE_MODEL/DECOMPOSE_Z envs).\n" +
         '--fanout <variants.json> enables the THE-448 multi-query fan-out over supplied phrasings ({"<query text>": ["variant", ...]}).\n' +
         "--path-dedup collapses the graph arm to one hit per note. REQUIRED on both arms of a --fanout A/B (the fan-out dedupes by path; a plain search does not).\n" +
+        "--max-per-cluster <n> caps chunks per cluster_id (THE-73 diversification). Requires a CLUSTERED index (`obsidian-tc cluster`); the run refuses rather than silently no-op.\n" +
         "--temporal enables the THE-221 conditional temporal stream (fires only on explicit temporal intent).\n" +
         "SPARSE_URL=<bge-m3 token_classify server> + --sparse fuses the learned-sparse stream into a NON-bge dense pipeline (THE-403).\n" +
         "--mmr enables THE-393 diversification (note-collapse maxPerNote=2 + MMR final pick).\n" +
@@ -619,6 +638,26 @@ async function main(): Promise<void> {
       })()
     : provider0;
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  // THE-692: refuse --max-per-cluster on an unclustered index. diversifyByCluster skips rows whose
+  // cluster_id is NULL, so on an unclustered corpus the flag caps nothing and the A/B reports "no
+  // effect" — indistinguishable from a real null result, and wrong for a different reason. Fail
+  // loudly instead. This is the same class as the flag being unmeasurable in the first place.
+  if (maxPerCluster !== undefined) {
+    const clustered = (
+      db
+        .prepare("SELECT count(cluster_id) AS n FROM chunks WHERE vault_id = ?")
+        .get(firstVault.id) as { n: number } | undefined
+    )?.n;
+    if (!clustered) {
+      process.stderr.write(
+        `--max-per-cluster ${maxPerCluster} needs a CLUSTERED index: 0 of the chunks in vault ` +
+          `'${firstVault.id}' have a cluster_id. Run \`obsidian-tc cluster\` first, or the flag is ` +
+          `a silent no-op and the A/B measures nothing.\n`,
+      );
+      process.exit(2);
+    }
+    process.stderr.write(`--max-per-cluster ${maxPerCluster}: ${clustered} clustered chunks\n`);
+  }
   // THE-187: --activation loads the experiential store's cached scores once (read-only) into
   // a map; a missing store/table degrades to an empty map (all-inert) with a stderr note.
   let activationLookup: ((chunkId: string) => number | null) | undefined;
@@ -710,6 +749,7 @@ async function main(): Promise<void> {
         { gatedRerank: { enabled: true, hardZ: hardZ ?? 1.0 } }
       : {}),
     ...(zRouterArg !== undefined && !Number.isNaN(zRouterArg) ? { zRouter: zRouterArg } : {}),
+    ...(maxPerCluster !== undefined && !Number.isNaN(maxPerCluster) ? { maxPerCluster } : {}),
     ...(metadataPrior
       ? {
           metadataPrior: {
@@ -750,6 +790,7 @@ async function main(): Promise<void> {
     gatedRerank ? `gated rerank${hardZ !== undefined ? ` z<${hardZ}` : ""}` : null,
     fusionArg === "convex" ? `convex fusion a=${convexAlpha ?? 0.7}` : null,
     zRouterArg !== undefined ? `z-router@${zRouterArg}` : null,
+    maxPerCluster !== undefined ? `max-per-cluster=${maxPerCluster}` : null,
     metadataPrior ? `metadata-prior(clamp ${metaPriorClamp ?? 0.5})` : null,
     decompose ? `decompose(z<${process.env.DECOMPOSE_Z ?? 2.54})` : null,
     temporal ? "temporal stream" : null,
@@ -884,6 +925,11 @@ async function main(): Promise<void> {
       gatedRerank && "gated-rerank",
       fusionArg === "convex" && `convex@${convexAlpha ?? 0.7}`,
       zRouterArg !== undefined && `z-router@${zRouterArg}`,
+      // THE-692: the ARTIFACT's flag list is a second, separate array from the human-readable
+      // header above — an entry added to one does not appear in the other. A paired-A/B analysis
+      // that asserts on artifact flags (the same-unit guard) reads THIS one, so a variant recorded
+      // here as identical to its control is indistinguishable from a mis-launched run.
+      maxPerCluster !== undefined && `max-per-cluster@${maxPerCluster}`,
       metadataPrior && `metadata-prior@${metaPriorClamp ?? 0.5}`,
       decompose && `decompose@${process.env.DECOMPOSE_Z ?? 2.54}`,
       temporal && "temporal",
