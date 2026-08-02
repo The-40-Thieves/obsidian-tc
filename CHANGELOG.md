@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-08-02
+
 ### Added
 
 - **`gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616,
@@ -43,6 +45,78 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   Existing configs need no migration; the six previously-supported names resolve to byte-identical
   provider ids. The one deliberate exception is the `baseUrl` guard below.
 
+- **`diagnose_retrieval` — ask why an expected note was *not* returned (THE-632, #644).** Re-runs the
+  real retrieval pipeline with per-note tracing and reports, per stage, where a note was and the
+  first stage that dropped it. A separate tool rather than a debug flag on the hot path. The
+  ticket's premise that per-stage scores were "already computed and discarded, ~50 lines" did not
+  hold: `StageMetric` carries counts and durations with zero chunk identity, so nothing retained
+  could be read back and the seam had to be built.
+
+- **`doctor --probe` — opt-in dense-embeddings liveness (THE-688, #643).** Embeds one short fixed
+  string against the configured provider and reports what it *observed*. `ready` is now a word only
+  the probed path may use. Off by default and staying that way: a diagnostic that reaches the
+  network as a side effect of being run is a different tool from the one people reach for when
+  something is already broken.
+
+- **`obsidian-tc index` — the derived-state command that was missing (THE-697, #648).** Every other
+  derived-state job (`cluster`, `activation-recompute`, `note-quality`, `gaps`) had a CLI; indexing
+  was reachable only through the `index_vault` tool or boot reconcile. Before this, `obsidian-tc
+  index` parsed as `{ kind: "serve", input: "index" }` — the word was read as a config path. Unlike
+  its siblings it provisions `cache.db`, because it is the one command reached for before the server
+  has ever run. Exits non-zero when any note failed to embed: those notes are indexed but *not*
+  retrievable.
+
+- **Scheduled episode evaluation (THE-698, #648).** `evaluateEpisodes` had no scheduled caller —
+  only the manual `obsidian-tc reflect` — so rows born `pending` stayed pending and `work_search`,
+  which serves evaluator-approved rows only, returned nothing. It now runs on the maintenance
+  cadence beside `activation-recompute`. A `doctor` signal (`experiential.evaluator`) reports the
+  backlog, keyed on *promotable* rows rather than raw pending count, since rows held for cause stay
+  pending forever by design.
+
+- **`retrieval.graphStream` config surface (THE-693, #650).** The hub-degree cap was read by
+  `graph_expansion.ts` but had zero production assignments — only the eval harness ever set it — and
+  was absent from the config schema, so `config validate` accepted `retrieval.graphStream.enabled`
+  with exit 0 while the key reached nothing. Now a real config block
+  (`enabled`/`expansionSeeds`/`perSeedCap`/`hubDegreeCap`), **off by default**: measured neutral on
+  ranking quality at n=250 (0 of 8 metrics significant after BH-FDR) though non-inferior, so it is a
+  cost lever — it removes roughly a fifth of the expansion candidate pool — not a quality one.
+
+- **`--max-per-cluster` in the eval harness (THE-692, #646).** The gate THE-692 required and did not
+  have; `maxPerCluster` appeared nowhere in `eval/run.ts`, so the ranking decision the ticket asks
+  for could not be measured at all. Threading it required four separate places, two of them silent
+  on omission — options are forwarded field-by-field rather than spread, and the artifact flag list
+  is a second array from the human-readable one.
+
+- **Gateway retry with backoff, and a liveness probe (THE-615, THE-617, #566).** The
+  `AbortController` was constructed once *outside* the request path, so its 60s budget was
+  per-call, not per-attempt — any retry inherited an already-fired signal and failed instantly.
+  Retries now happen only on 5xx and network throws; a 4xx is an answer and retrying it burns quota
+  to reach the same one. Bare 429 is terminal; `Retry-After` is honoured. Also extends the gaps
+  percentiles past the median and reports malformed JSONL by line number instead of silently
+  reinterpreting a truncated fragment as a query.
+
+- **Error catalog, generated config defaults, and an error-envelope gate (THE-470, #561).** The
+  error taxonomy had reached no reader since THE-471; it is now rendered, with THE-512 recovery
+  hints folded in from the same source. `config-yaml`'s defaults block is generated from
+  `ServerConfigSchema.parse()` after five entire defaulted blocks were found missing.
+  `api-reference.md` is gated rather than generated — every derivable fact on it was already
+  correct, so `check-error-envelope` validates envelope fields against the live taxonomy instead.
+
+- **Contributor tooling and an MCP client compatibility matrix (THE-624, THE-510, #567).** Adds
+  `just doctor` / `link-plugin` / DCO-hook installer and a synthetic scratch vault, and pins `just
+  test` to the Node vitest path so the default matches CI byte-for-byte. The Node-vs-Bun divergence
+  is not cosmetic: `open.ts` branches on `typeof Bun`, so the two invocations can resolve different
+  SQLite adapters. The matrix cites passing tests per capability row; every live third-party client
+  is labelled NOT TESTED, and the one live probe attempted is recorded as having failed rather than
+  omitted.
+
+- **Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645,
+  THE-612, #563).** `prevByCaller` was a process-local `Map`, so the chain silently broke at every
+  restart; it now falls back to the caller's most recent episode id in the database.
+  `makeActivationLookup`'s bare catch made a corrupt or full database indistinguishable from a cache
+  miss. `ensureVecChunks` DROPs and rebuilds `vec_chunks` — a full re-embed of every vault — with no
+  log, metric or audit row; it is now counted and logged.
+
 ### Changed
 
 - **A `baseUrl` that already contains the path its provider appends is now refused at boot
@@ -61,7 +135,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   doubled path, and therefore already failing at runtime. `model-tier` and `module` declare no
   appended path (neither consumes the descriptor's `baseUrl`) and are exempt.
 
-- **`snapshots.enabled` now defaults to `true` (THE-648).** `trusted-local`'s permissive posture was
+- **`snapshots.enabled` now defaults to `true` (THE-648, #569).** `trusted-local`'s permissive posture was
   meant to guard against untrusted *callers* — THE-603 showed the real gap was our own write path
   (a `patch_note` replace on a lone H1 silently discarding a whole note), and the default posture
   left no rollback for it. Snapshots are unconditionally pruned inline (newest 10 versions per
@@ -77,6 +151,97 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
   **To opt out**, set `snapshots: { enabled: false }` explicitly in your config. `obsidian-tc
   doctor` now reports the effective policy (`snapshots.policy`) and warns when it is off.
+
+- **`doctor` says "configured", not "ready", for the dense retrieval head (THE-688, #642).** `ready`
+  was a literal in a template string with no branch, and `RetrievalHeadsView` carried no liveness
+  field at all, so it was structurally impossible for the check to report anything else. The cost
+  was real: Ollama was removed from a deployment while the config still named it, and for two days
+  every semantic query returned `embedding_provider_error` while `doctor` printed
+  `dense: ready (ollama, nomic-embed-text, dim 768)` and exited 0 — actively pointing an operator
+  away from the cause. It is a fresh-install failure too, since the zero-config default names a
+  provider most new users are not running.
+
+- **Bun's 10-second default request timeout no longer kills long MCP calls (THE-697, #648).**
+  `serveHono` passed no `idleTimeout`, so every request the MCP plane served inherited Bun's
+  10s default. `index_vault` over a 1,147-note vault returned `RemoteProtocolError: Server
+  disconnected` to the caller while the work completed asynchronously — a hard failure reported for
+  a successful operation. Now 120s, chosen rather than maxed: Bun accepts up to 255 and `0` disables
+  entirely, and this applies per-process to every request.
+
+- **The ACL predicates no longer recompile a glob per rule per path (THE-618, #638).**
+  `scopesForPath` called `globMatch` once per rule, and `globMatch` NFC-normalizes *both* operands
+  every call — so a path check against a 20-rule ACL paid 20 redundant `normalize("NFC")` calls on
+  the same path, plus a defensive copy of the whitelist per check. `FolderAcl` now compiles its rule
+  globs once in the constructor, in config order (last-match-wins is load-bearing, so the array is
+  never sorted or deduped), and normalizes the path once per lookup.
+
+### Fixed
+
+- **`token mint` honours `OBSIDIAN_TC_JWT_SECRET` (THE-662, #562).** `readAuthBlock` bypassed
+  `loadConfig` deliberately — boot validation should not stand between an operator and a token — but
+  that also bypassed `applyEnvOverlays`, the only thing that injects the secret. So the sanctioned
+  mint tool refused on exactly the secret-handling shape the docs recommend, claiming the secret did
+  not exist while it sat in the environment.
+
+- **`vec0` is embedded in `--compile` release binaries (THE-663, #568).** Every published standalone
+  binary silently lost `vec0` on any machine that was not the CI runner: `vec.ts` resolved
+  sqlite-vec through `createRequire(import.meta.url)`, which `bun --compile` freezes to the *build*
+  machine's path. `loadVec` degrades rather than throws, so retrieval fell back to brute-force
+  cosine and still returned results — nothing detected it for two releases. The smoke gate now wipes
+  `node_modules` first, because asserting `vec_enabled` alone passed even on unfixed code (the job
+  runs in the same checkout that compiled the binary).
+
+- **QueryCache expiry sweep, `via_edge` deep copy, and two smaller correctness fixes (THE-626,
+  THE-620, THE-622, #565).** `set()` ran LRU eviction with no expiry sweep, so a live entry could be
+  evicted while an expired one held capacity; and `GraphSearchResult` is not flat, so the shallow
+  spread handed out aliased nested objects from a cache on the per-search hot path. The
+  `columnExists` probe is now memoized per *connection* rather than per module — a module-level
+  cache would leak one database's schema answer into another's.
+
+- **The idempotency-claim release has an error channel (THE-667, #641).** Triaging all 67 strictly
+  inert catch blocks against the ticket's own three-condition filter left exactly two that
+  qualified, both on a rejection path that releases the idempotency claim so a caller's retry can
+  proceed. The other 65 are correct by construction and deliberately untouched: instrumenting
+  telemetry sinks in bulk produces log noise that trains people to ignore the log, which reaches the
+  same end state as no signal from the opposite direction.
+
+- **`notes_fts` integrity is checkable, and repairable (THE-696, #648).** `ensureNotesFts`
+  provisioned with `CREATE VIRTUAL TABLE IF NOT EXISTS` — an existence test a malformed table
+  passes — and `health.fts_enabled` reported availability, so a corrupt index that kept answering
+  `MATCH` queries with plausible counts was undetectable from inside the system. Adds
+  `verifyNotesFtsIntegrity`/`repairNotesFts` (the repair re-verifies rather than trusting
+  `rebuild`'s silence), an opt-in boot gate via `OBSIDIAN_TC_VERIFY_FTS=1`, and a
+  `doctor --probe` check. On unrepairable damage `ensureNotesFts` now returns false, routing queries
+  to the disk-scan fallback instead of serving a corrupt index.
+
+### Security
+
+- **The query router's rare-term signal no longer leaks term existence across the ACL (THE-691,
+  #645).** `termDf` counted every FTS match with no ACL, and `routeQuery` embeds the result as
+  `rare-term:<token>(df=<n>)` — returned verbatim by `vault_graph_search`, `knowledge_search`,
+  `vault_context` and `reflect`. Any caller holding `read:notes` could probe a guessed term with one
+  ordinary search and read the answer out of a normal successful response. A content-membership
+  oracle, not merely a path one: it revealed which *words* appear in notes the caller is denied.
+
+- **The lexical and sparse arms filter by ACL at query time (THE-632, #644).** The dense arm has
+  filtered in SQL since THE-287; `bm25Chunks` and `sparseSearch` did not — they queried the whole
+  vault and were filtered downstream, which removes unreadable hits from the *results* but not from
+  the *counts*. Beyond the disclosure, unreadable chunks occupied slots in each arm's top-k,
+  crowding out readable ones.
+
+- **The router's timing oracle is closed, and BM25 no longer leaks its result length (THE-694,
+  THE-695, #649).** THE-691 closed the *value* channel; latency still correlated with how much
+  denied content matched a caller-supplied term — measured at 72× with non-overlapping
+  distributions, both queries returning 0. No in-SQL filter removes that (the plan is a full
+  `chunk_fts` scan plus a per-row membership probe, so work tracks *total* matches however the
+  predicate is written), so the probe is no longer issued for restricted callers and the paged scan
+  is deleted rather than left reachable. Separately, `bm25Chunks` over-fetched and filtered in JS,
+  so an underfill meant hidden rows had outranked the caller's and the returned *length* depended on
+  hidden content; it now filters in SQL with an exact `LIMIT`.
+
+  **Effect on upgrade:** callers with a restricted read ACL lose rare-term lexical routing and will
+  pay an embedding round-trip on those queries where they previously took a lexical short-circuit.
+  Quoted-phrase and temporal routing are unaffected.
 
 ## [1.13.1] - 2026-07-28
 
