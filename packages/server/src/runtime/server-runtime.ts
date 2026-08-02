@@ -421,6 +421,7 @@ export async function buildServerRuntime(
       experientialOpen,
       experientialDb,
       vaults: config.vaults,
+      maxPromptChars: config.plane.maxPromptChars,
     });
 
     // THE-291 (part 2)/THE-455/THE-453/THE-649: the coordinator, the reindex/deindex hooks, and the

@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,012 tracked code files · 151,097 lines.
+**Scale:** 1,012 tracked code files · 151,283 lines.
 
-TypeScript 140,971 · JavaScript 6,559 · Python 1,526 · SQL 1,059 · Rust 668 · Shell 314.
+TypeScript 141,157 · JavaScript 6,559 · Python 1,526 · SQL 1,059 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -90,7 +90,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `search/` | 54 | 10,145 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,128 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 11 | 2,885 | work-memory tier: activation, retrieval log, forget, citations |
-| `runtime/` | 13 | 2,815 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 13 | 2,824 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `cli/` | 23 | 2,190 | arg parsing + subcommands |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
@@ -98,8 +98,8 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `db/` | 14 | 1,201 | provisioning, migrate runner, experiential store |
 | `migrations/` | 30 | 1,059 | hand-registered SQL. **Two chains** — see below |
 | `doctor/` | 5 | 967 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `plane/` | 6 | 905 | generative plane; `jobs/` holds the contradiction detector |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
-| `plane/` | 6 | 789 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
 | `providers/` | 6 | 731 |  |
 | `embeddings/` | 6 | 665 | providers incl. the deterministic fake used in tests |
@@ -138,7 +138,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 <!-- BEGIN GENERATED: tree-largest-files -->
 | lines | file |
 |---:|---|
-| 721 | `packages/server/src/runtime/server-runtime.ts` |
+| 722 | `packages/server/src/runtime/server-runtime.ts` |
 | 701 | `packages/server/src/mcp/server.ts` |
 | 681 | `packages/server/src/doctor/checks.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
@@ -274,7 +274,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**372 modules · 1656 dependencies · 111 distinct subsystem pairs · 741 cross-subsystem imports.**
+**372 modules · 1657 dependencies · 111 distinct subsystem pairs · 742 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -358,7 +358,7 @@ flowchart LR
 |---|---:|---|---:|
 | `vault` | 230 | `tools` | 348 |
 | `db` | 128 | `runtime` | 132 |
-| `search` | 96 | `search` | 63 |
+| `search` | 97 | `search` | 63 |
 | `mcp` | 86 | `cli` | 58 |
 | `embeddings` | 31 | `mcp` | 23 |
 <!-- END GENERATED: tree-fan -->

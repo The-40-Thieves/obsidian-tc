@@ -94,6 +94,9 @@ export interface JobHandlersDeps {
   embeddingProvider: EmbeddingProvider;
   experientialOpen: boolean;
   experientialDb: Database;
+  /** config.plane.maxPromptChars — aggregate cap on a generative job's whole gateway request.
+   *  Absent -> each job's own conservative default. */
+  maxPromptChars?: number | undefined;
   /** config.vaults */
   vaults: VaultConfigInput[];
 }
@@ -132,7 +135,12 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
     });
     // #14: synthesis/audit are durable jobs; wrapPlaneJob turns their ok:false into the THROW its
     // dead-letter/retry needs.
-    const planeCtx = { db: deps.db, roles, now: Date.now };
+    const planeCtx = {
+      db: deps.db,
+      roles,
+      now: Date.now,
+      ...(deps.maxPromptChars !== undefined ? { maxPromptChars: deps.maxPromptChars } : {}),
+    };
     const synthesisJob = wrapPlaneJob("synthesis", () => runSynthesis(planeCtx));
     const auditPassJob = wrapPlaneJob("audit", () => auditJob.run(planeCtx));
     jobHandlers.set("synthesis", synthesisJob);
