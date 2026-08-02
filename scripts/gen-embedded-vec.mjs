@@ -101,7 +101,17 @@ try {
   console.log(`gen-embedded-vec: fetching ${spec} for target ${target}...`);
   let tgzName;
   try {
-    tgzName = execFileSync("npm", ["pack", spec, "--silent"], {
+    // npm.cmd on Windows, npm everywhere else. execFileSync does NOT go through a shell, so on
+    // Windows it looks for an executable literally named "npm" — there is none, only npm.cmd — and
+    // fails with `spawnSync npm ENOENT`. That took down build-binaries (windows-latest) on the
+    // v1.14.1 tag, the first run in which that job ever reached a verdict: on v1.14.0 it was
+    // CANCELLED by the darwin failure, and a cancelled job is not a pass.
+    //
+    // Resolved by name rather than with `shell: true`, which on Windows re-joins argv into one
+    // command string and reintroduces quoting/injection concerns for a value (`spec`) built from
+    // package metadata.
+    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    tgzName = execFileSync(npm, ["pack", spec, "--silent"], {
       cwd: work,
       encoding: "utf8",
     }).trim();

@@ -6,6 +6,35 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Windows standalone binary now builds at all.** `gen-embedded-vec.mjs` shells out to
+  `npm pack` through `execFileSync`, which does **not** go through a shell — so on Windows it looked
+  for an executable literally named `npm`, of which there is none (only `npm.cmd`), and died with
+  `spawnSync npm ENOENT`. Resolved by name rather than with `shell: true`, which on Windows re-joins
+  argv into a single command string and reintroduces quoting concerns around a value built from
+  package metadata.
+
+  This had been broken since THE-663 introduced the script and was undiscoverable: `build-binaries`
+  lives in `publish.yml`, which only fires on a tag. On the v1.14.0 tag the Windows job was
+  **cancelled** by the darwin failure rather than run, and a cancelled job is not a verdict — so
+  v1.14.1 was the first time it ever reached one.
+
+### Added
+
+- **`embed-codegen` — the release-only codegen now runs on every PR, across Linux, Windows and
+  macOS.** Both `gen-embedded-vec.mjs` and `gen-embedded-sqlite.mjs` previously executed nowhere
+  except a tag build, which is how three independent bugs in that path (the darwin loader, the
+  Windows `npm.cmd` resolution, and a `CANCELLED`-masks-everything matrix) all reached a published
+  tag before anyone could see them.
+
+  It deliberately does **not** compile — `bun build --compile` costs minutes per target and
+  `build-binaries` still covers it at tag time. What actually breaks in these scripts is the codegen:
+  npm resolution, platform-package fetching, cross-arch toolchain invocation. Running only that costs
+  seconds. It asserts the produced file's **size**, not the exit code, because the checked-in
+  placeholder is itself a valid file — and separately asserts that `HEAD`'s copies are still the
+  empty placeholders, so a generated binary can never be committed and shipped to every platform.
+
 ## [1.14.1] - 2026-08-02
 
 ### Fixed

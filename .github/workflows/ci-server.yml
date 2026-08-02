@@ -188,6 +188,67 @@ jobs:
         run: node ./node_modules/vitest/vitest.mjs run ${{ matrix.os == 'ubuntu-latest' && '--coverage' || '' }}
         working-directory: packages/server
 
+  # The release-only codegen, exercised on EVERY PR. These scripts run nowhere else: build-binaries
+  # lives in publish.yml, which only fires on a tag, so a bug in them is undiscoverable until the
+  # release is already half-published. That is not hypothetical — v1.14.1's tag build died on
+  # `spawnSync npm ENOENT`, because execFileSync does not go through a shell and Windows has only
+  # npm.cmd. It could not have been caught earlier: on v1.14.0 the same job was CANCELLED by the
+  # darwin failure, and a cancelled job is not a verdict.
+  #
+  # Deliberately does NOT compile — `bun build --compile` is minutes per target and build-binaries
+  # already covers it at tag time. What has actually broken here is the codegen: npm resolution,
+  # platform package fetching, cross-arch toolchain invocation. Running just that costs seconds and
+  # covers the class.
+  embed-codegen:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: bun-linux-x64
+          - os: windows-latest
+            target: bun-windows-x64
+          - os: macos-14
+            target: bun-darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: ./.github/actions/setup-repo
+      - name: embed sqlite-vec for ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/gen-embedded-vec.mjs --target ${{ matrix.target }}
+          # Assert the ARTIFACT, not the exit code: the placeholder is a valid file, so "the script
+          # ran" proves nothing. A real vec0 is >100 KB of base64.
+          bytes=$(wc -c < packages/server/src/search/vec-embedded.ts)
+          echo "vec-embedded.ts: $bytes bytes"
+          [ "$bytes" -gt 100000 ] || { echo "::error::vec-embedded.ts is $bytes bytes — nothing was embedded"; exit 1; }
+      - name: embed vanilla SQLite (darwin only)
+        if: startsWith(matrix.target, 'bun-darwin')
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/gen-embedded-sqlite.mjs --target ${{ matrix.target }}
+          bytes=$(wc -c < packages/server/src/db/sqlite-embedded.ts)
+          echo "sqlite-embedded.ts: $bytes bytes"
+          [ "$bytes" -gt 1000000 ] || { echo "::error::sqlite-embedded.ts is $bytes bytes — nothing was embedded"; exit 1; }
+      - name: generated files must never be committable
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Both are per-build artifacts whose committed value is the empty placeholder. If a run
+          # ever leaves them staged, the next `bun install` would ship one machine's binary to every
+          # platform. Confirms they are dirty HERE (so the codegen really wrote something) while
+          # HEAD's copies stay empty.
+          git diff --quiet -- packages/server/src/search/vec-embedded.ts && {
+            echo "::error::vec-embedded.ts is unchanged — the codegen did not write"; exit 1; }
+          git show HEAD:packages/server/src/search/vec-embedded.ts | grep -q 'BASE64 = ""' || {
+            echo "::error::a generated vec0 was COMMITTED to HEAD"; exit 1; }
+          git show HEAD:packages/server/src/db/sqlite-embedded.ts | grep -q 'BASE64 = ""' || {
+            echo "::error::a generated SQLite was COMMITTED to HEAD"; exit 1; }
+          echo "ok: placeholders empty at HEAD, codegen wrote locally"
+
   bun-smoke:
     runs-on: ubuntu-latest
     steps:
