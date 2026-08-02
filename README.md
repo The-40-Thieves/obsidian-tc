@@ -59,7 +59,7 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 
 ## Status
 
-✅ **Shipped — v1.15.0** (2026-07-15). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.15.0`. The surface is **152 tools across 31 domains**, presented by default via the triad facade described above.
+✅ **Shipped — v1.15.0** (2026-08-02). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.15.0`. The surface is **152 tools across 31 domains**, presented by default via the triad facade described above.
 
 The v1.6–v1.7 line turned the server into a **measured memory engine** (full detail in the [CHANGELOG](./CHANGELOG.md)):
 
