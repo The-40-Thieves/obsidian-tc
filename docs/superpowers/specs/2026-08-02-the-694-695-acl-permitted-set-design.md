@@ -90,13 +90,33 @@ fingerprint on every member row costs 165 bytes at the longest live path (81% of
 re-stores 71.6 KiB of identical hash. Interning gives 104 bytes worst case (51%) and makes eviction
 one statement.
 
-**`ON DELETE CASCADE` is load-bearing, not tidiness.** `INSERT OR REPLACE` is DELETE + INSERT: on a
-`UNIQUE` conflict it deletes the set row and inserts a fresh one with a **new `set_id`**, orphaning
-every member. Without `AUTOINCREMENT` SQLite may reuse a deleted rowid, so an orphaned member from
-caller A's evicted set could later be joined by caller B's new set that received the same id — a
-cross-principal leak introduced by the very design meant to prevent one. Writes therefore use
-UPSERT, and the cascade makes orphaning unrepresentable even if a future edit reaches for `REPLACE`.
-All three adapters set `foreign_keys = ON`; `20260519_001_initial.sql` is the cascade precedent.
+**`ON DELETE CASCADE` is the primary safety control, and the trigger is LRU eviction.**
+
+Two separate hazards, both reproduced rather than reasoned about:
+
+*Orphaning.* `INSERT OR REPLACE` is DELETE + INSERT: on a `UNIQUE` conflict it deletes the set row
+and inserts a fresh one with a **new `set_id`**, stranding every member under the old id. Measured:
+`set_id 1 -> 2`, member left at 1. Writes therefore use UPSERT, never `REPLACE`.
+
+*Rowid reuse — the actual leak.* Without `AUTOINCREMENT`, SQLite reuses a deleted rowid when the
+row deleted held the **largest** one. That is not an exotic case here: **LRU eviction deletes a set
+row every time the cap binds**, and the evicted row is frequently the maximum. Reproduced end to
+end with `foreign_keys = OFF`:
+
+| `foreign_keys` | after evicting B (`set_id=2`, max) | caller C | result |
+| --- | --- | --- | --- |
+| `OFF` | member stranded at `set_id=2` | **reuses id 2** | reads B's path — **cross-principal leak** |
+| `ON` + cascade | members removed with the set | reuses id 2 | sees nothing — clean |
+
+An earlier draft of this design attributed the leak to `REPLACE`. That was wrong: `REPLACE` causes
+orphaning, but in the tested scenario ids kept increasing and nothing leaked. Eviction is what makes
+reuse routine, so the cascade is not a secondary precaution — it is the control that closes this.
+
+**Do not let correctness depend on a PRAGMA.** `foreign_keys` is a per-connection runtime setting,
+not a schema guarantee; all three adapters set it ON today, but a raw connection opened by a script
+or a future harness would silently lose the cascade and restore the leak. Eviction therefore
+**explicitly deletes members first**, then the set row, in one transaction. The cascade stays as the
+backstop for any path that forgets. `20260519_001_initial.sql` is the cascade precedent.
 
 ```sql
 INSERT INTO acl_path_sets (acl_fingerprint, vault_id, generation, built_at, path_count)
@@ -199,8 +219,12 @@ sequentially.
   with the flag on and present with it off.
 - **Empty-set floor:** a build whose universe is non-empty but whose member count is 0 must refuse
   to persist and return `null`.
-- **Orphan/rowid-reuse regression:** delete a set row, create another, assert no member rows from
-  the deleted set are reachable under the new `set_id`.
+- **Rowid-reuse leak regression, watched failing first.** Evict the set holding the largest
+  `set_id` (the LRU path), then create a new set; assert the new set sees zero members. The failing
+  baseline is reproducible today by setting `foreign_keys = OFF`, which is how this hazard was found
+  — the test must be watched failing under that PRAGMA before it is trusted.
+- **Eviction does not depend on the PRAGMA:** with `foreign_keys = OFF`, eviction must still leave
+  no members behind, because it deletes them explicitly rather than relying on the cascade.
 - **Fingerprint isolation:** two fingerprints over the same vault must not see each other's members.
 - **Pre-migration degradation:** a `cache.db` without the tables returns `null` and every consumer
   keeps working.
