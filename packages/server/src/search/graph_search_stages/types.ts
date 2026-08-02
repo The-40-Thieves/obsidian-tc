@@ -130,6 +130,18 @@ export interface GraphSearchOptions {
    *  Composes with graphStream (frontier + per-seed caps still apply) but REPLACES its hard
    *  degree drop. Composes multiplicatively with Ebbinghaus decay. Off by default. */
   smoothExpansion?: { enabled?: boolean; lambda?: number; hubMu?: number; hubGamma?: number };
+  /** THE-695: filter the graph WALK by the caller's permitted-path set, so an unreadable note
+   *  cannot serve as a bridge between two readable ones. OFF by default and shipped dark: pruning
+   *  bridges is a RECALL change (measured 583 -> 57 nodes on a deliberately harsh test ACL), so it
+   *  is decided by the eval, not by assertion. Evaluated jointly with THE-693's hubDegreeCap
+   *  because both land in graph_expansion.ts and `nodeDegrees` is itself computed with NO ACL — so
+   *  switching the hub defence on would prune using degrees counted over nodes the caller may not
+   *  be able to read. */
+  aclWalkFilter?: { enabled?: boolean };
+  /** THE-695: the resolved `acl_path_members` set_id for THIS caller, from ensureAclPathSet.
+   *  Absent means the substrate was unavailable (pre-migration db, read-only handle, empty set) and
+   *  the existing hydrated-row filter remains the only ACL applied — i.e. today's behaviour. */
+  aclSetId?: number;
   /** THE-393: post-fusion diversification (graph_rrf mode only — the reranker modes own their
    *  final order). `maxPerNote` collapses the fused list to at most that many chunks per note
    *  BEFORE the final cut, so one long note cannot fill the top-K (results are path-grained

@@ -122,6 +122,13 @@ const MUTATIONS: Array<[string, Partial<Omit<GraphSearchOptions, "queryVec">>]> 
   ["maxPerCluster", { maxPerCluster: 4 }],
   ["graphStream", { graphStream: { enabled: true, expansionSeeds: 9 } }],
   ["smoothExpansion", { smoothExpansion: { enabled: true, lambda: 0.9 } }],
+  // THE-695: both MUST be keyed. aclWalkFilter changes which nodes the walk may traverse, and
+  // aclSetId names WHOSE permitted set it traverses under — two callers with different sets would
+  // otherwise share a cache entry, which is the one mistake this whole ticket exists to prevent.
+  // aclFingerprint is already in QueryCacheBinding, but that is the binding half; a field on
+  // GraphSearchOptions that changes results has to be keyed on its own terms.
+  ["aclWalkFilter", { aclWalkFilter: { enabled: true } }],
+  ["aclSetId", { aclSetId: 7 }],
   ["diversify", { diversify: { maxPerNote: 2, mmr: { enabled: true, lambda: 0.6 } } }],
   ["gatedRerank", { gatedRerank: { enabled: true, hardTop1: 0.6 } }],
   ["decay", { decay: { enabled: true, lambda: 0.006 } }],
