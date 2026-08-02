@@ -59,14 +59,42 @@ function corpus(): Database {
   return db;
 }
 
-/** FTS5 required, not skipped — the lexical arm has to be live for this A/B to mean anything, and a
- *  suite that silently returns reports the side-channel property as HELD. Same contract as
- *  router-df-oracle.test.ts and lexical-sparse-acl.test.ts. */
-function requireFts(db: Database): Database {
-  if (!ensureChunkFts(db)) {
-    throw new Error("FTS5 unavailable — the trace A/B cannot run. Refusing to pass vacuously.");
-  }
+/**
+ * FTS5 availability, with the two causes kept DISTINCT (mirrors lexical-sparse-acl.test.ts).
+ *
+ * The lexical arm must be live for this A/B to mean anything, and a suite that silently returns
+ * reports the side-channel property as HELD. But `OBSIDIAN_TC_DISABLE_FTS=1` is a SUPPORTED opt-out,
+ * so throwing on it would fail a contributor for doing something legitimate. Deliberate opt-out
+ * reports SKIPPED; an unexpected absence still throws.
+ */
+function ftsState(db: Database): "ok" | "deliberately-disabled" {
+  if (ensureChunkFts(db)) return "ok";
+  if (process.env.OBSIDIAN_TC_DISABLE_FTS === "1") return "deliberately-disabled";
+  throw new Error(
+    "FTS5 is unavailable and OBSIDIAN_TC_DISABLE_FTS is not set — the trace A/B cannot run and " +
+      "this suite refuses to pass vacuously. Set the env var if the omission is intended.",
+  );
+}
+
+/**
+ * A corpus with chunk_fts PROVISIONED. Both arms of an A/B must come from here.
+ *
+ * ftsState() provisions chunk_fts as a side effect of calling ensureChunkFts, so a corpus that
+ * skips it has no lexical index and runs dense-only. Building one arm through the checked path and
+ * the other through a bare corpus() makes the arms structurally different, and the A/B then reports
+ * a ranking difference that is really a configuration difference. That exact mistake failed this
+ * suite during the toStrictEqual rework, which is the guard doing its job.
+ */
+function readyCorpus(): Database {
+  const db = corpus();
+  ftsState(db);
   return db;
+}
+
+/** Build a corpus and report whether FTS5 forced a skip, so each test can gate on it. */
+function corpusOrSkip(): { db: Database; skip: boolean } {
+  const db = corpus();
+  return { db, skip: ftsState(db) === "deliberately-disabled" };
 }
 
 // THE-632 round 5: this file previously claimed "the trace contract is exercised end-to-end by the
@@ -77,7 +105,10 @@ function requireFts(db: Database): Database {
 // property was therefore untested behind a filename saying it was tested. The A/B below is the
 // assertion the file always claimed to make; the shape tests are kept but demoted to what they are.
 describe("tracing does not perturb the pipeline (THE-632, the actual contract)", () => {
-  it("results are IDENTICAL with tracing on and off", async () => {
+  it("results are IDENTICAL with tracing on and off", async (ctx) => {
+    expect.hasAssertions();
+    const { db, skip } = corpusOrSkip();
+    ctx.skip(skip, "OBSIDIAN_TC_DISABLE_FTS=1");
     const opts = {
       query: "quokka",
       queryVec: QUERY_VEC,
@@ -86,10 +117,10 @@ describe("tracing does not perturb the pipeline (THE-632, the actual contract)",
       finalTopK: 10,
       router: { enabled: false },
     };
-    const untraced = await graphSearch(requireFts(corpus()), opts);
+    const untraced = await graphSearch(db, opts);
 
     const records: RetrievalTraceRecord[] = [];
-    const traced = await graphSearch(requireFts(corpus()), {
+    const traced = await graphSearch(readyCorpus(), {
       ...opts,
       traceNotePath: "B.md",
       onRetrievalTrace: (r) => records.push(r),
@@ -98,15 +129,22 @@ describe("tracing does not perturb the pipeline (THE-632, the actual contract)",
     // Non-empty FIRST. Two empty arrays are byte-identical, so without this the equality below is
     // satisfied by a pipeline that returned nothing — the same vacuity this file is being fixed for.
     expect(untraced.length).toBeGreaterThan(0);
-    // Byte-identical, not merely same-length or same-set: ordering and every score field too.
-    expect(JSON.stringify(traced)).toBe(JSON.stringify(untraced));
+    // Structural deep equality, not stringify comparison. toStrictEqual is order-independent for
+    // object KEYS (stringify is not, so an identical result built by a different code path could
+    // fail spuriously), it catches undefined-valued keys and array sparseness that JSON drops, and
+    // on failure it prints a diff instead of two truncated 200KB strings. Array ORDER is still
+    // compared, which is the part that matters here.
+    expect(traced).toStrictEqual(untraced);
     // And the trace actually ran — otherwise the equality above is satisfied by doing nothing,
     // which is the exact failure mode this file previously shipped.
     expect(records.length).toBeGreaterThan(0);
     expect(records.some((r) => r.present)).toBe(true);
   });
 
-  it("pointing the trace at a DIFFERENT note does not change results either", async () => {
+  it("pointing the trace at a DIFFERENT note does not change results either", async (ctx) => {
+    expect.hasAssertions();
+    const { db, skip } = corpusOrSkip();
+    ctx.skip(skip, "OBSIDIAN_TC_DISABLE_FTS=1");
     const opts = {
       query: "quokka",
       queryVec: QUERY_VEC,
@@ -117,30 +155,33 @@ describe("tracing does not perturb the pipeline (THE-632, the actual contract)",
     };
     const atB: RetrievalTraceRecord[] = [];
     const atMissing: RetrievalTraceRecord[] = [];
-    const b = await graphSearch(requireFts(corpus()), {
+    const b = await graphSearch(db, {
       ...opts,
       traceNotePath: "B.md",
       onRetrievalTrace: (r) => atB.push(r),
     });
-    const missing = await graphSearch(requireFts(corpus()), {
+    const missing = await graphSearch(readyCorpus(), {
       ...opts,
       traceNotePath: "does-not-exist.md",
       onRetrievalTrace: (r) => atMissing.push(r),
     });
 
     expect(b.length).toBeGreaterThan(0); // see the non-empty note above
-    expect(JSON.stringify(b)).toBe(JSON.stringify(missing));
+    expect(b).toStrictEqual(missing);
     // The traces DO differ — that is the point of the selector, and it proves both ran.
     expect(atB.some((r) => r.present)).toBe(true);
     expect(atMissing.some((r) => r.present)).toBe(false);
   });
 
-  it("emits absent-not-zero from the REAL pipeline, not just from a literal", async () => {
+  it("emits absent-not-zero from the REAL pipeline, not just from a literal", async (ctx) => {
+    expect.hasAssertions();
+    const { db, skip } = corpusOrSkip();
+    ctx.skip(skip, "OBSIDIAN_TC_DISABLE_FTS=1");
     // The absent-not-zero rule asserted against production output. seedGeneration has no notion of
     // a score, so its record must OMIT the key rather than report 0 — an invented 0 reads as
     // "scored terribly" instead of "not scored here".
     const records: RetrievalTraceRecord[] = [];
-    await graphSearch(requireFts(corpus()), {
+    await graphSearch(db, {
       query: "quokka",
       queryVec: QUERY_VEC,
       vaultId: VAULT,
@@ -161,6 +202,7 @@ describe("tracing does not perturb the pipeline (THE-632, the actual contract)",
 // the A/B above, and previously they were all this file had.
 describe("RetrievalTraceRecord shape (THE-632)", () => {
   it("omits score/rank rather than defaulting them to 0", () => {
+    expect.hasAssertions();
     // A stage with no notion of a score must not report `score: 0` — that reads as "scored
     // terribly" when the truth is "not scored here", and it is exactly the class of false signal
     // THE-688 was filed about one layer up.
@@ -186,6 +228,7 @@ describe("RetrievalTraceRecord shape (THE-632)", () => {
   });
 
   it("chunksPresent distinguishes partial survival from total loss", () => {
+    expect.hasAssertions();
     // A note is many chunks. "1 of 7 survived" and "7 of 7 survived" are different diagnoses that a
     // boolean `present` collapses into the same answer.
     const partial: RetrievalTraceRecord = {
@@ -205,6 +248,7 @@ describe("RetrievalTraceRecord shape (THE-632)", () => {
 
 describe("coverage estimate is unaffected by tracing (THE-631 x THE-632)", () => {
   it("estimateCoverage reads only the results, so a trace cannot move it", () => {
+    expect.hasAssertions();
     // estimateCoverage is pure over the RESULT array. Tracing never touches that array, so this is
     // the cheap structural proof that turning tracing on cannot change what the caller is told
     // about coverage — the two side-channels stay independent.
