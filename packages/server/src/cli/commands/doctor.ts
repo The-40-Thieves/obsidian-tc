@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   bridgeState,
   buildVaultCapabilities,
@@ -5,8 +7,11 @@ import {
   type RestApiOnDisk,
 } from "../../bridge";
 import { resolveCapabilityProfile } from "../../capability";
+import { openDatabase } from "../../db/open";
 import { assembleDoctorReport, type DenseProbeResult, renderText } from "../../doctor";
 import { createEmbeddingProvider } from "../../embeddings";
+import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
+import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
@@ -74,6 +79,86 @@ async function probeDenseProvider(
   }
 }
 
+/**
+ * THE-696 — the opt-in notes_fts integrity probe behind `doctor --probe`.
+ *
+ * Opens cache.db READ-WRITE, which is required: FTS5 exposes integrity-check as an INSERT into the
+ * virtual table, so a read-only handle cannot run it. It writes nothing — the command only reads
+ * the inverted index and reports — and WAL mode means this is safe alongside a running server.
+ *
+ * `ensureNotesFts` is called first because availability and soundness are different questions and
+ * conflating them is the whole ticket: an adapter without FTS5 must report "off", not "malformed".
+ *
+ * Returns the availability flag alongside the verdict so the check can tell those two cases apart.
+ * Never throws — a missing or unopenable cache.db degrades to "not verified" rather than killing a
+ * diagnostic run, and a doctor that dies while diagnosing is useless exactly when it is needed.
+ */
+async function probeNotesFts(
+  cacheDir: string,
+): Promise<{ ftsEnabled: boolean; integrity?: NotesFtsIntegrity }> {
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    db = await openDatabase(join(cacheDir, "cache.db"));
+    const ftsEnabled = ensureNotesFts(db);
+    if (!ftsEnabled) return { ftsEnabled: false };
+    return { ftsEnabled: true, integrity: verifyNotesFtsIntegrity(db) };
+  } catch {
+    // No cache.db yet (fresh install), or it cannot be opened. Either way there is no index to
+    // pronounce on — fall back to the unprobed wording rather than inventing a verdict.
+    return { ftsEnabled: process.env.OBSIDIAN_TC_DISABLE_FTS !== "1" };
+  } finally {
+    try {
+      // `close` is OPTIONAL on the Database interface — the node:sqlite adapter used in tests and
+      // in the .mcpb bundle does not expose it. Optional-call, not a bare `db?.close()`.
+      db?.close?.();
+    } catch {
+      /* closing a handle we may never have opened must not fail the run */
+    }
+  }
+}
+
+/**
+ * THE-698 — the opt-in pending-episode backlog count behind `doctor --probe`.
+ *
+ * Counts rather than evaluates: diagnosing must never promote a row. Reports the oldest pending
+ * episode's AGE alongside the count because the count alone cannot discriminate — episodes
+ * captured since the last tick are supposed to be pending, and "6 pending" is healthy while "337
+ * pending, oldest 17 days" means the evaluator has never run. Both are non-zero numbers.
+ *
+ * Reads only — it issues a single GROUP BY and writes nothing. The path is passed PLAIN, not as a
+ * `file:...?mode=ro` URI: `openDatabase` hands the string straight to bun:sqlite, which treats a URI
+ * as a literal filename, so the read-only form silently opened the wrong file and the catch below
+ * turned that into "not probed" against a live store with 337 pending rows. The existsSync guard is
+ * what keeps a fresh install from having an empty experiential.db conjured by the probe.
+ *
+ * Never throws: no store yet (capture disabled, or a fresh install) degrades to the unprobed
+ * wording rather than killing the run.
+ */
+async function probeEpisodeBacklog(
+  cacheDir: string,
+  nowMs: number,
+): Promise<EpisodeBacklog | undefined> {
+  const path = join(cacheDir, "experiential.db");
+  if (!existsSync(path)) return undefined;
+  let edb: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    edb = await openDatabase(path);
+    // Delegates to reflect.ts rather than counting here: `promotable` must be computed by the SAME
+    // predicates the evaluator promotes by, or the checker and the evaluator disagree about what
+    // is healthy. A hand-rolled GROUP BY here counted `pending` and warned on a store that had
+    // just been promoted successfully.
+    return readEpisodeBacklog(edb, nowMs);
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      edb?.close?.();
+    } catch {
+      /* see probeNotesFts */
+    }
+  }
+}
+
 // THE-521 — runtime health probe. Loads config, detects the environment (THE-522), runs the default
 // check set, and emits either the versioned JSON envelope or human text rendered from it. Exits
 // non-zero when any check fails, so scripts and CI can gate on health — a warning does not fail.
@@ -110,6 +195,24 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     }),
   );
 
+  // THE-696: only under --probe does this open cache.db at all, so the default run stays offline
+  // and side-effect-free by construction, exactly like the dense probe above.
+  const notesFts = cmd.probe
+    ? await probeNotesFts(config.cacheDir)
+    : { ftsEnabled: process.env.OBSIDIAN_TC_DISABLE_FTS !== "1" };
+
+  // THE-698: episode capture is on when any of the three experiential gates is set — the same
+  // three that decide `experientialOpen` in runtime/stores.ts. Derived from config here rather
+  // than re-asked, so doctor cannot disagree with the server about whether the tier is live.
+  const experientialEnabled =
+    config.experiential.logRetrievals ||
+    config.experiential.captureEpisodes ||
+    config.experiential.activationRerank;
+  const backlog =
+    cmd.probe && experientialEnabled
+      ? await probeEpisodeBacklog(config.cacheDir, Date.now())
+      : undefined;
+
   const report = await assembleDoctorReport({
     config: {
       auth: {
@@ -137,6 +240,18 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
       // THE-648: snapshots default to enabled; surface the effective posture either way.
       snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
+      // THE-698: capture state always; the backlog count only when --probe looked.
+      experientialEvaluator: {
+        enabled: experientialEnabled,
+        ...(backlog !== undefined ? { probe: () => backlog } : {}),
+      },
+      // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
+      notesFts: {
+        ftsEnabled: notesFts.ftsEnabled,
+        ...(notesFts.integrity !== undefined
+          ? { probe: () => notesFts.integrity as NotesFtsIntegrity }
+          : {}),
+      },
       // Final-review blocker 2: validate the configured provider names against the registry —
       // an unregistered name parses cleanly now (embeddings.provider/reranker.provider are open
       // strings) and was previously invisible to doctor.

@@ -10,7 +10,9 @@ import type { CapabilityProfile } from "../src/capability";
 import {
   authMaxAgeCheck,
   authPolicyCheck,
+  experientialEvaluatorCheck,
   nativeCheck,
+  notesFtsIntegrityCheck,
   obsidianCheck,
   providerRegistrationCheck,
   type RetrievalHeadsView,
@@ -334,5 +336,123 @@ describe("THE-648 snapshots.policy check", () => {
     expect(r.status).toBe("warning");
     expect(r.summary.toLowerCase()).toContain("no built-in rollback");
     expect(r.remediation).toBeTruthy();
+  });
+});
+
+// THE-696 — the same configured-vs-VERIFIED split THE-688 drew for the embeddings provider, applied
+// to notes_fts. health.fts_enabled answers "is FTS5 available on this connection", which stayed
+// `true` throughout the period the live index was malformed and silently serving partial answers.
+describe("THE-696 search.notes_fts check", () => {
+  it("does NOT claim soundness when no probe was supplied", async () => {
+    const r = await notesFtsIntegrityCheck({ ftsEnabled: true }).run(ctx);
+    expect(r.status).toBe("ok");
+    // The wording is the point. "provisioned" is what the default run can support; anything
+    // stronger is the THE-688 `dense: ready` literal wearing a different name.
+    expect(r.details?.notes_fts).toContain("not verified");
+    expect(r.details?.notes_fts).not.toContain("SOUND");
+  });
+
+  it("reports SOUND only when a probe actually looked", async () => {
+    const r = await notesFtsIntegrityCheck({
+      ftsEnabled: true,
+      probe: () => ({ ok: true }),
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.notes_fts).toContain("SOUND");
+  });
+
+  it("warns with SQLite's own reason when the probe finds a malformed index", async () => {
+    const r = await notesFtsIntegrityCheck({
+      ftsEnabled: true,
+      probe: () => ({ ok: false, reason: "database disk image is malformed" }),
+    }).run(ctx);
+    // A warning, not a fail: the server still boots and chunk-level retrieval is unaffected —
+    // what degrades is the note-level lexical surface (search_text, find_notes_by_*, list_tags).
+    expect(r.status).toBe("warning");
+    expect(r.details?.notes_fts).toContain("MALFORMED");
+    expect(r.issues?.join(" ")).toContain("database disk image is malformed");
+    expect(r.remediation).toBeTruthy();
+  });
+
+  it("reports FTS as off rather than unsound when FTS5 is unavailable", async () => {
+    // OBSIDIAN_TC_DISABLE_FTS=1 or an adapter built without FTS5 is a supported configuration —
+    // the query layer falls back to disk scans. Calling that "malformed" would be a false alarm.
+    const r = await notesFtsIntegrityCheck({ ftsEnabled: false }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.notes_fts).toContain("off");
+    expect(r.issues).toBeUndefined();
+  });
+});
+
+// THE-698 — the same class of signal THE-696 needed for notes_fts, applied to the experiential
+// tier, as the ticket asks ("consider one mechanism rather than two"). Nothing reported that 337 of
+// 337 episodes were pending for seventeen days; work_search just returned empty, which is
+// indistinguishable from "nothing matched".
+describe("THE-698 experiential.evaluator check", () => {
+  it("reports off when the experiential store is closed", async () => {
+    const r = await experientialEvaluatorCheck({ enabled: false }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.evaluator).toContain("off");
+    expect(r.issues).toBeUndefined();
+  });
+
+  it("does NOT claim a backlog is healthy when no probe counted it", async () => {
+    const r = await experientialEvaluatorCheck({ enabled: true }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.evaluator).toContain("not counted");
+  });
+
+  it("is ok when the probe finds no pending backlog", async () => {
+    const r = await experientialEvaluatorCheck({
+      enabled: true,
+      probe: () => ({ pending: 0, eligible: 412, promotable: 0, oldestPromotableAgeMs: null }),
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.evaluator).toContain("0 pending");
+  });
+
+  it("is ok for a fresh backlog — pending is a transient state by design", async () => {
+    // Episodes captured since the last tick are SUPPOSED to be pending. Warning on any non-zero
+    // count would make the check cry wolf on every healthy deployment.
+    const r = await experientialEvaluatorCheck({
+      enabled: true,
+      probe: () => ({ pending: 6, eligible: 412, promotable: 6, oldestPromotableAgeMs: 60_000 }),
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+  });
+
+  it("warns when the oldest pending episode has outlived any plausible tick", async () => {
+    const r = await experientialEvaluatorCheck({
+      enabled: true,
+      probe: () => ({
+        pending: 337,
+        eligible: 0,
+        promotable: 333,
+        oldestPromotableAgeMs: 17 * 86_400_000,
+      }),
+    }).run(ctx);
+    // The exact live condition: 337 pending, zero eligible, 17 days old.
+    expect(r.status).toBe("warning");
+    expect(r.issues?.join(" ")).toContain("work_search");
+    expect(r.remediation).toBeTruthy();
+  });
+
+  it("stays ok when every remaining pending row is HELD for cause — the live post-promotion state", async () => {
+    // The regression this exact check shipped with and had to be corrected for. After the live
+    // promotion the store held 333 eligible and 4 contradictory index_vault episodes that the
+    // deterministic rules hold FOREVER. Keyed on `pending` the check warned about its own success;
+    // keyed on `promotable` it is correctly quiet.
+    const r = await experientialEvaluatorCheck({
+      enabled: true,
+      probe: () => ({
+        pending: 4,
+        eligible: 333,
+        promotable: 0,
+        oldestPromotableAgeMs: null,
+      }),
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.evaluator).toContain("held for cause");
+    expect(r.issues).toBeUndefined();
   });
 });

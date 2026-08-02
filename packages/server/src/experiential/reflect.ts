@@ -22,6 +22,7 @@
 //     a failed dispatch, that we refuse. `status`/`skipped` are otherwise unchanged.
 import type { Database } from "../db/types";
 import { type GatewayRoles, prompt } from "../plane/gateway";
+import type { Scheduler } from "../scheduler/scheduler";
 
 export interface EvaluateStats {
   scanned: number;
@@ -44,6 +45,59 @@ interface PendingRow {
 }
 
 const MAX_JUDGED = 25;
+
+/**
+ * THE-698 — the deterministic hold rules, as ONE derivation.
+ *
+ * Extracted so `readEpisodeBacklog` can answer "how many pending rows would this pass promote?"
+ * WITHOUT promoting anything. That question is what a health check actually needs: a pending row is
+ * not evidence the evaluator is broken — held rows are supposed to stay pending forever, and on the
+ * live store four contradictory `index_vault` episodes do exactly that. A count of pending rows
+ * therefore cannot distinguish "the evaluator has never run" from "the evaluator ran and correctly
+ * held these", and a check built on that count warns forever on a healthy deployment. Measured: it
+ * did, immediately after the live promotion left 333 eligible and 4 legitimately held.
+ *
+ * Deliberately shared rather than reimplemented in the checker. Two copies of these predicates
+ * would drift, and the drift would be silent in exactly the direction that matters — a checker
+ * that thinks fewer rows are promotable than the evaluator does reports healthy while the tier
+ * goes dark again.
+ *
+ * Layer 2 (cross-episode consistency): the same caller+tool+args_hash yielding BOTH ok and error
+ * among the pending set is unstable evidence, so every row of that cluster is held. Plus THE-565:
+ * a known-bad outcome (-1) is held. A plain `status = 'error'` with no bad-outcome stamp still
+ * promotes — errors are lessons too.
+ */
+export function partitionPending(pending: PendingRow[]): {
+  candidates: PendingRow[];
+  held: number;
+} {
+  const statusesByKey = new Map<string, Set<string>>();
+  const keyOf = (r: PendingRow): string | null =>
+    r.args_hash ? `${r.caller ?? ""}\u0000${r.tool ?? ""}\u0000${r.args_hash}` : null;
+  for (const r of pending) {
+    const k = keyOf(r);
+    if (!k) continue;
+    let s = statusesByKey.get(k);
+    if (!s) {
+      s = new Set();
+      statusesByKey.set(k, s);
+    }
+    s.add(r.status);
+  }
+  const unstable = (r: PendingRow): boolean => {
+    const k = keyOf(r);
+    if (!k) return false;
+    const s = statusesByKey.get(k);
+    return s?.has("ok") === true && s.has("error");
+  };
+  const candidates: PendingRow[] = [];
+  let held = 0;
+  for (const r of pending) {
+    if (unstable(r) || r.outcome === -1) held++;
+    else candidates.push(r);
+  }
+  return { candidates, held };
+}
 
 /** Evaluator pass: pending -> eligible under the deterministic rules, with an optional judge
  *  review that can only lower. Ineligible rows are untouchable by construction (the WHERE). */
@@ -69,35 +123,8 @@ export async function evaluateEpisodes(
   };
   if (pending.length === 0) return stats;
 
-  // Layer 2 — cross-episode consistency: the same caller+tool+args_hash yielding both ok and
-  // error among the pending set is unstable evidence; hold every row of that cluster.
-  const statusesByKey = new Map<string, Set<string>>();
-  const keyOf = (r: PendingRow): string | null =>
-    r.args_hash ? `${r.caller ?? ""}\u0000${r.tool ?? ""}\u0000${r.args_hash}` : null;
-  for (const r of pending) {
-    const k = keyOf(r);
-    if (!k) continue;
-    let s = statusesByKey.get(k);
-    if (!s) {
-      s = new Set();
-      statusesByKey.set(k, s);
-    }
-    s.add(r.status);
-  }
-  const unstable = (r: PendingRow): boolean => {
-    const k = keyOf(r);
-    if (!k) return false;
-    const s = statusesByKey.get(k);
-    return s?.has("ok") === true && s.has("error");
-  };
-
-  const candidates: PendingRow[] = [];
-  for (const r of pending) {
-    // Hold: unstable ok/error cluster, or a known-bad outcome (THE-565). Everything else — incl.
-    // a plain error dispatch with no bad-outcome stamp — remains a promotion candidate.
-    if (unstable(r) || r.outcome === -1) stats.held++;
-    else candidates.push(r);
-  }
+  const { candidates, held } = partitionPending(pending);
+  stats.held = held;
 
   // Judge layer (optional, capped): reviews a sample of the would-be promotions and can only
   // lower. One malformed response aborts the layer; deterministic promotions stand.
@@ -331,4 +358,106 @@ export async function extractPreferences(
   } catch {
     return { skipped: false, aborted: true, applied: 0, version: 0 };
   }
+}
+
+/** THE-698: deps for the periodic serve-path episode evaluation (registerEpisodeEvaluation).
+ *  Mirrors ActivationRecomputeDeps — same shape, same optional clock, same onError contract. */
+export interface EpisodeEvaluationDeps {
+  edb: Database;
+  intervalMs: number;
+  now?: () => number;
+  /** The gateway judge, when the generative plane is configured. ABSENT is the normal case and a
+   *  supported one: the judge can only LOWER a deterministic promotion, so omitting it yields the
+   *  deterministic pass alone rather than a degraded or blocked one. Deliberately not defaulted to
+   *  a lazy gateway lookup — a scheduled derived-state job must not acquire a network dependency. */
+  judge?: GatewayRoles["judge"] | null;
+  maxJudged?: number;
+  onEvaluate?: (stats: EvaluateStats) => void;
+  onError?: (e: unknown) => void;
+}
+
+/**
+ * THE-698 — run the evaluator pass on the maintenance cadence.
+ *
+ * `evaluateEpisodes` had exactly two non-test call sites: its own definition and the manual
+ * `obsidian-tc reflect` CLI. Nothing wired it on a schedule the way registerActivationRecompute
+ * wires activation, so the promotion pass simply never happened unless an operator remembered to
+ * invoke it. Measured on the live store before this shipped: 337 of 337 episodes `pending`, zero
+ * eligible, across seventeen days of continuous capture.
+ *
+ * The consequence was not a stale number but a dark subsystem. `work_search` serves
+ * evaluator-approved rows only — that is its security contract, not a default — so with zero
+ * eligible rows it returned nothing, always. An empty result is indistinguishable from "nothing
+ * matched", which is exactly how this stayed invisible. SECURITY.md meanwhile documents `pending`
+ * as "a short-lived state and not a quarantine"; seventeen days at 100% pending is a quarantine.
+ *
+ * Registered beside activation-recompute on the same `config.maintenance.intervalMinutes` cadence
+ * and behind the same `experientialOpen` gate. No gateway dependency, like note-quality-enqueue:
+ * the deterministic layer is the whole job here, and the judge — which can only lower a promotion,
+ * never raise one — participates only if one is passed in.
+ *
+ * Every safety invariant lives in evaluateEpisodes and is unchanged by scheduling it: born-
+ * 'ineligible' rows are untouchable by the WHERE, contradictory ok/error clusters are held, and a
+ * known-bad outcome (-1) is held. Scheduling the pass must never become a way to launder a row the
+ * pre-ingest poison scanner already refused, so that is pinned by test rather than left to reading.
+ */
+export function registerEpisodeEvaluation(scheduler: Scheduler, deps: EpisodeEvaluationDeps): void {
+  scheduler.register({
+    name: "episode-evaluation",
+    intervalMs: deps.intervalMs,
+    run: async () => {
+      const stats = await evaluateEpisodes(deps.edb, {
+        nowMs: (deps.now ?? Date.now)(),
+        ...(deps.judge !== undefined ? { judge: deps.judge } : {}),
+        ...(deps.maxJudged !== undefined ? { maxJudged: deps.maxJudged } : {}),
+      });
+      deps.onEvaluate?.(stats);
+    },
+    onError: (e) => deps.onError?.(e),
+  });
+}
+
+/** THE-698: the backlog an operator actually needs to see. `promotable` is the discriminating
+ *  field — `pending` alone counts rows the evaluator is deliberately holding forever. */
+export interface EpisodeBacklog {
+  pending: number;
+  eligible: number;
+  /** Pending rows the deterministic pass WOULD promote right now. Non-zero and old means the
+   *  evaluator is not running; zero means it is up to date, however many held rows remain. */
+  promotable: number;
+  /** Age of the oldest PROMOTABLE pending episode, or null when there are none. */
+  oldestPromotableAgeMs: number | null;
+}
+
+/**
+ * THE-698 — read the episode backlog WITHOUT evaluating anything.
+ *
+ * Diagnosing must never promote a row, so this shares `partitionPending` with the evaluator rather
+ * than mutating through it. The alternative — counting `eligibility = 'pending'` in the checker —
+ * was tried first and was wrong on the live store the moment the backlog was promoted: 333 eligible
+ * and 4 permanently-held contradictory `index_vault` episodes read as "the evaluator has not run".
+ */
+export function readEpisodeBacklog(edb: Database, nowMs: number): EpisodeBacklog {
+  const pending = edb
+    .prepare(
+      `SELECT id, caller, tool, status, args_hash, summary, outcome, ts FROM agent_episodes
+       WHERE eligibility = 'pending' AND blocked = 0
+         AND (valid_until IS NULL OR valid_until > ?)
+       ORDER BY ts ASC`,
+    )
+    .all(nowMs) as Array<PendingRow & { ts: number }>;
+  const eligible = (
+    edb
+      .prepare("SELECT COUNT(*) AS n FROM agent_episodes WHERE eligibility = 'eligible'")
+      .get() as { n: number }
+  ).n;
+  const { candidates } = partitionPending(pending);
+  // Rows come back ts ASC, so the first candidate is the oldest promotable one.
+  const oldest = candidates[0] as (PendingRow & { ts: number }) | undefined;
+  return {
+    pending: pending.length,
+    eligible,
+    promotable: candidates.length,
+    oldestPromotableAgeMs: oldest ? Math.max(0, nowMs - oldest.ts) : null,
+  };
 }

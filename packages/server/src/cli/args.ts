@@ -24,6 +24,9 @@ export type CliCommand =
   | { kind: "plugin-install"; vaultPath: string }
   | { kind: "cluster"; input?: string; k?: number }
   | { kind: "activation-recompute"; input?: string }
+  /** THE-697: the derived-state job that had no CLI. `folder` scopes a partial reindex the same way
+   *  the index_vault tool's `folder` input does. */
+  | { kind: "index"; input?: string; vault?: string; folder?: string }
   | {
       kind: "citation-infer";
       input?: string;
@@ -87,6 +90,14 @@ Usage:
                                           default: every other check is offline, and a "module"
                                           provider is never probed at all.
   obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
+  obsidian-tc index [path] [--vault id] [--folder rel/path]
+                                          Chunk and embed the vault into the search index (THE-697).
+                                          Incremental: unchanged content hashes are skipped, removed
+                                          chunks pruned. The operator path for a reindex — the
+                                          index_vault tool cannot hold an HTTP request open long
+                                          enough for a large vault. --folder requires --vault.
+                                          Exits non-zero if any note failed to embed, since those
+                                          notes are indexed but NOT retrievable.
   obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval (THE-73)
   obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history (THE-227)
   obsidian-tc prefetch [path] [--vault id] [--ttl-hours N]
@@ -272,6 +283,27 @@ export function parseCliArgs(argv: string[]): CliCommand {
       return {
         kind: "activation-recompute",
         input: flagValue(rest, "--config") ?? positional(rest),
+      };
+    }
+    // THE-697: reindex from the command line. Before this, `obsidian-tc index` parsed as
+    // `{ kind: "serve", input: "index" }` — the word was read as a config path, so the CLI's answer
+    // to a reindex request was to try to boot a server against a file named `index`.
+    if (first === "index") {
+      // Strip value-carrying flags before positional(), or `--vault main` makes "main" the config
+      // path. Same guard every multi-flag command here already needs.
+      const scan = [...rest];
+      for (const f of ["--vault", "--folder", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const input = flagValue(rest, "--config") ?? positional(scan);
+      const vault = flagValue(rest, "--vault");
+      const folder = flagValue(rest, "--folder");
+      return {
+        kind: "index",
+        ...(input !== undefined ? { input } : {}),
+        ...(vault !== undefined ? { vault } : {}),
+        ...(folder !== undefined ? { folder } : {}),
       };
     }
     // Graph densification LLM Pass-3 batch runner.

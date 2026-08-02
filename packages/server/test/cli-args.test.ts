@@ -319,3 +319,52 @@ describe("redactConfig — generic key-suffix fields", () => {
     expect(json).toContain('"publicId":"ok"');
   });
 });
+
+// THE-697 — `index` was the conspicuous omission from the CLI. Every other derived-state job here
+// (cluster, activation-recompute, note-quality, gaps) has one; indexing was reachable ONLY through
+// the index_vault MCP tool or boot reconcile. That mattered because the tool call cannot complete
+// over HTTP: Bun's 10s default idleTimeout kills the request while the work continues invisibly
+// server-side, so the caller sees a hard failure on a successful operation and an operator has no
+// clean path to a scripted reindex.
+describe("THE-697 index command", () => {
+  it("parses a bare `index`", () => {
+    expect(parseCliArgs(["index"])).toStrictEqual({ kind: "index" });
+  });
+
+  it("accepts --config, like every other derived-state command", () => {
+    expect(parseCliArgs(["index", "--config", "/etc/otc.json"])).toStrictEqual({
+      kind: "index",
+      input: "/etc/otc.json",
+    });
+  });
+
+  it("accepts a positional config path", () => {
+    expect(parseCliArgs(["index", "/etc/otc.json"])).toStrictEqual({
+      kind: "index",
+      input: "/etc/otc.json",
+    });
+  });
+
+  it("scopes to one vault with --vault", () => {
+    expect(parseCliArgs(["index", "--vault", "main"])).toStrictEqual({
+      kind: "index",
+      vault: "main",
+    });
+  });
+
+  it("does not mistake --vault's value for the config positional", () => {
+    // The trap every other command here had to handle explicitly: `positional(rest)` would
+    // otherwise read "main" as the config path and try to load a file called `main`.
+    expect(parseCliArgs(["index", "--vault", "main"])).toStrictEqual({
+      kind: "index",
+      vault: "main",
+    });
+  });
+
+  it("scopes to a subfolder with --folder", () => {
+    expect(parseCliArgs(["index", "--folder", "Notes/Daily"])).toStrictEqual({
+      kind: "index",
+      folder: "Notes/Daily",
+    });
+  });
+});

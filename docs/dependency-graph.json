@@ -2,17 +2,17 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 369,
-    "dependencies": 1630,
-    "subsystemPairs": 107,
-    "crossSubsystemImports": 726
+    "modules": 370,
+    "dependencies": 1649,
+    "subsystemPairs": 111,
+    "crossSubsystemImports": 738
   },
   "subsystems": {
     "auth": 3,
     "bridge": 8,
     "capability": 6,
     "capture": 1,
-    "cli": 22,
+    "cli": 23,
     "config": 12,
     "db": 13,
     "doctor": 5,
@@ -70,7 +70,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 20
+      "weight": 23
     },
     {
       "from": "runtime",
@@ -103,7 +103,17 @@
       "weight": 11
     },
     {
+      "from": "cli",
+      "to": "experiential",
+      "weight": 9
+    },
+    {
       "from": "mcp",
+      "to": "vault",
+      "weight": 9
+    },
+    {
+      "from": "runtime",
       "to": "vault",
       "weight": 9
     },
@@ -111,16 +121,6 @@
       "from": "runtime",
       "to": "mcp",
       "weight": 9
-    },
-    {
-      "from": "runtime",
-      "to": "vault",
-      "weight": 9
-    },
-    {
-      "from": "cli",
-      "to": "experiential",
-      "weight": 8
     },
     {
       "from": "formats",
@@ -143,8 +143,18 @@
       "weight": 8
     },
     {
+      "from": "cli",
+      "to": "search",
+      "weight": 7
+    },
+    {
       "from": "providers",
       "to": "embeddings",
+      "weight": 7
+    },
+    {
+      "from": "runtime",
+      "to": "experiential",
       "weight": 7
     },
     {
@@ -156,16 +166,6 @@
       "from": "tools",
       "to": "bridge",
       "weight": 7
-    },
-    {
-      "from": "cli",
-      "to": "search",
-      "weight": 6
-    },
-    {
-      "from": "runtime",
-      "to": "experiential",
-      "weight": 6
     },
     {
       "from": "tools",
@@ -288,6 +288,11 @@
       "weight": 3
     },
     {
+      "from": "cli",
+      "to": "vault",
+      "weight": 2
+    },
+    {
       "from": "doctor",
       "to": "bridge",
       "weight": 2
@@ -305,6 +310,11 @@
     {
       "from": "embeddings",
       "to": "providers",
+      "weight": 2
+    },
+    {
+      "from": "experiential",
+      "to": "scheduler",
       "weight": 2
     },
     {
@@ -404,6 +414,16 @@
     },
     {
       "from": "cli",
+      "to": "metrics",
+      "weight": 1
+    },
+    {
+      "from": "cli",
+      "to": "runtime",
+      "weight": 1
+    },
+    {
+      "from": "cli",
       "to": "mcp",
       "weight": 1
     },
@@ -413,18 +433,18 @@
       "weight": 1
     },
     {
-      "from": "cli",
-      "to": "vault",
-      "weight": 1
-    },
-    {
       "from": "db",
       "to": "scheduler",
       "weight": 1
     },
     {
-      "from": "experiential",
-      "to": "scheduler",
+      "from": "doctor",
+      "to": "experiential",
+      "weight": 1
+    },
+    {
+      "from": "doctor",
+      "to": "search",
       "weight": 1
     },
     {
