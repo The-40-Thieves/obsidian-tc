@@ -7,6 +7,7 @@ stub encoder + scheduler and marks readiness ready."""
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 import obsidian_tc_bge.api as api
@@ -86,6 +87,100 @@ def test_encode_requires_auth(monkeypatch):
     with _client(monkeypatch) as c:
         r = c.post("/v1/encode", json={"input": ["hi"], "outputs": ["dense"]})
         assert r.status_code == 401
+
+
+# --- THE-704 -------------------------------------------------------------------------------
+# Until these landed, the ONLY auth assertion in this file was the one above, which sends no header
+# at all — so it covered the missing-header path and nothing else. `hmac.compare_digest` itself, the
+# one line in this service carrying a security rationale comment, had no test proving it rejects a
+# token that is merely wrong.
+#
+# The byte cases are sent as raw `bytes` deliberately. Passing a `str` with a non-ASCII character
+# never reaches the server: httpx encodes header values as ASCII and raises client-side, which is
+# why this class of bug can sit unnoticed behind well-behaved SDKs. Raw bytes are what an attacker
+# puts on the wire, and what Starlette then latin-1-decodes into the non-ASCII str that made
+# compare_digest raise TypeError -> HTTP 500 instead of returning False -> HTTP 401.
+
+
+def test_encode_rejects_a_wrong_but_ascii_token(monkeypatch):
+    with _client(monkeypatch) as c:
+        r = c.post(
+            "/v1/encode",
+            headers={"authorization": "Bearer wrong"},
+            json={"input": ["hi"], "outputs": ["dense"]},
+        )
+        assert r.status_code == 401
+
+
+def test_encode_rejects_a_prefix_of_the_real_token(monkeypatch):
+    # A truncated-but-matching prefix is the shape a byte-by-byte timing attack walks through, and
+    # the case a length-insensitive comparison would get wrong.
+    with _client(monkeypatch) as c:
+        r = c.post(
+            "/v1/encode",
+            headers={"authorization": "Bearer to"},
+            json={"input": ["hi"], "outputs": ["dense"]},
+        )
+        assert r.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param(b"Bearer \xff", id="single-byte-0xff"),
+        pytest.param("Bearer 你好".encode("utf-8"), id="utf8-multibyte"),
+        pytest.param(b"Bearer tok\x80", id="valid-token-plus-high-byte"),
+    ],
+)
+def test_encode_rejects_non_ascii_header_with_401_not_500(monkeypatch, raw):
+    with _client(monkeypatch) as c:
+        r = c.post(
+            "/v1/encode",
+            headers={b"authorization": raw},
+            json={"input": ["hi"], "outputs": ["dense"]},
+        )
+        assert r.status_code == 401
+
+
+def test_rerank_rejects_a_wrong_token(monkeypatch):
+    with _client(monkeypatch) as c:
+        r = c.post(
+            "/v1/rerank",
+            headers={"authorization": "Bearer wrong"},
+            json={"query": "q", "documents": ["a", "b"]},
+        )
+        assert r.status_code == 401
+
+
+def test_rerank_rejects_non_ascii_header_with_401_not_500(monkeypatch):
+    # /v1/rerank shares the same Depends(require_auth); pinned separately so a future per-route
+    # auth change cannot fix one endpoint and leave the other returning 500.
+    with _client(monkeypatch) as c:
+        r = c.post(
+            "/v1/rerank",
+            headers={b"authorization": b"Bearer \xff"},
+            json={"query": "q", "documents": ["a", "b"]},
+        )
+        assert r.status_code == 401
+
+
+def test_models_rejects_non_ascii_header_with_401_not_500(monkeypatch):
+    with _client(monkeypatch) as c:
+        r = c.get("/v1/models", headers={b"authorization": b"Bearer \xff"})
+        assert r.status_code == 401
+
+
+def test_a_non_ascii_token_in_config_still_authenticates(monkeypatch):
+    # The latin-1 round-trip must be lossless in the direction that matters: a client sending the
+    # UTF-8 bytes of a non-ASCII configured token still authenticates. This is the test that would
+    # fail if the fix had normalized or lowercased the header instead of decoding it faithfully.
+    with _client(monkeypatch, token="tök") as c:
+        r = c.post(
+            "/v1/encode",
+            headers={b"authorization": "Bearer tök".encode("utf-8")},
+            json={"input": ["hi"], "outputs": ["dense"]},
+        )
+        assert r.status_code == 200
 
 
 def test_encode_ok(monkeypatch):
