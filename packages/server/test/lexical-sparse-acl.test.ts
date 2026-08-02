@@ -53,27 +53,37 @@ function addChunk(db: Database, id: string, path: string, content: string): void
 /** Deny exactly the private folder — the shape a real folder ACL produces. */
 const readable = (p: string): boolean => !p.startsWith("09-private/");
 
-/** FTS5 is REQUIRED, not silently skipped — the same contract THE-691's suite adopted, for the
- *  same reason. These two BM25 tests originally `return`ed early when FTS5 was missing, so they
- *  could report PASSED having asserted nothing, and a security suite that is green because it ran
- *  nothing states the property as HELD. CI compiles FTS5 on all four build-test platforms — proven
- *  by router-df-oracle.test.ts, which already throws without it — so requiring it costs nothing. */
-function requireFts(db: Database): void {
-  if (!ensureChunkFts(db)) {
-    throw new Error(
-      "FTS5 unavailable — THE-632's assertions cannot run. Refusing to pass vacuously.",
-    );
-  }
+/**
+ * FTS5 availability, with the two causes kept DISTINCT — they deserve opposite outcomes.
+ *
+ * These tests originally `return`ed early when FTS5 was missing, so they could report PASSED having
+ * asserted nothing; a security suite that is green because it ran nothing states the property as
+ * HELD. The first fix threw unconditionally, which over-corrected: `OBSIDIAN_TC_DISABLE_FTS=1` is a
+ * SUPPORTED opt-out (see chunk_fts.ts), so a contributor exercising it would get a hard failure for
+ * doing something legitimate.
+ *
+ * So: deliberate opt-out reports SKIPPED (visible in the runner, never mistaken for a pass), and an
+ * UNEXPECTED absence still throws, because that is the regression case — CI never sets the env var
+ * and compiles FTS5 on all four build-test platforms.
+ */
+function ftsState(db: Database): "ok" | "deliberately-disabled" {
+  if (ensureChunkFts(db)) return "ok";
+  if (process.env.OBSIDIAN_TC_DISABLE_FTS === "1") return "deliberately-disabled";
+  throw new Error(
+    "FTS5 is unavailable and OBSIDIAN_TC_DISABLE_FTS is not set — THE-632's ACL assertions cannot " +
+      "run and this suite refuses to pass vacuously. Set the env var if the omission is intended.",
+  );
 }
 
 describe("THE-632: BM25 applies the read ACL before its top-k cut", () => {
-  it("never returns an unreadable chunk, even when it is the ONLY match", () => {
+  it("never returns an unreadable chunk, even when it is the ONLY match", (ctx) => {
+    expect.hasAssertions();
     const db = seedDb();
     // The rare term exists in exactly one note, and that note is unreadable. Without query-time
     // filtering the caller gets a hit — and, worse, a COUNT that betrays the term's existence.
     addChunk(db, "priv", PRIVATE, "zarquon classified codeword");
     addChunk(db, "pub", "00-public.md", "ordinary public words");
-    requireFts(db);
+    ctx.skip(ftsState(db) === "deliberately-disabled", "OBSIDIAN_TC_DISABLE_FTS=1");
 
     const leaky = bm25Chunks(db, VAULT, "zarquon", 10);
     const guarded = bm25Chunks(db, VAULT, "zarquon", 10, readable);
@@ -84,13 +94,14 @@ describe("THE-632: BM25 applies the read ACL before its top-k cut", () => {
     expect(guarded).toHaveLength(0);
   });
 
-  it("does not let unreadable chunks crowd out readable ones inside the limit", () => {
+  it("does not let unreadable chunks crowd out readable ones inside the limit", (ctx) => {
+    expect.hasAssertions();
     const db = seedDb();
     // Many unreadable matches, one readable. Asking for k=1 with filtering applied only AFTER the
     // SQL limit would return nothing — the private chunks would have consumed the slot.
     for (let i = 0; i < 12; i++) addChunk(db, `p${i}`, `09-private/n${i}.md`, "shared term here");
     addChunk(db, "vis", "00-visible.md", "shared term here");
-    requireFts(db);
+    ctx.skip(ftsState(db) === "deliberately-disabled", "OBSIDIAN_TC_DISABLE_FTS=1");
 
     const hits = bm25Chunks(db, VAULT, "shared term", 1, readable);
     expect(hits).toHaveLength(1);
@@ -109,6 +120,7 @@ describe("THE-632: sparse search applies the read ACL before its top-k cut", () 
   };
 
   it("never returns an unreadable chunk, even as the strongest match", () => {
+    expect.hasAssertions();
     const db = seedDb();
     addChunk(db, "priv", PRIVATE, "classified");
     addChunk(db, "pub", "00-public.md", "ordinary");
@@ -123,6 +135,7 @@ describe("THE-632: sparse search applies the read ACL before its top-k cut", () 
   });
 
   it("filtering is EXACT here — the scan is exhaustive, so no crowding is possible", () => {
+    expect.hasAssertions();
     const db = seedDb();
     for (let i = 0; i < 12; i++) {
       addChunk(db, `p${i}`, `09-private/n${i}.md`, "x");
