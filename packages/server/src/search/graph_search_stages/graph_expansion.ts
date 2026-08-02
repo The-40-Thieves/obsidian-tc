@@ -59,10 +59,15 @@ export function expandGraph(input: GraphExpansionInput): GraphExpansionResult {
   const expandFrom = gsEnabled
     ? seedPaths.slice(0, opts.graphStream?.expansionSeeds ?? 8)
     : seedPaths;
+  // THE-695: dark by default. Both the flag AND a resolved set id are required — a flag with no
+  // substrate must not silently do nothing different, and a set id with the flag off must not
+  // silently change recall.
+  const aclSetId = opts.aclWalkFilter?.enabled === true ? opts.aclSetId : undefined;
   const nodes = expandGraphLiteral(db, expandFrom, {
     vaultId: opts.vaultId,
     hopLimit,
     includeDerived: opts.densify?.includeInWalk ?? false,
+    ...(aclSetId !== undefined ? { aclSetId } : {}),
   });
   const nodeByPath = new Map(nodes.map((n) => [n.path, n]));
   const paths = [...nodeByPath.keys()];

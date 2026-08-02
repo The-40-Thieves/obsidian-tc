@@ -1,21 +1,27 @@
-// THE-691 (security): the query router's rare-term signal must not leak the existence — or the
-// document frequency — of terms that appear only in notes the caller cannot read.
+// THE-691 / THE-694 (security): the query router's rare-term signal must not leak the existence —
+// or the document frequency — of terms that appear only in notes the caller cannot read.
 //
 // `routeQuery` emits `rare-term:<token>(df=<n>)` when a token's document frequency lands in
-// [1, rareDfMax]. `termDf` counted matching rows in the FTS index with NO read ACL, and
-// `route.signals` is returned VERBATIM to callers from five tool sites — vault_graph_search,
-// knowledge_search, vault_context, and two paths in reflect.
+// [1, rareDfMax], and `route.signals` is returned VERBATIM to callers from five tool sites —
+// vault_graph_search, knowledge_search, vault_context, and two paths in reflect. `termDf` originally
+// counted matching rows with NO read ACL, which made every one of those tools a content-membership
+// oracle for any caller holding `read:notes`.
 //
-// That made every one of those tools a content-membership oracle for any caller holding
-// `read:notes`: guess a term, read `route` in an ordinary successful response, and learn both
-// whether the word occurs in the vault and in how many chunks. Not a path oracle — a CONTENT one.
-// Confirming a name, a codeword, or a medical term inside a denied folder is precisely what the
-// folder ACL exists to prevent.
+// THE-691 closed the VALUE channel by paging until the readable count was exact. THE-694 then
+// measured what remained. On a live snapshot with a restricted ACL, both queries answering 0:
 //
-// The assertion that matters is the INDISTINGUISHABILITY one: a term present only in an unreadable
-// note must produce the same signals as a term absent from the vault entirely. Checking that an
-// `isReadable` argument is threaded would prove nothing — the leak was in a COUNT, and counts
-// survive filters applied too late.
+//   a term present ONLY in denied notes (1,504 hidden matches) -> mean 3.381 ms
+//   a term absent from the vault entirely                      -> mean 0.047 ms
+//
+// 72x on means, 77x on medians, non-overlapping distributions. Latency still correlated with how
+// much denied content matched a caller-supplied token, and no in-SQL filter removes that: joining a
+// materialized permitted set plans as `SCAN chunk_fts VIRTUAL TABLE` plus a per-row membership
+// probe, so work tracks TOTAL matches however the predicate is written.
+//
+// So the probe is no longer issued at all for a restricted caller. The paged scan is DELETED, not
+// filtered. The assertion that matters is unchanged and now holds more strongly: a term present
+// only in an unreadable note must be indistinguishable from a term absent entirely — and it is now
+// indistinguishable in TIME as well as in value, because no query runs.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -39,7 +45,7 @@ const readable = (p: string): boolean => !p.startsWith("09-private/");
 function requireFts(db: Database): Database {
   if (!ensureChunkFts(db)) {
     throw new Error(
-      "FTS5 unavailable — THE-691's assertions cannot run. Refusing to pass vacuously.",
+      "FTS5 unavailable — THE-691/THE-694's assertions cannot run. Refusing to pass vacuously.",
     );
   }
   return db;
@@ -55,22 +61,30 @@ function dbWith(rows: Array<{ id: string; path: string; content: string }>): Dat
   return requireFts(db);
 }
 
-describe("THE-691: routeQuery must not leak unreadable term existence", () => {
+const hidden = (n: number, term = "zarquon") =>
+  Array.from({ length: n }, (_, i) => ({
+    id: `h${i}`,
+    path: `09-private/h${i}.md`,
+    content: term,
+  }));
+
+describe("THE-691/THE-694: routeQuery must not leak unreadable term existence", () => {
   it("a term present ONLY in an unreadable note is indistinguishable from an absent term", () => {
     const db = dbWith([{ id: "p", path: "09-private/secret.md", content: "zarquon classified" }]);
 
-    const hidden = routeQuery(db, VAULT, "zarquon", { isReadable: readable });
+    const hiddenTerm = routeQuery(db, VAULT, "zarquon", { isReadable: readable });
     const absent = routeQuery(db, VAULT, "notpresentanywhere", { isReadable: readable });
 
     // The whole point: same class, same signals, nothing to compare.
-    expect(hidden.signals).toEqual(absent.signals);
-    expect(hidden.class).toBe(absent.class);
-    expect(hidden.signals.join(" ")).not.toContain("zarquon");
+    expect(hiddenTerm.signals).toEqual(absent.signals);
+    expect(hiddenTerm.class).toBe(absent.class);
+    expect(hiddenTerm.signals.join(" ")).not.toContain("zarquon");
   });
 
   it("proves the oracle is real when the ACL is omitted — this test is not vacuous", () => {
-    // Without isReadable the old behaviour stands, so the assertion above is testing something.
-    // Also documents the exact shape of the leak for anyone reading this later.
+    // No ACL at all means nothing to protect, so the whole-vault count is emitted by design. This
+    // documents the exact shape of the leak the ACL branch closes, and keeps the assertion above
+    // from passing merely because the signal is never emitted under any conditions.
     const db = dbWith([{ id: "p", path: "09-private/secret.md", content: "zarquon classified" }]);
 
     const leaked = routeQuery(db, VAULT, "zarquon");
@@ -78,37 +92,30 @@ describe("THE-691: routeQuery must not leak unreadable term existence", () => {
     expect(leaked.signals.join(" ")).toContain("df=1");
   });
 
-  it("a READABLE rare term still routes lexical — the fix must not disable the feature", () => {
+  it("a rare term still routes lexical for an UNRESTRICTED caller — the fix does not kill the feature", () => {
     const db = dbWith([{ id: "v", path: "00-public.md", content: "zarquon visible" }]);
 
-    const r = routeQuery(db, VAULT, "zarquon", { isReadable: readable });
+    const r = routeQuery(db, VAULT, "zarquon", { isReadable: readable, readUnrestricted: true });
     expect(r.class).toBe("lexical");
     expect(r.signals.join(" ")).toContain("zarquon");
   });
 
-  it("counts only READABLE occurrences, so the df value cannot be read off unreadable notes", () => {
-    // Three copies of the term, two hidden. The reported df must be 1, not 3 — otherwise the
-    // NUMBER still betrays how much unreadable content matches.
-    const db = dbWith([
-      { id: "a", path: "09-private/a.md", content: "zarquon" },
-      { id: "b", path: "09-private/b.md", content: "zarquon" },
-      { id: "c", path: "00-public.md", content: "zarquon" },
-    ]);
+  it("a RESTRICTED caller never routes lexical, even on a term they can read", () => {
+    // THE-694's deliberate cost, pinned so it is a decision rather than a regression: a restricted
+    // caller loses rare-term routing entirely. That is a RANKING optimization, not correctness —
+    // they fall through to `standard`, the same path they took before the router existed. Buying
+    // it back would mean issuing the probe, which is the disclosure.
+    const db = dbWith([{ id: "v", path: "00-public.md", content: "zarquon visible" }]);
 
-    const r = routeQuery(db, VAULT, "zarquon", { isReadable: readable });
-    expect(r.signals.join(" ")).toContain("df=1");
-    expect(r.signals.join(" ")).not.toContain("df=3");
+    const r = routeQuery(db, VAULT, "zarquon", { isReadable: readable, readUnrestricted: false });
+    expect(r.class).toBe("standard");
+    expect(r.signals.join(" ")).not.toContain("zarquon");
   });
 
-  it("a term hidden across MANY unreadable notes does not route lexical either", () => {
-    // df over the whole corpus would be 8 — outside the rare window — while the readable df is 0.
-    // Both the signal AND the routing decision must follow what this caller can see.
-    const rows = Array.from({ length: 8 }, (_, i) => ({
-      id: `p${i}`,
-      path: `09-private/n${i}.md`,
-      content: "zarquon",
-    }));
-    const db = dbWith(rows);
+  it("FAILS CLOSED: an ACL with no explicit readUnrestricted does not probe", () => {
+    // The dangerous default would be the other way round. A caller site that threads `isReadable`
+    // but forgets `readUnrestricted` must lose the optimization, never the protection.
+    const db = dbWith([{ id: "v", path: "00-public.md", content: "zarquon visible" }]);
 
     const r = routeQuery(db, VAULT, "zarquon", { isReadable: readable });
     expect(r.class).toBe("standard");
@@ -116,82 +123,44 @@ describe("THE-691: routeQuery must not leak unreadable term existence", () => {
   });
 });
 
-describe("THE-691: the count is EXACT, not a sample of the first page", () => {
-  // These are the cases the first version of this fix got wrong. It read ONE page of 200 matches
-  // and filtered it, so the answer depended on where readable rows happened to fall among hidden
-  // ones — which made it both incorrect and still a function of content the caller cannot see.
-  const hidden = (n: number, term: string) =>
-    Array.from({ length: n }, (_, i) => ({
-      id: `h${i}`,
-      path: `09-private/h${i}.md`,
-      content: term,
-    }));
-
-  it("finds a readable rare term sitting BEYOND a page of hidden matches", () => {
-    // 250 hidden rows then one readable: a single 200-row page never reaches it and reports df=0,
-    // so the term silently stops routing lexical.
-    const db = dbWith([
-      ...hidden(250, "zarquon"),
-      { id: "vis", path: "00-visible.md", content: "zarquon" },
-    ]);
-    const r = routeQuery(db, VAULT, "zarquon", { isReadable: readable });
-    expect(r.signals.join(" ")).toContain("df=1");
-    expect(r.class).toBe("lexical");
-  });
-
-  it("does not undercount INTO the rare window when readable matches are spread out", () => {
-    // Five readable matches, interleaved past a page boundary. Sampling one page could see just
-    // one of them and report df=1 -> routes lexical, when the true readable df is 5 -> standard.
-    const rows = [
-      { id: "v0", path: "00-a.md", content: "zarquon" },
-      ...hidden(220, "zarquon"),
-      { id: "v1", path: "00-b.md", content: "zarquon" },
-      { id: "v2", path: "00-c.md", content: "zarquon" },
-      { id: "v3", path: "00-d.md", content: "zarquon" },
-      { id: "v4", path: "00-e.md", content: "zarquon" },
-    ];
-    const r = routeQuery(dbWith(rows), VAULT, "zarquon", { isReadable: readable });
-    expect(r.class).toBe("standard");
-    expect(r.signals.join(" ")).not.toContain("zarquon");
-  });
+describe("THE-694: hidden volume cannot reach a restricted caller at all", () => {
+  // These replace THE-691's paging-boundary cases. The paged scan they pinned no longer exists —
+  // its correctness was never the problem, its COST was, because the cost was observable. What
+  // survives is the property those tests were ultimately protecting, stated directly.
 
   it("hidden rows cannot change routing for an otherwise identical readable corpus", () => {
-    // The non-interference property stated directly: same readable content, wildly different
-    // amounts of denied content, identical decision and identical signals.
     const visible = [{ id: "vis", path: "00-visible.md", content: "zarquon" }];
     const bare = routeQuery(dbWith(visible), VAULT, "zarquon", { isReadable: readable });
-    const buried = routeQuery(dbWith([...hidden(400, "zarquon"), ...visible]), VAULT, "zarquon", {
+    const buried = routeQuery(dbWith([...hidden(400), ...visible]), VAULT, "zarquon", {
       isReadable: readable,
     });
     expect(buried.class).toBe(bare.class);
     expect(buried.signals).toEqual(bare.signals);
   });
-});
 
-describe("THE-691: the paging loop terminates at every page boundary", () => {
-  // The cursor advances on `rowid > last`, so a page that lands exactly on the boundary is the
-  // case worth pinning: the loop issues one more query, gets zero rows, and stops. An off-by-one
-  // here is either an infinite loop on a hot path or a silently skipped row at the seam.
-  const hidden = (n: number) =>
-    Array.from({ length: n }, (_, i) => ({
-      id: `h${i}`,
-      path: `09-private/h${i}.md`,
-      content: "zarquon",
-    }));
-
-  it("a match set of EXACTLY one page, none readable", () => {
-    const r = routeQuery(dbWith(hidden(200)), VAULT, "zarquon", { isReadable: readable });
-    expect(r.class).toBe("standard");
+  it("400 hidden matches and 0 hidden matches produce the same decision and signals", () => {
+    // The non-interference statement at its strongest: the readable corpus is EMPTY in both, so any
+    // difference at all would be attributable purely to denied content.
+    const none = routeQuery(dbWith([]), VAULT, "zarquon", { isReadable: readable });
+    const many = routeQuery(dbWith(hidden(400)), VAULT, "zarquon", { isReadable: readable });
+    expect(many.class).toBe(none.class);
+    expect(many.signals).toEqual(none.signals);
   });
 
-  it("exactly one full page hidden, with the only readable match on page two", () => {
-    const rows = [...hidden(200), { id: "v", path: "00-v.md", content: "zarquon" }];
-    const r = routeQuery(dbWith(rows), VAULT, "zarquon", { isReadable: readable });
-    expect(r.signals.join(" ")).toContain("df=1");
-  });
+  it("issues NO chunk_fts statement for a restricted caller, whatever the hidden volume", () => {
+    // The mechanism, asserted directly rather than inferred from a timing measurement (which would
+    // be circular — timing is the thing under test). Zero statements is why the channel is closed
+    // rather than merely narrowed: there is no work whose duration could vary.
+    const db = dbWith(hidden(400));
+    let ftsStatements = 0;
+    const raw = db.prepare.bind(db);
+    (db as unknown as { prepare: (sql: string) => unknown }).prepare = (sql: string) => {
+      if (sql.includes("chunk_fts")) ftsStatements++;
+      return raw(sql);
+    };
 
-  it("two full pages, none readable", () => {
-    const r = routeQuery(dbWith(hidden(400)), VAULT, "zarquon", { isReadable: readable });
-    expect(r.class).toBe("standard");
+    routeQuery(db, VAULT, "zarquon", { isReadable: readable });
+
+    expect(ftsStatements).toBe(0);
   });
 });

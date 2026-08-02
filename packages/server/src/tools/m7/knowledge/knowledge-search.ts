@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
-import { readableRel } from "../../../vault/acl-read-filter";
+import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {
@@ -49,7 +49,11 @@ export function createKnowledgeSearchTool(
           kind: v.kind,
         });
       const route = deps.classRouter
-        ? routeQuery(ctx.db, v.id, input.query, { isReadable: (p) => readableRel(ctx.acl, p) })
+        ? routeQuery(ctx.db, v.id, input.query, {
+            isReadable: (p) => readableRel(ctx.acl, p),
+            // THE-694: the rare-term probe is only issued for callers who can read everything.
+            readUnrestricted: readEnumerationUnrestricted(ctx.acl),
+          })
         : { class: "standard" as const, signals: [] as string[] };
       const policy = capturePolicy(deps, v.id, route.class);
       const coverage = captureCoverage();
