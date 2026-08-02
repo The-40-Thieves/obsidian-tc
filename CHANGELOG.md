@@ -8,12 +8,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
-- **The Windows standalone binary now builds at all.** `gen-embedded-vec.mjs` shells out to
-  `npm pack` through `execFileSync`, which does **not** go through a shell — so on Windows it looked
-  for an executable literally named `npm`, of which there is none (only `npm.cmd`), and died with
-  `spawnSync npm ENOENT`. Resolved by name rather than with `shell: true`, which on Windows re-joins
-  argv into a single command string and reintroduces quoting concerns around a value built from
-  package metadata.
+- **The Windows standalone binary now builds at all.** `gen-embedded-vec.mjs` shelled out to
+  `npm pack` through `execFileSync`, which cannot work on Windows in either form: `execFileSync`
+  does not go through a shell, so `npm` is `ENOENT` (there is only `npm.cmd`), and `npm.cmd` is
+  `EINVAL` because Node refuses to spawn `.cmd`/`.bat` without `shell: true` (CVE-2024-27980).
+  Setting `shell: true` would fix it by re-joining argv into a single command string — the precise
+  thing that CVE was about — so the subprocess was removed instead: the tarball is fetched from the
+  registry over HTTPS.
+
+  That is also strictly safer than what it replaced. The registry returns `dist.integrity`, so the
+  downloaded tarball is now **verified** (sha512); `npm pack` was checking nothing here.
 
   This had been broken since THE-663 introduced the script and was undiscoverable: `build-binaries`
   lives in `publish.yml`, which only fires on a tag. On the v1.14.0 tag the Windows job was

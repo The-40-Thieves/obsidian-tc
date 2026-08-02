@@ -29,6 +29,7 @@
 // bun-darwin-arm64, or bun-windows-x64). Omit --target to default to the host's own platform,
 // useful for a local end-to-end check.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -91,38 +92,69 @@ const version = JSON.parse(readFileSync(sqliteVecPkgJson, "utf8")).version;
 // Fetch the TARGET platform's package regardless of the HOST platform. `bun install`/`npm install`
 // both skip installing a platform package whose os/cpu doesn't match the current host (that's how
 // sqlite-vec's own optionalDependencies stay small) — which is exactly why 2 of the 5 --compile
-// targets cross-compile from the wrong host and would otherwise embed the wrong binary. `npm pack`
-// has no such gating: it downloads the requested package@version's tarball unconditionally, which
-// is why this shells out to it instead of relying on node_modules.
+// targets cross-compile from the wrong host and would otherwise embed the wrong binary. A direct
+// registry fetch has no such gating: it downloads the requested package@version's tarball
+// unconditionally, which is why this goes to the registry rather than reading node_modules.
 const work = mkdtempSync(join(tmpdir(), "otc-vec-embed-"));
 let bytes;
 try {
   const spec = `${pkg}@${version}`;
   console.log(`gen-embedded-vec: fetching ${spec} for target ${target}...`);
-  let tgzName;
-  try {
-    // npm.cmd on Windows, npm everywhere else. execFileSync does NOT go through a shell, so on
-    // Windows it looks for an executable literally named "npm" — there is none, only npm.cmd — and
-    // fails with `spawnSync npm ENOENT`. That took down build-binaries (windows-latest) on the
-    // v1.14.1 tag, the first run in which that job ever reached a verdict: on v1.14.0 it was
-    // CANCELLED by the darwin failure, and a cancelled job is not a pass.
-    //
-    // Resolved by name rather than with `shell: true`, which on Windows re-joins argv into one
-    // command string and reintroduces quoting/injection concerns for a value (`spec`) built from
-    // package metadata.
-    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-    tgzName = execFileSync(npm, ["pack", spec, "--silent"], {
-      cwd: work,
-      encoding: "utf8",
-    }).trim();
-  } catch (err) {
-    console.error(
-      `gen-embedded-vec: \`npm pack ${spec}\` failed — is ${pkg} published at ${version}?`,
-    );
-    console.error(err.message ?? err);
+
+  // Fetched over HTTPS rather than by shelling out to `npm pack`, which does not work on Windows at
+  // all: execFileSync does not go through a shell, so "npm" is ENOENT (there is only npm.cmd), and
+  // "npm.cmd" is EINVAL because Node refuses to spawn .cmd/.bat without `shell: true`
+  // (CVE-2024-27980). `shell: true` would fix it by re-joining argv into one command string, which
+  // is the thing that CVE was about — so the subprocess goes away instead.
+  //
+  // This broke build-binaries (windows-latest) on the v1.14.1 tag, the first run where that job
+  // ever reached a verdict: on v1.14.0 it was CANCELLED by the darwin failure, and a cancelled job
+  // is not a pass.
+  //
+  // Strictly better than `npm pack` besides being portable: the registry hands back dist.integrity,
+  // so the tarball is now VERIFIED. `npm pack` was checking nothing here.
+  const meta = await fetch(`https://registry.npmjs.org/${pkg}/${version}`).then((r) => {
+    if (!r.ok) {
+      console.error(
+        `gen-embedded-vec: registry returned ${r.status} for ${spec} — is ${pkg} published at ${version}?`,
+      );
+      process.exit(1);
+    }
+    return r.json();
+  });
+  const tarballUrl = meta?.dist?.tarball;
+  const integrity = meta?.dist?.integrity;
+  if (!tarballUrl) {
+    console.error(`gen-embedded-vec: ${spec} has no dist.tarball in its registry metadata`);
     process.exit(1);
   }
-  const tgzPath = join(work, tgzName.split("\n").pop());
+  const tgz = Buffer.from(await fetch(tarballUrl).then((r) => r.arrayBuffer()));
+  if (integrity) {
+    // Subresource-integrity form: "<alg>-<base64 digest>". Split on the FIRST hyphen only:
+    // JS's split(sep, limit) truncates rather than keeping the remainder, so split("-", 2) would
+    // silently drop everything after a second hyphen instead of erroring.
+    const dash = integrity.indexOf("-");
+    const alg = integrity.slice(0, dash);
+    const want = integrity.slice(dash + 1);
+    const got = createHash(alg).update(tgz).digest("base64");
+    if (got !== want) {
+      console.error(
+        `gen-embedded-vec: ${spec} integrity mismatch\n  want ${alg}-${want}\n  got  ${alg}-${got}`,
+      );
+      process.exit(1);
+    }
+    console.log(`gen-embedded-vec: ${spec} integrity verified (${alg})`);
+  } else {
+    // Never silently skip: an unverified download is a different security posture, and this is the
+    // one place that would know.
+    console.warn(
+      `gen-embedded-vec: WARNING — ${spec} published no dist.integrity; tarball unverified`,
+    );
+  }
+  const tgzPath = join(work, "package.tgz");
+  writeFileSync(tgzPath, tgz);
+  // tar.exe ships in System32 on Windows 10+ and on every GitHub runner image, and is a real .exe
+  // rather than a .cmd, so execFileSync reaches it on all three platforms.
   execFileSync("tar", ["-xzf", tgzPath, "-C", work]);
   const binPath = join(work, "package", `vec0.${ext}`);
   if (!existsSync(binPath)) {
