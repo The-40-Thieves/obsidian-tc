@@ -6,6 +6,37 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`--acl-allow` — the eval harness can finally vary ACL state (THE-699).** Every ACL-dependent
+  retrieval change was unfalsifiable on the golden set: `eval/run.ts` only ever *forwarded* an
+  optional `isReadable` that nothing set, and the two harnesses that did set it
+  (`densify-index.ts`, `perf/harness.ts`) set it to `() => true` — a constant that makes the filter
+  a no-op. **An ACL filter that works and one that is completely inert produced identical numbers**,
+  which left THE-694 and THE-695's shipped changes impossible to verify in either direction.
+
+  The predicate is built from the **production** `FolderAcl` through `makeIndexReadable` — the same
+  factory the boot reconcile, `add_vault` and the index-on-write hook use. A hand-rolled predicate
+  would be a second implementation of the authorization boundary, free to drift from the one that
+  ships, which is the same defect one level up. It is a read *whitelist* rather than a deny list
+  because that is what `readPaths` actually is, and comma-separated because `readPaths` is an array.
+
+  **The ground truth is restricted by the same predicate.** Metrics score against expected PATHS, so
+  running retrieval under an ACL while leaving the qrels alone collapses recall — the expected set
+  would name documents the caller may not see, and that reads as a catastrophic regression rather
+  than a broken measurement.
+
+  Queries left with no reachable target are **excluded, not scored zero**. `metrics.ts` computes
+  `expectedTotal > 0 ? found/expected : 0`, so an empty expected set scores a guaranteed 0 that is
+  indistinguishable from genuinely missing everything. Measured on the live corpus: including them
+  reported recall@10 0.667 and bridge recall 0.310; excluding them reports **0.830** and **0.724**
+  over n=87. Same run, ~20 points apart. Dropping them is also standard practice — a topic with no
+  relevant documents in the collection is excluded from evaluation, not scored against it.
+
+  A run is **refused** when fewer than a third of queries keep a reachable target. The first real
+  run of the flag left 185 of 216 (86%) empty and would still have emitted a full report — a number
+  that reads as a measurement and is not one.
+
 ### Fixed
 
 - **Every scheduled consolidation pass died on a serverless cold start, and one failure cost the

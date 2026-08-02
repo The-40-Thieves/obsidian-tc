@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { FolderAcl, makeIndexReadable } from "../src/acl";
 import { loadConfig } from "../src/config/load";
 import { openDatabase } from "../src/db/open";
 import type { Database } from "../src/db/types";
@@ -55,6 +56,33 @@ function normQuery(q: GoldenQuery): GoldenQuery {
     seed_paths: q.seed_paths.map(norm),
     target_paths: q.target_paths.map(norm),
     bridge_paths: q.bridge_paths.map(norm),
+  };
+}
+
+/**
+ * THE-699: restrict the GROUND TRUTH by the same predicate that restricts the corpus.
+ *
+ * Every metric here — recall@10, nDCG@10, bridge recall — is scored against expected PATHS. Run the
+ * retrieval under a read ACL but leave the qrels alone and recall collapses, because the expected
+ * set names documents the caller is not allowed to see. That reads as a catastrophic regression and
+ * is really a broken measurement: the standard practice when filtering a corpus is to retain only
+ * intra-corpus relevance judgements.
+ *
+ * So a restricted run scores against what a restricted caller could legitimately have found.
+ * `droppedTargets` is returned rather than swallowed — a run whose ground truth was almost entirely
+ * filtered away produces a meaningless number, and that has to be visible rather than inferred from
+ * a suspiciously low score.
+ */
+export function restrictQuery(
+  q: GoldenQuery,
+  isReadable: (rel: string) => boolean,
+): { query: GoldenQuery; droppedTargets: number; droppedBridges: number } {
+  const targets = q.target_paths.filter(isReadable);
+  const bridges = q.bridge_paths.filter(isReadable);
+  return {
+    query: { ...q, target_paths: targets, bridge_paths: bridges },
+    droppedTargets: q.target_paths.length - targets.length,
+    droppedBridges: q.bridge_paths.length - bridges.length,
   };
 }
 function normHits(hits: RankedChunk[]): RankedChunk[] {
@@ -483,6 +511,31 @@ async function main(): Promise<void> {
   // THE-187: `--activation` — thread the experiential store's cached activation scores into
   // the graph bubble pass (the serve mechanism, measured).
   const activation = argv.includes("--activation");
+  // THE-699: `--acl-allow <glob>` runs the whole eval under a REAL read ACL.
+  //
+  // Before this the harness could not vary ACL state at all: run.ts only ever FORWARDED an optional
+  // isReadable that nothing set, and the two harnesses that did set it (densify-index.ts,
+  // perf/harness.ts) set it to `() => true` — a constant that makes the filter a no-op. So an ACL
+  // filter that works and one that is completely inert produced identical golden-set numbers, which
+  // left THE-694/THE-695's shipped changes unfalsifiable.
+  //
+  // Built from the PRODUCTION FolderAcl through makeIndexReadable — the same factory the boot
+  // reconcile, add_vault and the index-on-write hook use. A hand-rolled predicate here would be a
+  // second implementation of the authorization boundary, free to drift from the one that ships,
+  // which is precisely the failure this ticket is about one level up.
+  //
+  // ALLOW, not deny, because that is what the product models: readPaths is a glob WHITELIST, so
+  // "everything except X" is not expressible and "only these" is. Matching the real shape keeps the
+  // harness measuring the ACL that ships.
+  const aclAllowIdx = argv.indexOf("--acl-allow");
+  const aclAllow = aclAllowIdx >= 0 ? argv[aclAllowIdx + 1] : undefined;
+  if (aclAllowIdx >= 0 && !aclAllow) {
+    console.error(
+      "--acl-allow requires a glob, e.g. --acl-allow '02-projects/**' (comma-separate for several)",
+    );
+    process.exit(1);
+  }
+
   // THE-447: `--bubble-safe` — compose the activation prior via the bounded one-swap bubble pass
   // (needs --activation). BUBBLE_SAFE_K overrides the default k. The A/B lever for measuring it.
   const bubbleSafe = argv.includes("--bubble-safe");
@@ -726,11 +779,81 @@ async function main(): Promise<void> {
       );
     fanout = { variantsFor: (t) => map.get(t) ?? [] };
   }
+  // THE-699: build the read predicate from the PRODUCTION FolderAcl, then restrict the ground
+  // truth by the same predicate — retrieval and qrels must agree about what is reachable, or the
+  // metrics measure the ACL rather than the retrieval.
+  let isReadable: ((rel: string) => boolean) | undefined;
+  let restrictedGolden = golden;
+  if (aclAllow) {
+    // strictReadDefault so an UNDEFINED whitelist would fail closed; readPaths is the whitelist
+    // itself. Exactly the shape a restricted deployment configures.
+    const acl = new FolderAcl({
+      readOnly: false,
+      defaultScopes: [],
+      rules: [],
+      // Comma-separated because readPaths IS an array in the real config — one glob per entry,
+      // same as a restricted deployment would write.
+      readPaths: aclAllow
+        .split(",")
+        .map((g) => g.trim())
+        .filter(Boolean),
+      strictReadDefault: true,
+    } as never);
+    isReadable = makeIndexReadable(acl, new Map())(firstVault.id);
+    let droppedT = 0;
+    let droppedB = 0;
+    let emptied = 0;
+    // EXCLUDE queries left with no reachable target rather than scoring them.
+    // metrics.ts:97 reads `expectedTotal > 0 ? found/expected : 0` — a query with an empty expected
+    // set scores a guaranteed 0, which is indistinguishable from the retrieval genuinely missing
+    // everything. Passing those through would bury real signal under a constant, and is the same
+    // failure shape this ticket exists to fix one level up.
+    //
+    // Dropping them is also the standard practice: a topic with no relevant documents in the
+    // collection is excluded from the evaluation, not scored zero against it. n shrinks and is
+    // reported; every surviving number means something.
+    const kept: GoldenQuery[] = [];
+    for (const q of golden.queries) {
+      const r = restrictQuery(q, isReadable as (rel: string) => boolean);
+      droppedT += r.droppedTargets;
+      droppedB += r.droppedBridges;
+      if (r.query.target_paths.length === 0) {
+        emptied++;
+        continue;
+      }
+      kept.push(r.query);
+    }
+    restrictedGolden = { ...golden, queries: kept };
+    const totalTargets = golden.queries.reduce((n, q) => n + q.target_paths.length, 0);
+    console.log(
+      `acl-allow ${aclAllow}: ground truth restricted — ${droppedT}/${totalTargets} target paths and ${droppedB} bridge paths dropped; ${emptied}/${golden.queries.length} queries EXCLUDED (no reachable target); n=${golden.queries.length - emptied}`,
+    );
+    // A run whose ground truth was mostly filtered away scores near 0 everywhere and says nothing
+    // about the filter — it measures the whitelist. Refuse on a PROPORTION, not only on the
+    // all-empty case: the first real run of this flag left 185 of 216 queries (86%) with no
+    // reachable target and would still have emitted a full report, which is a number that reads as
+    // a measurement and is not one.
+    //
+    // A third is already generous. Below that the surviving sample is too small and too biased
+    // toward whatever the whitelist happens to cover for a metric delta to mean anything.
+    const surviving = golden.queries.length - emptied;
+    const MIN_SURVIVING_FRACTION = 1 / 3;
+    if (surviving < golden.queries.length * MIN_SURVIVING_FRACTION) {
+      console.error(
+        `acl-allow left only ${surviving}/${golden.queries.length} queries with a reachable target ` +
+          `(need at least ${Math.ceil(golden.queries.length * MIN_SURVIVING_FRACTION)}). ` +
+          "The whitelist is too narrow to measure anything — widen it, or the report measures the ACL rather than the retrieval.",
+      );
+      process.exit(1);
+    }
+  }
+
   const report = await runEval({
     db,
     provider,
-    golden,
+    golden: restrictedGolden,
     vaultId: firstVault.id,
+    ...(isReadable ? { isReadable } : {}),
     ...(fanout ? { fanout } : {}),
     ...(pathDedup ? { pathDedup: true } : {}),
     ...(diagnose ? { retainRaw: true } : {}),
