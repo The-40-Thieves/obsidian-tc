@@ -580,6 +580,16 @@ jobs:
             echo "value=false" >> "$GITHUB_OUTPUT"
           fi
         shell: bash
+      # OCI labels are INHERITED from the base image unless overridden. oven/bun:1-slim carries its
+      # own org.opencontainers.image.revision and .created, so the published image advertised Bun's
+      # commit (0d9b296a, which exists in no obsidian-tc history) and Bun's build date (2026-05-13)
+      # next to OUR source URL. That combination is worse than either label alone: `source` being
+      # correct lends credibility to a `revision` that resolves to nothing, so anyone asking "which
+      # commit built this image" got a confidently wrong answer. Override every field we assert.
+      - name: build timestamp
+        id: buildmeta
+        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+        shell: bash
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -593,6 +603,9 @@ jobs:
             org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.licenses=AGPL-3.0-only
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
+            org.opencontainers.image.title=obsidian-tc
       # An SBOM of the IMAGE, which nothing else produces. The THE-299 step in publish-npm runs
       # `npm sbom` over the three packages — npm dependency trees only. It cannot see what actually
       # ships in the container: the Debian base packages, the bun runtime, or the compiled native

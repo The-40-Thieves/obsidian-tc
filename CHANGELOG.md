@@ -417,6 +417,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   documents that `modelTier.dense.revision`/`.full.revision` are provenance-only and redirects to the
   top-level `embeddings.revision`, with both halves of that redirection now pinned by tests.
 
+- **The published container image no longer advertises Bun's commit as its own.** OCI labels are
+  inherited from the base image unless overridden, and `oven/bun:1-slim` carries its own
+  `org.opencontainers.image.revision` and `.created`. The publish workflow set `source`, `version`
+  and `licenses` but not those two, so every image since has shipped
+  `revision=0d9b296af33f2b851fcbf4df3e9ec89751734ba4` — a commit that exists in no obsidian-tc
+  history — and `created=2026-05-13`, Bun's base build date, directly beside our own source URL.
+  That pairing is worse than either label alone: a correct `source` lends credibility to a
+  `revision` that resolves to nothing, so anyone asking which commit produced an image got a
+  confidently wrong answer. `revision`, `created` and `title` are now set explicitly in both
+  `publish.yml` and `release-image.yml`.
+
 - **`bun run map` and `check:boundaries` refuse to run against a stale `dist/` (THE-664, THE-607,
   THE-604).** `gen-tree-map.mjs`'s own header already documented the hazard — with `packages/*/dist`
   present, dependency-cruiser resolves workspace packages differently and reports a
