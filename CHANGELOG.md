@@ -70,6 +70,24 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **The documented companion-plugin route table was 11 routes and 3 verbs behind the code
+  (THE-703, #662).** `ARCHITECTURE.md` §3.1 listed 17 routes across 9 families; the companion
+  ships **28 across 15**. `git` (5 routes), `remotely-save` (2), `omnisearch`, `datacore`,
+  `metadata-menu` and `daily-notes` were absent entirely, and `/commands/list`, `/templater/list`
+  and `/quickadd/actions` were documented `GET` while shipping `POST` — they take a JSON body, so
+  anyone integrating against the block as written would have gotten a 404 on three endpoints.
+  `CAP_IDS`' documented location and key set were stale by the same margin (7 keys, at a path it
+  had moved from; it has 12).
+
+  The wiki pages covering the same surface were already correct, which is why this survived: the
+  drift was confined to one file that nothing checked.
+
+  A `check:plugin-routes` gate now runs in CI's `lint` job. It derives both sides — the `RouteDef`
+  literals and the documented table — and diffs them in both directions, so a new route family is
+  covered rather than silently exempt and a verb-only change is caught. Both sides are floored: a
+  moved directory or a reworded heading fails loudly instead of comparing two empty sets and
+  passing.
+
 - **Every scheduled consolidation pass died on a serverless cold start, and one failure cost the
   whole period (THE-700).** Two independent single-shot budgets stacked badly. The gateway client
   allows 3 attempts x 60s; the models behind the gateway roles scale to zero and a cold start was
