@@ -20,6 +20,19 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
    the new version, refreshes `bun.lock`, runs `bun run format`, and runs the coherence gate. It does
    **not** commit, push, or tag.
 
+   **The CHANGELOG coverage gate runs first**, before anything is mutated. It asserts that every
+   user-visible commit since the previous tag (`feat`/`fix`/`perf`/`build`) is cited in
+   `[Unreleased]`, because `release.mjs` only *renames* that section — a PR that never wrote an entry
+   would otherwise ship undocumented. Each commit is attributed to a PR by `(#N)` in its own subject
+   (squash merges) or through its enclosing `Merge pull request #N` commit (merge commits); a
+   rebase-merged commit carries no PR number anywhere and must be cited by **every** ticket id in its
+   subject instead. Genuinely internal work — CI scripts, dev tooling, pure refactors — goes in
+   `NOT_USER_VISIBLE` in `release.mjs`, keyed by PR number or 8-char sha with a one-line reason,
+   because the "reclassify the commit" escape hatch is only available before the commit is on `main`.
+
+   Attributing only from subjects saw 18 of 61 user-visible commits at the v1.14.0 cut and reported
+   "coverage OK" — the other 43 arrived under merge commits and were structurally invisible.
+
 2. **Branch + PR.** Commit the staged changes on a release branch, open a PR, and let CI run:
    build/test across Linux/macOS/Windows, install-smoke, `ci-version` (version coherence + the
    tool-count headline pin), and `ci-native`. Address any autofix-bot commits (fetch/rebase before
