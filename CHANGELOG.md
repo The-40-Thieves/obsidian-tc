@@ -6,9 +6,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.14.3] - 2026-08-02
+
 ### Fixed
 
-- **The weekly synthesis job stopped producing anything — its prompt had no aggregate bound.**
+- **The weekly synthesis job stopped producing anything — its prompt had no aggregate bound (#657).**
   `RECENT_LIMIT` (200 chunks) x `CONTENT_TRUNCATE` (1000 chars) is a **per-item** cap, not a budget:
   200 chunks each under the per-item limit is still 200,000 characters. In production the built
   prompt reached 169,258 chars and every run failed with
