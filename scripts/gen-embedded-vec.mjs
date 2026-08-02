@@ -151,11 +151,17 @@ try {
       `gen-embedded-vec: WARNING — ${spec} published no dist.integrity; tarball unverified`,
     );
   }
-  const tgzPath = join(work, "package.tgz");
-  writeFileSync(tgzPath, tgz);
-  // tar.exe ships in System32 on Windows 10+ and on every GitHub runner image, and is a real .exe
-  // rather than a .cmd, so execFileSync reaches it on all three platforms.
-  execFileSync("tar", ["-xzf", tgzPath, "-C", work]);
+  writeFileSync(join(work, "package.tgz"), tgz);
+  // RELATIVE filename plus cwd, never an absolute path. GNU tar — which is what Git-bash supplies
+  // on the Windows runners — parses `host:path` as a REMOTE archive, so an absolute Windows path
+  // makes it try to resolve the drive letter as a hostname:
+  //
+  //   tar (child): Cannot connect to C: resolve failed
+  //
+  // `--force-local` fixes that for GNU tar but is not accepted by the bsdtar in System32, so the
+  // portable answer is to hand it no colons at all. tar itself is fine to spawn on all three
+  // platforms — it is a real .exe, not a .cmd.
+  execFileSync("tar", ["-xzf", "package.tgz"], { cwd: work });
   const binPath = join(work, "package", `vec0.${ext}`);
   if (!existsSync(binPath)) {
     console.error(`gen-embedded-vec: expected ${binPath} inside ${spec} but it was not there`);
