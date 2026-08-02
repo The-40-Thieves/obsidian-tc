@@ -26,6 +26,7 @@ import { run_error } from "./cli/commands/error";
 import { run_forget } from "./cli/commands/forget";
 import { run_gaps } from "./cli/commands/gaps";
 import { run_help } from "./cli/commands/help";
+import { run_index } from "./cli/commands/index";
 import { run_metrics } from "./cli/commands/metrics";
 import { run_note_quality } from "./cli/commands/note-quality";
 import { run_plugin_install } from "./cli/commands/plugin-install";
@@ -93,6 +94,8 @@ async function main(): Promise<void> {
       return run_forget(cmd);
     case "gaps":
       return run_gaps(cmd);
+    case "index":
+      return run_index(cmd);
     case "metrics":
       return run_metrics(cmd);
     case "reflect":

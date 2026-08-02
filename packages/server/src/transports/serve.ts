@@ -39,8 +39,33 @@ interface BunGlobal {
     port: number;
     hostname: string;
     fetch: (req: Request) => Response | Promise<Response>;
+    /** THE-697: seconds of inactivity before Bun closes a connection. Bun's default is 10, which
+     *  this file inherited by not passing one. Bun accepts 0 (disabled) through 255. */
+    idleTimeout: number;
   }): BunServer;
 }
+
+/**
+ * THE-697 — the idle timeout Bun.serve applies to EVERY request this process serves.
+ *
+ * Bun's default is 10 seconds, and serveHono passed nothing, so the default applied to the whole
+ * MCP plane. `index_vault` over a 1,147-note vault exceeds it comfortably even when incremental (it
+ * walks every note to compare content hashes), and the caller saw `RemoteProtocolError: Server
+ * disconnected without sending a response` while the container logged "request timed out after 10
+ * seconds" and the indexing completed anyway. A successful operation reported as a hard failure,
+ * with no result payload.
+ *
+ * 120s, chosen rather than maxed. Bun accepts up to 255 and 0 disables the timeout entirely, but
+ * this is per-process and applies to every request — a disabled timeout leaks genuinely dead
+ * connections, and 255 is a ceiling, not a design. 120s covers an incremental index and any normal
+ * tool call with headroom while still reclaiming a wedged connection in bounded time.
+ *
+ * This does NOT make long indexing safe over HTTP, and must not be read as fixing that: a full
+ * 13k-chunk reindex runs past any value Bun will accept. The operator path for that is the
+ * `obsidian-tc index` CLI command (THE-697), and the composable path is the Tasks extension the
+ * index_vault tool already opts into via `taskAugmentable`.
+ */
+export const BUN_IDLE_TIMEOUT_SECONDS = 120;
 
 /**
  * Serve `app` on host:port with the runtime's native server. Pass port 0 for an ephemeral port;
@@ -51,7 +76,12 @@ export function serveHono(app: Hono, opts: { host: string; port: number }): Prom
 
   const bun = (globalThis as unknown as { Bun?: BunGlobal }).Bun;
   if (bun) {
-    const server = bun.serve({ port: opts.port, hostname, fetch: app.fetch });
+    const server = bun.serve({
+      port: opts.port,
+      hostname,
+      fetch: app.fetch,
+      idleTimeout: BUN_IDLE_TIMEOUT_SECONDS,
+    });
     return Promise.resolve({
       port: server.port,
       // stop(true) closes active connections so close() resolves promptly (parity with the Node

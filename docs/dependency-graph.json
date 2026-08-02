@@ -2,17 +2,17 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 369,
-    "dependencies": 1634,
-    "subsystemPairs": 108,
-    "crossSubsystemImports": 729
+    "modules": 370,
+    "dependencies": 1644,
+    "subsystemPairs": 110,
+    "crossSubsystemImports": 734
   },
   "subsystems": {
     "auth": 3,
     "bridge": 8,
     "capability": 6,
     "capture": 1,
-    "cli": 22,
+    "cli": 23,
     "config": 12,
     "db": 13,
     "doctor": 5,
@@ -70,7 +70,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 21
+      "weight": 23
     },
     {
       "from": "runtime",
@@ -109,12 +109,12 @@
     },
     {
       "from": "runtime",
-      "to": "mcp",
+      "to": "vault",
       "weight": 9
     },
     {
       "from": "runtime",
-      "to": "vault",
+      "to": "mcp",
       "weight": 9
     },
     {
@@ -288,6 +288,11 @@
       "weight": 3
     },
     {
+      "from": "cli",
+      "to": "vault",
+      "weight": 2
+    },
+    {
       "from": "doctor",
       "to": "bridge",
       "weight": 2
@@ -404,17 +409,22 @@
     },
     {
       "from": "cli",
+      "to": "metrics",
+      "weight": 1
+    },
+    {
+      "from": "cli",
+      "to": "runtime",
+      "weight": 1
+    },
+    {
+      "from": "cli",
       "to": "mcp",
       "weight": 1
     },
     {
       "from": "cli",
       "to": "tools",
-      "weight": 1
-    },
-    {
-      "from": "cli",
-      "to": "vault",
       "weight": 1
     },
     {
