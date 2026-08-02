@@ -36,6 +36,7 @@
     "check:merge-driver": "node scripts/check-merge-driver.mjs",
     "check:nul": "node scripts/check-nul-bytes.mjs",
     "check:perf-timing-scope": "node scripts/check-perf-timing-scope.mjs",
+    "check:plugin-routes": "node scripts/check-plugin-routes.mjs",
     "check:version": "node scripts/check-version-coherence.mjs",
     "check:workflow-injection": "node scripts/check-workflow-injection.mjs",
     "config:schema": "bun scripts/gen-config-schema.ts",
