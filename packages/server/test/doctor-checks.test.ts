@@ -11,6 +11,7 @@ import {
   authMaxAgeCheck,
   authPolicyCheck,
   nativeCheck,
+  notesFtsIntegrityCheck,
   obsidianCheck,
   providerRegistrationCheck,
   type RetrievalHeadsView,
@@ -334,5 +335,50 @@ describe("THE-648 snapshots.policy check", () => {
     expect(r.status).toBe("warning");
     expect(r.summary.toLowerCase()).toContain("no built-in rollback");
     expect(r.remediation).toBeTruthy();
+  });
+});
+
+// THE-696 — the same configured-vs-VERIFIED split THE-688 drew for the embeddings provider, applied
+// to notes_fts. health.fts_enabled answers "is FTS5 available on this connection", which stayed
+// `true` throughout the period the live index was malformed and silently serving partial answers.
+describe("THE-696 search.notes_fts check", () => {
+  it("does NOT claim soundness when no probe was supplied", async () => {
+    const r = await notesFtsIntegrityCheck({ ftsEnabled: true }).run(ctx);
+    expect(r.status).toBe("ok");
+    // The wording is the point. "provisioned" is what the default run can support; anything
+    // stronger is the THE-688 `dense: ready` literal wearing a different name.
+    expect(r.details?.notes_fts).toContain("not verified");
+    expect(r.details?.notes_fts).not.toContain("SOUND");
+  });
+
+  it("reports SOUND only when a probe actually looked", async () => {
+    const r = await notesFtsIntegrityCheck({
+      ftsEnabled: true,
+      probe: () => ({ ok: true }),
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.notes_fts).toContain("SOUND");
+  });
+
+  it("warns with SQLite's own reason when the probe finds a malformed index", async () => {
+    const r = await notesFtsIntegrityCheck({
+      ftsEnabled: true,
+      probe: () => ({ ok: false, reason: "database disk image is malformed" }),
+    }).run(ctx);
+    // A warning, not a fail: the server still boots and chunk-level retrieval is unaffected —
+    // what degrades is the note-level lexical surface (search_text, find_notes_by_*, list_tags).
+    expect(r.status).toBe("warning");
+    expect(r.details?.notes_fts).toContain("MALFORMED");
+    expect(r.issues?.join(" ")).toContain("database disk image is malformed");
+    expect(r.remediation).toBeTruthy();
+  });
+
+  it("reports FTS as off rather than unsound when FTS5 is unavailable", async () => {
+    // OBSIDIAN_TC_DISABLE_FTS=1 or an adapter built without FTS5 is a supported configuration —
+    // the query layer falls back to disk scans. Calling that "malformed" would be a false alarm.
+    const r = await notesFtsIntegrityCheck({ ftsEnabled: false }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.notes_fts).toContain("off");
+    expect(r.issues).toBeUndefined();
   });
 });

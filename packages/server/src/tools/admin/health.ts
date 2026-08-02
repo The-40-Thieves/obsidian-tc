@@ -34,7 +34,14 @@ export interface HealthInfo {
   native_loaded: boolean;
   /** True when sqlite-vec loaded on the shared cache.db connection at boot. Non-identifying. */
   vec_enabled: boolean;
-  /** True when FTS5 (notes_fts) is available on this connection (THE-291). Non-identifying. */
+  /** True when FTS5 (notes_fts) is AVAILABLE on this connection (THE-291). Non-identifying.
+   *
+   *  THE-696: availability, NOT integrity — and the difference is not academic. This field stayed
+   *  `true` throughout the period the live notes_fts index was malformed and answering MATCH
+   *  queries with silently incomplete results. It cannot go false when the index is broken, so it
+   *  is not a signal about index health. Soundness is reported by `doctor --probe`
+   *  (`search.notes_fts`), which runs the FTS5 integrity-check; boot-time detection and repair is
+   *  opt-in via OBSIDIAN_TC_VERIFY_FTS=1. */
   fts_enabled: boolean;
   /** Number of configured vaults (always present, non-identifying). */
   vault_count: number;

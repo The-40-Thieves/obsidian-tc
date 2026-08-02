@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   bridgeState,
   buildVaultCapabilities,
@@ -5,8 +6,10 @@ import {
   type RestApiOnDisk,
 } from "../../bridge";
 import { resolveCapabilityProfile } from "../../capability";
+import { openDatabase } from "../../db/open";
 import { assembleDoctorReport, type DenseProbeResult, renderText } from "../../doctor";
 import { createEmbeddingProvider } from "../../embeddings";
+import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
@@ -74,6 +77,44 @@ async function probeDenseProvider(
   }
 }
 
+/**
+ * THE-696 — the opt-in notes_fts integrity probe behind `doctor --probe`.
+ *
+ * Opens cache.db READ-WRITE, which is required: FTS5 exposes integrity-check as an INSERT into the
+ * virtual table, so a read-only handle cannot run it. It writes nothing — the command only reads
+ * the inverted index and reports — and WAL mode means this is safe alongside a running server.
+ *
+ * `ensureNotesFts` is called first because availability and soundness are different questions and
+ * conflating them is the whole ticket: an adapter without FTS5 must report "off", not "malformed".
+ *
+ * Returns the availability flag alongside the verdict so the check can tell those two cases apart.
+ * Never throws — a missing or unopenable cache.db degrades to "not verified" rather than killing a
+ * diagnostic run, and a doctor that dies while diagnosing is useless exactly when it is needed.
+ */
+async function probeNotesFts(
+  cacheDir: string,
+): Promise<{ ftsEnabled: boolean; integrity?: NotesFtsIntegrity }> {
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    db = await openDatabase(join(cacheDir, "cache.db"));
+    const ftsEnabled = ensureNotesFts(db);
+    if (!ftsEnabled) return { ftsEnabled: false };
+    return { ftsEnabled: true, integrity: verifyNotesFtsIntegrity(db) };
+  } catch {
+    // No cache.db yet (fresh install), or it cannot be opened. Either way there is no index to
+    // pronounce on — fall back to the unprobed wording rather than inventing a verdict.
+    return { ftsEnabled: process.env.OBSIDIAN_TC_DISABLE_FTS !== "1" };
+  } finally {
+    try {
+      // `close` is OPTIONAL on the Database interface — the node:sqlite adapter used in tests and
+      // in the .mcpb bundle does not expose it. Optional-call, not a bare `db?.close()`.
+      db?.close?.();
+    } catch {
+      /* closing a handle we may never have opened must not fail the run */
+    }
+  }
+}
+
 // THE-521 — runtime health probe. Loads config, detects the environment (THE-522), runs the default
 // check set, and emits either the versioned JSON envelope or human text rendered from it. Exits
 // non-zero when any check fails, so scripts and CI can gate on health — a warning does not fail.
@@ -110,6 +151,12 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     }),
   );
 
+  // THE-696: only under --probe does this open cache.db at all, so the default run stays offline
+  // and side-effect-free by construction, exactly like the dense probe above.
+  const notesFts = cmd.probe
+    ? await probeNotesFts(config.cacheDir)
+    : { ftsEnabled: process.env.OBSIDIAN_TC_DISABLE_FTS !== "1" };
+
   const report = await assembleDoctorReport({
     config: {
       auth: {
@@ -137,6 +184,13 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
       // THE-648: snapshots default to enabled; surface the effective posture either way.
       snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
+      // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
+      notesFts: {
+        ftsEnabled: notesFts.ftsEnabled,
+        ...(notesFts.integrity !== undefined
+          ? { probe: () => notesFts.integrity as NotesFtsIntegrity }
+          : {}),
+      },
       // Final-review blocker 2: validate the configured provider names against the registry —
       // an unregistered name parses cleanly now (embeddings.provider/reranker.provider are open
       // strings) and was previously invisible to doctor.

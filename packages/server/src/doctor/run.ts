@@ -3,6 +3,7 @@ import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import { embeddingsProviderNames, rerankerProviderNames } from "../providers/registry";
 import type {
+  NotesFtsView,
   ProviderRegistrationView,
   RerankerBuildableView,
   RetrievalHeadsView,
@@ -13,6 +14,7 @@ import {
   authPolicyCheck,
   bridgeCheck,
   nativeCheck,
+  notesFtsIntegrityCheck,
   obsidianCheck,
   providerRegistrationCheck,
   rerankerBuildableCheck,
@@ -55,6 +57,9 @@ export interface DoctorConfigView {
   providers?: ProviderRegistrationView;
   /** THE-679: enough to answer whether a DECLARED reranker block can be built, offline. */
   rerankerBuildable?: RerankerBuildableView;
+  /** THE-696: notes_fts availability, plus an optional integrity probe under `--probe`. Optional,
+   *  same reasoning as retrieval/snapshots above. */
+  notesFts?: NotesFtsView;
 }
 
 export interface AssembleOptions {
@@ -101,6 +106,10 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // actually be BUILT. A config naming model-tier without embeddings.modelTier.full hard-fails boot
   // while every name in it is perfectly valid, so doctor reported ok and exited 0.
   if (config.rerankerBuildable) checks.push(rerankerBuildableCheck(config.rerankerBuildable));
+  // THE-696: notes_fts soundness. health.fts_enabled reports AVAILABILITY and stayed true while the
+  // live index was malformed and silently serving partial answers — the same configured-vs-verified
+  // gap THE-688 closed for the embeddings provider.
+  if (config.notesFts) checks.push(notesFtsIntegrityCheck(config.notesFts));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

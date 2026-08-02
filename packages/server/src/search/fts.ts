@@ -87,12 +87,83 @@ export function ensureNotesFts(db: Database, opts: { now?: () => number } = {}):
     db.exec(
       "UPDATE notes SET content_hash = '' WHERE NOT EXISTS (SELECT 1 FROM notes_fts f WHERE f.vault_id = notes.vault_id AND f.path = notes.path)",
     );
+    // THE-696 INTEGRITY GATE. Everything above establishes that notes_fts EXISTS and that its row
+    // set agrees with `notes`. Neither says the inverted index is readable — the live store held a
+    // malformed one that passed both and answered queries anyway.
+    //
+    // Opt-in, not unconditional: integrity-check costs ~0.6s on a 1,146-note trigram index (a
+    // rebuild is ~4.2s) and scales with the corpus, which is too much to add to every CLI
+    // invocation for a fault this rare. Operators who have been bitten, or who suspect an unclean
+    // shutdown, set OBSIDIAN_TC_VERIFY_FTS=1; `doctor --probe` reports it on demand without the
+    // env var.
+    //
+    // On unrepairable damage this returns FALSE rather than true. That routes the query layer to
+    // its disk-scan fallback — slower, and correct — instead of serving a corrupt index, which is
+    // the failure mode that made this invisible for as long as it was.
+    if (process.env.OBSIDIAN_TC_VERIFY_FTS === "1" && !verifyNotesFtsIntegrity(db).ok) {
+      if (!repairNotesFts(db).ok) {
+        ftsCache.set(db, false);
+        return false;
+      }
+    }
     ftsCache.set(db, true);
     return true;
   } catch {
     ftsCache.set(db, false);
     return false;
   }
+}
+
+/** Outcome of an FTS5 integrity probe. `reason` carries SQLite's own message — it is the only
+ *  handle an operator has on what went wrong, and it distinguishes a malformed index from an
+ *  absent one. */
+export type NotesFtsIntegrity = { ok: true } | { ok: false; reason: string };
+
+/**
+ * THE-696 — is notes_fts SOUND, not merely PRESENT?
+ *
+ * `ensureNotesFts` provisions with CREATE VIRTUAL TABLE IF NOT EXISTS, which is an EXISTENCE test.
+ * A malformed table exists, so the guard returns true and never rebuilds. The live store carried a
+ * malformed inverted index that kept answering MATCH queries with plausible counts; it was found
+ * only because an unrelated `.backup` ran PRAGMA quick_check on the way past.
+ *
+ * Result counts cannot substitute for this check. Measured on the live 252MB store: a healthy index
+ * and a deliberately corrupted copy of it returned IDENTICAL counts for all five terms tried
+ * (obsidian 363, decision 587, aedras 144, memory 257, vault 545 — delta 0 on every one). A corrupt
+ * inverted index returns whatever survives in its b-tree, and that can be everything you asked for.
+ *
+ * Costs ~0.6s on a 1,146-note trigram index and scales with corpus size, which is why it is opt-in
+ * (see ensureNotesFts) rather than paid on every boot.
+ *
+ * Never throws: a diagnostic that dies while diagnosing is useless exactly when it is needed.
+ */
+export function verifyNotesFtsIntegrity(db: Database): NotesFtsIntegrity {
+  try {
+    db.exec("INSERT INTO notes_fts(notes_fts) VALUES('integrity-check')");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: (e as Error)?.message ?? String(e) };
+  }
+}
+
+/**
+ * Rebuild the notes_fts inverted index from its shadow content table, then RE-VERIFY.
+ *
+ * Safe by construction: notes_fts is a derived index (the same reasoning as the divergence repair
+ * in ensureNotesFts), so a rebuild loses nothing that is not reconstructible. Verified against real
+ * corruption — malformed -> rebuild -> integrity-check passes, with the MATCH count unchanged.
+ *
+ * Returns the re-verification, never a bare success: `rebuild` reports no error of its own for an
+ * index it failed to fully reconstruct, so claiming repair without re-checking would reintroduce
+ * exactly the unverified-status-field defect this ticket is about.
+ */
+export function repairNotesFts(db: Database): NotesFtsIntegrity {
+  try {
+    db.exec("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')");
+  } catch (e) {
+    return { ok: false, reason: `rebuild failed: ${(e as Error)?.message ?? String(e)}` };
+  }
+  return verifyNotesFtsIntegrity(db);
 }
 
 export interface NoteRecord {

@@ -7,6 +7,7 @@ import {
   type RerankerPreflightEmbeddings,
   rerankerBuildBlocker,
 } from "../providers/reranker-preflight";
+import type { NotesFtsIntegrity } from "../search/fts";
 import type { Check, CheckStatus } from "./types";
 
 /** #16 (audit THE-562): the readiness inputs for the four retrieval heads, derived from
@@ -520,6 +521,78 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
         summary: blocker.reason,
         details: { provider: view.rerankerProvider },
         remediation: blocker.hint,
+      };
+    },
+  };
+}
+
+/** THE-696: inputs for the notes_fts soundness check. `ftsEnabled` mirrors what health reports —
+ *  availability — and `probe` is the opt-in that can actually contradict it. Sync, unlike the dense
+ *  probe: this one runs a local SQLite command, so making it async would buy nothing and would
+ *  imply a network round-trip that does not happen. */
+export interface NotesFtsView {
+  /** FTS5 available on the connection (OBSIDIAN_TC_DISABLE_FTS unset, adapter built with FTS5). */
+  ftsEnabled: boolean;
+  /** THE-696: OPT-IN integrity probe, supplied only under `doctor --probe`. Absent by default —
+   *  integrity-check costs ~0.6s on a 1,146-note trigram index, and diagnosing must not acquire a
+   *  cost (or a side effect) just because someone ran it. */
+  probe?: () => NotesFtsIntegrity;
+}
+
+/**
+ * search.notes_fts — is the note-level lexical index SOUND, not merely present?
+ *
+ * THE-688 drew this distinction for the embeddings provider; it was never applied here.
+ * `health.fts_enabled` is documented as "True when FTS5 (notes_fts) is AVAILABLE on this
+ * connection" and stayed true for the entire period the live index was malformed. The index kept
+ * answering MATCH queries with plausible counts — measured, a corrupted copy returned identical
+ * counts to a healthy one on every term tried — so nothing downstream could notice either.
+ *
+ * A malformed index is a WARNING, not a fail. The server boots, and chunk-level retrieval
+ * (knowledge_search / vault_graph_search, which ride chunk_fts) is unaffected. What degrades is the
+ * note-level lexical surface: search_text, find_notes_by_*, list_tags.
+ */
+export function notesFtsIntegrityCheck(view: NotesFtsView): Check {
+  return {
+    id: "search.notes_fts",
+    category: "retrieval",
+    run: async () => {
+      // Not a fault: OBSIDIAN_TC_DISABLE_FTS=1 and an adapter without FTS5 are both supported, and
+      // the query layer falls back to disk scans. Reporting that as unsound would be a false alarm
+      // for a deliberate configuration.
+      if (!view.ftsEnabled) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: "notes_fts: off — note-level lexical search falls back to disk scans",
+          details: { notes_fts: "off (FTS5 unavailable or OBSIDIAN_TC_DISABLE_FTS=1)" },
+        };
+      }
+      // THE-688 wording rule: the default branch says what it can support and no more. Provisioning
+      // is an EXISTENCE fact (CREATE VIRTUAL TABLE IF NOT EXISTS); soundness needs a look.
+      if (!view.probe) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: "notes_fts (from CONFIG, not probed): provisioned",
+          details: { notes_fts: "provisioned — not verified (run `doctor --probe`)" },
+        };
+      }
+      const probed = view.probe();
+      if (probed.ok) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: "notes_fts: SOUND — FTS5 integrity-check passed",
+          details: { notes_fts: "SOUND — probed, FTS5 integrity-check passed" },
+        };
+      }
+      return {
+        status: "warning" as CheckStatus,
+        summary: "notes_fts is MALFORMED — note-level lexical search may be silently incomplete",
+        details: { notes_fts: `MALFORMED — ${probed.reason}` },
+        issues: [
+          `the notes_fts inverted index failed FTS5 integrity-check: ${probed.reason}. It will keep answering MATCH queries, so search_text / find_notes_by_* / list_tags may be returning incomplete results with no error.`,
+        ],
+        remediation:
+          "Rebuild the derived index: `INSERT INTO notes_fts(notes_fts) VALUES('rebuild');` against cache.db, or set OBSIDIAN_TC_VERIFY_FTS=1 so the next boot detects and repairs it. Nothing is lost — notes_fts is fully derived from the notes table. If it recurs after a rebuild, suspect unclean container shutdown.",
       };
     },
   };
