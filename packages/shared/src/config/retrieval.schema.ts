@@ -81,14 +81,36 @@ export const RetrievalConfigSchema = z.object({
    *  cost argument, and it is corpus-specific. */
   graphStream: z
     .object({
-      enabled: z.boolean().default(false),
+      enabled: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Enable the capped graph-expansion stream. Off by default: measured neutral on ranking quality (0 of 8 metrics significant at n=250) though non-inferior, so this is a cost lever rather than a quality one.",
+        ),
       /** Expand only from the top-N seeds by score. */
-      expansionSeeds: z.number().int().positive().default(8),
+      expansionSeeds: z
+        .number()
+        .int()
+        .positive()
+        .default(8)
+        .describe("Expand only from the top-N seeds by score."),
       /** Max expansion candidates contributed by any one seed. */
-      perSeedCap: z.number().int().positive().default(3),
+      perSeedCap: z
+        .number()
+        .int()
+        .positive()
+        .default(3)
+        .describe("Maximum expansion candidates any single seed may contribute."),
       /** Drop expansion candidates whose AUTHORED degree exceeds this. Counts literal edges only —
        *  counting derived edges let densification sabotage itself by inflating every degree. */
-      hubDegreeCap: z.number().int().positive().default(40),
+      hubDegreeCap: z
+        .number()
+        .int()
+        .positive()
+        .default(40)
+        .describe(
+          "Drop expansion candidates whose authored degree exceeds this, so index and dashboard pages cannot flood the fused ranking. Counts literal edges only — counting derived edges would let densification inflate every degree and suppress the bridges it exists to surface.",
+        ),
     })
     .prefault({})
     .describe(

@@ -740,22 +740,26 @@
           "properties": {
             "enabled": {
               "default": false,
+              "description": "Enable the capped graph-expansion stream. Off by default: measured neutral on ranking quality (0 of 8 metrics significant at n=250) though non-inferior, so this is a cost lever rather than a quality one.",
               "type": "boolean"
             },
             "expansionSeeds": {
               "default": 8,
+              "description": "Expand only from the top-N seeds by score.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
             },
             "perSeedCap": {
               "default": 3,
+              "description": "Maximum expansion candidates any single seed may contribute.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
             },
             "hubDegreeCap": {
               "default": 40,
+              "description": "Drop expansion candidates whose authored degree exceeds this, so index and dashboard pages cannot flood the fused ranking. Counts literal edges only — counting derived edges would let densification inflate every degree and suppress the bridges it exists to surface.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991

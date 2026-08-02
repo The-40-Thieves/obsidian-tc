@@ -35,7 +35,7 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // which no longer says the key "does not affect the index" — it now does. No key, type, default or
 // constraint moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "8f8cd07060f3e503fcd95e529c4a9d6a363b08161d5b6548268e8995cafd1e1b";
+  "c4b49b7d101d79902029422a8789933be6d920290a13d49dcdb81639712d5042";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

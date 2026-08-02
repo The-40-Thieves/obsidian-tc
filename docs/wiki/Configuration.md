@@ -380,10 +380,10 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `retrieval.densify.maxTagFanout` | `number` | `25` |  | A tag applied to more notes than this is treated as a hub rather than a signal and emits no edges. |
 | `retrieval.densify.tagEdges` | `boolean` | `false` |  | Emit shared-frontmatter-tag co-occurrence edges (edge_type shared_tag). |
 | `retrieval.gatedRerank` | `boolean` | `false` |  | Gate a cross-encoder rerank of the fused top-K onto hard queries only (weak top-1 seed, router silent). A no-op without a configured reranker (model-tier BGE or the gateway /rerank passthrough). |
-| `retrieval.graphStream.enabled` | `boolean` | `false` |  |  |
-| `retrieval.graphStream.expansionSeeds` | `number` | `8` |  |  |
-| `retrieval.graphStream.hubDegreeCap` | `number` | `40` |  |  |
-| `retrieval.graphStream.perSeedCap` | `number` | `3` |  |  |
+| `retrieval.graphStream.enabled` | `boolean` | `false` |  | Enable the capped graph-expansion stream. Off by default: measured neutral on ranking quality (0 of 8 metrics significant at n=250) though non-inferior, so this is a cost lever rather than a quality one. |
+| `retrieval.graphStream.expansionSeeds` | `number` | `8` |  | Expand only from the top-N seeds by score. |
+| `retrieval.graphStream.hubDegreeCap` | `number` | `40` |  | Drop expansion candidates whose authored degree exceeds this, so index and dashboard pages cannot flood the fused ranking. Counts literal edges only — counting derived edges would let densification inflate every degree and suppress the bridges it exists to surface. |
+| `retrieval.graphStream.perSeedCap` | `number` | `3` |  | Maximum expansion candidates any single seed may contribute. |
 | `retrieval.rrfK` | `number` | `10` |  | Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits. |
 | `retrieval.sparse` | `boolean` | `false` |  | Fuse a bge-m3 learned-sparse stream into RRF at serve time. A no-op unless the embeddings provider emits the multi-vector heads (bge-m3 or model-tier). |
 
