@@ -198,6 +198,14 @@ git commit -s -m "feat(acl): permitted-path set tables (THE-694, THE-695)"
 - Create: `packages/server/src/search/acl_path_set.ts`
 - Test: `packages/server/test/acl-path-set.test.ts` (append)
 
+**Deviation applied during execution:** the plan used raw `db.exec("BEGIN IMMEDIATE")` with
+hand-rolled rollback. The repo already has `inWriteTransaction(db, label, fn, hooks)` (`src/db/txn.ts`)
+with lock-wait telemetry and rollback discipline, so that is used instead — hand-rolling what the
+platform provides is the exact trap this repo keeps hitting. It requires a `WriteTxnLabel`, which is
+a deliberately closed union (the only way to add a Prometheus series), so `"acl_path_set"` was
+added. Note `inWriteTransaction` is NON-REENTRANT: `evictAclPathSets` must stay outside
+`ensureAclPathSet`'s transaction, which it does.
+
 **Interfaces:**
 - Consumes: Task 1's tables.
 - Produces:

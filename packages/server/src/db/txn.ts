@@ -149,6 +149,10 @@ export function inWriteTransaction<T>(
  *  becomes a Prometheus label, and THE-585's cardinality rule admits only bounded values. Adding a
  *  member here is the ONLY way to add a series, so the label set cannot drift open by accident. */
 export type WriteTxnLabel =
+  // THE-694/695: the lazy build and LRU eviction of a caller's permitted-path set. A WRITE issued
+  // from a READ path, so its lock-wait profile is worth its own series — it is the one write that
+  // contends with interactive dispatch by design.
+  | "acl_path_set"
   | "index_batch"
   | "index_note"
   | "index_deindex"
