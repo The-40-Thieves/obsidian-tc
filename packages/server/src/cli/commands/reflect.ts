@@ -20,14 +20,12 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
   try {
     const nowMs = Date.now();
     const judge = gwc ? (r: Parameters<GatewayClient["judge"]>[0]) => gwc.judge(r) : null;
-    const stats = await evaluateEpisodes(edb, {
-      nowMs,
-      judge,
-      ...(cmd.maxJudged !== undefined ? { maxJudged: cmd.maxJudged } : {}),
-    });
+    // THE-701: the eligibility pass takes no judge. `judge` below is still used by
+    // extractPreferences, which is a DIFFERENT judge doing a different job (THE-673).
+    const stats = await evaluateEpisodes(edb, { nowMs });
     const prefs = await extractPreferences(edb, { judge, nowMs });
     process.stdout.write(
-      `reflect: scanned=${stats.scanned} promoted=${stats.promoted} held=${stats.held} denied=${stats.denied} judged=${stats.judged}${stats.judgeAborted ? " JUDGE-ABORTED" : ""}\n` +
+      `reflect: scanned=${stats.scanned} promoted=${stats.promoted} held=${stats.held} denied=${stats.denied}\n` +
         `preferences: ${prefs.skipped ? "skipped (no gateway or no evidence)" : prefs.aborted ? "ABORTED (parse failure)" : `applied=${prefs.applied} version=${prefs.version}`}\n`,
     );
   } finally {

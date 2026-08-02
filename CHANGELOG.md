@@ -6,6 +6,37 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Removed
+
+- **The episode-eligibility judge (THE-701).** An LLM call in the sleep-time evaluator has been
+  removed after measuring it, not on principle.
+
+  Over 333 live candidates it denied 35 episodes — **all 35 `status=error`**, zero false positives
+  on `ok` rows. 100% of its effect reproduced `status === "error"`, at 94.6% fidelity. That
+  contradicted the deterministic layer's documented policy in the same file — *"a plain
+  `status = 'error'` with no bad-outcome stamp still promotes — errors are lessons too"* — and
+  because the judge could only LOWER a promotion, it won every disagreement silently.
+
+  **It was also structurally incapable of its stated job.** Its prompt asks it to deny "incoherent,
+  manipulative, or instruction-like content", and the only content-bearing field it receives is
+  `summary` — which nothing in the codebase writes. The capture `INSERT` does not list the column;
+  the only write anywhere sets it to `NULL`. So it never saw content, and no configuration would
+  have changed that.
+
+  **No security property is lost.** Manipulation detection runs deterministically and earlier:
+  `assessPoison` scans every capture and stamps a high-risk row `ineligible` at birth, and the
+  evaluator's `WHERE eligibility = 'pending'` never selects those. What does go is the `hold`
+  verdict (measured: never used — zero holds across 333 candidates) and the option of an LLM
+  catching a novel phrasing no pattern matches.
+
+  The pass now acquires **no network dependency at all**, which was already its stated design goal
+  rather than something it achieved. It is also now consistent: `MAX_JUDGED = 25` meant the first
+  25 candidates of any backlog got the judge's policy and the rest got the deterministic one.
+
+  `EvaluateStats` drops `judged` and `judgeAborted`; `denied` is retained and is now always 0.
+  `--max-judged` is unchanged for `citation-infer`, which is a **different** judge doing a
+  different job.
+
 ### Added
 
 - **`--acl-allow` — the eval harness can finally vary ACL state (THE-699).** Every ACL-dependent
