@@ -64,6 +64,36 @@ export const RetrievalConfigSchema = z.object({
    *  All OFF by default and measured on the multi-hop golden set before any flip — the THE-135
    *  frontier-leaf virtual-hop hit an 80% bridge-recall ceiling and the champion is already past it,
    *  so densification ships dark unless it wins. See docs/plans/2026-07-13-graph-densification.md. */
+  /** THE-393/THE-693: the capped graph-expansion stream — expand only from the strongest seeds,
+   *  cap neighbours per seed, and drop high-degree hub nodes so a weak or high-degree seed cannot
+   *  flood the fused ranking ("hub drift" / structural flooding). Index/dashboard/audit pages are
+   *  exactly the high-degree offenders.
+   *
+   *  This existed as a GraphSearchOptions field for a long time with NO config surface at all: it
+   *  was read by graph_expansion.ts but the only code that ever set it was eval/run.ts, so the
+   *  defence was unreachable in production and `config validate` accepted
+   *  `retrieval.graphStream.enabled` silently while it reached nothing (THE-693).
+   *
+   *  Measured on this vault at n=250: enabling the hard cap is NOT a quality win — 0 of 8 metrics
+   *  significant after BH-FDR — but it is NON-INFERIOR on nDCG@10 (95% lower bound -0.002 vs a
+   *  -0.015 floor) and removes ~22% of the expansion candidate pool, since 104 over-cap nodes
+   *  (8.35% of the graph) generate 21.83% of expansion candidates. Off by default: that is a
+   *  cost argument, and it is corpus-specific. */
+  graphStream: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** Expand only from the top-N seeds by score. */
+      expansionSeeds: z.number().int().positive().default(8),
+      /** Max expansion candidates contributed by any one seed. */
+      perSeedCap: z.number().int().positive().default(3),
+      /** Drop expansion candidates whose AUTHORED degree exceeds this. Counts literal edges only —
+       *  counting derived edges let densification sabotage itself by inflating every degree. */
+      hubDegreeCap: z.number().int().positive().default(40),
+    })
+    .prefault({})
+    .describe(
+      "Capped graph-expansion stream: expand from the top seeds only, cap neighbours per seed, and drop high-degree hub nodes so index/dashboard pages cannot flood the fused ranking. Off by default — measured neutral on quality, but it removes ~22% of the expansion candidate pool.",
+    ),
   densify: z
     .object({
       /** Emit shared-frontmatter-tag co-occurrence edges (edge_type shared_tag). */

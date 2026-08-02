@@ -733,6 +733,35 @@
           "description": "Gate a cross-encoder rerank of the fused top-K onto hard queries only (weak top-1 seed, router silent). A no-op without a configured reranker (model-tier BGE or the gateway /rerank passthrough).",
           "type": "boolean"
         },
+        "graphStream": {
+          "description": "Capped graph-expansion stream: expand from the top seeds only, cap neighbours per seed, and drop high-degree hub nodes so index/dashboard pages cannot flood the fused ranking. Off by default — measured neutral on quality, but it removes ~22% of the expansion candidate pool.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "type": "boolean"
+            },
+            "expansionSeeds": {
+              "default": 8,
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "perSeedCap": {
+              "default": 3,
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "hubDegreeCap": {
+              "default": 40,
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
         "densify": {
           "description": "Graph densification: derived edges added beyond the literal wikilink layer to reach multi-hop targets whose bridge notes are not explicitly linked. All off by default.",
           "default": {},
