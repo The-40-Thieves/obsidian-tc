@@ -258,6 +258,10 @@ export function buildGraphSearchOptions(
     ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
     ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
     ...(deps.retrieval?.adaptiveRrf?.enabled ? { adaptiveRrf: deps.retrieval.adaptiveRrf } : {}),
+    // THE-693: the hub defence, reachable from config at last. Passed WHOLE, not just `enabled` —
+    // hubDegreeCap/perSeedCap/expansionSeeds must travel with it or an operator who tunes the cap
+    // gets the default silently.
+    ...(deps.retrieval?.graphStream?.enabled ? { graphStream: deps.retrieval.graphStream } : {}),
     ...(deps.retrieval?.gatedRerank ? { gatedRerank: { enabled: true } } : {}),
     ...(deps.ranking?.metadataPrior?.enabled ? { metadataPrior: deps.ranking.metadataPrior } : {}),
     ...(site.querySparse ? { querySparse: site.querySparse } : {}),

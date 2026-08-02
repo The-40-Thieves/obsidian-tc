@@ -25,6 +25,16 @@ export interface M7Deps {
     /** THE-391/THE-536: adaptive per-stream RRF weighting. Absent/false -> static RRF, byte-
      *  identical to today. */
     adaptiveRrf?: { enabled?: boolean; gain?: number };
+    /** THE-393/THE-693: the capped expansion stream + hub degree cap. Read by graph_expansion.ts
+     *  since THE-393 but with NO config surface until THE-693 — the only code that ever set it was
+     *  the eval harness, so the hub defence was unreachable in production. Absent/false ->
+     *  byte-identical to today. */
+    graphStream?: {
+      enabled?: boolean;
+      expansionSeeds?: number;
+      perSeedCap?: number;
+      hubDegreeCap?: number;
+    };
     /** THE-394/THE-591: gated cross-encoder rerank (retrieval.gatedRerank). Absent/false ->
      *  graphSearch's gatedRerank stage never fires, byte-identical to today. */
     gatedRerank?: boolean;
