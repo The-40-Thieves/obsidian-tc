@@ -6,9 +6,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.14.2] - 2026-08-02
+
 ### Fixed
 
-- **The Windows standalone binary now builds at all.** `gen-embedded-vec.mjs` shelled out to
+- **The Windows standalone binary now builds at all (#654).** `gen-embedded-vec.mjs` shelled out to
   `npm pack` through `execFileSync`, which cannot work on Windows in either form: `execFileSync`
   does not go through a shell, so `npm` is `ENOENT` (there is only `npm.cmd`), and `npm.cmd` is
   `EINVAL` because Node refuses to spawn `.cmd`/`.bat` without `shell: true` (CVE-2024-27980).
@@ -27,7 +29,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### Added
 
 - **`embed-codegen` — the release-only codegen now runs on every PR, across Linux, Windows and
-  macOS.** Both `gen-embedded-vec.mjs` and `gen-embedded-sqlite.mjs` previously executed nowhere
+  macOS (#654).** Both `gen-embedded-vec.mjs` and `gen-embedded-sqlite.mjs` previously executed nowhere
   except a tag build, which is how three independent bugs in that path (the darwin loader, the
   Windows `npm.cmd` resolution, and a `CANCELLED`-masks-everything matrix) all reached a published
   tag before anyone could see them.
