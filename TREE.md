@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,010 tracked code files · 150,732 lines.
+**Scale:** 1,012 tracked code files · 151,049 lines.
 
-TypeScript 140,914 · JavaScript 6,251 · Python 1,526 · SQL 1,059 · Rust 668 · Shell 314.
+TypeScript 140,971 · JavaScript 6,511 · Python 1,526 · SQL 1,059 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -95,7 +95,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
-| `db/` | 13 | 1,144 | provisioning, migrate runner, experiential store |
+| `db/` | 14 | 1,201 | provisioning, migrate runner, experiential store |
 | `migrations/` | 30 | 1,059 | hand-registered SQL. **Two chains** — see below |
 | `doctor/` | 5 | 967 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
@@ -118,7 +118,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 349 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 350 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -274,7 +274,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**371 modules · 1652 dependencies · 111 distinct subsystem pairs · 741 cross-subsystem imports.**
+**372 modules · 1656 dependencies · 111 distinct subsystem pairs · 741 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -301,7 +301,7 @@ flowchart LR
   cli[cli<br/>23 files]
   mcp[mcp<br/>17 files]
   vault[vault<br/>17 files]
-  db[(db<br/>13 files)]
+  db[(db<br/>14 files)]
   runtime[runtime<br/>13 files]
   experiential[experiential<br/>11 files]
   bridge[bridge<br/>8 files]
