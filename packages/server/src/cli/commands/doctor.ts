@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   bridgeState,
@@ -9,6 +10,7 @@ import { resolveCapabilityProfile } from "../../capability";
 import { openDatabase } from "../../db/open";
 import { assembleDoctorReport, type DenseProbeResult, renderText } from "../../doctor";
 import { createEmbeddingProvider } from "../../embeddings";
+import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { type Cmd, resolveOrUsageExit } from "../shared";
@@ -115,6 +117,48 @@ async function probeNotesFts(
   }
 }
 
+/**
+ * THE-698 — the opt-in pending-episode backlog count behind `doctor --probe`.
+ *
+ * Counts rather than evaluates: diagnosing must never promote a row. Reports the oldest pending
+ * episode's AGE alongside the count because the count alone cannot discriminate — episodes
+ * captured since the last tick are supposed to be pending, and "6 pending" is healthy while "337
+ * pending, oldest 17 days" means the evaluator has never run. Both are non-zero numbers.
+ *
+ * Reads only — it issues a single GROUP BY and writes nothing. The path is passed PLAIN, not as a
+ * `file:...?mode=ro` URI: `openDatabase` hands the string straight to bun:sqlite, which treats a URI
+ * as a literal filename, so the read-only form silently opened the wrong file and the catch below
+ * turned that into "not probed" against a live store with 337 pending rows. The existsSync guard is
+ * what keeps a fresh install from having an empty experiential.db conjured by the probe.
+ *
+ * Never throws: no store yet (capture disabled, or a fresh install) degrades to the unprobed
+ * wording rather than killing the run.
+ */
+async function probeEpisodeBacklog(
+  cacheDir: string,
+  nowMs: number,
+): Promise<EpisodeBacklog | undefined> {
+  const path = join(cacheDir, "experiential.db");
+  if (!existsSync(path)) return undefined;
+  let edb: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    edb = await openDatabase(path);
+    // Delegates to reflect.ts rather than counting here: `promotable` must be computed by the SAME
+    // predicates the evaluator promotes by, or the checker and the evaluator disagree about what
+    // is healthy. A hand-rolled GROUP BY here counted `pending` and warned on a store that had
+    // just been promoted successfully.
+    return readEpisodeBacklog(edb, nowMs);
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      edb?.close?.();
+    } catch {
+      /* see probeNotesFts */
+    }
+  }
+}
+
 // THE-521 — runtime health probe. Loads config, detects the environment (THE-522), runs the default
 // check set, and emits either the versioned JSON envelope or human text rendered from it. Exits
 // non-zero when any check fails, so scripts and CI can gate on health — a warning does not fail.
@@ -157,6 +201,18 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     ? await probeNotesFts(config.cacheDir)
     : { ftsEnabled: process.env.OBSIDIAN_TC_DISABLE_FTS !== "1" };
 
+  // THE-698: episode capture is on when any of the three experiential gates is set — the same
+  // three that decide `experientialOpen` in runtime/stores.ts. Derived from config here rather
+  // than re-asked, so doctor cannot disagree with the server about whether the tier is live.
+  const experientialEnabled =
+    config.experiential.logRetrievals ||
+    config.experiential.captureEpisodes ||
+    config.experiential.activationRerank;
+  const backlog =
+    cmd.probe && experientialEnabled
+      ? await probeEpisodeBacklog(config.cacheDir, Date.now())
+      : undefined;
+
   const report = await assembleDoctorReport({
     config: {
       auth: {
@@ -184,6 +240,11 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
       // THE-648: snapshots default to enabled; surface the effective posture either way.
       snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
+      // THE-698: capture state always; the backlog count only when --probe looked.
+      experientialEvaluator: {
+        enabled: experientialEnabled,
+        ...(backlog !== undefined ? { probe: () => backlog } : {}),
+      },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,

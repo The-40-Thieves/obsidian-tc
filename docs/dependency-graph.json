@@ -3,9 +3,9 @@
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
     "modules": 370,
-    "dependencies": 1644,
-    "subsystemPairs": 110,
-    "crossSubsystemImports": 734
+    "dependencies": 1649,
+    "subsystemPairs": 111,
+    "crossSubsystemImports": 738
   },
   "subsystems": {
     "auth": 3,
@@ -103,6 +103,11 @@
       "weight": 11
     },
     {
+      "from": "cli",
+      "to": "experiential",
+      "weight": 9
+    },
+    {
       "from": "mcp",
       "to": "vault",
       "weight": 9
@@ -116,11 +121,6 @@
       "from": "runtime",
       "to": "mcp",
       "weight": 9
-    },
-    {
-      "from": "cli",
-      "to": "experiential",
-      "weight": 8
     },
     {
       "from": "formats",
@@ -154,6 +154,11 @@
     },
     {
       "from": "runtime",
+      "to": "experiential",
+      "weight": 7
+    },
+    {
+      "from": "runtime",
       "to": "plane",
       "weight": 7
     },
@@ -161,11 +166,6 @@
       "from": "tools",
       "to": "bridge",
       "weight": 7
-    },
-    {
-      "from": "runtime",
-      "to": "experiential",
-      "weight": 6
     },
     {
       "from": "tools",
@@ -314,6 +314,11 @@
     },
     {
       "from": "experiential",
+      "to": "scheduler",
+      "weight": 2
+    },
+    {
+      "from": "experiential",
       "to": "plane",
       "weight": 2
     },
@@ -434,12 +439,12 @@
     },
     {
       "from": "doctor",
-      "to": "search",
+      "to": "experiential",
       "weight": 1
     },
     {
-      "from": "experiential",
-      "to": "scheduler",
+      "from": "doctor",
+      "to": "search",
       "weight": 1
     },
     {

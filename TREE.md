@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,002 tracked code files · 149,248 lines.
+**Scale:** 1,003 tracked code files · 149,778 lines.
 
-TypeScript 139,569 · JavaScript 6,154 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
+TypeScript 140,099 · JavaScript 6,154 · Python 1,526 · SQL 1,017 · Rust 668 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -89,15 +89,15 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `tools/` | 79 | 15,355 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 53 | 9,988 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,128 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `runtime/` | 13 | 2,799 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `experiential/` | 11 | 2,756 | work-memory tier: activation, retrieval log, forget, citations |
-| `cli/` | 23 | 2,129 | arg parsing + subcommands |
+| `experiential/` | 11 | 2,885 | work-memory tier: activation, retrieval log, forget, citations |
+| `runtime/` | 13 | 2,815 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `cli/` | 23 | 2,190 | arg parsing + subcommands |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 13 | 1,137 | provisioning, migrate runner, experiential store |
 | `migrations/` | 29 | 1,017 | hand-registered SQL. **Two chains** — see below |
-| `doctor/` | 5 | 875 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `doctor/` | 5 | 967 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `plane/` | 6 | 789 | generative plane; `jobs/` holds the contradiction detector |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
@@ -140,12 +140,12 @@ Generated — see `scripts/gen-tree-map.mjs`.
 |---:|---|
 | 721 | `packages/server/src/runtime/server-runtime.ts` |
 | 701 | `packages/server/src/mcp/server.ts` |
+| 681 | `packages/server/src/doctor/checks.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 620 | `packages/server/src/metrics/registry.ts` |
 | 614 | `packages/server/src/cli/args.ts` |
 | 602 | `packages/server/src/scheduler/job-queue.ts` |
-| 599 | `packages/server/src/doctor/checks.ts` |
 | 591 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 588 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
@@ -274,7 +274,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**370 modules · 1644 dependencies · 110 distinct subsystem pairs · 734 cross-subsystem imports.**
+**370 modules · 1649 dependencies · 111 distinct subsystem pairs · 738 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -292,7 +292,7 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 110 pairs.
+set is 111 pairs.
 
 ```mermaid
 flowchart LR
@@ -328,19 +328,19 @@ flowchart LR
   experiential -->|13| db
   runtime -->|11| scheduler
   runtime -->|11| tools
+  cli -->|9| experiential
   mcp -->|9| vault
   runtime -->|9| vault
   runtime -->|9| mcp
-  cli -->|8| experiential
   formats -->|8| vault
   model -->|8| embeddings
   runtime -->|8| metrics
   tools -->|8| formats
   cli -->|7| search
   providers -->|7| embeddings
+  runtime -->|7| experiential
   runtime -->|7| plane
   tools -->|7| bridge
-  runtime -->|6| experiential
   tools -->|6| experiential
   tools -->|6| plane
   embeddings -->|5| search
@@ -357,9 +357,9 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 230 | `tools` | 348 |
-| `db` | 125 | `runtime` | 131 |
+| `db` | 125 | `runtime` | 132 |
 | `search` | 96 | `search` | 60 |
-| `mcp` | 86 | `cli` | 57 |
+| `mcp` | 86 | `cli` | 58 |
 | `embeddings` | 31 | `mcp` | 23 |
 <!-- END GENERATED: tree-fan -->
 

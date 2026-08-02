@@ -17,6 +17,7 @@ import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { recomputeNoteQualityAll } from "../experiential/note-quality";
+import { registerEpisodeEvaluation } from "../experiential/reflect";
 import type { ToolRegistry } from "../mcp/registry";
 import { TASK_CALL_JOB_TYPE } from "../mcp/tasks";
 import type { GatewayRoles } from "../plane/gateway";
@@ -302,6 +303,21 @@ export function registerNoteQualitySchedule(
   wireActivationRecompute(scheduler, deps.observability, {
     edb: deps.experientialDb,
     intervalMs: deps.intervalMs,
+  });
+  // THE-698: the evaluator pass that promotes pending -> eligible. It had NO scheduled caller —
+  // only the manual `obsidian-tc reflect` CLI — so on the live deployment 337 of 337 episodes sat
+  // `pending` across seventeen days and `work_search`, which serves eligible rows only by contract,
+  // returned zero rows every time. The capture half of the experiential tier worked; the recall
+  // half was dark, and an honest-empty result is indistinguishable from "nothing matched".
+  //
+  // No judge is passed, deliberately, and this is not a degraded mode: the judge can only LOWER a
+  // deterministic promotion, never raise one, so the deterministic layer is the whole job. Same
+  // no-gateway-dependency posture as note-quality-enqueue below — a derived-state tick must not
+  // depend on the generative plane being configured. Wire `judge` here if that changes.
+  registerEpisodeEvaluation(scheduler, {
+    edb: deps.experientialDb,
+    intervalMs: deps.intervalMs,
+    onError: stderrOnError("episode-evaluation"),
   });
   // THE-643: own cadence, not the roles-gated plane-enqueue above — no gateway dependency.
   scheduler.register({

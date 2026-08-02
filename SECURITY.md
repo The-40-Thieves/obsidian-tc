@@ -200,7 +200,16 @@ so operators can reason about them rather than discover them.
   miss rate around two-thirds. It is **not** a standalone guarantee. Content that evades it is born
   `pending`, not `eligible` — never eligible at capture; retrieval-use waits for the sleep-time
   evaluator (layer 2, THE-222). That evaluator promotes `pending → eligible` **deterministically**,
-  not on human review, so `pending` is a short-lived state and not a quarantine. The safety
+  not on human review, so for a *promotable* row `pending` is a short-lived state and not a
+  quarantine — it runs on the maintenance cadence as the `episode-evaluation` scheduled job
+  (THE-698). Two caveats this document previously did not make, both load-bearing. First, that
+  scheduling only shipped in THE-698: before it, the evaluator had **no scheduled caller at all**
+  and was reachable solely through a manual `obsidian-tc reflect`, which left a real deployment at
+  337 of 337 episodes `pending` for seventeen days with `work_search` returning zero rows
+  throughout. If you run a build predating that, promotion is manual and `pending` *is* a
+  quarantine. `doctor --probe` reports the backlog (`experiential.evaluator`). Second, a **held**
+  row is not short-lived by design: an unstable cluster or a bad-outcome row stays `pending`
+  indefinitely, and that is the safety contract working, not a stalled evaluator. The safety
   contract is what the evaluator **refuses** to promote: a poison-flagged row is born `ineligible`
   and never raised; an unstable cluster (the same caller+tool+args_hash showing both `ok` and
   `error`) is held; a row the outcome axis already marked a bad outcome (`outcome = -1`, THE-565)

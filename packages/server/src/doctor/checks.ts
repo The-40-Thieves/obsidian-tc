@@ -3,6 +3,7 @@
 
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
+import type { EpisodeBacklog } from "../experiential/reflect";
 import {
   type RerankerPreflightEmbeddings,
   rerankerBuildBlocker,
@@ -593,6 +594,87 @@ export function notesFtsIntegrityCheck(view: NotesFtsView): Check {
         ],
         remediation:
           "Rebuild the derived index: `INSERT INTO notes_fts(notes_fts) VALUES('rebuild');` against cache.db, or set OBSIDIAN_TC_VERIFY_FTS=1 so the next boot detects and repairs it. Nothing is lost — notes_fts is fully derived from the notes table. If it recurs after a rebuild, suspect unclean container shutdown.",
+      };
+    },
+  };
+}
+
+/** THE-698: inputs for the experiential-evaluator check. Same opt-in probe shape as the notes_fts
+ *  check — the ticket asked for one mechanism for this class of signal, not two. */
+export interface ExperientialEvaluatorView {
+  /** The experiential store is open (config.experiential.captureEpisodes et al.). */
+  enabled: boolean;
+  /** OPT-IN backlog count, supplied only under `doctor --probe`. */
+  probe?: () => EpisodeBacklog;
+}
+
+/** Older than this and the evaluator cannot merely be "between ticks" — it is not running. The
+ *  maintenance cadence is minutes; a day is generous by orders of magnitude, deliberately, so this
+ *  never cries wolf on a healthy deployment that just captured a burst of episodes. */
+const STALE_PROMOTABLE_MS = 86_400_000;
+
+/**
+ * experiential.evaluator — is the pending -> eligible promotion pass actually running?
+ *
+ * `evaluateEpisodes` had no scheduled caller: only the manual `obsidian-tc reflect` CLI. On the
+ * live deployment that left 337 of 337 episodes `pending` across seventeen days, and `work_search`
+ * — which serves evaluator-approved rows only, by security contract — returned zero rows every
+ * time. Nothing reported it, because an honest-empty result is indistinguishable from "nothing
+ * matched". SECURITY.md meanwhile documents `pending` as "a short-lived state and not a
+ * quarantine", which the deployment quietly contradicted.
+ *
+ * A warning, not a fail: capture still works, nothing is lost, and the rows promote as soon as the
+ * pass runs. What is broken is recall.
+ */
+export function experientialEvaluatorCheck(view: ExperientialEvaluatorView): Check {
+  return {
+    id: "experiential.evaluator",
+    category: "retrieval",
+    run: async () => {
+      if (!view.enabled) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: "experiential evaluator: off — episode capture is not enabled",
+          details: { evaluator: "off (experiential store closed)" },
+        };
+      }
+      if (!view.probe) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: "experiential evaluator (from CONFIG, not probed): scheduled",
+          details: { evaluator: "scheduled — backlog not counted (run `doctor --probe`)" },
+        };
+      }
+      const b = view.probe();
+      const detail = `${b.pending} pending (${b.promotable} promotable), ${b.eligible} eligible`;
+      // Keys on PROMOTABLE age, never on the pending count. Two reasons, both load-bearing:
+      // rows are born pending and legitimately wait for the next tick, and held rows (a
+      // contradictory ok/error cluster, or a known-bad outcome) are supposed to stay pending
+      // FOREVER. On the live store this exact check keyed on `pending` and warned immediately
+      // after a successful promotion — 333 eligible, 4 permanently held — which is the health
+      // check crying wolf about its own success.
+      if (b.oldestPromotableAgeMs === null || b.oldestPromotableAgeMs < STALE_PROMOTABLE_MS) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: `experiential evaluator: ${detail}`,
+          details: {
+            evaluator:
+              b.pending > 0 && b.promotable === 0
+                ? `${detail} — nothing promotable; the remaining pending rows are held for cause`
+                : `${detail} — backlog within one evaluation cycle`,
+          },
+        };
+      }
+      const days = Math.floor(b.oldestPromotableAgeMs / 86_400_000);
+      return {
+        status: "warning" as CheckStatus,
+        summary: `the episode evaluator has not run: ${b.promotable} promotable, oldest ${days}d`,
+        details: { evaluator: `STALE — ${detail}, oldest promotable ${days}d` },
+        issues: [
+          `${b.promotable} episode(s) are eligible for promotion under the deterministic rules but are still 'pending', and the oldest is ${days} day(s) old — far past any evaluation cycle. work_search serves evaluator-approved (eligible) rows only, so it is returning little or nothing, which is indistinguishable from "no episodes matched".`,
+        ],
+        remediation:
+          "Run `obsidian-tc reflect` to promote the backlog, and confirm the server is on a build that schedules `episode-evaluation` (THE-698). Do NOT work around this by making work_search include pending rows: 'pending' means unevaluated, and the eligible-only contract is the security boundary.",
       };
     },
   };
