@@ -14,7 +14,7 @@
 import type { Database } from "../db/types";
 import type { GatewayRoles } from "../plane/gateway";
 import { prompt } from "../plane/gateway";
-import { cosineSimilarity } from "../search/native";
+import { cosineBatch, cosineSimilarity, rougeLLcs } from "../search/native";
 
 const MAX_CHUNK_TOKENS = 512;
 const MAX_TRANSCRIPT_TOKENS = 6000;
@@ -25,25 +25,127 @@ function tokenize(text: string, cap: number): string[] {
   return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).slice(0, cap);
 }
 
-/** ROUGE-L F1 of a vs b (token LCS; two-row DP, capped for bounded cost). */
-export function rougeL(a: string, b: string): number {
-  const ta = tokenize(a, MAX_CHUNK_TOKENS);
-  const tb = tokenize(b, MAX_TRANSCRIPT_TOKENS);
-  if (ta.length === 0 || tb.length === 0) return 0;
-  let prev = new Array<number>(tb.length + 1).fill(0);
-  let curr = new Array<number>(tb.length + 1).fill(0);
-  for (let i = 1; i <= ta.length; i++) {
-    for (let j = 1; j <= tb.length; j++) {
-      curr[j] =
-        ta[i - 1] === tb[j - 1] ? (prev[j - 1] ?? 0) + 1 : Math.max(prev[j] ?? 0, curr[j - 1] ?? 0);
+/**
+ * A transcript tokenized and interned ONCE, so the per-chunk loop below does not redo it.
+ *
+ * `inferCitations` scores every retrieved chunk against the SAME transcript. The previous
+ * `rougeL(chunk, transcript)` signature forced `tokenize(transcript, 6000)` — a lowercase pass
+ * plus a global regex match over the whole transcript — to run again for every chunk, and the DP
+ * then compared JS STRINGS in its innermost cell. Measured at the module's own bounds
+ * (512 x 6000 = 3,072,000 cells): 62.6 ns/cell with string compares, 40.1 ns/cell over interned
+ * ints, for an identical score. Hoisting the tokenize is pure removed work on top of that.
+ */
+export interface PreparedTranscript {
+  /** Interned transcript token ids, in order. Ids are dense, `0 .. index.size - 1`. */
+  readonly ids: Int32Array;
+  /** token -> id. A chunk token ABSENT from this map is unmatchable — see `UNMATCHABLE`. */
+  readonly index: ReadonlyMap<string, number>;
+}
+
+/**
+ * Sentinel for a chunk token the transcript never contains. It must sit OUTSIDE the dense id
+ * range, because the DP's match test is `a[i] === b[j]`: a `?? 0` fallback would alias every
+ * unknown chunk token onto transcript token 0 and inflate the score. Chunk tokens are never
+ * compared against each other, so a shared sentinel is safe.
+ */
+const UNMATCHABLE = -1;
+
+/** Tokenize + intern a transcript once for reuse across every chunk in a citation pass. */
+export function prepareTranscript(transcript: string): PreparedTranscript {
+  const toks = tokenize(transcript, MAX_TRANSCRIPT_TOKENS);
+  const index = new Map<string, number>();
+  const ids = new Int32Array(toks.length);
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i] as string;
+    let id = index.get(t);
+    if (id === undefined) {
+      id = index.size;
+      index.set(t, id);
     }
-    [prev, curr] = [curr, prev];
+    ids[i] = id;
   }
-  const lcs = prev[tb.length] ?? 0;
+  return { ids, index };
+}
+
+/**
+ * ROUGE-L F1 of `chunk` against an already-prepared transcript. Same two-row LCS DP as before,
+ * over `Int32Array` instead of `string[]`; `rougeLPrepared(c, prepareTranscript(t))` is exactly
+ * `rougeL(c, t)`, pinned by a test.
+ */
+export function rougeLPrepared(chunk: string, prepared: PreparedTranscript): number {
+  const toks = tokenize(chunk, MAX_CHUNK_TOKENS);
+  const tb = prepared.ids;
+  if (toks.length === 0 || tb.length === 0) return 0;
+  const ta = new Int32Array(toks.length);
+  for (let i = 0; i < toks.length; i++) {
+    ta[i] = prepared.index.get(toks[i] as string) ?? UNMATCHABLE;
+  }
+  // The DP itself is the native kernel (one crossing for the whole pair); the F1 below stays here.
+  // `rougeLLcs` falls back to an identical pure-JS twin when no .node is loaded.
+  const lcs = rougeLLcs(ta, tb);
   if (lcs === 0) return 0;
   const p = lcs / ta.length;
   const r = lcs / tb.length;
   return (2 * p * r) / (p + r);
+}
+
+/** ROUGE-L F1 of a vs b (token LCS; two-row DP, capped for bounded cost). Prefer
+ *  `prepareTranscript` + `rougeLPrepared` when scoring many chunks against one transcript. */
+export function rougeL(a: string, b: string): number {
+  return rougeLPrepared(a, prepareTranscript(b));
+}
+
+/**
+ * Transcript block vectors flattened once into a row-major f32 buffer, so each chunk costs ONE
+ * `cosineBatch` crossing instead of one `cosineSimilarity` call per (block, chunk) pair.
+ *
+ * The pairwise form is the shape THE-420 measured as 13-22x SLOWER than the JS fallback: with up
+ * to MAX_BLOCKS (48) blocks it crossed the boundary 48 times per chunk, and `cosineSimilarity`'s
+ * `a: number[]` parameter marshals a fresh `Vec<f64>` on every one of them.
+ */
+export interface PreparedBlocks {
+  readonly flat: Float32Array;
+  readonly dim: number;
+}
+
+/**
+ * Flatten block vectors for a single-crossing scan, or `null` when `cosineBatch`'s contract
+ * cannot express them — it scans one fixed `dim` for the whole buffer, which an empty or ragged
+ * set cannot satisfy. Real embedding output is uniform-width; `null` is defensive, and the caller
+ * keeps the per-pair path for it. Mirrors `search/colbert.ts`'s `flattenRectangular`.
+ */
+export function prepareBlocks(blockVecs: number[][]): PreparedBlocks | null {
+  const dim = blockVecs[0]?.length ?? 0;
+  if (dim === 0) return null;
+  for (const row of blockVecs) if (row.length !== dim) return null;
+  const flat = new Float32Array(blockVecs.length * dim);
+  for (let i = 0; i < blockVecs.length; i++) flat.set(blockVecs[i] as number[], i * dim);
+  return { flat, dim };
+}
+
+/**
+ * Max cosine of one chunk vector against every transcript block, in one native crossing.
+ *
+ * Returns 0 — not null — when the chunk's width does not match the blocks', because that is what
+ * the per-pair loop produced: `cosineSimilarity` yields 0 on a length mismatch, and the max over
+ * all-zero is 0. Preserving that keeps `cosine` a number wherever it was one before.
+ *
+ * Numeric note: blocks arrive as `number[]` (f64) and are narrowed to f32 by the flat buffer, so
+ * scores can differ from the old f64-query path in the last bits. THE-504 measured that same
+ * narrowing at < 1e-6 absolute, against a stage-1 threshold of 0.30.
+ */
+export function maxBlockCosine(vec: Float32Array, prepared: PreparedBlocks): number {
+  // Early-out, NOT a correctness gate: cosineBatch already returns an empty result on a width
+  // mismatch, which falls through to 0 below. Removing this line passes every test — it is kept
+  // only to skip a native crossing that cannot produce a score. Verified by mutation.
+  if (vec.length !== prepared.dim) return 0;
+  const sims = cosineBatch(vec, prepared.flat, prepared.dim);
+  let best = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < sims.length; i++) {
+    const s = sims[i] as number;
+    if (s > best) best = s;
+  }
+  return best === Number.NEGATIVE_INFINITY ? 0 : best;
 }
 
 /** Split a transcript into embeddable blocks (blank-line paragraphs, capped). */
@@ -223,10 +325,18 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     pass: boolean;
   }
   const assessments: Assessment[] = [];
+  // Tokenize + intern the transcript ONCE. Every chunk below scores against this same transcript,
+  // so the old `rougeL(content, transcript)` call redid a full lowercase + regex tokenize of it per
+  // chunk — O(chunks x 6000 tokens) of work that produces the identical array every time.
+  const preparedTranscript = prepareTranscript(opts.transcript);
+  // Flatten the block vectors ONCE too: the cosine leg below then costs one native crossing per
+  // chunk instead of one per (block, chunk) pair. `null` when the widths are ragged/empty, which
+  // routes the loop back to the per-pair scorer.
+  const preparedBlocks = blockVecs.length > 0 ? prepareBlocks(blockVecs) : null;
   for (const chunkId of chunkIds) {
     const row = contentStmt.get(chunkId) as { content: string } | undefined;
     if (!row) continue; // chunk deleted since retrieval — nothing to compare
-    const rouge = rougeL(row.content, opts.transcript);
+    const rouge = rougeLPrepared(row.content, preparedTranscript);
     let cosine: number | null = null;
     if (blockVecs.length > 0) {
       const emb = embStmt.get(chunkId) as { embedding: Uint8Array } | undefined;
@@ -236,9 +346,14 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
           emb.embedding.byteOffset,
           emb.embedding.byteLength / 4,
         );
-        for (const bv of blockVecs) {
-          const sim = cosineSimilarity(bv, vec);
-          if (cosine === null || sim > cosine) cosine = sim;
+        if (preparedBlocks) {
+          cosine = maxBlockCosine(vec, preparedBlocks);
+        } else {
+          // Ragged/empty block widths: cosineBatch cannot express them, so keep the per-pair path.
+          for (const bv of blockVecs) {
+            const sim = cosineSimilarity(bv, vec);
+            if (cosine === null || sim > cosine) cosine = sim;
+          }
         }
       }
     }
