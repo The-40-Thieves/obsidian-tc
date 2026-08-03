@@ -351,4 +351,42 @@ export const ExperientialConfigSchema = z.object({
     .describe(
       "Build the ACT-R cached-activation-score lookup and thread it to every M7 graphSearch call. NOT YET WIRED to the serve-path bubble pass (bubble_safe_rerank) — that requires opts.bubbleSafe.enabled, which nothing under src/ sets, so enabling this flag currently changes no ranking. See THE-424 for the (deliberately deferred) wiring decision.",
     ),
+  /** THE-719: the scheduled coverage-gap sweep. `detectGaps` had exactly one caller — the offline
+   *  `obsidian-tc gaps` CLI — so `gap_reports` held 0 rows and the THE-611 read tool had nothing to
+   *  read: correct code, complete tests, no scheduled caller.
+   *
+   *  OFF BY DEFAULT, and that is a cost decision rather than caution. Each swept query costs one
+   *  embedding call plus one graphSearch; THE-616 capped that loop's concurrency for exactly this
+   *  reason. Putting it on the maintenance cadence would make every deployment pay gateway traffic
+   *  it did not ask for, so the sweep names its own interval and defaults to weekly when enabled. */
+  gapSweep: z
+    .object({
+      enabled: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Run the coverage-gap sweep on a schedule, persisting a gap_reports row the gap_report tool can read back. Off by default: each swept query costs an embedding call plus a search.",
+        ),
+      intervalHours: z
+        .number()
+        .positive()
+        .max(8760)
+        .default(168)
+        .describe(
+          "Hours between sweeps when enabled. Defaults to weekly — a coverage gap is a slow-moving property of the corpus, not something worth re-measuring hourly.",
+        ),
+      maxQueries: z
+        .number()
+        .int()
+        .positive()
+        .max(500)
+        .default(50)
+        .describe(
+          "Upper bound on queries per sweep. The sweep draws the most recent DISTINCT logged queries from chunk_retrievals, so this caps both gateway cost and how far back a single pass reaches.",
+        ),
+    })
+    .prefault({})
+    .describe(
+      "THE-719: scheduled coverage-gap sweep over recently logged queries. Advisory only — nothing auto-tunes retrieval config from its own gap measurements.",
+    ),
 });

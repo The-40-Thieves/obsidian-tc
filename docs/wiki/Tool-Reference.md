@@ -1,6 +1,6 @@
 # Tool Reference
 
-**154 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
+**157 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
 
 Every tool carries four annotations enforced by the dispatch pipeline: **acl** (`read` / `write` / `delete` / `execute` / `admin`), **hitl** (`never` / `required` / conditional), **idem** (`pure` / `natural` / `keyed` / `non-idem`), and **ratelimit** (`read` / `write` / `bulk`). See **[[Security and ACL]]**.
 
@@ -77,7 +77,7 @@ Every error also carries a **`recovery`** string: bounded next-step guidance for
 _Auto-generated from the tool registry — the exhaustive, always-current list. Run `bun run docgen:render`; do not hand-edit between the markers._
 
 <!-- BEGIN GENERATED: tools -->
-_154 tools. Access is a coarse hint; the required scopes are authoritative._
+_157 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -94,6 +94,7 @@ _154 tools. Access is a coarse hint; the required scopes are authoritative._
 | `bulk_set_property` | write | `write:notes`, `bulk:notes` | Set one frontmatter property across many notes, with per-item results (prev_value). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in). |
 | `bundle_files` | read | `read:context` | Aggregate an explicit list of notes into a single markdown/XML bundle. ACL-filtered; byte budgeted; reports missing_paths for files that do not exist. |
 | `bundle_folder` | read | `read:context` | Aggregate all notes under a folder into a single markdown/XML bundle (Smart Context). ACL-filtered; file-count and byte budgeted with an explicit truncated flag. |
+| `close_goal` | write | `write:workspace` | Close a stated goal into a terminal state: completed or abandoned. Once-only — a second close reports closed:false rather than silently succeeding, and there is no reopen verb, because a system that quietly reopened a goal the user completed is exactly the low-confidence mutation this plane forbids. 'expired' is not settable here; it is the deadline sweep's verdict alone. |
 | `commit_capture` | write | `write:capture` | Write a queued capture to a vault path and mark it committed (or remove it from the queue). Refuses to overwrite an existing note. |
 | `copy_note` | write | `write:notes` | Copy a note to a new path (backlinks are not rewritten for copies). |
 | `create_base` | write | `write:bases` | Create a new .base file from a base definition. Overwriting an existing base requires confirmation. |
@@ -152,6 +153,7 @@ _154 tools. Access is a coarse hint; the required scopes are authoritative._
 | `list_capture_queue` | read | `read:capture` | List captures in the queue (pending by default; committed:true lists committed), newest first. |
 | `list_commands` | read | `read:command` | Enumerate available Obsidian commands (optional substring filter). Uses the companion plugin, falling back to Local REST API's native /commands/ route when the companion is unreachable. |
 | `list_contradictions` | read | `read:notes` | List open contradictions (judge_verdict: 'contradiction' \| 'tension') touching any of the given notes — the same detector output vault_context/reflect/knowledge_challenge surface indirectly, exposed directly for standalone inspection. Read-only. |
+| `list_goals` | read | `read:notes` | List a vault's stated goals, newest first. Defaults to OPEN goals only — a consumer that forgets to filter should see current intent rather than a graveyard of closed ones. Pass status to narrow to a terminal state, or 'any' for the full history. 'expired' (the deadline sweep's verdict) and 'abandoned' (the user's) are deliberately distinct and must not be counted together. |
 | `list_kanban_boards` | read | `read:notes` | List Kanban board notes in the vault (frontmatter kanban-plugin: board), with column and card counts. |
 | `list_notes` | read | `read:notes` | List notes under a folder (read-ACL filtered), with cursor pagination. |
 | `list_periodic_notes` | read | `read:periodic` | Enumerate existing periodic notes in a date range (probes the configured format/folder). Defaults to a recent window when from/to are omitted. |
@@ -215,6 +217,7 @@ _154 tools. Access is a coarse hint; the required scopes are authoritative._
 | `search_vault` | read | `read:notes` | Unified search dispatch. mode=auto routes a string query text->semantic (fallback on zero hits) and an object query to jsonlogic; or force text/regex/semantic/jsonlogic/dql. Set verbosity=terse to compact each hit to path/score/snippet. |
 | `server_health` | read | — | Liveness + build info. Round-trips the full transport -> auth -> acl -> audit path. |
 | `session_bootstrap` | read | `read:notes` | Triage an opening session message (auto -> lightweight \| standard \| deep) and preload the matching vault context notes, so any MCP client gets session bootstrap, not only skill-enabled ones. Deep loads the configured deepPaths; standard loads the paths of every domain whose signals appear in the message; lightweight loads nothing. The routing table comes from server config (bootstrap.*); with none configured the tool degrades to lightweight. Read-only. |
+| `set_goal` | write | `write:workspace` | Record a STATED goal for a vault — what the user is trying to accomplish, as distinct from a learned preference (a preference is 'you tend to X' and never resolves; a goal is 'you intend to X' and ends in completed/abandoned/expired). Goals are stated by the user and never inferred: nothing in the reflect/extract path can write one. An optional target_date lets the expiry sweep mark it 'expired' rather than leaving stale intent to bias later reads. |
 | `snapshot_note` | read | `read:notes` | Capture the current content of a note as a restorable point-in-time snapshot (retained per config.snapshots.retention). Returns the snapshot id and content hash. |
 | `sort_table_by_column` | write | `write:notes` | Sort a GFM table's data rows by a column (index or header name), ascending or descending, optionally numeric. |
 | `start_session` | write | `write:workspace` | Begin a workspace memory session: a SQLite row plus an append-only JSONL trace file. |

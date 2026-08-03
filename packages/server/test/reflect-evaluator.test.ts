@@ -20,6 +20,9 @@ import { openMemoryDb } from "./helpers";
 const sql = (p: string): string =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${p}`, import.meta.url)), "utf8");
 const NOW = 1_700_000_000_000;
+/** THE-710: the preference plane is partitioned by vault; these are the two test partitions. */
+const V1 = "vault-one";
+const V2 = "vault-two";
 
 function edb0(): Database {
   const db = openMemoryDb();
@@ -28,6 +31,9 @@ function edb0(): Database {
     { version: "20260711_001", sql: sql("20260711_001_experiential_outcome.sql") },
     { version: "20260711_002", sql: sql("20260711_002_agent_episodes.sql") },
     { version: "20260712_001", sql: sql("20260712_001_preference_profile.sql") },
+    // THE-710: the vault partition. Included here rather than in a separate fixture so every
+    // existing assertion below runs against the PARTITIONED schema, not the pre-migration one.
+    { version: "20260803_001", sql: sql("20260803_001_preference_vault_id.sql") },
   ]);
   return db;
 }
@@ -43,11 +49,12 @@ function seed(
     tool: string;
     outcome: number | null;
     blocked: number;
+    vault_id: string | null;
   }> = {},
 ): void {
   db.prepare(
-    `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, outcome, eligibility, blocked, valid_from)
-     VALUES (?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, outcome, eligibility, blocked, valid_from, vault_id)
+     VALUES (?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     NOW,
@@ -59,6 +66,9 @@ function seed(
     over.eligibility ?? "pending",
     over.blocked ?? 0,
     NOW,
+    // THE-710: `vault_id` is nullable on agent_episodes, and extractPreferences EXCLUDES nulls
+    // rather than attributing them. Pass `null` explicitly to exercise that exclusion.
+    over.vault_id === undefined ? V1 : over.vault_id,
   );
 }
 
@@ -138,6 +148,7 @@ describe("preference profile (ACE typed deltas)", () => {
     const db = edb0();
     const b1 = applyPreferenceDeltas(
       db,
+      V1,
       [
         { key: "prefers-tables", op: "add", value: "answers as tables", evidence: "e1" },
         { key: "dark-mode", op: "add", value: "dark themes" },
@@ -147,6 +158,7 @@ describe("preference profile (ACE typed deltas)", () => {
     expect(b1).toEqual({ version: 1, applied: 2 });
     const b2 = applyPreferenceDeltas(
       db,
+      V1,
       [
         { key: "prefers-tables", op: "strengthen" },
         { key: "dark-mode", op: "weaken" },
@@ -154,7 +166,7 @@ describe("preference profile (ACE typed deltas)", () => {
       NOW + 10,
     );
     expect(b2.version).toBe(2);
-    const p = preferenceProfile(db);
+    const p = preferenceProfile(db, V1);
     expect(p.version).toBe(2);
     const tables = p.entries.find((e) => e.key === "prefers-tables");
     expect(tables?.weight).toBe(1.5);
@@ -167,23 +179,146 @@ describe("preference profile (ACE typed deltas)", () => {
 
   it("retract zeroes the weight but keeps the row; add on an existing key strengthens", () => {
     const db = edb0();
-    applyPreferenceDeltas(db, [{ key: "k", op: "add", value: "v" }], NOW);
-    applyPreferenceDeltas(db, [{ key: "k", op: "retract" }], NOW + 1);
-    expect(preferenceProfile(db).entries).toHaveLength(0); // weight 0 filtered
-    const raw = db.prepare("SELECT weight AS w FROM preference_profile WHERE key='k'").get() as {
+    applyPreferenceDeltas(db, V1, [{ key: "k", op: "add", value: "v" }], NOW);
+    applyPreferenceDeltas(db, V1, [{ key: "k", op: "retract" }], NOW + 1);
+    expect(preferenceProfile(db, V1).entries).toHaveLength(0); // weight 0 filtered
+    const raw = db
+      .prepare("SELECT weight AS w FROM preference_profile WHERE vault_id='" + V1 + "' AND key='k'")
+      .get() as {
       w: number;
     };
     expect(raw.w).toBe(0); // row survives retraction
-    applyPreferenceDeltas(db, [{ key: "k", op: "add", value: "v2" }], NOW + 2);
-    const back = preferenceProfile(db).entries.find((e) => e.key === "k");
+    applyPreferenceDeltas(db, V1, [{ key: "k", op: "add", value: "v2" }], NOW + 2);
+    const back = preferenceProfile(db, V1).entries.find((e) => e.key === "k");
     expect(back?.weight).toBe(0.5); // re-add climbs from the counter, not a fresh row
     expect(back?.value).toBe("v2");
+  });
+
+  // ---- THE-710: the vault partition ----
+  //
+  // These are the tests the migration exists for. Before it, `key` was the entire primary key, so
+  // the first assertion below was FALSE: vault-two's `add` silently overwrote vault-one's row and
+  // there was no column to tell them apart. The rebuild reverses a P1.8-audited decision on the
+  // vault axis only, so the caller axis is pinned as still-shared further down — a test that would
+  // have to change if anyone closes that residual, which is the point of writing it.
+
+  it("two vaults hold the same key independently — no blending", () => {
+    const db = edb0();
+    applyPreferenceDeltas(db, V1, [{ key: "tone", op: "add", value: "terse" }], NOW);
+    applyPreferenceDeltas(db, V2, [{ key: "tone", op: "add", value: "verbose" }], NOW + 1);
+
+    expect(preferenceProfile(db, V1).entries).toEqual([
+      expect.objectContaining({ key: "tone", value: "terse", weight: 1 }),
+    ]);
+    expect(preferenceProfile(db, V2).entries).toEqual([
+      expect.objectContaining({ key: "tone", value: "verbose", weight: 1 }),
+    ]);
+    // Two rows, not one overwritten row — assert the stored identity, not just the read-back.
+    const n = (
+      db.prepare("SELECT COUNT(*) AS n FROM preference_profile WHERE key = 'tone'").get() as {
+        n: number;
+      }
+    ).n;
+    expect(n).toBe(2);
+  });
+
+  it("a delta cannot reach across the partition", () => {
+    const db = edb0();
+    applyPreferenceDeltas(db, V1, [{ key: "tone", op: "add", value: "terse" }], NOW);
+    // `strengthen` on a key that exists only in the OTHER vault must change nothing, and must not
+    // log a phantom audit row — the same C4 guard as above, now on the vault axis.
+    const r = applyPreferenceDeltas(db, V2, [{ key: "tone", op: "strengthen" }], NOW + 1);
+    expect(r.applied).toBe(0);
+    expect(preferenceProfile(db, V1).entries[0]?.weight).toBe(1); // untouched
+    expect(preferenceProfile(db, V2).entries).toHaveLength(0);
+    const n = (
+      db.prepare("SELECT COUNT(*) AS n FROM preference_deltas WHERE vault_id = ?").get(V2) as {
+        n: number;
+      }
+    ).n;
+    expect(n).toBe(0);
+  });
+
+  it("version is per-vault, so one vault's batch does not bump the other's", () => {
+    const db = edb0();
+    applyPreferenceDeltas(db, V1, [{ key: "a", op: "add", value: "x" }], NOW);
+    applyPreferenceDeltas(db, V1, [{ key: "a", op: "strengthen" }], NOW + 1);
+    // V1 is at version 2. A first write to V2 must start at 1, not continue from 3.
+    const first = applyPreferenceDeltas(db, V2, [{ key: "b", op: "add", value: "y" }], NOW + 2);
+    expect(first.version).toBe(1);
+    expect(preferenceProfile(db, V1).version).toBe(2);
+    expect(preferenceProfile(db, V2).version).toBe(1);
+  });
+
+  it("the audit log carries the vault, so a delta is attributable after the fact", () => {
+    const db = edb0();
+    applyPreferenceDeltas(db, V1, [{ key: "a", op: "add", value: "x" }], NOW);
+    applyPreferenceDeltas(db, V2, [{ key: "a", op: "add", value: "y" }], NOW + 1);
+    const rows = db
+      .prepare("SELECT vault_id, key FROM preference_deltas ORDER BY vault_id")
+      .all() as Array<{ vault_id: string; key: string }>;
+    expect(rows).toEqual([
+      { vault_id: V1, key: "a" },
+      { vault_id: V2, key: "a" },
+    ]);
+  });
+
+  it("the CALLER axis is still shared within a vault — the accepted residual, pinned", () => {
+    // Not an oversight and not a TODO: SECURITY.md documents per-caller preference isolation as an
+    // accepted residual, and THE-710 closed the vault axis only.
+    //
+    // BE HONEST ABOUT WHAT THIS PINS. It cannot vary the caller, because neither
+    // applyPreferenceDeltas nor preferenceProfile takes one — the residual is STRUCTURAL, not a
+    // filter someone forgot to write. So what this asserts is that successive deltas in one vault
+    // land on ONE row regardless of origin. It is a decision anchor: closing the residual means
+    // adding a caller parameter, which makes this test stop compiling rather than quietly pass.
+    const db = edb0();
+    applyPreferenceDeltas(db, V1, [{ key: "tone", op: "add", value: "terse" }], NOW);
+    applyPreferenceDeltas(db, V1, [{ key: "tone", op: "strengthen" }], NOW + 1);
+    expect(preferenceProfile(db, V1).entries[0]?.weight).toBe(1.5);
+    const n = (
+      db.prepare("SELECT COUNT(*) AS n FROM preference_profile WHERE vault_id = ?").get(V1) as {
+        n: number;
+      }
+    ).n;
+    expect(n).toBe(1);
+  });
+
+  it("extractPreferences EXCLUDES a null-vault episode rather than attributing it", async () => {
+    // agent_episodes.vault_id is nullable. Attributing such an episode to a default vault would
+    // invent exactly the attribution the migration purged old rows to avoid inventing.
+    const db = edb0();
+    seed(db, "no-vault", { outcome: 1, eligibility: "eligible", vault_id: null });
+    let sawEvidence = false;
+    const judge = async () => {
+      sawEvidence = true;
+      return { text: JSON.stringify({ deltas: [] }), model: "mock" };
+    };
+    const r = await extractPreferences(db, V1, { judge, nowMs: NOW });
+    // No evidence reached the judge at all, so the pass reports skipped rather than applying zero.
+    expect(sawEvidence).toBe(false);
+    expect(r).toMatchObject({ skipped: true, applied: 0 });
+  });
+
+  it("extractPreferences only sees ITS OWN vault's episodes", async () => {
+    const db = edb0();
+    seed(db, "mine", { outcome: 1, eligibility: "eligible", tool: "read_note", vault_id: V1 });
+    seed(db, "theirs", { outcome: 1, eligibility: "eligible", tool: "write_note", vault_id: V2 });
+    let evidence = "";
+    const judge = async (req: { messages: Array<{ content: string }> }) => {
+      evidence = req.messages.map((m) => m.content).join("\n");
+      return { text: JSON.stringify({ deltas: [] }), model: "mock" };
+    };
+    await extractPreferences(db, V1, { judge, nowMs: NOW });
+    expect(evidence).toContain("read_note");
+    expect(evidence).not.toContain("write_note");
   });
 
   it("does not log a phantom audit row for a delta on a non-existent key (C4)", () => {
     const db = edb0();
     const r = applyPreferenceDeltas(
       db,
+      V1,
       [
         { key: "never-added", op: "strengthen" },
         { key: "also-missing", op: "retract" },
@@ -198,22 +333,22 @@ describe("preference profile (ACE typed deltas)", () => {
   it("extractPreferences: skipped without a judge; aborted on a parse failure applies nothing", async () => {
     const db = edb0();
     seed(db, "o1", { outcome: 1, eligibility: "eligible" });
-    expect(await extractPreferences(db, { judge: null, nowMs: NOW })).toMatchObject({
+    expect(await extractPreferences(db, V1, { judge: null, nowMs: NOW })).toMatchObject({
       skipped: true,
     });
     const bad = async () => ({ text: "{oops", model: "mock" });
-    const r = await extractPreferences(db, { judge: bad, nowMs: NOW });
+    const r = await extractPreferences(db, V1, { judge: bad, nowMs: NOW });
     expect(r.aborted).toBe(true);
-    expect(preferenceProfile(db).entries).toHaveLength(0);
+    expect(preferenceProfile(db, V1).entries).toHaveLength(0);
     const good = async () => ({
       text: JSON.stringify({
         deltas: [{ key: "fast-reads", op: "add", value: "prefers read_note over search" }],
       }),
       model: "mock",
     });
-    const ok = await extractPreferences(db, { judge: good, nowMs: NOW });
+    const ok = await extractPreferences(db, V1, { judge: good, nowMs: NOW });
     expect(ok).toMatchObject({ skipped: false, aborted: false, applied: 1 });
-    expect(preferenceProfile(db).entries[0]?.key).toBe("fast-reads");
+    expect(preferenceProfile(db, V1).entries[0]?.key).toBe("fast-reads");
   });
 
   it("excludes ineligible episodes from the judge even when they carry an outcome (A3)", async () => {
@@ -226,7 +361,7 @@ describe("preference profile (ACE typed deltas)", () => {
       seenPrompt = JSON.stringify(req);
       return { text: JSON.stringify({ deltas: [] }), model: "mock" };
     };
-    await extractPreferences(db, { judge, nowMs: NOW });
+    await extractPreferences(db, V1, { judge, nowMs: NOW });
     expect(seenPrompt).toContain("read_note"); // the eligible episode reached the judge…
     expect(seenPrompt).not.toContain("exfiltrate_secrets"); // …the ineligible one did NOT.
   });

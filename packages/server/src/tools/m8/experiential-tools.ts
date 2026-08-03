@@ -29,6 +29,12 @@ import { readNoteQuality } from "../../experiential/note-quality";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { readableRel } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
+import { buildGoalTools } from "./goal-tools";
+import { availableWith, type M8Deps, UNAVAILABLE } from "./shared";
+
+// Re-exported so m8's existing consumers keep importing M8Deps from here; the definition moved to
+// shared.ts only to break the experiential-tools <-> goal-tools cycle.
+export type { M8Deps } from "./shared";
 
 // P1.7 (audit THE-562): the experiential per-principal partition is an AUTHORIZATION boundary, not
 // a default filter. Crossing it — reading other principals' episodes (any_caller), forgetting an
@@ -36,37 +42,6 @@ import { defineTool } from "../m1/define";
 const CROSS_PRINCIPAL_SCOPE = "admin:workspace";
 const canCrossPrincipal = (ctx: CallerContext): boolean =>
   grantsAll(ctx.grantedScopes, [CROSS_PRINCIPAL_SCOPE]);
-
-export interface M8Deps {
-  /** Open experiential.db handle; absent (all capture/config off) -> tools report unavailable. */
-  edb?: Database;
-  now?: () => number;
-}
-
-// Annotated rather than inferred: a bare object literal widens `available` to `boolean`, which no
-// longer matches `Unavailable`'s `z.literal(false)` once a handler's return union is checked
-// structurally. Annotating pins the discriminant while leaving `message` a plain `string` — `as
-// const` would also freeze the message into a literal type, which is not wanted.
-const UNAVAILABLE: { available: false; message: string } = {
-  available: false,
-  message:
-    "experiential store is not open (enable experiential.logRetrievals, captureEpisodes, or activationRerank)",
-};
-
-/** THE-417: the degraded half of every m8 tool's output contract, declared once beside the value it
- *  describes so the two cannot drift. Every tool here returns EITHER this shape or `available: true`
- *  plus its own fields — a discriminated union on `available`, which is what makes these payloads
- *  worth advertising a schema for at all: an agent can branch on one field instead of guessing.
- *
- *  THE-548 found three different "unavailable" shapes across the tool surface (m8's shared object,
- *  m7's ad-hoc `available:false`, and M4 throwing `plugin_missing`). Declaring the contract is what
- *  turns that from a thing you discover by reading handlers into a thing the registry checks. */
-const Unavailable = z.object({ available: z.literal(false), message: z.string() });
-
-/** `available: true` plus the tool's own fields. */
-function availableWith<T extends z.ZodRawShape>(shape: T) {
-  return z.union([Unavailable, z.object({ available: z.literal(true), ...shape })]);
-}
 
 /** Mirrors `projectEpisode()` field for field. Written from the PROJECTION, not from EpisodeRow —
  *  the projection renames (`vault_id` -> `vault`), derives (`tags` parsed from JSON, `blocked`
@@ -178,6 +153,8 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
   const now = () => (deps.now ?? Date.now)();
 
   return [
+    // THE-633: composed from goal-tools.ts — same m8 domain, separate file for the line ceiling.
+    ...buildGoalTools(deps),
     defineTool({
       name: "work_search",
       domain: "knowledge",

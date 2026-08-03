@@ -587,6 +587,7 @@ export async function buildServerRuntime(
       jobQueue,
       jobRunner,
       runReconcile,
+      embeddingProvider,
     });
     // THE-466 slice 2: hand the live scheduler to the observability module's lazy gauge sources.
     schedulerRef = scheduler;
