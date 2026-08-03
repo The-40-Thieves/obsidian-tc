@@ -143,6 +143,9 @@ module.exports.cosineSimilarity = impl.cosineSimilarity;
 module.exports.cosineBatch = impl.cosineBatch;
 module.exports.tokenize = impl.tokenize;
 module.exports.bm25Score = impl.bm25Score;
+// rougeLLcs: same feature-detection posture as cosineBatch above — resolves from fallback.js on an
+// older .node that predates it, and is deliberately NOT in isComplete() so such a binary still loads.
+module.exports.rougeLLcs = impl.rougeLLcs;
 // THE-272: symlink-safe, TOCTOU-free vault I/O. Present only when the compiled native module is
 // loaded; on the pure-JS fallback these are undefined and the server's vault layer keeps its own
 // JS read/write path.

@@ -25,6 +25,12 @@ export declare function bm25Score(
   docCount: number,
 ): number;
 
+/** LCS length of two INTERNED token-id sequences, in one crossing for the whole pair — the inner
+ *  loop of ROUGE-L stage-1 citation filtering. Interning stays on the TS side so one transcript is
+ *  prepared once and reused across chunks; only the length crosses back, with the F1 arithmetic in
+ *  TypeScript. A negative id in `a` marks a token absent from `b` and never matches. */
+export declare function rougeLLcs(a: Int32Array, b: Int32Array): number;
+
 /** THE-272: symlink-safe, TOCTOU-free note read — opens following no symlink in any path component,
  *  rejects a non-regular or hard-linked file, returns the bytes. Present only on the native module
  *  (undefined on the pure-JS fallback). */

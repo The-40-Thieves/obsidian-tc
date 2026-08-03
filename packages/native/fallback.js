@@ -77,7 +77,28 @@ function bm25Score(tf, docLen, avgDocLen, docFreq, docCount) {
   return (idf * (tf * (k1 + 1))) / denom;
 }
 
+/** LCS length of two interned token-id sequences (two-row DP). Mirrors the Rust
+ *  `rouge_l_lcs_core`. Only `a[i] === b[j]` is ever compared, so a negative sentinel in `a` for a
+ *  token absent from `b` can never match. */
+function rougeLLcs(a, b) {
+  if (a.length === 0 || b.length === 0) {
+    return 0;
+  }
+  const n = b.length;
+  let prev = new Uint32Array(n + 1);
+  let curr = new Uint32Array(n + 1);
+  for (let i = 0; i < a.length; i++) {
+    const ai = a[i];
+    for (let j = 1; j <= n; j++) {
+      curr[j] = ai === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], curr[j - 1]);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
 module.exports.cosineSimilarity = cosineSimilarity;
 module.exports.cosineBatch = cosineBatch;
 module.exports.tokenize = tokenize;
 module.exports.bm25Score = bm25Score;
+module.exports.rougeLLcs = rougeLLcs;
