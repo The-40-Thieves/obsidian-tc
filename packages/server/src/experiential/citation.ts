@@ -14,7 +14,7 @@
 import type { Database } from "../db/types";
 import type { GatewayRoles } from "../plane/gateway";
 import { prompt } from "../plane/gateway";
-import { cosineSimilarity } from "../search/native";
+import { cosineBatch, cosineSimilarity } from "../search/native";
 
 const MAX_CHUNK_TOKENS = 512;
 const MAX_TRANSCRIPT_TOKENS = 6000;
@@ -103,6 +103,59 @@ export function rougeLPrepared(chunk: string, prepared: PreparedTranscript): num
  *  `prepareTranscript` + `rougeLPrepared` when scoring many chunks against one transcript. */
 export function rougeL(a: string, b: string): number {
   return rougeLPrepared(a, prepareTranscript(b));
+}
+
+/**
+ * Transcript block vectors flattened once into a row-major f32 buffer, so each chunk costs ONE
+ * `cosineBatch` crossing instead of one `cosineSimilarity` call per (block, chunk) pair.
+ *
+ * The pairwise form is the shape THE-420 measured as 13-22x SLOWER than the JS fallback: with up
+ * to MAX_BLOCKS (48) blocks it crossed the boundary 48 times per chunk, and `cosineSimilarity`'s
+ * `a: number[]` parameter marshals a fresh `Vec<f64>` on every one of them.
+ */
+export interface PreparedBlocks {
+  readonly flat: Float32Array;
+  readonly dim: number;
+}
+
+/**
+ * Flatten block vectors for a single-crossing scan, or `null` when `cosineBatch`'s contract
+ * cannot express them — it scans one fixed `dim` for the whole buffer, which an empty or ragged
+ * set cannot satisfy. Real embedding output is uniform-width; `null` is defensive, and the caller
+ * keeps the per-pair path for it. Mirrors `search/colbert.ts`'s `flattenRectangular`.
+ */
+export function prepareBlocks(blockVecs: number[][]): PreparedBlocks | null {
+  const dim = blockVecs[0]?.length ?? 0;
+  if (dim === 0) return null;
+  for (const row of blockVecs) if (row.length !== dim) return null;
+  const flat = new Float32Array(blockVecs.length * dim);
+  for (let i = 0; i < blockVecs.length; i++) flat.set(blockVecs[i] as number[], i * dim);
+  return { flat, dim };
+}
+
+/**
+ * Max cosine of one chunk vector against every transcript block, in one native crossing.
+ *
+ * Returns 0 — not null — when the chunk's width does not match the blocks', because that is what
+ * the per-pair loop produced: `cosineSimilarity` yields 0 on a length mismatch, and the max over
+ * all-zero is 0. Preserving that keeps `cosine` a number wherever it was one before.
+ *
+ * Numeric note: blocks arrive as `number[]` (f64) and are narrowed to f32 by the flat buffer, so
+ * scores can differ from the old f64-query path in the last bits. THE-504 measured that same
+ * narrowing at < 1e-6 absolute, against a stage-1 threshold of 0.30.
+ */
+export function maxBlockCosine(vec: Float32Array, prepared: PreparedBlocks): number {
+  // Early-out, NOT a correctness gate: cosineBatch already returns an empty result on a width
+  // mismatch, which falls through to 0 below. Removing this line passes every test — it is kept
+  // only to skip a native crossing that cannot produce a score. Verified by mutation.
+  if (vec.length !== prepared.dim) return 0;
+  const sims = cosineBatch(vec, prepared.flat, prepared.dim);
+  let best = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < sims.length; i++) {
+    const s = sims[i] as number;
+    if (s > best) best = s;
+  }
+  return best === Number.NEGATIVE_INFINITY ? 0 : best;
 }
 
 /** Split a transcript into embeddable blocks (blank-line paragraphs, capped). */
@@ -286,6 +339,10 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   // so the old `rougeL(content, transcript)` call redid a full lowercase + regex tokenize of it per
   // chunk — O(chunks x 6000 tokens) of work that produces the identical array every time.
   const preparedTranscript = prepareTranscript(opts.transcript);
+  // Flatten the block vectors ONCE too: the cosine leg below then costs one native crossing per
+  // chunk instead of one per (block, chunk) pair. `null` when the widths are ragged/empty, which
+  // routes the loop back to the per-pair scorer.
+  const preparedBlocks = blockVecs.length > 0 ? prepareBlocks(blockVecs) : null;
   for (const chunkId of chunkIds) {
     const row = contentStmt.get(chunkId) as { content: string } | undefined;
     if (!row) continue; // chunk deleted since retrieval — nothing to compare
@@ -299,9 +356,14 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
           emb.embedding.byteOffset,
           emb.embedding.byteLength / 4,
         );
-        for (const bv of blockVecs) {
-          const sim = cosineSimilarity(bv, vec);
-          if (cosine === null || sim > cosine) cosine = sim;
+        if (preparedBlocks) {
+          cosine = maxBlockCosine(vec, preparedBlocks);
+        } else {
+          // Ragged/empty block widths: cosineBatch cannot express them, so keep the per-pair path.
+          for (const bv of blockVecs) {
+            const sim = cosineSimilarity(bv, vec);
+            if (cosine === null || sim > cosine) cosine = sim;
+          }
         }
       }
     }
