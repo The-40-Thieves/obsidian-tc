@@ -101,6 +101,10 @@ export interface JobHandlersDeps {
   /** config.plane.gatewayMaxAttempts — retry budget for the PLANE's gateway calls, separate from
    *  the interactive seam. Absent -> the interactive client's own default. */
   gatewayMaxAttempts?: number | undefined;
+  /** config.plane.gatewayTimeoutMs — PER-ATTEMPT budget for the PLANE's gateway calls (THE-709).
+   *  Distinct from gatewayMaxAttempts: attempts rescue a transient failure, this rescues a slow
+   *  one. Absent -> the interactive client's own 60s default. */
+  gatewayTimeoutMs?: number | undefined;
   /** config.vaults */
   vaults: VaultConfigInput[];
 }
@@ -142,8 +146,17 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
     // THE-700: the SCHEDULED jobs get their own longer-budget client. The Modal endpoints scale
     // to zero and a cold start measured >180s, past the interactive 3x60s. Falls back to the
     // interactive roles when unconfigured, so behaviour is unchanged without the knob.
+    //
+    // THE-709: attempts alone were NOT enough, and the two knobs cover different failures. Attempts
+    // rescue a TRANSIENT failure (cold start, 5xx, dropped connection). A request that is merely
+    // SLOW exceeds the per-attempt timeout identically on every attempt — measured at 370.4s twice,
+    // 45 minutes apart and 12ms from each other, which is 6 x 60s expiring on schedule rather than
+    // a cold start varying. The endpoint answered a small completion in 360ms throughout, so there
+    // was nothing to wait out. gatewayTimeoutMs is the knob for that case.
     const bgRoles =
-      (deps.gatewayMaxAttempts !== undefined ? planeRoles(deps.gatewayMaxAttempts) : null) ?? roles;
+      (deps.gatewayMaxAttempts !== undefined
+        ? planeRoles(deps.gatewayMaxAttempts, deps.gatewayTimeoutMs)
+        : null) ?? roles;
     const planeCtx = {
       db: deps.db,
       roles: bgRoles,

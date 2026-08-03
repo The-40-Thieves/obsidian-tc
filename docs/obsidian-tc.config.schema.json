@@ -1568,7 +1568,14 @@
         },
         "gatewayMaxAttempts": {
           "default": 6,
-          "description": "Attempts a consolidation job's gateway call may make before failing, each with its own fresh timeout. Higher than the interactive default (3) because the models behind the gateway roles may be serverless and scale to zero: a cold start measured at over 180s exceeded 3 attempts x 60s, so every scheduled pass failed with a timeout while the same request against a warm endpoint took 4.8s. More ATTEMPTS rather than a longer per-attempt timeout — each attempt still fails fast while the endpoint warms in the background, whereas a per-attempt budget wider than a cold start would hold the caller for the whole wake-up. Separate from the interactive path on purpose: a multi-minute budget suits a background weekly pass and not a user-facing call.",
+          "description": "Attempts a consolidation job's gateway call may make before failing, each with its own fresh timeout. Higher than the interactive default (3) because the models behind the gateway roles may be serverless and scale to zero: a cold start measured at over 180s exceeded 3 attempts x 60s, so every scheduled pass failed with a timeout while the same request against a warm endpoint took 4.8s. Separate from the interactive path on purpose: a multi-minute budget suits a background weekly pass and not a user-facing call. NOTE (THE-709): attempts alone were not sufficient — retries only help a TRANSIENT failure, and a request that deterministically exceeds the per-attempt timeout fails identically on every attempt. See planeGatewayTimeoutMs, which is the knob for that case.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "gatewayTimeoutMs": {
+          "default": 300000,
+          "description": "Per-ATTEMPT request timeout in ms for a consolidation job's gateway call, separate from the interactive 60s default. Raising ATTEMPTS (gatewayMaxAttempts) cannot rescue a call that is simply slow: a synthesis pass measured 370.4s and 370.4s on two runs 45 minutes apart — 6 attempts x 60s plus backoff, identical to within 12ms, which is a client budget expiring rather than a varying cold start. The endpoint was warm throughout (a small completion through the same gateway answered in 360ms), so nothing was being waited out; one attempt simply could not finish inside 60s. A synthesis-sized request measured 28.9s for 9,422 prompt tokens and only 473 completion tokens, and generation dominates, so a pass emitting a few thousand tokens crosses 60s comfortably. The default is generous because this workload is latency-tolerant by construction — a weekly consolidation pass has no user waiting on it — while the interactive seam keeps 60s, where a multi-minute stall would be a hang. Lower it only if a stuck job holding a worker for minutes matters more than the pass completing.",
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991

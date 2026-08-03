@@ -215,6 +215,7 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "enabled": true,
     "intervalMinutes": 240,
     "gatewayMaxAttempts": 6,
+    "gatewayTimeoutMs": 300000,
     "maxPromptChars": 60000
   },
   "idempotencyTtlSeconds": 86400,

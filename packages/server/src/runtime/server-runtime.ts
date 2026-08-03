@@ -423,6 +423,7 @@ export async function buildServerRuntime(
       vaults: config.vaults,
       maxPromptChars: config.plane.maxPromptChars,
       gatewayMaxAttempts: config.plane.gatewayMaxAttempts,
+      gatewayTimeoutMs: config.plane.gatewayTimeoutMs,
     });
 
     // THE-291 (part 2)/THE-455/THE-453/THE-649: the coordinator, the reindex/deindex hooks, and the

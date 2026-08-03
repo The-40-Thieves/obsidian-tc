@@ -34,8 +34,13 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // THE-683: rebaselined deliberately. The only emitted change is embeddings.pooling's description,
 // which no longer says the key "does not affect the index" — it now does. No key, type, default or
 // constraint moved.
+// THE-709: rebaselined deliberately. Adds ONE key, plane.gatewayTimeoutMs (int, positive, default
+// 300000), and rewords plane.gatewayMaxAttempts' description to point at it. Attempts alone could
+// not fix a scheduled pass that was merely slow — measured 370.4s twice, 45 minutes apart and 12ms
+// from each other, which is 6 x 60s expiring on schedule, not a cold start varying. No existing
+// key, type, default or constraint moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "62fed5981a902988dc78ab3386abce7e0155f2aff70f3c544c98a0b47f27cc06";
+  "c0ceb3a9bbcc4d26ef2e731ea89822aab9170058b140d635bdb498113a8aa748";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

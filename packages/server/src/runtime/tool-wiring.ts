@@ -222,9 +222,19 @@ function rolesFrom(gw: GatewayClient): GatewayRoles {
  * spanning 9 hosted providers. Using it to warm one Modal endpoint would issue real billable calls
  * to every unrelated vendor.
  */
-export function planeRoles(attempts: number): GatewayRoles | null {
+export function planeRoles(attempts: number, timeoutMs?: number): GatewayRoles | null {
   try {
-    return rolesFrom(createGatewayClient({ maxAttempts: attempts }));
+    // THE-709: the PER-ATTEMPT budget matters as much as the attempt count. Attempts only rescue a
+    // transient failure; a request that deterministically exceeds the per-attempt timeout fails
+    // identically every time and merely burns the whole budget (measured: 370.4s twice, 12ms apart
+    // — 6 x 60s, not a varying cold start). Omitted rather than passed as undefined so the client's
+    // own 60s default still governs when the knob is absent.
+    return rolesFrom(
+      createGatewayClient({
+        maxAttempts: attempts,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      }),
+    );
   } catch {
     return null; // unconfigured gateway — same graceful degradation as the interactive seam
   }
