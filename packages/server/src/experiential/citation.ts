@@ -14,7 +14,7 @@
 import type { Database } from "../db/types";
 import type { GatewayRoles } from "../plane/gateway";
 import { prompt } from "../plane/gateway";
-import { cosineBatch, cosineSimilarity } from "../search/native";
+import { cosineBatch, cosineSimilarity, rougeLLcs } from "../search/native";
 
 const MAX_CHUNK_TOKENS = 512;
 const MAX_TRANSCRIPT_TOKENS = 6000;
@@ -80,19 +80,9 @@ export function rougeLPrepared(chunk: string, prepared: PreparedTranscript): num
   for (let i = 0; i < toks.length; i++) {
     ta[i] = prepared.index.get(toks[i] as string) ?? UNMATCHABLE;
   }
-  let prev = new Int32Array(tb.length + 1);
-  let curr = new Int32Array(tb.length + 1);
-  for (let i = 1; i <= ta.length; i++) {
-    const ai = ta[i - 1] as number;
-    for (let j = 1; j <= tb.length; j++) {
-      curr[j] =
-        ai === tb[j - 1]
-          ? (prev[j - 1] as number) + 1
-          : Math.max(prev[j] as number, curr[j - 1] as number);
-    }
-    [prev, curr] = [curr, prev];
-  }
-  const lcs = prev[tb.length] as number;
+  // The DP itself is the native kernel (one crossing for the whole pair); the F1 below stays here.
+  // `rougeLLcs` falls back to an identical pure-JS twin when no .node is loaded.
+  const lcs = rougeLLcs(ta, tb);
   if (lcs === 0) return 0;
   const p = lcs / ta.length;
   const r = lcs / tb.length;
