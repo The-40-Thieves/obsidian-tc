@@ -489,8 +489,15 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
     defineTool({
       name: "record_retrieval_feedback",
       domain: "knowledge",
+      // THE-718: the description leads with WHEN to call this, because the emitter decision landed
+      // on "the acting agent stamps it" and a tool description is the only affordance an MCP
+      // client sees. The previous text opened on storage mechanics and spent most of its length on
+      // an authorization model the caller cannot act on, so it told an agent what the tool DOES
+      // and never that it was expected to use it. Adoption is this signal's only failure mode —
+      // it sat at 0 stamps across 97 retrieval events — so the trigger comes first and the ACL
+      // detail is compressed to the part a caller can actually respond to.
       description:
-        "Stamp relevance feedback and/or the THE-230 outcome axis (-1|0|+1) onto the most recent retrieval event(s) for a chunk in the experiential log. feedback = 'was this the right chunk'; outcome = 'did acting on it lead somewhere good'. Feeds the ACT-R activation recompute. THE-568: gated on per-caller ownership — a non-elevated caller may only stamp retrievals it caused itself; also scoped to a session (the given session_id, else your active session), an unscoped cross-session stamp requires admin:workspace.",
+        "Report which retrieved chunks actually helped. CALL THIS after you act on a search result: outcome (-1|0|+1) = did acting on it lead somewhere good, feedback (-1|0|+1) = was it the right chunk. Stamp the chunks you genuinely used, not every hit, and stamp -1 when a confidently-returned chunk was wrong — a negative is worth more than silence. This is the only signal separating a chunk that gets RETRIEVED from one that gets USED: it feeds the ACT-R activation recompute, so stamping is what makes later retrieval better, and not stamping leaves ranking blind. Targets your most recent retrieval event(s) for that chunk (last_n, default 1). Returns `updated`; when that is 0 it also returns `reason` — `session_scope` (you own retrievals for this chunk, none in the current scope) or `no_owned_retrievals` (nothing of yours matches), so a no-op is never silent. You may only stamp retrievals your own caller produced (THE-568); an unidentified caller cannot stamp, and admin:workspace crosses both that and the session scope.",
       inputSchema: z
         .object({
           chunk_id: z.string().min(1),
