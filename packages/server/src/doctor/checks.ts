@@ -679,3 +679,117 @@ export function experientialEvaluatorCheck(view: ExperientialEvaluatorView): Che
     },
   };
 }
+
+/** One derived table's observed state, as the caller measured it. */
+export interface DerivedTableState {
+  /** Table name, qualified by store when ambiguous (e.g. "experiential.preference_profile"). */
+  table: string;
+  /** Rows present now. */
+  rows: number;
+  /**
+   * Whether anything is in a position to write this table in THIS deployment:
+   *  - "enabled"   — a BACKGROUND/automatic writer should be filling it. Empty means broken.
+   *  - "on-demand" — only an explicit user or client action writes it. Empty means never used,
+   *                  which is a fact worth reporting but is NOT a defect.
+   *  - "disabled"  — a writer exists but its feature is off by config. Empty is EXPECTED.
+   *  - "none"      — no code path writes this table at all. Empty is structural, not a setting.
+   *
+   * The enabled/on-demand split is what keeps this check credible. A first pass classified
+   * `capture_queue`, `note_snapshots` and `forget_log` as "enabled", which produced eleven
+   * warnings on a healthy deployment — "nobody has ever deleted a note" is true and useless. A
+   * check that warns about correct behaviour gets muted, and then it is worth nothing when it is
+   * finally right.
+   */
+  writer: "enabled" | "on-demand" | "disabled" | "none";
+  /** The lever: what would turn the writer on, or why there isn't one. Shown in remediation. */
+  lever: string;
+}
+
+export interface DerivedTablesView {
+  /** Attached only under `--probe`, matching every other probing check: the default run stays
+   *  offline and does not touch either store. */
+  probe?: () => DerivedTableState[];
+}
+
+/**
+ * derived.liveness — is each derived table actually being written, or is it silently empty?
+ *
+ * The gap this closes: a feature can have a config key, a migration, an implementation and passing
+ * tests, and still have never written a row in this deployment — and nothing reports that.
+ * THE-692 (`maxPerCluster`: config key, implementation, tests, zero chunks ever capped), THE-688
+ * (`doctor` printing `dense: ready` as an unconditional literal) and THE-714 (`workspace_sessions`
+ * empty across 2,352 tool calls) are three instances of one shape. A census on 2026-08-03 found
+ * four more empty derived tables in production, none of them visible from inside the system.
+ *
+ * CLASSIFICATION IS THE WHOLE POINT — a bare "this table is empty" check would cry wolf, exactly as
+ * `experiential.evaluator` did when it keyed on pending count instead of promotable age. Empty is
+ * only a finding when something was supposed to be writing:
+ *
+ *   rows > 0                  -> live      (ok)
+ *   rows = 0, writer disabled -> off       (ok — the feature is switched off, this is expected)
+ *   rows = 0, writer enabled  -> SILENT    (warning — configured, never wrote)
+ *   rows = 0, writer none     -> UNWRITTEN (warning — nothing can write it; THE-629's shape)
+ *
+ * A warning, never a fail: an empty derived table breaks no request in flight. What it breaks is
+ * the assumption that a shipped feature is a working one.
+ */
+export function derivedTablesCheck(view: DerivedTablesView): Check {
+  return {
+    id: "derived.liveness",
+    category: "retrieval",
+    run: () => {
+      if (!view.probe) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: "derived tables (not probed): run `doctor --probe` to count rows",
+          details: { liveness: "not probed" },
+        };
+      }
+      const states = view.probe();
+      if (states.length === 0) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: "derived tables: no store open to inspect",
+          details: { liveness: "no store" },
+        };
+      }
+      const live = states.filter((s) => s.rows > 0);
+      const off = states.filter((s) => s.rows === 0 && s.writer === "disabled");
+      const unused = states.filter((s) => s.rows === 0 && s.writer === "on-demand");
+      const silent = states.filter((s) => s.rows === 0 && s.writer === "enabled");
+      const unwritten = states.filter((s) => s.rows === 0 && s.writer === "none");
+
+      const details: Record<string, string | string[]> = {
+        live: live.map((s) => `${s.table}=${s.rows}`),
+        off: off.map((s) => s.table),
+      };
+      // Reported, never warned on: an on-demand table with no rows is a feature awaiting its first
+      // use, not a fault. Surfacing it still matters — it is how you learn a verb is unexercised.
+      if (unused.length > 0) details.neverUsed = unused.map((s) => s.table);
+      if (silent.length > 0) details.silent = silent.map((s) => `${s.table} (${s.lever})`);
+      if (unwritten.length > 0) details.unwritten = unwritten.map((s) => `${s.table} (${s.lever})`);
+
+      if (silent.length === 0 && unwritten.length === 0) {
+        return {
+          status: "ok" as CheckStatus,
+          summary: `derived tables: ${live.length} written, ${off.length} off by config, ${unused.length} awaiting first use`,
+          details,
+        };
+      }
+      const issues = [
+        ...silent.map(
+          (s) => `${s.table}: writer is ENABLED but the table is empty — it has never written`,
+        ),
+        ...unwritten.map((s) => `${s.table}: no code path writes this table`),
+      ];
+      return {
+        status: "warning" as CheckStatus,
+        summary: `derived tables: ${silent.length} configured-but-empty, ${unwritten.length} with no writer (${live.length} written)`,
+        details,
+        issues,
+        remediation:
+          "For each table listed under `silent`, the named lever is what should have written it — confirm the feature is genuinely exercised rather than merely switched on. For `unwritten`, there is no writer to enable: either build the producer or stop shipping the consumer. An empty derived table is not itself an outage, but every consumer of it is returning honest-empty results that read like real ones.",
+      };
+    },
+  };
+}

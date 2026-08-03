@@ -6,7 +6,7 @@
 // — doctor exists to answer "is this install healthy right now?" in one artifact.
 // THE-688 fix 2: the opt-in probe's result type, so the CLI can build a probe without importing
 // through the checks module directly.
-export type { DenseProbeResult } from "./checks";
+export type { DenseProbeResult, DerivedTableState } from "./checks";
 export { renderText, runDoctor } from "./report";
 export type { AssembleOptions, DoctorConfigView } from "./run";
 export { assembleDoctorReport, decodeTokenClaims } from "./run";
