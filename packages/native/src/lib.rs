@@ -27,7 +27,10 @@ pub fn cosine_similarity(a: Vec<f64>, b: Float32Array) -> f64 {
 /// Pure f64 cosine core over a query slice (f64) and a document slice (f32, widened
 /// in-loop). Split from the napi entry so it stays unit-testable without a JS runtime
 /// to construct a `Float32Array`.
-fn cosine_core(a: &[f64], b: &[f32]) -> f64 {
+///
+/// `pub` for the `rlib` crate-type so `benches/` links the shipped kernel rather than a copy;
+/// it is not a napi export and is not part of the JS surface.
+pub fn cosine_core(a: &[f64], b: &[f32]) -> f64 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
@@ -78,7 +81,9 @@ pub fn cosine_batch(query: Float32Array, docs_flat: Float32Array, dim: u32) -> F
 /// score directly against the old f64-query path using deliberately non-f32-representable inputs
 /// (thirds, sqrt(2)) and holds it to < 1e-6 absolute. `cosine_batch_refactor_matches_naive_per_doc...`
 /// isolates the *algorithm* change from the f32-narrowing and asserts it is bit-identical.
-fn cosine_batch_core(query: &[f32], docs_flat: &[f32], dim: usize) -> Vec<f64> {
+/// `pub` for the `rlib` crate-type so `benches/` links this exact function instead of a manually
+/// re-copied duplicate; not a napi export and not part of the JS surface.
+pub fn cosine_batch_core(query: &[f32], docs_flat: &[f32], dim: usize) -> Vec<f64> {
     if dim == 0 || query.len() != dim || !docs_flat.len().is_multiple_of(dim) {
         return Vec::new();
     }

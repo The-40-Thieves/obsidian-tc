@@ -2,13 +2,19 @@
 // single-pass dot/norm per doc) against the OLD "reuse cosine_core per doc" it replaced, across
 // the requested dims x docs matrix.
 //
-// The crate is a napi-rs `cdylib` only (no `rlib`), so a separate `benches/` binary cannot link
-// against `src/lib.rs` via `extern crate` without adding `rlib` to `crate-type` and making the
-// internal helpers `pub` — a public-API change out of scope for a benchmarking harness. Instead,
-// the algorithms are reproduced verbatim here: `cosine_batch_core_new` is copy-pasted from the
-// current `src/lib.rs::cosine_batch_core` (kept in lockstep manually — re-copy if that function
-// changes), and `cosine_batch_core_old` reconstructs the pre-THE-504 body this ticket replaced
-// (reuse `cosine_core` per doc). `cosine_batch_matches_per_pair` and
+// The crate now builds as `["cdylib", "rlib"]`, so this bench links the SHIPPED kernels directly:
+// `cosine_batch_core` and `cosine_core` are imported from `obsidian_tc_native` rather than
+// hand-copied. That removes the drift hazard the previous header warned about ("kept in lockstep
+// manually — re-copy if that function changes"), which could silently benchmark a stale copy of a
+// function that had since changed in src/lib.rs.
+//
+// Two locals remain, and neither can come from the lib because neither is shipped:
+//   * `cosine_batch_core_old` — reconstructs the PRE-THE-504 body (reuse `cosine_core` per doc),
+//     which no longer exists in src/lib.rs. It is the historical baseline being measured against.
+//   * `cosine_batch_core_new_f32_accum` — the f32-accumulator variant THE-504 measured and
+//     deliberately REJECTED for numeric drift. Keeping it here is the point of the bench.
+//
+// `cosine_batch_matches_per_pair` and
 // `cosine_batch_refactor_matches_naive_per_doc_when_query_is_exact_f32` in src/lib.rs's own test
 // module are the source of truth that the SHIPPED code is correct; this file exists only to time
 // it, not to re-verify correctness.
@@ -22,26 +28,8 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::hint::black_box;
 
-/// Pure f64 cosine core over a query slice (f64) and a document slice (f32, widened in-loop).
-/// Verbatim copy of `cosine_core` in src/lib.rs.
-fn cosine_core(a: &[f64], b: &[f32]) -> f64 {
-    if a.len() != b.len() || a.is_empty() {
-        return 0.0;
-    }
-    let mut dot = 0.0_f64;
-    let mut norm_a = 0.0_f64;
-    let mut norm_b = 0.0_f64;
-    for i in 0..a.len() {
-        let bi = b[i] as f64;
-        dot += a[i] * bi;
-        norm_a += a[i] * a[i];
-        norm_b += bi * bi;
-    }
-    if norm_a == 0.0 || norm_b == 0.0 {
-        return 0.0;
-    }
-    dot / (norm_a.sqrt() * norm_b.sqrt())
-}
+// The shipped kernels, linked from the rlib — not copies.
+use obsidian_tc_native::{cosine_batch_core as cosine_batch_core_new, cosine_core};
 
 /// OLD `cosine_batch_core`, pre-THE-504: reuses `cosine_core` per doc, recomputing the query's
 /// norm on every document.
@@ -53,42 +41,6 @@ fn cosine_batch_core_old(query: &[f64], docs_flat: &[f32], dim: usize) -> Vec<f6
     docs_flat
         .chunks_exact(dim)
         .map(|doc| cosine_core(query, doc))
-        .collect()
-}
-
-/// NEW `cosine_batch_core`, post-THE-504: query norm precomputed once; each doc's dot product and
-/// norm computed together in a single pass. Query is `&[f32]` (matches the real signature — the
-/// napi `Float32Array` param), widened to f64 for accumulation exactly as src/lib.rs does.
-fn cosine_batch_core_new(query: &[f32], docs_flat: &[f32], dim: usize) -> Vec<f64> {
-    if dim == 0 || query.len() != dim || !docs_flat.len().is_multiple_of(dim) {
-        return Vec::new();
-    }
-    let mut norm_q = 0.0_f64;
-    for &q in query {
-        let qf = q as f64;
-        norm_q += qf * qf;
-    }
-    if norm_q == 0.0 {
-        return vec![0.0; docs_flat.len() / dim];
-    }
-    let norm_q_sqrt = norm_q.sqrt();
-    docs_flat
-        .chunks_exact(dim)
-        .map(|doc| {
-            let mut dot = 0.0_f64;
-            let mut norm_d = 0.0_f64;
-            for i in 0..dim {
-                let qi = query[i] as f64;
-                let di = doc[i] as f64;
-                dot += qi * di;
-                norm_d += di * di;
-            }
-            if norm_d == 0.0 {
-                0.0
-            } else {
-                dot / (norm_q_sqrt * norm_d.sqrt())
-            }
-        })
         .collect()
 }
 

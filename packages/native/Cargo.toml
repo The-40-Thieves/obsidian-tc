@@ -10,7 +10,12 @@ description = "Native perf module for obsidian-tc"
 repository = "https://github.com/The-40-Thieves/obsidian-tc"
 
 [lib]
-crate-type = ["cdylib"]
+# `cdylib` is what napi-rs loads at runtime. `rlib` is added so `benches/` can link against the
+# SHIPPED kernels instead of re-declaring them: the bench previously carried a hand-copied
+# `cosine_batch_core` with a "kept in lockstep manually — re-copy if that function changes" note,
+# which is a drift hazard that silently benchmarks code that is not the code. The rlib artifact is
+# build-time only — it is not published and does not change the napi surface.
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 napi = { version = "3", features = ["napi8"] }
