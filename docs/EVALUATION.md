@@ -58,7 +58,8 @@ power ΔnDCG@10 : σ_d 0.155  SE 0.0133  MDE@n=136 0.037 (α=0.05, power=0.8)
                  Δ=0.05→n≥76   Δ=0.03→n≥210   Δ=0.02→n≥472
 ```
 
-That measurement was taken at n=136. The golden set is now **n=250**, and the spread was later
+That measurement was taken at n=136. <!-- facts-check:ignore: historical power measurement taken at the golden set's then-size, deliberately preserved alongside the current n=250 -->
+The golden set is now **n=250**, and the spread was later
 re-measured at σ_d 0.204 / MDE 0.036 — *worse* resolution than the earlier figure, not better. Both
 numbers are kept rather than quietly replaced.
 
