@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,020 tracked code files · 153,519 lines.
+**Scale:** 1,021 tracked code files · 153,934 lines.
 
-TypeScript 142,504 · JavaScript 7,260 · Python 1,640 · SQL 1,059 · Rust 742 · Shell 314.
+TypeScript 142,919 · JavaScript 7,260 · Python 1,640 · SQL 1,059 · Rust 742 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,7 +86,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 79 | 15,385 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 79 | 15,520 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 54 | 10,173 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,128 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 11 | 2,948 | work-memory tier: activation, retrieval log, forget, citations |
@@ -139,6 +139,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | lines | file |
 |---:|---|
 | 795 | `packages/server/src/doctor/checks.ts` |
+| 726 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 724 | `packages/server/src/runtime/server-runtime.ts` |
 | 701 | `packages/server/src/mcp/server.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
@@ -146,7 +147,6 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 620 | `packages/server/src/metrics/registry.ts` |
 | 614 | `packages/server/src/cli/args.ts` |
 | 602 | `packages/server/src/scheduler/job-queue.ts` |
-| 591 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 588 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
