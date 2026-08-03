@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,031 tracked code files · 155,618 lines.
+**Scale:** 1,032 tracked code files · 155,930 lines.
 
-TypeScript 144,487 · JavaScript 7,260 · Python 1,640 · SQL 1,175 · Rust 742 · Shell 314.
+TypeScript 144,799 · JavaScript 7,260 · Python 1,640 · SQL 1,175 · Rust 742 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,7 +86,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 81 | 15,699 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 82 | 15,799 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 54 | 10,173 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,128 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 12 | 3,126 | work-memory tier: activation, retrieval log, forget, citations |
@@ -118,7 +118,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 357 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 358 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -140,8 +140,8 @@ Generated — see `scripts/gen-tree-map.mjs`.
 |---:|---|
 | 795 | `packages/server/src/doctor/checks.ts` |
 | 725 | `packages/server/src/runtime/server-runtime.ts` |
-| 703 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 701 | `packages/server/src/mcp/server.ts` |
+| 681 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 620 | `packages/server/src/metrics/registry.ts` |
@@ -275,7 +275,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**377 modules · 1680 dependencies · 111 distinct subsystem pairs · 754 cross-subsystem imports.**
+**378 modules · 1687 dependencies · 111 distinct subsystem pairs · 757 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -297,7 +297,7 @@ set is 111 pairs.
 
 ```mermaid
 flowchart LR
-  tools[tools<br/>81 files]
+  tools[tools<br/>82 files]
   search[search<br/>54 files]
   cli[cli<br/>23 files]
   mcp[mcp<br/>17 files]
@@ -319,13 +319,13 @@ flowchart LR
   morgiana[morgiana<br/>1 files]
 
   tools -->|180| vault
-  tools -->|69| mcp
+  tools -->|71| mcp
   tools -->|45| search
   search -->|41| db
   runtime -->|25| search
   cli -->|23| db
   runtime -->|19| db
-  tools -->|15| db
+  tools -->|16| db
   experiential -->|14| db
   search -->|14| vault
   runtime -->|12| scheduler
@@ -360,10 +360,10 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 230 | `tools` | 351 |
-| `db` | 131 | `runtime` | 140 |
+| `vault` | 230 | `tools` | 354 |
+| `db` | 132 | `runtime` | 140 |
 | `search` | 97 | `search` | 63 |
-| `mcp` | 87 | `cli` | 58 |
+| `mcp` | 89 | `cli` | 58 |
 | `embeddings` | 33 | `mcp` | 23 |
 <!-- END GENERATED: tree-fan -->
 

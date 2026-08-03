@@ -16,7 +16,7 @@
 // work_forget surfaces the control-1 tombstone as a user verb. record_retrieval_feedback is
 // the THE-230 outcome writer: stamps feedback/outcome onto the most recent retrieval
 // event(s) for a chunk, feeding the ACT-R recompute.
-import { err, grantsAll, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
 import { appendForgetLog } from "../../experiential/forget";
@@ -26,22 +26,22 @@ import {
   readLatestGapReport,
 } from "../../experiential/gaps";
 import { readNoteQuality } from "../../experiential/note-quality";
-import type { CallerContext, ToolDefinition } from "../../mcp/registry";
+import type { ToolDefinition } from "../../mcp/registry";
 import { readableRel } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
+import { stampRetrievalFeedback } from "./feedback-scope";
 import { buildGoalTools } from "./goal-tools";
-import { availableWith, type M8Deps, UNAVAILABLE } from "./shared";
+import {
+  availableWith,
+  CROSS_PRINCIPAL_SCOPE,
+  canCrossPrincipal,
+  type M8Deps,
+  UNAVAILABLE,
+} from "./shared";
 
 // Re-exported so m8's existing consumers keep importing M8Deps from here; the definition moved to
 // shared.ts only to break the experiential-tools <-> goal-tools cycle.
 export type { M8Deps } from "./shared";
-
-// P1.7 (audit THE-562): the experiential per-principal partition is an AUTHORIZATION boundary, not
-// a default filter. Crossing it — reading other principals' episodes (any_caller), forgetting an
-// episode you don't own, or stamping feedback across sessions — requires this elevated scope.
-const CROSS_PRINCIPAL_SCOPE = "admin:workspace";
-const canCrossPrincipal = (ctx: CallerContext): boolean =>
-  grantsAll(ctx.grantedScopes, [CROSS_PRINCIPAL_SCOPE]);
 
 /** Mirrors `projectEpisode()` field for field. Written from the PROJECTION, not from EpisodeRow —
  *  the projection renames (`vault_id` -> `vault`), derives (`tags` parsed from JSON, `blocked`
@@ -503,39 +503,17 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         .refine((v) => v.feedback !== undefined || v.outcome !== undefined, {
           message: "provide feedback and/or outcome",
         }),
-      outputSchema: availableWith({ chunk_id: z.string(), updated: z.number().int() }),
+      outputSchema: availableWith({
+        chunk_id: z.string(),
+        updated: z.number().int(),
+        // THE-718: `updated: 0` is otherwise indistinguishable from a successful stamp, and in
+        // production it was 100% of calls. Present only when nothing was written.
+        reason: z.enum(["session_scope", "no_owned_retrievals"]).optional(),
+      }),
       requiredScopes: ["write:workspace"],
       tags: ["experiential"],
-      handler: (input, ctx) => {
-        if (!deps.edb) return UNAVAILABLE;
-        // THE-568 (P1.7 follow-up): chunk_retrievals now carries a caller column, so the primary
-        // authorization boundary is per-caller ownership — a non-elevated caller may only stamp
-        // retrievals it caused itself (AND caller IS ? below), mirroring the agent_episodes
-        // partition. The pre-existing session scoping is kept as an additional narrowing on top:
-        // a non-elevated caller still needs a session_id or active session to stamp at all.
-        const session = input.session_id ?? ctx.sessionId;
-        const crossPrincipal = canCrossPrincipal(ctx);
-        if (session === undefined && !crossPrincipal)
-          throw err.forbidden(
-            `stamping feedback across sessions requires a session_id or the ${CROSS_PRINCIPAL_SCOPE} scope`,
-          );
-        const sessionClause = session !== undefined ? "AND session_id = ?" : "";
-        const callerClause = crossPrincipal ? "" : "AND caller IS ?";
-        const selectParams: unknown[] = [input.chunk_id];
-        if (session !== undefined) selectParams.push(session);
-        if (!crossPrincipal) selectParams.push(ctx.caller ?? null);
-        const res = deps.edb
-          .prepare(
-            `UPDATE chunk_retrievals
-             SET feedback = COALESCE(?, feedback), outcome = COALESCE(?, outcome)
-             WHERE id IN (
-               SELECT id FROM chunk_retrievals WHERE chunk_id = ? ${sessionClause} ${callerClause}
-               ORDER BY retrieved_at DESC LIMIT ?
-             )`,
-          )
-          .run(input.feedback ?? null, input.outcome ?? null, ...selectParams, input.last_n);
-        return { available: true, chunk_id: input.chunk_id, updated: res.changes };
-      },
+      handler: (input, ctx) =>
+        deps.edb ? stampRetrievalFeedback(deps.edb, input, ctx) : UNAVAILABLE,
     }),
 
     // THE-537: the read surface the quality signals never had. READ-ONLY and NOT the ranker —
