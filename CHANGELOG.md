@@ -6,6 +6,67 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-08-03
+
+### Fixed
+
+- **Consolidation jobs get a per-attempt gateway timeout (THE-709).** Weekly synthesis had never
+  once succeeded on a live deployment: `syntheses` sat at 0 while jobs died at **370.435 s and
+  370.423 s** — 12 ms apart, which is 6 x a 60 s client budget expiring, not a varying cold start.
+  The endpoint answered a small completion in 360 ms throughout. `plane.gatewayTimeoutMs` (default
+  300 s) now bounds each attempt rather than the whole run.
+
+  This matters more than a timeout usually would because the synthesis job is `max_attempts = 1`:
+  every week that timed out was lost permanently rather than retried.
+
+### Changed
+
+- **Citation stage-1 is ~24x faster (#669).** Three fixes to `inferCitations`, all measured on real
+  vault content (60 chunks x 6000 transcript tokens):
+
+  - The transcript was **re-tokenized for every chunk** — a lowercase pass plus a global regex over
+    the whole transcript, per chunk, producing the identical array each time. `prepareTranscript()`
+    does it once.
+  - The ROUGE-L DP compared **JS strings** in its innermost cell. Interning to `Int32Array` takes it
+    from 62.6 to 41.0 ns/cell.
+  - The cosine leg called `cosineSimilarity` once per **(block, chunk) pair** — up to 48 native
+    crossings per chunk, and that export marshals a fresh `Vec<f64>` each call. This is the exact
+    shape THE-420 measured as *slower* than the JS fallback, sitting inside the per-chunk loop. One
+    `cosineBatch` crossing per chunk instead: **55.60 ms -> 3.51 ms, crossings 2880 -> 60**.
+
+  End to end: **3381.8 ms -> 141.0 ms**, with 0/60 scores differing (maxDelta 0). Note the TS-only
+  portion of that is 1.26x; the rest is the native kernel below. A synthetic benchmark had suggested
+  1.56x for the interning alone — real content gives 1.26x because this transcript has only 457
+  distinct tokens across 6000 positions, so many string compares short-circuit.
+
+  Behaviour is unchanged: scores are identical, and a width mismatch in the cosine leg still yields
+  0 rather than null, exactly as the per-pair maximum did.
+
+### Added
+
+- **`rougeLLcs` native export — the LCS kernel as one crossing per pair (#667).** The 7th napi
+  export: longest-common-subsequence length over two interned token-id sequences. Tokens are
+  interned on the TypeScript side so one transcript is prepared once and reused across chunks, and
+  only the length crosses back — the F1 arithmetic stays in TS. **37.86 -> 2.14 ns/cell, 17.67x.**
+
+  It is deliberately absent from the loader's `isComplete()` check, so a prebuilt `.node` predating
+  this export still loads and the binding feature-detects on the function rather than the module.
+  A pure-JS twin keeps the path identical where no binary resolves.
+
+  `packages/native` also gains the `rlib` crate-type, so `benches/` links the shipped kernel instead
+  of a hand-copied duplicate that carried a "keep in lockstep manually" note.
+
+- **`packages/native/fallback.js` is now verified numerically (THE-712, #670).** That file ships to
+  npm and is what runs wherever no `.node` resolves, and nothing checked its arithmetic: the
+  `fallback-test` CI job returns before the `require()` and exercises the *server's* twins instead,
+  `ci-install-smoke` asserts only `typeof === 'function'`, and `fallback.ts` is typechecked but never
+  compiled. A wrong constant shipped green.
+
+  The new gate has three arms — hand-derived golden constants that hold on any host, agreement with
+  the server twins, and a direct comparison against the compiled module that is skipped rather than
+  silently passed when absent. It was watched failing first: five separate mutations of `fallback.js`
+  are each caught.
+
 ## [1.15.0] - 2026-08-02
 
 ### Removed
