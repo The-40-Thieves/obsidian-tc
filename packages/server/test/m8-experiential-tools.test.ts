@@ -447,6 +447,133 @@ describe("M8 experiential tools (THE-229)", () => {
     );
     expect(admin.updated).toBe(1);
   });
+
+  // THE-718. Measured on the live store 2026-08-03: session_id is NULL on 97/97 retrieval events
+  // and caller on 81/97, because no client has ever opened a workspace session (THE-714). The
+  // session narrowing therefore excluded every row a real caller could own, so the only principal
+  // that could stamp anything was admin:workspace — and a correctly-behaving client got
+  // `{ updated: 0 }` with no error to say so.
+  //
+  // A retrieval logged outside any session belongs to no session, so there is no second session to
+  // confuse it with; ownership is fully carried by `caller`. Rows that DO carry a session stay
+  // scoped exactly as before — the two guard tests below are what keep this a narrowing of the
+  // NULL case rather than a general relaxation.
+  it("THE-718: a session-scoped caller can stamp its own session-less retrieval", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('r1', 'c1', ?, NULL, 'tester')",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    const res = un<{ updated: number }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: 1 },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(res.updated).toBe(1);
+  });
+
+  it("THE-718: reaching session-less rows does not cross the caller partition", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('r-a', 'c1', ?, NULL, 'caller-a')",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    const foreign = un<{ updated: number }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: 1 },
+        ctx({ caller: "caller-b", sessionId: "s1" }),
+      ),
+    );
+    expect(foreign.updated).toBe(0);
+    expect(
+      (
+        db.prepare("SELECT outcome FROM chunk_retrievals WHERE id = 'r-a'").get() as {
+          outcome: number | null;
+        }
+      ).outcome,
+    ).toBeNull();
+  });
+
+  it("THE-718: a session-scoped stamp still cannot reach another session's rows", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('r-s2', 'c1', ?, 's2', 'tester')",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    const res = un<{ updated: number }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: 1 },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(res.updated).toBe(0);
+  });
+
+  // The silent half of the defect: `{ updated: 0 }` is the same response shape as a successful
+  // stamp, so a caller cannot tell "recorded" from "matched nothing" without a second read.
+  it("THE-718: a no-op says the caller owns rows for the chunk but none in scope", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('r-s2', 'c1', ?, 's2', 'tester')",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    const res = un<{ updated: number; reason?: string }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: 1 },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(res.updated).toBe(0);
+    expect(res.reason).toBe("session_scope");
+  });
+
+  // The reason is computed over rows the caller ALREADY owns, so it can never become an existence
+  // oracle: a foreign caller's chunk and a chunk that does not exist must be indistinguishable.
+  it("THE-718: the no-op reason is not an existence oracle", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('r-a', 'c1', ?, NULL, 'caller-a')",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    const foreign = un<{ updated: number; reason?: string }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: 1 },
+        ctx({ caller: "caller-b", sessionId: "s1" }),
+      ),
+    );
+    const absent = un<{ updated: number; reason?: string }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "no-such-chunk", outcome: 1 },
+        ctx({ caller: "caller-b", sessionId: "s1" }),
+      ),
+    );
+    expect(foreign.reason).toBe("no_owned_retrievals");
+    expect(absent.reason).toBe(foreign.reason);
+  });
+
+  it("THE-718: a successful stamp carries no reason", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('r1', 'c1', ?, NULL, 'tester')",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    const res = un<{ updated: number; reason?: string }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: 1 },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(res.updated).toBe(1);
+    expect(res.reason).toBeUndefined();
+  });
 });
 
 // THE-611 — gap_report: a read-only view over the persisted gap-detector pass (THE-644 item 1).

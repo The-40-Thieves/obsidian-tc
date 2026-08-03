@@ -4,8 +4,19 @@
 // M8Deps and the `available` discriminated-union helpers, and having the second import them from
 // the first created a circular dependency. The repo's no-circular baseline is 0 and the boundary
 // gate enforces it, so the shared surface gets its own module rather than a cycle.
+import { grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
+import type { CallerContext } from "../../mcp/registry";
+
+// P1.7 (audit THE-562): the experiential per-principal partition is an AUTHORIZATION boundary, not
+// a default filter. Crossing it — reading other principals' episodes (any_caller), forgetting an
+// episode you don't own, or stamping feedback across sessions — requires this elevated scope.
+// Lives here rather than in experiential-tools.ts because feedback-scope.ts needs it too, and
+// importing it from the parent would be the cycle this module exists to prevent.
+export const CROSS_PRINCIPAL_SCOPE = "admin:workspace";
+export const canCrossPrincipal = (ctx: CallerContext): boolean =>
+  grantsAll(ctx.grantedScopes, [CROSS_PRINCIPAL_SCOPE]);
 
 export interface M8Deps {
   /** Open experiential.db handle; absent (all capture/config off) -> tools report unavailable. */
