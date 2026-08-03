@@ -296,6 +296,7 @@ is covered in [docs/CUTOVER.md](./docs/CUTOVER.md).
 - [docs/COHERENCE.md](./docs/COHERENCE.md) — writing while Obsidian is open: the coherence contract
 - [docs/CUTOVER.md](./docs/CUTOVER.md) — migrating from another Obsidian MCP server
 - [docs/MCP-COMPATIBILITY.md](./docs/MCP-COMPATIBILITY.md) — protocol-revision and capability compatibility matrix, evidence-backed
+- [docs/EVALUATION.md](./docs/EVALUATION.md) — how retrieval changes are measured, the ship rule, and the results that failed it
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — the dispatch pipeline and package layout
 - [SECURITY.md](./SECURITY.md) — threat model, protections, reporting
 
