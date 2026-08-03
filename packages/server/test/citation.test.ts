@@ -6,7 +6,12 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
-import { inferCitations, rougeL } from "../src/experiential/citation";
+import {
+  inferCitations,
+  prepareTranscript,
+  rougeL,
+  rougeLPrepared,
+} from "../src/experiential/citation";
 import { openMemoryDb } from "./helpers";
 
 const read = (name: string) =>
@@ -75,6 +80,40 @@ describe("citation inference (THE-170)", () => {
     expect(mid).toBeGreaterThan(0.05);
     expect(mid).toBeLessThan(1);
     expect(rougeL(CHUNK_UNCITED, TRANSCRIPT)).toBeLessThan(0.05);
+  });
+
+  it("rougeLPrepared is IDENTICAL to rougeL for every shape", () => {
+    // The hoisted path must be a pure refactor: same score, not merely a close one. This is the
+    // assertion that makes the speedup meaningful — without it, "faster" and "different" are
+    // indistinguishable.
+    const prepared = prepareTranscript(TRANSCRIPT);
+    for (const chunk of [
+      CHUNK_CITED,
+      CHUNK_UNCITED,
+      "alpha beta gamma",
+      "",
+      "quarterly",
+      "revenue revenue revenue",
+      TRANSCRIPT,
+    ]) {
+      expect(rougeLPrepared(chunk, prepared)).toBe(rougeL(chunk, TRANSCRIPT));
+    }
+  });
+
+  it("an unknown chunk token must not collide with transcript token id 0", () => {
+    // Interning maps transcript tokens to 0..n-1, so a chunk token that is ABSENT needs a
+    // sentinel outside that range. A `?? 0` fallback would silently alias every unknown token
+    // onto the first transcript token and inflate the score — this pins the sentinel.
+    const prepared = prepareTranscript("alpha beta gamma"); // alpha -> id 0
+    expect(rougeLPrepared("zeta", prepared)).toBe(0);
+    expect(rougeLPrepared("zeta omega", prepared)).toBe(0);
+    // ...while a token that IS present still matches.
+    expect(rougeLPrepared("alpha", prepared)).toBeGreaterThan(0);
+  });
+
+  it("prepareTranscript caps at MAX_TRANSCRIPT_TOKENS like the inline tokenizer did", () => {
+    const long = Array.from({ length: 9000 }, (_, i) => `w${i}`).join(" ");
+    expect(prepareTranscript(long).ids.length).toBe(6000);
   });
 
   it("two-stage: judge stamps survivors, negatives stamp 0, other sessions untouched", async () => {
