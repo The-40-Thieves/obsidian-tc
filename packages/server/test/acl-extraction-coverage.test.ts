@@ -80,6 +80,14 @@ const EXEMPT_NO_PATH = new Set<string>([
   "enqueue_capture", // enqueues to the capture_queue table; no vault write until commit_capture
   "work_forget", // deletion propagation within the experiential store (not authored vault notes)
   "record_retrieval_feedback", // stamps an outcome on an experiential retrieval-log row
+  // THE-633: a goal is free text plus a terminal state in the experiential store. There is no
+  // vault-relative path anywhere in the input, so there is nothing for pathAcl to extract —
+  // the same reason work_forget and record_retrieval_feedback sit here. Both are still
+  // vault-SCOPED (they declare vaultArg and every statement filters on vault_id); scoping to a
+  // vault and naming a path inside one are different things, and only the second is pathAcl's
+  // business.
+  "set_goal", // inserts a goals row; no vault-relative path in the input
+  "close_goal", // moves a goals row to a terminal state; no path either
 ]);
 
 describe("THE-414 folder-ACL path-extraction coverage", () => {

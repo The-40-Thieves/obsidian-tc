@@ -262,6 +262,9 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `experiential.activationRerank` | `boolean` | `false` |  | Build the ACT-R cached-activation-score lookup and thread it to every M7 graphSearch call. NOT YET WIRED to the serve-path bubble pass (bubble_safe_rerank) — that requires opts.bubbleSafe.enabled, which nothing under src/ sets, so enabling this flag currently changes no ranking. See THE-424 for the (deliberately deferred) wiring decision. |
 | `experiential.captureContent` | `boolean` | `false` |  | Also persist each episode's raw parsed arguments, secret-scanned and size-capped. Off until the poisoning defence lands: this is the write-side of the gate. |
 | `experiential.captureEpisodes` | `boolean` | `true` |  | Record every dispatch outcome as an agent_episodes row — tool, status, duration, sizes, hashes, attribution. No payloads are stored. |
+| `experiential.gapSweep.enabled` | `boolean` | `false` |  | Run the coverage-gap sweep on a schedule, persisting a gap_reports row the gap_report tool can read back. Off by default: each swept query costs an embedding call plus a search. |
+| `experiential.gapSweep.intervalHours` | `number` | `168` |  | Hours between sweeps when enabled. Defaults to weekly — a coverage gap is a slow-moving property of the corpus, not something worth re-measuring hourly. |
+| `experiential.gapSweep.maxQueries` | `number` | `50` |  | Upper bound on queries per sweep. The sweep draws the most recent DISTINCT logged queries from chunk_retrievals, so this caps both gateway cost and how far back a single pass reaches. |
 | `experiential.logRetrievals` | `boolean` | `true` |  | Append serve-path retrieval events (chunk id, rank, score, query text, surface) to experiential.db. Local-only telemetry feeding activation recompute and usage stats; eval runs never log. |
 
 ### `governor`

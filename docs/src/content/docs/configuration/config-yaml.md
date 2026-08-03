@@ -108,7 +108,12 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "logRetrievals": true,
     "captureEpisodes": true,
     "captureContent": false,
-    "activationRerank": false
+    "activationRerank": false,
+    "gapSweep": {
+      "enabled": false,
+      "intervalHours": 168,
+      "maxQueries": 50
+    }
   },
   "transports": {
     "stdio": true,

@@ -16,7 +16,6 @@
 // work_forget surfaces the control-1 tombstone as a user verb. record_retrieval_feedback is
 // the THE-230 outcome writer: stamps feedback/outcome onto the most recent retrieval
 // event(s) for a chunk, feeding the ACT-R recompute.
-import { randomUUID } from "node:crypto";
 import { err, grantsAll, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
@@ -26,11 +25,16 @@ import {
   DEFAULT_GAP_THRESHOLD,
   readLatestGapReport,
 } from "../../experiential/gaps";
-import { closeGoal, listGoals, setGoal } from "../../experiential/goals";
 import { readNoteQuality } from "../../experiential/note-quality";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { readableRel } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
+import { buildGoalTools } from "./goal-tools";
+import { availableWith, type M8Deps, UNAVAILABLE } from "./shared";
+
+// Re-exported so m8's existing consumers keep importing M8Deps from here; the definition moved to
+// shared.ts only to break the experiential-tools <-> goal-tools cycle.
+export type { M8Deps } from "./shared";
 
 // P1.7 (audit THE-562): the experiential per-principal partition is an AUTHORIZATION boundary, not
 // a default filter. Crossing it — reading other principals' episodes (any_caller), forgetting an
@@ -38,37 +42,6 @@ import { defineTool } from "../m1/define";
 const CROSS_PRINCIPAL_SCOPE = "admin:workspace";
 const canCrossPrincipal = (ctx: CallerContext): boolean =>
   grantsAll(ctx.grantedScopes, [CROSS_PRINCIPAL_SCOPE]);
-
-export interface M8Deps {
-  /** Open experiential.db handle; absent (all capture/config off) -> tools report unavailable. */
-  edb?: Database;
-  now?: () => number;
-}
-
-// Annotated rather than inferred: a bare object literal widens `available` to `boolean`, which no
-// longer matches `Unavailable`'s `z.literal(false)` once a handler's return union is checked
-// structurally. Annotating pins the discriminant while leaving `message` a plain `string` — `as
-// const` would also freeze the message into a literal type, which is not wanted.
-const UNAVAILABLE: { available: false; message: string } = {
-  available: false,
-  message:
-    "experiential store is not open (enable experiential.logRetrievals, captureEpisodes, or activationRerank)",
-};
-
-/** THE-417: the degraded half of every m8 tool's output contract, declared once beside the value it
- *  describes so the two cannot drift. Every tool here returns EITHER this shape or `available: true`
- *  plus its own fields — a discriminated union on `available`, which is what makes these payloads
- *  worth advertising a schema for at all: an agent can branch on one field instead of guessing.
- *
- *  THE-548 found three different "unavailable" shapes across the tool surface (m8's shared object,
- *  m7's ad-hoc `available:false`, and M4 throwing `plugin_missing`). Declaring the contract is what
- *  turns that from a thing you discover by reading handlers into a thing the registry checks. */
-const Unavailable = z.object({ available: z.literal(false), message: z.string() });
-
-/** `available: true` plus the tool's own fields. */
-function availableWith<T extends z.ZodRawShape>(shape: T) {
-  return z.union([Unavailable, z.object({ available: z.literal(true), ...shape })]);
-}
 
 /** Mirrors `projectEpisode()` field for field. Written from the PROJECTION, not from EpisodeRow —
  *  the projection renames (`vault_id` -> `vault`), derives (`tags` parsed from JSON, `blocked`
@@ -180,6 +153,8 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
   const now = () => (deps.now ?? Date.now)();
 
   return [
+    // THE-633: composed from goal-tools.ts — same m8 domain, separate file for the line ceiling.
+    ...buildGoalTools(deps),
     defineTool({
       name: "work_search",
       domain: "knowledge",
@@ -508,152 +483,6 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           throw e;
         }
         return { available: true, episode_id: input.episode_id, forgotten: changes > 0 };
-      },
-    }),
-
-    // ---- THE-633: stated goals ----
-    //
-    // Three verbs, no fourth. There is deliberately NO update_goal and NO reopen: the decision's
-    // authority-monotonicity constraint means a goal moves open -> terminal exactly once, and a verb
-    // that mutated an existing goal would be the low-confidence write path the whole design excludes.
-    // Provenance is hard-coded 'stated' in the store and CHECK-pinned in the migration, so an
-    // inferred write is a constraint violation rather than a convention.
-    defineTool({
-      name: "set_goal",
-      domain: "knowledge",
-      description:
-        "Record a STATED goal for a vault — what the user is trying to accomplish, as distinct from a learned preference (a preference is 'you tend to X' and never resolves; a goal is 'you intend to X' and ends in completed/abandoned/expired). Goals are stated by the user and never inferred: nothing in the reflect/extract path can write one. An optional target_date lets the expiry sweep mark it 'expired' rather than leaving stale intent to bias later reads.",
-      inputSchema: z
-        .object({
-          vault: z.string().min(1),
-          text: z.string().min(1).max(2000),
-          target_date: z.number().int().positive().optional(),
-        })
-        .strict(),
-      outputSchema: availableWith({
-        id: z.string(),
-        vault: z.string(),
-        text: z.string(),
-        status: z.string(),
-        created_at: z.number(),
-        target_date: z.number().nullable(),
-      }),
-      requiredScopes: ["write:workspace"],
-      tags: ["experiential"],
-      handler: (input) => {
-        if (!deps.edb) return UNAVAILABLE;
-        const now = Date.now();
-        const row = setGoal(deps.edb, {
-          id: randomUUID(),
-          vaultId: input.vault,
-          text: input.text,
-          createdAt: now,
-          ...(input.target_date !== undefined ? { targetDate: input.target_date } : {}),
-        });
-        return {
-          available: true as const,
-          id: row.id,
-          vault: row.vault_id,
-          text: row.text,
-          status: row.status,
-          created_at: row.created_at,
-          target_date: row.target_date,
-        };
-      },
-    }),
-
-    defineTool({
-      name: "list_goals",
-      domain: "knowledge",
-      description:
-        "List a vault's stated goals, newest first. Defaults to OPEN goals only — a consumer that forgets to filter should see current intent rather than a graveyard of closed ones. Pass status to narrow to a terminal state, or 'any' for the full history. 'expired' (the deadline sweep's verdict) and 'abandoned' (the user's) are deliberately distinct and must not be counted together.",
-      inputSchema: z
-        .object({
-          vault: z.string().min(1),
-          status: z
-            .enum(["open", "completed", "abandoned", "expired", "any"])
-            .default("open"),
-          limit: z.number().int().positive().max(200).default(50),
-        })
-        .strict(),
-      outputSchema: availableWith({
-        vault: z.string(),
-        count: z.number().int(),
-        goals: z.array(
-          z.object({
-            id: z.string(),
-            text: z.string(),
-            status: z.string(),
-            source: z.string(),
-            created_at: z.number(),
-            target_date: z.number().nullable(),
-            closed_at: z.number().nullable(),
-          }),
-        ),
-      }),
-      requiredScopes: ["read:notes"],
-      tags: ["experiential", "knowledge"],
-      handler: (input) => {
-        if (!deps.edb) return UNAVAILABLE;
-        const rows = listGoals(deps.edb, input.vault, {
-          status: input.status,
-          limit: input.limit,
-        });
-        return {
-          available: true as const,
-          vault: input.vault,
-          count: rows.length,
-          goals: rows.map((r) => ({
-            id: r.id,
-            text: r.text,
-            status: r.status,
-            source: r.source,
-            created_at: r.created_at,
-            target_date: r.target_date,
-            closed_at: r.closed_at,
-          })),
-        };
-      },
-    }),
-
-    defineTool({
-      name: "close_goal",
-      domain: "knowledge",
-      description:
-        "Close a stated goal into a terminal state: completed or abandoned. Once-only — a second close reports closed:false rather than silently succeeding, and there is no reopen verb, because a system that quietly reopened a goal the user completed is exactly the low-confidence mutation this plane forbids. 'expired' is not settable here; it is the deadline sweep's verdict alone.",
-      inputSchema: z
-        .object({
-          vault: z.string().min(1),
-          id: z.string().min(1),
-          status: z.enum(["completed", "abandoned"]),
-        })
-        .strict(),
-      outputSchema: availableWith({
-        closed: z.boolean(),
-        id: z.string(),
-        status: z.string().nullable(),
-        closed_at: z.number().nullable(),
-      }),
-      requiredScopes: ["write:workspace"],
-      tags: ["experiential"],
-      handler: (input) => {
-        if (!deps.edb) return UNAVAILABLE;
-        const row = closeGoal(deps.edb, {
-          id: input.id,
-          vaultId: input.vault,
-          status: input.status,
-          closedAt: Date.now(),
-        });
-        // null covers BOTH "no such goal in this vault" and "already closed". Reported as
-        // closed:false rather than an error: neither is exceptional, and the caller needs to be able
-        // to tell that nothing happened.
-        return {
-          available: true as const,
-          closed: row !== null,
-          id: input.id,
-          status: row?.status ?? null,
-          closed_at: row?.closed_at ?? null,
-        };
       },
     }),
 
