@@ -8,10 +8,13 @@ import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import {
   inferCitations,
+  maxBlockCosine,
+  prepareBlocks,
   prepareTranscript,
   rougeL,
   rougeLPrepared,
 } from "../src/experiential/citation";
+import { cosineSimilarity } from "../src/search/native";
 import { openMemoryDb } from "./helpers";
 
 const read = (name: string) =>
@@ -114,6 +117,63 @@ describe("citation inference (THE-170)", () => {
   it("prepareTranscript caps at MAX_TRANSCRIPT_TOKENS like the inline tokenizer did", () => {
     const long = Array.from({ length: 9000 }, (_, i) => `w${i}`).join(" ");
     expect(prepareTranscript(long).ids.length).toBe(6000);
+  });
+
+  it("maxBlockCosine matches the per-pair loop it replaces", () => {
+    // The cosine leg used to call cosineSimilarity once per (block, chunk) pair — up to 48 native
+    // crossings per chunk, the shape THE-420 measured as SLOWER than JS. One cosineBatch crossing
+    // must produce the same maximum. Blocks narrow f64 -> f32 crossing the boundary, so this is
+    // held to THE-504's measured epsilon rather than to bit-identity.
+    const dim = 16;
+    const mk = (seed: number) =>
+      Array.from({ length: dim }, (_, i) => Math.sin(seed * 7.13 + i * 1.7));
+    const blocks = [mk(1), mk(2), mk(3), mk(4)];
+    // The chunk is a PERTURBED COPY of blocks[2], so the true maximum is a strong positive match
+    // against a known block rather than whatever four arbitrary vectors happen to produce. A
+    // fixture of unrelated vectors can land on an all-negative maximum, which would let a
+    // degenerate implementation pass the agreement check while scoring nothing.
+    const vec = new Float32Array((blocks[2] as number[]).map((x, i) => x + (i % 3) * 0.01));
+
+    const prepared = prepareBlocks(blocks);
+    expect(prepared).not.toBeNull();
+    const batched = maxBlockCosine(vec, prepared as NonNullable<typeof prepared>);
+
+    let pairwise = Number.NEGATIVE_INFINITY;
+    for (const bv of blocks) pairwise = Math.max(pairwise, cosineSimilarity(bv, vec));
+
+    expect(Math.abs(batched - pairwise)).toBeLessThan(1e-6);
+    // ...and it is a real signal, not a degenerate 0 that would pass trivially.
+    expect(batched).toBeGreaterThan(0.1);
+  });
+
+  it("a chunk whose width differs from the blocks scores 0, not null", () => {
+    // The per-pair loop produced 0 here (cosineSimilarity returns 0 on a length mismatch, and the
+    // max over all-zero is 0), so `cosine` stayed a number. Pinning that: a null would change the
+    // Assessment shape even though `pass` is unaffected at the 0.30 threshold.
+    const prepared = prepareBlocks([
+      [1, 0, 0, 0],
+      [0, 1, 0, 0],
+    ]);
+    expect(prepared).not.toBeNull();
+    const wrongWidth = new Float32Array([1, 0]); // dim 2 vs blocks' dim 4
+    expect(maxBlockCosine(wrongWidth, prepared as NonNullable<typeof prepared>)).toBe(0);
+  });
+
+  it("prepareBlocks returns null for shapes cosineBatch cannot express", () => {
+    expect(prepareBlocks([])).toBeNull(); // no blocks
+    expect(
+      prepareBlocks([
+        [1, 2],
+        [1, 2, 3],
+      ]),
+    ).toBeNull(); // ragged -> caller keeps pairwise
+    expect(prepareBlocks([[], []])).toBeNull(); // zero width
+    expect(
+      prepareBlocks([
+        [1, 2],
+        [3, 4],
+      ]),
+    ).not.toBeNull();
   });
 
   it("two-stage: judge stamps survivors, negatives stamp 0, other sessions untouched", async () => {
