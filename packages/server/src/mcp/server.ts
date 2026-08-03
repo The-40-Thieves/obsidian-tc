@@ -346,9 +346,16 @@ export function createMcpServer(opts: McpServerOptions): Server {
       {
         supportedVersions: [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS],
         capabilities: server.getCapabilities(),
+        // THE-718: the feedback clause is here because a client in triad/domain facade mode never
+        // sees record_retrieval_feedback's own description — tools/list advertises three
+        // meta-tools. The handshake is the one surface every client reads regardless of mode, and
+        // the emitter decision put the obligation on the acting agent, so it has to be stated
+        // somewhere a facade caller will encounter it.
         instructions:
           `${opts.name} ${opts.version} — an MCP server over Obsidian vaults. ` +
-          `Tools are authorized per call (scopes + folder ACL); resources are vault notes.`,
+          `Tools are authorized per call (scopes + folder ACL); resources are vault notes. ` +
+          `After acting on a retrieved chunk, report whether it helped via record_retrieval_feedback ` +
+          `— retrieval quality is learned from that signal and nothing else supplies it.`,
       },
       CACHE_PUBLIC,
     ),
