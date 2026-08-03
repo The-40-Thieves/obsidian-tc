@@ -23,10 +23,26 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
     // THE-701: the eligibility pass takes no judge. `judge` below is still used by
     // extractPreferences, which is a DIFFERENT judge doing a different job (THE-673).
     const stats = await evaluateEpisodes(edb, { nowMs });
-    const prefs = await extractPreferences(edb, { judge, nowMs });
+    // THE-710: the preference plane is partitioned by vault, so extraction fans out per configured
+    // vault the way the note-quality job does. Reported PER VAULT rather than summed: a single
+    // "applied=N" across vaults would hide that one vault produced everything and another nothing,
+    // which is exactly the blend the partition exists to make visible.
+    const lines: string[] = [];
+    for (const v of cfg.vaults) {
+      const prefs = await extractPreferences(edb, v.id, { judge, nowMs });
+      lines.push(
+        `preferences[${v.id}]: ${
+          prefs.skipped
+            ? "skipped (no gateway or no evidence)"
+            : prefs.aborted
+              ? "ABORTED (parse failure)"
+              : `applied=${prefs.applied} version=${prefs.version}`
+        }`,
+      );
+    }
     process.stdout.write(
       `reflect: scanned=${stats.scanned} promoted=${stats.promoted} held=${stats.held} denied=${stats.denied}\n` +
-        `preferences: ${prefs.skipped ? "skipped (no gateway or no evidence)" : prefs.aborted ? "ABORTED (parse failure)" : `applied=${prefs.applied} version=${prefs.version}`}\n`,
+        `${lines.join("\n")}\n`,
     );
   } finally {
     edb.close?.();

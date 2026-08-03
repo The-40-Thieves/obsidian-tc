@@ -166,74 +166,101 @@ function tableReady(edb: Database): boolean {
 
 /** Apply typed deltas as ONE versioned batch. Never regenerates: rows not named by a delta are
  *  untouched, retraction zeroes the weight but keeps the row (readers filter weight > 0). */
-// NAMESPACE (P1.8, audit THE-562): the preference profile is a SINGLE GLOBAL store keyed by `key`
-// alone — no vault_id/caller partition, BY DESIGN (the trusted single-user model). Deltas from any
-// caller update the one shared profile. This is deliberate, not an oversight; the multi-principal
-// residual (per-caller preference isolation) is documented in SECURITY.md ("Learned-state
-// namespaces" + "Known limitations"). Contrast: agent_episodes is per-principal (vault+caller+
-// session, P1.7-authorized); vault_object_state ACT-R activation is corpus-global by design.
+// NAMESPACE (THE-710, revising the P1.8 / audit-THE-562 disposition): the preference plane is now
+// partitioned BY VAULT — `(vault_id, key)` is the primary key and every statement below is scoped.
+// It was previously keyed by `key` alone, deliberately, on the rationale that a single-user runtime
+// wants one shared profile. That rationale does not extend to a single-VAULT assumption: with two
+// vaults configured, one vault's learned preference silently overwrote the other's under the same
+// key, with no column to filter on (the THE-310 defect class). Migration 20260803_001 rebuilt both
+// tables; its header carries the full reasoning.
+//
+// THE CALLER AXIS IS STILL GLOBAL, and that remains deliberate: within a vault, deltas from any
+// caller update the one shared profile. That residual is documented in SECURITY.md ("Learned-state
+// namespaces" + "Known limitations") and closing it needs the P1.7 authorization treatment
+// agent_episodes got. Contrast: agent_episodes is per-principal (vault+caller+session,
+// P1.7-authorized); vault_object_state ACT-R activation is corpus-global by design.
+//
+// `vaultId` is REQUIRED and deliberately undefaulted. A default would let a call site silently fall
+// back to one shared bucket, which is the exact behaviour this partition exists to remove — and an
+// added-with-a-default parameter turns every existing caller into a caller of the default.
 export function applyPreferenceDeltas(
   edb: Database,
+  vaultId: string,
   deltas: PreferenceDelta[],
   nowMs: number,
 ): { version: number; applied: number } {
   if (!tableReady(edb)) throw new Error("preference_profile tables missing (run migrations)");
+  // Version is PER-VAULT. A global counter would make one vault's batch bump the other's version
+  // number, so `version` would no longer describe the profile it is stored on.
   const prev = edb
     .prepare(
-      "SELECT MAX(v) AS v FROM (SELECT MAX(version) AS v FROM preference_deltas UNION ALL SELECT MAX(version) AS v FROM preference_profile)",
+      "SELECT MAX(v) AS v FROM (SELECT MAX(version) AS v FROM preference_deltas WHERE vault_id = ? UNION ALL SELECT MAX(version) AS v FROM preference_profile WHERE vault_id = ?)",
     )
-    .get() as { v: number | null };
+    .get(vaultId, vaultId) as { v: number | null };
   const version = (prev.v ?? 0) + 1;
   const logDelta = edb.prepare(
-    "INSERT INTO preference_deltas (ts, key, op, value, evidence, version) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO preference_deltas (vault_id, ts, key, op, value, evidence, version) VALUES (?, ?, ?, ?, ?, ?, ?)",
   );
   const upsertAdd = edb.prepare(
-    `INSERT INTO preference_profile (key, value, weight, version, updated_at, provenance)
-     VALUES (?, ?, 1.0, ?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET
+    `INSERT INTO preference_profile (vault_id, key, value, weight, version, updated_at, provenance)
+     VALUES (?, ?, ?, 1.0, ?, ?, ?)
+     ON CONFLICT(vault_id, key) DO UPDATE SET
        weight = MIN(${WEIGHT_CAP}, weight + ${WEIGHT_STEP}),
        value = COALESCE(excluded.value, preference_profile.value),
        version = excluded.version, updated_at = excluded.updated_at`,
   );
   const bump = edb.prepare(
-    `UPDATE preference_profile SET weight = MIN(${WEIGHT_CAP}, weight + ${WEIGHT_STEP}), version = ?, updated_at = ? WHERE key = ?`,
+    `UPDATE preference_profile SET weight = MIN(${WEIGHT_CAP}, weight + ${WEIGHT_STEP}), version = ?, updated_at = ? WHERE vault_id = ? AND key = ?`,
   );
   const damp = edb.prepare(
-    `UPDATE preference_profile SET weight = MAX(0, weight - ${WEIGHT_STEP}), version = ?, updated_at = ? WHERE key = ?`,
+    `UPDATE preference_profile SET weight = MAX(0, weight - ${WEIGHT_STEP}), version = ?, updated_at = ? WHERE vault_id = ? AND key = ?`,
   );
   const retract = edb.prepare(
-    "UPDATE preference_profile SET weight = 0, version = ?, updated_at = ? WHERE key = ?",
+    "UPDATE preference_profile SET weight = 0, version = ?, updated_at = ? WHERE vault_id = ? AND key = ?",
   );
   let applied = 0;
   for (const d of deltas) {
     if (!d.key) continue;
-    // strengthen/weaken/retract are UPDATE ... WHERE key = ? — on a key that was never added they
-    // change 0 rows. Gate the audit row + `applied` on an actual mutation so a judge proposing a
-    // delta for a non-existent key can't log a phantom preference_deltas row or bump the version.
+    // strengthen/weaken/retract are UPDATE ... WHERE vault_id = ? AND key = ? — on a key that was
+    // never added IN THIS VAULT they change 0 rows. Gate the audit row + `applied` on an actual
+    // mutation so a judge proposing a delta for a non-existent key can't log a phantom
+    // preference_deltas row or bump the version.
     let changed = 1;
-    if (d.op === "add") upsertAdd.run(d.key, d.value ?? "", version, nowMs, d.evidence ?? null);
-    else if (d.op === "strengthen") changed = bump.run(version, nowMs, d.key).changes as number;
-    else if (d.op === "weaken") changed = damp.run(version, nowMs, d.key).changes as number;
-    else if (d.op === "retract") changed = retract.run(version, nowMs, d.key).changes as number;
+    if (d.op === "add")
+      upsertAdd.run(vaultId, d.key, d.value ?? "", version, nowMs, d.evidence ?? null);
+    else if (d.op === "strengthen")
+      changed = bump.run(version, nowMs, vaultId, d.key).changes as number;
+    else if (d.op === "weaken")
+      changed = damp.run(version, nowMs, vaultId, d.key).changes as number;
+    else if (d.op === "retract")
+      changed = retract.run(version, nowMs, vaultId, d.key).changes as number;
     else continue;
     if (changed === 0) continue;
-    logDelta.run(nowMs, d.key, d.op, d.value ?? null, d.evidence ?? null, version);
+    logDelta.run(vaultId, nowMs, d.key, d.op, d.value ?? null, d.evidence ?? null, version);
     applied++;
   }
   return { version, applied };
 }
 
-/** Current profile rollup: active entries (weight > 0), newest-touched first. */
-export function preferenceProfile(edb: Database): {
+/** Current profile rollup for ONE vault: active entries (weight > 0), newest-touched first.
+ *
+ *  THE-710: `vaultId` is required for the same reason it is on applyPreferenceDeltas — an
+ *  unscoped read would return a blend of every vault's profile, which is the pre-migration
+ *  behaviour this partition removes. There is deliberately no "read every vault" overload; a
+ *  caller that wants that must ask for each vault and say so. */
+export function preferenceProfile(
+  edb: Database,
+  vaultId: string,
+): {
   version: number;
   entries: Array<{ key: string; value: string; weight: number; updated_at: number }>;
 } {
   if (!tableReady(edb)) return { version: 0, entries: [] };
   const rows = edb
     .prepare(
-      "SELECT key, value, weight, version, updated_at FROM preference_profile WHERE weight > 0 ORDER BY updated_at DESC",
+      "SELECT key, value, weight, version, updated_at FROM preference_profile WHERE vault_id = ? AND weight > 0 ORDER BY updated_at DESC",
     )
-    .all() as Array<{
+    .all(vaultId) as Array<{
     key: string;
     value: string;
     weight: number;
@@ -258,21 +285,34 @@ export function preferenceProfile(edb: Database): {
  *  evaluator above still ran). */
 export async function extractPreferences(
   edb: Database,
+  vaultId: string,
   opts: { judge: GatewayRoles["judge"] | null; nowMs: number; maxEvidence?: number },
 ): Promise<{ skipped: boolean; aborted: boolean; applied: number; version: number }> {
   if (!opts.judge) return { skipped: true, aborted: false, applied: 0, version: 0 };
   const maxEvidence = opts.maxEvidence ?? 40;
+  // THE-710: episode evidence is scoped to this vault. `agent_episodes.vault_id` is NULLABLE, and a
+  // NULL-vault episode is deliberately EXCLUDED rather than attributed anywhere — assigning it to a
+  // default vault would invent the attribution the migration purged old rows to avoid inventing.
+  // The equality predicate already excludes NULL; it is spelled out here so the exclusion reads as
+  // a decision rather than as an accident of SQL three-valued logic.
   const episodes = edb
     .prepare(
       `SELECT tool, status, outcome, summary FROM agent_episodes
-       WHERE blocked = 0 AND eligibility = 'eligible' AND outcome IS NOT NULL ORDER BY ts DESC LIMIT ?`,
+       WHERE vault_id = ? AND vault_id IS NOT NULL
+         AND blocked = 0 AND eligibility = 'eligible' AND outcome IS NOT NULL ORDER BY ts DESC LIMIT ?`,
     )
-    .all(maxEvidence) as Array<{
+    .all(vaultId, maxEvidence) as Array<{
     tool: string | null;
     status: string;
     outcome: number;
     summary: string | null;
   }>;
+  // THE-710 scope note: retrieval feedback is NOT vault-scoped here, and cannot cheaply be. It is
+  // corpus-level by design (SECURITY.md classifies chunk_retrievals as content-level, "a relevance
+  // signal about a chunk, not about a principal"), and the vault of a chunk_id lives in cache.db,
+  // which the membrane forbids joining to from this store — object ids cross by value, never by
+  // foreign key. So the evidence pool is broader than the partition while the learned row is
+  // attributed to the vault whose episodes drove the extraction. Stated rather than silently true.
   const feedback = edb
     .prepare(
       `SELECT query_text, outcome FROM chunk_retrievals
@@ -308,7 +348,7 @@ export async function extractPreferences(
     const deltas = parsed.deltas
       .filter((d) => d && typeof d.key === "string" && d.key.length > 0)
       .slice(0, 10);
-    const { version, applied } = applyPreferenceDeltas(edb, deltas, opts.nowMs);
+    const { version, applied } = applyPreferenceDeltas(edb, vaultId, deltas, opts.nowMs);
     return { skipped: false, aborted: false, applied, version };
   } catch {
     return { skipped: false, aborted: true, applied: 0, version: 0 };

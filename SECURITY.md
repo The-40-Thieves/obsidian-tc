@@ -87,15 +87,23 @@ per-principal, what is content-level, and what is shared runtime-wide.
 | `chunk_retrievals` (retrieval events + feedback/outcome) | `chunk_id` + `session_id` + `caller` | **Content-level events, caller-owned feedback** | A retrieval event is a relevance signal *about a chunk*, not about a principal, so the aggregate signal itself is never per-caller scoped. Stamping feedback/outcome onto it is a write to someone's judgment, though, so `record_retrieval_feedback` is caller-owned (THE-568, closing the P1.7 follow-up): a non-elevated caller may only stamp retrievals its own `caller` produced, on top of the pre-existing session scoping; `admin:workspace` crosses both. |
 | `vault_object_state` (ACT-R activation: strengths / frequency / hits) | `object_id` = chunk id (no `vault_id`/`caller`) | **Corpus-global** | A chunk's activation is a property of the *content*, learned from aggregate access. Per-caller activation would defeat the ACT-R model (a chunk many retrieve is important regardless of who). |
 | `activation_state` (recompute watermark) | singleton (`id = 1`) | **Global** | One incremental-recompute cursor for the store. |
-| `preference_profile` / `preference_deltas` | `key` (no `vault_id`/`caller`) | **Global / shared runtime** | One learned preference profile for the runtime. Correct for the single-user model; see the residual below. |
+| `preference_profile` / `preference_deltas` | `vault_id` + `key` (no `caller`) | **Per-vault, caller-shared** | One learned preference profile *per vault*. THE-710 (migration `20260803_001`) added the `vault_id` partition, revising the earlier global scope: "correct for the single-user model" did not extend to a single-*vault* assumption, and with two vaults configured one vault's learned preference silently overwrote the other's under the same key, with no column to filter on. The `caller` axis remains shared **by design** — see the residual below. |
 
 The per-principal / content-level split is deliberate: **episodes** are private to the agent that
 produced them, while **retrieval and activation state** are corpus-level signals about content, so they
 are intentionally *not* per-caller scoped for reading or aggregation. The one exception is *writing*
 feedback onto a retrieval event: that is an act attributable to a principal, so it is caller-owned
-(THE-568) even though the retrieval event it targets is not. The one store whose global scope is a
-genuine multi-principal consideration is `preference_profile` — documented under *Known limitations
-and accepted residuals*.
+(THE-568) even though the retrieval event it targets is not. The one store whose remaining shared
+scope is a genuine multi-principal consideration is `preference_profile` — documented under *Known
+limitations and accepted residuals*.
+
+That residual is now narrower than it was. THE-710 partitioned the preference plane by `vault_id`
+(migration `20260803_001`), so preferences no longer blend **across vaults**; what remains shared is
+the `caller` axis **within** a vault. The two are different concerns and were conflated by the
+earlier wording: a vault is a *corpus*, a caller is a *principal*, and only the second is a
+multi-principal question. Closing the caller axis as well would make every preference read
+caller-scoped and needs the same authorization treatment `agent_episodes` got under P1.7, so it
+stays deliberately open rather than half-done.
 
 ## Write safety (concurrent modification)
 
@@ -220,11 +228,23 @@ so operators can reason about them rather than discover them.
   treat captured episodes as **partially-trusted input** and keep `include_pending` off for
   untrusted callers; do not treat a clean layer-1 scan — or promotion to `eligible` — as proof an
   episode is safe.
-- **The learned `preference_profile` is a single global store (P1.8).** The versioned preference
-  profile (and its `preference_deltas` log) is keyed by `key` alone — one shared profile for the whole
-  runtime, with no `vault_id`/`caller` partition. In a multi-principal deployment every caller reads and
-  writes the same learned preferences, so one agent's preferences shape another's grounded-synthesis
-  pass. This is intentional for the trusted single-user runtime obsidian-tc targets (all callers are the
-  same person); per-caller preference isolation is a tracked follow-up for a genuine multi-tenant service
-  — the same defect class as the derived-plane namespacing already done for `contradictions`/`syntheses`
-  (THE-563). The full per-store namespace model is documented under *Learned-state namespaces* above.
+- **The learned `preference_profile` is shared across callers within a vault (P1.8, narrowed by
+  THE-710).** The versioned preference profile (and its `preference_deltas` log) is keyed by
+  `(vault_id, key)`: preferences are partitioned per vault, but every caller of a given vault reads
+  and writes the same learned row, so one agent's preferences shape another's grounded-synthesis
+  pass. This is intentional for the trusted single-user runtime obsidian-tc targets (all callers are
+  the same person); per-caller preference isolation is a tracked follow-up for a genuine multi-tenant
+  service, and closing it needs the authorization treatment `agent_episodes` got under P1.7 rather
+  than a filter alone.
+
+  **Corrected 2026-08-03.** This bullet previously said the store had "no `vault_id`/`caller`
+  partition" and called that intentional in full. The `caller` half was and remains intentional. The
+  `vault_id` half was not a considered position: the rationale on record was "correct for the
+  single-user model", and single-user is not single-**vault** — with two vaults configured, one
+  vault's learned preference silently overwrote the other's under the same key, which is the same
+  defect class as the derived-plane namespacing done for `contradictions`/`syntheses` (THE-563) and
+  for `vault_edges` (THE-310). Migration `20260803_001` rebuilt both tables with `vault_id` leading
+  the primary key. Existing rows were **purged rather than backfilled**, because a preference's
+  originating vault was never recorded and inventing one would be indistinguishable downstream from
+  a real attribution. The full per-store namespace model is documented under *Learned-state
+  namespaces* above.

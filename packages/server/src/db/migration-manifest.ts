@@ -60,6 +60,11 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // confirmed it" with "it passed the cheap stage-1 filter and no judge existed". Additive and
   // observational -- cited_in_response's semantics are unchanged.
   "20260731_001_citation_state.sql",
+  // THE-710: 20260803_001 namespaces the preference plane by vault. Note this REVERSES the
+  // P1.8-audited global scope on the vault axis only — the caller axis stays an accepted residual.
+  // Purge rather than backfill, per the 20260724_001 precedent; the migration header carries the
+  // full reasoning and the correction to the ticket's premise.
+  "20260803_001_preference_vault_id.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */
