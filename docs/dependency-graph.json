@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 374,
-    "dependencies": 1665,
+    "modules": 375,
+    "dependencies": 1673,
     "subsystemPairs": 111,
-    "crossSubsystemImports": 745
+    "crossSubsystemImports": 752
   },
   "subsystems": {
     "auth": 3,
@@ -31,7 +31,7 @@
     "plugin": 19,
     "plur": 2,
     "providers": 6,
-    "runtime": 13,
+    "runtime": 14,
     "scheduler": 4,
     "schemas": 1,
     "search": 54,
@@ -65,7 +65,7 @@
     {
       "from": "runtime",
       "to": "search",
-      "weight": 24
+      "weight": 25
     },
     {
       "from": "cli",
@@ -75,7 +75,7 @@
     {
       "from": "runtime",
       "to": "db",
-      "weight": 18
+      "weight": 19
     },
     {
       "from": "experiential",
@@ -95,7 +95,7 @@
     {
       "from": "runtime",
       "to": "scheduler",
-      "weight": 11
+      "weight": 12
     },
     {
       "from": "runtime",
@@ -110,6 +110,11 @@
     {
       "from": "mcp",
       "to": "vault",
+      "weight": 9
+    },
+    {
+      "from": "runtime",
+      "to": "experiential",
       "weight": 9
     },
     {
@@ -138,19 +143,9 @@
       "weight": 8
     },
     {
-      "from": "runtime",
-      "to": "experiential",
-      "weight": 8
-    },
-    {
       "from": "tools",
       "to": "formats",
       "weight": 8
-    },
-    {
-      "from": "cli",
-      "to": "search",
-      "weight": 7
     },
     {
       "from": "providers",
@@ -173,6 +168,16 @@
       "weight": 7
     },
     {
+      "from": "cli",
+      "to": "search",
+      "weight": 6
+    },
+    {
+      "from": "runtime",
+      "to": "embeddings",
+      "weight": 6
+    },
+    {
       "from": "tools",
       "to": "plane",
       "weight": 6
@@ -190,6 +195,11 @@
     {
       "from": "memory",
       "to": "vault",
+      "weight": 5
+    },
+    {
+      "from": "runtime",
+      "to": "util",
       "weight": 5
     },
     {
@@ -215,16 +225,6 @@
     {
       "from": "plane",
       "to": "db",
-      "weight": 4
-    },
-    {
-      "from": "runtime",
-      "to": "embeddings",
-      "weight": 4
-    },
-    {
-      "from": "runtime",
-      "to": "util",
       "weight": 4
     },
     {
@@ -286,6 +286,11 @@
       "from": "transports",
       "to": "auth",
       "weight": 3
+    },
+    {
+      "from": "cli",
+      "to": "runtime",
+      "weight": 2
     },
     {
       "from": "cli",
@@ -415,11 +420,6 @@
     {
       "from": "cli",
       "to": "metrics",
-      "weight": 1
-    },
-    {
-      "from": "cli",
-      "to": "runtime",
       "weight": 1
     },
     {

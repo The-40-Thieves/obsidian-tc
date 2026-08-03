@@ -8,12 +8,11 @@ import { createEmbeddingProvider } from "../../embeddings";
 import {
   DEFAULT_GAP_THRESHOLD,
   detectGaps,
-  type GapBatchSearchFn,
   parseQueriesFile,
   persistGapReport,
   scoreDistribution,
 } from "../../experiential/gaps";
-import { graphSearch } from "../../search/graph_search";
+import { makeGapBatchSearch } from "../../runtime/gap-sweep";
 import { USAGE } from "../args";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
 
@@ -37,25 +36,15 @@ export async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
   // golden set under --calibrate, not just a detectGaps call). graphSearch still runs one query at
   // a time in a plain sequential loop (never Promise.all): only the embed call batches, so this
   // adds no extra concurrency pressure on the gateway.
-  const search: GapBatchSearchFn = async (queries) => {
-    if (queries.length === 0) return [];
-    const vecs = await provider.embed(queries, { input: "query" });
-    const out: Array<Array<{ path: string; score: number }>> = [];
-    for (let i = 0; i < queries.length; i++) {
-      const query = queries[i] as string;
-      const results = await graphSearch(cacheDb, {
-        query,
-        queryVec: vecs[i] ?? [],
-        vaultId,
-        model: provider.id, // THE-530: constrain seeds to the active model
-        finalTopK: 10,
-        ...(cfg.retrieval?.rrfK !== undefined ? { rrfK: cfg.retrieval.rrfK } : {}),
-        reranker: null,
-      });
-      out.push(results.map((r) => ({ path: r.path, score: r.rerank_score })));
-    }
-    return out;
-  };
+  // THE-719: the closure lives in runtime/gap-sweep.ts so the CLI and the SCHEDULED sweep score
+  // queries identically. Two copies would drift, and a sweep scoring differently from the
+  // calibration run that set the threshold produces gap counts comparable to nothing.
+  const search = makeGapBatchSearch({
+    cacheDb,
+    provider,
+    vaultId,
+    ...(cfg.retrieval?.rrfK !== undefined ? { rrfK: cfg.retrieval.rrfK } : {}),
+  });
   try {
     if (cmd.calibrate) {
       const golden = parseYaml(readFileSync(cmd.calibrate, "utf8")) as {

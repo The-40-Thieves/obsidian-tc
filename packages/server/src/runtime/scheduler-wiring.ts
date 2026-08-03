@@ -8,6 +8,7 @@
 // activation step (server-runtime.ts), not construction.
 import type { ServerConfig, VaultConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
+import type { EmbeddingProvider } from "../embeddings";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import type { GatewayRoles } from "../plane/gateway";
 import type { JobQueue } from "../scheduler/job-queue";
@@ -15,6 +16,7 @@ import type { makeJobRunner } from "../scheduler/job-runner";
 import { Scheduler } from "../scheduler/scheduler";
 import { DEFAULT_TRACE_FOLDER } from "../tools/m5";
 import { schedulerPersistErrorSink } from "../util/errors";
+import { registerGapSweep } from "./gap-sweep";
 import { configureMaintenance } from "./maintenance-wiring";
 import type { Observability } from "./observability";
 import {
@@ -38,6 +40,8 @@ export interface SchedulerWiringDeps {
   jobQueue: JobQueue;
   jobRunner: ReturnType<typeof makeJobRunner>;
   runReconcile: () => Promise<void>;
+  /** THE-719: the gap sweep embeds each query it sweeps, so it needs the live provider. */
+  embeddingProvider: EmbeddingProvider;
 }
 
 /**
@@ -97,6 +101,21 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     intervalMs: CONTRADICTION_DRAIN_MS,
     run: (signal) => deps.jobRunner.drainOnce(signal),
   });
+
+  // THE-719: the coverage-gap sweep. Registered ONLY when explicitly enabled — each swept query
+  // costs an embedding call plus a search, so this must never appear on a deployment that did not
+  // ask for it. `detectGaps` was CLI-only before this, which is why gap_reports sat empty.
+  if (deps.experientialOpen && config.experiential.gapSweep.enabled) {
+    registerGapSweep(scheduler, {
+      cacheDb: deps.db,
+      experientialDb: deps.experientialDb,
+      provider: deps.embeddingProvider,
+      vaultIds: deps.vaults.map((v) => v.id),
+      intervalMs: config.experiential.gapSweep.intervalHours * 3_600_000,
+      maxQueries: config.experiential.gapSweep.maxQueries,
+      ...(config.retrieval?.rrfK !== undefined ? { rrfK: config.retrieval.rrfK } : {}),
+    });
+  }
 
   // THE-458 item 6: the periodic reconcile. The scheduler's single-flight guard matters more here
   // than for any other job — a reconcile walks the whole vault and can outlast its own interval.

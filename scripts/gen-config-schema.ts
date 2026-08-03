@@ -40,7 +40,7 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // from each other, which is 6 x 60s expiring on schedule, not a cold start varying. No existing
 // key, type, default or constraint moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "c0ceb3a9bbcc4d26ef2e731ea89822aab9170058b140d635bdb498113a8aa748";
+  "4a312c83e185cc15dd5939794fb441b712dd36bcacb7a6ba31db52e660df7e19";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
