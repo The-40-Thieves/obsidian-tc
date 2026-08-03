@@ -12,6 +12,7 @@ import {
   assembleDoctorReport,
   type DenseProbeResult,
   type DerivedTableState,
+  type EntryPointsProbe,
   renderText,
 } from "../../doctor";
 import { createEmbeddingProvider } from "../../embeddings";
@@ -326,6 +327,90 @@ async function probeDerivedTables(
   return out;
 }
 
+/**
+ * Read the scheduler's own durable state and the tool-invocation census, for `entrypoints.liveness`.
+ *
+ * Both halves are already written by the running server, so this reads truth rather than deriving
+ * it. `job_schedule` is what the THE-462 scheduler persists per registered task; `agent_episodes`
+ * is what episode capture records per tool call. Neither needs the server booted.
+ *
+ * TWO TRAPS, both live on this deployment:
+ *
+ *  1. `job_schedule.name` is a TEXT PRIMARY KEY, and SQLite does not enforce NOT NULL on one, so
+ *     every UPSERT carrying a null name INSERTED instead of updating — 2,979 orphan rows against 6
+ *     real ones (THE-715). Filtering on `name IS NOT NULL` is not defensive coding here; without it
+ *     the pass list is 99.8% noise. The orphan count is reported, not warned on: the named rows
+ *     update correctly and the defect is already ticketed.
+ *  2. The census is a LOWER BOUND and `null` means NOT MEASURED. Episode capture is per-caller and
+ *     `captureEpisodes` can be off, so coercing an absent measurement to 0 would present "capture
+ *     is off" as "no tool was ever called" — a failure encoded as a valid result.
+ *
+ * Never throws: a missing store degrades to an empty pass list and a null census, which the check
+ * renders as "no scheduler state" rather than as a wall of false warnings.
+ */
+async function probeEntryPoints(cacheDir: string): Promise<EntryPointsProbe> {
+  const out: EntryPointsProbe = { passes: [], tools: null, orphanScheduleRows: 0 };
+
+  const cachePath = join(cacheDir, "cache.db");
+  if (existsSync(cachePath)) {
+    let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+    try {
+      db = await openDatabase(cachePath);
+      const rows = db
+        .prepare(
+          "SELECT name, last_run_at, last_success_at, consecutive_failures FROM job_schedule WHERE name IS NOT NULL ORDER BY name",
+        )
+        .all() as Array<{
+        name: string;
+        last_run_at: number | null;
+        last_success_at: number | null;
+        consecutive_failures: number;
+      }>;
+      out.passes = rows.map((r) => ({
+        name: r.name,
+        lastRunAt: r.last_run_at,
+        lastSuccessAt: r.last_success_at,
+        consecutiveFailures: r.consecutive_failures,
+      }));
+      const orphans = db
+        .prepare("SELECT COUNT(*) AS c FROM job_schedule WHERE name IS NULL")
+        .get() as { c: number };
+      out.orphanScheduleRows = orphans.c;
+    } catch {
+      /* table absent on a pre-scheduler db — leave the empty list */
+    } finally {
+      try {
+        db?.close?.();
+      } catch {
+        /* see probeNotesFts */
+      }
+    }
+  }
+
+  const expPath = join(cacheDir, "experiential.db");
+  if (existsSync(expPath)) {
+    let edb: Awaited<ReturnType<typeof openDatabase>> | undefined;
+    try {
+      edb = await openDatabase(expPath);
+      const c = edb
+        .prepare(
+          "SELECT COUNT(DISTINCT tool) AS d, COUNT(*) AS n, MIN(ts) AS lo, MAX(ts) AS hi FROM agent_episodes",
+        )
+        .get() as { d: number; n: number; lo: number | null; hi: number | null };
+      out.tools = { distinctTools: c.d, episodes: c.n, firstAt: c.lo, lastAt: c.hi };
+    } catch {
+      /* no agent_episodes — stays null, i.e. NOT MEASURED, never 0 */
+    } finally {
+      try {
+        edb?.close?.();
+      } catch {
+        /* see probeNotesFts */
+      }
+    }
+  }
+  return out;
+}
+
 // THE-521 — runtime health probe. Loads config, detects the environment (THE-522), runs the default
 // check set, and emits either the versioned JSON envelope or human text rendered from it. Exits
 // non-zero when any check fails, so scripts and CI can gate on health — a warning does not fail.
@@ -382,6 +467,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   // The multi-vector gate is ONE decision that darkens two tables: chunk_sparse and chunk_colbert
   // are both written from embedFull, which only some providers emit. Mirrors the same expression
   // retrievalHeads uses below so doctor cannot disagree with itself about provider capability.
+  const entryPoints = cmd.probe ? await probeEntryPoints(config.cacheDir) : undefined;
   const derivedTables = cmd.probe
     ? await probeDerivedTables(config.cacheDir, {
         multiVector:
@@ -433,6 +519,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
       // Derived-table liveness. Probe-only for the same reason as every other store-touching check:
       // a default run must not open either database.
+      entryPoints: {
+        ...(entryPoints !== undefined ? { probe: () => entryPoints } : {}),
+      },
       derivedTables: {
         ...(derivedTables !== undefined ? { probe: () => derivedTables } : {}),
       },

@@ -26,6 +26,7 @@ import {
   runtimeCheck,
   snapshotsCheck,
 } from "./checks";
+import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
 import { runDoctor } from "./report";
 import type { Check, DoctorReport } from "./types";
 
@@ -70,6 +71,9 @@ export interface DoctorConfigView {
   /** Derived-table liveness: which derived tables are actually being written. Probe-only, so a
    *  default run stays offline and touches neither store. */
   derivedTables?: DerivedTablesView;
+  /** Entry-point liveness: is each scheduled pass actually succeeding, and how much of the tool
+   *  surface has ever been invoked. Probe-only, same as derivedTables. */
+  entryPoints?: EntryPointsView;
 }
 
 export interface AssembleOptions {
@@ -129,6 +133,10 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // whose table has never been written is invisible from inside the system. Classified rather than
   // counted, so "empty because the feature is off" never warns.
   if (config.derivedTables) checks.push(derivedTablesCheck(config.derivedTables));
+  // entrypoints.liveness — the verb-side companion. derived.liveness reports a table as `silent`
+  // whether nothing enabled its writer or the writer runs and loses every time; only the schedule
+  // row separates those, and they need opposite fixes.
+  if (config.entryPoints) checks.push(entryPointsCheck(config.entryPoints));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

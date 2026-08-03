@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,021 tracked code files · 153,934 lines.
+**Scale:** 1,023 tracked code files · 154,420 lines.
 
-TypeScript 142,919 · JavaScript 7,260 · Python 1,640 · SQL 1,059 · Rust 742 · Shell 314.
+TypeScript 143,405 · JavaScript 7,260 · Python 1,640 · SQL 1,059 · Rust 742 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -91,12 +91,12 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `mcp/` | 17 | 4,128 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 11 | 2,948 | work-memory tier: activation, retrieval log, forget, citations |
 | `runtime/` | 13 | 2,897 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `cli/` | 23 | 2,379 | arg parsing + subcommands |
+| `cli/` | 23 | 2,468 | arg parsing + subcommands |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
+| `doctor/` | 6 | 1,264 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 14 | 1,201 | provisioning, migrate runner, experiential store |
-| `doctor/` | 5 | 1,090 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `migrations/` | 30 | 1,059 | hand-registered SQL. **Two chains** — see below |
 | `plane/` | 6 | 905 | generative plane; `jobs/` holds the contradiction detector |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
@@ -118,7 +118,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 350 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 351 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -149,13 +149,14 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 602 | `packages/server/src/scheduler/job-queue.ts` |
 | 588 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
+| 569 | `packages/server/src/cli/commands/doctor.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 527 | `packages/server/src/scheduler/scheduler.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
 | 513 | `packages/server/src/search/query_cache.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
 
-16 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
+17 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
 <!-- END GENERATED: tree-largest-files -->
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
@@ -274,7 +275,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**372 modules · 1658 dependencies · 111 distinct subsystem pairs · 742 cross-subsystem imports.**
+**373 modules · 1661 dependencies · 111 distinct subsystem pairs · 742 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
