@@ -448,10 +448,15 @@ describe("M8 experiential tools (THE-229)", () => {
     expect(admin.updated).toBe(1);
   });
 
-  // THE-718. Measured on the live store 2026-08-03: session_id is NULL on 97/97 retrieval events
-  // and caller on 81/97, because no client has ever opened a workspace session (THE-714). The
-  // session narrowing therefore excluded every row a real caller could own, so the only principal
-  // that could stamp anything was admin:workspace — and a correctly-behaving client got
+  // THE-718. Measured on the live store 2026-08-03, and the two NULLs have DIFFERENT causes —
+  // conflating them misreads the fix:
+  //   * session_id is NULL on 97 of 97 retrieval events, because no client has ever opened a
+  //     workspace session (THE-714). This is what the session narrowing collided with.
+  //   * caller is NULL on 81 of 97 (populated on 16, all `cave-agents-main` from 2026-08-01),
+  //     because the column postdates those rows — THE-568 added it on 2026-07-24. Nothing to do
+  //     with sessions; it is why the ownership test below exists.
+  // The session narrowing therefore excluded every row a real caller could own, so the only
+  // principal that could stamp anything was admin:workspace — and a correctly-behaving client got
   // `{ updated: 0 }` with no error to say so.
   //
   // A retrieval logged outside any session belongs to no session, so there is no second session to
@@ -556,6 +561,51 @@ describe("M8 experiential tools (THE-229)", () => {
     );
     expect(foreign.reason).toBe("no_owned_retrievals");
     expect(absent.reason).toBe(foreign.reason);
+  });
+
+  // THE-718 follow-up, found by attacking the change rather than confirming it. `caller` is
+  // `string | null` and a valid JWT with no `sub` claim yields `caller: null` with
+  // `authenticated: true` (auth/jwt.ts:163,170 — `sub` is never required). The ownership clause is
+  // `AND caller IS ?`, so such a principal matches every legacy NULL-caller row: 81 of 97 on the
+  // live store. Widening the session clause is what made that reachable — before it, the session
+  // mismatch masked it. Ownership requires being identifiable, so an unattributed principal is
+  // refused outright rather than silently inheriting rows nobody produced.
+  it("THE-718: an unidentifiable caller cannot claim unowned NULL-caller rows", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('legacy', 'c1', ?, NULL, NULL)",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    const denied = await registry.dispatch(
+      "record_retrieval_feedback",
+      { chunk_id: "c1", outcome: 1 },
+      ctx({ caller: null, sessionId: "s1" }),
+    );
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("forbidden");
+    expect(
+      (
+        db.prepare("SELECT outcome FROM chunk_retrievals WHERE id = 'legacy'").get() as {
+          outcome: number | null;
+        }
+      ).outcome,
+    ).toBeNull();
+  });
+
+  it("THE-718: admin:workspace still reaches unowned NULL-caller rows", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('legacy', 'c1', ?, NULL, NULL)",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    const admin = un<{ updated: number }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", outcome: 1 },
+        ctx({ caller: null, grantedScopes: new Set(["write:workspace", "admin:workspace"]) }),
+      ),
+    );
+    expect(admin.updated).toBe(1);
   });
 
   it("THE-718: a successful stamp carries no reason", async () => {
