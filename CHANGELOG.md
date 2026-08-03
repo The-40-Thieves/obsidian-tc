@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-08-03
+
 ### Fixed
 
 - **Consolidation jobs get a per-attempt gateway timeout (THE-709).** Weekly synthesis had never
