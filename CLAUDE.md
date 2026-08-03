@@ -90,9 +90,15 @@ A `PreToolUse` hook blocks these; the message names the regeneration command.
 | `docs/obsidian-tc.config.schema.json` | `bun run config:schema` |
 | `packages/server/src/db/migrations-embedded.ts` | `bun run migrations:embed` |
 
-Ten doc files additionally carry docgen **marker regions** (`<!-- BEGIN GENERATED: ... -->`). Those
-are only partly generated — edit the prose around them freely, never inside them, and re-run
+**Twelve** doc files additionally carry docgen **marker regions** (`<!-- BEGIN GENERATED: ... -->`).
+Those are only partly generated — edit the prose around them freely, never inside them, and re-run
 `docgen:render -- --check`.
+
+Do not count them by grepping for `BEGIN GENERATED`: that also hits this file (which names the
+string in prose), `TREE.md` (a different generator), and docgen's own README, which is how the
+figure here read "ten" for a while. The authoritative list is **`GENERATED_DOC_FILES`** in
+`packages/server/scripts/docgen/targets.ts` — `render.ts` asserts its own targets against it, so
+that constant is the one thing that cannot drift from reality.
 
 ## Conventions that bite
 
@@ -112,12 +118,52 @@ are only partly generated — edit the prose around them freely, never inside th
 - **A new gate must be watched failing before it is trusted**, and needs a non-empty floor. A gate
   that has never failed proves nothing; one that scans zero files reports success.
 
-## Adding a tool moves four things
+## Adding a tool moves seven things
 
-`REGISTERED_TOOL_COUNT` (`test/registered-tool-count.ts`), the facade domain map,
-`boot.tools_registered` (hard/exact in the perf harness — pinned **2 lower**, since `health` and
-`index_status` register inline in `cli.ts`), and prose in ~15 docs. `docgen:facts-check` is the
-strict gate.
+Four always, three more if the tool mutates or takes a vault. Measured 2026-08-03 adding three
+tools (154 → 157): the first four were known, **CI caught the last three**, and a local sweep that
+skipped `bun run lint` at the repo root missed two of those.
+
+**Always:**
+
+1. **`REGISTERED_TOOL_COUNT`** — `test/registered-tool-count.ts`. Parsed by
+   `scripts/check-version-coherence.mjs`, so the declaration must stay a plain
+   `export const REGISTERED_TOOL_COUNT = <digits>;`.
+2. **The facade domain map** — `test/tool-facade-domain-coverage.test.ts`. Reusing an existing
+   `domain` only trips its count assertion (it imports `REGISTERED_TOOL_COUNT`); a **new** domain is
+   what makes the map itself load-bearing.
+3. **`boot.tools_registered`** — `eval/perf/baseline.small.json`, hard/exact. Pinned **2 lower**
+   than `REGISTERED_TOOL_COUNT`, since `health` and `index_status` register inline in `cli.ts`.
+4. **Docs prose — two separate gates, and running one is not running the other.**
+   `docgen:facts-check` finds narrative counts (25 sites across 14 files last time),
+   `check-version-coherence.mjs` separately pins ~9 *headline* anchors, and **`docgen:render`** owns
+   the generated marker regions (it rewrote 8 files last time). Running `docgen:facts-check` and
+   skipping `docgen:render` is what failed `drift-gate` — `docgen:render -- --check` is the one that
+   tells you.
+
+**If the tool MUTATES** (`destructive: true`, or any `write:`/`admin:` scope):
+
+5. **`pathAcl`, or a documented exemption** — `test/acl-extraction-coverage.test.ts` (THE-414). A
+   mutating tool that names no caller-controlled vault path belongs in `EXEMPT_NO_PATH` **with a
+   comment saying why**. Being vault-*scoped* and *naming a path inside a vault* are different
+   things; only the second is `pathAcl`'s business.
+
+**If it also takes a vault:**
+
+6. **`vaultArg`, and the field must be the branded `VaultId`** —
+   `test/vault-arg-coverage.test.ts` (THE-513 Part 2). The gate recognises a vault-shaped field by
+   that schema, so `vault: z.string()` reads to it as *a mutating tool with no vault at all* and
+   fails with a confusing message about a set you did not touch.
+
+**Whenever the target file is near the ceiling:**
+
+7. **biome's 700-line `noExcessiveLinesPerFile`** — three tools took `experiential-tools.ts` to 839.
+   Splitting is the fix, but a naive split creates a **circular import** (`check:boundaries`,
+   baseline **0**): lift the shared deps and helpers into a third module rather than having the new
+   file import from the old one.
+
+**Run `bun run lint` at the REPO ROOT before committing**, not `biome check --write` per file. The
+line-ceiling rule is invisible per-file, and per-file formatting leaves drift a later edit re-breaks.
 
 ## Security posture
 
