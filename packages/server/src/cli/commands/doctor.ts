@@ -8,7 +8,12 @@ import {
 } from "../../bridge";
 import { resolveCapabilityProfile } from "../../capability";
 import { openDatabase } from "../../db/open";
-import { assembleDoctorReport, type DenseProbeResult, renderText } from "../../doctor";
+import {
+  assembleDoctorReport,
+  type DenseProbeResult,
+  type DerivedTableState,
+  renderText,
+} from "../../doctor";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
@@ -159,6 +164,168 @@ async function probeEpisodeBacklog(
   }
 }
 
+/**
+ * Does this ACL block actually restrict anything?
+ *
+ * `acl` is present on every resolved config — `rules` and `defaultScopes` both default to `[]` —
+ * so testing for the OBJECT reports every deployment as ACL-configured, and the path-set cache
+ * then looks "configured but empty" on installs that correctly never build one. Content is the
+ * only honest signal.
+ */
+function hasAclRules(acl: { rules?: unknown[]; readPaths?: unknown[] } | undefined): boolean {
+  if (!acl) return false;
+  return (acl.rules?.length ?? 0) > 0 || (acl.readPaths?.length ?? 0) > 0;
+}
+
+/**
+ * Count rows in the derived tables and classify each one's writer, for `derived.liveness`.
+ *
+ * The classification is the load-bearing part — a row count alone cannot distinguish "this feature
+ * is switched off" from "this feature is on and has never worked", and only the second is a
+ * finding. Each entry therefore pairs the count with whether anything is in a position to write it
+ * IN THIS deployment, derived from the same config the server boots from.
+ *
+ * `writer: "none"` is reserved for tables no code path writes at all — currently `memory_entities`
+ * and `memory_relations`, which have existed since the initial migration with nothing populating
+ * them (THE-629). That is a different fact from "disabled" and must not be reported as one.
+ *
+ * Never throws: a missing store degrades to an empty list, which the check renders as "no store"
+ * rather than as a wall of false warnings.
+ */
+async function probeDerivedTables(
+  cacheDir: string,
+  cfg: {
+    /** True when the configured embeddings provider emits embedFull (the sparse/ColBERT heads). */
+    multiVector: boolean;
+    /** True when any experiential gate is on — the same three the server uses. */
+    experiential: boolean;
+    /** True when an ACL block is declared at the root or on any vault. The path-set cache is only
+     *  ever built for a caller whose ACL actually filters something. */
+    aclConfigured: boolean;
+    /** True when destructive note writes capture an undo (config.snapshots.enabled). */
+    snapshots: boolean;
+  },
+): Promise<DerivedTableState[]> {
+  const out: DerivedTableState[] = [];
+  const count = (db: Awaited<ReturnType<typeof openDatabase>>, table: string): number | null => {
+    try {
+      const r = db.prepare(`SELECT COUNT(*) AS c FROM "${table}"`).get() as { c: number };
+      return r.c;
+    } catch {
+      return null; // table absent — runtime-provisioned and never created, same as zero rows
+    }
+  };
+
+  const cachePath = join(cacheDir, "cache.db");
+  if (existsSync(cachePath)) {
+    let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+    try {
+      db = await openDatabase(cachePath);
+      const multiVectorLever = "an embeddings provider emitting embedFull (bge-m3 / model-tier)";
+      const spec: Array<[string, DerivedTableState["writer"], string]> = [
+        // Both heads come from the SAME gate: embedFull exists only on providers that emit it, so
+        // a dense-only provider darkens both at once. One config line, two dark tables.
+        ["chunk_sparse", cfg.multiVector ? "enabled" : "disabled", multiVectorLever],
+        ["chunk_colbert", cfg.multiVector ? "enabled" : "disabled", multiVectorLever],
+        // No config turns these on — nothing writes them at all. Reporting them as "off" would
+        // imply a switch exists.
+        ["memory_entities", "none", "no writer exists (THE-629)"],
+        ["memory_relations", "none", "no writer exists (THE-629)"],
+        // Client- and user-driven surfaces. Enabled means "the verb is registered and reachable";
+        // empty then means the verb has never been exercised, which is the finding.
+        ["workspace_sessions", "on-demand", "a client calling the start_session tool (THE-714)"],
+        ["capture_queue", "on-demand", "a client calling the capture verb"],
+        [
+          "note_snapshots",
+          cfg.snapshots ? "on-demand" : "disabled",
+          "a destructive note write while snapshots.enabled (restore_note has nothing to restore until then)",
+        ],
+        [
+          "snapshot_blobs",
+          cfg.snapshots ? "on-demand" : "disabled",
+          "a destructive note write while snapshots.enabled",
+        ],
+        // Built per-caller only when an ACL actually filters something.
+        [
+          "acl_path_sets",
+          cfg.aclConfigured ? "enabled" : "disabled",
+          "an `acl` block at the root or on a vault",
+        ],
+        [
+          "acl_path_members",
+          cfg.aclConfigured ? "enabled" : "disabled",
+          "an `acl` block at the root or on a vault",
+        ],
+        // plane.ts's recordRun writes this unconditionally when the table exists, and plane-wiring
+        // imports wrapPlaneJob — so an empty table here is worth surfacing, not assuming.
+        ["job_runs", "enabled", "plane jobs recording their runs via wrapPlaneJob"],
+        // Derived planes that ARE writing today — included so `live` is non-empty and the check can
+        // demonstrate it distinguishes success from silence, not just report problems.
+        ["contradictions", "enabled", "the contradiction plane job"],
+        ["syntheses", "enabled", "the weekly synthesis plane job"],
+        ["vault_edges", "enabled", "the indexer deriving links from notes"],
+      ];
+      for (const [table, writer, lever] of spec) {
+        const c = count(db, table);
+        out.push({ table, rows: c ?? 0, writer, lever });
+      }
+    } catch {
+      /* leave what we have */
+    } finally {
+      try {
+        db?.close?.();
+      } catch {
+        /* see probeNotesFts */
+      }
+    }
+  }
+
+  const expPath = join(cacheDir, "experiential.db");
+  if (existsSync(expPath)) {
+    let edb: Awaited<ReturnType<typeof openDatabase>> | undefined;
+    try {
+      edb = await openDatabase(expPath);
+      const reflectLever = "the reflect pass extracting preferences from episodes";
+      const spec: Array<[string, DerivedTableState["writer"], string]> = [
+        ["preference_profile", cfg.experiential ? "enabled" : "disabled", reflectLever],
+        ["preference_deltas", cfg.experiential ? "enabled" : "disabled", reflectLever],
+        [
+          "gap_reports",
+          cfg.experiential ? "enabled" : "disabled",
+          "running `obsidian-tc gaps` to persist a pass",
+        ],
+        [
+          "forget_log",
+          cfg.experiential ? "on-demand" : "disabled",
+          "a client calling the work_forget / forget verb",
+        ],
+        // Writing today — the healthy baseline for this store.
+        ["agent_episodes", cfg.experiential ? "enabled" : "disabled", "episode capture"],
+        ["chunk_retrievals", cfg.experiential ? "enabled" : "disabled", "retrieval logging"],
+        [
+          "vault_object_state",
+          cfg.experiential ? "enabled" : "disabled",
+          "the activation recompute",
+        ],
+        ["note_quality", cfg.experiential ? "enabled" : "disabled", "the note-quality rollup job"],
+      ];
+      for (const [table, writer, lever] of spec) {
+        const c = count(edb, table);
+        out.push({ table: `experiential.${table}`, rows: c ?? 0, writer, lever });
+      }
+    } catch {
+      /* leave what we have */
+    } finally {
+      try {
+        edb?.close?.();
+      } catch {
+        /* see probeNotesFts */
+      }
+    }
+  }
+  return out;
+}
+
 // THE-521 — runtime health probe. Loads config, detects the environment (THE-522), runs the default
 // check set, and emits either the versioned JSON envelope or human text rendered from it. Exits
 // non-zero when any check fails, so scripts and CI can gate on health — a warning does not fail.
@@ -212,6 +379,25 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     cmd.probe && experientialEnabled
       ? await probeEpisodeBacklog(config.cacheDir, Date.now())
       : undefined;
+  // The multi-vector gate is ONE decision that darkens two tables: chunk_sparse and chunk_colbert
+  // are both written from embedFull, which only some providers emit. Mirrors the same expression
+  // retrievalHeads uses below so doctor cannot disagree with itself about provider capability.
+  const derivedTables = cmd.probe
+    ? await probeDerivedTables(config.cacheDir, {
+        multiVector:
+          config.embeddings.provider === "bge-m3" ||
+          (config.embeddings.provider === "model-tier" &&
+            config.embeddings.modelTier?.full !== undefined),
+        experiential: experientialEnabled,
+        // An ACL declared anywhere — root or a single vault override — is enough for the path-set
+        // cache to be built for some caller. Absent everywhere means it correctly never builds.
+        // `acl` is present on EVERY resolved config (rules/defaultScopes default to []), so testing
+        // the object reports every deployment as ACL-configured and the path-set cache then looks
+        // "configured but empty" on installs that correctly never build one. Test the content.
+        aclConfigured: hasAclRules(config.acl) || config.vaults.some((v) => hasAclRules(v.acl)),
+        snapshots: config.snapshots.enabled,
+      })
+    : undefined;
 
   const report = await assembleDoctorReport({
     config: {
@@ -244,6 +430,11 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       experientialEvaluator: {
         enabled: experientialEnabled,
         ...(backlog !== undefined ? { probe: () => backlog } : {}),
+      },
+      // Derived-table liveness. Probe-only for the same reason as every other store-touching check:
+      // a default run must not open either database.
+      derivedTables: {
+        ...(derivedTables !== undefined ? { probe: () => derivedTables } : {}),
       },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {

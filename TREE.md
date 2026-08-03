@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,019 tracked code files · 153,066 lines.
+**Scale:** 1,020 tracked code files · 153,519 lines.
 
-TypeScript 142,051 · JavaScript 7,260 · Python 1,640 · SQL 1,059 · Rust 742 · Shell 314.
+TypeScript 142,504 · JavaScript 7,260 · Python 1,640 · SQL 1,059 · Rust 742 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -91,13 +91,13 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `mcp/` | 17 | 4,128 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 11 | 2,948 | work-memory tier: activation, retrieval log, forget, citations |
 | `runtime/` | 13 | 2,897 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `cli/` | 23 | 2,188 | arg parsing + subcommands |
+| `cli/` | 23 | 2,379 | arg parsing + subcommands |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 14 | 1,201 | provisioning, migrate runner, experiential store |
+| `doctor/` | 5 | 1,090 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `migrations/` | 30 | 1,059 | hand-registered SQL. **Two chains** — see below |
-| `doctor/` | 5 | 967 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `plane/` | 6 | 905 | generative plane; `jobs/` holds the contradiction detector |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
@@ -138,9 +138,9 @@ Generated — see `scripts/gen-tree-map.mjs`.
 <!-- BEGIN GENERATED: tree-largest-files -->
 | lines | file |
 |---:|---|
+| 795 | `packages/server/src/doctor/checks.ts` |
 | 724 | `packages/server/src/runtime/server-runtime.ts` |
 | 701 | `packages/server/src/mcp/server.ts` |
-| 681 | `packages/server/src/doctor/checks.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 620 | `packages/server/src/metrics/registry.ts` |
