@@ -52,14 +52,19 @@ export function stampRetrievalFeedback(
     throw err.forbidden(
       `stamping feedback across sessions requires a session_id or the ${CROSS_PRINCIPAL_SCOPE} scope`,
     );
-  // Ownership requires being identifiable. `caller` is nullable and a valid JWT with no `sub`
-  // claim produces `caller: null` with `authenticated: true` (auth/jwt.ts — `sub` is never
-  // required), so `AND caller IS ?` would bind NULL and match every row that predates the THE-568
-  // caller column: 81 of 97 on the live store, retrievals no principal is attributable for.
-  // Widening the session clause above is what made that reachable; before it the session mismatch
-  // masked it. An unattributed principal is refused rather than inheriting unowned rows —
-  // admin:workspace remains the way to touch them deliberately.
-  if (ctx.caller === null && !crossPrincipal)
+  // Ownership requires being IDENTIFIABLE — the test is identity, not null. `caller` is nullable
+  // and a valid JWT with no `sub` claim produces `caller: null` with `authenticated: true`
+  // (auth/jwt.ts — `sub` is never required), so `AND caller IS ?` would bind NULL and, because
+  // SQLite's `IS` treats NULL as a value, match every row predating the THE-568 caller column:
+  // 81 of 97 on the live store, retrievals no principal is attributable for. Widening the session
+  // clause above is what made that reachable; before it the session mismatch masked it.
+  //
+  // The check covers the empty string as well: `jwt.ts` accepts any string `sub`, so `sub: ""`
+  // yields `caller: ""`, which is exactly as unidentifiable and would collapse every empty-sub
+  // token into one shared partition. Anything that is not a non-empty string is refused rather
+  // than inheriting unowned rows — admin:workspace remains the way to touch them deliberately.
+  const identified = typeof ctx.caller === "string" && ctx.caller.length > 0;
+  if (!identified && !crossPrincipal)
     throw err.forbidden(
       `stamping feedback requires an identified caller or the ${CROSS_PRINCIPAL_SCOPE} scope`,
     );

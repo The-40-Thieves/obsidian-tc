@@ -592,6 +592,24 @@ describe("M8 experiential tools (THE-229)", () => {
     ).toBeNull();
   });
 
+  // The guard is about IDENTITY, not about null. `jwt.ts` accepts any string `sub`, so `sub: ""`
+  // yields `caller: ""` — which would pass a `=== null` check while being exactly as
+  // unidentifiable, and would collapse every empty-sub token into one shared partition.
+  it("THE-718: an empty-string caller is not an identity either", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('anon', 'c1', ?, NULL, '')",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    const denied = await registry.dispatch(
+      "record_retrieval_feedback",
+      { chunk_id: "c1", outcome: 1 },
+      ctx({ caller: "", sessionId: "s1" }),
+    );
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("forbidden");
+  });
+
   it("THE-718: admin:workspace still reaches unowned NULL-caller rows", async () => {
     const db = edb0();
     db.prepare(
