@@ -43,7 +43,11 @@ export interface M8Deps {
   now?: () => number;
 }
 
-const UNAVAILABLE = {
+// Annotated rather than inferred: a bare object literal widens `available` to `boolean`, which no
+// longer matches `Unavailable`'s `z.literal(false)` once a handler's return union is checked
+// structurally. Annotating pins the discriminant while leaving `message` a plain `string` — `as
+// const` would also freeze the message into a literal type, which is not wanted.
+const UNAVAILABLE: { available: false; message: string } = {
   available: false,
   message:
     "experiential store is not open (enable experiential.logRetrievals, captureEpisodes, or activationRerank)",
@@ -319,6 +323,137 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           .all(...params, input.k) as EpisodeRow[];
         const visiblePrev = visiblePrevIds(deps.edb, rows);
         return { available: true, episodes: rows.map((r) => projectEpisode(r, visiblePrev)) };
+      },
+    }),
+
+    defineTool({
+      name: "work_episode_chain",
+      domain: "knowledge",
+      description:
+        "Walk an episode's amendment chain in one call. `prev_id` links each episode to the caller's previous one, and following it hop by hop cost one round trip per link. Returns the chain newest-first starting at `id`. The THE-238 reader contract applies at every hop, not just the first: tombstoned rows never surface, expired rows are excluded, and the walk stays inside the calling principal unless any_caller (admin:workspace, P1.7). The walk STOPS at the first hop that fails those filters rather than skipping over it — a gap in a returned chain would itself disclose that a hidden episode exists.",
+      inputSchema: z
+        .object({
+          id: z.string().min(1),
+          k: z.number().int().positive().max(200).default(50),
+          any_caller: z.boolean().default(false),
+        })
+        .strict(),
+      outputSchema: availableWith({
+        chain: z.array(EpisodeProjection),
+        /** True when the walk stopped on `k` rather than on a genuine chain end, so a caller can
+         *  tell "this is the whole chain" from "there is more". */
+        truncated: z.boolean(),
+      }),
+      requiredScopes: ["read:workspace"],
+      tags: ["experiential"],
+      handler: (input, ctx) => {
+        if (!deps.edb) return UNAVAILABLE;
+        // P1.7: identical boundary to work_search/work_episodes — crossing the partition is an
+        // authorization decision, not a filter, so it is refused rather than silently self-scoped.
+        if (input.any_caller && !canCrossPrincipal(ctx))
+          throw err.forbidden(`any_caller requires the ${CROSS_PRINCIPAL_SCOPE} scope`);
+
+        const clauses = ["id = ?", "blocked = 0", "(valid_until IS NULL OR valid_until > ?)"];
+        if (!input.any_caller) clauses.push("caller IS ?");
+        const stmt = deps.edb.prepare(
+          `SELECT id, ts, vault_id, session_id, caller, channel, episode_type, tool, status,
+                  error_code, duration_ms, result_size, summary, tags, trust, eligibility,
+                  blocked, prev_id
+           FROM agent_episodes WHERE ${clauses.join(" AND ")}`,
+        );
+        const fetch = (id: string): EpisodeRow | undefined => {
+          const params: unknown[] = [id, now()];
+          if (!input.any_caller) params.push(ctx.caller ?? null);
+          return stmt.get(...params) as EpisodeRow | undefined;
+        };
+
+        const chain: EpisodeRow[] = [];
+        // A corrupted or maliciously-constructed prev_id cycle would otherwise loop forever; the
+        // walk is bounded by `k` anyway, but `seen` makes termination independent of that bound.
+        const seen = new Set<string>();
+        let cursor: string | null = input.id;
+        while (cursor !== null && chain.length < input.k && !seen.has(cursor)) {
+          seen.add(cursor);
+          const row = fetch(cursor);
+          if (!row) break; // missing, tombstoned, expired, or another principal's — stop here
+          chain.push(row);
+          cursor = row.prev_id;
+        }
+        const truncated = chain.length === input.k && chain[chain.length - 1]?.prev_id !== null;
+        const visiblePrev = visiblePrevIds(deps.edb, chain);
+        return {
+          available: true,
+          chain: chain.map((r) => projectEpisode(r, visiblePrev)),
+          truncated,
+        };
+      },
+    }),
+
+    defineTool({
+      name: "episode_stats",
+      domain: "knowledge",
+      description:
+        "Aggregate activity counts over the experiential episode log WITHOUT returning any episode content. work_search/work_episodes are all-or-nothing: seeing activity patterns otherwise requires admin:workspace, which also grants full row content. This returns counts only, so an operator can answer 'what is this agent doing' without reading what it did. Grouping by caller is not offered — the group_by enum excludes it deliberately. Buckets smaller than min_bucket are withheld and summed into `suppressed`, because a count of 1 in a narrow bucket is equivalent to reading the row.",
+      inputSchema: z
+        .object({
+          group_by: z.enum(["tool", "status", "eligibility"]).default("tool"),
+          ...TimeFilters,
+          /** k-anonymity floor. Raising it is allowed; lowering it below 2 is not, because a
+           *  bucket of 1 identifies a single episode. */
+          min_bucket: z.number().int().min(2).max(1000).default(5),
+          limit: z.number().int().positive().max(200).default(50),
+        })
+        .strict(),
+      outputSchema: availableWith({
+        group_by: z.string(),
+        min_bucket: z.number(),
+        buckets: z.array(z.object({ key: z.string().nullable(), count: z.number() })),
+        /** Total rows in buckets that fell below min_bucket, reported as one number so the totals
+         *  still reconcile without disclosing the small buckets themselves. */
+        suppressed: z.number(),
+        suppressed_buckets: z.number(),
+        total: z.number(),
+      }),
+      requiredScopes: ["read:workspace"],
+      tags: ["experiential"],
+      handler: (input, _ctx) => {
+        if (!deps.edb) return UNAVAILABLE;
+        // Tombstoned and expired rows are excluded for the same reason they are excluded from
+        // work_search: a count that includes them discloses their existence.
+        const clauses = ["blocked = 0", "(valid_until IS NULL OR valid_until > ?)"];
+        const params: unknown[] = [now()];
+        if (input.since !== undefined) {
+          clauses.push("ts >= ?");
+          params.push(input.since);
+        }
+        if (input.until !== undefined) {
+          clauses.push("ts <= ?");
+          params.push(input.until);
+        }
+        // `group_by` is a closed enum, never interpolated from free input — and it deliberately
+        // cannot name `caller`.
+        const col = input.group_by;
+        const rows = deps.edb
+          .prepare(
+            `SELECT ${col} AS key, COUNT(*) AS n FROM agent_episodes
+             WHERE ${clauses.join(" AND ")} GROUP BY ${col} ORDER BY n DESC`,
+          )
+          .all(...params) as Array<{ key: string | null; n: number }>;
+
+        const kept = rows.filter((r) => r.n >= input.min_bucket);
+        const small = rows.filter((r) => r.n < input.min_bucket);
+        return {
+          // `as const` keeps this the literal `true` rather than widening to `boolean`: the two
+          // return branches (UNAVAILABLE and this) otherwise infer a union that no longer matches
+          // the discriminated availableWith() shape.
+          available: true as const,
+          group_by: input.group_by,
+          min_bucket: input.min_bucket,
+          buckets: kept.slice(0, input.limit).map((r) => ({ key: r.key, count: r.n })),
+          suppressed: small.reduce((a, r) => a + r.n, 0),
+          suppressed_buckets: small.length,
+          total: rows.reduce((a, r) => a + r.n, 0),
+        };
       },
     }),
 
