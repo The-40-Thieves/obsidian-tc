@@ -56,8 +56,15 @@ export function stampRetrievalFeedback(
   // and a valid JWT with no `sub` claim produces `caller: null` with `authenticated: true`
   // (auth/jwt.ts — `sub` is never required), so `AND caller IS ?` would bind NULL and, because
   // SQLite's `IS` treats NULL as a value, match every row predating the THE-568 caller column:
-  // 81 of 97 on the live store, retrievals no principal is attributable for. Widening the session
-  // clause above is what made that reachable; before it the session mismatch masked it.
+  // 81 of 97 on the live store, retrievals no principal is attributable for.
+  //
+  // Only part of this is new. Widening the session clause above is what exposed the SESSION-LESS
+  // rows — which is all 97 of them live. But a null-caller principal could ALREADY reach
+  // null-caller rows carrying its own session, and experiential-tools-branch-coverage.test.ts
+  // asserted exactly that as intended behaviour. That assertion could not be supported either:
+  // `session_id` is `z.string().optional()`, an arbitrary caller-supplied string with no ownership
+  // check, so "only in its own session" reduced to "only if it guesses the session id". The test
+  // is reversed there, with the reasoning recorded beside it.
   //
   // The check covers the empty string as well: `jwt.ts` accepts any string `sub`, so `sub: ""`
   // yields `caller: ""`, which is exactly as unidentifiable and would collapse every empty-sub

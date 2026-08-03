@@ -567,9 +567,12 @@ describe("M8 experiential tools (THE-229)", () => {
   // `string | null` and a valid JWT with no `sub` claim yields `caller: null` with
   // `authenticated: true` (auth/jwt.ts:163,170 — `sub` is never required). The ownership clause is
   // `AND caller IS ?`, so such a principal matches every legacy NULL-caller row: 81 of 97 on the
-  // live store. Widening the session clause is what made that reachable — before it, the session
-  // mismatch masked it. Ownership requires being identifiable, so an unattributed principal is
-  // refused outright rather than silently inheriting rows nobody produced.
+  // live store. Widening the session clause is what exposed the SESSION-LESS ones, which is all 97
+  // live rows — but null-caller rows carrying a session were ALREADY reachable, and
+  // experiential-tools-branch-coverage.test.ts asserted that as intended behaviour. See the
+  // reversal there for why "only in its own session" was never a boundary: `session_id` is
+  // caller-supplied and unvalidated. Ownership requires being identifiable, so an unattributed
+  // principal is refused outright rather than silently inheriting rows nobody produced.
   it("THE-718: an unidentifiable caller cannot claim unowned NULL-caller rows", async () => {
     const db = edb0();
     db.prepare(

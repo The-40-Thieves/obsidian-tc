@@ -315,24 +315,38 @@ describe("THE-602 branch coverage: experiential-tools.ts", () => {
     expect(row.outcome).toBe(1); // untouched: COALESCE(NULL, outcome) keeps the prior value
   });
 
-  it("record_retrieval_feedback: a null-caller principal stamps only null-caller retrievals it owns", async () => {
+  // THE-718 REVERSES this assertion. It previously read "a null-caller principal stamps only
+  // null-caller retrievals it owns" and expected `updated: 1` — the behaviour was real, but the
+  // word "owns" could not be supported:
+  //
+  //   * NULL is not a principal identifier. `caller` is `string | null` and a VALID JWT with no
+  //     `sub` claim yields `caller: null` with `authenticated: true` (auth/jwt.ts never requires
+  //     `sub`), so every sub-less token collapses into one shared partition and `AND caller IS ?`
+  //     binds NULL as a value that matches all of them.
+  //   * The session narrowing was not a second boundary here. `session_id` is
+  //     `z.string().optional()` — an arbitrary caller-supplied string with no ownership check —
+  //     so "only in its own session" reduced to "only if it guesses the session id".
+  //
+  // Ownership therefore requires being identifiable, and a non-elevated caller that is not a
+  // non-empty string is refused. This is a deliberate REMOVAL of a capability, not a regression:
+  // admin:workspace remains the way to touch unattributed rows.
+  it("THE-718: a null-caller principal cannot stamp unattributed retrievals", async () => {
     const db = edb0();
     db.prepare(
       "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('r-anon', 'c1', ?, 's1', NULL)",
     ).run(NOW);
     const { registry, ctx } = harness(db);
-    const res = un<{ updated: number }>(
-      await registry.dispatch(
-        "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
-        ctx({ caller: null, sessionId: "s1" }),
-      ),
+    const denied = await registry.dispatch(
+      "record_retrieval_feedback",
+      { chunk_id: "c1", outcome: 1 },
+      ctx({ caller: null, sessionId: "s1" }),
     );
-    expect(res.updated).toBe(1);
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("forbidden");
     const row = db.prepare("SELECT outcome FROM chunk_retrievals WHERE id = 'r-anon'").get() as {
-      outcome: number;
+      outcome: number | null;
     };
-    expect(row.outcome).toBe(1);
+    expect(row.outcome).toBeNull();
   });
 
   it("note_quality_report: flags filter narrows results; omitting flags returns everything", async () => {
