@@ -7,6 +7,15 @@
 // THE-688 fix 2: the opt-in probe's result type, so the CLI can build a probe without importing
 // through the checks module directly.
 export type { DenseProbeResult, DerivedTableState } from "./checks";
+// entrypoints.liveness — the verb-side companion to derived.liveness. Same probe-injection
+// contract, so the CLI builds its probe without importing through the checks module.
+export type {
+  EntryPointsProbe,
+  EntryPointsView,
+  ScheduledPassState,
+  ToolCensus,
+} from "./entrypoints";
+export { entryPointsCheck } from "./entrypoints";
 export { renderText, runDoctor } from "./report";
 export type { AssembleOptions, DoctorConfigView } from "./run";
 export { assembleDoctorReport, decodeTokenClaims } from "./run";
