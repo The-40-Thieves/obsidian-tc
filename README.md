@@ -19,7 +19,7 @@ obsidian-tc gives agents **governed** access instead. Every tool call — no exc
 
 New here? Start with the [5-minute quickstart](./docs/QUICKSTART.md) or the [threat model and design rationale](./docs/WHY.md).
 
-## The interface: 3 tools, ~154 governed capabilities
+## The interface: 3 tools, ~157 governed capabilities
 
 By default the server advertises just **three meta-tools** instead of a wall of 150:
 
@@ -27,10 +27,10 @@ By default the server advertises just **three meta-tools** instead of a wall of 
 - **`describe_capability`** — one capability's schema, required scopes, and safety hints
 - **`call_capability`** — invoke the named capability; the call routes through the same auth/scope/ACL/HITL/idempotency/throttle pipeline as a direct call, and the target's own schema validates the arguments
 
-This keeps agent context lean while the full surface — 154 tools across 31 domains — stays reachable, and every tool remains directly callable by name. `toolFacade.mode` selects the shape: `triad` (default), `domain` (~a dozen domain meta-tools like `notes`, `search`, `vault`), or `flat` (the full advertised surface, the pre-facade behavior). The facade is boundary-only: no gate is ever bypassed, whichever mode you pick.
+This keeps agent context lean while the full surface — 157 tools across 31 domains — stays reachable, and every tool remains directly callable by name. `toolFacade.mode` selects the shape: `triad` (default), `domain` (~a dozen domain meta-tools like `notes`, `search`, `vault`), or `flat` (the full advertised surface, the pre-facade behavior). The facade is boundary-only: no gate is ever bypassed, whichever mode you pick.
 
 <!-- BEGIN GENERATED: tools-summary -->
-**154 governed capabilities**, grouped by access scope.
+**157 governed capabilities**, grouped by access scope.
 
 **read** (94) — `audit_provenance`, `bundle_files`, `bundle_folder`, `diagnose_retrieval`, `episode_stats`, `eval_dataview_field`, `find_link_cycles`, `find_notes_by_property`, `find_notes_by_tag`, `find_orphans`, `find_unresolved_links`, `gap_report`, `generate_uri`, `get_attachment`, `get_backlinks`, `get_entity`, `get_index_status`, `get_link_strength`, `get_note_tags`, `get_outgoing_links`, `get_periodic_note`, `get_session_traces`, `get_vault`, `git_diff`, `git_log`, `git_status`, `graph_centrality`, `graph_communities`, `graph_path_between`, `knowledge_challenge`, `knowledge_get_critical`, `knowledge_search`, `list_attachments`, `list_bookmarks`, `list_capture_queue`, `list_commands`, `list_contradictions`, `list_kanban_boards`, `list_notes`, `list_periodic_notes`, `list_properties`, `list_quickadd_actions`, `list_snapshots`, `list_tags`, `list_tasks`, `list_templates`, `list_vaults`, `list_workspaces`, `makemd_list_spaces`, `makemd_query`, `note_exists`, `note_quality_report`, `ocr_attachment`, `ocr_bulk`, `plur_get`, `plur_recall`, `plur_recall_hybrid`, `plur_similarity_search`, `query_base`, `query_canvas`, `query_datacore`, `query_entity_graph`, `read_base`, `read_canvas`, `read_excalidraw`, `read_frontmatter`, `read_kanban_board`, `read_metadata_fields`, `read_note`, `read_notes`, `read_property`, `read_snapshot`, `reflect`, `remotely_save_status`, `resolve_daily_note`, `search_dql`, `search_jsonlogic`, `search_omnisearch`, `search_regex`, `search_semantic`, `search_text`, `search_vault`, `server_health`, `session_bootstrap`, `snapshot_note`, `suggest_links`, `tasks_filter`, `validate_dql`, `vault_context`, `vault_graph_search`, `vault_health_score`, `work_episode_chain`, `work_episodes`, `work_search`
 
@@ -51,7 +51,7 @@ obsidian-tc is a comprehensive Model Context Protocol (MCP) server for [Obsidian
 
 Three pillars:
 
-1. **Broad.** 154 tools covering the meaningful Obsidian operations — including native Bases (`.base`) support with a real expression-DSL evaluator, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
+1. **Broad.** 157 tools covering the meaningful Obsidian operations — including native Bases (`.base`) support with a real expression-DSL evaluator, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
 2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS with `kid` rotation), folder ACLs (per vault), read-only kill switch, human-in-the-loop elicit on destructive operations, compare-and-swap on writes, idempotency keys, bulk throttling.
 3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, structured CloudEvents emission on every tool call — all opt-in export streams that fail soft.
 
@@ -59,7 +59,7 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 
 ## Status
 
-✅ **Shipped — v1.16.0** (2026-08-02). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.16.0`. The surface is **154 tools across 31 domains**, presented by default via the triad facade described above.
+✅ **Shipped — v1.16.0** (2026-08-02). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.16.0`. The surface is **157 tools across 31 domains**, presented by default via the triad facade described above.
 
 The v1.6–v1.7 line turned the server into a **measured memory engine** (full detail in the [CHANGELOG](./CHANGELOG.md)):
 
@@ -239,7 +239,7 @@ disagree.
 
 | | Tools | Group | Retrieval | Governance | Memory engine |
 |---|---|---|---|---|---|
-| **obsidian-tc** | 154 (3-tool facade) | all three | BM25 (FTS5) · vector (vec0) · graph · RRF fusion · diversity | JWT (HS256/JWKS) · per-vault folder ACL · HITL elicit · CAS · idempotency · snapshots · audit log | episodes · activation · forgetting · contradictions |
+| **obsidian-tc** | 157 (3-tool facade) | all three | BM25 (FTS5) · vector (vec0) · graph · RRF fusion · diversity | JWT (HS256/JWKS) · per-vault folder ACL · HITL elicit · CAS · idempotency · snapshots · audit log | episodes · activation · forgetting · contradictions |
 | [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~14 | access | text / regex | JWT/OAuth · folder-scoped path policy · read-only mode · elicited delete confirmation showing blast radius | — |
 | [aaronsb/obsidian-mcp-plugin](https://github.com/aaronsb/obsidian-mcp-plugin) | 8 families | access | text · graph traversal · Dataview/Bases | path allow/block lists · read-only mode · per-operation controls · API key | — |
 | [bitbonsai/mcpvault](https://github.com/bitbonsai/mcpvault) | ~14 | access | BM25 | traversal + symlink protection · delete confirmation | — |

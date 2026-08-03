@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 373,
-    "dependencies": 1661,
+    "modules": 374,
+    "dependencies": 1665,
     "subsystemPairs": 111,
-    "crossSubsystemImports": 742
+    "crossSubsystemImports": 745
   },
   "subsystems": {
     "auth": 3,
@@ -17,7 +17,7 @@
     "db": 14,
     "doctor": 6,
     "embeddings": 6,
-    "experiential": 11,
+    "experiential": 12,
     "formats": 6,
     "gateway": 2,
     "graph": 1,
@@ -78,6 +78,11 @@
       "weight": 18
     },
     {
+      "from": "experiential",
+      "to": "db",
+      "weight": 14
+    },
+    {
       "from": "search",
       "to": "vault",
       "weight": 14
@@ -86,11 +91,6 @@
       "from": "tools",
       "to": "db",
       "weight": 14
-    },
-    {
-      "from": "experiential",
-      "to": "db",
-      "weight": 13
     },
     {
       "from": "runtime",
@@ -138,6 +138,11 @@
       "weight": 8
     },
     {
+      "from": "runtime",
+      "to": "experiential",
+      "weight": 8
+    },
+    {
       "from": "tools",
       "to": "formats",
       "weight": 8
@@ -154,23 +159,18 @@
     },
     {
       "from": "runtime",
-      "to": "experiential",
+      "to": "plane",
       "weight": 7
     },
     {
-      "from": "runtime",
-      "to": "plane",
+      "from": "tools",
+      "to": "experiential",
       "weight": 7
     },
     {
       "from": "tools",
       "to": "bridge",
       "weight": 7
-    },
-    {
-      "from": "tools",
-      "to": "experiential",
-      "weight": 6
     },
     {
       "from": "tools",

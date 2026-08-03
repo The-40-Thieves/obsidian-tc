@@ -16,6 +16,7 @@ import type { FolderAcl } from "../acl";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
+import { expireOverdueGoals } from "../experiential/goals";
 import { recomputeNoteQualityAll } from "../experiential/note-quality";
 import { registerEpisodeEvaluation } from "../experiential/reflect";
 import type { ToolRegistry } from "../mcp/registry";
@@ -369,5 +370,23 @@ export function registerNoteQualitySchedule(
       });
     },
     onError: stderrOnError("note-quality-enqueue"),
+  });
+  // THE-633: the goal expiry sweep. Registered HERE, in the same change that adds the table, and
+  // deliberately so — an expiry function with no scheduled caller is precisely the shape this
+  // codebase keeps producing (THE-698's evaluator, THE-717's citation pass, THE-719's gaps pass:
+  // correct code, complete tests, no caller, invisible from inside the repo). A goals table whose
+  // sweep never ran would silently become a list of things the user gave up on, biasing every
+  // downstream read toward stale intent — which is the exact failure the migration header calls out.
+  //
+  // Direct, not enqueued: this is a single bounded UPDATE over one indexed predicate, with no
+  // gateway dependency and nothing to retry. The durable job queue is for work that can fail
+  // halfway; this cannot.
+  scheduler.register({
+    name: "goal-expiry",
+    intervalMs: deps.intervalMs,
+    run: () => {
+      expireOverdueGoals(deps.experientialDb, Date.now());
+    },
+    onError: stderrOnError("goal-expiry"),
   });
 }

@@ -65,6 +65,11 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // Purge rather than backfill, per the 20260724_001 precedent; the migration header carries the
   // full reasoning and the correction to the ticket's premise.
   "20260803_001_preference_vault_id.sql",
+  // THE-633: 20260803_002 is the goals table — STATED intent, distinct from preferences
+  // (goals resolve into a terminal state; preferences move by weight and never resolve).
+  // vault_id from this first migration, deliberately, because the neighbouring precedent did
+  // not have it and needed 20260803_001 to add it.
+  "20260803_002_goals.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */
