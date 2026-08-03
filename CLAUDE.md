@@ -90,9 +90,15 @@ A `PreToolUse` hook blocks these; the message names the regeneration command.
 | `docs/obsidian-tc.config.schema.json` | `bun run config:schema` |
 | `packages/server/src/db/migrations-embedded.ts` | `bun run migrations:embed` |
 
-Ten doc files additionally carry docgen **marker regions** (`<!-- BEGIN GENERATED: ... -->`). Those
-are only partly generated — edit the prose around them freely, never inside them, and re-run
+**Twelve** doc files additionally carry docgen **marker regions** (`<!-- BEGIN GENERATED: ... -->`).
+Those are only partly generated — edit the prose around them freely, never inside them, and re-run
 `docgen:render -- --check`.
+
+Do not count them by grepping for `BEGIN GENERATED`: that also hits this file (which names the
+string in prose), `TREE.md` (a different generator), and docgen's own README, which is how the
+figure here read "ten" for a while. The authoritative list is **`GENERATED_DOC_FILES`** in
+`packages/server/scripts/docgen/targets.ts` — `render.ts` asserts its own targets against it, so
+that constant is the one thing that cannot drift from reality.
 
 ## Conventions that bite
 
