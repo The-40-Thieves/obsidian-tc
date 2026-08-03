@@ -11,10 +11,12 @@ import { openDatabase } from "../../db/open";
 import {
   assembleDoctorReport,
   type DenseProbeResult,
+  type DerivedColumnState,
   type DerivedTableState,
   type EntryPointsProbe,
   renderText,
 } from "../../doctor";
+import { experientialColumnSpec } from "../../doctor/column-spec";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
@@ -193,6 +195,61 @@ function hasAclRules(acl: { rules?: unknown[]; readPaths?: unknown[] } | undefin
  * Never throws: a missing store degrades to an empty list, which the check renders as "no store"
  * rather than as a wall of false warnings.
  */
+/**
+ * Sample the signal-bearing columns for `derived.column-liveness` (THE-720).
+ *
+ * One aggregate per column: total rows, non-NULL rows, distinct non-NULL values. The row count is
+ * re-read per column rather than cached per table because a missing column must degrade to "skip
+ * this entry" and not to "this table has no rows", which would report every OTHER column on that
+ * table as inconclusive.
+ *
+ * Never throws, same contract as probeDerivedTables: an absent store, table or column drops the
+ * entry rather than producing a wall of false findings.
+ */
+async function probeDerivedColumns(
+  cacheDir: string,
+  cfg: { experiential: boolean },
+): Promise<DerivedColumnState[]> {
+  const out: DerivedColumnState[] = [];
+  const expPath = join(cacheDir, "experiential.db");
+  if (!existsSync(expPath)) return out;
+  let edb: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    edb = await openDatabase(expPath);
+    for (const s of experientialColumnSpec(cfg)) {
+      try {
+        const r = edb
+          .prepare(
+            `SELECT COUNT(*) AS rows, COUNT("${s.column}") AS nn,
+                    COUNT(DISTINCT "${s.column}") AS d FROM "${s.table}"`,
+          )
+          .get() as { rows: number; nn: number; d: number };
+        out.push({
+          column: `experiential.${s.table}.${s.column}`,
+          rows: r.rows,
+          nonNull: r.nn,
+          distinct: r.d,
+          writer: s.writer,
+          lever: s.lever,
+        });
+      } catch {
+        // Table or column absent — a store predating the migration that added it. Dropping the
+        // entry is right: reporting a column that does not exist as "never written" is a finding
+        // about the schema, which the migration chain already owns.
+      }
+    }
+  } catch {
+    /* leave what we have */
+  } finally {
+    try {
+      edb?.close?.();
+    } catch {
+      /* see probeNotesFts */
+    }
+  }
+  return out;
+}
+
 async function probeDerivedTables(
   cacheDir: string,
   cfg: {
@@ -484,6 +541,11 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         snapshots: config.snapshots.enabled,
       })
     : undefined;
+  // THE-720: the column-level companion. Same probe gate and the same experiential predicate the
+  // table probe uses, so the two cannot disagree about whether the store is on.
+  const derivedColumns = cmd.probe
+    ? await probeDerivedColumns(config.cacheDir, { experiential: experientialEnabled })
+    : undefined;
 
   const report = await assembleDoctorReport({
     config: {
@@ -524,6 +586,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
       derivedTables: {
         ...(derivedTables !== undefined ? { probe: () => derivedTables } : {}),
+      },
+      derivedColumns: {
+        ...(derivedColumns !== undefined ? { probe: () => derivedColumns } : {}),
       },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {

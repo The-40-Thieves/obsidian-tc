@@ -793,3 +793,14 @@ export function derivedTablesCheck(view: DerivedTablesView): Check {
     },
   };
 }
+
+// THE-720: the column-level counterpart. This check answers "is the TABLE being written"; that one
+// answers "is the SIGNAL being written", which a row count cannot see — chunk_retrievals reported
+// `live` on 97 rows for 18 days while the two columns three tickets depend on were NULL on all of
+// them. Implemented in its own module (this file is already dense against the line ceiling) and
+// re-exported here so the doctor surface stays a single import for every consumer.
+export {
+  type DerivedColumnState,
+  type DerivedColumnsView,
+  derivedColumnsCheck,
+} from "./column-liveness";

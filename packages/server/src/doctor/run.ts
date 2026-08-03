@@ -3,6 +3,7 @@ import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import { embeddingsProviderNames, rerankerProviderNames } from "../providers/registry";
 import type {
+  DerivedColumnsView,
   DerivedTablesView,
   ExperientialEvaluatorView,
   NotesFtsView,
@@ -15,6 +16,7 @@ import {
   authMaxAgeCheck,
   authPolicyCheck,
   bridgeCheck,
+  derivedColumnsCheck,
   derivedTablesCheck,
   experientialEvaluatorCheck,
   nativeCheck,
@@ -71,6 +73,10 @@ export interface DoctorConfigView {
   /** Derived-table liveness: which derived tables are actually being written. Probe-only, so a
    *  default run stays offline and touches neither store. */
   derivedTables?: DerivedTablesView;
+  /** Derived-COLUMN liveness (THE-720): is each signal-bearing column actually receiving values?
+   *  derivedTables answers "is the table written"; a table can be live while the column three
+   *  tickets depend on is NULL on every row. Probe-only, same as derivedTables. */
+  derivedColumns?: DerivedColumnsView;
   /** Entry-point liveness: is each scheduled pass actually succeeding, and how much of the tool
    *  surface has ever been invoked. Probe-only, same as derivedTables. */
   entryPoints?: EntryPointsView;
@@ -133,6 +139,10 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // whose table has never been written is invisible from inside the system. Classified rather than
   // counted, so "empty because the feature is off" never warns.
   if (config.derivedTables) checks.push(derivedTablesCheck(config.derivedTables));
+  // THE-720: the column-level counterpart. chunk_retrievals reported `live` on 97 rows for 18 days
+  // while outcome/feedback were NULL on all of them — a row count cannot see a dead signal inside
+  // a healthy table.
+  if (config.derivedColumns) checks.push(derivedColumnsCheck(config.derivedColumns));
   // entrypoints.liveness — the verb-side companion. derived.liveness reports a table as `silent`
   // whether nothing enabled its writer or the writer runs and loses every time; only the schedule
   // row separates those, and they need opposite fixes.
