@@ -33,8 +33,8 @@ describe("derived.column-liveness spec", () => {
   });
 
   // Verified against episodes.ts's INSERT column list: it writes neither `outcome` nor `summary`,
-  // and the only UPDATEs touch blocked/eligibility (forget.ts NULLs summary rather than filling
-  // it). "none" is a different claim from "disabled" and must not be reported as one.
+  // and the only UPDATE statements touch blocked/eligibility (forget.ts NULLs summary rather
+  // than filling it). "none" is a different claim from "disabled" and must not be reported as one.
   it("classifies columns with no producer as `none`, not `disabled`", () => {
     const spec = experientialColumnSpec({ experiential: true });
     const byName = (n: string) => spec.find((s) => `${s.table}.${s.column}` === n);

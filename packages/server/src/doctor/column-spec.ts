@@ -63,8 +63,8 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
       lever: "running `obsidian-tc citation-infer` against a session transcript (THE-717)",
     },
     // "none", not "disabled", and verified rather than assumed: episodes.ts's INSERT names 20
-    // columns and neither of these is among them; the only UPDATEs set blocked/eligibility, and
-    // forget.ts NULLs summary rather than filling it. No configuration turns these on, so
+    // columns and neither of these is among them; the only UPDATE statements set
+    // blocked/eligibility, and forget.ts NULLs summary rather than filling it. No configuration turns these on, so
     // reporting them as switched-off would imply a switch exists. Both stay findings even when the
     // experiential store is disabled — a column with no producer is structurally unwritten.
     {
