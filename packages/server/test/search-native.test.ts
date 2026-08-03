@@ -6,10 +6,12 @@ import {
   jsBm25Score,
   jsCosineBatch,
   jsCosineSimilarity,
+  jsRougeLLcs,
   jsTokenize,
   loadNative,
   type NativeOps,
   nativeLoaded,
+  rougeLLcs,
   tokenize,
 } from "../src/search/native";
 
@@ -118,5 +120,46 @@ describe("loadNative selector — OBSIDIAN_TC_FORCE_JS_FALLBACK escape hatch", (
       }),
     ).toBeNull();
     expect(loadNative({}, () => ({ cosineSimilarity: () => 0 }))).toBeNull();
+  });
+});
+
+describe("rougeLLcs — native/JS parity", () => {
+  const i32 = (xs: number[]) => Int32Array.from(xs);
+
+  it("jsRougeLLcs: shapes, subsequence semantics, and the negative sentinel", () => {
+    expect(jsRougeLLcs(i32([]), i32([1, 2]))).toBe(0);
+    expect(jsRougeLLcs(i32([1, 2]), i32([]))).toBe(0);
+    expect(jsRougeLLcs(i32([1, 2, 3]), i32([1, 2, 3]))).toBe(3);
+    expect(jsRougeLLcs(i32([1, 2, 3]), i32([4, 5, 6]))).toBe(0);
+    expect(jsRougeLLcs(i32([1, 2, 3, 4]), i32([2, 4]))).toBe(2); // subsequence, not substring
+    expect(jsRougeLLcs(i32([1, 2, 3]), i32([3, 2, 1]))).toBe(1); // order matters
+    // -1 marks a chunk token absent from the transcript: it must not match a real id, and two
+    // sentinels must not match each other.
+    expect(jsRougeLLcs(i32([-1, -1]), i32([0, 1, 2]))).toBe(0);
+    expect(jsRougeLLcs(i32([-1, 1, -1]), i32([0, 1, 2]))).toBe(1);
+  });
+
+  it("the exported rougeLLcs agrees EXACTLY with the JS reference", () => {
+    // Integer LCS has no floating point, so this is exact equality, not an epsilon. Covers the
+    // native kernel when a .node is loaded and is a self-check otherwise.
+    let state = 0x2545f49 >>> 0;
+    const next = (m: number) => {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      return Math.abs(state >>> 0) % m;
+    };
+    for (let c = 0; c < 40; c++) {
+      const alphabet = c % 2 === 0 ? 3 : 17;
+      const a = i32(Array.from({ length: 1 + ((c * 7) % 23) }, () => next(alphabet)));
+      const b = i32(Array.from({ length: 1 + ((c * 11) % 29) }, () => next(alphabet)));
+      expect(rougeLLcs(a, b)).toBe(jsRougeLLcs(a, b));
+    }
+  });
+
+  it("rougeLLcs is bounded by the shorter input", () => {
+    const a = i32(Array.from({ length: 50 }, (_, i) => i));
+    const b = i32(Array.from({ length: 10 }, (_, i) => i));
+    expect(rougeLLcs(a, b)).toBe(10);
   });
 });

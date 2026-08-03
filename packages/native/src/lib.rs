@@ -11,7 +11,7 @@
 
 #[cfg(unix)]
 use napi::bindgen_prelude::Buffer;
-use napi::bindgen_prelude::{Float32Array, Float64Array};
+use napi::bindgen_prelude::{Float32Array, Float64Array, Int32Array};
 use napi_derive::napi;
 
 /// Cosine similarity between a query and a document vector. Used by the semantic
@@ -114,6 +114,53 @@ pub fn cosine_batch_core(query: &[f32], docs_flat: &[f32], dim: usize) -> Vec<f6
             }
         })
         .collect()
+}
+
+/// Length of the longest common subsequence of two INTERNED token-id sequences, in ONE N-API
+/// crossing for the whole pair.
+///
+/// This is the inner loop of ROUGE-L stage-1 citation filtering. Two deliberate boundary choices,
+/// both following THE-420's rule that a crossing must amortise over real work:
+///
+/// * Tokens arrive as `Int32Array`, already interned by the caller. Interning on the TS side lets
+///   ONE transcript be prepared once and reused across every chunk, and keeps this a pure integer
+///   kernel — the boundary cost is two typed-array views, not N string copies.
+/// * Only the LCS LENGTH crosses back. The F1 arithmetic (precision, recall, harmonic mean) is
+///   trivial and stays in TypeScript, so nothing but a `u32` returns.
+///
+/// A token id present in `a` but absent from `b` must never compare equal to any element of `b`;
+/// the caller supplies a negative sentinel for that. This function only ever compares `a[i]` to
+/// `b[j]`, never two elements of `a`, so a shared sentinel is safe.
+#[napi]
+pub fn rouge_l_lcs(a: Int32Array, b: Int32Array) -> u32 {
+    rouge_l_lcs_core(&a, &b)
+}
+
+/// Pure core: two-row LCS DP over flat `i32` buffers. Split from the napi entry so it is unit
+/// testable without a JS runtime, and `pub` for the `rlib` crate-type, matching `cosine_batch_core`.
+///
+/// Rows are swapped rather than reallocated, so the DP allocates exactly twice regardless of
+/// `a.len()`. `curr[0]` is never written and stays 0, which is the LCS base case. After a swap
+/// `curr` holds two-rows-ago values, but every `curr[j]` for `j >= 1` is written before it is read
+/// as `curr[j - 1]` later in the same pass, so no stale value survives.
+pub fn rouge_l_lcs_core(a: &[i32], b: &[i32]) -> u32 {
+    if a.is_empty() || b.is_empty() {
+        return 0;
+    }
+    let n = b.len();
+    let mut prev = vec![0u32; n + 1];
+    let mut curr = vec![0u32; n + 1];
+    for &ai in a {
+        for j in 1..=n {
+            curr[j] = if ai == b[j - 1] {
+                prev[j - 1] + 1
+            } else {
+                prev[j].max(curr[j - 1])
+            };
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[n]
 }
 
 /// Tokenize text into lowercase alphanumeric terms for lexical (BM25) scoring.
@@ -463,5 +510,75 @@ mod tests {
         let lo = bm25_score(1.0, 100.0, 100.0, 2.0, 10.0);
         let hi = bm25_score(5.0, 100.0, 100.0, 2.0, 10.0);
         assert!(hi > lo);
+    }
+
+    /// Textbook full-table LCS. Deliberately the naive O(n*m) SPACE version: it is the oracle the
+    /// two-row optimisation is checked against, so it must not share the row-swapping logic under
+    /// test.
+    fn lcs_oracle(a: &[i32], b: &[i32]) -> u32 {
+        let mut t = vec![vec![0u32; b.len() + 1]; a.len() + 1];
+        for i in 1..=a.len() {
+            for j in 1..=b.len() {
+                t[i][j] = if a[i - 1] == b[j - 1] {
+                    t[i - 1][j - 1] + 1
+                } else {
+                    t[i - 1][j].max(t[i][j - 1])
+                };
+            }
+        }
+        t[a.len()][b.len()]
+    }
+
+    #[test]
+    fn rouge_l_lcs_basic_shapes() {
+        assert_eq!(rouge_l_lcs_core(&[], &[1, 2, 3]), 0);
+        assert_eq!(rouge_l_lcs_core(&[1, 2, 3], &[]), 0);
+        assert_eq!(rouge_l_lcs_core(&[], &[]), 0);
+        assert_eq!(rouge_l_lcs_core(&[1, 2, 3], &[1, 2, 3]), 3); // identical
+        assert_eq!(rouge_l_lcs_core(&[1, 2, 3], &[4, 5, 6]), 0); // disjoint
+        assert_eq!(rouge_l_lcs_core(&[1, 2, 3, 4], &[2, 4]), 2); // subsequence, not substring
+        assert_eq!(rouge_l_lcs_core(&[1, 2, 3], &[3, 2, 1]), 1); // order matters
+    }
+
+    #[test]
+    fn rouge_l_lcs_negative_sentinel_never_matches() {
+        // The TS caller maps a chunk token absent from the transcript to -1. Two such tokens must
+        // not match each other, and -1 must not match any real (non-negative) id.
+        assert_eq!(rouge_l_lcs_core(&[-1, -1], &[0, 1, 2]), 0);
+        assert_eq!(rouge_l_lcs_core(&[-1, 1, -1], &[0, 1, 2]), 1);
+    }
+
+    #[test]
+    fn rouge_l_lcs_matches_full_table_oracle_on_pseudorandom_inputs() {
+        // Deterministic xorshift so a failure is reproducible without a rand dependency.
+        let mut state: u64 = 0x2545_F491_4F6C_DD1D;
+        let mut next = move |m: i32| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 33) as i32 % m
+        };
+        for case in 0..40 {
+            let la = 1 + (case * 7) % 23;
+            let lb = 1 + (case * 11) % 29;
+            // A small alphabet forces frequent matches; a large one forces sparse matches.
+            let alphabet = if case % 2 == 0 { 3 } else { 17 };
+            let a: Vec<i32> = (0..la).map(|_| next(alphabet)).collect();
+            let b: Vec<i32> = (0..lb).map(|_| next(alphabet)).collect();
+            assert_eq!(
+                rouge_l_lcs_core(&a, &b),
+                lcs_oracle(&a, &b),
+                "case {case}: a={a:?} b={b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rouge_l_lcs_is_bounded_by_the_shorter_input() {
+        let a: Vec<i32> = (0..50).collect();
+        let b: Vec<i32> = (0..10).collect();
+        let l = rouge_l_lcs_core(&a, &b);
+        assert!(l <= a.len().min(b.len()) as u32);
+        assert_eq!(l, 10);
     }
 }

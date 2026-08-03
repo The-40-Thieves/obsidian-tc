@@ -19,6 +19,9 @@ export interface NativeOps {
     docFreq: number,
     docCount: number,
   ): number;
+  /** Optional: absent on a prebuilt .node older than this export. Feature-detected at the call
+   *  site, never in loadNative()'s completeness check, so an older binary still loads. */
+  rougeLLcs?(a: Int32Array, b: Int32Array): number;
 }
 
 /** Cosine similarity; 0 for empty or mismatched-length inputs. Mirrors the Rust. */
@@ -100,6 +103,27 @@ export function jsBm25Score(
   return (idf * (tf * (k1 + 1))) / denom;
 }
 
+/** LCS length of two interned token-id sequences (two-row DP). Mirrors the Rust
+ *  `rouge_l_lcs_core`. Only `a[i] === b[j]` is compared, so a negative sentinel in `a` marking a
+ *  token absent from `b` can never match — including against another sentinel. */
+export function jsRougeLLcs(a: Int32Array, b: Int32Array): number {
+  if (a.length === 0 || b.length === 0) return 0;
+  const n = b.length;
+  let prev = new Uint32Array(n + 1);
+  let curr = new Uint32Array(n + 1);
+  for (let i = 0; i < a.length; i++) {
+    const ai = a[i] as number;
+    for (let j = 1; j <= n; j++) {
+      curr[j] =
+        ai === b[j - 1]
+          ? (prev[j - 1] as number) + 1
+          : Math.max(prev[j] as number, curr[j - 1] as number);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n] as number;
+}
+
 /** Runtime `require` shape; injectable so unit tests can supply a fake native module. */
 type NativeRequire = (specifier: string) => unknown;
 
@@ -151,3 +175,7 @@ export const cosineSimilarity: NativeOps["cosineSimilarity"] =
 export const cosineBatch: NativeOps["cosineBatch"] = native?.cosineBatch ?? jsCosineBatch;
 export const tokenize: NativeOps["tokenize"] = native?.tokenize ?? jsTokenize;
 export const bm25Score: NativeOps["bm25Score"] = native?.bm25Score ?? jsBm25Score;
+/** Feature-detected per export, not per module: a .node built before `rougeLLcs` existed still
+ *  satisfies loadNative()'s check, so the binding must fall back on the FUNCTION being absent
+ *  rather than on the whole native module being absent. */
+export const rougeLLcs: (a: Int32Array, b: Int32Array) => number = native?.rougeLLcs ?? jsRougeLLcs;
