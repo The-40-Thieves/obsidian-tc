@@ -29,6 +29,9 @@ export interface SweepCounts {
   /** THE-726: server-OPENED sessions closed because their window elapsed. Never counts a session a
    *  client opened deliberately — only `end_session` closes those. */
   sessions_closed: number;
+  /** THE-715: `job_schedule` rows with a NULL `name`. Structurally unreachable — every read keys on
+   *  `name` — so they are pure dead weight, and the count is 0 forever once the backlog clears. */
+  orphan_schedule_rows: number;
 }
 
 /** A vault's absolute session-trace directory. Resolved by the caller because `traceFolder` is
@@ -231,6 +234,26 @@ export function runMaintenanceSweep(
   } catch {
     /* optimize is advisory; a failure must not mask the delete counts */
   }
+  // THE-715: prune NULL-name job_schedule rows.
+  //
+  // SQLite does not enforce NOT NULL on a PRIMARY KEY column unless the table is WITHOUT ROWID, so
+  // `name TEXT PRIMARY KEY` admitted unlimited NULLs and every UPSERT with a null name inserted
+  // instead of updating. 2,979 orphans against 7 real rows on the live store.
+  //
+  // Unconditional and uncounted by config, unlike the session arm above: these rows are
+  // structurally unreachable (every read keys on `name`), so there is no policy question about
+  // whether to keep them and nothing can regress by removing them. THE-665 stopped the writer
+  // producing them and scheduler.ts now declares the column NOT NULL, so after the first sweep on
+  // any given store this is 0 forever — which is the intended end state, not a sign it is inert.
+  //
+  // GUARDED on existence: `job_schedule` is created by the scheduler at RUNTIME
+  // (scheduler.ts ensureTable), not by a migration, so a store whose scheduler never ran does not
+  // have the table at all — a provisioned-but-unscheduled test db, or a CLI invocation that opens
+  // cache.db without constructing a Scheduler. An unguarded DELETE throws "no such table" and takes
+  // the WHOLE sweep down with it, turning a cosmetic cleanup into an outage of every other arm.
+  const orphanScheduleRows = tableExists(db, "job_schedule")
+    ? db.prepare("DELETE FROM job_schedule WHERE name IS NULL").run().changes
+    : 0;
   const sessionsClosed =
     opts.sessionWindowSeconds !== undefined
       ? closeStaleImplicitSessions(db, { now: t, windowSeconds: opts.sessionWindowSeconds })
@@ -244,6 +267,7 @@ export function runMaintenanceSweep(
     chunk_retrievals: exp.chunk_retrievals,
     trace_files: traceFiles,
     sessions_closed: sessionsClosed,
+    orphan_schedule_rows: orphanScheduleRows,
   };
 }
 

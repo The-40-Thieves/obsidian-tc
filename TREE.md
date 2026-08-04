@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,049 tracked code files · 159,446 lines.
+**Scale:** 1,050 tracked code files · 159,642 lines.
 
-TypeScript 147,978 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 360.
+TypeScript 148,174 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -93,10 +93,10 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `runtime/` | 14 | 3,092 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `cli/` | 23 | 2,643 | arg parsing + subcommands |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `doctor/` | 9 | 1,703 | `obsidian-tc doctor` — checks, report rendering, runner |
-| `scheduler/` | 4 | 1,344 | unified background scheduler + durable job queue (THE-517) |
+| `doctor/` | 9 | 1,711 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `scheduler/` | 4 | 1,356 | unified background scheduler + durable job queue (THE-517) |
+| `db/` | 14 | 1,295 | provisioning, migrate runner, experiential store |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
-| `db/` | 14 | 1,237 | provisioning, migrate runner, experiential store |
 | `migrations/` | 33 | 1,217 | hand-registered SQL. **Two chains** — see below |
 | `plane/` | 6 | 938 | generative plane; `jobs/` holds the contradiction detector |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
@@ -150,7 +150,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 614 | `packages/server/src/cli/args.ts` |
 | 603 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
-| 543 | `packages/server/src/scheduler/scheduler.ts` |
+| 555 | `packages/server/src/scheduler/scheduler.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 526 | `packages/server/src/transports/http.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |

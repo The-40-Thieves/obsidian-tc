@@ -251,8 +251,20 @@ export class Scheduler {
 
   private ensureTable(db: Database): void {
     try {
+      // THE-715: `name` is NOT NULL as well as PRIMARY KEY, and the redundancy is load-bearing.
+      // SQLite does NOT enforce NOT NULL on a PRIMARY KEY column unless the table is WITHOUT
+      // ROWID — a long-standing documented quirk kept for backward compatibility — so `name TEXT
+      // PRIMARY KEY` alone admits unlimited NULL rows. Every UPSERT with a null name therefore
+      // INSERTED instead of updating, and this table accumulated 2,979 orphan rows against 7 real
+      // ones before THE-665 stopped the writer producing them.
+      //
+      // This is CREATE TABLE IF NOT EXISTS, so the constraint only reaches databases created from
+      // here on. An existing store keeps the permissive schema forever, which is why the
+      // maintenance sweep also prunes NULL-name rows (db/maintenance.ts) rather than this being a
+      // one-line DDL fix. Both halves are needed: the constraint stops new stores from ever
+      // reaching that state, the sweep repairs the ones already in it.
       db.exec(
-        "CREATE TABLE IF NOT EXISTS job_schedule (name TEXT PRIMARY KEY, last_run_at INTEGER, last_success_at INTEGER, next_run_at INTEGER, consecutive_failures INTEGER NOT NULL DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS job_schedule (name TEXT NOT NULL PRIMARY KEY, last_run_at INTEGER, last_success_at INTEGER, next_run_at INTEGER, consecutive_failures INTEGER NOT NULL DEFAULT 0)",
       );
     } catch (err) {
       // THE-666: persistence is best-effort: a table failure must never disable scheduling — but

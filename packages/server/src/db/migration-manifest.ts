@@ -35,6 +35,40 @@ export const CACHE_MIGRATION_FILES = [
 /**
  * experiential.db chain (cli.ts).
  *
+ * ── THE-713: THE ADMISSION TEST, stated canonically HERE ──────────────────────────────────────
+ *
+ * Four shipped migration headers describe this store's charter and appear to contradict each other:
+ * `20260626_001_experiential_init` says it holds *"only NON-RECONSTRUCTABLE keep-state"*, while
+ * `20260725_002_note_quality` and `20260729_001_gap_reports` each admit a table because it is
+ * *"DERIVED, RESETTABLE"*. Both phrases are in force and a `note_quality` rollup is plainly
+ * reconstructable, so read literally the two rules exclude each other.
+ *
+ * They are not two rules. They are one rule and one consequence, and the resolution is that
+ * **NEITHER phrase is the admission test**:
+ *
+ *   THE TEST IS TRUST, NOT RECONSTRUCTABILITY. A table belongs here when its contents are
+ *   OBSERVED or DERIVED rather than AUTHORED — anything an injected episode, a retrieval event or
+ *   a computed rollup can influence. The mechanism is a FILE boundary: nothing here can hold a
+ *   foreign key into an authored atom (ids are referenced BY VALUE — "this is the membrane"), so
+ *   poisoning blast radius is capped at the store boundary.
+ *
+ * Given that test, both phrases follow rather than compete:
+ *
+ *   "resettable"           — a consequence. Because nothing authored depends on this file, losing
+ *                            it is survivable and a reset is a truncate, not a filtered delete.
+ *   "non-reconstructable"  — a WARNING, not a criterion. Some of what lives here (activation
+ *                            history, retrieval feedback, stated goals) cannot be recomputed from
+ *                            the vault, so "resettable" must not be read as "costless to discard".
+ *
+ * `20260803_002_goals` already reasoned this way in practice — it admitted goals by arguing the
+ * membrane is a file boundary and the trust boundary is enforced on the WRITE PATH, not by the
+ * store's label. This comment states the general rule that case applied.
+ *
+ * Stated here rather than fixed in place because migration headers are CHECKSUM-PINNED: editing a
+ * shipped migration is a hard startup error, so those four sentences cannot be corrected and this
+ * is the nearest editable home that every reader of the chain already passes through.
+ * ──────────────────────────────────────────────────────────────────────────────────────────────
+ *
  * THE-222: 20260712_001 is the versioned preference profile (typed-delta updates only) for the
  * reflect pass. THE-44: 20260712_002 is derive-don't-mutate access instrumentation
  * (chunk_access_stats view). THE-239: 20260712_003 is the hash-chained forget audit log
