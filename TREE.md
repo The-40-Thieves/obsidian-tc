@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,038 tracked code files · 156,765 lines.
+**Scale:** 1,040 tracked code files · 157,081 lines.
 
-TypeScript 145,374 · JavaScript 7,520 · Python 1,640 · SQL 1,175 · Rust 742 · Shell 314.
+TypeScript 145,696 · JavaScript 7,514 · Python 1,640 · SQL 1,175 · Rust 742 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -91,9 +91,9 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `mcp/` | 17 | 4,135 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 12 | 3,140 | work-memory tier: activation, retrieval log, forget, citations |
 | `runtime/` | 14 | 3,064 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `cli/` | 23 | 2,538 | arg parsing + subcommands |
+| `cli/` | 23 | 2,614 | arg parsing + subcommands |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `doctor/` | 8 | 1,528 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `doctor/` | 9 | 1,672 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 14 | 1,213 | provisioning, migrate runner, experiential store |
@@ -118,7 +118,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 360 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 361 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -138,13 +138,13 @@ Generated — see `scripts/gen-tree-map.mjs`.
 <!-- BEGIN GENERATED: tree-largest-files -->
 | lines | file |
 |---:|---|
-| 806 | `packages/server/src/doctor/checks.ts` |
+| 811 | `packages/server/src/doctor/checks.ts` |
 | 725 | `packages/server/src/runtime/server-runtime.ts` |
+| 710 | `packages/server/src/cli/commands/doctor.ts` |
 | 708 | `packages/server/src/mcp/server.ts` |
 | 688 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
-| 634 | `packages/server/src/cli/commands/doctor.ts` |
 | 620 | `packages/server/src/metrics/registry.ts` |
 | 614 | `packages/server/src/cli/args.ts` |
 | 602 | `packages/server/src/scheduler/job-queue.ts` |
@@ -275,7 +275,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**380 modules · 1691 dependencies · 111 distinct subsystem pairs · 758 cross-subsystem imports.**
+**381 modules · 1693 dependencies · 111 distinct subsystem pairs · 758 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it

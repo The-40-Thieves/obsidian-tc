@@ -14,6 +14,7 @@ import {
   type DerivedColumnState,
   type DerivedTableState,
   type EntryPointsProbe,
+  type KbHealthProbe,
   renderText,
 } from "../../doctor";
 import { experientialColumnSpec } from "../../doctor/column-spec";
@@ -206,6 +207,76 @@ function hasAclRules(acl: { rules?: unknown[]; readPaths?: unknown[] } | undefin
  * Never throws, same contract as probeDerivedTables: an absent store, table or column drops the
  * entry rather than producing a wall of false findings.
  */
+/**
+ * Read the newest kb_health report for `audit.kbHealth` (THE-722).
+ *
+ * This is the reader `audit_reports` never had. The table held 301 rows in production — one every
+ * ~8 minutes since the job shipped — and nothing in the tree selected from it outside its own
+ * test, so both liveness checks called it `live` while no operator could see a single report.
+ *
+ * Reads only, and never throws: a missing table (a store predating the plane migration) degrades
+ * to `undefined`, which the check renders as "never run" rather than as a vault fault.
+ */
+async function probeKbHealth(cacheDir: string): Promise<KbHealthProbe | undefined> {
+  const path = join(cacheDir, "cache.db");
+  if (!existsSync(path)) return undefined;
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    db = await openDatabase(path);
+    const agg = db
+      .prepare("SELECT COUNT(*) AS n, MAX(created_at) AS latest FROM audit_reports")
+      .get() as { n: number; latest: number | null } | undefined;
+    if (!agg || agg.n === 0) {
+      return {
+        totalReports: 0,
+        now: Date.now(),
+        hasIssues: false,
+        summary: "",
+        nullEmbeddings: 0,
+        duplicateChunkPositions: 0,
+        perVault: [],
+      };
+    }
+    const row = db
+      .prepare(
+        "SELECT created_at, has_issues, summary, report FROM audit_reports ORDER BY created_at DESC LIMIT 1",
+      )
+      .get() as { created_at: number; has_issues: number; summary: string; report: string };
+    // The JSON column is the job's own AuditReport. Parsed defensively: a malformed row must not
+    // take doctor down, and the counts degrade to 0 rather than to a false alarm.
+    let parsed: {
+      vault_null_embeddings?: number;
+      duplicate_chunk_positions?: number;
+      per_vault?: unknown;
+    } = {};
+    try {
+      parsed = JSON.parse(row.report ?? "{}");
+    } catch {
+      /* keep the empty shape */
+    }
+    return {
+      totalReports: agg.n,
+      latestAt: row.created_at,
+      now: Date.now(),
+      hasIssues: row.has_issues === 1,
+      summary: row.summary ?? "",
+      nullEmbeddings: Number(parsed.vault_null_embeddings ?? 0),
+      duplicateChunkPositions: Number(parsed.duplicate_chunk_positions ?? 0),
+      perVault: Array.isArray(parsed.per_vault)
+        ? (parsed.per_vault as KbHealthProbe["perVault"])
+        : [],
+    };
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      db?.close?.();
+    } catch {
+      /* see probeNotesFts */
+    }
+  }
+}
+
 async function probeDerivedColumns(
   cacheDir: string,
   cfg: { experiential: boolean },
@@ -546,6 +617,8 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   const derivedColumns = cmd.probe
     ? await probeDerivedColumns(config.cacheDir, { experiential: experientialEnabled })
     : undefined;
+  // THE-722: the reader audit_reports never had.
+  const kbHealth = cmd.probe ? await probeKbHealth(config.cacheDir) : undefined;
 
   const report = await assembleDoctorReport({
     config: {
@@ -589,6 +662,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
       derivedColumns: {
         ...(derivedColumns !== undefined ? { probe: () => derivedColumns } : {}),
+      },
+      kbHealth: {
+        ...(kbHealth !== undefined ? { probe: () => kbHealth } : {}),
       },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {

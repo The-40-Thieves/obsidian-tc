@@ -30,12 +30,6 @@ const SRC = join(ROOT, "packages/server/src");
  */
 export const WRITE_ONLY_ALLOWLIST = new Map([
   [
-    "audit_reports",
-    "THE-722: plane/jobs/audit.ts writes a kb_health report on every audit pass — 299 rows in " +
-      "production — and nothing reads it. Decision pending: build a read surface, or stop writing " +
-      "it because note_quality/gaps/derived.liveness overtook the kb_health summary.",
-  ],
-  [
     "retrieval_policy",
     "THE-538 logs arm/propensity/per-stream weights for OFF-POLICY evaluation. Its consumer is " +
       "THE-539 (learned fusion weights), ICEBOXED on entry criteria — so this is deliberately " +
