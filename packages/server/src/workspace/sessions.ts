@@ -70,10 +70,15 @@ export interface SessionRow {
    *  none — which is every client under the current spec, so NULL is the normal value, not a gap. */
   client_name: string | null;
   client_version: string | null;
+  /** THE-726: the server-OBSERVED principal that owns this session (`ctx.caller`), as distinct from
+   *  `caller` above, which is the caller-SUPPLIED `input.caller`. Only this column may resolve an
+   *  active session — see `activeSessionFor`. NULL on rows written before 20260804_001, which
+   *  correctly makes them unresolvable rather than resolvable-as-someone. */
+  principal: string | null;
 }
 
 const SESSION_COLS =
-  "id, vault_id, caller, started_at, ended_at, trace_path, metadata_json, client_name, client_version";
+  "id, vault_id, caller, started_at, ended_at, trace_path, metadata_json, client_name, client_version, principal";
 
 export interface InsertSessionInput {
   id: string;
@@ -88,12 +93,16 @@ export interface InsertSessionInput {
    *  2026-07-28, so two calls sharing a sessionId could in principle disagree; the session is
    *  identified by whoever opened it. */
   clientInfo?: { name: string; version?: string };
+  /** THE-726: the server-observed principal (`ctx.caller`). NOT `caller` — that one is the
+   *  caller-supplied declaration and cannot be trusted to identify who is calling. Optional so a
+   *  transport with no authenticated principal writes NULL rather than a fabricated value. */
+  principal?: string | null;
 }
 
 export function insertSession(db: Database, input: InsertSessionInput): SessionRow {
   db.prepare(
-    `INSERT INTO workspace_sessions (id, vault_id, caller, started_at, ended_at, trace_path, metadata_json, client_name, client_version)
-     VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+    `INSERT INTO workspace_sessions (id, vault_id, caller, started_at, ended_at, trace_path, metadata_json, client_name, client_version, principal)
+     VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
   ).run(
     input.id,
     input.vaultId,
@@ -105,8 +114,43 @@ export function insertSession(db: Database, input: InsertSessionInput): SessionR
     // genuinely reports that name — a failure encoded as a valid domain value (the THE-613 shape).
     input.clientInfo?.name ?? null,
     input.clientInfo?.version ?? null,
+    input.principal ?? null,
   );
   return getSession(db, input.id) as SessionRow;
+}
+
+/**
+ * THE-726: resolve a principal's currently-open session DURABLY, from SQLite rather than from
+ * ActiveSessionTracker's process-local map. This is what lets a session survive a restart and, more
+ * importantly, what lets the HTTP transport have sessions at all — it never had access to the
+ * in-memory tracker, which is why `session_id` was NULL on 100% of live rows.
+ *
+ * Keyed on `principal` (server-observed) and NEVER on `caller` (caller-supplied). Resolving by a
+ * declared value would let any client holding `write:workspace` claim another principal's session
+ * id, and a session id is the correlation key for that principal's retrieval history.
+ *
+ * A NULL principal never matches, by construction: `WHERE principal = ?` is false for NULL on both
+ * sides, and the supporting index excludes NULLs. So a pre-migration row, or one opened over a
+ * transport with no authenticated principal, is unresolvable rather than resolvable-as-someone.
+ *
+ * Returns the most recent open session when several exist. The schema does not enforce one-per-
+ * principal and this must not assume it — a client that calls start_session twice without ending
+ * the first is doing something legal, and the newest is the honest answer.
+ */
+export function activeSessionFor(
+  db: Database,
+  principal: string | null | undefined,
+): { sessionId: string; vaultId: string } | undefined {
+  if (principal === null || principal === undefined || principal === "") return undefined;
+  const row = db
+    .prepare(
+      `SELECT id, vault_id FROM workspace_sessions
+        WHERE principal = ? AND ended_at IS NULL
+        ORDER BY started_at DESC
+        LIMIT 1`,
+    )
+    .get(principal) as { id: string; vault_id: string } | undefined;
+  return row ? { sessionId: row.id, vaultId: row.vault_id } : undefined;
 }
 
 export function getSession(db: Database, id: string): SessionRow | undefined {

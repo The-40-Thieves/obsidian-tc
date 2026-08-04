@@ -31,6 +31,7 @@ import {
 import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
+import { activeSessionFor } from "../workspace/sessions";
 import { type ServerHandle, serveHono } from "./serve";
 
 type AuthConfig = ServerConfig["auth"];
@@ -180,6 +181,34 @@ function contextFromAuthInfo(
       db: opts.db,
       acl: opts.acl,
       signal,
+      // THE-726: attach the caller's open session, resolved DURABLY from SQLite.
+      //
+      // This transport had no session at all until now — `sessionId` and `activeSessions` appeared
+      // zero times in this file — while the stdio factory read a process-local map. Since this
+      // deployment is reached over HTTP, that is the whole reason `session_id` was NULL on 100% of
+      // `chunk_retrievals` and `agent_episodes` rows: not a wiring defect and not client adoption,
+      // but a transport that could not carry a session no matter what the client called.
+      //
+      // Resolved per request rather than cached: the in-memory tracker is explicitly "process-local
+      // and best-effort: not persisted, so a restart simply resumes untracked", which is acceptable
+      // for one local operator and not for concurrent HTTP clients across restarts. The lookup is a
+      // single indexed row (idx_workspace_sessions_principal, partial on ended_at IS NULL).
+      //
+      // Keyed on the AUTHENTICATED principal. `activeSessionFor` refuses NULL/empty by construction,
+      // so an unauthenticated-principal token resolves nothing instead of colliding on "".
+      //
+      // The vault match is REQUIRED here, and that is not the same judgement as the stdio factory's
+      // superficially identical check. On stdio, `ctx.vaultId` is a DEFAULT and tools address vaults
+      // by their `vault` input argument, so gating there drops sessions for every vault after the
+      // first. On HTTP the context is `vaultBound: true` (THE-267) — dispatch rejects a call naming
+      // any other vault — so the bound vault is the only one this context can act on, and attaching
+      // a session opened against a different vault would point its JSONL trace at a vault this
+      // request cannot touch.
+      ...(() => {
+        const bound = extra?.vault ?? opts.vaultId;
+        const active = activeSessionFor(opts.db, extra?.caller ?? null);
+        return active && active.vaultId === bound ? { sessionId: active.sessionId } : {};
+      })(),
     };
   };
 }

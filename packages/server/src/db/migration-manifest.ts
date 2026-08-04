@@ -25,6 +25,11 @@ export const CACHE_MIGRATION_FILES = [
   "20260728_002_jobs_outcome.sql",
   // THE-694/695: the read-ACL predicate, joinable from SQL.
   "20260802_001_acl_path_sets.sql",
+  // THE-726: `principal` on workspace_sessions — the server-OBSERVED owner, kept distinct from the
+  // caller-supplied `caller` column so an active session can be resolved durably rather than from a
+  // process-local map. Belongs in the CACHE chain because workspace_sessions is created by
+  // 20260519_001_initial.sql, in cache.db. The migration header carries the full reasoning.
+  "20260804_001_workspace_sessions_principal.sql",
 ] as const;
 
 /**

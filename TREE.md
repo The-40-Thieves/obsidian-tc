@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,041 tracked code files · 157,596 lines.
+**Scale:** 1,043 tracked code files · 157,846 lines.
 
-TypeScript 146,216 · JavaScript 7,509 · Python 1,640 · SQL 1,175 · Rust 742 · Shell 314.
+TypeScript 146,424 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,7 +86,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 82 | 15,806 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 82 | 15,812 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 54 | 10,185 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,135 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 12 | 3,140 | work-memory tier: activation, retrieval log, forget, citations |
@@ -96,29 +96,29 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `doctor/` | 9 | 1,703 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `scheduler/` | 4 | 1,344 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
-| `db/` | 14 | 1,213 | provisioning, migrate runner, experiential store |
-| `migrations/` | 32 | 1,175 | hand-registered SQL. **Two chains** — see below |
+| `db/` | 14 | 1,219 | provisioning, migrate runner, experiential store |
+| `migrations/` | 33 | 1,217 | hand-registered SQL. **Two chains** — see below |
 | `plane/` | 6 | 938 | generative plane; `jobs/` holds the contradiction detector |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
 | `providers/` | 6 | 731 |  |
 | `embeddings/` | 6 | 665 | providers incl. the deterministic fake used in tests |
 | `model/` | 7 | 646 | model-service clients |
+| `transports/` | 3 | 618 | stdio, HTTP and the shared serve loop |
 | `capability/` | 6 | 605 | `defineTool` and the capability registry |
-| `transports/` | 3 | 589 | stdio, HTTP and the shared serve loop |
 | `memory/` | 2 | 453 | entity extraction and materialization for the memory folder |
 | `auth/` | 3 | 427 | JWT verification, JWKS, RFC 9728 protected-resource metadata |
 | `graph/` | 1 | 381 | graph analytics (centrality, components) behind the health tools |
 | `config/` | 3 | 313 | config load, `explain`, and the security-profile resolver |
 | `gateway/` | 2 | 285 | inference-gateway client — the `judge`/`synthesize` roles |
+| `workspace/` | 1 | 256 | session tracking |
 | `plur/` | 2 | 214 | PLUR client (local + remote) for the experiential plane |
-| `workspace/` | 1 | 212 | session tracking |
 | `otel/` | 3 | 190 | OpenTelemetry tracing, attributes, context propagation |
 | `capture/` | 1 | 126 | the capture queue |
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 361 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 362 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -275,7 +275,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**381 modules · 1693 dependencies · 111 distinct subsystem pairs · 758 cross-subsystem imports.**
+**381 modules · 1694 dependencies · 112 distinct subsystem pairs · 759 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -293,7 +293,7 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 111 pairs.
+set is 112 pairs.
 
 ```mermaid
 flowchart LR

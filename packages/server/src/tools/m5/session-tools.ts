@@ -131,6 +131,12 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
             // THE-627: server-observed client identity, kept separate from the caller-supplied
             // `session_metadata` above so an observation and a declaration stay distinguishable.
             ...(ctx.clientInfo ? { clientInfo: ctx.clientInfo } : {}),
+            // THE-726: the same distinction, one field over. `caller` above is `input.caller` — a
+            // required, caller-supplied string. `principal` is `ctx.caller`, which the transport
+            // authenticated. Only `principal` may resolve this row as an active session
+            // (`activeSessionFor`), because resolving on a declared value would let any client with
+            // `write:workspace` claim another principal's session id.
+            principal: ctx.caller,
           });
         });
         deps.activeSessions?.set(ctx.caller, id, v.id);
