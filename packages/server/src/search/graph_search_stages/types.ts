@@ -47,6 +47,19 @@ export interface CoverageEstimate {
   /** returned < requested: the pipeline could not fill the requested page. Not a ranking
    *  judgment — just an honest count. */
   underfilled: boolean;
+  /** THE-631 item 2 — how many DISTINCT returned notes have an mtime older than
+   *  `staleThresholdDays`. Content age, from `notes.mtime`, via the same THE-450 helpers the m2
+   *  search tools stamp `age_days`/`stale` with, so there is exactly one definition of stale in
+   *  the codebase. Counted per NOTE, not per chunk: three chunks of one stale note is one stale
+   *  note, otherwise the number tracks chunking granularity rather than the vault. */
+  staleReturned: number;
+  /** Returned notes with NO `notes` row, so their age is UNKNOWN — never folded into
+   *  `staleReturned`. A pruned or unindexed note is not evidence of freshness, and "absent" must
+   *  stay distinguishable from "fresh" at the read surface. */
+  staleUnknown: number;
+  /** The threshold `staleReturned` was computed against, so the count is interpretable without
+   *  knowing the server's configuration. */
+  staleThresholdDays: number;
 }
 
 export interface GraphSearchOptions {
@@ -222,6 +235,14 @@ export interface GraphSearchOptions {
    *  -> no behavior change. Under multi-query fan-out (multi_query.ts) this fires once per
    *  variant; the last call wins, mirroring onFusionWeights' existing precedent. */
   onCoverage?: (coverage: CoverageEstimate) => void;
+  /** THE-631 item 2: age in days past which a returned note counts toward
+   *  `CoverageEstimate.staleReturned`. Defaults to freshness.ts's `STALE_THRESHOLD_DAYS` (365),
+   *  deliberately the SAME constant the m2 search tools stamp `stale` with (THE-450) — two
+   *  disagreeing definitions of "stale" in one codebase would be worse than one imperfect
+   *  threshold. Overridable because the right value is a property of a vault's authoring cadence,
+   *  not of the engine: measured 2026-08-04, the live vault's oldest note is 107 days old, so at
+   *  the 365 default this count is 0 for every query there. Only read when onCoverage is set. */
+  staleThresholdDays?: number;
   /** THE-632: vault-relative path to FOLLOW through the pipeline. Additive and
    *  observability-only, on the same "pure side-channel" contract as onCoverage above — it never
    *  filters, boosts, or reorders anything, and the returned results are byte-identical with and

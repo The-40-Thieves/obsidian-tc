@@ -83,6 +83,12 @@ describe("THE-631: graphSearch coverage estimate", () => {
       requested: 10,
       returned: 5,
       underfilled: true, // only 5 candidates exist in this corpus; the page asked for 10
+      // THE-631 item 2: this fixture's migration chain stops at 20260519_001, so `notes` does not
+      // exist. Every returned path is therefore UNKNOWN age rather than fresh — 5 chunks on 5
+      // distinct paths — and nothing is counted stale from an absent table.
+      staleReturned: 0,
+      staleUnknown: 5,
+      staleThresholdDays: 365,
     } satisfies CoverageEstimate);
   });
 
@@ -156,5 +162,96 @@ describe("THE-631: graphSearch coverage estimate", () => {
     const without = await graphSearch(db, opts);
     const withCallback = await graphSearch(db, { ...opts, onCoverage: () => {} });
     expect(withCallback).toEqual(without);
+  });
+});
+
+describe("THE-631 item 2: staleness signal on the coverage estimate", () => {
+  const DAY = 86_400_000;
+
+  /** The coverage fixtures above stop at 20260519_001, which has no `notes`. This adds the table
+   *  the way 20260702_001 declares it, so age can actually be resolved. */
+  function withNotes(db: Database): Database {
+    db.exec(
+      `CREATE TABLE notes (
+         vault_id TEXT NOT NULL, path TEXT NOT NULL, title TEXT, tags TEXT, frontmatter TEXT,
+         content_hash TEXT, mtime INTEGER NOT NULL, size INTEGER, indexed_at INTEGER,
+         PRIMARY KEY (vault_id, path)
+       );`,
+    );
+    return db;
+  }
+  const addNote = (db: Database, path: string, ageDays: number) =>
+    db
+      .prepare("INSERT INTO notes (vault_id, path, mtime) VALUES (?, ?, ?)")
+      .run(VAULT, path, Date.now() - ageDays * DAY);
+
+  const search = (db: Database, extra: Record<string, unknown> = {}) =>
+    coverageOf(db, {
+      query: "age",
+      queryVec: [1, 0, 0, 0],
+      vaultId: VAULT,
+      finalTopK: 10,
+      ...extra,
+    } as Parameters<typeof graphSearch>[1]);
+
+  it("counts a note past the threshold as stale and leaves a recent one alone", async () => {
+    const db = withNotes(db0());
+    addChunk(db, "cOld", "old.md", vecDim01(0.95));
+    addChunk(db, "cNew", "new.md", vecDim01(0.9));
+    addNote(db, "old.md", 400); // past the 365 default
+    addNote(db, "new.md", 10);
+    const c = await search(db);
+    expect(c?.staleReturned).toBe(1);
+    expect(c?.staleUnknown).toBe(0);
+    expect(c?.staleThresholdDays).toBe(365);
+  });
+
+  it("a note with NO row is UNKNOWN, never counted fresh", async () => {
+    // The distinction this pins: absent age is not evidence of recency. Folding unknown into
+    // fresh would silently understate staleness on any vault with pruned or unindexed notes.
+    const db = withNotes(db0());
+    addChunk(db, "cGhost", "ghost.md", vecDim01(0.95));
+    addChunk(db, "cOld", "old.md", vecDim01(0.9));
+    addNote(db, "old.md", 400); // ghost.md deliberately has no notes row
+    const c = await search(db);
+    expect(c?.staleUnknown).toBe(1);
+    expect(c?.staleReturned).toBe(1);
+  });
+
+  it("counts NOTES, not chunks — three chunks of one stale note is one stale note", async () => {
+    // Otherwise the number tracks chunking granularity rather than the vault, and a long note
+    // would dominate the signal purely by being long.
+    const db = withNotes(db0());
+    addChunk(db, "c1", "big.md", vecDim01(0.95));
+    addChunk(db, "c2", "big.md", vecDim01(0.94));
+    addChunk(db, "c3", "big.md", vecDim01(0.93));
+    addNote(db, "big.md", 400);
+    const c = await search(db);
+    expect(c?.returned).toBe(3); // three chunks came back...
+    expect(c?.staleReturned).toBe(1); // ...from one stale note
+  });
+
+  it("staleThresholdDays overrides the default, and is echoed back", async () => {
+    // The right value is a property of a vault's authoring cadence, not of the engine: measured
+    // 2026-08-04 the live vault's oldest note is 107 days, so at the 365 default this count is 0
+    // there for every query. A 30-day threshold makes the same corpus report a stale note.
+    const db = withNotes(db0());
+    addChunk(db, "cA", "a.md", vecDim01(0.95));
+    addNote(db, "a.md", 60);
+    expect((await search(db))?.staleReturned).toBe(0); // 60 < 365
+    const tight = await search(db, { staleThresholdDays: 30 });
+    expect(tight?.staleReturned).toBe(1); // 60 > 30
+    expect(tight?.staleThresholdDays).toBe(30);
+  });
+
+  it("survives a store with no `notes` table — every path unknown, no throw", async () => {
+    // An unguarded SELECT would throw "no such table: notes" from inside a search request, so an
+    // additive observability field would become a query outage on any pre-20260702_001 cache.
+    const db = db0(); // deliberately WITHOUT the notes table
+    addChunk(db, "cA", "a.md", vecDim01(0.95));
+    addChunk(db, "cB", "b.md", vecDim01(0.9));
+    const c = await search(db);
+    expect(c?.staleUnknown).toBe(2);
+    expect(c?.staleReturned).toBe(0);
   });
 });
