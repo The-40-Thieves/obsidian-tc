@@ -20,13 +20,27 @@
 //   * unstable evidence — the same caller+tool+args_hash showing BOTH ok and error among the
 //     pending set — is held pending rather than promoted (contradictory runs are not a lesson
 //     yet, they are noise or an attack surface).
-//   * THE-565: an episode the system has already judged a BAD outcome (`outcome = -1`, stamped
-//     by the citation / session-close outcome pass) is held pending, never auto-promoted — a
-//     known-negative-outcome row must not enter the eligible pool as a default lesson. This is
-//     the one place the deterministic pass consults the outcome axis. NOTE the deliberate
-//     asymmetry: a `status = 'error'` dispatch with NO bad outcome still promotes ("errors are
-//     lessons too" — a forbidden delete teaches a boundary); it is the explicit -1 outcome, not
-//     a failed dispatch, that we refuse. `status`/`skipped` are otherwise unchanged.
+//   * THE-565: an episode the system has already judged a BAD outcome (`outcome = -1`) is held
+//     pending, never auto-promoted — a known-negative-outcome row must not enter the eligible
+//     pool as a default lesson. This is the one place the deterministic pass consults the outcome
+//     axis. NOTE the deliberate asymmetry: a `status = 'error'` dispatch with NO bad outcome
+//     still promotes ("errors are lessons too" — a forbidden delete teaches a boundary); it is
+//     the explicit -1 outcome, not a failed dispatch, that we refuse. `status`/`skipped` are
+//     otherwise unchanged.
+//
+//     THE-721: this gate is CORRECT, TESTED and INERT. An earlier version of this comment said
+//     the -1 was "stamped by the citation / session-close outcome pass". No such writer exists,
+//     and none ever did: `agent_episodes` has seven write statements across the tree and not one
+//     of them sets `outcome`, so the column is NULL on 363 of 363 live rows. The citation pass
+//     stamps `chunk_retrievals` columns only, and there is no session-close outcome pass —
+//     sessions.ts and session-tools.ts never touch the column. The same false claim is frozen
+//     into migration 20260711_001's header, which is checksum-pinned and cannot be corrected in
+//     place; THE-721 carries it.
+//
+//     The consequence is bounded rather than dangerous: an unreachable HOLD is more permissive
+//     than designed, not less, and there is no known-bad set to leak because nothing marks one.
+//     reflect-evaluator.test.ts:96 seeds `outcome: -1` directly and asserts the hold, so the gate
+//     is ready the moment a producer exists. Whether to build one is the open question on THE-721.
 import type { Database } from "../db/types";
 import { type GatewayRoles, prompt } from "../plane/gateway";
 import type { Scheduler } from "../scheduler/scheduler";
