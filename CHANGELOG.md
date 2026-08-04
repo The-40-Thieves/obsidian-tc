@@ -6,6 +6,92 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-08-04
+
+### Added
+
+- **Liveness reporting: three new `doctor --probe` checks.** A feature can have a config key, a
+  migration, an implementation and passing tests and still have never written a row in *this*
+  deployment, and until now nothing reported that. A census on 2026-08-03 found four empty derived
+  tables in production, none of them visible from inside the system.
+
+  - **`derived.liveness` (#672)** — is each derived table actually being written? Classified, not
+    counted: `rows > 0` is live, empty-and-disabled is expected, empty-and-enabled is a warning,
+    and empty-with-no-writer is a different warning again. The classification is the whole feature —
+    a first pass that warned on every empty table produced eleven warnings on a healthy install.
+  - **`entrypoints.liveness` (#674)** — the verb-side companion: which scheduled passes actually
+    succeed, and how much of the tool surface has ever been invoked. `derived.liveness` cannot tell
+    "nothing enabled the writer" from "the writer runs and loses every time"; only the schedule row
+    separates those, and they need opposite fixes.
+  - **`derived.column-liveness` (#680, THE-720)** — the half a row count structurally cannot see.
+    `chunk_retrievals` held 97 rows for 18 days and reported `live` the entire time while `outcome`
+    and `feedback` were NULL on all 97. On its first run against the live store it found two columns
+    with no producer at all (`agent_episodes.outcome` and `.summary`, 0 of 363 each).
+
+- **Five new tools (157 total).**
+
+  - `work_episode_chain` and `episode_stats` (#673, THE-655/THE-642) — the experiential read
+    surface: walk an episode's amendment chain, and an aggregate view that does not require
+    `admin:workspace`.
+  - `set_goal` / `list_goals` / `close_goal` (#675, THE-633) — stated goals. The experiential plane
+    had preferences but no goals, so nothing could be retrieved or surfaced against what the user is
+    actually trying to do.
+
+- **The coverage-gap sweep can be scheduled (#675, THE-719).** `detectGaps` was reachable only from
+  the CLI, so `gap_reports` was empty and THE-631's percentile confidence had no per-vault baseline.
+  Behind `experiential.gapSweep`, default off.
+
+### Fixed
+
+- **`record_retrieval_feedback` was unreachable, and failed silently (#677, THE-718).** Measured
+  against the live store: `session_id` is NULL on 97 of 97 retrieval events, because nothing calls
+  `start_session` (THE-714). The handler appended `AND session_id = ?` for any non-elevated caller,
+  so the narrowing matched **zero rows** — `admin:workspace` was the only principal that could stamp
+  anything, and a client doing everything correctly received `{ available: true, updated: 0 }`: the
+  response shape of a successful write, with no error and no reason.
+
+  A retrieval logged outside any session belongs to no session, so `session_id IS NULL` is now in
+  scope and ownership is carried entirely by `caller`. Rows that *do* carry a session stay reachable
+  only from that session, and the THE-568 caller partition is untouched. A no-op now names its
+  reason (`session_scope` / `no_owned_retrievals`), computed only over rows the caller already owns
+  so it cannot become an existence oracle.
+
+- **`preference_profile` / `preference_deltas` are namespaced by vault (#675, THE-710).** The
+  derived-plane namespacing of THE-563/564 skipped them, so with two vaults configured one vault's
+  learned preference silently overwrote the other's under the same key, with no column to filter on.
+  Migration `20260803_001` rebuilds both with `vault_id` leading the primary key. Existing rows are
+  **purged rather than backfilled** — a preference's originating vault was never recorded, and
+  inventing one would be indistinguishable downstream from a real attribution.
+
+### Security
+
+- **`NULL` is no longer accepted as a principal identifier (#677, THE-718).** `CallerContext.caller`
+  is `string | null`, and a *valid* JWT with no `sub` claim yields `caller: null` with
+  `authenticated: true`. Since SQLite's `IS` binds NULL as a value, `AND caller IS ?` matched every
+  row predating the THE-568 caller column — 81 of 97 on the live store, retrievals no principal is
+  attributable for. A non-elevated caller whose identity is not a non-empty string is now refused;
+  `admin:workspace` remains the way to touch unattributed rows deliberately.
+
+  This reverses a branch-coverage assertion that read "a null-caller principal stamps only
+  null-caller retrievals it owns". `session_id` is caller-supplied and unvalidated, so "its own
+  session" reduced to "only if it guesses the session id" and was never a boundary.
+
+- **Seven dependency advisories cleared across both install roots (#679).** `fast-uri` host
+  confusion (high, both roots), three `ip-address` SSRF/trust-boundary misclassifications (one high,
+  two moderate), PostCSS arbitrary `.map` read, and a Hono CORS ReDoS. All are floor bumps inside
+  existing bounded overrides, except `ip-address` which gains one — bounded `<11` rather than a bare
+  `">="`, which would drag dependents across a major to satisfy a patch advisory.
+
+### Changed
+
+- **`record_retrieval_feedback` says when to call it (#678, THE-718).** Its description opened on
+  storage mechanics and spent most of its length on an authorization model the caller cannot act on;
+  it told an agent what the tool did and never that it was expected to use it. It now leads with the
+  trigger, asks for `-1` on a confidently-wrong chunk because a negative beats silence, and
+  documents the `reason` field. One clause is added to the `server/discover` instructions too — a
+  client in triad/domain facade mode never sees individual tool descriptions, because `tools/list`
+  advertises three meta-tools.
+
 ## [1.16.0] - 2026-08-03
 
 ### Fixed
