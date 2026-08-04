@@ -153,6 +153,13 @@ export const WritesConfigSchema = z
 // `windowSeconds`, and the next request opens a fresh one. A task spanning a boundary therefore
 // splits across two sessions, which costs a little correlation and buys no new column, no new
 // migration, and no write in the read path. Revisit only with a measured need.
+//
+// `windowSeconds` is consequently a FLOOR on the lifetime, not the lifetime. Closing is the sweep's
+// job and the sweep has its own cadence, so a session survives until the first sweep that runs
+// after it ages out — up to `maintenance.intervalMinutes` later. Measured in production on the
+// 1.19.0 rollout: a session created at 12:34 was still open and still correlating at 13:21, because
+// the sweep had last run at 12:27 and was not due again until 13:27. That is the design working,
+// and it is why the description below says eligible-to-close rather than closed.
 export const SessionsConfigSchema = z
   .object({
     autoOpen: z
@@ -167,7 +174,7 @@ export const SessionsConfigSchema = z
       .positive()
       .default(1800)
       .describe(
-        "How long a server-opened session stays open. The maintenance sweep closes auto-opened sessions older than this and the next request opens a fresh one, so a session is a bounded activity window rather than an idle timeout. Explicit start_session sessions are never closed by the sweep — only end_session closes those.",
+        "How long a server-opened session keeps correlating before it becomes ELIGIBLE to be closed. This is a floor, not an exact lifetime: the closing is done by the maintenance sweep on ITS schedule (maintenance.intervalMinutes, default 60), so a session actually lives between windowSeconds and windowSeconds + that interval — with both defaults, between 30 and 90 minutes. A session is a bounded activity window, not an idle timeout: it is closed on age, never on inactivity, and the next request opens a fresh one. Explicit start_session sessions are never closed by the sweep — only end_session closes those.",
       ),
   })
   .prefault({});
