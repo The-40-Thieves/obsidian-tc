@@ -39,13 +39,19 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // not fix a scheduled pass that was merely slow — measured 370.4s twice, 45 minutes apart and 12ms
 // from each other, which is 6 x 60s expiring on schedule, not a cold start varying. No existing
 // key, type, default or constraint moved.
+// THE-726 follow-up: rebaselined deliberately, DESCRIPTION TEXT ONLY. `sessions.windowSeconds` said
+// "how long a server-opened session stays open", which overstates the precision. Closing is done by
+// the maintenance sweep on its own cadence, so the window is a FLOOR: a session lives between
+// windowSeconds and windowSeconds + maintenance.intervalMinutes. Measured in production on the
+// 1.19.0 rollout — a session created at 12:34 was still correlating at 13:21 because the sweep had
+// last run at 12:27. No key, type, default or constraint changed; only the `description` string.
 // THE-726: rebaselined deliberately. Adds ONE block, `sessions`, with two keys — `autoOpen`
 // (boolean, default FALSE) and `windowSeconds` (int, positive, default 1800). The default is the
 // privacy posture, not a convenience: server-opened sessions correlate a principal's retrievals,
 // which changes what this server retains about who read what, so a config that says nothing gets
 // the non-correlating behaviour. No existing key, type, default or constraint moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "9611d07e397c6c91e3e531879a1c4f7570f5fef237a59aaa2e58f211eda38a38";
+  "0bbcbf6195a6b18ff6cf0de07ab74aae2390f18dd20c2f2f4304c2ab2d2e1c95";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

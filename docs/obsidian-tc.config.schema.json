@@ -1627,7 +1627,7 @@
         },
         "windowSeconds": {
           "default": 1800,
-          "description": "How long a server-opened session stays open. The maintenance sweep closes auto-opened sessions older than this and the next request opens a fresh one, so a session is a bounded activity window rather than an idle timeout. Explicit start_session sessions are never closed by the sweep — only end_session closes those.",
+          "description": "How long a server-opened session keeps correlating before it becomes ELIGIBLE to be closed. This is a floor, not an exact lifetime: the closing is done by the maintenance sweep on ITS schedule (maintenance.intervalMinutes, default 60), so a session actually lives between windowSeconds and windowSeconds + that interval — with both defaults, between 30 and 90 minutes. A session is a bounded activity window, not an idle timeout: it is closed on age, never on inactivity, and the next request opens a fresh one. Explicit start_session sessions are never closed by the sweep — only end_session closes those.",
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991

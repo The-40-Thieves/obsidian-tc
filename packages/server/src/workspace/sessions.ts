@@ -205,6 +205,11 @@ export function openImplicitSession(
  * `last_activity_at` column and a write on every request (or a throttle across them); a window
  * needs neither, and the cost is that a task spanning a boundary splits across two sessions.
  *
+ * `windowSeconds` is a FLOOR on the lifetime, not the lifetime, because this function only runs
+ * when the sweep runs. A session survives until the first sweep AFTER it ages out, so with the
+ * default 60-minute sweep and 1800s window the real range is 30-90 minutes. Do not tighten the
+ * window expecting a tighter lifetime — shorten the sweep interval, or accept the granularity.
+ *
  * `caller IS NULL` is the whole safety property: a session a client opened deliberately is never
  * closed here, because only `end_session` may decide a declared session is over. Left unbounded,
  * server-opened sessions would otherwise stay open forever and `activeSessionFor` would keep
