@@ -15,11 +15,20 @@ import type { Database } from "../db/types";
 import type { GatewayRoles } from "../plane/gateway";
 import { prompt } from "../plane/gateway";
 import { cosineBatch, cosineSimilarity, rougeLLcs } from "../search/native";
+import { runWithConcurrency } from "../util/concurrency";
 
 const MAX_CHUNK_TOKENS = 512;
 const MAX_TRANSCRIPT_TOKENS = 6000;
 const MAX_BLOCKS = 48;
 const MAX_JUDGED = 25;
+/** THE-621 item 1 — judge calls in flight at once. Matches multi_query.ts's DEFAULT_CONCURRENCY:
+ *  both fan out gateway calls from one pass, and there is no reason for them to disagree. */
+const DEFAULT_JUDGE_CONCURRENCY = 3;
+/** THE-621 item 2 — the kill-switch ratio cannot trip below this many judgements. At the shipped
+ *  0.05 ratio a single parse failure is 100% of a 1-judgement pass and 33% of a 3-judgement one,
+ *  so without a floor the gate is far more sensitive on small windows than the 5% figure implies —
+ *  and small windows are the common case. */
+const MIN_JUDGED_FOR_KILL = 10;
 
 function tokenize(text: string, cap: number): string[] {
   return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).slice(0, cap);
@@ -242,6 +251,22 @@ export interface InferCitationsOptions {
    *  independent workloads and should be tunable independently. Override via --max-judged on
    *  the citation-infer CLI. Default 25. */
   maxJudged?: number;
+  /** THE-621 item 1 — how many judge calls may be in flight at once. The stage-2 loop was serial,
+   *  so a full pass spent most of a minute awaiting one verdict at a time before anything was
+   *  stamped. Bounded rather than unbounded on purpose: 25 simultaneous completions is a burst
+   *  this deployment has no reason to send. Default 3. */
+  judgeConcurrency?: number;
+  /** THE-621 item 2 — minimum judgements before the kill-switch RATIO is allowed to trip. Default
+   *  10. Set to 1 to restore the pre-THE-621 behaviour where any single parse failure in a small
+   *  window aborted the pass. */
+  minJudgedForKill?: number;
+  /** THE-621 item 3 — override the judge system prompt. A prompt that cannot be overridden cannot
+   *  be A/B tested, which is the reason this is a knob rather than a module constant.
+   *
+   *  NOTE it does not imply `allowUncertain`: the two are independent, and `parseVerdict` still
+   *  accepts an `uncertain` verdict only when `allowUncertain` is set. A custom prompt that invites
+   *  abstention without it will read every abstention as a PARSE FAILURE. */
+  judgeSystem?: string;
   log?: (line: string) => void;
 }
 
@@ -369,27 +394,60 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   let judged = 0;
   let parseFailures = 0;
   if (opts.judge && passers.length > 0) {
-    for (const a of passers.slice(0, opts.maxJudged ?? MAX_JUDGED)) {
-      const req = {
-        ...prompt(
-          opts.allowUncertain ? JUDGE_SYSTEM_UNCERTAIN : JUDGE_SYSTEM,
-          `SOURCE:\n${a.content.slice(0, 1500)}\n\nRESPONSE:\n${opts.transcript.slice(0, 4000)}`,
-        ),
-        responseFormat: { type: "json_object" },
-      };
-      judged += 1;
-      try {
-        const res = await opts.judge(req);
-        const v = parseVerdict(res.text, opts.allowUncertain === true);
-        if (v) verdicts.set(a.chunkId, v);
-        else parseFailures += 1;
-      } catch {
-        parseFailures += 1;
-      }
+    const judge = opts.judge;
+    const toJudge = passers.slice(0, opts.maxJudged ?? MAX_JUDGED);
+    const judgeSystem =
+      opts.judgeSystem ?? (opts.allowUncertain ? JUDGE_SYSTEM_UNCERTAIN : JUDGE_SYSTEM);
+    // THE-621 item 1: judge under a BOUNDED fan-out instead of one call at a time.
+    //
+    // The callback must NEVER reject. `runWithConcurrency` awaits `fn` inside each worker and
+    // gathers the workers with `Promise.all`, so a single thrown judge call would reject the whole
+    // pool and discard every other verdict in flight. The serial loop it replaces isolated failures
+    // per chunk, and that property is preserved here by returning `null` for a failure rather than
+    // by throwing — `allSettled` semantics, expressed as a total function.
+    const settled = await runWithConcurrency(
+      toJudge,
+      Math.max(1, opts.judgeConcurrency ?? DEFAULT_JUDGE_CONCURRENCY),
+      async (a) => {
+        const req = {
+          ...prompt(
+            judgeSystem,
+            `SOURCE:\n${a.content.slice(0, 1500)}\n\nRESPONSE:\n${opts.transcript.slice(0, 4000)}`,
+          ),
+          responseFormat: { type: "json_object" },
+        };
+        try {
+          const res = await judge(req);
+          return parseVerdict(res.text, opts.allowUncertain === true);
+        } catch {
+          return null;
+        }
+      },
+    );
+    // Fold in INPUT order, not completion order. `runWithConcurrency` writes each result to its
+    // original index, so iterating positionally keeps `verdicts` insertion order and the failure
+    // count byte-identical to the serial version regardless of which judge call returned first.
+    judged = settled.length;
+    for (let i = 0; i < settled.length; i++) {
+      const v = settled[i];
+      if (v) verdicts.set((toJudge[i] as Assessment).chunkId, v);
+      else parseFailures += 1;
     }
   }
-  const aborted = judged > 0 && parseFailures / judged > th.killSwitch;
+  // THE-621 item 2: the ratio may only trip once the pass has judged enough for a ratio to mean
+  // anything. Below the floor a failure still leaves its own row NULL for a clean rerun — it just
+  // no longer discards the verdicts that DID parse alongside it.
+  const minJudgedForKill = Math.max(1, opts.minJudgedForKill ?? MIN_JUDGED_FOR_KILL);
+  const ratioExceeded = judged > 0 && parseFailures / judged > th.killSwitch;
+  const aborted = ratioExceeded && judged >= minJudgedForKill;
   if (aborted) log(`citation-infer: kill switch — ${parseFailures}/${judged} judge parse failures`);
+  else if (ratioExceeded) {
+    // Say so out loud. A suppressed abort that logged nothing would be indistinguishable from a
+    // clean pass in the operator's output, which is the failure shape this repo keeps re-finding.
+    log(
+      `citation-infer: ${parseFailures}/${judged} judge parse failures exceed the ${th.killSwitch} kill-switch ratio, but the pass is below the ${minJudgedForKill}-judgement floor — stamping the ${judged - parseFailures} verdict(s) that parsed`,
+    );
+  }
 
   // `citation_state` (20260731_001) records WHY each verdict is what it is. `cited_in_response`
   // keeps its exact prior semantics — the values written below are unchanged — because it is read

@@ -222,6 +222,11 @@ describe("citation inference (THE-170)", () => {
       cacheDb,
       transcript: TRANSCRIPT,
       sessionId: "s1",
+      // THE-621 item 2: this pass judges ONE survivor, which is below the shipped 10-judgement
+      // floor. The floor is asserted separately below; what this test pins is the abort MECHANIC
+      // (survivors left NULL, negatives still stamped), so it opts into the old sensitivity
+      // explicitly rather than silently depending on it.
+      minJudgedForKill: 1,
       judge: async () => ({ text: "definitely not json", model: "fake" }),
     });
     expect(stats.aborted).toBe(true);
@@ -397,6 +402,7 @@ describe("citation provenance (citation_state)", () => {
       cacheDb,
       transcript: TRANSCRIPT,
       sessionId: "s1",
+      minJudgedForKill: 1, // THE-621: one judgement is below the shipped floor — see above
       judge: async () => ({ text: "definitely not json", model: "fake" }),
     });
     expect(stats.aborted).toBe(true);
@@ -541,10 +547,190 @@ describe("judge abstention (allowUncertain, dark by default)", () => {
       transcript: TRANSCRIPT,
       sessionId: "s1",
       allowUncertain: true,
+      minJudgedForKill: 1, // THE-621: one judgement is below the shipped floor — see above
       judge: async () => ({ text: '{"cited": "probably", "score": 0.4}', model: "fake" }),
     });
     expect(stats.parseFailures).toBe(1);
     expect(stats.uncertain).toBe(0);
     expect(stats.aborted).toBe(true);
+  });
+});
+
+describe("stage-2 preflight hardening (THE-621)", () => {
+  /** N distinct stage-1 survivors in one session. `content` is per-chunk so a judge can tell them
+   *  apart from the request body; every variant still clears the ROUGE floor. */
+  function seededMany(n: number, suffix = (i: number) => `w${i}`) {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    const ins = cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)");
+    for (let i = 0; i < n; i++) {
+      ins.run(`c${i}`, `${CHUNK_CITED} ${suffix(i)}`);
+      seedRetrieval(edb, `r${i}`, `c${i}`, "s1");
+    }
+    return { edb, cacheDb };
+  }
+  const CITED_REPLY = { text: '{"cited": true, "score": 0.9}', model: "fake" };
+  const GARBAGE_REPLY = { text: "definitely not json", model: "fake" };
+
+  it("item 2: below the floor, one parse failure no longer discards the verdicts that parsed", async () => {
+    const { edb, cacheDb } = seededMany(3);
+    let call = 0;
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async () => {
+        call += 1;
+        return call === 1 ? GARBAGE_REPLY : CITED_REPLY;
+      },
+    });
+    expect(stats.judged).toBe(3);
+    expect(stats.parseFailures).toBe(1); // 1/3 = 33%, far over the 5% ratio...
+    expect(stats.aborted).toBe(false); // ...but 3 is under the 10-judgement floor
+    expect(stats.cited).toBe(2); // and the two that parsed are stamped, not thrown away
+  });
+
+  it("item 2: the floor is a >= boundary — 9 judgements cannot trip it, 10 can", async () => {
+    // Pins the comparison itself. An off-by-one (`>` for `>=`) survives every other test here.
+    const nine = seededMany(9);
+    const a = await inferCitations({
+      edb: nine.edb,
+      cacheDb: nine.cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async () => GARBAGE_REPLY,
+    });
+    expect(a.judged).toBe(9);
+    expect(a.aborted).toBe(false);
+
+    const ten = seededMany(10);
+    const b = await inferCitations({
+      edb: ten.edb,
+      cacheDb: ten.cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async () => GARBAGE_REPLY,
+    });
+    expect(b.judged).toBe(10);
+    expect(b.aborted).toBe(true);
+    // Aborting still means a clean rerun: no survivor carries a verdict.
+    expect(rows(ten.edb).every((r) => r.cited_in_response === null)).toBe(true);
+  });
+
+  it("item 1: the judge fan-out runs in parallel AND stays under the cap", async () => {
+    const { edb, cacheDb } = seededMany(9);
+    let inFlight = 0;
+    let peak = 0;
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judgeConcurrency: 2,
+      judge: async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 1));
+        inFlight -= 1;
+        return CITED_REPLY;
+      },
+    });
+    expect(stats.judged).toBe(9);
+    // Exactly 2 catches BOTH regressions: a serial loop peaks at 1, an unbounded Promise.all at 9.
+    expect(peak).toBe(2);
+  });
+
+  it("item 1: a THROWN judge call does not reject the pool or lose the other verdicts", async () => {
+    // The serial loop isolated failures per chunk. A naive Promise.all would surface the throw and
+    // discard every sibling verdict in flight, so this is the property most at risk in the rewrite.
+    const { edb, cacheDb } = seededMany(4);
+    let call = 0;
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async () => {
+        call += 1;
+        if (call === 1) throw new Error("gateway exploded");
+        return CITED_REPLY;
+      },
+    });
+    expect(stats.judged).toBe(4);
+    expect(stats.parseFailures).toBe(1); // the throw counts as a failure, exactly as before
+    expect(stats.cited).toBe(3); // the other three are unaffected
+  });
+
+  it("item 1: a verdict binds to its OWN chunk when judges settle out of input order", async () => {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    const ins = cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)");
+    ins.run("cSlow", `${CHUNK_CITED} alpha`);
+    ins.run("cFast", `${CHUNK_CITED} beta`);
+    seedRetrieval(edb, "rSlow", "cSlow", "s1");
+    seedRetrieval(edb, "rFast", "cFast", "s1");
+
+    await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judgeConcurrency: 2,
+      judge: async (req) => {
+        // "alpha" is FIRST in input order and settles LAST. If results were folded by arrival,
+        // the two verdicts would transpose and both assertions below would invert.
+        if (JSON.stringify(req).includes("alpha")) {
+          await new Promise((r) => setTimeout(r, 20));
+          return { text: '{"cited": true, "score": 0.91}', model: "fake" };
+        }
+        return { text: '{"cited": false, "score": 0.12}', model: "fake" };
+      },
+    });
+    const s = states(edb);
+    expect(s.find((x) => x.id === "rSlow")).toMatchObject({
+      cited_in_response: 1,
+      citation_state: "confirmed",
+    });
+    expect(s.find((x) => x.id === "rFast")).toMatchObject({
+      cited_in_response: 0,
+      citation_state: "rejected",
+    });
+  });
+
+  it("item 3: judgeSystem replaces the shipped prompt", async () => {
+    const { edb, cacheDb } = seededMany(1);
+    let seen = "";
+    await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judgeSystem: "THE-621 probe prompt. Reply with strict JSON only.",
+      judge: async (req) => {
+        seen = JSON.stringify(req);
+        return CITED_REPLY;
+      },
+    });
+    expect(seen).toContain("THE-621 probe prompt");
+    expect(seen).not.toContain("You judge citation");
+  });
+
+  it("item 3: the DEFAULT prompt is untouched when judgeSystem is absent", async () => {
+    // The override must not become a way to drift the shipped prompt by omission.
+    const { edb, cacheDb } = seededMany(1);
+    let seen = "";
+    await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async (req) => {
+        seen = JSON.stringify(req);
+        return CITED_REPLY;
+      },
+    });
+    expect(seen).toContain("You judge citation");
+    expect(seen).not.toContain("uncertain");
   });
 });

@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,051 tracked code files · 159,797 lines.
+**Scale:** 1,051 tracked code files · 160,143 lines.
 
-TypeScript 148,329 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 360.
+TypeScript 148,675 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -89,9 +89,9 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `tools/` | 82 | 15,814 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 54 | 10,185 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,267 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `experiential/` | 12 | 3,140 | work-memory tier: activation, retrieval log, forget, citations |
+| `experiential/` | 12 | 3,198 | work-memory tier: activation, retrieval log, forget, citations |
 | `runtime/` | 14 | 3,092 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `cli/` | 23 | 2,667 | arg parsing + subcommands |
+| `cli/` | 23 | 2,715 | arg parsing + subcommands |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `doctor/` | 9 | 1,711 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
@@ -144,10 +144,10 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 708 | `packages/server/src/mcp/server.ts` |
 | 688 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
+| 653 | `packages/server/src/cli/args.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
 | 620 | `packages/server/src/metrics/registry.ts` |
-| 614 | `packages/server/src/cli/args.ts` |
 | 603 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
@@ -155,9 +155,10 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 526 | `packages/server/src/transports/http.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
 | 513 | `packages/server/src/search/query_cache.ts` |
+| 510 | `packages/server/src/experiential/citation.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
 
-18 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
+19 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
 <!-- END GENERATED: tree-largest-files -->
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
@@ -276,7 +277,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**381 modules · 1696 dependencies · 113 distinct subsystem pairs · 761 cross-subsystem imports.**
+**381 modules · 1697 dependencies · 114 distinct subsystem pairs · 762 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -294,7 +295,7 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 113 pairs.
+set is 114 pairs.
 
 ```mermaid
 flowchart LR

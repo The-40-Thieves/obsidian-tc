@@ -307,6 +307,60 @@ describe("parseCliArgs — citation-infer --max-judged (THE-617 item 3)", () => 
   });
 });
 
+describe("parseCliArgs — citation-infer stage-2 preflight knobs (THE-621)", () => {
+  it("parses both new flags alongside the config path without eating it as a value", () => {
+    const cmd = parseCliArgs([
+      "citation-infer",
+      "--session",
+      "s1",
+      "--transcript",
+      "t.txt",
+      "--judge-concurrency",
+      "4",
+      "--min-judged-for-kill",
+      "25",
+      "/etc/cfg.json",
+    ]);
+    expect(cmd).toMatchObject({
+      kind: "citation-infer",
+      session: "s1",
+      transcript: "t.txt",
+      judgeConcurrency: 4,
+      minJudgedForKill: 25,
+      input: "/etc/cfg.json", // both flags spliced out of `scan`, so the path survives
+    });
+  });
+
+  it("rejects 0 for both, where --max-judged ACCEPTS 0", () => {
+    // The asymmetry is deliberate. Judging 0 survivors is a coherent instruction; a fan-out of 0
+    // sends nothing and a kill floor of 0 can never be reached by `judged >= floor`. citation.ts
+    // clamps both with Math.max(1, ...), so accepting 0 would hand back a silent 1.
+    expect(parseCliArgs(["citation-infer", "--session", "s1", "--max-judged", "0"])).toMatchObject({
+      kind: "citation-infer",
+      maxJudged: 0,
+    });
+    expect(
+      parseCliArgs(["citation-infer", "--session", "s1", "--judge-concurrency", "0"]).kind,
+    ).toBe("error");
+    expect(
+      parseCliArgs(["citation-infer", "--session", "s1", "--min-judged-for-kill", "0"]).kind,
+    ).toBe("error");
+  });
+
+  it("rejects negative and non-numeric values for both", () => {
+    for (const flag of ["--judge-concurrency", "--min-judged-for-kill"]) {
+      expect(parseCliArgs(["citation-infer", "--session", "s1", flag, "-1"]).kind).toBe("error");
+      expect(parseCliArgs(["citation-infer", "--session", "s1", flag, "soon"]).kind).toBe("error");
+    }
+  });
+
+  it("omits both entirely when absent, so citation.ts's defaults apply", () => {
+    const cmd = parseCliArgs(["citation-infer", "--session", "s1"]);
+    expect(cmd).not.toHaveProperty("judgeConcurrency");
+    expect(cmd).not.toHaveProperty("minJudgedForKill");
+  });
+});
+
 describe("redactConfig — generic key-suffix fields", () => {
   it("masks any *key/*secret/*token field, including signing/private keys", () => {
     const json = JSON.stringify(
