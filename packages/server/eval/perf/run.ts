@@ -84,11 +84,48 @@ const CALIBRATION_REFERENCE_PATH = "eval/perf/calibration-reference.json";
 
 /** THE-584 shape: one committed quiet-host median per calibration channel. `referenceMs`/`tol` are
  *  the pre-THE-584 scalar (CPU-only) fields, still read so a reference committed before this change
- *  keeps working instead of silently losing the CPU absolute check. */
+ *  keeps working instead of silently losing the CPU absolute check.
+ *
+ *  THE-510: now keyed by CPU ARCHITECTURE under `byArch`. The absolute check compares a measured
+ *  median against a committed quiet-host median, which is only meaningful on the same silicon — an
+ *  x64 reference of 15.0ms applied to an ARM host reports `contended` forever, at any load, because
+ *  Neoverse-N1 single-thread is simply slower than the part that produced it. Measured on cave
+ *  2026-08-04: median held at 27.0-28.7ms (6% spread) while load average rose 30%, which is the
+ *  signature of a different CPU, not of contention. That one number made this host read as
+ *  permanently unfit and got a benchmark deliverable priced as a hardware purchase. */
 interface CalibrationReference {
+  /** Per-architecture references, keyed by `process.arch` ("x64", "arm64", ...). */
+  byArch?: Record<string, LegacyCalibrationReference>;
   channels?: Partial<Record<CalibrationChannel, number>>;
   referenceMs?: number;
   tol?: number;
+}
+
+/** One architecture's reference, in either the vector or the pre-THE-584 scalar shape. */
+interface LegacyCalibrationReference {
+  channels?: Partial<Record<CalibrationChannel, number>>;
+  referenceMs?: number;
+  tol?: number;
+}
+
+/**
+ * THE-510: pick the entry for one architecture out of a committed reference file.
+ *
+ * Pure and exported so the arch rule is testable without a filesystem — the rule itself is the
+ * load-bearing part, not the reading.
+ *
+ * An arch-keyed file applies ONLY its own arch's entry, and a MISSING entry returns `undefined`
+ * rather than falling through to another architecture's number. Falling through is exactly what
+ * used to happen: a 15.0ms x64 reference judged an ARM host whose quiet median is ~27ms, so
+ * `detectContention` reported sustained load at every load level and the host read as permanently
+ * unfit for benchmarking. An untagged (pre-THE-510) file still applies as-is, because on the
+ * machine that wrote it that is correct and it is the only backward-compatible reading.
+ */
+export function selectArchReference(
+  file: CalibrationReference,
+  arch: string,
+): LegacyCalibrationReference | undefined {
+  return file.byArch ? file.byArch[arch] : file;
 }
 
 /** The committed "quiet host" calibration reference (THE-503, vectorised in THE-584), used ONLY to
@@ -104,9 +141,24 @@ function readCalibrationReference(): {
   overrides: ChannelThresholdOverrides;
 } {
   try {
-    const ref = JSON.parse(
+    const file = JSON.parse(
       readFileSync(CALIBRATION_REFERENCE_PATH, "utf8"),
     ) as CalibrationReference;
+    // THE-510: an architecture-keyed file applies ONLY its own arch's entry. A missing entry means
+    // this machine has no committed quiet-host number, so the absolute check stands down and the
+    // relative CV/max checks carry the run — which is the same posture as a fresh checkout. It must
+    // NOT fall through to another arch's number: doing so is what made every ARM host read as
+    // permanently contended.
+    const ref = selectArchReference(file, process.arch);
+    if (file.byArch && ref === undefined) {
+      process.stderr.write(
+        `perf: no quiet-host calibration reference for arch "${process.arch}" — absolute ` +
+          `contention check stands down; relative CV/max checks still apply. ` +
+          `Run --update-baseline on a quiet ${process.arch} host to commit one.\n`,
+      );
+      return { reference: {}, overrides: {} };
+    }
+    if (ref === undefined) return { reference: {}, overrides: {} };
     if (ref.channels) return { reference: ref.channels, overrides: {} };
     // Legacy scalar file: CPU only. The I/O channel then runs relative checks alone until the next
     // --update-baseline rewrites this file in the vector shape.
@@ -139,7 +191,19 @@ function readBaselineIfPresent(name: Scenario["name"]): Baseline | null {
 function writeCalibrationReference(result: VectorContentionResult): void {
   const channels: Partial<Record<CalibrationChannel, number>> = {};
   for (const c of CALIBRATION_CHANNELS) channels[c] = result.channels[c].median;
-  const ref: CalibrationReference = { channels };
+  // THE-510: record under THIS machine's arch and MERGE, never replace. Recording on one
+  // architecture must not delete another's committed reference — that would silently disarm the
+  // absolute check for every other platform, which is the failure mode this whole detector exists
+  // to prevent (a check that quietly stops running).
+  let existing: CalibrationReference = {};
+  try {
+    existing = JSON.parse(readFileSync(CALIBRATION_REFERENCE_PATH, "utf8")) as CalibrationReference;
+  } catch {
+    /* first ever recording — nothing to preserve */
+  }
+  const ref: CalibrationReference = {
+    byArch: { ...existing.byArch, [process.arch]: { channels } },
+  };
   // Trailing newline: these files are COMMITTED, and biome's formatter requires one — without it
   // every automated recording produces a lint-failing PR (caught on the first real run, THE-534).
   writeFileSync(CALIBRATION_REFERENCE_PATH, `${JSON.stringify(ref, null, 2)}\n`);
