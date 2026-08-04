@@ -6,6 +6,54 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-08-04
+
+### Added
+
+- **The HTTP transport can now carry a workspace session, and optionally opens one itself
+  (#691, #692, #693, THE-726).** `session_id` was NULL on 100% of live rows — 0 of 97
+  `chunk_retrievals` and 0 of 365 `agent_episodes` — and three tickets read that as a client
+  problem: nothing calls `start_session`. It was not.
+
+  ```
+  grep -c "sessionId\|activeSessions" packages/server/src/transports/http.ts   ->   0
+  ```
+
+  The HTTP transport never populated a session at all. Only the stdio context factory read
+  `ActiveSessionTracker`, and that tracker's own docblock describes it as *"process-local and
+  best-effort: not persisted"*. Deployments reached over HTTP therefore could not produce a
+  non-NULL `session_id` no matter what any client called — adoption was structurally incapable of
+  fixing it.
+
+  Three changes, in order:
+
+  - Migration `20260804_001` adds `workspace_sessions.principal`, and `activeSessionFor` resolves a
+    principal's open session durably from SQLite rather than from an in-memory map. `principal` is
+    the server-**observed** `ctx.caller`, deliberately distinct from the existing `caller` column,
+    which is the caller-**declared** `input.caller`. Resolving on the declared column would let any
+    client holding `write:workspace` name another principal and inherit its session id — and a
+    session id is the correlation key for that principal's retrieval history.
+  - An end-to-end suite over a live server proves a dispatch actually lands a non-NULL
+    `session_id` in `chunk_retrievals`, asserting the stored row rather than the context object.
+  - **New config block `sessions`.** With `sessions.autoOpen` on, the first authenticated dispatch
+    from a principal with no open session opens one, so correlation no longer waits on a client
+    change. The maintenance sweep closes server-opened sessions older than `sessions.windowSeconds`
+    (default 1800) and reports them as a new `sessions_closed` count; a session a client opened
+    deliberately is never closed by the sweep.
+
+  **`sessions.autoOpen` defaults to `false`, and enabling it is a deliberate decision.** Session
+  correlation changes what this server retains about who read what. A config that says nothing gets
+  the non-correlating behaviour, and nothing about this release changes existing deployments'
+  observable behaviour until the flag is set.
+
+  **Operator note:** a server-opened session is a bounded *activity window*, not an idle timeout. A
+  task spanning a window boundary splits across two sessions. That is the deliberate trade for
+  needing no `last_activity_at` column and no write in the read path.
+
+  Pre-migration rows have `principal` NULL, which makes them unresolvable rather than
+  resolvable-as-someone. Nothing is backfilled: copying `caller` across would manufacture exactly
+  the collapse the new column exists to prevent. stdio behaviour is unchanged.
+
 ## [1.18.0] - 2026-08-04
 
 ### Fixed
