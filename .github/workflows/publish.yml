@@ -702,11 +702,29 @@ jobs:
           # publish on tag (was draft: true — releases were left as drafts, so "Latest" went stale)
           draft: false
           generate_release_notes: true
+          # THE-731: `artifacts/**/*.zip` used to sit between the .mcpb and manifest.json lines and
+          # was REDUNDANT — build-plugin emits exactly one zip, obsidian-tc-plugin-<version>.zip,
+          # which already matches `obsidian-tc-*`. Being matched by two patterns queued it for
+          # upload TWICE, and with overwrite_files the second copy takes the *update* path: it looks
+          # up an asset the first copy has not finished creating, gets a 404, and fails the job.
+          # It is the only double-match here (obsidian-tc.mcpb has no hyphen after `obsidian-tc`;
+          # the bun binaries are not .zip), which is why the plugin bundle specifically went missing.
+          # Do not re-add a pattern that overlaps another.
           files: |
             artifacts/**/obsidian-tc-*
             artifacts/**/*.mcpb
-            artifacts/**/*.zip
             artifacts/**/manifest.json
             artifacts/**/main.js
             artifacts/**/styles.css
             artifacts/SHASUMS256.txt
+
+      # THE-731: the upload step's exit code is NOT sufficient evidence that the release is whole.
+      # On v1.19.0 it exited non-zero having shipped 10 of 11 assets, and on v1.18.0 the same defect
+      # exited ZERO because the race happened to fall the other way. Assert by name against the
+      # generated manifest instead; the script explains why name-and-manifest rather than a
+      # hardcoded count. Tag pushes only — a workflow_dispatch has no release to inspect.
+      - name: verify every checksummed artifact is attached
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/check-release-assets.sh "${{ github.ref_name }}" artifacts/SHASUMS256.txt
