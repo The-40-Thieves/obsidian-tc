@@ -6,6 +6,46 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-08-04
+
+### Fixed
+
+- **The scheduler's backoff cap had become a global 5-minute ceiling on every background job
+  (#687, THE-723).** `effInterval` computed `Math.min(intervalMs * 2 ** failures, maxBackoffMs)`.
+  That is a backoff cap only while `intervalMs <= maxBackoffMs`; above it, and with zero failures,
+  it reduces to `min(intervalMs, 5min)` — and `effInterval` computes *every* next-run, including the
+  success path. A backoff cap shorter than the base interval does not slow a failing job down, it
+  speeds every slow job up.
+
+  Measured on a live store via the scheduler's own `job_schedule` table: `plane-enqueue` (configured
+  240 min), `maintenance-sweep`, `activation-recompute`, `note-quality-enqueue`, `goal-expiry` and
+  `episode-evaluation` (all 60 min) were every one of them running at ~300s. Only
+  `job-queue-runner` (15s) was correct, because it sits below the cap.
+
+  Now `Math.max(backoff, intervalMs)`: backoff still grows exponentially and is still bounded by
+  `maxBackoffMs`, but can never schedule a job sooner than its own interval.
+
+  **Operator-visible:** background jobs now run at the cadence you configured, which is *less often*
+  than 1.17.x ran them — up to 48× less for the consolidation plane. That is the documented
+  behaviour being restored, not a regression. `job-queue-runner` is unchanged, so queued work still
+  drains every 15s and nothing user-facing gets slower.
+
+  It survived since THE-462 because every test in `scheduler.test.ts` registers `intervalMs: 1000`,
+  entirely below the cap — the region where `Math.min` always picks the interval and the clamp
+  cannot fire. The new gate deliberately registers a 60-minute interval and says so in a comment.
+
+- **The plane re-ran its own completed once-per-period work on every tick (#687, THE-723).**
+  THE-700 set `replaceIfTerminal: true` on the two period-keyed plane jobs so a failure would not
+  cost the whole period. But `enqueue()` treats `complete` as terminal too, so each tick deleted and
+  re-enqueued work that had already succeeded, and the ISO-week and per-day idempotency keys
+  throttled nothing in either direction. This regressed a contract the option's own docblock states:
+  *"a completed weekly synthesis must block re-runs"*.
+
+  Compounded with the clamp above, `audit_reports` went from 2 writes/day to **243**. New
+  `EnqueueOptions.replaceIfFailed` is the narrow form — replaces a `failed` row, still dedups against
+  `complete`. `synthesis` and `audit` use it; `contradiction` keeps `replaceIfTerminal`, where its
+  key is content-hashed and replace-on-complete is deliberate.
+
 ## [1.17.1] - 2026-08-04
 
 ### Added
