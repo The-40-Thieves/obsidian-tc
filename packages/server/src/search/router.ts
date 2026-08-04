@@ -17,8 +17,20 @@
 // Later classes route here too: preference-intent → profile-first (THE-222's store) and
 // experiential federation (THE-237) plug in as new branches, never as a rewrite.
 //
-// DARK by default (retrieval.classRouter). Gate: per-class AND aggregate non-inferiority on
-// the n=136 golden set under the ship rule, else it stays dark like every other loser.
+// DARK by default (retrieval.classRouter). Gate: per-class AND aggregate non-inferiority on the
+// golden set under the ship rule, else it stays dark like every other loser.
+//
+// The golden set is n=250, not the n=136 this comment used to name — it was expanded 2026-07-19
+// and the stale figure survived here. Resolution is METRIC-SPECIFIC (THE-674, re-measured
+// 2026-08-02 on the live bge-m3 store): MDE 0.035 on `ndcg_at_10`, 0.026 on `recall_at_10`, 0.022
+// on `bridge_recall`, 0.055 on `mrr_at_10`, and 0.062 on `bridge_ndcg_at_10` — which is scored on
+// n=103, not 250. Declare which metric this gate reads and its MDE BEFORE running, or a null means
+// "below resolution" rather than "no effect". Full table: `packages/server/eval/README.md`.
+//
+// Note what this router is FOR when picking that metric: the lexical class short-circuits to BM25
+// and skips the embedding round-trip, so the win is COST. Non-inferiority on quality is the bar to
+// clear, not the effect to look for. `eval/run.ts` already accepts `--class-router` and applies the
+// same rules as serve, so measuring it needs no new code.
 import type { Database } from "../db/types";
 import { bm25Chunks } from "./chunk_fts";
 import type { GraphSearchResult } from "./graph_search";
