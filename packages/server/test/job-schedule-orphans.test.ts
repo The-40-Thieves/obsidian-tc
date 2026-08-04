@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import { runMaintenanceSweep } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
+import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
 
 /** The PERMISSIVE schema, exactly as pre-THE-715 stores carry it. Reproduced verbatim rather than
@@ -109,5 +110,38 @@ describe("the maintenance sweep repairs an existing store", () => {
     expect(counts).toHaveProperty("idempotency_keys");
     expect(counts).toHaveProperty("event_log");
     d.close?.();
+  });
+});
+
+describe("the registration guard — what actually PREVENTS it on an existing store", () => {
+  // The DDL fix is CREATE TABLE IF NOT EXISTS, so a pre-existing store keeps the permissive schema
+  // forever and would still append silently; the sweep prunes those rows hourly, which MASKS the
+  // symptom rather than preventing it. This throw is the only thing that prevents it everywhere.
+  //
+  // The second SQLite behaviour is what made it unbounded rather than a single bad row:
+  // `ON CONFLICT(name)` never matches a NULL, because NULL != NULL — so the upsert takes the
+  // INSERT branch on EVERY persist, and the job's schedule state is lost each tick while nothing
+  // errors.
+  const run = () => {};
+
+  it("refuses a spec with no name", () => {
+    const s = new Scheduler();
+    expect(() => s.register({ name: undefined, intervalMs: 1000, run } as never)).toThrow(
+      /non-empty name/,
+    );
+  });
+
+  it("refuses an EMPTY name, which is just as unmatchable a conflict target", () => {
+    const s = new Scheduler();
+    expect(() => s.register({ name: "", intervalMs: 1000, run } as never)).toThrow(
+      /non-empty name/,
+    );
+  });
+
+  it("still accepts a normal spec, and still rejects a duplicate", () => {
+    // The guard must not have displaced the pre-existing duplicate check.
+    const s = new Scheduler();
+    s.register({ name: "ok", intervalMs: 1000, run } as never);
+    expect(() => s.register({ name: "ok", intervalMs: 1000, run } as never)).toThrow(/duplicate/);
   });
 });

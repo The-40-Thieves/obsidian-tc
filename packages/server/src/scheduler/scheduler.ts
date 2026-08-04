@@ -169,6 +169,24 @@ export class Scheduler {
   }
 
   register(spec: JobSpec): this {
+    // THE-715 item 3: refuse a nameless spec at REGISTRATION, which is the only place that closes
+    // the loop on a store that already exists.
+    //
+    // `name` is the upsert conflict target, and two SQLite behaviours combine against it: a TEXT
+    // PRIMARY KEY does not imply NOT NULL (unless WITHOUT ROWID), and `ON CONFLICT(name)` never
+    // matches a NULL because NULL != NULL. So a nameless spec appends a fresh row on EVERY persist
+    // — 2,979 of them accumulated — and the job's schedule state is lost each tick while nothing
+    // errors.
+    //
+    // ensureTable now declares the column NOT NULL, but that is CREATE TABLE IF NOT EXISTS: a
+    // pre-existing store keeps the permissive schema forever and would still append silently. The
+    // maintenance sweep prunes those rows hourly, which MASKS the symptom rather than preventing
+    // it. This throw is what actually prevents it, on every store, old or new.
+    //
+    // Typed `string`, so this only fires on a JS caller or an `as never` cast — which is exactly
+    // how the original nulls got in.
+    if (typeof spec.name !== "string" || spec.name.length === 0)
+      throw new Error("scheduler: job spec requires a non-empty name");
     if (this.jobs.has(spec.name)) throw new Error(`scheduler: duplicate job '${spec.name}'`);
     this.jobs.set(spec.name, {
       spec,
