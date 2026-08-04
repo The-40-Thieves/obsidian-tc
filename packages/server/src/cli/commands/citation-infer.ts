@@ -42,6 +42,15 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
       embed: (texts) => provider.embed(texts, { input: "query" }),
       judge: gwc ? (r) => gwc.judge(r).then((x) => ({ text: x.text, model: x.model })) : null,
       ...(cmd.maxJudged !== undefined ? { maxJudged: cmd.maxJudged } : {}),
+      // THE-621: assigned DIRECTLY rather than conditionally spread like the lines around them.
+      // TypeScript applies excess-property checking to a fresh object literal but NOT to spread-in
+      // properties, so a conditional spread whose key is misspelled — one letter dropped from
+      // `judgeConcurrency` — typechecks clean and silently discards the option. Measured, not
+      // assumed. As a plain property that same slip is a TS2561 compile error.
+      // Passing `undefined` is equivalent to omitting: both knobs resolve via `?? <default>` in
+      // citation.ts, and this project does not set exactOptionalPropertyTypes.
+      judgeConcurrency: cmd.judgeConcurrency,
+      minJudgedForKill: cmd.minJudgedForKill,
       ...(cmd.allowUncertain ? { allowUncertain: true } : {}),
       log: (s) => process.stderr.write(`${s}\n`),
     });

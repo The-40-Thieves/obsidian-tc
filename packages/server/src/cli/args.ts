@@ -35,6 +35,8 @@ export type CliCommand =
       until?: number;
       transcript?: string;
       maxJudged?: number;
+      judgeConcurrency?: number;
+      minJudgedForKill?: number;
       allowUncertain?: boolean;
     }
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
@@ -106,6 +108,19 @@ Usage:
                                           LLM Pass-3 semantic-edge densification via the local gateway (graph densification)
   obsidian-tc reflect [path] [--max-judged N]
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
+  obsidian-tc citation-infer [path] --transcript <file> (--session <id> | --since <ms> [--until <ms>])
+                            [--max-judged N] [--judge-concurrency N] [--min-judged-for-kill N] [--allow-uncertain]
+                                          Infer which retrieved chunks were actually USED in a response
+                                          and stamp cited_in_response / citation_score / citation_state
+                                          over the retrievals in scope (THE-170). Two stages: a cheap
+                                          ROUGE-L/cosine filter, then a gateway judge over the
+                                          survivors. The transcript is assistant-side text the server
+                                          never sees, so it is read from a file.
+                                          --judge-concurrency bounds the judge fan-out (default 3);
+                                          --min-judged-for-kill floors the parse-failure kill switch
+                                          (default 10) so one bad reply cannot abort a small pass
+                                          (THE-621). --allow-uncertain lets the judge abstain — dark by
+                                          default, since it moves rows out of the citation count.
   obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]
                                           Knowledge-health scorecard from the derive layer (THE-44/46)
   obsidian-tc config explain [path] [--source env|file|profile|default|derived] [--json]
@@ -337,6 +352,8 @@ export function parseCliArgs(argv: string[]): CliCommand {
         "--until",
         "--transcript",
         "--max-judged",
+        "--judge-concurrency",
+        "--min-judged-for-kill",
         "--config",
       ]) {
         const i = scan.indexOf(f);
@@ -355,6 +372,26 @@ export function parseCliArgs(argv: string[]): CliCommand {
         if (!Number.isFinite(maxJudged) || maxJudged < 0)
           return { kind: "error", message: "--max-judged must be a non-negative integer" };
       }
+      // THE-621 items 1 and 2: the stage-2 fan-out cap and the kill-switch floor, same --flag shape
+      // as --max-judged above.
+      //
+      // Both reject 0, where --max-judged accepts it. That is not an inconsistency: judging 0
+      // survivors is a meaningful instruction, but a fan-out of 0 sends nothing and a kill floor of
+      // 0 cannot be reached by `judged >= floor`. citation.ts clamps both with Math.max(1, ...), so
+      // accepting 0 here would silently hand back a 1 the operator did not ask for — a typo should
+      // be an error, not a quiet default.
+      const posInt = (flag: string): number | undefined | { kind: "error"; message: string } => {
+        const raw = flagValue(rest, flag);
+        if (raw === undefined) return undefined;
+        const n = Number.parseInt(raw, 10);
+        if (!Number.isFinite(n) || n < 1)
+          return { kind: "error", message: `${flag} must be a positive integer` };
+        return n;
+      };
+      const jc = posInt("--judge-concurrency");
+      if (jc !== undefined && typeof jc === "object") return jc;
+      const mjk = posInt("--min-judged-for-kill");
+      if (mjk !== undefined && typeof mjk === "object") return mjk;
       // Boolean flag: deliberately NOT added to the value-carrying strip list above — it takes no
       // argument, so splicing two entries would eat the following positional.
       const allowUncertain = rest.includes("--allow-uncertain");
@@ -367,6 +404,8 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(transcript !== undefined ? { transcript } : {}),
         ...(allowUncertain ? { allowUncertain } : {}),
         ...(maxJudged !== undefined ? { maxJudged } : {}),
+        ...(jc !== undefined ? { judgeConcurrency: jc } : {}),
+        ...(mjk !== undefined ? { minJudgedForKill: mjk } : {}),
       };
     }
     // THE-249: per-note output-contribution report over the experiential telemetry.
