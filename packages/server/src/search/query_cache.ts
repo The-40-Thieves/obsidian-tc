@@ -288,11 +288,31 @@ const FUNCTION_FIELDS = [
  *  as "the note was never anywhere", which is a wrong answer, not a missing one. */
 const TRACE_SELECTOR_FIELDS = ["traceNotePath"] as const;
 
+/** THE-631 item 2: fields that PARAMETERISE the coverage estimate and nothing else.
+ *
+ *  `staleThresholdDays` sets the age past which a returned note counts toward
+ *  `CoverageEstimate.staleReturned`. It reaches exactly one place — `countStaleNotes`, whose output
+ *  is handed to `estimateCoverage` and reported through `onCoverage`. It never touches seeds,
+ *  expansion, fusion, diversity, rerank or projection, so two calls differing only in it return
+ *  BYTE-IDENTICAL results and must share a cache entry.
+ *
+ *  Unlike TRACE_SELECTOR_FIELDS above, this does NOT bypass the cache, so it is stripped in
+ *  `graphSearchKey` rather than merely listed here — keeping it in the key would fragment the cache
+ *  by a knob that cannot change what is cached. Listing without stripping does nothing; see the
+ *  trace note above for the same warning.
+ *
+ *  The cache-HIT caveat is the mildest in this file: a hit never calls `graphSearch`, so
+ *  `onCoverage` does not fire and the tool layer omits `coverage` entirely (the schema field is
+ *  optional for exactly this). A stale threshold therefore cannot produce a WRONG staleness count
+ *  from cache — only an absent one, which is already the documented behaviour for every coverage
+ *  field. */
+const COVERAGE_ONLY_FIELDS = ["staleThresholdDays"] as const;
+
 /** Fields excluded from the key because they are derived from (query text, representation), both
  *  of which the key already carries — see the header note on circularity. */
 const DERIVED_VECTOR_FIELDS = ["queryVec", "querySparse", "queryColbert"] as const;
 
-export { DERIVED_VECTOR_FIELDS, FUNCTION_FIELDS, TRACE_SELECTOR_FIELDS };
+export { COVERAGE_ONLY_FIELDS, DERIVED_VECTOR_FIELDS, FUNCTION_FIELDS, TRACE_SELECTOR_FIELDS };
 
 /**
  * Fold an arbitrary value into a hash, deterministically and injectively.
@@ -423,6 +443,9 @@ export function graphSearchKey(
 ): string {
   const keyed: Record<string, unknown> = { ...base };
   for (const f of DERIVED_VECTOR_FIELDS) delete keyed[f];
+  // THE-631 item 2: parameterises the coverage estimate only, never the results — keeping it
+  // would fragment the cache by a knob that cannot change what is cached.
+  for (const f of COVERAGE_ONLY_FIELDS) delete keyed[f];
   // `reranker` is a bare function with no identity (see FUNCTION_FIELDS); record presence only.
   keyed.reranker = keyed.reranker == null ? "absent" : "present";
   return structuralKey([
