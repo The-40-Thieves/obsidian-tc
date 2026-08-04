@@ -170,7 +170,7 @@ jobs:
         working-directory: packages/native
         run: bun run build -- --target ${{ matrix.target }} ${{ endsWith(matrix.target, '-musl') && '-x' || '' }}
         shell: bash
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.triple }}
           path: packages/native/*.node
@@ -198,7 +198,7 @@ jobs:
       # jobs had passed. This job consumes only the napi `.node` artifacts; the binaries, mcpb and
       # plugin bundles are draft-release's business. Filtering by what we NEED also stops any
       # future job's artifacts from breaking the publish the same way.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: native-*
           path: packages/native/artifacts
@@ -367,7 +367,7 @@ jobs:
           ls -la sboms/
         shell: bash
       - name: upload SBOM artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sboms
           path: sboms/
@@ -503,7 +503,7 @@ jobs:
             [ -f "$tmp/cache/$db" ] || { echo "::error::$db was not provisioned"; exit 1; }
           done
           echo "ok: $bin reports $want, reaches stdio-ready, and provisions both chains"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: binary-${{ matrix.target }}
           path: packages/server/dist/obsidian-tc-*
@@ -536,7 +536,7 @@ jobs:
         shell: bash
       # Upload the zip AND the loose 3-file set (manifest.json + main.js + styles.css) so the release
       # attaches them as individual assets for BRAT sideloading (THE-206), not only the zip.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: plugin
           path: |
@@ -561,9 +561,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -600,7 +600,7 @@ jobs:
         id: buildmeta
         run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
         shell: bash
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: Dockerfile
@@ -644,7 +644,7 @@ jobs:
           ls -la sboms/
       - name: upload image SBOM
         if: hashFiles('sboms/obsidian-tc-image.spdx.json') != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom-image
           path: sboms/
@@ -673,7 +673,7 @@ jobs:
           (cd packages/server && bun run build)
       - name: pack the .mcpb bundle
         run: bun run bundle
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mcpb
           path: dist/obsidian-tc.mcpb
@@ -687,7 +687,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
           # only the assets the release attaches; skip native-* and the .dockerbuild record
@@ -697,7 +697,7 @@ jobs:
           cd artifacts
           find . -type f \( -name 'obsidian-tc-*' -o -name '*.mcpb' -o -name '*.zip' \) -exec sha256sum {} \; > SHASUMS256.txt
         shell: bash
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           # publish on tag (was draft: true — releases were left as drafts, so "Latest" went stale)
           draft: false
