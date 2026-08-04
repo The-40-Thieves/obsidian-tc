@@ -358,11 +358,35 @@ async function probeDerivedTables(
         ["chunk_colbert", cfg.multiVector ? "enabled" : "disabled", multiVectorLever],
         // No config turns these on — nothing writes them at all. Reporting them as "off" would
         // imply a switch exists.
-        ["memory_entities", "none", "no writer exists (THE-629)"],
-        ["memory_relations", "none", "no writer exists (THE-629)"],
+        // THE-629, CORRECTED 2026-08-04: these were classified `none`, with a lever asserting the
+        // writer was absent — the ticket's own unverified premise, propagated into the health
+        // surface. It is false. `memory/entities.ts:97` and
+        // `:164` ARE the writers, and five registered MCP tools reach them — create_entity,
+        // get_entity, add_observation, link_entities, query_entity_graph. Nothing is missing except
+        // a caller, which is the same situation as workspace_sessions directly below.
+        //
+        // The distinction is not cosmetic: `none` stays a FINDING, while `on-demand` is reported
+        // and never warned on ("a feature awaiting its first use"). So doctor was warning about a
+        // missing writer that is not missing, and pointing anyone who investigated at building one
+        // that already exists.
+        //
+        // Genuinely on-demand, and unlike sessions there is no server-side alternative: the server
+        // can observe that a principal is active, but "this concept named X of type Y matters" is a
+        // judgement it cannot make. The archived G2.1 design specifies create_entity as a
+        // caller-supplied verb and defers retrieval fusion to V2; no ingest-time producer was ever
+        // designed, and none exists.
+        ["memory_entities", "on-demand", "a client calling create_entity (THE-629)"],
+        ["memory_relations", "on-demand", "a client calling link_entities (THE-629)"],
         // Client- and user-driven surfaces. Enabled means "the verb is registered and reachable";
         // empty then means the verb has never been exercised, which is the finding.
-        ["workspace_sessions", "on-demand", "a client calling the start_session tool (THE-714)"],
+        // THE-726: the lever is no longer only a client. With `sessions.autoOpen` the server opens
+        // one on a principal's first authenticated dispatch, which is why this table stopped being
+        // empty on 2026-08-04. Still on-demand — off by default, and nothing writes it unasked.
+        [
+          "workspace_sessions",
+          "on-demand",
+          "a client calling start_session, or the server itself under sessions.autoOpen (THE-726)",
+        ],
         ["capture_queue", "on-demand", "a client calling the capture verb"],
         [
           "note_snapshots",
