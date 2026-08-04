@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,046 tracked code files · 158,802 lines.
+**Scale:** 1,046 tracked code files · 158,826 lines.
 
-TypeScript 147,334 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 360.
+TypeScript 147,358 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -104,7 +104,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `providers/` | 6 | 731 |  |
 | `embeddings/` | 6 | 665 | providers incl. the deterministic fake used in tests |
 | `model/` | 7 | 646 | model-service clients |
-| `transports/` | 3 | 643 | stdio, HTTP and the shared serve loop |
+| `transports/` | 3 | 646 | stdio, HTTP and the shared serve loop |
 | `capability/` | 6 | 605 | `defineTool` and the capability registry |
 | `memory/` | 2 | 453 | entity extraction and materialization for the memory folder |
 | `auth/` | 3 | 427 | JWT verification, JWKS, RFC 9728 protected-resource metadata |
@@ -152,8 +152,8 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
 | 543 | `packages/server/src/scheduler/scheduler.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
+| 526 | `packages/server/src/transports/http.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
-| 523 | `packages/server/src/transports/http.ts` |
 | 513 | `packages/server/src/search/query_cache.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
 

@@ -502,8 +502,11 @@ export type HttpHandle = ServerHandle & {
  * Node-compat `http.Server` drops ~25% of requests that arrive on a REUSED keep-alive connection
  * with ECONNRESET, which a pooling client such as LiteLLM's httpx hits constantly. THE-583 removed
  * the fetch-to-node bridge this used to need: createMcpHandler is web-standard fetch in, Response
- * out, so the /mcp route no longer round-trips through Node req/res at all. Regression harnesses:
- * test/http-keepalive-reuse.bun.ts and bun-smoke/dual-http-servers.test.ts (both Bun-only).
+ * out, so the /mcp route no longer round-trips through Node req/res at all. Regression harnesses,
+ * both Bun-only and both in bun-smoke/ so `bun test bun-smoke` actually reaches them:
+ * bun-smoke/http-keepalive-reuse.test.ts and bun-smoke/dual-http-servers.test.ts. THE-730: the
+ * first lived at test/http-keepalive-reuse.bun.ts and NO runner invoked it — this line named the
+ * two together as though they were equivalently wired, and only the second one ran.
  */
 export function startHttp(
   opts: HttpAppOptions & { host: string; port: number },
