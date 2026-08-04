@@ -6,6 +6,32 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-08-04
+
+### Added
+
+- **`audit.kbHealth` — a reader for the 302 audit reports nothing could read (#684, THE-722).** The
+  `audit` plane job had written `kb_health` reports since the plane shipped, and no code path
+  anywhere read one back. A table that is written and never read is indistinguishable from a table
+  that is broken, so the reports were both useless and unfalsifiable. `doctor` now surfaces the
+  latest report, its age, and whether it flagged issues.
+
+- **`check:table-readers` — a CI gate for write-only tables (#683, THE-722).** The blind spot that
+  let the above persist: every existing liveness check asks whether a table is *written*, and none
+  asked whether anything *reads* it. This gate fails when a table has a writer and no reader,
+  carrying an explicit allowlist for tables that are deliberately write-only. Watched failing
+  against `audit_reports` before it was trusted, and it holds a non-empty floor so a scan that
+  matches nothing cannot report success.
+
+### Fixed
+
+- **`job_runs` was empty while 128 jobs had completed (#685, THE-716).** `wrapPlaneJob` stopped
+  calling `recordRun` during the THE-625 durable-queue migration, so the plane's own run ledger
+  recorded nothing for every job that ran through the queue — which, after that migration, was all
+  of them. The recorder was still there, still correct, and simply on a path nothing used any more.
+  Runs are now recorded before a handler can throw, so a *failed* pass leaves a row too; a ledger
+  that only records successes cannot answer the question it exists for.
+
 ## [1.17.0] - 2026-08-04
 
 ### Added
