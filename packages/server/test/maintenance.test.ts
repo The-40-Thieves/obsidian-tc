@@ -38,14 +38,17 @@ describe("cache.db maintenance sweep (THE-292)", () => {
       jobsFailedDays: 30,
     });
     // Deliberately an EXACT shape, not toMatchObject: a new sweep arm must be acknowledged here
-    // rather than added silently. THE-571 added `jobs`; THE-610 added `trace_files`. Both report 0
-    // here — this db has no terminal jobs, and no traceDirs were passed, so the filesystem arm is
-    // skipped entirely (its own coverage lives in maintenance-traces.test.ts).
+    // rather than added silently. THE-571 added `jobs`; THE-610 added `trace_files`; THE-726 added
+    // `sessions_closed`. All report 0 here — this db has no terminal jobs, no traceDirs were passed
+    // so the filesystem arm is skipped entirely (its own coverage lives in maintenance-traces.test.ts),
+    // and no `sessionWindowSeconds` was passed so the session arm is skipped too, which is the
+    // correct behaviour when `sessions.autoOpen` is off and no server-opened session can exist.
     expect(counts).toEqual({
       idempotency_keys: 1,
       elicit_tokens: 1,
       event_log: 1,
       jobs: 0,
+      sessions_closed: 0,
       // THE-610 arm 2: no `edb` was passed, so both experiential arms skip entirely — which is the
       // correct behaviour when the membrane is not open. Their own coverage is in
       // maintenance-experiential.test.ts.

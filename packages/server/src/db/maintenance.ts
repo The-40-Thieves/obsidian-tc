@@ -8,6 +8,7 @@
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Scheduler } from "../scheduler/scheduler";
+import { closeStaleImplicitSessions } from "../workspace/sessions";
 import { tableExists } from "./introspect";
 import type { Database } from "./types";
 
@@ -25,6 +26,9 @@ export interface SweepCounts {
   /** THE-610: session trace files pruned. The sweep's first FILESYSTEM arm — every other count
    *  here is rows in cache.db. */
   trace_files: number;
+  /** THE-726: server-OPENED sessions closed because their window elapsed. Never counts a session a
+   *  client opened deliberately — only `end_session` closes those. */
+  sessions_closed: number;
 }
 
 /** A vault's absolute session-trace directory. Resolved by the caller because `traceFolder` is
@@ -190,6 +194,10 @@ export function runMaintenanceSweep(
     /** THE-610: count what would be pruned without deleting. Applies to the trace arm only —
      *  the row deletes above predate it and are not made conditional here. */
     dryRun?: boolean;
+    /** THE-726: window after which a SERVER-OPENED session is closed. Omitted -> the arm is skipped
+     *  and `sessions_closed` is 0, which is correct when `sessions.autoOpen` is off: nothing opens
+     *  such a session, so nothing needs closing. */
+    sessionWindowSeconds?: number;
   },
 ): SweepCounts {
   const t = opts.now();
@@ -223,6 +231,10 @@ export function runMaintenanceSweep(
   } catch {
     /* optimize is advisory; a failure must not mask the delete counts */
   }
+  const sessionsClosed =
+    opts.sessionWindowSeconds !== undefined
+      ? closeStaleImplicitSessions(db, { now: t, windowSeconds: opts.sessionWindowSeconds })
+      : 0;
   return {
     idempotency_keys: idem,
     elicit_tokens: elicit,
@@ -231,6 +243,7 @@ export function runMaintenanceSweep(
     episodes: exp.episodes,
     chunk_retrievals: exp.chunk_retrievals,
     trace_files: traceFiles,
+    sessions_closed: sessionsClosed,
   };
 }
 
@@ -248,6 +261,8 @@ export interface MaintenanceDeps {
   edb?: Database;
   episodesDays?: number;
   retrievalsDays?: number;
+  /** THE-726: see runMaintenanceSweep's option of the same name. */
+  sessionWindowSeconds?: number;
   now?: () => number;
   onSweep?: (counts: SweepCounts) => void;
   onError?: (e: unknown) => void;
@@ -272,6 +287,9 @@ export function registerMaintenanceSweep(scheduler: Scheduler, deps: Maintenance
         ...(deps.edb !== undefined ? { edb: deps.edb } : {}),
         ...(deps.episodesDays !== undefined ? { episodesDays: deps.episodesDays } : {}),
         ...(deps.retrievalsDays !== undefined ? { retrievalsDays: deps.retrievalsDays } : {}),
+        ...(deps.sessionWindowSeconds !== undefined
+          ? { sessionWindowSeconds: deps.sessionWindowSeconds }
+          : {}),
       });
       deps.onSweep?.(counts);
     },

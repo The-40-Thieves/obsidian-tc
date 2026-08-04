@@ -17,6 +17,7 @@ import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import { type HttpHandle, startHttp } from "../transports/http";
 import type { VaultRegistry } from "../vault/registry";
+import { DEFAULT_TRACE_FOLDER } from "../workspace/sessions";
 
 export interface TransportWiringDeps {
   config: ServerConfig;
@@ -70,6 +71,12 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       allowedOrigins: config.transports.http.allowedOrigins,
       // THE-520: without this the auth_rejections_total counter exists but is never incremented.
       metrics: deps.metrics,
+      // THE-726: server-opened sessions. Threaded here rather than read inside the transport so the
+      // transport stays a function of its options — and so `sessions.autoOpen: false` (the default)
+      // reaches it as an explicit false rather than as an absent key nobody wired.
+      sessions: config.sessions,
+      traceFolderFor: (vaultId) =>
+        config.vaults.find((v) => v.id === vaultId)?.workspace?.traceFolder ?? DEFAULT_TRACE_FOLDER,
     });
     httpConstructSeconds = (performance.now() - httpT0) / 1000;
     httpHandle = http;

@@ -26,6 +26,7 @@ import {
 } from "./retrieval.schema";
 import {
   GovernorConfigSchema,
+  SessionsConfigSchema,
   ThrottleConfigSchema,
   TransportsConfigSchema,
   WritesConfigSchema,
@@ -101,6 +102,9 @@ export const ServerConfigObject = z.object({
   watch: WatchConfigSchema.describe("Filesystem watch that reindexes notes changed outside."),
   snapshots: SnapshotsConfigSchema.describe("Point-in-time note snapshot policy."),
   plane: PlaneConfigSchema.describe("Ambient sleep-time consolidation jobs."),
+  sessions: SessionsConfigSchema.describe(
+    "Whether the server opens workspace sessions itself, and how long one stays open.",
+  ),
   idempotencyTtlSeconds: z
     .number()
     .int()

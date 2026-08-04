@@ -23,6 +23,7 @@ import {
 import {
   GovernorConfigSchema,
   HttpConfigSchema,
+  SessionsConfigSchema,
   type ThrottleConfig,
   ThrottleConfigSchema,
   TransportsConfigSchema,
@@ -103,6 +104,7 @@ export {
   SchedulerConfigSchema,
   ServerConfigObject,
   ServerConfigSchema,
+  SessionsConfigSchema,
   SnapshotsConfigSchema,
   ThrottleConfigSchema,
   ToolFacadeConfigSchema,

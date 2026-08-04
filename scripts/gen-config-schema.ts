@@ -39,8 +39,13 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // not fix a scheduled pass that was merely slow — measured 370.4s twice, 45 minutes apart and 12ms
 // from each other, which is 6 x 60s expiring on schedule, not a cold start varying. No existing
 // key, type, default or constraint moved.
+// THE-726: rebaselined deliberately. Adds ONE block, `sessions`, with two keys — `autoOpen`
+// (boolean, default FALSE) and `windowSeconds` (int, positive, default 1800). The default is the
+// privacy posture, not a convenience: server-opened sessions correlate a principal's retrievals,
+// which changes what this server retains about who read what, so a config that says nothing gets
+// the non-correlating behaviour. No existing key, type, default or constraint moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "4a312c83e185cc15dd5939794fb441b712dd36bcacb7a6ba31db52e660df7e19";
+  "9611d07e397c6c91e3e531879a1c4f7570f5fef237a59aaa2e58f211eda38a38";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

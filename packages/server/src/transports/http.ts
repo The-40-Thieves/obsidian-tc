@@ -31,7 +31,7 @@ import {
 import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
-import { activeSessionFor } from "../workspace/sessions";
+import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
 import { type ServerHandle, serveHono } from "./serve";
 
 type AuthConfig = ServerConfig["auth"];
@@ -83,6 +83,11 @@ export interface HttpAppOptions {
   metrics?: MetricsRecorder;
   vaultId: string;
   vaultRegistry?: VaultRegistry;
+  /** THE-726: server-opened session policy. Absent -> resolve-only, the #691/#692 behaviour. */
+  sessions?: { autoOpen: boolean; windowSeconds: number };
+  /** Per-vault trace folder, so a server-opened session's `trace_path` matches where
+   *  `get_session_traces` looks. Absent -> DEFAULT_TRACE_FOLDER, the same fallback m5 uses. */
+  traceFolderFor?: (vaultId: string) => string;
   /** Optional bearer-token verifier (W-AUTH seam). Defaults to an HS256 JWT verifier from `auth`. */
   verifier?: TokenVerifier;
   /** THE-583: durable queue backing the Tasks extension; when absent, tasks/* are not served.
@@ -204,10 +209,30 @@ function contextFromAuthInfo(
       // any other vault — so the bound vault is the only one this context can act on, and attaching
       // a session opened against a different vault would point its JSONL trace at a vault this
       // request cannot touch.
+      //
+      // THE-726 slice 3: when `sessions.autoOpen` is on and the principal has no open session, the
+      // server opens one rather than waiting for a client to. "Client adoption" was recorded as the
+      // remaining blocker, but every client that would need changing is one we do not control, and
+      // the same reasoning that made this a TRANSPORT gap rather than an adoption gap applies again:
+      // a server-side answer exists. Off by default (privacy is a design input — see
+      // SessionsConfigSchema); when off this is byte-identical to the resolve-only behaviour above.
       ...(() => {
         const bound = extra?.vault ?? opts.vaultId;
-        const active = activeSessionFor(opts.db, extra?.caller ?? null);
-        return active && active.vaultId === bound ? { sessionId: active.sessionId } : {};
+        const principal = extra?.caller ?? null;
+        const active = activeSessionFor(opts.db, principal);
+        if (active) return active.vaultId === bound ? { sessionId: active.sessionId } : {};
+        // `activeSessionFor` already refuses a NULL/empty principal; re-checking here keeps the
+        // OPEN path from depending on that, because writing a row for an unidentifiable principal
+        // would create exactly the shared bucket the resolver refuses to read from.
+        if (!opts.sessions?.autoOpen || typeof principal !== "string" || principal.length === 0)
+          return {};
+        const opened = openImplicitSession(opts.db, {
+          principal,
+          vaultId: bound,
+          traceFolder: opts.traceFolderFor?.(bound) ?? DEFAULT_TRACE_FOLDER,
+          now: Date.now(),
+        });
+        return { sessionId: opened.sessionId };
       })(),
     };
   };

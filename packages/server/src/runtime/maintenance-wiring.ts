@@ -30,6 +30,8 @@ export interface MaintenanceWiringDeps {
   };
   /** config.observability.retention */
   retention: { eventLogDays: number; tracesDays: number };
+  /** config.sessions — THE-726. Absent, or autoOpen false, leaves the session arm unarmed. */
+  sessions?: { autoOpen: boolean; windowSeconds: number };
   /** config.vaults — trace dirs are per-vault and resolved with containment checking (THE-610). */
   vaults: readonly { id: string; path: string; workspace?: { traceFolder: string } }[];
   defaultTraceFolder: string;
@@ -73,6 +75,12 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
           episodesDays: deps.maintenance.episodesRetentionDays,
           retrievalsDays: deps.maintenance.retrievalsRetentionDays,
         }
+      : {}),
+    // THE-726: only pass the window when autoOpen is on. Passing it unconditionally would arm a
+    // sweep arm against sessions that cannot exist, and — worse — would silently start closing
+    // `caller IS NULL` rows if any other writer ever produced that shape.
+    ...(deps.sessions?.autoOpen === true
+      ? { sessionWindowSeconds: deps.sessions.windowSeconds }
       : {}),
     ...(deps.now !== undefined ? { now: deps.now } : {}),
     onSweep: (counts) => {

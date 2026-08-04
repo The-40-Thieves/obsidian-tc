@@ -138,3 +138,36 @@ export const WritesConfigSchema = z
       ),
   })
   .prefault({});
+
+// THE-726: server-opened workspace sessions.
+//
+// `workspace_sessions` stayed empty not because the mechanism was broken but because opening a
+// session is a DELIBERATE act and no client performs it. #691/#692 made the HTTP transport able to
+// carry a session; this decides whether the server also *creates* one. Default OFF — the epic's
+// constraint 4 makes privacy a design input, not a follow-up, and session correlation changes what
+// this server retains about who read what.
+//
+// The unit is a WINDOW, not an idle timeout, and the difference is deliberate. A true idle timeout
+// needs a `last_activity_at` column and a write on (or throttled across) every request; a window
+// needs neither — an auto-opened session is closed by the maintenance sweep once it is older than
+// `windowSeconds`, and the next request opens a fresh one. A task spanning a boundary therefore
+// splits across two sessions, which costs a little correlation and buys no new column, no new
+// migration, and no write in the read path. Revisit only with a measured need.
+export const SessionsConfigSchema = z
+  .object({
+    autoOpen: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Open a workspace session automatically on a principal's first authenticated dispatch when it has none, instead of waiting for an explicit start_session. Off by default: session correlation changes what the server retains about who read what.",
+      ),
+    windowSeconds: z
+      .number()
+      .int()
+      .positive()
+      .default(1800)
+      .describe(
+        "How long a server-opened session stays open. The maintenance sweep closes auto-opened sessions older than this and the next request opens a fresh one, so a session is a bounded activity window rather than an idle timeout. Explicit start_session sessions are never closed by the sweep — only end_session closes those.",
+      ),
+  })
+  .prefault({});
