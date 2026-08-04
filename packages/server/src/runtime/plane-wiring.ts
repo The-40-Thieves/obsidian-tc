@@ -303,24 +303,30 @@ export function registerPlaneSchedule(
     intervalMs: deps.plane.intervalMinutes * 60_000,
     run: () => {
       const iso = isoWeek(new Date());
-      // THE-700: replaceIfTerminal, or one failure costs the WHOLE period. enqueue() dedups
-      // against a terminal row, so a `failed` synthesis keeps `synthesis:<iso-week>` and every
-      // later enqueue that week is a silent no-op — a single cold-start timeout locked out the
-      // entire week's consolidation until the row was deleted by hand. maxAttempts stays 1: the
-      // gateway client owns the retry budget (plane.gatewayMaxAttempts), and a job-level retry of
-      // a genuine 4xx would only repeat the same mistake.
+      // THE-700: a failure must not cost the WHOLE period. enqueue() dedups against a terminal
+      // row, so a `failed` synthesis would keep `synthesis:<iso-week>` and every later enqueue
+      // that week became a silent no-op — one cold-start timeout locked out the entire week's
+      // consolidation until the row was deleted by hand. maxAttempts stays 1: the gateway client
+      // owns the retry budget (plane.gatewayMaxAttempts), and a job-level retry of a genuine 4xx
+      // would only repeat the same mistake.
+      //
+      // THE-723: `replaceIfFailed`, NOT `replaceIfTerminal`. These keys name a PERIOD, and
+      // `replaceIfTerminal` also replaces `complete` — so the plane deleted and re-ran its own
+      // SUCCESSFUL work every tick and the period key throttled nothing. `audit` succeeds every
+      // run and still went from 2 writes/day to 243. The narrow flag keeps THE-700's guarantee
+      // (a failed period is re-enqueueable) while restoring "once per period" for a period key.
       deps.jobQueue.enqueue("synthesis", {
         class: "plane",
         idempotencyKey: `synthesis:${iso.year}-${iso.week}`,
         maxAttempts: 1,
-        replaceIfTerminal: true,
+        replaceIfFailed: true,
       });
       const day = new Date().toISOString().slice(0, 10);
       deps.jobQueue.enqueue("audit", {
         class: "plane",
         idempotencyKey: `audit:${day}`,
         maxAttempts: 1,
-        replaceIfTerminal: true,
+        replaceIfFailed: true,
       });
     },
     onError: (e) => process.stderr.write(`[plane-enqueue] enqueue failed: ${errorMessage(e)}\n`),

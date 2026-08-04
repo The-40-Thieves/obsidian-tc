@@ -81,3 +81,57 @@ describe("THE-700: a failed plane period must be re-enqueueable", () => {
     expect(after[0]?.id).not.toBe(first[0]?.id);
   });
 });
+
+// THE-723. The test above pins the FAILED half of THE-700 and nothing else, which is how the
+// COMPLETE half regressed unnoticed: `replaceIfTerminal` replaces `complete` too, so every
+// scheduler tick deleted the plane's own successful once-per-period work and re-ran it. On the
+// live store `audit` — keyed DAILY, succeeding on every run — wrote 243 rows in a day.
+describe("THE-723: a COMPLETED plane period must NOT be re-enqueued", () => {
+  function bootPlane() {
+    const db = openMemoryDb();
+    runMigrations(db, [
+      { version: "20260519_001", sql: INIT },
+      { version: "20260723_002", sql: JOBS },
+      { version: "20260728_001", sql: OWNER },
+      { version: "20260728_002", sql: OUTCOME },
+    ]);
+    const jobQueue = new JobQueue(db);
+    const { scheduler, fire } = captureScheduler();
+    registerPlaneSchedule(scheduler, {
+      plane: { enabled: true, intervalMinutes: 240 },
+      roles: {
+        extract: async () => ({ text: "", model: "m" }),
+        synthesize: async () => ({ text: "", model: "m" }),
+        judge: async () => ({ text: "", model: "m" }),
+      },
+      jobQueue,
+    });
+    return { db, fire };
+  }
+
+  for (const type of ["synthesis", "audit"] as const) {
+    it(`does not replace a completed ${type} row on the next tick`, () => {
+      const { db, fire } = bootPlane();
+
+      fire();
+      const first = db.prepare(`SELECT id FROM jobs WHERE type = '${type}'`).all() as {
+        id: string;
+      }[];
+      expect(first).toHaveLength(1);
+
+      // The period's work finished successfully.
+      db.prepare(`UPDATE jobs SET state = 'complete' WHERE type = '${type}'`).run();
+
+      // Next tick, SAME period — the key must still dedup.
+      fire();
+      const after = db.prepare(`SELECT id, state FROM jobs WHERE type = '${type}'`).all() as {
+        id: string;
+        state: string;
+      }[];
+
+      expect(after).toHaveLength(1);
+      expect(after[0]?.state).toBe("complete");
+      expect(after[0]?.id).toBe(first[0]?.id);
+    });
+  }
+});

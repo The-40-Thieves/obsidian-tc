@@ -144,6 +144,21 @@ export interface EnqueueOptions {
    *  flags and relies on the re-enqueue to regenerate them, so a finished/dead-lettered job must
    *  not permanently block re-judging recurring identical content. */
   replaceIfTerminal?: boolean;
+  /** THE-723: replace an existing keyed row ONLY when it is `failed`. A `complete` row still
+   *  dedups, so a once-per-period key keeps meaning "once per period".
+   *
+   *  This exists because `replaceIfTerminal` is too broad for PERIOD-keyed jobs. THE-700 needed
+   *  "a failed synthesis must not lock out the rest of the week" and reached for
+   *  `replaceIfTerminal`, which also replaces `complete` — so the plane deleted and re-ran its own
+   *  successful weekly/daily work on every tick, and the period key throttled nothing in either
+   *  direction. Measured on the live store 2026-08-04: `audit_reports` went from 2 writes on the
+   *  day the flag landed to 243 the next, one per scheduler tick, from a job whose key is DAILY
+   *  and which succeeds every run.
+   *
+   *  Content-keyed jobs (contradiction) still want `replaceIfTerminal`: there, re-judging
+   *  recurring identical content deliberately outranks retaining a completed outcome. The two are
+   *  not interchangeable — pick by whether the key names a PERIOD or a piece of CONTENT. */
+  replaceIfFailed?: boolean;
 }
 
 export interface ClaimOptions {
@@ -218,7 +233,13 @@ export class JobQueue {
         .get(opts.idempotencyKey) as JobRow | undefined;
       if (existing) {
         const terminal = existing.state === "complete" || existing.state === "failed";
-        if (opts.replaceIfTerminal && terminal) {
+        // THE-723: `replaceIfFailed` is the narrow form — a `complete` row still dedups, which is
+        // the whole point of a once-per-period key. `replaceIfTerminal` keeps its broader
+        // content-keyed meaning. An ACTIVE row (queued/running/retrying) dedups under both.
+        const replaceable =
+          (opts.replaceIfTerminal && terminal) ||
+          (opts.replaceIfFailed && existing.state === "failed");
+        if (replaceable) {
           // Free the UNIQUE key so a legitimate re-run of recurring content can enqueue. This
           // discards the terminal row (incl. a dead-letter record) for that exact key — acceptable
           // for content-keyed jobs, where re-judging matters more than retaining a stale outcome.
