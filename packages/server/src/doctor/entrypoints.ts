@@ -60,9 +60,17 @@ export interface EntryPointsProbe {
    *  different facts, and encoding one as the other is the shape that makes a failure look like a
    *  valid result downstream. */
   tools: ToolCensus | null;
-  /** THE-715: `job_schedule.name` is a TEXT PRIMARY KEY, which SQLite does not enforce as NOT NULL,
-   *  so every UPSERT with a null name inserted instead of updating. Surfaced, not warned on — it is
-   *  already ticketed and the named rows update correctly. */
+  /** THE-715: `job_schedule.name` is a TEXT PRIMARY KEY, which SQLite does not enforce as NOT NULL
+   *  unless the table is WITHOUT ROWID, so every UPSERT with a null name inserted instead of
+   *  updating.
+   *
+   *  FIXED at both ends, which is why this stays reported rather than becoming a warning: the
+   *  writer stopped producing them (THE-665), `scheduler.ts` now declares the column NOT NULL so a
+   *  newly-created store cannot reach the state at all, and the maintenance sweep prunes any that
+   *  a pre-existing store still carries (`orphan_schedule_rows` in SweepCounts).
+   *
+   *  It keeps reporting because a non-zero count on a store that has swept is a NEW producer, not
+   *  the historical backlog — the number means something different now, and that is worth seeing. */
   orphanScheduleRows: number;
 }
 

@@ -49,6 +49,7 @@ describe("cache.db maintenance sweep (THE-292)", () => {
       event_log: 1,
       jobs: 0,
       sessions_closed: 0,
+      orphan_schedule_rows: 0,
       // THE-610 arm 2: no `edb` was passed, so both experiential arms skip entirely — which is the
       // correct behaviour when the membrane is not open. Their own coverage is in
       // maintenance-experiential.test.ts.
