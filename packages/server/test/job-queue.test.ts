@@ -262,6 +262,60 @@ describe("JobQueue (THE-517)", () => {
     });
   });
 
+  // --- THE-723: replaceIfFailed (the narrow form, for PERIOD-keyed jobs) ----------------------
+  // The distinction that matters is the FIRST case. replaceIfTerminal also replaces `complete`,
+  // so the plane re-ran its own successful once-per-period work on every scheduler tick and the
+  // period key throttled nothing: `audit` is keyed DAILY, succeeds every run, and still wrote 243
+  // rows in a day. Nothing asserted that a completed period row survives the next tick, which is
+  // exactly why it shipped.
+  describe("replaceIfFailed", () => {
+    it("does NOT replace a COMPLETE row: a once-per-period key still means once per period", () => {
+      const shared = db();
+      const q = new JobQueue(shared, { now: () => 0 });
+      const first = q.enqueue("audit", { idempotencyKey: "audit:2026-08-04" });
+      const claimed = q.claim({ leaseOwner: "w1" }) as NonNullable<ReturnType<typeof q.claim>>;
+      q.complete(claimed.id, "w1");
+
+      const second = q.enqueue("audit", {
+        idempotencyKey: "audit:2026-08-04",
+        replaceIfFailed: true,
+      });
+      expect(second.id).toBe(first.id);
+      expect(q.stats().complete).toBe(1);
+      expect(q.stats().queued).toBe(0);
+    });
+
+    it("DOES replace a FAILED row, so THE-700 does not regress", () => {
+      const shared = db();
+      const q = new JobQueue(shared, { now: () => 0 });
+      q.enqueue("synthesis", { idempotencyKey: "synthesis:2026-32", maxAttempts: 1 });
+      const claimed = q.claim({ leaseOwner: "w1" }) as NonNullable<ReturnType<typeof q.claim>>;
+      q.fail(claimed.id, "w1", new Error("gateway timed out"), { terminal: true });
+      expect(q.get(claimed.id)?.state).toBe("failed");
+
+      const second = q.enqueue("synthesis", {
+        idempotencyKey: "synthesis:2026-32",
+        replaceIfFailed: true,
+      });
+      expect(second.id).not.toBe(claimed.id);
+      expect(second.state).toBe("queued");
+      expect(q.stats().failed).toBe(0);
+    });
+
+    it("does NOT replace an ACTIVE row: the in-flight guard still dedups", () => {
+      const shared = db();
+      const q = new JobQueue(shared, { now: () => 0 });
+      const first = q.enqueue("synthesis", { idempotencyKey: "synthesis:2026-32" });
+
+      const second = q.enqueue("synthesis", {
+        idempotencyKey: "synthesis:2026-32",
+        replaceIfFailed: true,
+      });
+      expect(second.id).toBe(first.id);
+      expect(q.stats().queued).toBe(1);
+    });
+  });
+
   // --- HARD TEST 4: dead-letter -----------------------------------------------------------------
   it("dead-letter: a job exceeding max attempts lands in failed and is never retried again", () => {
     let t = 0;

@@ -296,12 +296,28 @@ export class Scheduler {
     }
   }
 
-  /** Interval for the NEXT run: base * 2^failures (capped), with optional ±jitter. */
+  /** Interval for the NEXT run: base * 2^failures (capped), with optional ±jitter.
+   *
+   * THE-723: the cap bounds the BACKOFF and must never pull a run EARLIER than the job's own
+   * interval. This was `Math.min(intervalMs * 2 ** failures, maxBackoffMs)`, which is only a
+   * backoff cap while `intervalMs <= maxBackoffMs`. Above that it silently inverts into a GLOBAL
+   * CEILING: with `failures = 0` it reduces to `min(intervalMs, maxBackoffMs)`, and effInterval
+   * computes every next-run — including the success path — so every job slower than the 5-minute
+   * default ran every 5 minutes instead of on its configured interval. Measured on the live store
+   * 2026-08-04: `plane` is configured at 240 minutes and `audit_reports` carried one row per
+   * 5 minutes (243 in a day against the ~6 its interval implies). `maintenance` (60m), the gap
+   * sweep (hours) and reconcile were clamped the same way.
+   *
+   * It survived because every scheduler test registers `intervalMs: 1000` — a full ceiling below
+   * the cap, where `Math.min` always picks the interval and the clamp cannot fire. A backoff cap
+   * shorter than the base interval does not slow a failing job down; it speeds every slow job up.
+   */
   private effInterval(state: JobState): number {
-    const base = Math.min(
+    const backoff = Math.min(
       state.spec.intervalMs * 2 ** state.consecutiveFailures,
       this.maxBackoffMs,
     );
+    const base = Math.max(backoff, state.spec.intervalMs);
     const ratio = state.spec.jitterRatio ?? 0;
     if (ratio <= 0) return base;
     const jittered = base + base * ratio * (2 * this.random() - 1);

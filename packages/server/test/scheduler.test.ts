@@ -71,6 +71,66 @@ describe("Scheduler (THE-462)", () => {
     }
   });
 
+  // THE-723 — the backoff cap must never pull a run EARLIER than the job's own interval.
+  //
+  // effInterval was `Math.min(intervalMs * 2 ** failures, maxBackoffMs)`. That is a backoff cap
+  // only while intervalMs <= maxBackoffMs; above it, and with failures = 0, it reduces to
+  // `min(intervalMs, maxBackoffMs)` — a GLOBAL CEILING applied on every next-run including the
+  // success path. `plane` (240m), `maintenance` (60m), the gap sweep (hours) and reconcile all ran
+  // every 5 minutes instead. On the live store that showed up as 243 audit_reports in a day from a
+  // DAILY-keyed job.
+  //
+  // NOTE the interval used here. Every other test in this file registers intervalMs: 1000, which
+  // is below the cap — the region where Math.min always picks the interval and the clamp cannot
+  // fire. That is precisely why a whole suite stayed green over this. Under the old arithmetic the
+  // first assertion below reads 6, not 0.
+  it("THE-723: a job slower than maxBackoffMs runs on ITS interval, not on the cap", async () => {
+    vi.useFakeTimers();
+    try {
+      let runs = 0;
+      const sched = new Scheduler({ maxBackoffMs: 5 * 60_000 });
+      sched.register({ name: "slow", intervalMs: 60 * 60_000, run: () => void runs++ });
+      sched.start();
+
+      await vi.advanceTimersByTimeAsync(30 * 60_000);
+      expect(runs).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(31 * 60_000);
+      expect(runs).toBe(1);
+
+      await sched.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // THE-723 companion: the cap must still BOUND a failing job whose interval is under it, or the
+  // fix would have traded a ceiling bug for an unbounded-backoff bug.
+  it("THE-723: backoff on a fast job is still capped at maxBackoffMs", async () => {
+    vi.useFakeTimers();
+    try {
+      let runs = 0;
+      const sched = new Scheduler({ maxBackoffMs: 10_000 });
+      sched.register({
+        name: "flaky",
+        intervalMs: 1000,
+        run: () => {
+          runs++;
+          throw new Error("boom");
+        },
+        onError: () => {},
+      });
+      sched.start();
+      // 2^failures would blow far past 10s within a handful of failures; the cap holds it at 10s,
+      // so a long window keeps producing runs rather than stalling out.
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(runs).toBeGreaterThan(5);
+      await sched.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // GATE 1 — single-flight: a still-in-flight run is never re-entered; onSkip fires with a
   // monotonic count for each due tick that was skipped.
   it("single-flight: does not re-enter a running job; onSkip increments", async () => {

@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,041 tracked code files · 157,385 lines.
+**Scale:** 1,041 tracked code files · 157,596 lines.
 
-TypeScript 146,005 · JavaScript 7,509 · Python 1,640 · SQL 1,175 · Rust 742 · Shell 314.
+TypeScript 146,216 · JavaScript 7,509 · Python 1,640 · SQL 1,175 · Rust 742 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -90,11 +90,11 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `search/` | 54 | 10,185 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,135 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 12 | 3,140 | work-memory tier: activation, retrieval log, forget, citations |
-| `runtime/` | 14 | 3,070 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 14 | 3,076 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `cli/` | 23 | 2,643 | arg parsing + subcommands |
 | `vault/` | 17 | 1,971 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `doctor/` | 9 | 1,703 | `obsidian-tc doctor` — checks, report rendering, runner |
-| `scheduler/` | 4 | 1,307 | unified background scheduler + durable job queue (THE-517) |
+| `scheduler/` | 4 | 1,344 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `db/` | 14 | 1,213 | provisioning, migrate runner, experiential store |
 | `migrations/` | 32 | 1,175 | hand-registered SQL. **Two chains** — see below |
@@ -145,13 +145,13 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 688 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
+| 623 | `packages/server/src/scheduler/job-queue.ts` |
 | 620 | `packages/server/src/metrics/registry.ts` |
 | 614 | `packages/server/src/cli/args.ts` |
-| 602 | `packages/server/src/scheduler/job-queue.ts` |
 | 588 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
+| 543 | `packages/server/src/scheduler/scheduler.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
-| 527 | `packages/server/src/scheduler/scheduler.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
 | 513 | `packages/server/src/search/query_cache.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
