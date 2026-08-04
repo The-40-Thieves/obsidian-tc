@@ -1,4 +1,6 @@
+import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
+import { mtimesByPath, noteFreshness, STALE_THRESHOLD_DAYS } from "./freshness";
 import { assembleCandidates } from "./graph_search_stages/candidate_assembly";
 import { classify, seedZMargin } from "./graph_search_stages/classify";
 import { applyDiversity } from "./graph_search_stages/diversity";
@@ -53,6 +55,11 @@ export function estimateCoverage(
   results: GraphSearchResult[],
   requested: number,
   pipeline: { routedToSeedsOnly: boolean; expansionTruncated: boolean },
+  staleness: { staleReturned: number; staleUnknown: number; thresholdDays: number } = {
+    staleReturned: 0,
+    staleUnknown: 0,
+    thresholdDays: STALE_THRESHOLD_DAYS,
+  },
 ): CoverageEstimate {
   const arms = ALL_SOURCES.filter((s) => results.some((r) => r.source === s));
   return {
@@ -64,7 +71,52 @@ export function estimateCoverage(
     requested,
     returned: results.length,
     underfilled: results.length < requested,
+    staleReturned: staleness.staleReturned,
+    staleUnknown: staleness.staleUnknown,
+    staleThresholdDays: staleness.thresholdDays,
   };
+}
+
+/**
+ * THE-631 item 2: the DB half of the staleness signal, kept out of `estimateCoverage` so that
+ * function stays pure and fixture-testable (see its doc comment).
+ *
+ * Counts DISTINCT notes, not chunks: a query returning six chunks of one stale note reports one
+ * stale note, because otherwise the number measures chunking granularity rather than the vault.
+ * A path with no `notes` row counts as UNKNOWN rather than fresh — a pruned or never-indexed note
+ * is not evidence of recency, and collapsing the two would fabricate freshness.
+ *
+ * Reuses THE-450's `mtimesByPath` + `noteFreshness` rather than issuing its own mtime query, so
+ * this aggregate and the per-hit `age_days`/`stale` stamps on the m2 search tools can never drift
+ * to different answers about the same note.
+ */
+export function countStaleNotes(
+  db: Database,
+  vaultId: string,
+  results: GraphSearchResult[],
+  nowMs: number,
+  thresholdDays: number,
+): { staleReturned: number; staleUnknown: number; thresholdDays: number } {
+  const paths = [...new Set(results.map((r) => r.path))];
+  if (paths.length === 0) return { staleReturned: 0, staleUnknown: 0, thresholdDays };
+  // GUARDED on existence, same reasoning as db/maintenance.ts's job_schedule prune: `notes` arrives
+  // in 20260702_001, so a cache.db provisioned before it — or any fixture running a shorter
+  // migration chain — does not have the table. An unguarded SELECT throws "no such table: notes"
+  // from inside a SEARCH REQUEST, turning an additive observability field into a query outage.
+  // Every path is then UNKNOWN rather than fresh, which is the honest reading: the ages were not
+  // consulted, so nothing is known about them.
+  if (!tableExists(db, "notes")) {
+    return { staleReturned: 0, staleUnknown: paths.length, thresholdDays };
+  }
+  const mtimes = mtimesByPath(db, vaultId, paths);
+  let staleReturned = 0;
+  let staleUnknown = 0;
+  for (const p of paths) {
+    const mtime = mtimes.get(p);
+    if (mtime === undefined) staleUnknown += 1;
+    else if (noteFreshness(mtime, nowMs, thresholdDays).stale) staleReturned += 1;
+  }
+  return { staleReturned, staleUnknown, thresholdDays };
 }
 
 // THE-585 (#12): content bytes hydrated at the two boundaries that matter — how much duplicate
@@ -120,12 +172,28 @@ export async function graphSearch(
   traceStage(opts, "projection", core.results.length, results, candidateId);
   // THE-631: fired AFTER projection so the estimate describes exactly what the caller receives,
   // never fed back into the pipeline above — see estimateCoverage()'s doc comment.
-  opts.onCoverage?.(
-    estimateCoverage(results, core.finalTopK, {
-      routedToSeedsOnly: core.routedToSeedsOnly,
-      expansionTruncated: core.expansionTruncated,
-    }),
-  );
+  if (opts.onCoverage) {
+    // The mtime lookup runs ONLY when a caller asked for coverage, so ordinary search pays
+    // nothing for it. One batched query over the distinct returned paths, after projection, so it
+    // describes exactly what the caller receives.
+    opts.onCoverage(
+      estimateCoverage(
+        results,
+        core.finalTopK,
+        {
+          routedToSeedsOnly: core.routedToSeedsOnly,
+          expansionTruncated: core.expansionTruncated,
+        },
+        countStaleNotes(
+          db,
+          opts.vaultId,
+          results,
+          Date.now(),
+          opts.staleThresholdDays ?? STALE_THRESHOLD_DAYS,
+        ),
+      ),
+    );
+  }
   return results;
 }
 

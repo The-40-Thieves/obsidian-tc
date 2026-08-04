@@ -53,6 +53,13 @@ export const CoverageEstimateSchema = z.object({
   requested: z.number(),
   returned: z.number(),
   underfilled: z.boolean(),
+  /** THE-631 item 2 — distinct returned NOTES older than staleThresholdDays, by `notes.mtime`.
+   *  staleUnknown counts returned notes with no `notes` row, whose age is unknown and which are
+   *  never folded into staleReturned: absent is not fresh. staleThresholdDays is echoed so the
+   *  count is interpretable without knowing the server's configuration. */
+  staleReturned: z.number(),
+  staleUnknown: z.number(),
+  staleThresholdDays: z.number(),
 });
 
 /** The trimmed citation shape reflect returns (NOT a full GraphSearchResult). */

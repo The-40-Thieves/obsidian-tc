@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { GraphSearchOptions } from "../src/search/graph_search";
 import {
+  COVERAGE_ONLY_FIELDS,
   DERIVED_VECTOR_FIELDS,
   FUNCTION_FIELDS,
   graphSearchKey,
@@ -162,6 +163,10 @@ describe("THE-497 graph-search cache key covers every option", () => {
       // THE-632: selects WHICH note the trace follows; never changes results, so unkeyed. See
       // TRACE_SELECTOR_FIELDS in query_cache.ts for the cache-HIT caveat that comes with it.
       ...TRACE_SELECTOR_FIELDS,
+      // THE-631 item 2: parameterises the coverage estimate only. Reaches countStaleNotes and
+      // nothing else, so two calls differing only in it return byte-identical results and must
+      // SHARE a cache entry — hence stripped in graphSearchKey, not merely listed here.
+      ...COVERAGE_ONLY_FIELDS,
       "reranker",
     ]);
     const unaccounted = [...declared].filter((f) => !accounted.has(f));
@@ -177,6 +182,22 @@ describe("THE-497 graph-search cache key covers every option", () => {
     expect(graphSearchKey({ ...BASE, ...patch }, binding(), DENSE)).not.toBe(
       graphSearchKey(BASE, binding(), DENSE),
     );
+  });
+
+  it("THE-631: staleThresholdDays does NOT change the key — it must SHARE a cache entry", () => {
+    // The positive half of the COVERAGE_ONLY_FIELDS decision. Listing a field in that array without
+    // stripping it in graphSearchKey does NOTHING (the key spreads the whole options object), so
+    // the strip needs its own assertion or the bucket is documentation with no effect.
+    //
+    // Two calls differing only in this knob return byte-identical results — it reaches
+    // countStaleNotes and nothing else — so sharing an entry is correct, and keying it would
+    // fragment the cache for free.
+    const a = graphSearchKey({ ...BASE, staleThresholdDays: 30 }, binding(), DENSE);
+    const b = graphSearchKey({ ...BASE, staleThresholdDays: 365 }, binding(), DENSE);
+    expect(a).toBe(b);
+    // ...and it is the STRIP doing that, not the field being ignored everywhere: a field that does
+    // change results still moves the key.
+    expect(graphSearchKey({ ...BASE, finalTopK: 21 }, binding(), DENSE)).not.toBe(a);
   });
 
   it("is stable when nothing changes", () => {
