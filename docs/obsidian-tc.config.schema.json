@@ -1615,6 +1615,25 @@
         }
       }
     },
+    "sessions": {
+      "description": "Whether the server opens workspace sessions itself, and how long one stays open.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "autoOpen": {
+          "default": false,
+          "description": "Open a workspace session automatically on a principal's first authenticated dispatch when it has none, instead of waiting for an explicit start_session. Off by default: session correlation changes what the server retains about who read what.",
+          "type": "boolean"
+        },
+        "windowSeconds": {
+          "default": 1800,
+          "description": "How long a server-opened session stays open. The maintenance sweep closes auto-opened sessions older than this and the next request opens a fresh one, so a session is a bounded activity window rather than an idle timeout. Explicit start_session sessions are never closed by the sweep — only end_session closes those.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
     "idempotencyTtlSeconds": {
       "default": 86400,
       "description": "Seconds an idempotency record is retained, bounding how long a repeated request key is deduplicated.",

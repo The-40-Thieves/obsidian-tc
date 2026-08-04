@@ -223,6 +223,10 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "gatewayTimeoutMs": 300000,
     "maxPromptChars": 60000
   },
+  "sessions": {
+    "autoOpen": false,
+    "windowSeconds": 1800
+  },
   "idempotencyTtlSeconds": 86400,
   "idempotencyReclaimSeconds": 60,
   "elicitTtlSeconds": 300

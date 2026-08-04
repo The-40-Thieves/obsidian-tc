@@ -11,15 +11,17 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { PlurClient } from "../../plur/client";
 import type { VaultRegistry } from "../../vault/registry";
-import type { ActiveSessionTracker } from "../../workspace/sessions";
+import { type ActiveSessionTracker, DEFAULT_TRACE_FOLDER } from "../../workspace/sessions";
 
 // THE-600: DEFAULT_MEMORY_FOLDER now lives in @the-40-thieves/obsidian-tc-shared (single source
 // of truth shared with VaultMemoryConfigSchema's own default) — re-exported here so every
 // existing consumer of tools/m5's public surface (this module's own re-export chain) is
 // unaffected. Do not redeclare it locally; that is exactly the duplication THE-600 closed.
 export { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
-/** Default vault folder for workspace-session JSONL traces. */
-export const DEFAULT_TRACE_FOLDER = ".obsidian-tc/traces";
+// THE-726: the canonical definition moved to workspace/sessions.ts, beside `traceRelPath` and the
+// server-opened-session path that also needs it. Re-exported here so every existing consumer of
+// tools/m5's public surface is unaffected — the same treatment DEFAULT_MEMORY_FOLDER got above.
+export { DEFAULT_TRACE_FOLDER };
 
 export interface M5Deps {
   vaultRegistry: VaultRegistry;

@@ -18,6 +18,11 @@ export function genSessionId(): string {
   return `sess_${randomBytes(12).toString("hex")}`;
 }
 
+/** Default vault folder for workspace-session JSONL traces. Lives here, beside `traceRelPath`,
+ *  because this module computes trace paths and the HTTP transport (THE-726 server-opened
+ *  sessions) needs the same fallback m5 uses; tools/m5/shared.ts re-exports it. */
+export const DEFAULT_TRACE_FOLDER = ".obsidian-tc/traces";
+
 /** Vault-relative JSONL trace path for a session: <traceFolder>/<sessionId>.jsonl. */
 export function traceRelPath(traceFolder: string, sessionId: string): string {
   const f = traceFolder.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -151,6 +156,71 @@ export function activeSessionFor(
     )
     .get(principal) as { id: string; vault_id: string } | undefined;
   return row ? { sessionId: row.id, vaultId: row.vault_id } : undefined;
+}
+
+/**
+ * THE-726: open a session the SERVER decided to open, for a principal that has none.
+ *
+ * `workspace_sessions` was empty for one reason: opening a session is a deliberate act and no
+ * client performs it. #691/#692 made the HTTP transport able to CARRY a session; this is what
+ * makes one exist. Off unless `sessions.autoOpen` — correlation changes what the server retains
+ * about who read what, and the epic makes privacy a design input rather than a follow-up.
+ *
+ * `caller` is deliberately NULL, and that is load-bearing rather than lazy. `start_session`'s input
+ * schema requires `caller: z.string().min(1)`, so a NULL `caller` with a non-NULL `principal` is a
+ * shape only this function can produce. The maintenance sweep uses exactly that predicate to close
+ * server-opened sessions without touching a deliberate one — no extra column, and the distinction
+ * is enforced by a schema that already exists rather than by a flag someone can forget to set.
+ *
+ * No trace file is written here. `start_session` writes a `session_start` record because a client
+ * declared something worth recording; the server has nothing to declare, and `readTrace` already
+ * treats a missing file as an empty trace. `trace_path` is still computed and stored so that if
+ * dispatch-level tracing (THE-209/THE-175) ever appends to this session, it appends where
+ * `get_session_traces` will look for it.
+ */
+export function openImplicitSession(
+  db: Database,
+  input: { principal: string; vaultId: string; traceFolder: string; now: number },
+): { sessionId: string; vaultId: string } {
+  const id = genSessionId();
+  // The FOLDER is the parameter, never a finished path: `traceRelPath` derives the filename from
+  // the session id, and the id is minted here. Taking a path from the caller would let it be
+  // computed against a different (earlier-minted) id, storing a trace_path that names a session
+  // that does not exist — get_session_traces would then read an unrelated file or none at all.
+  insertSession(db, {
+    id,
+    vaultId: input.vaultId,
+    caller: null,
+    startedAt: input.now,
+    tracePath: traceRelPath(input.traceFolder, id),
+    principal: input.principal,
+  });
+  return { sessionId: id, vaultId: input.vaultId };
+}
+
+/**
+ * THE-726: close server-opened sessions older than the configured window.
+ *
+ * A WINDOW, not an idle timeout — see SessionsConfigSchema for why. An idle timeout needs a
+ * `last_activity_at` column and a write on every request (or a throttle across them); a window
+ * needs neither, and the cost is that a task spanning a boundary splits across two sessions.
+ *
+ * `caller IS NULL` is the whole safety property: a session a client opened deliberately is never
+ * closed here, because only `end_session` may decide a declared session is over. Left unbounded,
+ * server-opened sessions would otherwise stay open forever and `activeSessionFor` would keep
+ * correlating a principal's retrievals to a session opened days earlier.
+ */
+export function closeStaleImplicitSessions(
+  db: Database,
+  opts: { now: number; windowSeconds: number },
+): number {
+  const cutoff = opts.now - opts.windowSeconds * 1000;
+  return db
+    .prepare(
+      `UPDATE workspace_sessions SET ended_at = ?
+        WHERE ended_at IS NULL AND caller IS NULL AND principal IS NOT NULL AND started_at < ?`,
+    )
+    .run(opts.now, cutoff).changes;
 }
 
 export function getSession(db: Database, id: string): SessionRow | undefined {

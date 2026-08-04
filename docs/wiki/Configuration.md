@@ -405,6 +405,13 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 |---|---|---|---|---|
 | `securityProfile` | `enum(hardened\|trusted-local)` | — |  | Named security posture applied before validation. 'hardened' sets the least-privilege defaults (strictReadDefault, requireCas, snapshots on, HTTP off); explicit fields override it. 'trusted-local' (the default) keeps the permissive single-user posture. |
 
+### `sessions`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `sessions.autoOpen` | `boolean` | `false` |  | Open a workspace session automatically on a principal's first authenticated dispatch when it has none, instead of waiting for an explicit start_session. Off by default: session correlation changes what the server retains about who read what. |
+| `sessions.windowSeconds` | `number` | `1800` |  | How long a server-opened session stays open. The maintenance sweep closes auto-opened sessions older than this and the next request opens a fresh one, so a session is a bounded activity window rather than an idle timeout. Explicit start_session sessions are never closed by the sweep — only end_session closes those. |
+
 ### `snapshots`
 
 | Key | Type | Default | Required | Description |

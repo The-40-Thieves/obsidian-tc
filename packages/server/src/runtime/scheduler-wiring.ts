@@ -70,6 +70,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     db: deps.db,
     maintenance: config.maintenance,
     retention: config.observability.retention,
+    sessions: config.sessions,
     vaults: deps.vaults,
     defaultTraceFolder: DEFAULT_TRACE_FOLDER,
     // THE-610 arm 2: only when the membrane is actually open.

@@ -62,6 +62,7 @@ describe("sweepTotal — every arm joins the total", () => {
         episodes: 0,
         chunk_retrievals: 0,
         trace_files: 3,
+        sessions_closed: 0,
       }),
     ).toBe(3);
     expect(
@@ -73,6 +74,7 @@ describe("sweepTotal — every arm joins the total", () => {
         episodes: 32,
         chunk_retrievals: 64,
         trace_files: 16,
+        sessions_closed: 0,
       }),
     ).toBe(127);
   });
@@ -88,6 +90,7 @@ describe("sweepTotal — every arm joins the total", () => {
       episodes: 0,
       chunk_retrievals: 0,
       trace_files: 0,
+      sessions_closed: 0,
       some_future_arm: 5,
     } as unknown as SweepCounts;
     expect(sweepTotal(withFutureArm)).toBe(6);
@@ -103,6 +106,7 @@ describe("sweepTotal — every arm joins the total", () => {
         episodes: 0,
         chunk_retrievals: 0,
         trace_files: 0,
+        sessions_closed: 0,
       }),
     ).toBe(0);
   });
