@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,046 tracked code files · 158,826 lines.
+**Scale:** 1,048 tracked code files · 159,273 lines.
 
-TypeScript 147,358 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 360.
+TypeScript 147,805 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -88,7 +88,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 |---|---:|---:|---|
 | `tools/` | 82 | 15,814 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 54 | 10,185 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `mcp/` | 17 | 4,135 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `mcp/` | 17 | 4,267 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 12 | 3,140 | work-memory tier: activation, retrieval log, forget, citations |
 | `runtime/` | 14 | 3,092 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `cli/` | 23 | 2,643 | arg parsing + subcommands |
@@ -148,7 +148,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
 | 620 | `packages/server/src/metrics/registry.ts` |
 | 614 | `packages/server/src/cli/args.ts` |
-| 588 | `packages/server/src/mcp/registry/dispatch.ts` |
+| 603 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
 | 543 | `packages/server/src/scheduler/scheduler.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |

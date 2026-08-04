@@ -189,7 +189,40 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  ops, same paths, same conditionals) so central enforcement never denies a call the handler
    *  would have allowed. */
   pathAcl?: (input: I) => ReadonlyArray<{ op: AclOp; path: string }>;
+  /** THE-727: resolve authorization policy from the CALL rather than the definition.
+   *
+   *  A tool that dispatches on an `action` argument cannot honestly declare one static scope set:
+   *  unioning makes a harmless read demand delete privileges, intersecting leaves a destructive
+   *  action under-governed. Neither is acceptable, which is why read+write consolidation is blocked
+   *  on this.
+   *
+   *  Same shape as `pathAcl` above and for the same reason — that field is already a function of
+   *  the input, enforced centrally in runDispatch, so this generalizes a signature the pipeline
+   *  already proves out rather than inventing one.
+   *
+   *  ABSENT -> the static `requiredScopes` / `destructive` / `scopeClass` are used verbatim, so
+   *  every existing tool is untouched. This is purely additive.
+   *
+   *  `requiredScopes` here MUST be a SUBSET of the static `requiredScopes`, which stays the
+   *  declared MAXIMUM the tool advertises. `resolveOperationPolicy` enforces that at runtime and
+   *  refuses the call otherwise: a resolver returning a scope the tool never declared is an
+   *  under-declaration, and the advertised surface would be lying about what the tool can do.
+   *  Narrowing is the whole point; widening is a defect. */
+  resolvePolicy?: (input: I) => OperationPolicy;
   handler: (input: I, ctx: CallerContext) => Promise<O> | O;
+}
+
+/** THE-727: the per-call authorization policy a tool resolves from its input.
+ *
+ *  Every field is optional except `requiredScopes`, and an omitted field falls back to the tool's
+ *  static declaration — so a resolver that only varies scopes says only that. */
+export interface OperationPolicy {
+  /** MUST be a subset of the definition's static `requiredScopes`. Enforced, not documented. */
+  requiredScopes: readonly string[];
+  /** Drives the read-only gate, the vault-kind gate and the HITL floor. Omitted -> static. */
+  destructive?: boolean;
+  /** Drives throttling and metrics. Omitted -> static, else scopeClassOf(resolved scopes). */
+  scopeClass?: string;
 }
 
 export type VerifyElicit = (token: string, expectedHash: string, ctx: CallerContext) => boolean;
