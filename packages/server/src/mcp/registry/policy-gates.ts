@@ -3,6 +3,7 @@ import {
   grantsAll,
   isMutatingScope,
   ObsidianTcError,
+  scopeClassOf,
   scopeRequiresHitl,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { hitlSatisfiedByState } from "../../elicit-request-state";
@@ -37,7 +38,7 @@ export function requireAuthenticated(
  */
 export function assertScopesGranted(
   ctx: Pick<CallerContext, "grantedScopes">,
-  requiredScopes: string[],
+  requiredScopes: readonly string[],
   message: string,
 ): void {
   if (!grantsAll(ctx.grantedScopes, requiredScopes)) {
@@ -48,10 +49,84 @@ export function assertScopesGranted(
 /** Whether this call counts as MUTATING for the readOnly and vault-kind gates below — a
  *  destructive tool, or one whose required scopes include a mutating scope. Computed once by the
  *  caller and passed to both gates, matching the single `mutating` local the inline block used. */
-export function isMutatingCall(
-  def: Pick<ToolDefinition, "destructive" | "requiredScopes">,
-): boolean {
+export function isMutatingCall(def: {
+  destructive?: boolean;
+  requiredScopes: readonly string[];
+}): boolean {
   return def.destructive === true || def.requiredScopes.some(isMutatingScope);
+}
+
+/** THE-727: the policy actually governing ONE call — every field resolved, nothing optional. */
+export interface ResolvedPolicy {
+  requiredScopes: readonly string[];
+  destructive: boolean;
+  scopeClass: string;
+}
+
+/**
+ * THE-727: resolve the authorization policy for a call from its VALIDATED input.
+ *
+ * Without `def.resolvePolicy` this returns the static declaration verbatim, so every tool that
+ * exists today behaves byte-identically. It is the seam that makes `{action, args}` consolidation
+ * possible at all: a tool merging a read and a delete cannot declare one honest scope set, because
+ * unioning makes the read demand delete privileges and intersecting under-governs the delete.
+ *
+ * THE SUBSET INVARIANT IS THE SECURITY PROPERTY, and it is enforced here rather than documented.
+ * The static `requiredScopes` stays the declared MAXIMUM — it is what the tool advertises, what
+ * the facade and the docs describe, and what a reviewer reads. A resolver may only NARROW it.
+ * Returning a scope the tool never declared means the advertised surface is lying about what the
+ * tool can reach, so the call is refused rather than allowed on the resolver's say-so.
+ *
+ * Refused as `internal`, not `forbidden`: the caller did nothing wrong and a resolver that
+ * over-declares is a server defect. Filing it under the same code as an ordinary authorization
+ * denial would bury it among expected refusals, which is exactly how a privilege-escalation seam
+ * stays invisible.
+ *
+ * Note the asymmetry with `destructive`: a resolver may raise OR lower it. Lowering is not an
+ * escalation, because `isMutatingCall` also derives mutation from the resolved scopes — and those
+ * are already bounded by the subset check above.
+ */
+export function resolveOperationPolicy(
+  def: Pick<ToolDefinition, "requiredScopes" | "destructive" | "scopeClass"> & {
+    resolvePolicy?: (input: never) => {
+      requiredScopes: readonly string[];
+      destructive?: boolean;
+      scopeClass?: string;
+    };
+  },
+  input: unknown,
+): ResolvedPolicy {
+  const staticClass = def.scopeClass ?? scopeClassOf(def.requiredScopes);
+  if (!def.resolvePolicy) {
+    return {
+      requiredScopes: def.requiredScopes,
+      destructive: def.destructive === true,
+      scopeClass: staticClass,
+    };
+  }
+  const resolved = def.resolvePolicy(input as never);
+  const declared = new Set(def.requiredScopes);
+  const undeclared = resolved.requiredScopes.filter((scope) => !declared.has(scope));
+  if (undeclared.length > 0) {
+    throw new ObsidianTcError(
+      "internal",
+      "resolved policy requires scopes the tool does not declare",
+      { undeclared, declared: [...def.requiredScopes] },
+    );
+  }
+  return {
+    requiredScopes: resolved.requiredScopes,
+    destructive: resolved.destructive ?? def.destructive === true,
+    // An explicit class wins; otherwise derive from the RESOLVED scopes so a read action is
+    // throttled and counted as a read. Falling back to the static class would put every action of a
+    // consolidated tool in the write bucket, which is the metric that would have shown the merge
+    // working.
+    scopeClass:
+      resolved.scopeClass ??
+      (resolved.requiredScopes.length > 0
+        ? scopeClassOf([...resolved.requiredScopes])
+        : staticClass),
+  };
 }
 
 /** A mutating call is refused outright against a read-only ACL (acl.readOnly). */
@@ -115,8 +190,17 @@ export function checkThrottle(
 }
 
 /** Whether this tool call needs a cleared HITL (human-in-the-loop) confirmation: a destructive
- *  tool, or one whose required scopes include an HITL-floored scope. */
-export function hitlRequired(def: Pick<ToolDefinition, "destructive" | "requiredScopes">): boolean {
+ *  call, or one whose required scopes include an HITL-floored scope.
+ *
+ *  THE-727: takes the RESOLVED policy, not the definition. Reading the static `destructive` here
+ *  would make the read action of a consolidated read+delete tool demand a human confirmation,
+ *  which is the union problem reappearing at the last gate that consumes it — and the one most
+ *  likely to be mistaken for correct, since over-confirming looks conservative rather than broken.
+ *  Structurally compatible with a bare ToolDefinition, so non-consolidated callers are unaffected. */
+export function hitlRequired(def: {
+  destructive?: boolean;
+  requiredScopes: readonly string[];
+}): boolean {
   return def.destructive === true || def.requiredScopes.some(scopeRequiresHitl);
 }
 

@@ -30,6 +30,7 @@ import {
   hitlRequired,
   isMutatingCall,
   requireAuthenticated,
+  resolveOperationPolicy,
   runPrecheck,
 } from "./policy-gates";
 import {
@@ -167,21 +168,35 @@ export async function runDispatch(
     // so a disabled tool is indistinguishable from one that was never registered.
     if (isDisabled(def, deps.toolVisibility))
       throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
+    // THE-727: the STATIC class, set before the parse ON PURPOSE. `scopeClass` feeds the throttle
+    // decision and the error-path metrics in the catch below, and a call that fails `parseInput`
+    // never reaches the resolver — leaving it "unknown" would silently degrade every parse-failure
+    // metric. The ticket proposed relocating this line below the parse; that would have been that
+    // regression. It is REFINED after the parse instead, a few lines down.
     scopeClass = def.scopeClass ?? scopeClassOf(def.requiredScopes);
 
     // WP4.3: input-schema parse, THE-267 vault-binding guard, THE-295 per-vault ACL swap — see
     // registry/input-binding.ts for the full reasoning behind each (unchanged, only relocated).
     const inputData = parseInput(def, rawInput);
 
+    // THE-727: authorization is a property of the CALL, not only of the tool. Without
+    // `def.resolvePolicy` this is the static declaration verbatim, so existing tools are untouched.
+    // It sits between the parse and every gate that consumes it, which needed no reordering — the
+    // pipeline already parsed before it authorized. THAT ORDERING IS LOAD-BEARING NOW and is pinned
+    // by test: move `parseInput` back above this and a consolidated tool authorizes against the
+    // wrong action's scopes.
+    const policy = resolveOperationPolicy(def, inputData);
+    scopeClass = policy.scopeClass;
+
     requireAuthenticated(ctx, def);
 
-    assertScopesGranted(ctx, def.requiredScopes, "missing required scope(s)");
+    assertScopesGranted(ctx, policy.requiredScopes, "missing required scope(s)");
 
     enforceVaultBinding(ctx, def, inputData);
 
     applyVaultAcl(ctx, def, inputData, deps.aclResolver);
 
-    const mutating = isMutatingCall(def);
+    const mutating = isMutatingCall(policy);
     enforceReadOnlyGate(ctx, mutating);
     enforceVaultKindGate(ctx, def, inputData, mutating, name, deps.vaultKindResolver);
 
@@ -319,7 +334,7 @@ export async function runDispatch(
     // token; verifyElicit consumes it (UPDATE ... WHERE consumed_at IS NULL). Runs after
     // the throttle gate (so a rate-limited call doesn't burn the confirmation) and last
     // before the handler (so the token is spent only once the call is cleared to execute).
-    const needsHitl = hitlRequired(def);
+    const needsHitl = hitlRequired(policy);
     if (needsHitl) {
       const ok = checkHitl(ctx, hash, name, deps.verifyElicit);
       if (!ok) {
