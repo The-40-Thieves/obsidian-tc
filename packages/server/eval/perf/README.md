@@ -289,6 +289,12 @@ This:
 
 **THE-503:** in isolated mode (`--samples N --update-baseline`), the same file is written from the **median** across N fresh-subprocess samples, and the run is **refused outright (exit 1, file untouched)** if host contention was detected during sampling — see "Isolation & Statistics" above. `eval/perf/calibration-reference.json` (the committed "quiet host" calibration median used for sustained-contention detection) is written alongside it, under the same refusal discipline, and should be regenerated whenever the reference CI hardware changes materially.
 
+**THE-510 — the reference is keyed by CPU architecture** (`byArch`, on `process.arch`). The absolute check compares a measured median against a committed quiet-host median, which only means anything on the same silicon: a 15.0ms x64 reference judged an ARM64 host whose quiet median is ~27ms, so `detectContention` reported *sustained load* at every load level, permanently. Measured on that host 2026-08-04, the median held at 27.0-28.7ms across 14 runs while load average moved 30% — the signature of a different CPU, not of contention.
+
+A missing entry for the running arch makes the absolute check **stand down** (relative CV/max checks still apply), and `--update-baseline` records under the running arch while **merging** rather than replacing, so recording on one platform never disarms another's check. An untagged pre-THE-510 file still applies as-is, which is correct on the machine that wrote it.
+
+Do not hand-write an entry for an architecture you have not measured on a quiet host: an invented reference looks measured and blinds the check for everyone on that platform.
+
 ### The reference host is the CI runner (THE-534)
 
 **Do not record a baseline on a developer machine.** The reference is the machine the gate compares on: `ubuntu-latest`, via the `perf-baseline` workflow (`workflow_dispatch` → pick a scenario → it opens a PR with the recorded files).
