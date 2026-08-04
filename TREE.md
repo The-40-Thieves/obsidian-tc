@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,044 tracked code files · 158,183 lines.
+**Scale:** 1,044 tracked code files · 158,189 lines.
 
-TypeScript 146,761 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 314.
+TypeScript 146,767 · JavaScript 7,509 · Python 1,640 · SQL 1,217 · Rust 742 · Shell 314.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->

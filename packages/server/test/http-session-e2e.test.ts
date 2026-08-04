@@ -34,6 +34,7 @@ import { buildSessionTools } from "../src/tools/m5/session-tools";
 import { startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
@@ -123,6 +124,11 @@ async function boot(): Promise<Booted> {
       await handle.close();
       db.close?.();
       edb.close?.();
+      // rmTemp, not rmSync: start_session leaves a real JSONL trace under each root, and Windows
+      // refuses to delete a file whose handle is still open. Both roots go regardless of what
+      // failed above — five boots leaking two dirs each is how a suite quietly fills a runner.
+      rmTemp(root);
+      rmTemp(agentsRoot);
     },
   };
 }
