@@ -59,9 +59,18 @@ power ΔnDCG@10 : σ_d 0.155  SE 0.0133  MDE@n=136 0.037 (α=0.05, power=0.8)
 ```
 
 That measurement was taken at n=136. <!-- facts-check:ignore: historical power measurement taken at the golden set's then-size, deliberately preserved alongside the current n=250 -->
-The golden set is now **n=250**, and the spread was later
-re-measured at σ_d 0.204 / MDE 0.036 — *worse* resolution than the earlier figure, not better. Both
-numbers are kept rather than quietly replaced.
+The golden set is now **n=250**, and the spread has been
+re-measured twice since: first at σ_d 0.204 / MDE 0.036 on the same nomic representation, then —
+after that representation was deleted on 2026-07-31 — at **σ_d 0.198 / MDE 0.035 on `ndcg_at_10`**
+against the live BAAI/bge-m3 store (THE-674, 2026-08-02, at `be4962d`). Every step was *worse*
+resolution than the figure before it, not better. All three are kept rather than quietly replaced.
+
+**The current bar is metric-specific, and the spread across metrics is 2.5×.** 0.035 is the
+`ndcg_at_10` row. `recall_at_10` resolves at 0.026 and `bridge_recall` at 0.022, while `mrr_at_10`
+needs 0.055 — and `bridge_ndcg_at_10`, which is scored only on the labelled subset rather than the
+full set, needs 0.062. <!-- facts-check:ignore: per-metric resolution figures from THE-674, not corpus counts -->
+Quoting the headline for a bridge-gated experiment overstates the resolution by nearly 2×. The full
+per-metric table lives in `packages/server/eval/README.md`.
 
 ## Published negative results
 
