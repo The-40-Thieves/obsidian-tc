@@ -54,7 +54,7 @@ jobs:
         with:
           workspaces: packages/native
       - name: cache bun install
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
@@ -126,6 +126,12 @@ jobs:
         with:
           workspaces: packages/native
       # zig + cargo-zigbuild are the cross toolchain napi `-x` drives for musl.
+      # goto-bus-stop/setup-zig is the ONE action here still on the node20 runtime, and it cannot be
+      # bumped out of it: v2.2.1 (its latest) is still node20, and taiki-e/install-action below
+      # ships cargo-zigbuild but not zig itself. GitHub currently forces node20 actions onto node24,
+      # so this is a warning rather than a break — but it becomes a break when that shim is removed.
+      # Replacing it means hand-rolling the zig install on the musl release path (2 of the 8 native
+      # targets), which is not a change to make casually. Tracked rather than silently carried.
       - uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2
         with:
           version: 0.13.0
@@ -159,7 +165,7 @@ jobs:
         with:
           node-version: '24'
       - name: cache bun install
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
