@@ -35,11 +35,6 @@ export const WRITE_ONLY_ALLOWLIST = new Map([
       "THE-539 (learned fusion weights), ICEBOXED on entry criteria — so this is deliberately " +
       "collecting training data ahead of a deferred model. Revisit when THE-539 leaves the icebox.",
   ],
-  [
-    "job_runs",
-    "THE-716: plane.ts's recordRun writes it and nothing reads it — AND it holds 0 rows in " +
-      "production, so the writer has never fired either. Both halves are that ticket.",
-  ],
 ]);
 
 const listFiles = (dir, ext, out = []) => {

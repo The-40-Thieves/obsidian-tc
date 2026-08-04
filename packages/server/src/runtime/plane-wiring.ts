@@ -164,20 +164,26 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
       now: Date.now,
       ...(deps.maxPromptChars !== undefined ? { maxPromptChars: deps.maxPromptChars } : {}),
     };
-    const synthesisJob = wrapPlaneJob("synthesis", () => runSynthesis(planeCtx));
-    const auditPassJob = wrapPlaneJob("audit", () => auditJob.run(planeCtx));
+    const synthesisJob = wrapPlaneJob("synthesis", () => runSynthesis(planeCtx), planeCtx);
+    const auditPassJob = wrapPlaneJob("audit", () => auditJob.run(planeCtx), planeCtx);
     jobHandlers.set("synthesis", synthesisJob);
     jobHandlers.set("audit", auditPassJob);
   }
   // THE-643: note_quality was write-only (an unused CLI command); no gateway dependency here.
   if (deps.experientialOpen) {
     const vaultIds = deps.vaults.map((v) => v.id);
-    const noteQualityJob = wrapPlaneJob("note-quality", async () => ({
-      ok: true,
-      detail: {
-        per_vault: recomputeNoteQualityAll(deps.db, deps.experientialDb, vaultIds, Date.now()),
-      },
-    }));
+    const noteQualityJob = wrapPlaneJob(
+      "note-quality",
+      async () => ({
+        ok: true,
+        detail: {
+          per_vault: recomputeNoteQualityAll(deps.db, deps.experientialDb, vaultIds, Date.now()),
+        },
+      }),
+      // No planeCtx here — note-quality has no gateway dependency — but job_runs lives in the same
+      // cache db, so the recorder is built from what this branch already has (THE-716).
+      { db: deps.db, now: Date.now },
+    );
     jobHandlers.set("note-quality", noteQualityJob);
   }
   const jobRunner = makeJobRunner({

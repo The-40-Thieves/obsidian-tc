@@ -31,8 +31,31 @@ export interface ToolCensus {
   lastAt: number | null;
 }
 
+/**
+ * Run HISTORY from `job_runs` (THE-716), which is a different question from the schedule state
+ * above and cannot be answered by it.
+ *
+ * `job_schedule` records CURRENT state — last run, last success, consecutive failures — so it can
+ * say "this pass is healthy now" and nothing about how often it runs or how often it fails. That
+ * history is exactly what THE-716 was opened for: with job_runs empty there was no way to see how
+ * frequently reindex-class work fired, which is how 22 unbroken hours of it went unnoticed.
+ *
+ * null means NOT MEASURED (no table, or an unreadable store) and must never be coerced to zeros —
+ * "no runs recorded" and "we did not look" are different facts.
+ */
+export interface RunHistory {
+  totalRuns: number;
+  failures: number;
+  /** Distinct job names that have recorded at least one run. */
+  jobs: string[];
+  oldestAt: number | null;
+  newestAt: number | null;
+}
+
 export interface EntryPointsProbe {
   passes: ScheduledPassState[];
+  /** THE-716: per-run history. null = not measured. */
+  runs?: RunHistory | null;
   /** null means NOT MEASURED — never coerce it to 0. A measured zero and an absent measurement are
    *  different facts, and encoding one as the other is the shape that makes a failure look like a
    *  valid result downstream. */
@@ -85,7 +108,7 @@ export function entryPointsCheck(view: EntryPointsView): Check {
           details: { entrypoints: "not probed" },
         };
       }
-      const { passes, tools, orphanScheduleRows } = view.probe();
+      const { passes, tools, orphanScheduleRows, runs } = view.probe();
       if (passes.length === 0 && tools === null) {
         return {
           status: "ok" as CheckStatus,
@@ -107,6 +130,14 @@ export function entryPointsCheck(view: EntryPointsView): Check {
 
       const details: Record<string, string | string[]> = {
         scheduled: passes.map((p) => p.name),
+        ...(runs
+          ? {
+              // THE-716: history, not state. A failure count of 0 across thousands of runs is a
+              // different claim from a healthy `job_schedule` row, and only this one survives a
+              // restart.
+              runHistory: `${runs.totalRuns} run(s) across ${runs.jobs.length} job(s), ${runs.failures} failed`,
+            }
+          : {}),
         toolsInvoked: describeCensus(tools),
       };
       if (notYetRun.length > 0) details.notYetRun = notYetRun.map((p) => p.name);

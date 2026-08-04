@@ -504,6 +504,35 @@ async function probeEntryPoints(cacheDir: string): Promise<EntryPointsProbe> {
         .prepare("SELECT COUNT(*) AS c FROM job_schedule WHERE name IS NULL")
         .get() as { c: number };
       out.orphanScheduleRows = orphans.c;
+      // THE-716: run HISTORY, in its own try so a store without job_runs still reports the
+      // schedule state above. `runs` stays null when the table is absent — not measured and
+      // measured-zero are different facts, and the check renders them differently.
+      try {
+        const agg = db
+          .prepare(
+            "SELECT COUNT(*) AS n, SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failed, " +
+              "COUNT(DISTINCT job) AS jobs, MIN(started_at) AS oldest, MAX(started_at) AS newest FROM job_runs",
+          )
+          .get() as {
+          n: number;
+          failed: number | null;
+          jobs: number;
+          oldest: number | null;
+          newest: number | null;
+        };
+        const names = db.prepare("SELECT DISTINCT job FROM job_runs ORDER BY job").all() as {
+          job: string;
+        }[];
+        out.runs = {
+          totalRuns: agg.n,
+          failures: agg.failed ?? 0,
+          jobs: names.map((r) => r.job),
+          oldestAt: agg.oldest,
+          newestAt: agg.newest,
+        };
+      } catch {
+        /* no job_runs table — leave `runs` unset (not measured) */
+      }
     } catch {
       /* table absent on a pre-scheduler db — leave the empty list */
     } finally {

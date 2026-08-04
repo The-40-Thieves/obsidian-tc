@@ -220,4 +220,33 @@ describe("entrypoints.liveness", () => {
     expect(r.summary).toContain("1 failing");
     expect(r.summary).toContain("1 healthy");
   });
+
+  // THE-716: run history is a DIFFERENT question from schedule state, and the two must not be
+  // conflated. job_schedule says "healthy now"; job_runs says how often and how often it failed.
+  it("surfaces run history when job_runs was measured", async () => {
+    const r = await run({
+      passes: [pass({ name: "synthesis" })],
+      tools: null,
+      orphanScheduleRows: 0,
+      runs: {
+        totalRuns: 128,
+        failures: 3,
+        jobs: ["audit", "note-quality", "synthesis"],
+        oldestAt: 1,
+        newestAt: 2,
+      },
+    });
+    expect(r.details?.runHistory).toBe("128 run(s) across 3 job(s), 3 failed");
+  });
+
+  // Absent history must not render as "0 runs". That is the not-measured-vs-measured-zero
+  // distinction this file already keeps for the tool census, applied to the same shape.
+  it("omits run history entirely when job_runs was not measured", async () => {
+    const r = await run({
+      passes: [pass({ name: "synthesis" })],
+      tools: null,
+      orphanScheduleRows: 0,
+    });
+    expect(r.details?.runHistory).toBeUndefined();
+  });
 });

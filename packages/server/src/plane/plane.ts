@@ -33,12 +33,45 @@ export interface Job {
   run(ctx: JobContext): Promise<JobResult>;
 }
 
+/** The minimum a run needs to be recorded. JobContext satisfies it structurally, so the
+ *  SleepTimePlane path below passes its ctx unchanged. */
+export interface RunRecorder {
+  db: Database;
+  now: () => number;
+}
+
 // THE-625 item 3: cli.ts's synthesis/audit/note-quality job-queue handlers were 3-line ok:false-
 // must-throw twins — a plane job reports failure via JobResult.ok:false, but the durable runner's
 // dead-letter/retry only reacts to a THROW, so that boolean has to become one somewhere.
-export function wrapPlaneJob(name: string, run: () => Promise<JobResult>): JobHandler {
+//
+// THE-716: it also has to RECORD somewhere, and until now it did not. `SleepTimePlane.runJob`
+// records every run and production never calls it — moving these jobs onto the durable queue left
+// the recorder on the path nothing uses, so job_runs sat at zero rows for the life of the
+// deployment while `derived.liveness` correctly reported it `silent`.
+//
+// `rec` is REQUIRED rather than optional on purpose. An optional recorder is how this recurs: a
+// future call site omits it, the job runs, nothing records, and the table looks exactly as healthy
+// as it did before. The type system now refuses to wire a plane job that cannot be observed.
+export function wrapPlaneJob(
+  name: string,
+  run: () => Promise<JobResult>,
+  rec: RunRecorder,
+): JobHandler {
   return async () => {
-    const r = await run();
+    const startedAt = rec.now();
+    let r: JobResult;
+    try {
+      r = await run();
+    } catch (e) {
+      // A thrown job is still a run, and it is the one you most want in the log. Recorded BEFORE
+      // the rethrow — after it, this line never executes.
+      recordRun(rec, name, startedAt, { ok: false, detail: { error: (e as Error).message } });
+      throw e;
+    }
+    recordRun(rec, name, startedAt, r);
+    // Order matters for the same reason: the ok:false -> throw conversion below is what the
+    // durable runner reacts to, so the row has to be written first or a FAILING job — the case
+    // job_runs exists to answer questions about — would never appear in it.
     if (!r.ok) throw new Error(`${name} job failed: ${JSON.stringify(r.detail ?? {})}`);
   };
 }
@@ -81,7 +114,7 @@ export class SleepTimePlane {
   }
 }
 
-function recordRun(ctx: JobContext, job: string, startedAt: number, result: JobResult): void {
+function recordRun(ctx: RunRecorder, job: string, startedAt: number, result: JobResult): void {
   if (!tableExists(ctx.db, "job_runs")) return;
   try {
     ctx.db
