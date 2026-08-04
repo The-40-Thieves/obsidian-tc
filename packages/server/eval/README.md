@@ -22,27 +22,56 @@ bun eval/compare.ts a.json b.json
 
 ## The ship rule (THE-399)
 
-**Status 2026-07-19 (THE-440/441 recalibration): the MDE is now MEASURED, not assumed.** The
-recalibration below ran against the golden set as it stood that day, **n=136**. Later the same
-day the set was expanded to **n=250** (the current size — see `docs/project-facts.json`), so
-"the set is n=136" is no longer true; the power numbers below are a historical measurement taken
-*at* n=136 and have not been re-measured at n=250. Running `eval/run.ts` prints a `power ΔnDCG@10`
-line computed from the actual per-query paired-delta spread on the golden set at the time of the
-run:
+**Status 2026-08-02 (THE-674): the MDE is MEASURED on the engine that actually runs, and it is
+METRIC-SPECIFIC.** Quote the row for the metric you are gating on, and name that metric when you
+quote it.
 
-```
-power ΔnDCG@10  : σ_d 0.155  SE 0.0133  MDE@n=136 0.037 (α=0.05, power=0.8)  |  Δ=0.05→n≥76  Δ=0.03→n≥210  Δ=0.02→n≥472
-```
+| metric | n | σ_d | MDE (α=0.05, power=0.8) |
+| --- | ---: | ---: | ---: |
+| `bridge_recall` | 250 | 0.1257 | **0.0223** |
+| `recall_at_10` | 250 | 0.1444 | **0.0256** |
+| `ndcg_at_10` | 250 | 0.1984 | **0.0352** |
+| `mrr_at_10` | 250 | 0.3090 | **0.0548** |
+| `bridge_ndcg_at_10` | **103** | 0.2236 | **0.0617** |
+| `expected_found_in_top10` | 250 | 0.3948 | 0.0699 |
 
-So the real σ_d is **0.155** (nomic enrichment tightened it below the old 0.20 assumption), the
-MDE measured at n=136 was **~0.037 nDCG**, and the golden-set sizes needed for smaller effects are
-**Δ=0.05 → n≥76** (already cleared), **Δ=0.03 → n≥210**, **Δ=0.02 → n≥472**. Read a null result
-against this line: a non-significant arm with |Δ| well under 0.037 is *underpowered*, not
-*disproven*. Sub-0.03 gains (the THE-441 reranker regime) could not be resolved at n=136. The set
-has since grown to **n=250** (2026-07-19), which clears the n≥210 bar this table implies for
-Δ=0.03 — but the MDE itself has **not** been re-measured at n=250 (do not scale the 0.037 figure
-arithmetically); treat that as an open follow-up until `eval/run.ts` is re-run on the current set
-and a new power line is generated. Δ=0.02 still needs n≥472 and remains out of reach.
+**Two traps this table exists to close.**
+
+1. **The spread across metrics is 2.5×.** A ticket gating on `recall_at_10` has a *better* bar than
+   the headline; one gating on `mrr_at_10` has a materially worse one. A bare "MDE 0.035" is the
+   `ndcg_at_10` number and is correct only for an nDCG gate.
+2. **`bridge_ndcg_at_10` is scored on n=103, not 250.** The bridge metrics are `None` on unlabelled
+   queries. Quoting an n=250 MDE for it is a fiction — and the bridge metrics are exactly the ones
+   graph-expansion work (THE-693, THE-695) will want to gate on.
+
+Sample sizes for smaller effects on `ndcg_at_10`: **Δ=0.030 → n≥344**, **Δ=0.020 → n≥773**,
+**Δ=0.010 → n≥3,091**. The set is at n=250, so **Δ=0.030 is not yet resolvable at 80% power on
+nDCG** — though it is on `recall_at_10` and `bridge_recall`.
+
+Read a null against the row for your metric: a non-significant arm whose |Δ| is under that row's
+MDE is *underpowered*, not *disproven*. THE-422 was cancelled on exactly this distinction.
+
+### Provenance — why the older figures in this file were retired
+
+The `σ_d 0.155 / MDE@n=136 0.037` line this section used to carry was a genuine measurement, taken
+2026-07-19 at n=136 against the **nomic-embed-text / 768d** representation. That representation no
+longer exists (Ollama was deleted 2026-07-31), so the figure describes an engine nothing runs. This
+section also used to say the MDE "has **not** been re-measured at n=250 … treat that as an open
+follow-up". **THE-674 closed that follow-up on 2026-08-02**; leaving the sentence in place was
+sending readers to redo finished work.
+
+THE-674 re-measured on the live **BAAI/bge-m3 / 1024d** store at `be4962d`, over the same n=250
+golden set and the same control-vs-fanout contrast. Two results worth carrying forward:
+
+* **σ_d moved only −2.7% across a full embedding-model swap** (0.2039 → 0.1984), which is why this
+  table is expected to hold until the representation changes again rather than until the next PR.
+* **Fan-out replicated as a regression on the new model** (−0.0430, t=−3.43, against −0.0474,
+  t=−3.68 on nomic), so THE-448's conclusion survives a representation change — a stronger result
+  than the original single measurement.
+
+Note that **σ_d is contrast-specific**: the table above is the fan-out contrast. `eval/run.ts`
+prints a live `power ΔnDCG@10` line computed from the actual per-query paired deltas of *that* run,
+and for a specific contrast that line is the number to use.
 
 The harness now computes the whole gate instead of leaving it to hand-arithmetic:
 - **`power ΔnDCG@10`** — measured σ_d, SE, MDE at n, and n-needed table (`describePower`).

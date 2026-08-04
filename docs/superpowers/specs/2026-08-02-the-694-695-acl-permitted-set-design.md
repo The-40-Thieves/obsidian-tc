@@ -261,4 +261,7 @@ Evaluating it properly would need a golden set scored against a *restricted* pri
 different corpus and a different question than THE-674's bar answers.
 
 5. **THE-693 only:** three-arm eval (off / hard cap / smooth damping) at n=250 against the standing
-   bar, sigma_d 0.204 / MDE 0.036 (THE-674). **Closes THE-693** on the measured outcome.
+   bar, **sigma_d 0.198 / MDE 0.035 on `ndcg_at_10`** (THE-674, re-measured 2026-08-02 on bge-m3;
+   the `0.204 / 0.036` this line used to quote was the intermediate nomic recompute). Gate on the
+   BRIDGE metrics for graph expansion — `bridge_ndcg_at_10` is scored on **n=103**, MDE **0.062**,
+   nearly 2× the headline. **Closes THE-693** on the measured outcome.

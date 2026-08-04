@@ -1122,7 +1122,9 @@ bun run eval --corpus /data/obsidian-tc-eval/cache-the674-bgem3 --limit 250 --sm
 
 Use `eval/stats.ts` (permutation test + BH-FDR at q=0.10 + non-inferiority) via the template at `~/obsidian-tc-eval/analyze-the692-sweep-corrected.ts`. Do not hand-roll the analysis — a previous hand-rolled version was superseded.
 
-Standing bar: sigma_d 0.204 / MDE 0.036 at n=250 (THE-674). An effect below ~0.036 is **below resolution**, not absent, and must be reported that way. The bar is metric-specific — `bridge_ndcg_at_10` is n=103 with MDE 0.0617.
+Standing bar: **sigma_d 0.198 / MDE 0.035 on `ndcg_at_10` at n=250** (THE-674, re-measured 2026-08-02 on the live bge-m3 store at `be4962d`). An effect below that is **below resolution**, not absent, and must be reported that way. The bar is metric-specific and the spread is 2.5× — `recall_at_10` 0.026, `bridge_recall` 0.022, `mrr_at_10` 0.055, and `bridge_ndcg_at_10` is n=103 with MDE 0.0617. Graph-expansion work gates on the bridge metrics, so 0.062 is the relevant number here, not the headline.
+
+> Corrected 2026-08-04: this line read `sigma_d 0.204 / MDE 0.036`, which was THE-674's intermediate recompute against the nomic representation. That representation was deleted 2026-07-31; the final THE-674 figure is the bge-m3 one above.
 
 - [ ] **Step 5: Post the result and decide**
 
