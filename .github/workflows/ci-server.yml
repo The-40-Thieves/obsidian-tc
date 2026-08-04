@@ -103,6 +103,19 @@ jobs:
       - name: duplicate exported names (source scan)
         run: bun run check:duplicate-exports
 
+      # THE-720/THE-722: a table production WRITES and nothing production READS is dead work. The
+      # doctor liveness checks cannot see this — they answer "is it being written", and
+      # audit_reports had 299 rows sitting green under both while nothing had ever read one.
+      # "Nothing reads this" is a property of the source, so it is a scan, not a probe. Views count
+      # as readers: chunk_access_stats is how note_quality reaches chunk_retrievals.
+      - name: write-only tables (source scan)
+        run: bun run check:table-readers
+
+      # The gate's own unit tests — the view/word-boundary/quoting cases that decide whether it
+      # reports the truth or quietly reports nothing.
+      - name: gate unit tests
+        run: bun run test:scripts
+
       # Block-level copy-paste. Threshold 3% against 2.16% today — this catches a regression, it
       # does not demand zero. Some duplication is cheaper than the coupling that would remove it.
       - name: copy-paste detection
