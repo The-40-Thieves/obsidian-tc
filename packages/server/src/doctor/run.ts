@@ -6,6 +6,7 @@ import type {
   DerivedColumnsView,
   DerivedTablesView,
   ExperientialEvaluatorView,
+  KbHealthView,
   NotesFtsView,
   ProviderRegistrationView,
   RerankerBuildableView,
@@ -19,6 +20,7 @@ import {
   derivedColumnsCheck,
   derivedTablesCheck,
   experientialEvaluatorCheck,
+  kbHealthCheck,
   nativeCheck,
   notesFtsIntegrityCheck,
   obsidianCheck,
@@ -77,6 +79,9 @@ export interface DoctorConfigView {
    *  derivedTables answers "is the table written"; a table can be live while the column three
    *  tickets depend on is NULL on every row. Probe-only, same as derivedTables. */
   derivedColumns?: DerivedColumnsView;
+  /** THE-722: the latest kb_health audit report. audit_reports had 301 rows and no reader;
+   *  routing it through doctor makes it an alertable Prometheus series for free. */
+  kbHealth?: KbHealthView;
   /** Entry-point liveness: is each scheduled pass actually succeeding, and how much of the tool
    *  surface has ever been invoked. Probe-only, same as derivedTables. */
   entryPoints?: EntryPointsView;
@@ -143,6 +148,9 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // while outcome/feedback were NULL on all of them — a row count cannot see a dead signal inside
   // a healthy table.
   if (config.derivedColumns) checks.push(derivedColumnsCheck(config.derivedColumns));
+  // THE-722: vault integrity (null embeddings, duplicate chunk positions) plus whether the
+  // audit job is still running at all — a clean report from three days ago reads like health.
+  if (config.kbHealth) checks.push(kbHealthCheck(config.kbHealth));
   // entrypoints.liveness — the verb-side companion. derived.liveness reports a table as `silent`
   // whether nothing enabled its writer or the writer runs and loses every time; only the schedule
   // row separates those, and they need opposite fixes.

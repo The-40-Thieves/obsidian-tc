@@ -794,13 +794,18 @@ export function derivedTablesCheck(view: DerivedTablesView): Check {
   };
 }
 
-// THE-720: the column-level counterpart. This check answers "is the TABLE being written"; that one
-// answers "is the SIGNAL being written", which a row count cannot see — chunk_retrievals reported
-// `live` on 97 rows for 18 days while the two columns three tickets depend on were NULL on all of
-// them. Implemented in its own module (this file is already dense against the line ceiling) and
-// re-exported here so the doctor surface stays a single import for every consumer.
+// The two liveness counterparts live in their own modules — this file is dense against biome's
+// 700-line ceiling — re-exported so the doctor surface stays one import. THE-720 asks "is the
+// SIGNAL written" where the check above asks "is the TABLE written"; THE-722 is the read surface
+// audit_reports never had. Each module's header carries the measurement that motivated it.
 export {
   type DerivedColumnState,
   type DerivedColumnsView,
   derivedColumnsCheck,
 } from "./column-liveness";
+export {
+  type KbHealthProbe,
+  type KbHealthVault,
+  type KbHealthView,
+  kbHealthCheck,
+} from "./kb-health";
