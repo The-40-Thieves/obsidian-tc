@@ -62,6 +62,54 @@ export const CoverageEstimateSchema = z.object({
   staleThresholdDays: z.number(),
 });
 
+/** THE-646 item 2: one link in an answer's lineage. Every field that can be UNKNOWN says so with a
+ *  named state rather than a blank — see experiential/lineage.ts for why each absence is distinct.
+ *  `citation_score` is nullable and is ALWAYS null when `citation` is `not_stamped`: a score
+ *  without a verdict reads as a verdict. */
+export const LineageLinkSchema = z.object({
+  chunk_id: z.string(),
+  /** Null when the chunk no longer resolves — reported, never dropped. */
+  path: z.string().nullable(),
+  chunk: z.enum(["resolved", "deleted"]),
+  retrieved_at: z.number(),
+  surface_type: z.string(),
+  query_text: z.string().nullable(),
+  rank_in_results: z.number().nullable(),
+  /** `not_stamped` is not a database value: the column is NULL. Naming it here keeps "never
+   *  judged" from rendering as "judged and rejected". */
+  citation: z.enum(["confirmed", "rejected", "candidate", "uncertain", "not_stamped"]),
+  citation_score: z.number().nullable(),
+  /** `session` is an identity; `time_window` is a guess that is usually right. Never conflate. */
+  correlation: z.enum(["session", "time_window", "none"]),
+  episode_id: z.string().nullable(),
+});
+
+export const LineageSummarySchema = z.object({
+  retrievals: z.number(),
+  deleted_chunks: z.number(),
+  not_stamped: z.number(),
+  not_cited: z.number(),
+  cited: z.number(),
+  exact_correlations: z.number(),
+});
+
+/** THE-646 item 2: `explain_answer`'s envelope. The `available: false` branch mirrors m8's
+ *  `availableWith` shape — declared locally rather than imported so m7 does not take a dependency
+ *  on m8's shared module (check:boundaries). */
+export const ExplainAnswerOutput = z.union([
+  z.object({ available: z.literal(false), message: z.string() }),
+  z.object({
+    available: z.literal(true),
+    vault: z.string(),
+    scope: z.enum(["session", "time_window"]),
+    links: z.array(LineageLinkSchema),
+    summary: LineageSummarySchema,
+    /** Present when NOTHING in the chain is judge-backed, so a caller cannot read zero citations
+     *  as evidence the sources went unused. Null once any row is stamped. */
+    caveat: z.string().nullable(),
+  }),
+]);
+
 /** The trimmed citation shape reflect returns (NOT a full GraphSearchResult). */
 export const SourceRef = z.object({ chunk_id: z.string(), path: z.string(), score: z.number() });
 

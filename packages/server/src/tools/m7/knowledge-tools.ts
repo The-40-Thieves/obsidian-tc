@@ -35,6 +35,7 @@ import { createQueryEncoder } from "../../search/query-encoder";
 import { createContradictionsTool } from "./knowledge/contradictions";
 import type { M7Deps } from "./knowledge/deps";
 import { createDiagnoseRetrievalTool } from "./knowledge/diagnose-retrieval";
+import { createExplainAnswerTool } from "./knowledge/explain-answer";
 import { createGraphSearchTool } from "./knowledge/graph-search";
 import { createKnowledgeChallengeTool } from "./knowledge/knowledge-challenge";
 import { createKnowledgeCriticalTool } from "./knowledge/knowledge-critical";
@@ -96,6 +97,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
     // THE-632: the "why was this NOT returned?" counterpart to vault_graph_search above. Shares the
     // same retrieval runtime so it diagnoses the exact engine that answered, not a rebuild of it.
     createDiagnoseRetrievalTool(deps, retrieval),
+    // THE-646 item 2: the same traversal in the opposite direction — see explain-answer.ts.
+    createExplainAnswerTool(deps),
     createKnowledgeSearchTool(deps, retrieval),
     createKnowledgeCriticalTool(deps),
     createKnowledgeChallengeTool(deps, retrieval),
