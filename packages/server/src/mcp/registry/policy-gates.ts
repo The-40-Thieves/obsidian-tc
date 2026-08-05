@@ -129,10 +129,22 @@ export function resolveOperationPolicy(
   };
 }
 
+/**
+ * The message `enforceReadOnlyGate` throws with, exported so a consumer can tell THIS denial apart
+ * from every other `forbidden`.
+ *
+ * `forbidden` is the shared code for the scope gate, the vault-binding guard, the vault-kind gate
+ * and the path ACL as well, so the code alone cannot say WHY a call was refused. THE-645's rerun
+ * runner needs exactly that distinction (an expected read-only skip vs. a genuine regression), and
+ * a string literal copied into it would drift the first time this message is reworded. One
+ * constant, referenced by both, makes that drift a compile-time impossibility.
+ */
+export const READ_ONLY_DENIAL_MESSAGE = "vault is read-only (acl.readOnly)";
+
 /** A mutating call is refused outright against a read-only ACL (acl.readOnly). */
 export function enforceReadOnlyGate(ctx: Pick<CallerContext, "acl">, mutating: boolean): void {
   if (mutating && ctx.acl?.readOnly)
-    throw new ObsidianTcError("forbidden", "vault is read-only (acl.readOnly)");
+    throw new ObsidianTcError("forbidden", READ_ONLY_DENIAL_MESSAGE);
 }
 
 /**

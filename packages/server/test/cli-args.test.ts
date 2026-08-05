@@ -441,3 +441,70 @@ describe("THE-697 index command", () => {
     });
   });
 });
+
+describe("THE-645 item 3 — parseCliArgs rerun", () => {
+  it("bare session id, no path", () => {
+    expect(parseCliArgs(["rerun", "sess_1"])).toStrictEqual({
+      kind: "rerun",
+      sessionId: "sess_1",
+    });
+  });
+
+  it("missing session id is a usage error, not a silent fall-through to serve", () => {
+    expect(parseCliArgs(["rerun"])).toStrictEqual({
+      kind: "error",
+      message: "rerun requires a session id",
+    });
+  });
+
+  // Fix round 1, finding 2: a naive implementation only ever found the FIRST non-flag token
+  // (the session id) and never looked for a second one, so the documented `[path]` positional
+  // (USAGE: `rerun <session-id> [path] ...`) was silently discarded — a re-run would fall through
+  // to OBSIDIAN_TC_CONFIG or the zero-config default instead of the vault the operator named.
+  it("a second positional after the session id becomes the config path — the documented [path] form", () => {
+    expect(parseCliArgs(["rerun", "sess_1", "/etc/otc.json"])).toStrictEqual({
+      kind: "rerun",
+      sessionId: "sess_1",
+      input: "/etc/otc.json",
+    });
+  });
+
+  it("--config is honoured the same as a positional path", () => {
+    expect(parseCliArgs(["rerun", "sess_1", "--config", "/etc/otc.json"])).toStrictEqual({
+      kind: "rerun",
+      sessionId: "sess_1",
+      input: "/etc/otc.json",
+    });
+  });
+
+  it("does not mistake --vault's value for the config positional", () => {
+    // The same trap `index` (above) had to handle: with `--vault` left in `scan`, `positional`
+    // would read the vault id itself as the config path.
+    expect(parseCliArgs(["rerun", "sess_1", "--vault", "main"])).toStrictEqual({
+      kind: "rerun",
+      sessionId: "sess_1",
+      vault: "main",
+    });
+  });
+
+  it("carries --sandbox and --json through as booleans, omitted when absent", () => {
+    expect(parseCliArgs(["rerun", "sess_1", "--sandbox", "--json"])).toStrictEqual({
+      kind: "rerun",
+      sessionId: "sess_1",
+      sandbox: true,
+      json: true,
+    });
+  });
+
+  it("parses session id, path, --vault and --sandbox together", () => {
+    expect(
+      parseCliArgs(["rerun", "sess_1", "/vault/dir", "--vault", "main", "--sandbox"]),
+    ).toStrictEqual({
+      kind: "rerun",
+      sessionId: "sess_1",
+      input: "/vault/dir",
+      vault: "main",
+      sandbox: true,
+    });
+  });
+});
