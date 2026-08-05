@@ -15,7 +15,7 @@ between the markers — change the tool and regenerate.
 :::
 
 <!-- BEGIN GENERATED: tools -->
-_158 tools. Access is a coarse hint; the required scopes are authoritative._
+_159 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -83,6 +83,7 @@ _158 tools. Access is a coarse hint; the required scopes are authoritative._
 | `insert_table_column` | write | `write:notes` | Insert a column into a GFM table: a header plus per-row values (default empty) and an alignment. `at` is the 0-based column position (default: append). |
 | `insert_table_row` | write | `write:notes` | Insert a data row into a GFM table. `values` are cell strings (padded/truncated to the column count); `at` is the 0-based data-row position (default: append). |
 | `inspect_acl` | write | `admin:acl` | Test whether a (vault, path, op, scopes) tuple would be permitted. Shares the live path evaluator (read-only kill switch + per-op whitelist) so it cannot drift from enforcement, then checks the op-family scope grant and the path-required rule-scopes (P1.4: a matching rule's scopes must all be held). Reports the matched path rule, the rule-based effective_scopes, and what denied it. |
+| `inspect_visibility` | write | `admin:acl` | Explain why a tool is or is not offered to a caller: returns listed \| hidden \| disabled \| scope_denied \| unregistered per tool, plus the RULE that decided it (which name/tag list matched, which required scopes are missing). Pass `scopes`/`read_only` to evaluate a hypothetical caller the way inspect_acl does, `tool` to ask about one, or `visibility` to filter. Shares the registry's own classifier and config, so it cannot drift from what tools/list does. admin:acl-scoped BY DESIGN: distinguishing hidden from unregistered is exactly the existence oracle the unauthenticated surface refuses to be. |
 | `knowledge_challenge` | read | `read:notes` | Red-team a proposal against your documented decision history. Retrieves decision-bearing chunks (02-projects, 04-writing/Published, 09-reference/system-reviews, 09-reference/syntheses) and asks the inference gateway to flag DIRECT_CONTRADICTION / PATTERN_REPEAT / REVERSAL / HIDDEN_DEPENDENCY. Requires the gateway; reports unavailable when it is not configured. |
 | `knowledge_get_critical` | read | `read:docs` | List the critical-severity docs in a vendor / external-docs corpus: the breaking changes, security issues, and production gotchas to read before starting work. A tight metadata pre-filter over frontmatter severity == 'critical', not a search. Optionally narrow by `source` (the vendor or tool the doc is about). Gated on read:docs so it stays isolated from the private vault. |
 | `knowledge_search` | read | `read:docs` | Semantic + keyword search over a vendor / external-docs corpus (a reserved read-only docs vault), with wikilink graph expansion and RRF fusion. The docs-scoped analogue of vault_graph_search: bind `vault` to the docs corpus id. Returns source-attributed chunks tagged seed\|expansion. Gated on read:docs so it stays isolated from the private vault. |

@@ -1,5 +1,5 @@
 import {
-  grantsAll,
+  grantsScope,
   isMutatingScope,
   type ToolVisibilityConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
@@ -42,9 +42,11 @@ export const ALLOW_ALL: ToolVisibilityConfig = {
   requireReadOnly: false,
 };
 
-function intersects(tags: readonly string[] | undefined, set: readonly string[]): boolean {
-  if (!tags || tags.length === 0 || set.length === 0) return false;
-  return tags.some((t) => set.includes(t));
+// The tag that matched, not merely whether one did — `explainVisibility` reports it, and a
+// boolean cannot. `visibilityOf` ignores the value, so the two stay one derivation.
+function matchingTag(tags: readonly string[] | undefined, set: readonly string[]): string | null {
+  if (!tags || tags.length === 0 || set.length === 0) return null;
+  return tags.find((t) => set.includes(t)) ?? null;
 }
 
 function isMutating(target: VisibilityTarget): boolean {
@@ -55,9 +57,76 @@ function isMutating(target: VisibilityTarget): boolean {
 // required scopes, or the caller's ACL is read-only and the tool mutates. These are the
 // same checks dispatch authorizes with, so the advertised surface never lists an
 // undispatchable tool (least-privilege; no enumeration of denied capability).
-function callerDenied(target: VisibilityTarget, caller: VisibilityCaller): boolean {
-  if (!grantsAll(caller.grantedScopes, target.requiredScopes)) return true;
-  return caller.readOnly === true && isMutating(target);
+//
+// THE-645 item 2 — WHICH rule produced the verdict. `inspect_visibility` needs this to answer
+// "why can't this client see that tool", and an operator-facing answer of "hidden" is not an
+// answer. Kept in this module, and made the SINGLE derivation that `visibilityOf` delegates to,
+// so an explanation can never disagree with the verdict the registry actually enforces —
+// two copies of these predicates would drift, and silently.
+export type VisibilityReason =
+  | "listed"
+  | "disabled_name"
+  | "disabled_tag"
+  | "hidden_name"
+  | "hidden_tag"
+  | "hidden_require_read_only"
+  | "hidden_not_allowlisted"
+  | "scope_denied_missing_scope"
+  | "scope_denied_read_only";
+
+export interface VisibilityExplanation {
+  visibility: Visibility;
+  reason: VisibilityReason;
+  /** The tag that matched `hiddenTags` / `disabledTags`, when the reason is a `*_tag` one. */
+  matchedTag: string | null;
+  /** Required scopes the caller does NOT hold. Only populated for `scope_denied_missing_scope`. */
+  missingScopes: readonly string[];
+}
+
+/**
+ * Classify one tool AND report which rule decided it. Precedence is unchanged and is asserted
+ * here rather than restated: `disabled > hidden > scope_denied > listed`.
+ */
+export function explainVisibility(
+  target: VisibilityTarget,
+  config: ToolVisibilityConfig = ALLOW_ALL,
+  caller?: VisibilityCaller,
+): VisibilityExplanation {
+  const base = { matchedTag: null, missingScopes: [] as readonly string[] };
+
+  if (config.disabled.includes(target.name))
+    return { ...base, visibility: "disabled", reason: "disabled_name" };
+  const disabledTag = matchingTag(target.tags, config.disabledTags);
+  if (disabledTag !== null)
+    return { ...base, visibility: "disabled", reason: "disabled_tag", matchedTag: disabledTag };
+
+  if (config.hidden.includes(target.name))
+    return { ...base, visibility: "hidden", reason: "hidden_name" };
+  const hiddenTag = matchingTag(target.tags, config.hiddenTags);
+  if (hiddenTag !== null)
+    return { ...base, visibility: "hidden", reason: "hidden_tag", matchedTag: hiddenTag };
+  if (config.requireReadOnly && isMutating(target))
+    return { ...base, visibility: "hidden", reason: "hidden_require_read_only" };
+  if (config.allowed !== undefined && !config.allowed.includes(target.name))
+    return { ...base, visibility: "hidden", reason: "hidden_not_allowlisted" };
+
+  if (caller) {
+    // Report every missing scope, not just the first — an operator fixing a grant wants the
+    // whole delta, and `grantsAll` is an AND that discards which conjunct failed.
+    const granted = new Set(caller.grantedScopes);
+    const missing = target.requiredScopes.filter((s) => !grantsScope(granted, s));
+    if (missing.length > 0)
+      return {
+        ...base,
+        visibility: "scope_denied",
+        reason: "scope_denied_missing_scope",
+        missingScopes: missing,
+      };
+    if (caller.readOnly === true && isMutating(target))
+      return { ...base, visibility: "scope_denied", reason: "scope_denied_read_only" };
+  }
+
+  return { ...base, visibility: "listed", reason: "listed" };
 }
 
 // Classify one tool against the static config and (optionally) a caller. Precedence is
@@ -73,21 +142,7 @@ export function visibilityOf(
   config: ToolVisibilityConfig = ALLOW_ALL,
   caller?: VisibilityCaller,
 ): Visibility {
-  if (config.disabled.includes(target.name) || intersects(target.tags, config.disabledTags)) {
-    return "disabled";
-  }
-  if (
-    config.hidden.includes(target.name) ||
-    intersects(target.tags, config.hiddenTags) ||
-    (config.requireReadOnly && isMutating(target)) ||
-    (config.allowed !== undefined && !config.allowed.includes(target.name))
-  ) {
-    return "hidden";
-  }
-  if (caller && callerDenied(target, caller)) {
-    return "scope_denied";
-  }
-  return "listed";
+  return explainVisibility(target, config, caller).visibility;
 }
 
 // True when the tool appears in tools/list for this caller (verdict `listed`). With no

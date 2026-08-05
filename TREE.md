@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,065 tracked code files · 163,106 lines.
+**Scale:** 1,065 tracked code files · 163,317 lines.
 
-TypeScript 151,348 · JavaScript 7,677 · Python 1,640 · SQL 1,339 · Rust 742 · Shell 360.
+TypeScript 151,559 · JavaScript 7,677 · Python 1,640 · SQL 1,339 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,11 +86,11 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 83 | 16,101 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 83 | 16,246 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 54 | 10,346 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `mcp/` | 17 | 4,267 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `mcp/` | 17 | 4,330 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 17 | 4,136 | work-memory tier: activation, retrieval log, forget, citations |
-| `runtime/` | 14 | 3,179 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 14 | 3,182 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `cli/` | 23 | 2,794 | arg parsing + subcommands |
 | `vault/` | 17 | 1,991 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `doctor/` | 9 | 1,716 | `obsidian-tc doctor` — checks, report rendering, runner |
@@ -278,7 +278,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**387 modules · 1723 dependencies · 115 distinct subsystem pairs · 777 cross-subsystem imports.**
+**387 modules · 1724 dependencies · 115 distinct subsystem pairs · 778 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -322,7 +322,7 @@ flowchart LR
   morgiana[morgiana<br/>1 files]
 
   tools -->|181| vault
-  tools -->|72| mcp
+  tools -->|73| mcp
   tools -->|45| search
   search -->|42| db
   runtime -->|25| search
@@ -363,10 +363,10 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 231 | `tools` | 360 |
+| `vault` | 231 | `tools` | 361 |
 | `db` | 137 | `runtime` | 142 |
 | `search` | 97 | `search` | 66 |
-| `mcp` | 90 | `cli` | 61 |
+| `mcp` | 91 | `cli` | 61 |
 | `experiential` | 34 | `experiential` | 24 |
 <!-- END GENERATED: tree-fan -->
 

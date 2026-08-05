@@ -198,6 +198,14 @@ export class ToolRegistry {
   /** Tools advertised by tools/list: the registered set minus those the visibility config
    *  hides/disables (THE-219) and those the caller cannot dispatch (THE-250). `list()` stays
    *  the full registered set. */
+  /** THE-645 item 2: the config `listVisible` classifies with, for `inspect_visibility`. Exposed
+   *  read-only so the inspector reads the SAME rules the registry enforces rather than a second
+   *  copy parsed from server config — an inspector that can disagree with the enforcer is worse
+   *  than no inspector. */
+  visibilityConfig(): ToolVisibilityConfig {
+    return this.toolVisibility;
+  }
+
   listVisible(caller?: VisibilityCaller): ToolDefinition[] {
     return this.toolStore.listVisible(this.toolVisibility, caller);
   }
