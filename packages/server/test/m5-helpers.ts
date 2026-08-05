@@ -45,6 +45,8 @@ export interface M5EventRow {
 
 export interface M5Vault {
   root: string;
+  /** THE-737: where session traces are written (never inside `root`). */
+  cacheDir: string;
   id: string;
   db: Database;
   registry: ToolRegistry;
@@ -79,6 +81,9 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
   };
   for (const [rel, content] of Object.entries(opts.files ?? {})) write(rel, content);
 
+  // THE-737: traces live in cacheDir now. This MUST NOT be the vault root — pointing it there
+  // would put traces back inside the vault and make the containment test pass vacuously.
+  const cacheDir = mkdtempSync(join(tmpdir(), "obtc-m5-cache-"));
   const db = openMemoryDb();
   provisionCacheDb(db);
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
@@ -100,7 +105,7 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
 
   const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
   registerM5Tools(registry, {
-    cacheDir: root,
+    cacheDir,
     vaultRegistry,
     plur,
     memoryFolder: () => opts.memoryFolder ?? "memory",
@@ -119,6 +124,7 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
 
   return {
     root,
+    cacheDir,
     id,
     db,
     registry,

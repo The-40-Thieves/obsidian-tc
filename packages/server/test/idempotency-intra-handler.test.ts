@@ -297,11 +297,15 @@ describe("add_observation is atomic across its SQLite append + note write (THE-5
 
 describe("start_session is atomic across its row insert + trace write (THE-572)", () => {
   it("a trace-write fault leaves NO session row, so the retry creates exactly one", async () => {
-    const v = makeM5Vault({ traceFolder: "traces" });
+    const v = makeM5Vault();
     try {
       // Fault injection: occupy the trace FOLDER path with a regular file, so the trace write's
       // mkdirSync throws ENOTDIR. Under the old ordering the session row was already inserted.
-      writeFileSync(join(v.root, "traces"), "not a folder");
+      //
+      // THE-737: the folder moved to <cacheDir>/traces, so the fault has to move with it. Injecting
+      // at the old vault path would leave the write path healthy and this test would pass while
+      // exercising nothing — the THE-572 ordering it guards would go unchecked.
+      writeFileSync(join(v.cacheDir, "traces"), "not a folder");
 
       const a = await v.call(
         "start_session",
@@ -317,7 +321,7 @@ describe("start_session is atomic across its row insert + trace write (THE-572)"
         v.db.prepare("SELECT state FROM idempotency_keys WHERE key='K'").get(),
       ).toBeUndefined();
 
-      rmSync(join(v.root, "traces")); // clear the fault
+      rmSync(join(v.cacheDir, "traces")); // clear the fault
       const b = await v.call(
         "start_session",
         { vault: "test", caller: "agent-1", idempotency_key: "K" },
