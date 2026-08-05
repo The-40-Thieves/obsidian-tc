@@ -429,6 +429,9 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     governorMaxResponseBytes: config.governor.maxResponseBytes,
     capabilities: (vaultId) => deps.capabilities.get(vaultId),
     registeredTools: () => registry.list().length,
+    // THE-645 item 2. Lazy for the same reason registeredTools is: M6 is registered onto this
+    // registry, so the surface is incomplete at the moment this object is built.
+    toolSurface: () => ({ config: registry.visibilityConfig(), tools: registry.list() }),
   };
   registerM6Tools(registry, { ...m6Deps, reindex: deps.reindex, deindex: deps.deindex });
 

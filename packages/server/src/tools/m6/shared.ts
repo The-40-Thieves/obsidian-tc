@@ -5,7 +5,7 @@
 // shared instance: the bulk tools consume its `bulk` tier and get_metrics reads its
 // hit counters. All admin-reporting fields are non-secret by construction (no JWT
 // secret, no REST/embedding API keys).
-import type { ThrottleConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ThrottleConfig, ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { CapabilitySnapshot } from "../../bridge";
 import type { RateLimiter } from "../../throttle";
 import type { VaultRegistry } from "../../vault/registry";
@@ -35,4 +35,26 @@ export interface M6Deps {
   capabilities?: (vaultId: string) => CapabilitySnapshot;
   /** Count of registered tools (get_metrics gauge); evaluated lazily after wiring. */
   registeredTools?: () => number;
+  /**
+   * THE-645 item 2: the live tool surface plus the visibility config the registry classifies
+   * with, for `inspect_visibility`. Lazily evaluated for the same reason `registeredTools` is —
+   * the registry does not exist yet when M6Deps is constructed.
+   *
+   * Deliberately returns the registry's OWN config object rather than re-reading the server
+   * config: `inspect_visibility` answers "what would tools/list do", and an inspector that reads
+   * a different copy of the rules than the enforcer answers a different question. Same reasoning
+   * as `inspect_acl` sharing the live path evaluator.
+   */
+  toolSurface?: () => {
+    config: ToolVisibilityConfig;
+    tools: readonly ToolSurfaceEntry[];
+  };
+}
+
+/** The slice of a ToolDefinition that visibility classification needs, plus `domain` for grouping. */
+export interface ToolSurfaceEntry {
+  name: string;
+  domain?: string;
+  tags?: readonly string[];
+  requiredScopes: readonly string[];
 }

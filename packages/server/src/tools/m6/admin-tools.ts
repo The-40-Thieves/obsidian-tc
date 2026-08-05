@@ -10,6 +10,7 @@ import { parseScope, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shar
 import { z } from "zod";
 import type { Database } from "../../db/types";
 import type { ToolDefinition } from "../../mcp/registry";
+import { explainVisibility } from "../../mcp/visibility";
 import { evaluatePathAcl, pathScopesSatisfied } from "../../vault/acl-path";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
@@ -163,6 +164,43 @@ const InspectAclOutput = z.object({
   effective_scopes: z.array(z.string()),
 });
 
+// THE-645 item 2 — inspect_visibility. `tool` omitted classifies the whole surface; `scopes`
+// omitted gates on the static config alone (the "what does the server itself hide" question),
+// which is why it is optional rather than defaulted to [] — an empty grant is a real and
+// different question from no grant at all.
+const InspectVisibilityInput = z
+  .object({
+    tool: z.string().min(1).optional(),
+    scopes: z.array(z.string()).optional(),
+    read_only: z.boolean().optional(),
+    /** Narrows the returned list only. `summary` always covers the whole surface. */
+    visibility: z.enum(["listed", "hidden", "disabled", "scope_denied"]).optional(),
+  })
+  .strict();
+
+const InspectVisibilityEntry = z.object({
+  name: z.string(),
+  domain: z.string().nullable(),
+  visibility: z.enum(["listed", "hidden", "disabled", "scope_denied", "unregistered"]),
+  reason: z.string(),
+  matched_tag: z.string().nullable(),
+  missing_scopes: z.array(z.string()),
+  required_scopes: z.array(z.string()),
+  tags: z.array(z.string()),
+});
+
+const InspectVisibilityOutput = z.object({
+  /** null when no hypothetical caller was supplied — the verdicts are static-config only. */
+  evaluated_for: z.object({ scopes: z.array(z.string()), read_only: z.boolean() }).nullable(),
+  summary: z.object({
+    listed: z.number(),
+    hidden: z.number(),
+    disabled: z.number(),
+    scope_denied: z.number(),
+  }),
+  tools: z.array(InspectVisibilityEntry),
+});
+
 const MetricSchema = z.object({
   name: z.string(),
   type: z.enum(["counter", "gauge"]),
@@ -289,6 +327,91 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
           };
 
         return { allowed: true, matched_rule: matchedRule, kill_switch: false, effective_scopes };
+      },
+    }),
+
+    defineTool({
+      name: "inspect_visibility",
+      domain: "admin",
+      description:
+        "Explain why a tool is or is not offered to a caller: returns listed | hidden | disabled | scope_denied | unregistered per tool, plus the RULE that decided it (which name/tag list matched, which required scopes are missing). Pass `scopes`/`read_only` to evaluate a hypothetical caller the way inspect_acl does, `tool` to ask about one, or `visibility` to filter. Shares the registry's own classifier and config, so it cannot drift from what tools/list does. admin:acl-scoped BY DESIGN: distinguishing hidden from unregistered is exactly the existence oracle the unauthenticated surface refuses to be.",
+      inputSchema: InspectVisibilityInput,
+      outputSchema: InspectVisibilityOutput,
+      requiredScopes: ["admin:acl"],
+      handler: (input) => {
+        // Unwired deps must FAIL, not return an empty surface. A tool that answers "0 tools, none
+        // hidden" when it simply was not given the registry is a false clean bill of health — the
+        // `dense: ready` shape (THE-688). Every other M6 dep defaults to a benign zero; this one
+        // cannot, because zero is a meaningful answer here.
+        const surface = deps.toolSurface?.();
+        if (!surface)
+          throw new Error(
+            "inspect_visibility: tool surface not wired (M6Deps.toolSurface); cannot classify",
+          );
+
+        const evaluatedFor =
+          input.scopes === undefined
+            ? null
+            : { scopes: [...input.scopes], read_only: input.read_only ?? false };
+        const caller =
+          evaluatedFor === null
+            ? undefined
+            : { grantedScopes: evaluatedFor.scopes, readOnly: evaluatedFor.read_only };
+
+        // One tool asked for by name, and it is not registered. This is the branch that makes the
+        // admin scope load-bearing: `unregistered` and `hidden` are deliberately indistinguishable
+        // on the public surface (both return not_found at dispatch), and telling them apart is the
+        // whole feature. Never widen this tool's scope without re-reading THE-645 item 2.
+        if (input.tool !== undefined && !surface.tools.some((t) => t.name === input.tool)) {
+          return {
+            evaluated_for: evaluatedFor,
+            summary: { listed: 0, hidden: 0, disabled: 0, scope_denied: 0 },
+            tools: [
+              {
+                name: input.tool,
+                domain: null,
+                visibility: "unregistered" as const,
+                reason: "not_registered",
+                matched_tag: null,
+                missing_scopes: [],
+                required_scopes: [],
+                tags: [],
+              },
+            ],
+          };
+        }
+
+        const classified = surface.tools.map((t) => {
+          const e = explainVisibility(t, surface.config, caller);
+          return {
+            name: t.name,
+            domain: t.domain ?? null,
+            visibility: e.visibility,
+            reason: e.reason,
+            matched_tag: e.matchedTag,
+            missing_scopes: [...e.missingScopes],
+            required_scopes: [...t.requiredScopes],
+            tags: [...(t.tags ?? [])],
+          };
+        });
+
+        // Summary counts the WHOLE surface, never the filtered view — a filter is a lens on the
+        // answer, not a change to it, and a count that moved with the filter would misreport the
+        // deployment's posture.
+        const summary = { listed: 0, hidden: 0, disabled: 0, scope_denied: 0 };
+        for (const c of classified) summary[c.visibility] += 1;
+
+        const tools = classified.filter(
+          (c) =>
+            (input.tool === undefined || c.name === input.tool) &&
+            (input.visibility === undefined || c.visibility === input.visibility),
+        );
+
+        return {
+          evaluated_for: evaluatedFor,
+          summary,
+          tools,
+        };
       },
     }),
 
