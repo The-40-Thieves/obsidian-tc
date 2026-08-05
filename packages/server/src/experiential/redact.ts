@@ -9,7 +9,18 @@
 // trace too — two copies would drift, and the drift would be silent in the direction that matters.
 
 export const SECRET_PATTERNS: RegExp[] = [
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+  // BOUNDED on purpose (CodeQL js/polynomial-redos, high). The unbounded form
+  //   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g
+  // backtracks polynomially on input that repeats the BEGIN marker without ever supplying an
+  // END: the lazy body rescans forward from every start position. That input is reachable —
+  // `captureArgs` runs this scanner over the caller's raw arguments BEFORE the size cap, so the
+  // text is attacker-controlled and unbounded at this point. The cap cannot move earlier without
+  // reintroducing the split-secret problem it exists to prevent, so the BOUND belongs here.
+  //
+  // Both quantifiers are bounded. 64 covers every real PEM label ("ENCRYPTED ", "RSA ", "EC ");
+  // 16384 covers a 4096-bit key's base64 body with room to spare, and a body longer than that is
+  // not a key this scanner was written to catch.
+  /-----BEGIN [A-Z ]{0,64}PRIVATE KEY-----[\s\S]{0,16384}?-----END [A-Z ]{0,64}PRIVATE KEY-----/g,
   /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key id
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, // GitHub fine/classic tokens
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,

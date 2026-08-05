@@ -16,6 +16,7 @@
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
+import { redactSecrets } from "../src/experiential/redact";
 import { captureArgs } from "../src/mcp/registry/dispatch-observability";
 import { appendTrace } from "../src/workspace/sessions";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
@@ -131,5 +132,49 @@ describe("THE-736 — captured arguments do not leave through get_session_traces
     );
     const rec = out.items.find((i) => i.type === "tool_invocation");
     expect(rec).toMatchObject({ tool: "read_note", duration_ms: 12, result_size: 99 });
+  });
+});
+
+describe("THE-736 — the redaction scanner is not a DoS surface", () => {
+  // CodeQL js/polynomial-redos (high) on the PEM pattern. Reachable rather than theoretical:
+  // `captureArgs` runs redactSecrets over the caller's RAW arguments before the size cap, so the
+  // input is attacker-controlled and unbounded at that point.
+  //
+  // A correctness test would not have caught this — the unbounded pattern redacts correctly, it
+  // just takes polynomial time doing it. So the assertion is a TIME BUDGET on the pathological
+  // shape CodeQL named: many repetitions of the BEGIN marker with no END to terminate the scan.
+  it("scales LINEARLY on repeated BEGIN markers, not quadratically", () => {
+    // An absolute time budget cannot express this. Measured on this box, the unbounded pattern
+    // ran 257ms at 108KB and 2460ms at 324KB -- 3x the input for 9.6x the time. The bounded one
+    // ran 245ms and 742ms: 3x for 3x. At 108KB the two are INDISTINGUISHABLE, so a budget picked
+    // there passes against the vulnerable pattern, which is exactly what happened on the first
+    // attempt at this test.
+    //
+    // So the assertion is the SCALING RATIO, which is also what makes it robust to a loaded CI
+    // box: both measurements move together.
+    const gen = (n: number): string => "-----BEGIN PRIVATE KEY-----".repeat(n);
+    const time = (s: string): number => {
+      const t0 = performance.now();
+      redactSecrets(s);
+      return performance.now() - t0;
+    };
+    const small = gen(4000);
+    const large = gen(12000); // 3x the input
+    time(small); // warm up, so JIT compilation does not land in the first measurement
+    const tSmall = Math.max(time(small), 1);
+    const tLarge = time(large);
+    const ratio = tLarge / tSmall;
+    // Linear would be ~3. Quadratic would be ~9. 5 sits between them with room for noise.
+    expect(ratio).toBeLessThan(5);
+    // And nothing matches -- there is no END marker, so zero redactions is the correct answer.
+    expect(redactSecrets(large).redactions).toBe(0);
+  });
+
+  it("still redacts a real PEM block", () => {
+    const pem = `-----BEGIN RSA PRIVATE KEY-----\n${"QUJD".repeat(200)}\n-----END RSA PRIVATE KEY-----`;
+    const { text, redactions } = redactSecrets(`{"key":"${pem}"}`);
+    expect(redactions).toBe(1);
+    expect(text).not.toContain("QUJDQUJD");
+    expect(text).toContain("[REDACTED]");
   });
 });

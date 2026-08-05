@@ -82,13 +82,24 @@ export interface DispatchObservabilityDeps {
  * The cap is applied AFTER redaction, so truncation can never cut a secret in half and leave the
  * prefix readable.
  */
+/** Ceiling on the text handed to the secret scanner. Orders of magnitude above the 4 KiB arg
+ *  cap, so it only ever bites on pathological input. */
+const REDACT_SCAN_CEILING = 64 * 1024;
+
 export function captureArgs(
   rawInput: unknown,
   enabled: boolean,
   maxBytes: number,
 ): { args?: string; args_scan?: string } {
   if (!enabled) return {};
-  const raw = JSON.stringify(rawInput ?? null);
+  const full = JSON.stringify(rawInput ?? null);
+  // Bound what the scanner sees, independently of any one pattern. Redaction runs BEFORE the size
+  // cap on purpose (so a cut cannot split a secret), which means the scanner would otherwise face
+  // unbounded caller-controlled text on the dispatch path. This is defence in depth against the
+  // whole regex set rather than one fixed pattern, and it is lossless in practice: the ceiling is
+  // far above `maxBytes`, so everything discarded here would have been truncated away anyway —
+  // it can never drop a secret INTO the output, only out of it.
+  const raw = full.length > REDACT_SCAN_CEILING ? full.slice(0, REDACT_SCAN_CEILING) : full;
   const { text, redactions } = redactSecrets(raw);
   const truncated = text.length > maxBytes;
   const args = truncated ? `${text.slice(0, maxBytes)}…[truncated]` : text;
