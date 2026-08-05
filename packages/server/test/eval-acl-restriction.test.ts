@@ -45,6 +45,35 @@ describe("THE-699: the eval harness can vary ACL state", () => {
     expect(r.droppedBridges).toBe(1);
   });
 
+  it("matches WINDOWS-STYLE golden paths — 53% of the real set, and none of the fixtures above", () => {
+    // THE-695: the fixtures in this file are all forward-slash, which is why the defect survived
+    // them. The live golden set carries backslashes on 204 of 382 paths (KMS-era), and an operator
+    // writes globs with forward slashes because that is what the index stores. Filtering the raw
+    // path dropped every backslash entry as "unreadable": `09-reference/**` kept 31 of 250 queries
+    // and was refused by the power floor; normalized it keeps 94 and passes.
+    const isReadable = readable("02-projects/**");
+    const win = {
+      ...q,
+      target_paths: ["02-projects\\Hit.md", "05-creative\\Secret.md"],
+      bridge_paths: ["02-projects\\Bridge2.md"],
+    };
+    const r = restrictQuery(win, isReadable);
+    expect(r.query.target_paths).toEqual(["02-projects\\Hit.md"]);
+    expect(r.droppedTargets).toBe(1);
+    expect(r.query.bridge_paths).toEqual(["02-projects\\Bridge2.md"]);
+    expect(r.droppedBridges).toBe(0);
+  });
+
+  it("normalizing the TEST does not rewrite the stored paths", () => {
+    // Only the readability test is normalized. Downstream comparison has its own normalization and
+    // must keep seeing exactly the strings the golden set author wrote.
+    const r = restrictQuery(
+      { ...q, target_paths: ["02-projects\\Deep\\Note.md"], bridge_paths: [] },
+      readable("02-projects/**"),
+    );
+    expect(r.query.target_paths).toEqual(["02-projects\\Deep\\Note.md"]);
+  });
+
   it("an unrestricted predicate drops nothing — the two regimes are distinguishable", () => {
     const r = restrictQuery(q, () => true);
     expect(r.droppedTargets).toBe(0);

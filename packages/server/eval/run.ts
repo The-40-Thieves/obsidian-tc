@@ -77,8 +77,26 @@ export function restrictQuery(
   q: GoldenQuery,
   isReadable: (rel: string) => boolean,
 ): { query: GoldenQuery; droppedTargets: number; droppedBridges: number } {
-  const targets = q.target_paths.filter(isReadable);
-  const bridges = q.bridge_paths.filter(isReadable);
+  // NORMALIZE BEFORE TESTING READABILITY. Golden-set paths are Windows-style (`norm` above exists
+  // for exactly that reason) while the index — and therefore every glob an operator writes —
+  // uses forward slashes. Filtering the RAW path made `--acl-allow '09-reference/**'` fail to
+  // match `09-reference\decisions\x.md`, silently dropping it as "unreadable".
+  //
+  // Measured on the live golden set: 204 of 382 paths carry backslashes, so this dropped ~53% of
+  // ground truth for reasons that had nothing to do with the ACL. `09-reference/**` kept 31 of 250
+  // queries and was REFUSED by the 1/3 power floor below; normalized it keeps 94 and passes. The
+  // flag was unusable, and the failure looked like "the whitelist is too narrow".
+  //
+  // Worse than unusable: had a glob squeaked past the floor, the surviving sample would have been
+  // biased toward whichever golden entries happened to be authored with forward slashes — an
+  // artifact of when they were written. That is "a number that reads as a measurement and is not
+  // one", which is the exact thing the floor below was added to prevent.
+  //
+  // The ORIGINAL strings are kept in the returned query; only the readability TEST is normalized,
+  // so nothing downstream sees a different path than it did before.
+  const readable = (p: string): boolean => isReadable(norm(p));
+  const targets = q.target_paths.filter(readable);
+  const bridges = q.bridge_paths.filter(readable);
   return {
     query: { ...q, target_paths: targets, bridge_paths: bridges },
     droppedTargets: q.target_paths.length - targets.length,
