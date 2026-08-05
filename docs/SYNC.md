@@ -89,11 +89,13 @@ usable change notification (some network mounts) or to cap inotify usage on a ve
 vault. If a vault root does not exist at startup, that vault is not watched and the reason is
 written to stderr; the other vaults are unaffected.
 
-> **Not active on Windows.** Node's recursive `fs.watch` terminated the test process outright
-> on Windows in CI, so the watch is not started there and the reason is written to stderr.
-> Whether a long-lived server is affected the same way is unverified — the watch is off rather
-> than the question being answered either way. On Windows, `index_vault` remains the way
-> external changes are picked up, which is the behaviour Windows deployments already had.
+> **Active on Windows since v1.20.0.** It was previously disabled there because Node's recursive
+> `fs.watch` terminated the test process outright in CI. That turned out not to be recursive
+> `fs.watch` at all: libuv prefix-compares each event's filename against the watched directory and
+> aborts the process when they disagree, and `os.tmpdir()` on a Windows CI runner is an 8.3 short
+> path (`C:\Users\RUNNER~1\...`) while the events carry the long form. The watch root is now
+> resolved with `realpathSync.native` before watching, on every platform, and Windows soaks
+> cleanly.
 
 `index_vault` remains available and is still the right call after a pass-based sync (a git
 pull, a completed `ob sync`) when you want the whole tree reconciled in one pass rather than
