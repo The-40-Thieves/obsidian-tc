@@ -30,6 +30,28 @@ export function withReadOnlyAcl(cfg: ServerConfig): ServerConfig {
   };
 }
 
+/**
+ * Strip the plugin-bridge transport from a vault.
+ *
+ * A `--sandbox` staging copy bounds FILESYSTEM writes and nothing else. `wireBridges`
+ * (runtime/bridge-wiring.ts) builds a Local REST API client per vault from `restApiUrl`/
+ * `restApiKey`, and a bridge tool then POSTs to the LIVE Obsidian app, which is operating on the
+ * REAL vault: `git_stage` checks `enforcePathAcl` against the STAGED root and then stages files in
+ * the real repo; `remotely_save` triggers a real sync. None of `write:git`, `write:tasks`,
+ * `write:excalidraw`, `write:remotely-save` is in `HITL_FLOOR_FAMILIES`, so nothing else stops
+ * them. A filesystem copy cannot bound a network-mediated write — so the sandbox removes the
+ * transport instead, and every bridge tool degrades loudly (`plugin_unreachable` from
+ * `openBridge`'s `if (!client)`) rather than silently reaching the live app.
+ *
+ * Observe mode deliberately keeps its bridges: every mutating bridge tool is already refused there
+ * by the read-only gate (`write:*`/`execute:*` are mutating families), and a bridge READ against
+ * the live app is exactly what "re-issue against current state" means.
+ */
+function withoutBridgeTransport(v: ServerConfig["vaults"][number]): ServerConfig["vaults"][number] {
+  const { restApiUrl: _url, restApiKey: _key, ...rest } = v;
+  return rest;
+}
+
 /** The configured path for `vaultId`. Exits 2 with the prefetch.ts-style message when the id names
  *  no configured vault — a broken config (the session's own vault_id is not one of `cfg.vaults`),
  *  not an operator typo (see `stageForSandbox` for that case). */
@@ -114,9 +136,13 @@ export async function run_rerun(cmd: Cmd<"rerun">): Promise<void> {
       ? {
           ...cfg,
           cacheDir: staged.cacheDir,
-          vaults: cfg.vaults.map((v) =>
-            v.id === staged.vaultId ? { ...v, path: staged.root } : v,
-          ),
+          // EVERY vault loses its bridge transport, not only the staged one: a bridge write is
+          // mediated by the live app, so containment cannot come from which copy the path resolves
+          // against. See `withoutBridgeTransport`.
+          vaults: cfg.vaults.map((v) => {
+            const noBridge = withoutBridgeTransport(v);
+            return v.id === staged.vaultId ? { ...noBridge, path: staged.root } : noBridge;
+          }),
         }
       : cfg;
 
@@ -143,7 +169,11 @@ export async function run_rerun(cmd: Cmd<"rerun">): Promise<void> {
           registry: runtime.registry,
           sessionId: cmd.sessionId,
           cacheDir: runtimeCfg.cacheDir,
-          ...(staged ? { vaultRoot: staged.root } : {}),
+          // Observe mode needs this too, and used to go without: a legacy `trace_store='vault'`
+          // row resolved its trace against `resolve("")` = process.cwd(), read nothing, and the
+          // command told the operator `sessions.traceContent` had been off. It had not — the same
+          // session read fine under `--sandbox`, which was the only mode that passed a root.
+          vaultRootFor: (vaultId) => staged?.root ?? configuredVaultPath(cfg, vaultId),
           ...(cmd.vault !== undefined ? { expectVaultId: cmd.vault } : {}),
           ...(cmd.sandbox ? { sandbox: true } : {}),
         });

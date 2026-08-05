@@ -106,7 +106,7 @@ const ZERO: Record<RerunVerdict, number> = {
   unparseable: 0,
 };
 
-export function summarize(records: RerunRecord[]): RerunSummary {
+export function summarizeRerun(records: RerunRecord[]): RerunSummary {
   const byVerdict = { ...ZERO };
   let diverged = 0;
   for (const r of records) {

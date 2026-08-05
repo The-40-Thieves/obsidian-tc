@@ -24,8 +24,10 @@
 // directly risks corrupting this test run's own exit code. Spawning the real CLI is the only way
 // to observe the actual operator-facing surface (real argv parsing, real process boundary) without
 // that risk, and it is also the most faithful "run_rerun end to end" available.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,6 +58,29 @@ function runCli(args: string[]): Run {
   return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
+/**
+ * Same run, ASYNCHRONOUSLY — required by the bridge test below and by nothing else.
+ *
+ * `spawnSync` blocks this process's event loop for the whole run, so an in-process HTTP listener
+ * standing in for the live Obsidian app can never accept a connection: every bridge request would
+ * time out and the test would report "the live app was never reached" no matter what the code did.
+ * That is a green-for-the-wrong-reason trap, not a style preference.
+ */
+function runCliAsync(args: string[]): Promise<Run> {
+  return new Promise((resolve) => {
+    const child = spawn("bun", [CLI, ...args], { env: { ...process.env, NO_COLOR: "1" } });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d: Buffer) => {
+      stdout += d.toString("utf8");
+    });
+    child.stderr.on("data", (d: Buffer) => {
+      stderr += d.toString("utf8");
+    });
+    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
+  });
+}
+
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
@@ -65,10 +90,10 @@ afterEach(() => {
  *  cache.db, the way a live `serve` session would already have left it — `rerun` only ever reads
  *  what a prior session recorded. `provisionCacheDb` is the same call `wireStores` makes, so the
  *  schema this writes against is the real one, not a hand-picked subset. Returns the session id. */
-async function seedMutatingSession(
+async function seedSession(
   cacheDir: string,
   vaultId: string,
-  targetPath: string,
+  records: Array<Record<string, unknown>>,
 ): Promise<string> {
   const db = await openDatabase(join(cacheDir, "cache.db"));
   provisionCacheDb(db, { version: "test" });
@@ -80,30 +105,48 @@ async function seedMutatingSession(
     startedAt: 1000,
     tracePath: cacheTraceRelPath(id),
   });
-  // Schema-valid per PatchInput (notes/schemas.ts) — an incomplete payload would be refused at
-  // parseInput before dispatch ever reaches the vault-routing question these tests are about.
-  appendTrace(join(cacheDir, row.trace_path), {
-    ts: 1100,
+  for (const r of records) appendTrace(join(cacheDir, row.trace_path), r as never);
+  db.close?.();
+  return id;
+}
+
+/** A recorded `patch_note`. `argsVaultId` is separate from the session's vault on purpose: a
+ *  record whose CAPTURED args name a different vault is exactly the routing defect below.
+ *  Schema-valid per PatchInput (notes/schemas.ts) — an incomplete payload would be refused at
+ *  parseInput before dispatch ever reaches the vault-routing question these tests are about. */
+function patchRecord(argsVaultId: string, targetPath: string, ts = 1100): Record<string, unknown> {
+  return {
+    ts,
     type: "tool_invocation",
     tool: "patch_note",
     caller: "alice",
     status: "ok",
     args: JSON.stringify({
-      vault: vaultId,
+      vault: argsVaultId,
       path: targetPath,
       operation: "append",
       anchor: { type: "frontmatter" },
       content: "OVERWRITTEN",
     }),
     args_scan: "clean",
-  } as never);
-  db.close?.();
-  return id;
+  };
+}
+
+async function seedMutatingSession(
+  cacheDir: string,
+  vaultId: string,
+  targetPath: string,
+): Promise<string> {
+  return seedSession(cacheDir, vaultId, [patchRecord(vaultId, targetPath)]);
 }
 
 interface RerunJson {
-  summary: { runnable: number };
-  records: Array<{ replayed: { status: string } | null }>;
+  summary: { runnable: number; diverged: number };
+  records: Array<{
+    tool: string;
+    verdict: string;
+    replayed: { status: string; error_code?: string } | null;
+  }>;
 }
 
 describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end to end)", () => {
@@ -188,6 +231,129 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
     expect(readFileSync(join(vault2Dir, "a.md"), "utf8")).toBe("v2-original");
     // vault1 was never touched either way; asserted for completeness, not the load-bearing check.
     expect(readFileSync(join(vault1Dir, "a.md"), "utf8")).toBe("v1-original");
+  }, 30_000);
+
+  // Fix round 2, finding 1 (CRITICAL, MEASURED by review): staging swapped the path of exactly ONE
+  // vault — `row.vault_id` — but handlers resolve their target from `input.vault` via
+  // `VaultRegistry.resolve`, and `enforceVaultBinding` returned immediately because the runner
+  // never set `ctx.vaultBound`. A record whose CAPTURED ARGS named a different vault therefore ran
+  // against that vault's REAL, unstaged root, and the command exited 0 — "ran, nothing moved" —
+  // while a real note had been rewritten. `vaultBound: true` makes the class structurally
+  // impossible: the session row's vault is the only vault either mode can address.
+  it("a record whose captured args name ANOTHER vault is refused, while a matching record still runs", async () => {
+    const vault1Dir = mkdtempSync(join(tmpdir(), "obtc-sbx-x1-"));
+    const vault2Dir = mkdtempSync(join(tmpdir(), "obtc-sbx-x2-"));
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-cachex-"));
+    const confDir = mkdtempSync(join(tmpdir(), "obtc-sbx-confx-"));
+    dirs.push(vault1Dir, vault2Dir, cacheDir, confDir);
+    writeFileSync(join(vault1Dir, "a.md"), "v1-original");
+    writeFileSync(join(vault2Dir, "a.md"), "v2-original");
+    const configPath = join(confDir, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        cacheDir,
+        vaults: [
+          { id: "vault1", path: vault1Dir },
+          { id: "vault2", path: vault2Dir },
+        ],
+      }),
+    );
+
+    // Session belongs to vault2 (so vault2 is what gets staged); the FIRST record's args name
+    // vault1 — the vault nothing staged and nothing was checking.
+    const id = await seedSession(cacheDir, "vault2", [
+      patchRecord("vault1", "a.md", 1100),
+      patchRecord("vault2", "a.md", 1200),
+    ]);
+
+    const r = runCli(["rerun", id, "--config", configPath, "--sandbox", "--json"]);
+
+    const parsed = JSON.parse(r.stdout) as RerunJson;
+    // NOT a silent skip-everything pass: the matching record must still have been dispatched.
+    // Without this the "vault1 untouched" assertion below would be evidence that nothing ran.
+    expect(parsed.summary.runnable).toBeGreaterThanOrEqual(1);
+    expect(parsed.records[1]?.replayed?.status).toBe("ok");
+    // The mismatched record is REFUSED, and reported as a real (diverging) outcome rather than
+    // folded into `skipped_mutating` — hence exit 1, not 0.
+    expect(parsed.records[0]?.replayed?.error_code).toBe("forbidden");
+    expect(parsed.records[0]?.verdict).not.toBe("skipped_mutating");
+    expect(r.code).toBe(1);
+
+    // THE property this test exists to prove: the real, UNSTAGED vault was not written.
+    expect(readFileSync(join(vault1Dir, "a.md"), "utf8")).toBe("v1-original");
+    expect(readFileSync(join(vault2Dir, "a.md"), "utf8")).toBe("v2-original");
+  }, 30_000);
+
+  // Fix round 2, finding 2 (CRITICAL): a filesystem copy cannot bound a NETWORK-mediated write.
+  // Staging swapped `vaults[].path` but not `restApiUrl`/`restApiKey`, so `wireBridges` still built
+  // a Local REST API client and `git_stage` POSTed to the LIVE Obsidian app — which operates on the
+  // REAL vault — after passing `enforcePathAcl` against the STAGED root. `write:git` is not in
+  // `HITL_FLOOR_FAMILIES`, and sandbox mode deliberately lifts the read-only ACL, so nothing else
+  // stopped it.
+  //
+  // The assertion is on a REAL HTTP LISTENER, not on the error code: an unreachable URL would make
+  // this pass whether or not the transport was stripped, which is the failure mode where a test
+  // goes green for the wrong reason. `probeSkip` + `forceEnabled` remove the startup probe from
+  // the picture entirely, so the ONLY request this server can ever see is the `/git/stage` POST.
+  it("a recorded plugin-bridge call under --sandbox never reaches the live app", async () => {
+    const hits: string[] = [];
+    const app = createServer((req, res) => {
+      hits.push(`${req.method} ${req.url}`);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ staged: 1 }));
+    });
+    await new Promise<void>((ok) => app.listen(0, "127.0.0.1", ok));
+    const port = (app.address() as AddressInfo).port;
+    try {
+      const vaultDir = mkdtempSync(join(tmpdir(), "obtc-sbx-bridge-vault-"));
+      const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-bridge-cache-"));
+      const confDir = mkdtempSync(join(tmpdir(), "obtc-sbx-bridge-conf-"));
+      dirs.push(vaultDir, cacheDir, confDir);
+      writeFileSync(join(vaultDir, "a.md"), "original");
+      const configPath = join(confDir, "config.json");
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          cacheDir,
+          vaults: [
+            {
+              id: "main",
+              path: vaultDir,
+              restApiUrl: `http://127.0.0.1:${port}`,
+              restApiKey: "test-key",
+              // Explicit `live` + probeSkip: the bridge is fully available by configuration, so a
+              // refusal can only come from the transport being gone, never from a failed probe.
+              mode: "live",
+              plugins: { probeSkip: true, forceEnabled: ["git"] },
+            },
+          ],
+        }),
+      );
+
+      const id = await seedSession(cacheDir, "main", [
+        {
+          ts: 1100,
+          type: "tool_invocation",
+          tool: "git_stage",
+          caller: "alice",
+          status: "ok",
+          args: JSON.stringify({ vault: "main", paths: ["a.md"] }),
+          args_scan: "clean",
+        },
+      ]);
+
+      const r = await runCliAsync(["rerun", id, "--config", configPath, "--sandbox", "--json"]);
+      const parsed = JSON.parse(r.stdout) as RerunJson;
+
+      // THE property: the live app was never contacted.
+      expect(hits).toEqual([]);
+      // And the call failed loudly rather than being silently skipped or reported as a success.
+      expect(parsed.records[0]?.tool).toBe("git_stage");
+      expect(parsed.records[0]?.replayed?.status).toBe("error");
+    } finally {
+      await new Promise<void>((ok) => app.close(() => ok()));
+    }
   }, 30_000);
 
   // Fix round 1, finding 4: the unknown-vault exit(2) path, now driven by the SESSION's own

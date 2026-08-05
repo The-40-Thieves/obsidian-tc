@@ -7,10 +7,16 @@
 // ticket asks for. Hence `rerun`, not `replay`.
 //
 // MUTATION SAFETY IS NOT IMPLEMENTED HERE. Observe mode hands dispatch a read-only ACL and the
-// existing gate at mcp/registry/policy-gates.ts:132-135 refuses every mutating call, using the same
-// `isMutating` predicate the facade and visibility layers use. A runner-side "is this tool
+// existing `enforceReadOnlyGate` (mcp/registry/policy-gates.ts) refuses every mutating call, using
+// the same `isMutating` predicate the facade and visibility layers use. A runner-side "is this tool
 // mutating" list would be a SECOND copy of that rule, and the two can disagree — which is how a
 // re-run eventually executes a write it believed was a read.
+//
+// That gate covers the `write`/`delete`/`bulk`/`execute` families and NOT `admin`, because
+// `MUTATING_FAMILIES` (shared/src/scopes.ts) omits it — deliberately, since it is the whole
+// server's definition of a vault mutation. So an `admin:` call is refused HERE by not granting the
+// scope at all (see RERUN_SCOPES); widening MUTATING_FAMILIES to close it would change behaviour
+// far beyond this command.
 //
 // DEVIATION FROM THE BRIEF, MEASURED: the brief's draft granted only `["read:notes",
 // "read:workspace"]` and left `ctx.acl` unset. Running it (not just reading it) against
@@ -21,8 +27,8 @@
 // with a WRITABLE vault. That is a false safety signal: the test would report the guarantee held
 // while never exercising the ACL gate at all.
 //
-// So this runner grants every scope (`["*"]`, matching how a re-issued call is authenticated — the
-// original caller already passed scope/auth once) and instead supplies `ctx.acl` itself, read-only
+// So this runner grants a FAMILY-LEVEL scope set (read/write/delete/bulk/execute, deliberately NOT
+// admin — see RERUN_SCOPES) and instead supplies `ctx.acl` itself, read-only
 // unless `sandbox`. This does NOT reintroduce the per-tool classifier the design doc warns against
 // (`isMutatingCall`'s `destructive || requiredScopes.some(isMutatingScope)` predicate is still the
 // ONLY thing deciding which calls are mutating); it only supplies the ACL VALUE, exactly as
@@ -45,16 +51,56 @@ import { join } from "node:path";
 import { FolderAcl } from "../acl";
 import type { Database } from "../db/types";
 import type { ToolRegistry } from "../mcp/registry";
-import { classifyRecord, type RerunRecord, type RerunSummary, summarize } from "./rerun-verdict";
+import { READ_ONLY_DENIAL_MESSAGE } from "../mcp/registry/policy-gates";
+import {
+  classifyRecord,
+  type RerunRecord,
+  type RerunSummary,
+  summarizeRerun,
+} from "./rerun-verdict";
 import { CACHE_TRACE_SUBDIR, getSession, readTrace, resolveTraceAbs } from "./sessions";
+
+/**
+ * The scopes a re-issued call is authenticated with.
+ *
+ * FAMILY WILDCARDS, and `admin` is absent on purpose. `grantsScope` (shared/src/scopes.ts) matches
+ * `read:*` against any `read:<resource>`, so this covers every non-admin tool without enumerating
+ * resources — while `admin:*` calls fail at `assertScopesGranted` in BOTH modes.
+ *
+ * The previous `["*"]` was justified by "the ORIGINAL call already cleared scope/auth once when it
+ * was recorded". THAT IS FALSE: `recordOutcome` (mcp/registry/dispatch-observability.ts) traces
+ * FAILED dispatches too, arguments included — so a record whose `recorded.status` is `error` with
+ * `error_code: "forbidden"` was in the trace precisely BECAUSE its caller was denied, and `["*"]`
+ * re-issued it with privileges the original caller never held. Omitting `admin` also closes
+ * `add_vault`, which declares no `vaultArg` and so slips past the vault-binding guard below: under
+ * `["*"]` it registered an operator-supplied REAL path into the live VaultRegistry and indexed it,
+ * from the mode that advertises it refuses every mutating call.
+ */
+export const RERUN_SCOPES: readonly string[] = [
+  "read:*",
+  "write:*",
+  "delete:*",
+  "bulk:*",
+  "execute:*",
+];
 
 export interface RerunOptions {
   db: Database;
   registry: ToolRegistry;
   sessionId: string;
   cacheDir: string;
-  /** Present only for `--sandbox`; observe mode never needs a vault root. */
-  vaultRoot?: string;
+  /**
+   * Absolute filesystem root of the session's OWN vault, resolved from `row.vault_id` — so it is a
+   * function, called after the row is read rather than a value the caller must pre-compute.
+   *
+   * REQUIRED, and that is the fix rather than a style choice. It used to be optional with a
+   * `?? ""` default, which only `--sandbox` ever supplied: a legacy `trace_store = 'vault'` row
+   * (the `DEFAULT 'vault'` backfill of migration 20260805_003 — i.e. every row predating THE-737)
+   * then resolved its trace against `resolve("")` = process.cwd(), found nothing, and reported
+   * `no_capture` for the whole session while blaming `sessions.traceContent`. A required resolver
+   * makes that silent misattribution unrepresentable.
+   */
+  vaultRootFor: (vaultId: string) => string;
   /** When true, this runner leaves `ctx.acl` unset (the copied sandbox vault's normal read-write
    *  access governs, via whatever `aclResolver` the caller's registry carries) and a `forbidden`
    *  result is reported as a genuine divergence rather than folded into `skipped_mutating`. When
@@ -72,11 +118,12 @@ export interface RerunResult {
   summary: RerunSummary;
 }
 
-/** A dispatch result, narrowed to what a re-run compares. */
+/** A dispatch result, narrowed to what a re-run compares. `message` is read only to tell the
+ *  read-only gate's `forbidden` apart from every other one — see the classification below. */
 interface DispatchLike {
   ok: boolean;
   data?: unknown;
-  error?: { code?: string };
+  error?: { code?: string; message?: string };
 }
 
 export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
@@ -95,7 +142,7 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
     store: row.trace_store,
     tracePath: row.trace_path,
     cacheDir: opts.cacheDir,
-    vaultRoot: opts.vaultRoot ?? "",
+    vaultRoot: opts.vaultRootFor(row.vault_id),
   });
 
   const invocations = readTrace(abs)
@@ -134,13 +181,19 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
     const res = (await opts.registry.dispatch(common.tool, classified.args, {
       caller: row.caller,
       authenticated: true,
-      // Broad on purpose: the ORIGINAL call already cleared scope/auth once when it was recorded,
-      // and the mutating/non-mutating line this runner must respect is the ACL gate below, not a
-      // second scope allowlist here — a narrow set would block (or pass) calls for reasons that
-      // have nothing to do with observe mode. See the file-header note for the measured failure
-      // this replaced.
-      grantedScopes: new Set(["*"]),
+      // Family wildcards minus `admin` — see RERUN_SCOPES for why "the original call already
+      // cleared scope/auth" was not true and what `["*"]` let through.
+      grantedScopes: new Set(RERUN_SCOPES),
       vaultId: row.vault_id,
+      // THE SESSION'S VAULT IS THE ONLY VAULT THIS RUN MAY TOUCH, and this is what makes that
+      // structural rather than documented. `enforceVaultBinding` (mcp/registry/input-binding.ts)
+      // returns immediately unless `vaultBound === true`; without it, a handler resolved its target
+      // from `input.vault` via `VaultRegistry.resolve`, so a record whose captured args named a
+      // DIFFERENT vault was executed against that vault — under `--sandbox` that is a real,
+      // unstaged vault being mutated while the command exits 0 ("ran, nothing moved") and the
+      // staged copy sits untouched. Set in BOTH modes: a mismatched record is refused outright
+      // rather than silently retargeted.
+      vaultBound: true,
       db: opts.db,
       // Read-only unless `--sandbox`. `aclResolver` (mcp/registry/types.ts:257/:290) is fixed at
       // ToolRegistry construction and, when wired, `applyVaultAcl` (dispatch.ts:197,
@@ -156,7 +209,16 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
     const code = res.error?.code;
     // Dispatch refuses a mutating call under a read-only ACL with `forbidden`. That is the gate's
     // ruling, recorded — not a prediction this runner made.
-    if (!opts.sandbox && !res.ok && code === "forbidden") {
+    //
+    // MATCHED ON THE GATE, NOT ON THE CODE. `forbidden` is also what the scope gate, the
+    // vault-binding guard, the vault-kind gate and the path ACL throw. Folding all of them into
+    // `skipped_mutating` reported a genuine regression — a call recorded `ok` that now comes back
+    // `forbidden` because an ACL rule, a vault kind or a scope changed — as an EXPECTED skip: it
+    // counted toward neither `diverged` nor the exit code, which is the one thing this command
+    // exists to surface. Only the read-only gate's own message (imported, so it cannot drift) is a
+    // skip; every other `forbidden` falls through and is compared like any other outcome.
+    const readOnlySkip = res.error?.message === READ_ONLY_DENIAL_MESSAGE;
+    if (!opts.sandbox && !res.ok && code === "forbidden" && readOnlySkip) {
       records.push({
         ...common,
         verdict: "skipped_mutating",
@@ -192,7 +254,7 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
     });
   }
 
-  return { records, summary: summarize(records) };
+  return { records, summary: summarizeRerun(records) };
 }
 
 /** Databases copied alongside the vault. Without them the sandbox index is EMPTY and every search

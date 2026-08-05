@@ -125,9 +125,17 @@ Usage:
                                         to substitute. Requires \`sessions.traceContent\` to have
                                         been ON when the session was recorded; otherwise every
                                         record is refused and the command exits 2.
+                                        Both modes are pinned to the session's OWN vault: a record
+                                        whose captured args name a different vault is refused.
+                                        Neither mode grants admin: scopes, so a recorded admin
+                                        call (e.g. add_vault) is always refused.
                                         Default mode refuses every mutating call via a read-only
-                                        ACL. --sandbox copies the vault and its databases to a
-                                        temp dir and runs everything for real against the copy.
+                                        ACL. --sandbox copies THAT vault and the databases to a
+                                        temp dir and runs vault-filesystem calls for real against
+                                        the copy; plugin-bridge tools (git/tasks/excalidraw/
+                                        remotely-save) are disabled under --sandbox rather than
+                                        run, because they act through the live Obsidian app on the
+                                        REAL vault and a copy cannot contain that.
                                         Exit: 0 nothing moved, 1 divergence found, 2 nothing
                                         was runnable.
   obsidian-tc citation-infer [path] (--transcript <file> (--session <id> | --since <ms> [--until <ms>])

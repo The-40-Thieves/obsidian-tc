@@ -8,7 +8,7 @@ import {
   classifyRecord,
   exitCodeFor,
   type RerunRecord,
-  summarize,
+  summarizeRerun,
 } from "../src/workspace/rerun-verdict";
 import type { TraceRecord } from "../src/workspace/sessions";
 
@@ -75,7 +75,7 @@ const rec = (over: Partial<RerunRecord>): RerunRecord => ({
 
 describe("THE-645 item 3 — summary and exit codes", () => {
   it("counts every verdict, including the ones that are zero", () => {
-    const s = summarize([rec({}), rec({ seq: 1, verdict: "no_capture", replayed: null })]);
+    const s = summarizeRerun([rec({}), rec({ seq: 1, verdict: "no_capture", replayed: null })]);
     expect(s.total).toBe(2);
     expect(s.runnable).toBe(1);
     expect(s.byVerdict.no_capture).toBe(1);
@@ -84,11 +84,11 @@ describe("THE-645 item 3 — summary and exit codes", () => {
   });
 
   it("exit 0 — something ran and nothing moved", () => {
-    expect(exitCodeFor(summarize([rec({})]))).toBe(0);
+    expect(exitCodeFor(summarizeRerun([rec({})]))).toBe(0);
   });
 
   it("exit 1 — something ran and something moved", () => {
-    const s = summarize([rec({}), rec({ seq: 1, divergence: "status" })]);
+    const s = summarizeRerun([rec({}), rec({ seq: 1, divergence: "status" })]);
     expect(s.diverged).toBe(1);
     expect(exitCodeFor(s)).toBe(1);
   });
@@ -96,7 +96,7 @@ describe("THE-645 item 3 — summary and exit codes", () => {
   it("exit 2 — NOTHING was runnable, which is not the same observable outcome as success", () => {
     // The vacuity guard. On a deployment with `sessions.traceContent` off this is the ONLY
     // reachable path, and without its own code it is indistinguishable from "everything passed".
-    const s = summarize([
+    const s = summarizeRerun([
       rec({ verdict: "no_capture", replayed: null }),
       rec({ seq: 1, verdict: "no_capture", replayed: null }),
     ]);
@@ -105,12 +105,12 @@ describe("THE-645 item 3 — summary and exit codes", () => {
   });
 
   it("exit 2 on an EMPTY trace — zero records is also zero runnable", () => {
-    expect(exitCodeFor(summarize([]))).toBe(2);
+    expect(exitCodeFor(summarizeRerun([]))).toBe(2);
   });
 
   it("a run with BOTH refusals and divergence exits 1, not 2", () => {
     // Partial refusal is the expected steady state; only TOTAL refusal is what 2 carries.
-    const s = summarize([
+    const s = summarizeRerun([
       rec({ divergence: "error_code" }),
       rec({ seq: 1, verdict: "redacted", replayed: null }),
     ]);
@@ -123,7 +123,9 @@ describe("THE-645 item 3 — summary and exit codes", () => {
     // but that invariant lives in the runner's discipline, not in the type — so nothing here
     // fails when the discipline lapses. This is the ONLY fixture that distinguishes the correct
     // order from the swapped one.
-    const s = summarize([rec({ verdict: "no_capture", replayed: null, divergence: "status" })]);
+    const s = summarizeRerun([
+      rec({ verdict: "no_capture", replayed: null, divergence: "status" }),
+    ]);
     expect(s.runnable).toBe(0);
     expect(s.diverged).toBe(1);
     expect(exitCodeFor(s)).toBe(2);

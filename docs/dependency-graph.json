@@ -2,17 +2,17 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 388,
-    "dependencies": 1725,
-    "subsystemPairs": 116,
-    "crossSubsystemImports": 777
+    "modules": 391,
+    "dependencies": 1744,
+    "subsystemPairs": 118,
+    "crossSubsystemImports": 785
   },
   "subsystems": {
     "auth": 3,
     "bridge": 8,
     "capability": 6,
     "capture": 1,
-    "cli": 23,
+    "cli": 24,
     "config": 12,
     "db": 14,
     "doctor": 9,
@@ -39,7 +39,7 @@
     "transports": 3,
     "util": 4,
     "vault": 17,
-    "workspace": 1
+    "workspace": 3
   },
   "edges": [
     {
@@ -70,7 +70,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 23
+      "weight": 24
     },
     {
       "from": "runtime",
@@ -253,6 +253,16 @@
       "weight": 3
     },
     {
+      "from": "cli",
+      "to": "runtime",
+      "weight": 3
+    },
+    {
+      "from": "cli",
+      "to": "workspace",
+      "weight": 3
+    },
+    {
       "from": "mcp",
       "to": "metrics",
       "weight": 3
@@ -290,11 +300,6 @@
     {
       "from": "cli",
       "to": "doctor",
-      "weight": 2
-    },
-    {
-      "from": "cli",
-      "to": "runtime",
       "weight": 2
     },
     {
@@ -400,6 +405,16 @@
     {
       "from": "vault",
       "to": "db",
+      "weight": 2
+    },
+    {
+      "from": "workspace",
+      "to": "db",
+      "weight": 2
+    },
+    {
+      "from": "workspace",
+      "to": "mcp",
       "weight": 2
     },
     {
@@ -610,11 +625,6 @@
     {
       "from": "vault",
       "to": "mcp",
-      "weight": 1
-    },
-    {
-      "from": "workspace",
-      "to": "db",
       "weight": 1
     },
     {

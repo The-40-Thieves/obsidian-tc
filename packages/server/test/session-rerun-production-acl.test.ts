@@ -51,6 +51,7 @@ function harness(readOnly: boolean) {
   return {
     db,
     registry,
+    root,
     write,
     read: (rel: string) => readFileSync(join(root, rel), "utf8"),
     cleanup: () => rmTemp(root),
@@ -97,7 +98,13 @@ describe("THE-645 item 3 fix round 1 — rerun against a registry with a wired a
       args_scan: "clean",
     } as never);
 
-    await rerunSession({ db: h.db, registry: h.registry, sessionId: id, cacheDir });
+    await rerunSession({
+      db: h.db,
+      registry: h.registry,
+      sessionId: id,
+      cacheDir,
+      vaultRootFor: () => (h as ReturnType<typeof harness>).root,
+    });
 
     // THE property, same as session-rerun.test.ts's own no-write test: not `verdict ===
     // "skipped_mutating"` — that only proves the runner printed the right word. This is the note
