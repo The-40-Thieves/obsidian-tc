@@ -4,7 +4,9 @@
 
 **Goal:** Add an `obsidian-tc rerun <session-id>` CLI command that re-issues a recorded session's captured tool arguments against current vault state and reports which calls diverged.
 
-**Architecture:** A pure verdict classifier decides, per trace record, whether re-issuing it is faithful; a runner reads the trace server-side and dispatches only the faithful ones through the same `ToolRegistry.dispatch` a live call takes. Mutation safety is not a runner feature — the runner hands dispatch a read-only ACL and the existing `policy-gates.ts` gate refuses writes. A `--sandbox` flag copies the vault and its databases to a temp directory and runs with a normal ACL instead.
+**Architecture:** A pure verdict classifier decides, per trace record, whether re-issuing it is faithful; a runner reads the trace server-side and dispatches only the faithful ones through the same `ToolRegistry.dispatch` a live call takes. Mutation safety lives in neither — observe mode forces `readOnly` onto the resolved `ServerConfig` **before** the runtime is built, so the registry's wired `aclResolver` returns read-only ACLs and the existing `policy-gates.ts` gate refuses writes. A `--sandbox` flag copies the vault and its databases to a temp directory and runs with the unmodified config instead.
+
+**Critical:** `aclResolver` is a `RegistryOptions` field (`mcp/registry/types.ts:257`, field at `:290`) fixed at `ToolRegistry` construction, and `dispatch.ts:197` → `input-binding.ts:88` **replaces** `ctx.acl` with its answer on every call naming a vault. Setting `ctx.acl` per call does not work and is not a matter of taste — a runner that tries it runs read-write while reporting `skipped_mutating: 0`.
 
 **Tech Stack:** TypeScript 7.0.2, Bun 1.3.14, Vitest 4, Biome 2.5.x, `better-sqlite3`-style `Database` handle via `db/open`.
 
@@ -27,11 +29,11 @@
 |---|---|
 | `packages/server/src/workspace/rerun-verdict.ts` (create) | Pure. Per-record verdict, run summary, exit code. No I/O, no dispatch. |
 | `packages/server/src/workspace/rerun.ts` (create) | Session lookup, trace read, the dispatch loop, sandbox staging. |
-| `packages/server/src/cli/commands/rerun.ts` (create) | CLI wrapper: build runtime, call runner, render output, set exit code. |
+| `packages/server/src/cli/commands/rerun.ts` (create) | CLI wrapper: `withReadOnlyAcl` (the safety guarantee), build runtime, call runner, render output, set exit code. |
 | `packages/server/src/cli/args.ts` (modify) | `rerun` command kind + USAGE entry. |
 | `packages/server/src/cli.ts` (modify) | Import + `switch` case. |
 | `packages/server/test/session-rerun-verdict.test.ts` (create) | Classifier + summary + exit-code tests. Pure, fast. |
-| `packages/server/test/session-rerun.test.ts` (create) | Runner integration, and the two safety properties. |
+| `packages/server/test/session-rerun.test.ts` (create) | Runner integration, `withReadOnlyAcl`, sandbox staging, and the safety properties. |
 
 The pure/impure split is deliberate: the classifier is the part with six branches and no dependencies, so it gets a test file that runs in milliseconds and needs no vault fixture.
 
@@ -395,17 +397,36 @@ Create `packages/server/test/session-rerun.test.ts`:
 // The load-bearing test here is "observe mode does not write", and it asserts the NOTE ON DISK,
 // not the verdict string. A runner that classified correctly and then dispatched anyway would
 // satisfy a verdict assertion perfectly — the report and the behaviour are independent.
+//
+// FIXTURE: `makeTestVault` (m1-helpers), NOT `makeM5Vault`. makeM5Vault registers only M5 tools, so
+// a `patch_note` test against it passes VACUOUSLY — the tool is not registered, nothing writes,
+// green — and the mutation below would not go red either. makeTestVault registers M1 tools, takes
+// `acl: { readOnly: true }`, and builds its ToolRegistry with NO aclResolver (m1-helpers.ts:75), so
+// nothing swaps ctx.acl mid-dispatch.
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { appendTrace, insertSession } from "../src/workspace/sessions";
 import { rerunSession } from "../src/workspace/rerun";
-import { type M5Vault, makeM5Vault } from "./m5-helpers";
+import { appendTrace, insertSession } from "../src/workspace/sessions";
+import { makeTestVault, type TestVault } from "./m1-helpers";
 
-let v: M5Vault | undefined;
-afterEach(() => v?.cleanup());
+let v: TestVault | undefined;
+let cacheDir: string | undefined;
+afterEach(() => {
+  v?.cleanup();
+  if (cacheDir) rmSync(cacheDir, { recursive: true, force: true });
+  cacheDir = undefined;
+});
+
+/** A vault whose ACL is read-only unless `writable` — the mutation in Step 5 flips this. */
+function readOnlyVault(files: Record<string, string>, writable = false): TestVault {
+  cacheDir = mkdtempSync(join(tmpdir(), "obtc-rerun-cache-"));
+  return makeTestVault({ files, acl: { readOnly: !writable } });
+}
 
 /** Open a session row and write `records` into its trace file. Returns the session id. */
-function seedSession(vault: M5Vault, records: Array<Record<string, unknown>>): string {
+function seedSession(vault: TestVault, records: Array<Record<string, unknown>>): string {
   const id = `sess_rerun_${records.length}`;
   const row = insertSession(vault.db, {
     id,
@@ -414,14 +435,14 @@ function seedSession(vault: M5Vault, records: Array<Record<string, unknown>>): s
     startedAt: 1000,
     tracePath: `traces/${id}.jsonl`,
   });
-  const abs = join(vault.cacheDir, row.trace_path);
+  const abs = join(cacheDir as string, row.trace_path);
   for (const r of records) appendTrace(abs, r as never);
   return id;
 }
 
 describe("THE-645 item 3 — rerun in observe mode", () => {
   it("re-issues a clean read and reports no divergence", async () => {
-    v = makeM5Vault({ files: { "a.md": "hello" } });
+    v = readOnlyVault({ "a.md": "hello" });
     const id = seedSession(v, [
       {
         ts: 1100,
@@ -435,7 +456,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
       },
     ]);
 
-    const out = await rerunSession({ db: v.db, registry: v.registry, sessionId: id, cacheDir: v.cacheDir });
+    const out = await rerunSession({ db: v.db, registry: v.registry, sessionId: id, cacheDir: cacheDir as string });
 
     expect(out.summary.runnable).toBe(1);
     expect(out.records[0]?.verdict).toBe("runnable");
@@ -443,7 +464,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
   });
 
   it("DOES NOT WRITE in observe mode — asserted on the note, not on the verdict", async () => {
-    v = makeM5Vault({ files: { "a.md": "original" } });
+    v = readOnlyVault({ "a.md": "original" });
     const id = seedSession(v, [
       {
         ts: 1100,
@@ -456,7 +477,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
       },
     ]);
 
-    await rerunSession({ db: v.db, registry: v.registry, sessionId: id, cacheDir: v.cacheDir });
+    await rerunSession({ db: v.db, registry: v.registry, sessionId: id, cacheDir: cacheDir as string });
 
     // THE property. Not `verdict === "skipped_mutating"` — that only proves the runner printed
     // the right word.
@@ -464,7 +485,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
   });
 
   it("records the mutating skip as dispatch's ruling, with the note still intact", async () => {
-    v = makeM5Vault({ files: { "a.md": "original" } });
+    v = readOnlyVault({ "a.md": "original" });
     const id = seedSession(v, [
       {
         ts: 1100,
@@ -476,14 +497,14 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
         args_scan: "clean",
       },
     ]);
-    const out = await rerunSession({ db: v.db, registry: v.registry, sessionId: id, cacheDir: v.cacheDir });
+    const out = await rerunSession({ db: v.db, registry: v.registry, sessionId: id, cacheDir: cacheDir as string });
     expect(out.records[0]?.verdict).toBe("skipped_mutating");
     expect(out.summary.runnable).toBe(0);
     expect(v.read("a.md")).toBe("original");
   });
 
   it("a refused record reaches no dispatch at all", async () => {
-    v = makeM5Vault({ files: { "a.md": "original" } });
+    v = readOnlyVault({ "a.md": "original" });
     const id = seedSession(v, [
       {
         ts: 1100,
@@ -500,31 +521,31 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
     const spied = {
       dispatch: (name: string, ...rest: unknown[]) => {
         seen.push(name);
-        return (v as M5Vault).registry.dispatch(name, ...(rest as [never, never]));
+        return (v as TestVault).registry.dispatch(name, ...(rest as [never, never]));
       },
-    } as unknown as M5Vault["registry"];
+    } as unknown as TestVault["registry"];
 
-    const out = await rerunSession({ db: v.db, registry: spied, sessionId: id, cacheDir: v.cacheDir });
+    const out = await rerunSession({ db: v.db, registry: spied, sessionId: id, cacheDir: cacheDir as string });
     expect(out.records[0]?.verdict).toBe("redacted");
     expect(seen).toEqual([]);
   });
 
   it("an unknown session id is an error, not an empty successful run", async () => {
-    v = makeM5Vault();
+    v = readOnlyVault({});
     await expect(
-      rerunSession({ db: v.db, registry: v.registry, sessionId: "nope", cacheDir: v.cacheDir }),
+      rerunSession({ db: v.db, registry: v.registry, sessionId: "nope", cacheDir: cacheDir as string }),
     ).rejects.toThrow(/unknown session/i);
   });
 
   it("--vault mismatch throws rather than re-running against the wrong vault", async () => {
-    v = makeM5Vault({ files: { "a.md": "x" } });
+    v = readOnlyVault({ "a.md": "x" });
     const id = seedSession(v, []);
     await expect(
       rerunSession({
         db: v.db,
         registry: v.registry,
         sessionId: id,
-        cacheDir: v.cacheDir,
+        cacheDir: cacheDir as string,
         expectVaultId: "some-other-vault",
       }),
     ).rejects.toThrow(/belongs to vault/i);
@@ -572,7 +593,8 @@ export interface RerunOptions {
   cacheDir: string;
   /** Present only for `--sandbox`; observe mode never needs a vault root. */
   vaultRoot?: string;
-  /** Observe mode (default) refuses every mutating call via the read-only ACL. */
+  /** Reporting only — the runner enforces nothing. Observe mode's read-only ACL is applied to the
+   *  CONFIG before the registry is built; by the time a call reaches here the decision is made. */
   sandbox?: boolean;
   /** `--vault`. Checked against the session row and thrown on mismatch — the flag exists to fail
    *  loudly rather than let an operator re-run against a vault they did not mean. */
@@ -649,14 +671,14 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
       grantedScopes: new Set(["read:notes", "read:workspace"]),
       vaultId: row.vault_id,
       db: opts.db,
-      // THE GUARD. In observe mode this is the ONLY thing standing between a re-run and a write.
+      // NO ACL LOGIC HERE, deliberately. Observe mode's read-only-ness is applied to the resolved
+      // ServerConfig before the runtime is built (see `withReadOnlyAcl` in cli/commands/rerun.ts),
+      // so the registry's own `aclResolver` returns read-only ACLs by construction.
       //
-      // `aclResolver` is deliberately NOT wired: its own docstring (mcp/registry/types.ts:288-290)
-      // says dispatch SWAPS ctx.acl to the named vault's ACL when the parsed input names a vault.
-      // Wiring it here would overwrite this read-only ACL mid-dispatch and silently turn observe
-      // mode read-write, while the report still read `skipped_mutating: 0` — which looks like
-      // "this session had no writes".
-      ...(opts.sandbox ? {} : { acl: { readOnly: true } }),
+      // Setting `ctx.acl` here would NOT work: `aclResolver` is a RegistryOptions field
+      // (mcp/registry/types.ts:257, field at :290), fixed at ToolRegistry construction, and
+      // dispatch.ts:197 -> input-binding.ts:88 REPLACES ctx.acl with the resolver's answer on every
+      // call that names a vault. A per-call override is overwritten before the gate reads it.
     } as never)) as DispatchLike;
 
     const code = res.error?.code;
@@ -709,24 +731,32 @@ Expected: PASS, 6 tests.
 
 If `resolveTraceAbs`'s parameter names differ from the call above, read `packages/server/src/workspace/sessions.ts:80-95` and match the real signature — do not reshape the function.
 
-- [ ] **Step 5: Mutation — break the guard**
+- [ ] **Step 5: Mutation — remove the guard**
 
-Edit `packages/server/src/workspace/rerun.ts` and change the ACL line to simulate the `aclResolver` trap:
+In `packages/server/test/session-rerun.test.ts`, make the fixture writable — this is what a missing
+or ineffective read-only ACL looks like from the runner's side:
 
 ```ts
-      ...(opts.sandbox ? {} : { acl: { readOnly: false } }),
+function readOnlyVault(files: Record<string, string>, writable = true): TestVault {
 ```
+
+(default flipped `false` -> `true`)
 
 - [ ] **Step 6: Run the test and confirm it goes RED for the right reason**
 
 Run: `cd packages/server && bunx vitest run test/session-rerun.test.ts`
 Expected: FAIL on **"DOES NOT WRITE in observe mode"** with `expected 'OVERWRITTEN' to be 'original'`.
 
-The failure direction matters. If it instead fails on the verdict-string test only, the safety test is not asserting the effect and must be fixed before proceeding. If nothing goes red, the guard is not load-bearing and `patch_note` is being refused for some unrelated reason — investigate before continuing, because the guarantee is unproven.
+The failure direction matters. If it instead fails only on the verdict-string test, the safety test
+is not asserting the effect and must be fixed before proceeding. If NOTHING goes red, stop: it means
+`patch_note` never executed even with a writable ACL — most likely it is not registered in the
+fixture — and the guarantee is unproven rather than proven. Confirm `makeTestVault` (not
+`makeM5Vault`) is in use.
 
 - [ ] **Step 7: Restore the guard**
 
-Revert the line to `{ acl: { readOnly: true } }` **by editing it back** — not with `git checkout --`, which reverts the file to HEAD and would destroy the rest of this task's uncommitted work.
+Edit the default back to `writable = false` — **by editing it back**, not with `git checkout --`,
+which reverts the file to HEAD and would destroy the rest of this task's uncommitted work.
 
 - [ ] **Step 8: Re-run and confirm green**
 
@@ -829,14 +859,37 @@ Create `packages/server/src/cli/commands/rerun.ts`:
 
 ```ts
 import { join } from "node:path";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { openDatabase } from "../../db/open";
 import { buildServerRuntime } from "../../runtime/server-runtime";
 import { rerunSession } from "../../workspace/rerun";
 import { exitCodeFor } from "../../workspace/rerun-verdict";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
+/**
+ * Observe mode's ENTIRE safety guarantee.
+ *
+ * `aclResolver` is a RegistryOptions field fixed at ToolRegistry construction
+ * (mcp/registry/types.ts:257, field at :290), and dispatch.ts:197 -> input-binding.ts:88 REPLACES
+ * ctx.acl with its answer on every call that names a vault. So a per-call `ctx.acl` override is
+ * overwritten before the readOnly gate reads it, and the only place the decision survives is the
+ * config the resolver is built from.
+ *
+ * Forcing the root alone is NOT enough: a vault carrying its own `acl` block overrides the root, so
+ * exactly those vaults would stay writable while the run reported a clean observe-mode pass.
+ */
+export function withReadOnlyAcl(cfg: ServerConfig): ServerConfig {
+  return {
+    ...cfg,
+    acl: { ...cfg.acl, readOnly: true },
+    vaults: cfg.vaults.map((v) => (v.acl ? { ...v, acl: { ...v.acl, readOnly: true } } : v)),
+  };
+}
+
 export async function run_rerun(cmd: Cmd<"rerun">): Promise<void> {
-  const cfg = resolveOrUsageExit(cmd.input);
+  // Observe mode (the default) forces read-only BEFORE the runtime exists. --sandbox keeps the
+  // real config, because everything it touches is a disposable copy.
+  const cfg = cmd.sandbox ? resolveOrUsageExit(cmd.input) : withReadOnlyAcl(resolveOrUsageExit(cmd.input));
   // buildServerRuntime, but never start(): a re-run needs the FULLY wired registry (every tool
   // family, not just m7 the way prefetch does) and none of the transports. close() unwinds
   // whatever the build brought up.
@@ -906,7 +959,60 @@ and the switch case beside the others in `main()`:
       return run_rerun(cmd);
 ```
 
-- [ ] **Step 5: Verify the command is reachable and exits 2 on a dark trace**
+- [ ] **Step 5: Test `withReadOnlyAcl` — the per-vault override is the case that matters**
+
+Append to `packages/server/test/session-rerun.test.ts`:
+
+```ts
+import { withReadOnlyAcl } from "../src/cli/commands/rerun";
+
+describe("THE-645 item 3 — withReadOnlyAcl", () => {
+  it("forces readOnly on the ROOT acl", () => {
+    const out = withReadOnlyAcl({
+      acl: { readOnly: false, defaultScopes: [], rules: [] },
+      vaults: [{ id: "a", root: "/tmp/a" }],
+    } as never);
+    expect(out.acl.readOnly).toBe(true);
+  });
+
+  it("forces readOnly on a vault's OWN acl block — the root alone would leave it writable", () => {
+    // The naive implementation forces only the root. A vault with its own acl OVERRIDES the root,
+    // so that vault would still write for real while the run reported a clean observe-mode pass.
+    const out = withReadOnlyAcl({
+      acl: { readOnly: false, defaultScopes: [], rules: [] },
+      vaults: [
+        { id: "a", root: "/tmp/a" },
+        { id: "b", root: "/tmp/b", acl: { readOnly: false, defaultScopes: [], rules: [] } },
+      ],
+    } as never);
+    expect(out.vaults[1]?.acl?.readOnly).toBe(true);
+  });
+
+  it("leaves a vault with no acl block alone — it inherits the now-read-only root", () => {
+    const out = withReadOnlyAcl({
+      acl: { readOnly: false, defaultScopes: [], rules: [] },
+      vaults: [{ id: "a", root: "/tmp/a" }],
+    } as never);
+    expect(out.vaults[0]?.acl).toBeUndefined();
+  });
+
+  it("does not mutate the input config", () => {
+    const cfg = {
+      acl: { readOnly: false, defaultScopes: [], rules: [] },
+      vaults: [{ id: "b", root: "/tmp/b", acl: { readOnly: false, defaultScopes: [], rules: [] } }],
+    } as never;
+    withReadOnlyAcl(cfg);
+    expect((cfg as { acl: { readOnly: boolean } }).acl.readOnly).toBe(false);
+  });
+});
+```
+
+Run: `cd packages/server && bunx vitest run test/session-rerun.test.ts`
+Expected: PASS. If `ServerConfig`'s vault entry names its ACL field something other than `acl`, or its
+root field something other than `root`, read `packages/shared/src/config/auth-acl.schema.ts` and the
+vault schema and use the real names — do not add fields.
+
+- [ ] **Step 6: Verify the command is reachable and exits 2 on a dark trace**
 
 Run:
 
@@ -918,7 +1024,7 @@ grep -c 'rerun <session-id>' /tmp/rerun-help.log
 
 Expected: the USAGE text contains the `rerun` entry. (Check `$?` separately from any pipe — a pipeline reports the pipe's status, not the command's.)
 
-- [ ] **Step 6: Typecheck and lint**
+- [ ] **Step 7: Typecheck and lint**
 
 ```bash
 cd ~/obsidian-tc
@@ -928,11 +1034,11 @@ bun run lint > /tmp/lint.log 2>&1; echo "lint exit=$?"
 
 Expected: both `0`. `bun run lint` must be run at the repo root.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 cd ~/obsidian-tc
-git add packages/server/src/cli/commands/rerun.ts packages/server/src/cli/args.ts packages/server/src/cli.ts
+git add packages/server/src/cli/commands/rerun.ts packages/server/src/cli/args.ts packages/server/src/cli.ts packages/server/test/session-rerun.test.ts
 git commit -s -m "feat(cli): obsidian-tc rerun <session-id> (THE-645 item 3)
 
 Leads the summary with runnable N/total and writes an explicit note to stderr
@@ -962,8 +1068,8 @@ import { stageSandbox } from "../src/workspace/rerun";
 
 describe("THE-645 item 3 — sandbox staging", () => {
   it("copies the vault so a write to the copy leaves the original untouched", () => {
-    v = makeM5Vault({ files: { "a.md": "original" } });
-    const sb = stageSandbox(v.root, v.cacheDir);
+    v = readOnlyVault({ "a.md": "original" });
+    const sb = stageSandbox(v.root, cacheDir as string);
     try {
       expect(readFileSync(join(sb.root, "a.md"), "utf8")).toBe("original");
       writeFileSync(join(sb.root, "a.md"), "changed in sandbox");
@@ -975,9 +1081,9 @@ describe("THE-645 item 3 — sandbox staging", () => {
   });
 
   it("copies cache.db when it exists — an empty index would diverge every search for the wrong reason", () => {
-    v = makeM5Vault({ files: { "a.md": "x" } });
-    writeFileSync(join(v.cacheDir, "cache.db"), "fake-db-bytes");
-    const sb = stageSandbox(v.root, v.cacheDir);
+    v = readOnlyVault({ "a.md": "x" });
+    writeFileSync(join(cacheDir as string, "cache.db"), "fake-db-bytes");
+    const sb = stageSandbox(v.root, cacheDir as string);
     try {
       expect(existsSync(join(sb.cacheDir, "cache.db"))).toBe(true);
       expect(readFileSync(join(sb.cacheDir, "cache.db"), "utf8")).toBe("fake-db-bytes");
@@ -987,8 +1093,8 @@ describe("THE-645 item 3 — sandbox staging", () => {
   });
 
   it("dispose removes the staged copy", () => {
-    v = makeM5Vault({ files: { "a.md": "x" } });
-    const sb = stageSandbox(v.root, v.cacheDir);
+    v = readOnlyVault({ "a.md": "x" });
+    const sb = stageSandbox(v.root, cacheDir as string);
     const staged = sb.root;
     sb.dispose();
     expect(existsSync(staged)).toBe(false);
@@ -1045,7 +1151,7 @@ Move the `node:fs` / `node:os` / `node:path` imports to the top of the file with
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/server && bunx vitest run test/session-rerun.test.ts`
-Expected: PASS, 9 tests.
+Expected: PASS, 13 tests in this file (6 runner + 4 withReadOnlyAcl + 3 sandbox).
 
 - [ ] **Step 5: Wire `--sandbox` into the CLI command**
 
@@ -1088,7 +1194,7 @@ cd packages/server
 bunx vitest run test/session-rerun-verdict.test.ts test/session-rerun.test.ts > /tmp/rerun-tests.log 2>&1; echo "tests exit=$?"
 ```
 
-Expected: all three `0`; 22 tests total.
+Expected: all three `0`; 26 tests total (13 verdict + 13 runner/config/sandbox).
 
 - [ ] **Step 7: Commit**
 

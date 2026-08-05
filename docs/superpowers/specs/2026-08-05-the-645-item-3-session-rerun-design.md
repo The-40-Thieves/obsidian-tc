@@ -111,31 +111,56 @@ predicate the facade (`mcp/facade.ts:181`) and visibility (`mcp/visibility.ts:53
 second, independent layer sits at `vault/acl-path.ts:44`, which denies any non-`read` path op under
 `acl.readOnly`.
 
-**So observe mode is `ctx.acl.readOnly = true`, and the runner classifies nothing.** A runner-side
-"is this tool mutating" list would be a second copy of a rule that already exists, and the two can
-disagree — which is how a re-run eventually executes a write it believed was a read. One derivation,
-not two; the same principle THE-645 item 2 applied when `visibilityOf` was made to delegate to
+**So observe mode is a read-only ACL, and the runner classifies nothing.** A runner-side "is this
+tool mutating" list would be a second copy of a rule that already exists, and the two can disagree —
+which is how a re-run eventually executes a write it believed was a read. One derivation, not two;
+the same principle THE-645 item 2 applied when `visibilityOf` was made to delegate to
 `explainVisibility`.
 
 Mutating calls come back as `forbidden`, which the runner records as a skip. The verdict is the
 existing gate's ruling, not a prediction of it.
 
-### The trap: `aclResolver` silently defeats this
+### Where the read-only ACL comes from: the CONFIG, not the context
 
-`CallerContext.aclResolver`'s own docstring (`mcp/registry/types.ts:288-290`):
+The obvious implementation — set `ctx.acl = { readOnly: true }` per call — **does not work**, and the
+reason is worth stating because the docstring alone does not give it away.
 
-> THE-295 per-vault ACL resolver. When the parsed input names a vault, dispatch **swaps `ctx.acl`**
-> to that vault's ACL (root ACL = inherited default) so the readOnly gate and every handler-side
-> `enforcePathAcl` run under the right vault's rules.
+`aclResolver` is a field of **`RegistryOptions`** (`mcp/registry/types.ts:257`, field at `:290`), not
+of `CallerContext`. It is fixed when the `ToolRegistry` is constructed. Every dispatch then calls
+`applyVaultAcl(ctx, def, inputData, deps.aclResolver)` (`dispatch.ts:197`), which at
+`input-binding.ts:88` **replaces `ctx.acl`** with the resolver's answer for the named vault.
 
-A runner that sets `acl.readOnly = true` **and** wires the normal `aclResolver` has its read-only ACL
-overwritten mid-dispatch by the vault's real one. Observe mode then silently becomes read-write, and
-the report still says `skipped_mutating: 0` — which reads as "this session had no writes" rather
-than "the guard was bypassed."
+A runner using the server's registry therefore cannot opt out: the resolver is already wired, and any
+per-call `ctx.acl` it sets is overwritten on every call that names a vault — which is nearly all of
+them. Observe mode would run read-write while the report read `skipped_mutating: 0`, i.e. "this
+session had no writes."
 
-**In observe mode the runner must either omit `aclResolver` or wire one that returns a read-only ACL
-for every vault.** This is the single most dangerous line in the implementation, and it is why test 4
-below is load-bearing rather than ceremonial.
+**So the read-only-ness is applied to the resolved `ServerConfig` before the runtime is built:**
+
+```ts
+function withReadOnlyAcl(cfg: ServerConfig): ServerConfig {
+  return {
+    ...cfg,
+    acl: { ...cfg.acl, readOnly: true },
+    // A vault with NO acl of its own inherits the root, which is now read-only. A vault WITH one
+    // overrides the root, so forcing only the root would leave exactly those vaults writable.
+    vaults: cfg.vaults.map((v) => (v.acl ? { ...v, acl: { ...v.acl, readOnly: true } } : v)),
+  };
+}
+```
+
+The wired `aclResolver` then returns read-only `FolderAcl`s by construction, and the runner contains
+no ACL logic at all. This is strictly better than overriding the context: observe mode stops being a
+special case and becomes the server's ordinary config → ACL path, adding no new mechanism. Reads are
+unaffected — `acl-path.ts:44` denies only non-`read` ops.
+
+`FolderAcl` is a class (`packages/server/src/acl.ts`), constructed as
+`new FolderAcl({ readOnly: true, defaultScopes: [], rules: [] })`. An object literal is not an
+acceptable substitute.
+
+**The per-vault line is the one to get right.** Forcing `cfg.acl.readOnly` alone leaves any vault
+carrying its own `acl` block fully writable, and a re-run against that vault would write for real
+while reporting a clean observe-mode run. It needs its own test.
 
 ## Refusal taxonomy
 
@@ -213,13 +238,22 @@ scratch-vault "makes that option cheaper" is true of its existence and not of it
 1. **Each verdict for its own condition** — six cases.
 2. **Vacuity guard** — an all-`no_capture` trace exits `2`, not `0`.
 3. **Observe mode asserts the effect, not the report** — record a session containing a `patch_note`,
-   re-run it, then assert *the note on disk is unchanged*. Asserting `verdict === "skipped_mutating"`
-   only proves the runner printed the right word; the report and the behaviour are independent.
-4. **Mutation** — remove the read-only guard (or wire the normal `aclResolver`) and confirm test 3
-   goes red. A safety property whose test has never been watched failing is an assertion about
-   intent. This is the test that catches the `aclResolver` trap above.
-5. **Degraded records reach no dispatch at all** — assert via a dispatch spy, so "it didn't write"
+   re-run it against a read-only-configured vault, then assert *the note on disk is unchanged*.
+   Asserting `verdict === "skipped_mutating"` only proves the runner printed the right word; the
+   report and the behaviour are independent.
+4. **Mutation** — flip the fixture to a writable ACL and confirm test 3 goes red. A safety property
+   whose test has never been watched failing is an assertion about intent.
+5. **`withReadOnlyAcl` forces the PER-VAULT override, not just the root** — a vault carrying its own
+   `acl` block is the case a naive implementation leaves writable.
+6. **Degraded records reach no dispatch at all** — assert via a dispatch spy, so "it didn't write"
    cannot pass because the write happened to fail for an unrelated reason.
+
+**Fixture note.** `makeM5Vault` registers only M5 tools, so a `patch_note` test against it passes
+vacuously — the tool is not registered, nothing writes, green, and the mutation in test 4 would not
+go red either. Use `makeTestVault` (`test/m1-helpers.ts`), which registers M1 tools, accepts
+`acl: { readOnly: true }`, and — importantly — builds its `ToolRegistry` with **no** `aclResolver`
+(`m1-helpers.ts:75`), so nothing swaps the context mid-dispatch. `cacheDir` is a plain argument to
+the runner, so the test supplies its own `mkdtempSync` directory for traces.
 
 ## Non-goals
 
