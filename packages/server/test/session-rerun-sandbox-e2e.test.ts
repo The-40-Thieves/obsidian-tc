@@ -175,7 +175,7 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
       "--json",
     ]);
 
-    expect(r.code).toBe(0);
+    expect(r.code, `rerun exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
     const parsed = JSON.parse(r.stdout) as RerunJson;
     // Belt and suspenders: prove the mutating call was actually DISPATCHED, not silently skipped
     // for some unrelated reason (e.g. a scope/ACL refusal) — otherwise the assertion below would
@@ -221,7 +221,7 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
     // Deliberately NO --vault: the exact operator shape the defect required.
     const r = runCli(["rerun", id, "--config", configPath, "--sandbox", "--json"]);
 
-    expect(r.code).toBe(0);
+    expect(r.code, `rerun exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
     const parsed = JSON.parse(r.stdout) as RerunJson;
     // Non-vacuous: the call must have actually been dispatched (against SOME copy), not skipped.
     expect(parsed.summary.runnable).toBeGreaterThanOrEqual(1);
@@ -278,7 +278,7 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
     // folded into `skipped_mutating` — hence exit 1, not 0.
     expect(parsed.records[0]?.replayed?.error_code).toBe("forbidden");
     expect(parsed.records[0]?.verdict).not.toBe("skipped_mutating");
-    expect(r.code).toBe(1);
+    expect(r.code, `rerun exited ${r.code}, stderr: ${r.stderr}`).toBe(1);
 
     // THE property this test exists to prove: the real, UNSTAGED vault was not written.
     expect(readFileSync(join(vault1Dir, "a.md"), "utf8")).toBe("v1-original");
@@ -377,7 +377,7 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
 
     const r = runCli(["rerun", id, "--config", configPath, "--sandbox", "--json"]);
 
-    expect(r.code).toBe(2);
+    expect(r.code, `rerun exited ${r.code}, stderr: ${r.stderr}`).toBe(2);
     expect(r.stderr).toContain("rerun: unknown vault ghost");
     // Never even reaches staging I/O, let alone a write — the real note is untouched.
     expect(readFileSync(join(vaultDir, "a.md"), "utf8")).toBe("original");

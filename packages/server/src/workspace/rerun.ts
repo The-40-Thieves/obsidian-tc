@@ -261,6 +261,31 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
  *  diverges for a reason unrelated to the change being investigated. */
 const SANDBOX_DBS = ["cache.db", "experiential.db"] as const;
 
+/** Best-effort removal of a staged sandbox directory. NEVER THROWS: `dispose()` runs in
+ *  `cli/commands/rerun.ts`'s outermost `finally`, so a throw here would escape into `main()`'s
+ *  `.catch()`, which writes `fatal: ...` and exits 1 — turning "I could not delete a scratch dir"
+ *  into "your vault state changed". THIS COMMAND'S EXIT CODE IS ITS ENTIRE OUTPUT (0 = nothing
+ *  moved, 1 = divergence found, 2 = nothing was runnable), so a cleanup failure must never corrupt
+ *  it. A leaked temp dir is a nuisance; a corrupted exit code is a lie. On a failure that survives
+ *  the retries below, this warns to stderr (naming the path, so the operator can clean it up) and
+ *  carries on instead of throwing.
+ *
+ *  `maxRetries`/`retryDelay` are `fs.rmSync`'s own answer to the Windows EBUSY/EPERM/ENOTEMPTY that
+ *  removing a directory can raise immediately after a file inside it (here: the staged cache.db)
+ *  was closed — the OS can take a beat to actually release the handle even after the runtime has
+ *  awaited `close()`. 5 retries at 100ms apart is enough slack to absorb that without stalling a
+ *  normal run noticeably. `force: true` alone (the previous behaviour) only suppresses ENOENT and
+ *  does nothing for EBUSY/EPERM. */
+function safeDispose(base: string): void {
+  try {
+    rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (e) {
+    process.stderr.write(
+      `rerun: warning: failed to remove staged sandbox directory ${base}: ${(e as Error).message}\n`,
+    );
+  }
+}
+
 /**
  * Stage a disposable copy of a vault and its databases.
  *
@@ -296,10 +321,12 @@ export function stageSandbox(
     return {
       root,
       cacheDir: cache,
-      dispose: () => rmSync(base, { recursive: true, force: true }),
+      dispose: () => safeDispose(base),
     };
   } catch (e) {
-    rmSync(base, { recursive: true, force: true });
+    // safeDispose never throws (see above), so the ORIGINAL error `e` — the reason staging
+    // failed — is what propagates, not whatever rmSync ran into while cleaning up after it.
+    safeDispose(base);
     throw e;
   }
 }
