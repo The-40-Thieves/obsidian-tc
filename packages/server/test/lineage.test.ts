@@ -7,6 +7,7 @@ import {
   type LineageEpisodeRow,
   type LineageRetrievalRow,
 } from "../src/experiential/lineage";
+import { ExplainAnswerOutput } from "../src/tools/m7/knowledge/schemas";
 
 const T = 1_700_000_000_000;
 
@@ -132,5 +133,44 @@ describe("THE-646: answer lineage renders absences honestly", () => {
     expect(l.links).toHaveLength(0);
     expect(l.caveat).toBeNull();
     expect(l.summary.retrievals).toBe(0);
+  });
+
+  it("what buildAnswerLineage returns actually satisfies the tool's declared outputSchema", () => {
+    // `ExplainAnswerOutput` is a z.union (the available:false envelope), and a union is opaque to
+    // `topLevelShape` — so m7-tool-metadata-parity.test.ts records this tool's outputKeys as `[]`
+    // and cannot guard the payload shape the way it does for every flat-object tool there. This
+    // is that guard.
+    //
+    // A bare safeParse would only catch drift in ONE direction. Zod objects are non-strict, so a
+    // field added to LineageLink with no matching schema entry is silently STRIPPED and the parse
+    // still succeeds — the field would just never reach a caller. So the key sets are compared
+    // after parsing, which catches that direction too.
+    const lineage = buildAnswerLineage(
+      [
+        retrieval({ chunk_id: "gone", path: null, session_id: "s1" }),
+        retrieval({ chunk_id: "kept", citation_state: "confirmed", citation_score: 0.8 }),
+      ],
+      [episode({ session_id: "s1" })],
+    );
+    const parsed = ExplainAnswerOutput.safeParse({
+      available: true,
+      vault: "main",
+      scope: "session",
+      ...lineage,
+    });
+    expect(parsed.success).toBe(true);
+    // Narrowed on the `available` discriminant rather than cast: the union is a discriminated one,
+    // so this is the shape the caller genuinely sees.
+    if (!parsed.success || parsed.data.available !== true)
+      throw new Error("expected the open branch");
+    const ok = parsed.data;
+    expect(Object.keys(ok.links[0] as object).sort()).toEqual(
+      Object.keys(lineage.links[0] as object).sort(),
+    );
+    expect(Object.keys(ok.summary).sort()).toEqual(Object.keys(lineage.summary).sort());
+    // And the closed branch, which is what a caller sees when the store is not open.
+    expect(ExplainAnswerOutput.safeParse({ available: false, message: "closed" }).success).toBe(
+      true,
+    );
   });
 });

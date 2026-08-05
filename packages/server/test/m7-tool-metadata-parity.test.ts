@@ -1,5 +1,5 @@
 // WP2 slice 1 (THE-233 follow-up): the invariant the schema/deps/retrieval-runtime extraction
-// must hold provably still. `buildKnowledgeTools(deps)` returns the 8 M7 tools in a fixed array
+// must hold provably still. `buildKnowledgeTools(deps)` returns the 9 M7 tools in a fixed array
 // order; a caller-visible tool has exactly the shape it declares — name, description, domain,
 // requiredScopes, tags, whether it declares a `pathAcl` extractor, and the top-level keys of its
 // input/output schema. None of that is allowed to move while the file underneath it is split into
@@ -134,6 +134,23 @@ const EXPECTED: ToolSnapshot[] = [
     outputKeys: ["dropped_at", "path", "query", "returned", "stages", "summary", "vault"],
   },
   {
+    name: "explain_answer",
+    description:
+      "Explain what an answer actually used: walks retrieval -> chunk -> citation -> episode for one session or time window and reports each link with how well it is known. Distinguishes a retrieval the citation pass never judged from one it judged and rejected, and a chunk whose note no longer exists from one that was never used. Read-only; reports nothing about paths the caller cannot read.",
+    domain: "knowledge",
+    requiredScopes: ["read:notes"],
+    tags: ["diagnostics", "knowledge", "provenance"],
+    hasPathAcl: false,
+    inputKeys: ["limit", "session_id", "since", "until", "vault"],
+    // EMPTY ON PURPOSE, and the only entry here that is. This tool's output is a `z.union` — the
+    // same `available: false | available: true & shape` envelope m8's `availableWith` produces —
+    // because the experiential store may be closed, which is a configuration state rather than a
+    // failed call. `topLevelShape` returns `undefined` for a union, correctly: a union has no one
+    // top-level shape. Every other m7 tool is a flat object, so this is the first union to reach
+    // this gate. Filling these in by hand would assert a shape the schema does not declare.
+    outputKeys: [],
+  },
+  {
     name: "knowledge_search",
     description:
       "Semantic + keyword search over a vendor / external-docs corpus (a reserved read-only docs vault), with wikilink graph expansion and RRF fusion. The docs-scoped analogue of vault_graph_search: bind `vault` to the docs corpus id. Returns source-attributed chunks tagged seed|expansion. Gated on read:docs so it stays isolated from the private vault.",
@@ -205,7 +222,7 @@ function stubDeps(): M7Deps {
 }
 
 describe("m7 tool metadata parity (WP2 invariant)", () => {
-  it("keeps the ordered public metadata of the 8 M7 tools byte-identical", () => {
+  it("keeps the ordered public metadata of the 9 M7 tools byte-identical", () => {
     const tools = buildKnowledgeTools(stubDeps());
     const actual = tools.map(toSnapshot);
     expect(stableStringify(actual)).toBe(stableStringify(EXPECTED));
