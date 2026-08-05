@@ -28,6 +28,7 @@
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../../db/types";
+import { citationRunsCovering } from "../../../experiential/citation-runs";
 import {
   buildAnswerLineage,
   CORRELATION_WINDOW_MS,
@@ -143,7 +144,22 @@ export function createExplainAnswerTool(deps: M7Deps): ToolDefinition {
           (retrievals[0]?.retrieved_at ?? until) + CORRELATION_WINDOW_MS,
         ) as LineageEpisodeRow[];
 
-      const lineage = buildAnswerLineage(retrievals, episodes);
+      // THE-717 item 2: ask the run log what has actually looked at these rows, rather than
+      // asserting a cause for their NULLs. Bounded by the retrievals we kept, not by the caller's
+      // requested window — a pass is only relevant if it covers rows this lineage reports.
+      const passes =
+        retrievals.length > 0
+          ? citationRunsCovering(
+              edb,
+              [
+                Math.min(...retrievals.map((r) => r.retrieved_at)),
+                Math.max(...retrievals.map((r) => r.retrieved_at)),
+              ],
+              input.session_id ?? null,
+            )
+          : [];
+
+      const lineage = buildAnswerLineage(retrievals, episodes, CORRELATION_WINDOW_MS, passes);
       return {
         available: true as const,
         vault: v.id,

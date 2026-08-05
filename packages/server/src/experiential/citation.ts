@@ -16,6 +16,7 @@ import type { GatewayRoles } from "../plane/gateway";
 import { prompt } from "../plane/gateway";
 import { cosineBatch, cosineSimilarity, rougeLLcs } from "../search/native";
 import { runWithConcurrency } from "../util/concurrency";
+import { closeCitationRun, openCitationRun } from "./citation-runs";
 
 const MAX_CHUNK_TOKENS = 512;
 const MAX_TRANSCRIPT_TOKENS = 6000;
@@ -301,6 +302,17 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     throw new Error("inferCitations: sessionId or windowMs is required");
   }
 
+  // THE-717 item 2: open the run log BEFORE any work, and close it on every RETURN path — never in
+  // a finally. A pass that throws must leave `finished_at` NULL, because that is the only durable
+  // evidence distinguishing "died partway" from "ran and stamped nothing". See citation-runs.ts.
+  const runId = openCitationRun(opts.edb, {
+    scope: opts.sessionId !== undefined ? "session" : "window",
+    sessionId: opts.sessionId,
+    window: opts.windowMs,
+    judgePresent: opts.judge != null,
+    startedAt: Date.now(),
+  });
+
   const chunkIds = (
     opts.edb
       .prepare(
@@ -310,6 +322,18 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
       .all(...scopeParams) as Array<{ id: string }>
   ).map((r) => r.id);
   if (chunkIds.length === 0) {
+    // THE-717: the EMPTY-SCOPE pass is the one that most needs recording. It touches no citation
+    // column, so it leaves no trace in chunk_retrievals — making a healthy scheduler with nothing
+    // to do indistinguishable from a scheduler that was never registered.
+    closeCitationRun(opts.edb, runId, {
+      scoped: 0,
+      stage1Pass: 0,
+      judged: 0,
+      parseFailures: 0,
+      stamped: 0,
+      aborted: false,
+      finishedAt: Date.now(),
+    });
     return {
       scoped: 0,
       stage1Pass: 0,
@@ -463,8 +487,16 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   );
   let cited = 0;
   let uncertain = 0;
+  // THE-717: rows ACTUALLY written, from `changes` — not a count of stamp calls. The UPDATE carries
+  // `cited_in_response IS NULL`, so a row another pass already stamped matches nothing and writes
+  // nothing. Counting calls would report that pass as having done work it did not do, which is the
+  // precise species of false number this run log exists to stop producing.
+  let stampedRows = 0;
+  const stampRow = (...args: unknown[]): void => {
+    stampedRows += stamp.run(...args).changes;
+  };
   for (const a of negatives) {
-    stamp.run(0, a.cosine ?? a.rouge, "rejected", a.chunkId, ...scopeParams);
+    stampRow(0, a.cosine ?? a.rouge, "rejected", a.chunkId, ...scopeParams);
   }
   for (const a of passers) {
     if (opts.judge) {
@@ -475,10 +507,10 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
         // An abstention is NOT a citation, so it must not count as one — but it is also not the
         // judge saying "no", which is why it gets its own state rather than being folded into
         // 'rejected'. Only reachable with allowUncertain set.
-        stamp.run(0, v.score, "uncertain", a.chunkId, ...scopeParams);
+        stampRow(0, v.score, "uncertain", a.chunkId, ...scopeParams);
         uncertain += 1;
       } else {
-        stamp.run(
+        stampRow(
           v.cited ? 1 : 0,
           v.score,
           v.cited ? "confirmed" : "rejected",
@@ -493,10 +525,23 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
       // ROUGE-L/cosine filter. `candidate` is the honest name for that, and making it queryable is
       // the whole point of this column: `SELECT count(*) ... WHERE citation_state = 'candidate'`
       // now answers "how much of our citation signal was never actually judged?"
-      stamp.run(1, a.cosine ?? a.rouge, "candidate", a.chunkId, ...scopeParams);
+      stampRow(1, a.cosine ?? a.rouge, "candidate", a.chunkId, ...scopeParams);
       cited += 1;
     }
   }
+
+  // `cited` counts rows stamped cited_in_response = 1. `stamped` in the run log is every row
+  // WRITTEN, which includes the stage-1 negatives stamped 0 — those are a real verdict and a pass
+  // that produced only them did work, so counting just `cited` would report it as having done none.
+  closeCitationRun(opts.edb, runId, {
+    scoped: chunkIds.length,
+    stage1Pass: passers.length,
+    judged,
+    parseFailures,
+    stamped: stampedRows,
+    aborted,
+    finishedAt: Date.now(),
+  });
 
   return {
     scoped: chunkIds.length,
