@@ -98,7 +98,9 @@ describe("THE-737 — session traces are not vault-resident", () => {
     });
     const inCache = filesContaining(v.cacheDir, SENTINEL);
     expect(inCache).toHaveLength(1);
-    expect(inCache[0]).toMatch(/\/traces\/sess_[0-9a-f]{24}\.jsonl$/);
+    // Normalize separators: on Windows this is `C:\Users\...\traces\sess_*.jsonl`, and a
+    // regex written with forward slashes silently never matches there.
+    expect(inCache[0]?.replace(/\\/g, "/")).toMatch(/\/traces\/sess_[0-9a-f]{24}\.jsonl$/);
   });
 
   it("end_session and get_session_traces still reach the relocated file", async () => {
