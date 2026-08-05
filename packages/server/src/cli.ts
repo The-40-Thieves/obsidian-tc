@@ -32,6 +32,7 @@ import { run_note_quality } from "./cli/commands/note-quality";
 import { run_plugin_install } from "./cli/commands/plugin-install";
 import { run_prefetch } from "./cli/commands/prefetch";
 import { run_reflect } from "./cli/commands/reflect";
+import { run_rerun } from "./cli/commands/rerun";
 import { run_token_mint } from "./cli/commands/token-mint";
 import { run_version } from "./cli/commands/version";
 import { type Cmd, resolveOrUsageExit } from "./cli/shared";
@@ -102,6 +103,8 @@ async function main(): Promise<void> {
       return run_reflect(cmd);
     case "prefetch":
       return run_prefetch(cmd);
+    case "rerun":
+      return run_rerun(cmd);
     default:
       return run_serve(cmd);
   }

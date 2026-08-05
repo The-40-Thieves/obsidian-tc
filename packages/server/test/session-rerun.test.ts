@@ -13,6 +13,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { withReadOnlyAcl } from "../src/cli/commands/rerun";
 import { rerunSession } from "../src/workspace/rerun";
 import { appendTrace, insertSession } from "../src/workspace/sessions";
 import { makeTestVault, type TestVault } from "./m1-helpers";
@@ -195,5 +196,45 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
         expectVaultId: "some-other-vault",
       }),
     ).rejects.toThrow(/belongs to vault/i);
+  });
+});
+
+describe("THE-645 item 3 — withReadOnlyAcl", () => {
+  it("forces readOnly on the ROOT acl", () => {
+    const out = withReadOnlyAcl({
+      acl: { readOnly: false, defaultScopes: [], rules: [] },
+      vaults: [{ id: "a", root: "/tmp/a" }],
+    } as never);
+    expect(out.acl.readOnly).toBe(true);
+  });
+
+  it("forces readOnly on a vault's OWN acl block — the root alone would leave it writable", () => {
+    // The naive implementation forces only the root. A vault with its own acl OVERRIDES the root,
+    // so that vault would still write for real while the run reported a clean observe-mode pass.
+    const out = withReadOnlyAcl({
+      acl: { readOnly: false, defaultScopes: [], rules: [] },
+      vaults: [
+        { id: "a", root: "/tmp/a" },
+        { id: "b", root: "/tmp/b", acl: { readOnly: false, defaultScopes: [], rules: [] } },
+      ],
+    } as never);
+    expect(out.vaults[1]?.acl?.readOnly).toBe(true);
+  });
+
+  it("leaves a vault with no acl block alone — it inherits the now-read-only root", () => {
+    const out = withReadOnlyAcl({
+      acl: { readOnly: false, defaultScopes: [], rules: [] },
+      vaults: [{ id: "a", root: "/tmp/a" }],
+    } as never);
+    expect(out.vaults[0]?.acl).toBeUndefined();
+  });
+
+  it("does not mutate the input config", () => {
+    const cfg = {
+      acl: { readOnly: false, defaultScopes: [], rules: [] },
+      vaults: [{ id: "b", root: "/tmp/b", acl: { readOnly: false, defaultScopes: [], rules: [] } }],
+    } as never;
+    withReadOnlyAcl(cfg);
+    expect((cfg as { acl: { readOnly: boolean } }).acl.readOnly).toBe(false);
   });
 });

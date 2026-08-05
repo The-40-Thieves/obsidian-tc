@@ -43,6 +43,14 @@ export type CliCommand =
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
   | { kind: "note-quality"; input?: string; vault?: string; flags?: string[]; limit?: number }
   | { kind: "prefetch"; input?: string; vault?: string; ttlHours?: number }
+  | {
+      kind: "rerun";
+      input?: string;
+      sessionId: string;
+      vault?: string;
+      sandbox?: boolean;
+      json?: boolean;
+    }
   | { kind: "densify-llm"; input?: string; vault?: string }
   | { kind: "reflect"; input?: string; maxJudged?: number }
   | {
@@ -109,6 +117,19 @@ Usage:
                                           LLM Pass-3 semantic-edge densification via the local gateway (graph densification)
   obsidian-tc reflect [path] [--max-judged N]
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
+  obsidian-tc rerun <session-id> [path] [--vault <id>] [--sandbox] [--json]
+                                        Re-issue a recorded session's captured tool arguments
+                                        against current vault state and report which calls
+                                        diverged (THE-645 item 3). RE-EXECUTION, not stubbed
+                                        replay: results were never captured, so there is nothing
+                                        to substitute. Requires \`sessions.traceContent\` to have
+                                        been ON when the session was recorded; otherwise every
+                                        record is refused and the command exits 2.
+                                        Default mode refuses every mutating call via a read-only
+                                        ACL. --sandbox copies the vault and its databases to a
+                                        temp dir and runs everything for real against the copy.
+                                        Exit: 0 nothing moved, 1 divergence found, 2 nothing
+                                        was runnable.
   obsidian-tc citation-infer [path] (--transcript <file> (--session <id> | --since <ms> [--until <ms>])
                                              | --transcript-index <file.jsonl>)
                             [--max-judged N] [--judge-concurrency N] [--min-judged-for-kill N] [--allow-uncertain]
@@ -601,6 +622,26 @@ export function parseCliArgs(argv: string[]): CliCommand {
         input: flagValue(rest, "--config") ?? positional(scan),
         ...(vault !== undefined ? { vault } : {}),
         ...(ttlHours !== undefined ? { ttlHours } : {}),
+      };
+    }
+    // THE-645 item 3: re-issue a recorded session's captured arguments.
+    if (first === "rerun") {
+      const scan = [...rest];
+      for (const f of ["--vault", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const sessionId = scan.find((a) => !a.startsWith("-"));
+      if (sessionId === undefined) return { kind: "error", message: "rerun requires a session id" };
+      return {
+        kind: "rerun",
+        sessionId,
+        ...(flagValue(rest, "--config") !== undefined
+          ? { input: flagValue(rest, "--config") }
+          : {}),
+        ...(flagValue(rest, "--vault") !== undefined ? { vault: flagValue(rest, "--vault") } : {}),
+        ...(rest.includes("--sandbox") ? { sandbox: true } : {}),
+        ...(rest.includes("--json") ? { json: true } : {}),
       };
     }
     if (first.startsWith("-")) return { kind: "error", message: `unknown option: ${first}` };
