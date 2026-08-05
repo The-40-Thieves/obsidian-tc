@@ -633,13 +633,19 @@ export function parseCliArgs(argv: string[]): CliCommand {
       }
       const sessionId = scan.find((a) => !a.startsWith("-"));
       if (sessionId === undefined) return { kind: "error", message: "rerun requires a session id" };
+      // Drop the session id itself out of `scan` so the SECOND non-flag positional -- the config
+      // path USAGE documents (`rerun <session-id> [path] ...`) -- can be found the same way every
+      // sibling command finds its config path: `flagValue(rest, "--config") ?? positional(scan)`
+      // (see `prefetch` just above). Without this, `scan.find` above never advances past the
+      // session id, so a path positional silently falls through to OBSIDIAN_TC_CONFIG/the default.
+      scan.splice(scan.indexOf(sessionId), 1);
+      const vault = flagValue(rest, "--vault");
+      const input = flagValue(rest, "--config") ?? positional(scan);
       return {
         kind: "rerun",
         sessionId,
-        ...(flagValue(rest, "--config") !== undefined
-          ? { input: flagValue(rest, "--config") }
-          : {}),
-        ...(flagValue(rest, "--vault") !== undefined ? { vault: flagValue(rest, "--vault") } : {}),
+        ...(input !== undefined ? { input } : {}),
+        ...(vault !== undefined ? { vault } : {}),
         ...(rest.includes("--sandbox") ? { sandbox: true } : {}),
         ...(rest.includes("--json") ? { json: true } : {}),
       };

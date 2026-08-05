@@ -41,48 +41,54 @@ export async function run_rerun(cmd: Cmd<"rerun">): Promise<void> {
   const configPath = cmd.input ?? process.env.OBSIDIAN_TC_CONFIG;
   // buildServerRuntime, but never start(): a re-run needs the FULLY wired registry (every tool
   // family, not just m7 the way prefetch does) and none of the transports. close() unwinds
-  // whatever the build brought up.
+  // whatever the build brought up. Must run BEFORE openDatabase below: buildServerRuntime's own
+  // wireStores mkdir's cfg.cacheDir, which openDatabase relies on already existing on a cold run.
   const runtime = await buildServerRuntime(cfg, configPath);
-  // Opened here rather than reached for through the runtime, mirroring prefetch.ts:16-17.
-  // `ServerRuntime` exposes `registry`, `start` and `close` only (server-runtime.ts:72-76) — do
-  // not add a field to it for this.
-  const db = await openDatabase(join(cfg.cacheDir, "cache.db"));
   try {
-    const result = await rerunSession({
-      db,
-      registry: runtime.registry,
-      sessionId: cmd.sessionId,
-      cacheDir: cfg.cacheDir,
-      ...(cmd.vault !== undefined ? { expectVaultId: cmd.vault } : {}),
-      ...(cmd.sandbox ? { sandbox: true } : {}),
-    });
+    // Opened here rather than reached for through the runtime, mirroring prefetch.ts:16-17.
+    // `ServerRuntime` exposes `registry`, `start` and `close` only (server-runtime.ts:72-76) — do
+    // not add a field to it for this. Nested inside `runtime`'s own try/finally (fix round 1,
+    // finding 3) so a throw from openDatabase itself still closes the already-built runtime,
+    // instead of leaking it — the ordering above rules out simply opening the db FIRST.
+    const db = await openDatabase(join(cfg.cacheDir, "cache.db"));
+    try {
+      const result = await rerunSession({
+        db,
+        registry: runtime.registry,
+        sessionId: cmd.sessionId,
+        cacheDir: cfg.cacheDir,
+        ...(cmd.vault !== undefined ? { expectVaultId: cmd.vault } : {}),
+        ...(cmd.sandbox ? { sandbox: true } : {}),
+      });
 
-    if (cmd.json) {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    } else {
-      for (const r of result.records) {
-        const line =
-          r.verdict === "runnable"
-            ? `${r.seq}\t${r.tool}\t${r.divergence === "none" ? "same" : `DIVERGED (${r.divergence})`}\trecorded=${r.recorded.status} replayed=${r.replayed?.status} size ${r.recorded.result_size}->${r.replayed?.result_size}`
-            : `${r.seq}\t${r.tool}\t${r.verdict.toUpperCase()}\t${r.reason}`;
-        process.stdout.write(`${line}\n`);
-      }
-      const s = result.summary;
-      // runnable LEADS the summary, so "nothing ran" cannot be skimmed past.
-      process.stdout.write(
-        `\nrunnable ${s.runnable}/${s.total} · diverged ${s.diverged} · ` +
-          `no_capture ${s.byVerdict.no_capture} · redacted ${s.byVerdict.redacted} · ` +
-          `truncated ${s.byVerdict.truncated} · skipped_mutating ${s.byVerdict.skipped_mutating} · ` +
-          `unparseable ${s.byVerdict.unparseable}\n`,
-      );
-      if (s.runnable === 0)
-        process.stderr.write(
-          "rerun: nothing was runnable. If every record reads `no_capture`, `sessions.traceContent` was off when this session was recorded — the trace holds no arguments to re-issue.\n",
+      if (cmd.json) {
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } else {
+        for (const r of result.records) {
+          const line =
+            r.verdict === "runnable"
+              ? `${r.seq}\t${r.tool}\t${r.divergence === "none" ? "same" : `DIVERGED (${r.divergence})`}\trecorded=${r.recorded.status} replayed=${r.replayed?.status} size ${r.recorded.result_size}->${r.replayed?.result_size}`
+              : `${r.seq}\t${r.tool}\t${r.verdict.toUpperCase()}\t${r.reason}`;
+          process.stdout.write(`${line}\n`);
+        }
+        const s = result.summary;
+        // runnable LEADS the summary, so "nothing ran" cannot be skimmed past.
+        process.stdout.write(
+          `\nrunnable ${s.runnable}/${s.total} · diverged ${s.diverged} · ` +
+            `no_capture ${s.byVerdict.no_capture} · redacted ${s.byVerdict.redacted} · ` +
+            `truncated ${s.byVerdict.truncated} · skipped_mutating ${s.byVerdict.skipped_mutating} · ` +
+            `unparseable ${s.byVerdict.unparseable}\n`,
         );
+        if (s.runnable === 0)
+          process.stderr.write(
+            "rerun: nothing was runnable. If every record reads `no_capture`, `sessions.traceContent` was off when this session was recorded — the trace holds no arguments to re-issue.\n",
+          );
+      }
+      process.exitCode = exitCodeFor(result.summary);
+    } finally {
+      db.close?.();
     }
-    process.exitCode = exitCodeFor(result.summary);
   } finally {
-    db.close?.();
     await runtime.close("rerun complete");
   }
 }

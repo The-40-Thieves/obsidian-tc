@@ -235,6 +235,14 @@ describe("THE-645 item 3 — withReadOnlyAcl", () => {
       vaults: [{ id: "b", root: "/tmp/b", acl: { readOnly: false, defaultScopes: [], rules: [] } }],
     } as never;
     withReadOnlyAcl(cfg);
-    expect((cfg as { acl: { readOnly: boolean } }).acl.readOnly).toBe(false);
+    const original = cfg as {
+      acl: { readOnly: boolean };
+      vaults: [{ acl: { readOnly: boolean } }];
+    };
+    expect(original.acl.readOnly).toBe(false);
+    // Fix round 1, finding 5: the per-vault block is exactly what a buggy in-place implementation
+    // (e.g. `v.acl.readOnly = true` instead of spreading a new object) would mutate silently — the
+    // root-only assertion above would not catch that class of bug at all.
+    expect(original.vaults[0].acl.readOnly).toBe(false);
   });
 });
