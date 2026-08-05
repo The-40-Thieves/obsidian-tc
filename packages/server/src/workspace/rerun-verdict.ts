@@ -67,3 +67,66 @@ export function classifyRecord(rec: TraceRecord): ClassifiedRecord {
     return REFUSE("unparseable", "captured arguments are not a JSON object");
   return { verdict: "runnable", args: parsed as Record<string, unknown>, reason: "" };
 }
+
+/** What dispatch reported, on the recorded run and on this one. `Status` is
+ *  `"ok" | "error" | "skipped"` (mcp/registry/types.ts:229). */
+export interface CallOutcome {
+  status?: string;
+  result_size?: number;
+  duration_ms?: number;
+  error_code?: string;
+}
+
+export interface RerunRecord {
+  seq: number;
+  ts: number;
+  tool: string;
+  caller: string | null;
+  verdict: RerunVerdict;
+  reason: string;
+  recorded: CallOutcome;
+  /** Null for every verdict except `runnable` — a refused record was never dispatched. */
+  replayed: CallOutcome | null;
+  divergence: "none" | "status" | "error_code";
+}
+
+export interface RerunSummary {
+  total: number;
+  runnable: number;
+  diverged: number;
+  byVerdict: Record<RerunVerdict, number>;
+}
+
+const ZERO: Record<RerunVerdict, number> = {
+  runnable: 0,
+  no_capture: 0,
+  redacted: 0,
+  truncated: 0,
+  skipped_mutating: 0,
+  unparseable: 0,
+};
+
+export function summarize(records: RerunRecord[]): RerunSummary {
+  const byVerdict = { ...ZERO };
+  let diverged = 0;
+  for (const r of records) {
+    byVerdict[r.verdict] += 1;
+    if (r.divergence !== "none") diverged += 1;
+  }
+  return { total: records.length, runnable: byVerdict.runnable, diverged, byVerdict };
+}
+
+/**
+ * 0 = ran, nothing moved. 1 = ran, something moved (the regression signal). 2 = NOTHING was
+ * runnable.
+ *
+ * 2 existing at all is the point. The happy path and the total-refusal path both terminate without
+ * errors, so without a distinct code "everything was refused" and "everything passed" are the same
+ * observable outcome — and while `sessions.traceContent` is off, total refusal is the only
+ * reachable path. Conditions are disjoint and evaluated in this order.
+ */
+export function exitCodeFor(summary: RerunSummary): 0 | 1 | 2 {
+  if (summary.runnable === 0) return 2;
+  if (summary.diverged > 0) return 1;
+  return 0;
+}
