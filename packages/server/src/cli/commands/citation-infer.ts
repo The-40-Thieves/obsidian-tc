@@ -3,10 +3,9 @@ import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openDatabase } from "../../db/open";
-import type { Database } from "../../db/types";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type InferCitationsOptions, inferCitations } from "../../experiential/citation";
-import { parseTranscriptIndex, planCitationPasses } from "../../experiential/transcript-source";
+import { runCitationIndexPasses } from "../../experiential/citation-index";
 import { createGatewayClient, type GatewayClient } from "../../gateway";
 import { USAGE } from "../args";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
@@ -72,7 +71,20 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
   };
   try {
     if (cmd.transcriptIndex) {
-      await runIndexedPasses(cmd.transcriptIndex, edb, cacheDb, common);
+      const r = await runCitationIndexPasses(cmd.transcriptIndex, edb, cacheDb, common);
+      if (r.malformed.length > 0) {
+        process.stderr.write(
+          `citation-infer: ${r.malformed.length} malformed index line(s) at ${r.malformed.slice(0, 20).join(",")}\n`,
+        );
+      }
+      for (const sk of r.skipped) {
+        process.stderr.write(
+          `citation-infer: SKIPPED ${sk.reason} — ${sk.surface_type} @${sk.retrieved_at} ${JSON.stringify(sk.query.slice(0, 60))}\n`,
+        );
+      }
+      process.stdout.write(
+        `citation-infer: entries=${r.entries} passes=${r.passes} skipped=${r.skipped.length} malformed=${r.malformed.length} scoped=${r.scoped} cited=${r.cited}${r.abortedPasses > 0 ? ` ABORTED(${r.abortedPasses})` : ""}\n`,
+      );
       return;
     }
     const stats = await inferCitations({
@@ -93,65 +105,4 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
     cacheDb.close?.();
   }
   return;
-}
-
-/**
- * Run one citation pass per indexed retrieval (THE-717 step 3).
- *
- * ONE PASS PER ENTRY, not one pass over the union. `inferCitations` scores every chunk in scope
- * against a single transcript, which is only correct when the scope IS one retrieval. A window
- * spanning several queries has several answers, and their concatenation would let any chunk match
- * any answer — citations attributed across queries that never saw each other.
- *
- * Every skip is PRINTED. A run that silently plans nothing and exits 0 is indistinguishable from a
- * run that stamped everything, and this command's whole job is to stop producing that class of
- * unfalsifiable result. Each pass also writes its own row to `citation_runs` (THE-717 item 2), so
- * the outcome is auditable after the fact rather than only in this stdout.
- */
-async function runIndexedPasses(
-  indexPath: string,
-  edb: Database,
-  cacheDb: Database,
-  common: Pick<
-    InferCitationsOptions,
-    | "embed"
-    | "judge"
-    | "maxJudged"
-    | "judgeConcurrency"
-    | "minJudgedForKill"
-    | "allowUncertain"
-    | "log"
-  >,
-): Promise<void> {
-  const { entries, malformed } = parseTranscriptIndex(readFileSync(indexPath, "utf8"));
-  const plan = planCitationPasses(entries);
-  if (malformed.length > 0) {
-    process.stderr.write(
-      `citation-infer: ${malformed.length} malformed index line(s) at ${malformed.slice(0, 20).join(",")}\n`,
-    );
-  }
-  for (const s of plan.skipped) {
-    process.stderr.write(
-      `citation-infer: SKIPPED ${s.reason} — ${s.entry.surface_type} @${s.entry.retrieved_at} ${JSON.stringify(s.entry.query.slice(0, 60))}\n`,
-    );
-  }
-
-  let scoped = 0;
-  let cited = 0;
-  let aborted = 0;
-  for (const p of plan.passes) {
-    const stats = await inferCitations({
-      edb,
-      cacheDb,
-      transcript: p.entry.transcript,
-      windowMs: p.window,
-      ...common,
-    });
-    scoped += stats.scoped;
-    cited += stats.cited;
-    if (stats.aborted) aborted += 1;
-  }
-  process.stdout.write(
-    `citation-infer: entries=${entries.length} passes=${plan.passes.length} skipped=${plan.skipped.length} malformed=${malformed.length} scoped=${scoped} cited=${cited}${aborted > 0 ? ` ABORTED(${aborted})` : ""}\n`,
-  );
 }

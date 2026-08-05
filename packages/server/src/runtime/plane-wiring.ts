@@ -16,6 +16,7 @@ import type { FolderAcl } from "../acl";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
+import { runCitationIndexPasses } from "../experiential/citation-index";
 import { expireOverdueGoals } from "../experiential/goals";
 import { recomputeNoteQualityAll } from "../experiential/note-quality";
 import { registerEpisodeEvaluation } from "../experiential/reflect";
@@ -108,6 +109,13 @@ export interface JobHandlersDeps {
   gatewayTimeoutMs?: number | undefined;
   /** config.vaults */
   vaults: VaultConfigInput[];
+  /** config.experiential.citationInfer — absent or without a transcriptIndex means the handler is
+   *  NOT registered. See the registration below for why a path is the real gate. */
+  citationInfer?: { enabled: boolean; transcriptIndex?: string | undefined } | undefined;
+  /** Query-side embedder for the citation pass's stage-1 cosine leg. */
+  embed?: ((texts: string[]) => Promise<number[][]>) | undefined;
+  /** Authored cache store — the citation pass reads chunk content and stored vectors from it. */
+  cacheDb?: Database | undefined;
 }
 
 export interface JobHandlersWiring {
@@ -185,6 +193,46 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
       { db: deps.db, now: Date.now },
     );
     jobHandlers.set("note-quality", noteQualityJob);
+  }
+  // THE-717: the citation pass finally gets a scheduled caller. It had exactly one — the offline
+  // CLI — so every citation column was NULL on 105 of 105 live rows.
+  //
+  // FOUR conditions, and each rules out a job that would look scheduled while doing nothing:
+  //   experientialOpen  — chunk_retrievals is where it reads and writes
+  //   enabled           — opt-in, per the config block
+  //   transcriptIndex   — THE REAL GATE. Without a producer there is no input, and a handler with
+  //                       no possible input is worse than an absent one: it reports success with
+  //                       zero work forever, which is the exact shape THE-716/THE-717 kept finding.
+  //   roles (gateway)   — NOT merely "matching the contradiction job". Without a judge the pass
+  //                       runs stage-1-only and stamps every survivor cited_in_response = 1 with
+  //                       state `candidate`. That COUNTS as a citation in chunk_access_stats, and
+  //                       note_quality weights citation rate at 0.6 — so an unattended stage-1-only
+  //                       schedule would inflate 60% of every quality score with rows no judge ever
+  //                       read. A human can still choose that mode at the CLI, deliberately.
+  const citationIndexPath = deps.citationInfer?.transcriptIndex;
+  if (
+    deps.experientialOpen &&
+    deps.citationInfer?.enabled === true &&
+    citationIndexPath !== undefined &&
+    deps.roles &&
+    deps.cacheDb &&
+    deps.embed
+  ) {
+    const roles = deps.roles;
+    const cacheDb = deps.cacheDb;
+    const embed = deps.embed;
+    const citationJob = wrapPlaneJob(
+      "citation",
+      async () => ({
+        ok: true,
+        detail: await runCitationIndexPasses(citationIndexPath, deps.experientialDb, cacheDb, {
+          embed,
+          judge: (r) => roles.judge(r).then((x) => ({ text: x.text, model: x.model })),
+        }),
+      }),
+      { db: deps.db, now: Date.now },
+    );
+    jobHandlers.set("citation", citationJob);
   }
   const jobRunner = makeJobRunner({
     queue: deps.jobQueue,
@@ -348,6 +396,9 @@ export function registerNoteQualitySchedule(
     intervalMs: number;
     observability: Pick<Observability, "onActivationRecompute">;
     jobQueue: JobQueue;
+    /** config.experiential.citationInfer.intervalHours in ms, or undefined when the pass is off.
+     *  Its own cadence rather than the maintenance interval: the pass costs gateway judge calls. */
+    citationIntervalMs?: number | undefined;
   },
 ): void {
   if (!deps.experientialOpen) return;
@@ -383,6 +434,29 @@ export function registerNoteQualitySchedule(
     },
     onError: stderrOnError("note-quality-enqueue"),
   });
+  // THE-717: enqueue the citation pass. Its own cadence, like gapSweep and note-quality — the
+  // enqueue is unconditional here because the HANDLER registration is what gates it: an enqueue
+  // with no registered handler dead-letters loudly rather than silently doing nothing, which is
+  // the failure mode worth having if the two ever disagree.
+  //
+  // The idempotency key is the DAY plus the interval bucket, not the day alone: unlike
+  // note-quality this can legitimately run several times a day, and a day-only key would silently
+  // throttle every pass after the first — the shape THE-296 hit with `synthesis:<iso-week>`.
+  if (deps.citationIntervalMs !== undefined) {
+    const bucketMs = deps.citationIntervalMs;
+    scheduler.register({
+      name: "citation-enqueue",
+      intervalMs: bucketMs,
+      run: () => {
+        deps.jobQueue.enqueue("citation", {
+          class: "plane",
+          idempotencyKey: `citation:${Math.floor(Date.now() / bucketMs)}`,
+          maxAttempts: 1,
+        });
+      },
+      onError: stderrOnError("citation-enqueue"),
+    });
+  }
   // THE-633: the goal expiry sweep. Registered HERE, in the same change that adds the table, and
   // deliberately so — an expiry function with no scheduled caller is precisely the shape this
   // codebase keeps producing (THE-698's evaluator, THE-717's citation pass, THE-719's gaps pass:

@@ -351,6 +351,43 @@ export const ExperientialConfigSchema = z.object({
     .describe(
       "Build the ACT-R cached-activation-score lookup and thread it to every M7 graphSearch call. NOT YET WIRED to the serve-path bubble pass (bubble_safe_rerank) — that requires opts.bubbleSafe.enabled, which nothing under src/ sets, so enabling this flag currently changes no ranking. See THE-424 for the (deliberately deferred) wiring decision.",
     ),
+  /** THE-717: the scheduled citation pass. `inferCitations` had exactly one caller — the offline
+   *  `obsidian-tc citation-infer` CLI — so every citation column was NULL on 105 of 105 live rows:
+   *  correct code, complete tests, no scheduled caller. Same shape as gapSweep below, and named
+   *  after the same lesson.
+   *
+   *  OFF BY DEFAULT, and it needs an input nothing in this package produces. The pass scores
+   *  retrieved chunks against the ASSISTANT'S answer, which no MCP surface hands to a server, so
+   *  `transcriptIndex` points at a JSONL file some out-of-tree producer maintains. Without that
+   *  path there is nothing to run and the handler is not registered — a job that can never do work
+   *  should not appear to be scheduled. */
+  citationInfer: z
+    .object({
+      enabled: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Run the citation-inference pass on a schedule over a transcript index. Off by default: it needs transcriptIndex, an input no MCP surface can produce on its own.",
+        ),
+      transcriptIndex: z
+        .string()
+        .optional()
+        .describe(
+          "Path to a JSONL transcript index — one object per retrieval ({vault, surface_type, query, retrieved_at, transcript}), whose transcript is already filtered to text produced AFTER retrieved_at. Absent disables the scheduled pass entirely.",
+        ),
+      intervalHours: z
+        .number()
+        .positive()
+        .max(8760)
+        .default(6)
+        .describe(
+          "Hours between scheduled passes when enabled. Defaults to 6: the pass costs gateway judge calls, and a retrieval's citation status is not time-sensitive once stamped.",
+        ),
+    })
+    .prefault({})
+    .describe(
+      "THE-717: scheduled citation-inference pass over a transcript index. Needs an out-of-tree producer for transcriptIndex — no MCP surface gives a server the assistant's answer.",
+    ),
   /** THE-719: the scheduled coverage-gap sweep. `detectGaps` had exactly one caller — the offline
    *  `obsidian-tc gaps` CLI — so `gap_reports` held 0 rows and the THE-611 read tool had nothing to
    *  read: correct code, complete tests, no scheduled caller.

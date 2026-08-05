@@ -109,6 +109,10 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "captureEpisodes": true,
     "captureContent": false,
     "activationRerank": false,
+    "citationInfer": {
+      "enabled": false,
+      "intervalHours": 6
+    },
     "gapSweep": {
       "enabled": false,
       "intervalHours": 168,

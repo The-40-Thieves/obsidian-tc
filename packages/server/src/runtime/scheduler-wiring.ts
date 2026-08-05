@@ -92,6 +92,13 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     intervalMs: maintMs,
     observability: deps.observability,
     jobQueue: deps.jobQueue,
+    // THE-717: own cadence, and UNDEFINED when the pass is off so no tick is registered at all —
+    // an enqueue loop for a job that can never run is the thing this ticket exists to stop.
+    citationIntervalMs:
+      config.experiential.citationInfer.enabled &&
+      config.experiential.citationInfer.transcriptIndex !== undefined
+        ? config.experiential.citationInfer.intervalHours * 3_600_000
+        : undefined,
   });
 
   // #14: job-queue runner tick. Unconditional — makeJobRunner no-ops with zero handlers, so this
