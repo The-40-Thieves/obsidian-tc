@@ -116,4 +116,16 @@ describe("THE-645 item 3 — summary and exit codes", () => {
     ]);
     expect(exitCodeFor(s)).toBe(1);
   });
+
+  it("runnable === 0 wins over divergence — the ordering, pinned", () => {
+    // `exitCodeFor`'s contract is that runnable === 0 returns 2 "regardless of anything else".
+    // The runner never produces this state (a refused record gets divergence: "none" hardcoded),
+    // but that invariant lives in the runner's discipline, not in the type — so nothing here
+    // fails when the discipline lapses. This is the ONLY fixture that distinguishes the correct
+    // order from the swapped one.
+    const s = summarize([rec({ verdict: "no_capture", replayed: null, divergence: "status" })]);
+    expect(s.runnable).toBe(0);
+    expect(s.diverged).toBe(1);
+    expect(exitCodeFor(s)).toBe(2);
+  });
 });
