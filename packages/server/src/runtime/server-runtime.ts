@@ -424,6 +424,12 @@ export async function buildServerRuntime(
       maxPromptChars: config.plane.maxPromptChars,
       gatewayMaxAttempts: config.plane.gatewayMaxAttempts,
       gatewayTimeoutMs: config.plane.gatewayTimeoutMs,
+      // THE-717: the citation pass needs the AUTHORED store (chunk content + stored vectors) and a
+      // query-side embedder for its stage-1 cosine leg, neither of which the other plane jobs use.
+      // Passed unconditionally; wireJobHandlers decides whether to register anything.
+      citationInfer: config.experiential.citationInfer,
+      cacheDb: db,
+      embed: (texts) => embeddingProvider.embed(texts, { input: "query" }),
     });
 
     // THE-291 (part 2)/THE-455/THE-453/THE-649: the coordinator, the reindex/deindex hooks, and the

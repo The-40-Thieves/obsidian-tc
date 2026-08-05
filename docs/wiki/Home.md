@@ -11,7 +11,7 @@
 |---|---|
 | **Version** | `1.19.0` |
 | **Tools** | 158 governed capabilities (advertised via the 3-tool facade) |
-| **Config keys** | 192 |
+| **Config keys** | 195 |
 | **Golden set** | 250 queries, statistical ship rule on every ranking change |
 | **Retrieval** | contextual chunk enrichment +0.223 nDCG, defaults on |
 | **MCP spec** | [2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) |

@@ -50,8 +50,14 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // privacy posture, not a convenience: server-opened sessions correlate a principal's retrievals,
 // which changes what this server retains about who read what, so a config that says nothing gets
 // the non-correlating behaviour. No existing key, type, default or constraint moved.
+// THE-717: rebaselined deliberately. Adds ONE block, `experiential.citationInfer`, with three keys
+// — `enabled` (boolean, default FALSE), `transcriptIndex` (string, OPTIONAL, no default) and
+// `intervalHours` (number, default 6). Off by default because the pass cannot run without
+// `transcriptIndex`, and nothing in this package can produce one: it needs the ASSISTANT'S answer,
+// which no MCP surface hands to a server. A default-on flag pointing at a file that does not exist
+// would dead-letter a job on every tick. No existing key, type, default or constraint moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "0bbcbf6195a6b18ff6cf0de07ab74aae2390f18dd20c2f2f4304c2ab2d2e1c95";
+  "cf288d5aa34529492ee77f7cb28aa3bd2a3de9cd56b829ad5fcea29318b1ded3";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
