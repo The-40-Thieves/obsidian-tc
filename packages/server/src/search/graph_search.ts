@@ -1,5 +1,6 @@
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
+import { confidenceFor, type RetrievalConfidence } from "../experiential/calibration";
 import { mtimesByPath, noteFreshness, STALE_THRESHOLD_DAYS } from "./freshness";
 import { assembleCandidates } from "./graph_search_stages/candidate_assembly";
 import { classify, seedZMargin } from "./graph_search_stages/classify";
@@ -55,6 +56,12 @@ export function estimateCoverage(
   results: GraphSearchResult[],
   requested: number,
   pipeline: { routedToSeedsOnly: boolean; expansionTruncated: boolean },
+  /** THE-733: the placed confidence, computed by the caller from the vault's persisted calibration.
+   *  Passed in rather than looked up so this function stays PURE — the same contract the staleness
+   *  half holds (`countStaleNotes` does the DB work, this does none). Defaults to the honest
+   *  not-calibrated answer, so a caller that forgets to wire it degrades to "no claim" rather than
+   *  to a fabricated number. */
+  confidence: RetrievalConfidence = { available: false, reason: "not_calibrated" },
   staleness: { staleReturned: number; staleUnknown: number; thresholdDays: number } = {
     staleReturned: 0,
     staleUnknown: 0,
@@ -63,6 +70,7 @@ export function estimateCoverage(
 ): CoverageEstimate {
   const arms = ALL_SOURCES.filter((s) => results.some((r) => r.source === s));
   return {
+    confidence,
     arms: [...arms],
     armsContributed: arms.length,
     armsPossible: ALL_SOURCES.length,
@@ -184,6 +192,19 @@ export async function graphSearch(
           routedToSeedsOnly: core.routedToSeedsOnly,
           expansionTruncated: core.expansionTruncated,
         },
+        // THE-733: placed against the VAULT'S OWN distribution. `confidenceFor` returns the
+        // not-calibrated branch when opts carries no calibration, so an unconfigured deployment
+        // reports no claim rather than a number derived from a global constant.
+        //
+        // `rerank_score` is the RIGHT field, verified not assumed: the calibration is built by
+        // gap-sweep.ts, which maps `score: r.rerank_score`. Placing any other score against this
+        // distribution would repeat the "not comparable" error the percentile exists to avoid,
+        // one level down.
+        confidenceFor(
+          results[0]?.rerank_score,
+          opts.scoreCalibration ?? null,
+          opts.engineVersion ?? "",
+        ),
         countStaleNotes(
           db,
           opts.vaultId,

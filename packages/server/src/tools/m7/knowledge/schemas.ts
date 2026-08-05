@@ -60,6 +60,24 @@ export const CoverageEstimateSchema = z.object({
   staleReturned: z.number(),
   staleUnknown: z.number(),
   staleThresholdDays: z.number(),
+  /** THE-631 item 1 / THE-733 — the query's top score placed in the VAULT'S OWN calibrated
+   *  distribution. A discriminated union: an uncalibrated vault reports `available: false` with a
+   *  reason rather than a number derived from a global constant, because "a confidence number
+   *  computed from another vault's percentiles is worse than no confidence number." */
+  confidence: z.union([
+    z.object({
+      available: z.literal(false),
+      reason: z.enum(["not_calibrated", "not_enough_samples", "no_results"]),
+    }),
+    z.object({
+      available: z.literal(true),
+      percentile: z.number(),
+      band: z.enum(["low", "moderate", "high"]),
+      calibrated_at: z.number(),
+      calibrated_n: z.number(),
+      stale_calibration: z.boolean(),
+    }),
+  ]),
 });
 
 /** THE-646 item 2: one link in an answer's lineage. Every field that can be UNKNOWN says so with a

@@ -4,8 +4,10 @@
 // lookups the tool handlers compose. `buildKnowledgeTools` (still in knowledge-tools.ts) imports
 // these; nothing here imports the facade back.
 
+import { version as VERSION } from "../../../../package.json";
 import { tableExists } from "../../../db/introspect";
 import type { Database } from "../../../db/types";
+import { readLatestCalibration } from "../../../experiential/calibration";
 import type { RetrievalPolicyRecord } from "../../../experiential/log";
 import type { CallerContext } from "../../../mcp/registry";
 import { type ContradictionContext, EVIDENCE_TRUNCATE } from "../../../plane/challenge";
@@ -270,6 +272,20 @@ export function buildGraphSearchOptions(
     isReadable: site.isReadable,
     ...(site.onFusionWeights ? { onFusionWeights: site.onFusionWeights } : {}),
     ...(site.onCoverage ? { onCoverage: site.onCoverage } : {}),
+    // THE-733: the vault's persisted score calibration, read ONLY when a caller asked for
+    // coverage — an ordinary search pays nothing for a reported-only side channel. Read here
+    // rather than inside graphSearch because `score_calibration` lives in the EXPERIENTIAL store
+    // and the search path only holds the authored cache db.
+    //
+    // Absent edb, or a vault never calibrated, yields `null` -> confidence reports
+    // `not_calibrated`. That is the designed answer, not a degraded one: a number derived from
+    // another vault's percentiles would look authoritative and be meaningless.
+    ...(site.onCoverage && deps.edb
+      ? {
+          scoreCalibration: readLatestCalibration(deps.edb, site.vaultId),
+          engineVersion: VERSION,
+        }
+      : {}),
     // THE-632: both or neither — a trace path with no sink traces into nothing, and a sink with no
     // path has nothing to follow. Gating them together keeps that unrepresentable.
     ...(site.traceNotePath && site.onRetrievalTrace

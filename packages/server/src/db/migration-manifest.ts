@@ -115,6 +115,12 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // pass genuinely does not know which vault it stamped, and the migration header says why that
   // departs from the 20260803_002 precedent directly above.
   "20260805_001_citation_runs.sql",
+  // THE-733: 20260805_002 persists the per-vault calibrated score distribution. `gaps
+  // --calibrate` printed it and returned, so no percentile existed at query time and the only
+  // number reachable from the request path was a global constant from an n=136 calibration on
+  // ONE vault. Carries provenance (engine_version, config_fingerprint) because a distribution
+  // is only valid for the engine that produced it.
+  "20260805_002_score_calibration.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */
