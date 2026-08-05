@@ -1,6 +1,6 @@
 # Tool Reference
 
-**157 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
+**158 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
 
 Every tool carries four annotations enforced by the dispatch pipeline: **acl** (`read` / `write` / `delete` / `execute` / `admin`), **hitl** (`never` / `required` / conditional), **idem** (`pure` / `natural` / `keyed` / `non-idem`), and **ratelimit** (`read` / `write` / `bulk`). See **[[Security and ACL]]**.
 
@@ -77,7 +77,7 @@ Every error also carries a **`recovery`** string: bounded next-step guidance for
 _Auto-generated from the tool registry — the exhaustive, always-current list. Run `bun run docgen:render`; do not hand-edit between the markers._
 
 <!-- BEGIN GENERATED: tools -->
-_157 tools. Access is a coarse hint; the required scopes are authoritative._
+_158 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -111,6 +111,7 @@ _157 tools. Access is a coarse hint; the required scopes are authoritative._
 | `eval_dataview_field` | read | `read:dataview` | Evaluate a Dataview field expression against a single note (useful for property derivation). |
 | `execute_command` | write | `execute:command` | Fire an Obsidian command by id. Deny-by-default and triple-gated: requires human confirmation (execute:command is a HITL floor), command execution must be enabled for the vault, and the id must be on the vault allowlist. Falls back to Local REST API's native /commands/{id}/ route when the companion is unreachable. Never silently runnable. |
 | `execute_template` | write | `write:templater` | Run a Templater template and write the expanded output to a target path. Always requires human confirmation (write:templater is a HITL floor) because templates can execute arbitrary user JavaScript. |
+| `explain_answer` | read | `read:notes` | Explain what an answer actually used: walks retrieval -> chunk -> citation -> episode for one session or time window and reports each link with how well it is known. Distinguishes a retrieval the citation pass never judged from one it judged and rejected, and a chunk whose note no longer exists from one that was never used. Read-only; reports nothing about paths the caller cannot read. |
 | `find_link_cycles` | read | `read:notes` | Detect circular internal-link chains (a -> b -> ... -> a) in the readable note graph. Returns up to `limit` cycles as ordered path lists. |
 | `find_notes_by_property` | read | `read:notes` | Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list). Set verbosity=terse to return path only (dropping the matched value). Set nested=true to match a dotted key path. |
 | `find_notes_by_tag` | read | `read:notes` | Find notes carrying a tag, hierarchically (a query for `project` matches `project` and `project/sub`). |
