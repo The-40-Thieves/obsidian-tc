@@ -132,10 +132,16 @@ Usage:
                                         Default mode refuses every mutating call via a read-only
                                         ACL. --sandbox copies THAT vault and the databases to a
                                         temp dir and runs vault-filesystem calls for real against
-                                        the copy; plugin-bridge tools (git/tasks/excalidraw/
-                                        remotely-save) are disabled under --sandbox rather than
-                                        run, because they act through the live Obsidian app on the
-                                        REAL vault and a copy cannot contain that.
+                                        the copy; ALL plugin-bridge tools are disabled under
+                                        --sandbox rather than run — the write ones (git, tasks,
+                                        excalidraw, remotely-save) because they act through the
+                                        live Obsidian app on the REAL vault and a copy cannot
+                                        contain that, and the read ones with them, because the
+                                        bridge transport is stripped wholesale rather than per
+                                        tool. So a sandboxed re-run reports bridge-backed reads
+                                        (list_tasks, git_status, eval_dataview_field, ...) as
+                                        diverged; that is rerun's own policy refusing them, not
+                                        vault state having moved.
                                         Exit: 0 nothing moved, 1 divergence found, 2 nothing
                                         was runnable.
   obsidian-tc citation-infer [path] (--transcript <file> (--session <id> | --since <ms> [--until <ms>])
