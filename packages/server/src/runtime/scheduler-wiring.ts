@@ -68,6 +68,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
   // THE-292: periodic cache.db maintenance.
   configureMaintenance(scheduler, {
     db: deps.db,
+    cacheDir: config.cacheDir,
     maintenance: config.maintenance,
     retention: config.observability.retention,
     sessions: config.sessions,

@@ -30,6 +30,10 @@ export const CACHE_MIGRATION_FILES = [
   // process-local map. Belongs in the CACHE chain because workspace_sessions is created by
   // 20260519_001_initial.sql, in cache.db. The migration header carries the full reasoning.
   "20260804_001_workspace_sessions_principal.sql",
+  // THE-737: session traces move out of the vault to cacheDir. `trace_store` records which
+  // store a row's `trace_path` is relative to, so the legacy (vault) and new (cache)
+  // generations resolve differently without sniffing the path string.
+  "20260805_003_session_trace_store.sql",
 ] as const;
 
 /**

@@ -108,6 +108,7 @@ describe("THE-306 registered tool count", () => {
       mode: () => "headless",
     });
     registerM5Tools(registry, {
+      cacheDir: "",
       vaultRegistry,
       activeSessions: {} as never,
       reindex: noop,

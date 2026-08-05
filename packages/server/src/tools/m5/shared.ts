@@ -25,6 +25,10 @@ export { DEFAULT_TRACE_FOLDER };
 
 export interface M5Deps {
   vaultRegistry: VaultRegistry;
+  /** THE-737: where session traces live now. Traces moved OUT of the vault because a
+   *  vault-resident trace is reachable through `read_note` (`.obsidian-tc` is not in
+   *  DEFAULT_DENY_ROOTS). Same directory as cache.db / experiential.db. */
+  cacheDir: string;
   /** THE-291: index-on-write hook for capture-commit writes (best-effort, backgrounded). */
   reindex?: (vaultId: string, path: string, content: string) => void;
   /** THE-209: active-session tracker; start_session/end_session maintain it, the transport reads it. */

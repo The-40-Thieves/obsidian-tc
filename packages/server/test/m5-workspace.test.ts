@@ -4,6 +4,7 @@
 // tool-filtered), the THE-175 append contract (an injected tool-invocation record
 // replays back), invalid_input paths, the write ACL on the trace path, the read-only
 // kill-switch, and scope enforcement.
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { appendTrace } from "../src/workspace/sessions";
@@ -32,8 +33,10 @@ describe("start_session", () => {
       if (!r.ok) return;
       const d = r.data as { session_id: string; trace_path: string; started_at: number };
       expect(d.session_id).toMatch(/^sess_[a-f0-9]{24}$/);
-      expect(d.trace_path).toBe(`.obsidian-tc/traces/${d.session_id}.jsonl`);
-      const trace = v.read(d.trace_path);
+      // THE-737: cacheDir-relative now. The assertion's intent -- the path names THIS session --
+      // is unchanged; the store moved, so `v.read` (vault-relative) no longer reaches it.
+      expect(d.trace_path).toBe(`traces/${d.session_id}.jsonl`);
+      const trace = readFileSync(join(v.cacheDir, d.trace_path), "utf8");
       expect(trace).toContain('"type":"session_start"');
       expect(trace).toContain('"goal":"demo"');
       expect(v.events().some((e) => e.tool_name === "start_session" && e.status === "ok")).toBe(
@@ -44,14 +47,24 @@ describe("start_session", () => {
     }
   });
 
-  it("enforces the write ACL on the trace path, is read-only-gated, and needs write:workspace", async () => {
-    const denied = makeM5Vault({ acl: { writePaths: ["allowed/**"] } });
+  it("is read-only-gated and needs write:workspace; the folder ACL no longer gates it (THE-737)", async () => {
+    // THE-737: the folder ACL NO LONGER gates session creation, and that is deliberate.
+    //
+    // It used to, incidentally: the trace lived in the vault, so `enforcePathAcl` on its path
+    // doubled as a session-creation gate. Moving the trace out of the vault removes the referent
+    // -- a folder ACL governs VAULT paths, and a caller restricted to `allowed/**` has nothing to
+    // say about a server-internal bookkeeping file outside it. Relying on that coupling is the
+    // same "incidental containment" that produced THE-737 in the first place.
+    //
+    // Pinned as the NEW contract rather than deleted, so the reduction is visible: a narrow write
+    // ACL no longer blocks start_session. The two controls that DO gate it are asserted below and
+    // are unchanged.
+    const narrowAcl = makeM5Vault({ acl: { writePaths: ["allowed/**"] } });
     try {
-      const r = await denied.call("start_session", { vault: "test", caller: "x" });
-      expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.error.code).toBe("acl_denied");
+      const r = await narrowAcl.call("start_session", { vault: "test", caller: "x" });
+      expect(r.ok).toBe(true);
     } finally {
-      denied.cleanup();
+      narrowAcl.cleanup();
     }
     const ro = makeM5Vault({ acl: { readOnly: true } });
     try {
@@ -126,7 +139,9 @@ describe("get_session_traces", () => {
     try {
       const s = await start(v, 1000);
       // Simulate the ambient worker (THE-175) appending a tool-invocation record.
-      appendTrace(join(v.root, s.trace), {
+      // THE-737: it appends to the cacheDir trace, which is where the server writes now --
+      // appending under the vault would leave an orphan the reader never sees.
+      appendTrace(join(v.cacheDir, s.trace), {
         ts: 1500,
         type: "event",
         tool: "write_note",

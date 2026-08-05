@@ -30,6 +30,7 @@ import { startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
 import {
   activeSessionFor,
+  cacheTraceRelPath,
   closeStaleImplicitSessions,
   DEFAULT_TRACE_FOLDER,
   genSessionId,
@@ -72,20 +73,26 @@ describe("openImplicitSession — the shape the sweep keys on", () => {
     });
     const row = db
       .prepare(
-        "SELECT caller, principal, ended_at, trace_path FROM workspace_sessions WHERE id = ?",
+        "SELECT caller, principal, ended_at, trace_path, trace_store FROM workspace_sessions WHERE id = ?",
       )
       .get(opened.sessionId) as {
       caller: string | null;
       principal: string;
       ended_at: number | null;
       trace_path: string;
+      trace_store: string;
     };
     expect(row.caller).toBeNull();
     expect(row.principal).toBe("alice");
     expect(row.ended_at).toBeNull();
     // The trace path must name THIS session. An earlier draft passed a pre-computed path built from
     // a separately-minted id, which stored a trace_path pointing at a session that never existed.
-    expect(row.trace_path).toBe(`${DEFAULT_TRACE_FOLDER}/${opened.sessionId}.jsonl`);
+    // THE-737: cacheDir-relative now, not vault-relative — the assertion's INTENT (the path names
+    // the id minted here) is unchanged; only the store moved.
+    expect(row.trace_path).toBe(cacheTraceRelPath(opened.sessionId));
+    expect(row.trace_store).toBe("cache");
+    // The whole point of the move: nothing about this path is inside the vault any more.
+    expect(row.trace_path.startsWith(".obsidian-tc")).toBe(false);
     // And it resolves, so the very next dispatch correlates to it.
     expect(activeSessionFor(db, "alice")).toStrictEqual({
       sessionId: opened.sessionId,
@@ -213,7 +220,7 @@ async function boot(sessions?: { autoOpen: boolean; windowSeconds: number }): Pr
   const db = freshDb();
   const vaultRegistry = new VaultRegistry([{ id: "main", path: root }]);
   const registry = new ToolRegistry();
-  for (const tool of buildSessionTools({ vaultRegistry })) registry.register(tool);
+  for (const tool of buildSessionTools({ vaultRegistry, cacheDir: root })) registry.register(tool);
   registry.register({
     name: "probe",
     description: "test-only: reports the session the context carries",

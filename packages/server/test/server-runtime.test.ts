@@ -161,6 +161,7 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", {
   });
 
   const baseDeps = async (cacheDir: string): Promise<Omit<RuntimeCoreDeps, "embeddings">> => ({
+    cacheDir,
     stores: track(
       await wireStores({
         cacheDir,

@@ -72,6 +72,7 @@ function makeVault(opts: { plur?: boolean } = {}): IntegrationVault {
     embeddings: { provider: "ollama", model: "nomic-embed-text" },
   });
   registerM5Tools(registry, {
+    cacheDir: root,
     vaultRegistry,
     plur,
     memoryFolder: () => "memory",

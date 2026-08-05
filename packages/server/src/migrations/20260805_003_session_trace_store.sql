@@ -1,0 +1,38 @@
+-- THE-737: session traces move OUT of the vault. This column records which store a row's
+-- `trace_path` is relative to, so the two generations resolve differently without guessing.
+--
+-- WHY THE TRACES MOVE. They lived at `<vault>/.obsidian-tc/traces/<sessionId>.jsonl`, and that is
+-- reachable through the tool surface. `DEFAULT_DENY_ROOTS` is [".obsidian", ".git", ".trash"];
+-- `.obsidian-tc` is NOT in it and does not match `.obsidian` or `.obsidian/`, so `isDefaultDenied`
+-- returns false for a trace path. `read_note` takes a bare VaultPath with no extension restriction,
+-- `VaultPath` permits dot-segments, and `resolveVaultPathChecked` guards ESCAPE rather than
+-- dot-segments. So `read_note { path: ".obsidian-tc/traces/sess_*.jsonl" }` succeeded for any
+-- caller holding read:notes under the default posture.
+--
+-- Today that discloses metadata only (tool, caller, timings, args_hash, result_size) -- bounded,
+-- and nil on a single-principal deployment. It stops being bounded the moment THE-736 captures
+-- tool ARGUMENTS into the same file: the trace then aggregates note content from every path a
+-- session touched, and reading it is governed by the TRACE file's ACL rather than by each source
+-- note's. That is an ACL-BYPASS channel (the THE-563/564 class), and no config flag fixes it while
+-- the file is inside the vault.
+--
+-- Moving to `cacheDir` -- which already holds cache.db and experiential.db -- defeats read_note,
+-- list_notes, walkVault, the indexer AND Obsidian Sync in one move, rather than patching one door.
+--
+-- WHY A COLUMN AND NOT A PATH PREFIX SNIFF. The obvious alternative is to look at the stored string
+-- and infer the store from it (starts with the legacy trace folder => vault). That is inference
+-- over a caller-influenced default: `traceFolder` is `z.string().min(1)` and an operator may have
+-- set it to anything, including something that looks like a cache-relative path. An explicit
+-- discriminator cannot be wrong, and it makes the two generations legible in a query.
+--
+-- DEFAULT 'vault' IS THE CORRECT BACKFILL, not a placeholder. Every row that exists when this
+-- migration runs has a vault-relative `trace_path` and a file (if any) under the vault. Marking
+-- them 'vault' keeps them readable exactly as before; new rows are written 'cache'. No file is
+-- moved by this migration -- old traces stay where they are and age out through the THE-610 sweep,
+-- which is the honest behaviour: a migration that moved files would have to undo that on failure,
+-- and a trace is derived data nobody is entitled to keep.
+ALTER TABLE workspace_sessions ADD COLUMN trace_store TEXT NOT NULL DEFAULT 'vault';
+
+-- Partial index on the new generation only. The sweep and any future replay read 'cache' rows;
+-- 'vault' rows are a shrinking legacy set nothing new appends to.
+CREATE INDEX idx_workspace_sessions_trace_store ON workspace_sessions(trace_store, started_at DESC);

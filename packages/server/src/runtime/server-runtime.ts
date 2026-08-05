@@ -120,6 +120,9 @@ export interface RuntimeCoreDeps {
    *  this file's header comment for why stores is built outside and handed in rather than
    *  constructed here. */
   stores: Stores;
+  /** THE-737: trace storage root (config.cacheDir) — governance's sessionTracer resolves a
+   *  cache-store session's trace against it instead of the vault root. */
+  cacheDir: string;
   /** Already-initialized OTEL handle, opened between `stores` and this call in real boot — see this
    *  file's header comment. Optional: `buildServerRuntime` always supplies it, but the direct
    *  `wireRuntimeCore` tests below construct no OTEL and omit it, so `built` simply has one fewer
@@ -193,6 +196,7 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
   try {
     const governance = wireGovernance({
       db: deps.stores.db,
+      cacheDir: deps.cacheDir,
       vaults: deps.vaults,
       acl: deps.acl,
       defaultVaultId: deps.defaultVaultId,
@@ -317,6 +321,7 @@ export async function buildServerRuntime(
 
   const { governance, indexResources } = await wireRuntimeCore({
     stores,
+    cacheDir: config.cacheDir,
     vaults: config.vaults,
     acl: config.acl,
     defaultVaultId: process.env.OBSIDIAN_TC_DEFAULT_VAULT,

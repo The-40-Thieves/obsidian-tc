@@ -97,6 +97,7 @@ export function buildFullRegistry(): ToolRegistry {
     mode: () => "headless",
   });
   registerM5Tools(registry, {
+    cacheDir: "",
     vaultRegistry,
     activeSessions: stub,
     reindex: noop,

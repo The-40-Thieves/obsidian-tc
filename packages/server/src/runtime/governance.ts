@@ -14,12 +14,19 @@ import type { RegistryOptions } from "../mcp/registry/types";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import { RateLimiter, type ThrottleTiers } from "../throttle";
-import { resolveVaultPath } from "../vault/paths";
 import { VaultRegistry } from "../vault/registry";
-import { ActiveSessionTracker, appendTrace, getSession } from "../workspace/sessions";
+import {
+  ActiveSessionTracker,
+  appendTrace,
+  getSession,
+  resolveTraceAbs,
+} from "../workspace/sessions";
 
 export interface GovernanceDeps {
   db: Database;
+  /** THE-737: where session traces live now (beside cache.db). The sessionTracer resolves a
+   *  cache-store row against this instead of the vault root. */
+  cacheDir: string;
   /** config.vaults */
   vaults: VaultConfigInput[];
   /** config.acl — root ACL, inherited by any vault without its own. */
@@ -122,7 +129,16 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
       try {
         const row = getSession(deps.db, session.sessionId);
         if (!row || row.ended_at !== null || row.vault_id !== session.vaultId) return;
-        const abs = resolveVaultPath(vaultRegistry.resolve(row.vault_id).root, row.trace_path);
+        // THE-737: a row's store decides where its trace lives. Resolving every row against the
+        // vault would send a cache-store trace to a vault path that does not exist -- and because
+        // this whole block is best-effort, that failure would be swallowed and the trace silently
+        // lost. One shared resolver, so this cannot drift from the session tools' reader.
+        const abs = resolveTraceAbs({
+          store: row.trace_store,
+          tracePath: row.trace_path,
+          cacheDir: deps.cacheDir,
+          vaultRoot: vaultRegistry.resolve(row.vault_id).root,
+        });
         appendTrace(abs, record);
       } catch {
         /* best-effort: tracing never breaks a dispatch */

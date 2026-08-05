@@ -146,6 +146,7 @@ describe("THE-414 folder-ACL path-extraction coverage", () => {
       mode: () => "headless",
     });
     registerM5Tools(registry, {
+      cacheDir: "",
       vaultRegistry,
       activeSessions: {} as never,
       reindex: noop,
