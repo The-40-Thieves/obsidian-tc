@@ -56,8 +56,13 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // `transcriptIndex`, and nothing in this package can produce one: it needs the ASSISTANT'S answer,
 // which no MCP surface hands to a server. A default-on flag pointing at a file that does not exist
 // would dead-letter a job on every tick. No existing key, type, default or constraint moved.
+// THE-657: rebaselined deliberately, DESCRIPTION TEXT ONLY. The Windows watcher is enabled, so
+// three descriptions that said it is "not active on Windows" are now false. No key, type, default
+// or constraint moved; `watch.enabled` and `reconcileIntervalMinutes` are byte-identical apart
+// from their prose. The crash was an 8.3 short path reaching libuv, not recursive fs.watch —
+// measured on windows-latest, which died under os.tmpdir() and survived twice under a realpath.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "cf288d5aa34529492ee77f7cb28aa3bd2a3de9cd56b829ad5fcea29318b1ded3";
+  "851a2c3e1a3c847c937478c4bd9890927f3870a334f0ba2dc6a79b333482cd96";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

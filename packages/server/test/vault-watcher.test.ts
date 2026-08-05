@@ -280,7 +280,16 @@ describe("the watch must not hold the event loop open", () => {
     // process exit, even though unref is a real function on the returned FSWatcher — Node backs a
     // recursive watch with a tree of internal per-directory watchers and unref'ing the parent does
     // not propagate. {recursive:true, persistent:false} exits immediately.
-    expect(SRC).toMatch(/watch\(\s*t\.root,\s*\{\s*recursive:\s*true,\s*persistent:\s*false\s*\}/);
+    // THE-657: the first argument is `watchRoot` (realpathSync.native of t.root), not t.root.
+    // `persistent: false` is what this gate exists to pin — a hang fails no assertion, so nothing
+    // else would catch its removal — and it is still pinned.
+    expect(SRC).toMatch(
+      /watch\(\s*watchRoot,\s*\{\s*recursive:\s*true,\s*persistent:\s*false\s*\}/,
+    );
+    // And the realpath itself, for the same reason: swapping it back to t.root would reintroduce
+    // the libuv abort on any 8.3 short path, which no runtime assertion can catch either — the
+    // process dies before one could run.
+    expect(SRC).toMatch(/realpathSync\.native\(/);
   });
 
   it("does not rely on unref() for the watcher (only for the debounce timer)", () => {
@@ -296,7 +305,17 @@ describe("registerVaultWatch — start/skip decision", () => {
   // matters. A Windows-only guard tested only on Windows would be tested nowhere useful.
   const noHooks = { onUpsert: () => {}, onDelete: () => {} };
 
-  it("does not start a watch on win32, and says so on stderr", () => {
+  it("starts a watch on EVERY platform, and never prints the old Windows skip notice", () => {
+    // THE-657 inverted this test rather than deleting it, and dropped the injected platform with
+    // the branch it was there to assert. That makes it STRONGER, not weaker: it no longer
+    // SIMULATES win32 from Linux, it runs for real on whatever platform executes it — and
+    // `build-test (windows-latest)` is a required check, so the Windows case is genuinely covered
+    // on every PR instead of being mocked.
+    //
+    // The gate is gone because the crash was an 8.3 short path reaching libuv, not recursive
+    // watch: measured on windows-latest, the same harness died under os.tmpdir() and survived
+    // twice under a realpath'd root. Asserting the ABSENCE of the old stderr line is what stops a
+    // well-meaning revert quietly restoring the skip.
     const root = makeVault();
     const writes: string[] = [];
     const spy = vi.spyOn(process.stderr, "write").mockImplementation((c: unknown) => {
@@ -308,10 +327,9 @@ describe("registerVaultWatch — start/skip decision", () => {
         [{ id: "v1", path: root }],
         { enabled: true, debounceMs: 50 },
         noHooks,
-        "win32",
       );
-      expect(writes.join("")).toContain("not started on Windows");
-      expect(() => stop()).not.toThrow(); // still a valid stop function for the shutdown path
+      expect(writes.join("")).not.toContain("not started on Windows");
+      expect(() => stop()).not.toThrow();
     } finally {
       spy.mockRestore();
     }
@@ -322,7 +340,6 @@ describe("registerVaultWatch — start/skip decision", () => {
       [{ id: "v1", path: join(tmpdir(), "tc-never-created-649") }],
       { enabled: false, debounceMs: 50 },
       noHooks,
-      "linux",
     );
     // A missing root would have reported an error had a watch actually been attempted.
     expect(() => stop()).not.toThrow();
@@ -333,7 +350,16 @@ describe("registerVaultWatch — start/skip decision", () => {
 // Nothing security-relevant is lost: every alias guard and classification rule is asserted above via
 // resolveWatchedPath, which runs on all four CI legs. What is skipped here is event DELIVERY, and
 // registerVaultWatch does not start a watch on Windows anyway, so this matches what ships.
-describe.skipIf(process.platform === "win32")("startVaultWatch — event delivery", () => {
+// THE-657: the win32 skip is GONE. These tests died on Windows because the fixture lives under
+// os.tmpdir(), which resolves to an 8.3 short path (`C:\Users\RUNNER~1\...`); libuv
+// prefix-compares event filenames against the watched directory and ABORTS the process when they
+// disagree. startVaultWatch now watches `realpathSync.native(root)`, so the short form never
+// reaches libuv. Measured: the same harness died on a tmpdir root and survived on a realpath'd one.
+//
+// Keeping them RUNNING on Windows is the point — build-test (windows-latest) is a required check,
+// so if the realpath fix regresses, this block dies again and the leg goes red. Skipping would put
+// the one platform that needed the fix back outside the only gate that can catch it.
+describe("startVaultWatch — event delivery", () => {
   // These assert only that the OS reaches us and that coalescing/shutdown behave — the classification
   // rules are covered above without any timing dependency.
   it("reports a newly created note, including in a NESTED directory", async () => {

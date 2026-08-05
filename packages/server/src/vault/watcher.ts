@@ -20,7 +20,7 @@
 // no second echo-suppression layer here: content_hash is where "have I already seen these bytes"
 // is decided for every other caller, and a private copy in the watcher would be a second answer to
 // a question that already has one.
-import { lstatSync, statSync, watch } from "node:fs";
+import { lstatSync, realpathSync, statSync, watch } from "node:fs";
 import { join } from "node:path";
 import { readNote } from "./notes-io";
 
@@ -73,34 +73,40 @@ export function normalizeWatchPath(filename: string): string {
  * Structurally typed (not `ServerConfig`) for the same reason `resolveTraceDirs` is: it keeps the
  * vault module free of a dependency on the whole config schema, and keeps the tests able to call it
  * with two fields instead of a full parsed config.
+ *
+ * THE-657 removed the `platform` parameter. It existed solely to make the win32 skip assertable
+ * from every CI leg; there is no platform branch left to assert, and a parameter kept for a
+ * deleted branch is the kind of thing a future reader treats as load-bearing.
  */
 export function registerVaultWatch(
   vaults: readonly { id: string; path: string }[],
   cfg: { enabled: boolean; debounceMs: number },
   hooks: Pick<VaultWatchOptions, "onUpsert" | "onDelete">,
-  platform: string = process.platform,
 ): () => void {
   if (!cfg.enabled) return () => {};
-  // Not started on Windows, deliberately and conservatively.
+  // THE-657 RESOLVED 2026-08-05: Windows watch is ENABLED. The crash was never recursive fs.watch.
   //
-  // What was observed: Node's RECURSIVE fs.watch killed the vitest worker process outright on
-  // windows-latest, in two independent CI runs, under both `persistent: false` and an explicit
-  // unref() — no exception, no failing assertion, the process simply exited and that block's tests
-  // vanished from the totals. The same tests pass on ubuntu, ubuntu-arm and macos.
+  // It was an 8.3 SHORT PATH. libuv prefix-compares each event's filename against the watched
+  // directory string (`!_wcsnicmp(filename, dir, dirlen)`, src/win/fs-event.c:72). `os.tmpdir()` on
+  // a Windows CI runner resolves to `C:\Users\RUNNER~1\...` — the short form — while events arrive
+  // carrying the long form, so the compare fails and libuv ABORTS THE PROCESS. Not an exception:
+  // an assertion inside the native layer, which is why the vitest worker vanished with no error and
+  // the block's tests simply went missing from the totals.
   //
-  // What was NOT established: whether a long-lived server with one watcher per vault is affected the
-  // same way, rather than only a test process that creates and tears down many watchers. That is
-  // exactly why this is off here instead of the claim being made either way.
+  // Measured on windows-latest via scripts/watch-soak.mjs, one long-lived watcher over a nested
+  // 400-file tree, ubuntu and macos as controls on the identical harness:
   //
-  // The costs are asymmetric. Off on Windows = the pre-THE-649 behaviour, index_vault on demand,
-  // which is what Windows users have today — no regression. On, if the crash generalises = a server
-  // that dies. Enabling it is a one-line change once someone can verify a real Windows host.
-  if (platform === "win32") {
-    process.stderr.write(
-      "[watch] filesystem watch is not started on Windows; use index_vault to pick up external changes\n",
-    );
-    return () => {};
-  }
+  //   tmpdir    (C:\Users\RUNNER~1\...)     DIED  276ms in, libuv assertion, exit 127
+  //   realpath  (C:\Users\runneradmin\...)  SURVIVED  45s, 1415 edits -> 2835 events
+  //   workspace (D:\a\...\soak-vault)       SURVIVED  45s, 1421 edits -> 2847 events
+  //
+  // So the old comment's open question — "does it affect a long-lived server, or only a test
+  // process churning watchers?" — had a false premise. Watcher count and lifetime were never the
+  // variable; the path shape was, and the test fixtures happened to live under tmpdir.
+  //
+  // `realpathSync.native` below is the fix and is applied on EVERY platform, not just win32: it is
+  // a no-op where short names do not exist, and a platform-conditional fix would leave the one
+  // platform that needs it as the only one that is untested by the other three CI legs.
   return startVaultWatch({
     targets: vaults.map((v) => ({ vaultId: v.id, root: v.path })),
     debounceMs: cfg.debounceMs,
@@ -240,7 +246,21 @@ export function startVaultWatch(opts: VaultWatchOptions): () => void {
       // (The detour: this was briefly `unref()` because `persistent: false` on a recursive watch
       // killed the vitest worker on Windows. That is moot now — registerVaultWatch does not start a
       // watch on win32 at all.)
-      const w = watch(t.root, { recursive: true, persistent: false }, (_event, filename) => {
+      // THE-657: watch the REALPATH, not the configured string. libuv prefix-compares each event's
+      // filename against the watched directory (`!_wcsnicmp(filename, dir, dirlen)`,
+      // src/win/fs-event.c:72) and ABORTS THE PROCESS when they disagree — not an exception, a
+      // native assertion. A Windows 8.3 short path (`C:\Users\RUNNER~1\...`) disagrees with the
+      // long form the events carry, which is what killed the vitest worker and, measured directly,
+      // a plain long-lived watcher 276ms after registering.
+      //
+      // `.native` is required rather than incidental: the JS realpath does not expand 8.3 short
+      // names, so plain realpathSync would leave the exact defect in place while looking like a fix.
+      //
+      // Unconditional, not win32-gated — it is a no-op where short names do not exist, and gating
+      // it would leave the only platform that needs it as the only one the other three CI legs
+      // never exercise.
+      const watchRoot = realpathSync.native(t.root);
+      const w = watch(watchRoot, { recursive: true, persistent: false }, (_event, filename) => {
         // The event TYPE is deliberately ignored. Node reports a file creation as `rename` and Bun
         // reports the same creation as `change` (measured on Linux 6.17, node 26 / bun 1.3), so
         // branching on it would behave differently under the two runtimes this ships on. The lstat

@@ -142,8 +142,9 @@ export const MaintenanceConfigSchema = z
     // THE-458 item 6: a PERIODIC vault reconcile. Off unless set, because a server whose watcher
     // is healthy does not need it — but two gaps opened when THE-649 made the watcher the primary
     // change source, and this is the only thing that closes either short of a manual index_vault:
-    //   * the watcher is not started on Windows at all, can fail to arm (inotify ENOSPC), sees
-    //     nothing on some network mounts, and never covers vaults added later by add_vault;
+    //   * the watcher can fail to arm (inotify ENOSPC), sees nothing on some network mounts, and
+    //     never covers vaults added later by add_vault. (THE-657: it DOES now run on Windows —
+    //     the crash there was an 8.3 short path reaching libuv, fixed by realpathSync.native.);
     //   * indexNote does NOT densify, so the watcher's single-note writes leave derived edges
     //     stale until a full pass runs. This pass threads densify exactly as the boot one does.
     reconcileIntervalMinutes: z
@@ -152,7 +153,7 @@ export const MaintenanceConfigSchema = z
       .positive()
       .optional()
       .describe(
-        "Minutes between periodic full vault reconciles. ABSENT (the default) disables it: the boot reconcile and the filesystem watch already cover a healthy server. Set it when the watch cannot run — Windows (where it is never started), a network mount with no change notification, or a vault large enough to exhaust the inotify limit — and when derived graph edges should be refreshed, since single-note writes never densify. Costs a full vault walk per run; content-hash skip makes an unchanged vault cheap to re-walk but densification still runs.",
+        "Minutes between periodic full vault reconciles. ABSENT (the default) disables it: the boot reconcile and the filesystem watch already cover a healthy server. Set it when the watch cannot run — a network mount with no change notification, or a vault large enough to exhaust the inotify limit — and when derived graph edges should be refreshed, since single-note writes never densify. Costs a full vault walk per run; content-hash skip makes an unchanged vault cheap to re-walk but densification still runs.",
       ),
     episodesRetentionDays: z
       .number()
@@ -192,7 +193,7 @@ export const WatchConfigSchema = z
       .boolean()
       .default(true)
       .describe(
-        "Watch each vault root and reindex notes changed outside the server (sync clients, git pull, an editor on the host). Not active on Windows regardless of this setting: Node's recursive fs.watch terminated the test process there, and whether a long-lived server is affected the same way is unverified. Turn OFF for a vault on a filesystem with no usable change notification (some network mounts) or to cap inotify usage on a very large vault; index_vault then remains the only way changes are picked up.",
+        "Watch each vault root and reindex notes changed outside the server (sync clients, git pull, an editor on the host). Active on ALL platforms including Windows: the watch root is resolved with realpathSync.native first, which is what the earlier Windows crash actually needed (libuv aborts when an 8.3 short path disagrees with the long-form filenames its events carry). Turn OFF for a vault on a filesystem with no usable change notification (some network mounts) or to cap inotify usage on a very large vault; index_vault then remains the only way changes are picked up.",
       ),
     debounceMs: z
       .number()
