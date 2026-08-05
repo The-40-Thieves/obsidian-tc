@@ -107,6 +107,14 @@ export const ExplainAnswerOutput = z.union([
     /** Present when NOTHING in the chain is judge-backed, so a caller cannot read zero citations
      *  as evidence the sources went unused. Null once any row is stamped. */
     caveat: z.string().nullable(),
+    /** THE-717: what the citation run log knows about this window. `recorded_runs: 0` means NO
+     *  RECORD, which is weaker than "never ran" — the log does not extend backwards. */
+    citation_pass: z.object({
+      recorded_runs: z.number(),
+      last_ran_at: z.number().nullable(),
+      last_aborted: z.boolean(),
+      last_unfinished: z.boolean(),
+    }),
   }),
 ]);
 

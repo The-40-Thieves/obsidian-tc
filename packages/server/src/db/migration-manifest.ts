@@ -109,6 +109,12 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // vault_id from this first migration, deliberately, because the neighbouring precedent did
   // not have it and needed 20260803_001 to add it.
   "20260803_002_goals.sql",
+  // THE-717 item 2: 20260805_001 is the citation-pass run log. A NULL citation_state conflates
+  // "never covered", "covered but the kill switch aborted" and "covered but the pass died"; this
+  // table separates them. NO vault_id on purpose — chunk_retrievals has no vault column, so a
+  // pass genuinely does not know which vault it stamped, and the migration header says why that
+  // departs from the 20260803_002 precedent directly above.
+  "20260805_001_citation_runs.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

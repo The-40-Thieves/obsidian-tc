@@ -48,8 +48,12 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
       lever: "an agent calling record_retrieval_feedback after acting on a result (THE-718)",
     },
     // Stamped only by inferCitations, whose sole wired call site is the CLI and which needs a
-    // transcript the server never sees (THE-717, blocked on THE-675). On-demand rather than
+    // transcript no MCP surface supplies (THE-717, blocked on THE-675). On-demand rather than
     // enabled: nothing schedules it, so "never ran" is the current design, not a malfunction.
+    //
+    // "never ran" is now CHECKABLE rather than assumed: THE-717 item 2 added the `citation_runs`
+    // log, so a NULL here no longer conflates never-covered with covered-then-aborted. Read the
+    // log before repeating the claim — this comment predates it and the store does not.
     {
       table: "chunk_retrievals",
       column: "cited_in_response",

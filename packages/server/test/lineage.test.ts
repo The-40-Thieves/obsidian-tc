@@ -135,6 +135,96 @@ describe("THE-646: answer lineage renders absences honestly", () => {
     expect(l.summary.retrievals).toBe(0);
   });
 
+  it("with NO recorded pass, the caveat says NO RECORD — never 'the pass has not run'", () => {
+    // The original caveat asserted "the citation pass has not run over these rows". The store could
+    // not back that: the kill switch leaves survivors NULL on purpose. Absence of a run RECORD is
+    // the only claim available, and the run log does not extend backwards.
+    const l = buildAnswerLineage([retrieval()], [], CORRELATION_WINDOW_MS, []);
+    expect(l.caveat).toContain("no citation pass is RECORDED");
+    expect(l.caveat).not.toContain("has not run");
+    expect(l.citation_pass.recorded_runs).toBe(0);
+  });
+
+  it("an ABORTED pass is reported as stamping nothing ON PURPOSE, not as never running", () => {
+    const l = buildAnswerLineage([retrieval()], [], CORRELATION_WINDOW_MS, [
+      { started_at: T, finished_at: T + 10, stamped: 0, aborted: 1, judged: 12, parse_failures: 8 },
+    ]);
+    expect(l.caveat).toContain("kill switch");
+    expect(l.citation_pass.last_aborted).toBe(true);
+    expect(l.citation_pass.last_ran_at).toBe(T);
+  });
+
+  it("a pass that DIED mid-run is distinguished from one that completed", () => {
+    const died = buildAnswerLineage([retrieval()], [], CORRELATION_WINDOW_MS, [
+      {
+        started_at: T,
+        finished_at: null,
+        stamped: null,
+        aborted: null,
+        judged: null,
+        parse_failures: null,
+      },
+    ]);
+    expect(died.caveat).toContain("never returned");
+    expect(died.citation_pass.last_unfinished).toBe(true);
+
+    const done = buildAnswerLineage([retrieval()], [], CORRELATION_WINDOW_MS, [
+      { started_at: T, finished_at: T + 5, stamped: 0, aborted: 0, judged: 0, parse_failures: 0 },
+    ]);
+    expect(done.caveat).toContain("completed");
+    expect(done.citation_pass.last_unfinished).toBe(false);
+  });
+
+  it("the LATEST covering pass wins when several are recorded", () => {
+    const l = buildAnswerLineage([retrieval()], [], CORRELATION_WINDOW_MS, [
+      { started_at: T, finished_at: T + 5, stamped: 0, aborted: 0, judged: 0, parse_failures: 0 },
+      {
+        started_at: T + 100,
+        finished_at: T + 105,
+        stamped: 0,
+        aborted: 1,
+        judged: 12,
+        parse_failures: 8,
+      },
+    ]);
+    expect(l.citation_pass.last_ran_at).toBe(T + 100);
+    expect(l.citation_pass.last_aborted).toBe(true);
+    expect(l.citation_pass.recorded_runs).toBe(2);
+  });
+
+  it("EVERY caveat branch keeps the absence-of-evidence clause", () => {
+    // The branches differ on WHY nothing is judged. They must not differ on the thing that is true
+    // in all of them, which is the sentence that stops a reader concluding the sources went unused.
+    const cases = [
+      [],
+      [
+        {
+          started_at: T,
+          finished_at: null,
+          stamped: null,
+          aborted: null,
+          judged: null,
+          parse_failures: null,
+        },
+      ],
+      [
+        {
+          started_at: T,
+          finished_at: T + 1,
+          stamped: 0,
+          aborted: 1,
+          judged: 12,
+          parse_failures: 8,
+        },
+      ],
+      [{ started_at: T, finished_at: T + 1, stamped: 0, aborted: 0, judged: 0, parse_failures: 0 }],
+    ] as const;
+    for (const passes of cases) {
+      const l = buildAnswerLineage([retrieval()], [], CORRELATION_WINDOW_MS, passes);
+      expect(l.caveat).toContain("absence of EVIDENCE");
+    }
+  });
+
   it("what buildAnswerLineage returns actually satisfies the tool's declared outputSchema", () => {
     // `ExplainAnswerOutput` is a z.union (the available:false envelope), and a union is opaque to
     // `topLevelShape` — so m7-tool-metadata-parity.test.ts records this tool's outputKeys as `[]`

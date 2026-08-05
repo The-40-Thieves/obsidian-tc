@@ -86,7 +86,8 @@ export interface EntryPointsView {
  * the table check structurally cannot see:
  *
  *   THE-714  workspace_sessions empty across 2,352 tool calls — no client ever called start_session
- *   THE-717  inferCitations is CLI-only; every citation column NULL on 97/97 rows
+ *   THE-717  inferCitations is CLI-only; every citation column NULL on 105/105 rows (re-measured
+ *            2026-08-05; it was 97/97 when this was written and the store keeps growing)
  *   THE-719  the gaps calibration pass is CLI-only; gap_reports never written
  *
  * In all three the TABLE check fires correctly and names a lever that is already switched on, which

@@ -27,6 +27,11 @@ const EXP_CHAIN = [
   // migration does not automatically appear here. 20260731_001 adds citation_state, which
   // inferCitations now writes — without it every stamp fails "no such column".
   { version: "20260731_001", sql: read("20260731_001_citation_state.sql") },
+  // THE-717 item 2: 20260805_001 adds citation_runs, and inferCitations now opens a row there
+  // before doing any work — so without it every pass fails "no such table" before it stamps
+  // anything. Added here for the same reason 20260731_001 was: this chain is minimal by choice,
+  // so each addition is a deliberate statement that the function under test now depends on it.
+  { version: "20260805_001", sql: read("20260805_001_citation_runs.sql") },
 ];
 const NOW = 1_700_000_000_000;
 
