@@ -39,11 +39,14 @@
 // gates the write is THIS file's `readOnly: true` literal a few lines below, so that is what
 // task-3-report.md's mutation cycle flips instead, and watches go red with the note actually
 // overwritten on disk before restoring it.
+import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { FolderAcl } from "../acl";
 import type { Database } from "../db/types";
 import type { ToolRegistry } from "../mcp/registry";
 import { classifyRecord, type RerunRecord, type RerunSummary, summarize } from "./rerun-verdict";
-import { getSession, readTrace, resolveTraceAbs } from "./sessions";
+import { CACHE_TRACE_SUBDIR, getSession, readTrace, resolveTraceAbs } from "./sessions";
 
 export interface RerunOptions {
   db: Database;
@@ -190,4 +193,42 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
   }
 
   return { records, summary: summarize(records) };
+}
+
+/** Databases copied alongside the vault. Without them the sandbox index is EMPTY and every search
+ *  diverges for a reason unrelated to the change being investigated. */
+const SANDBOX_DBS = ["cache.db", "experiential.db"] as const;
+
+/**
+ * Stage a disposable copy of a vault and its databases.
+ *
+ * COPY, never symlink — a symlinked database is the live one, and the whole guarantee of sandbox
+ * mode is that everything it touches is throwaway.
+ */
+export function stageSandbox(
+  vaultRoot: string,
+  cacheDir: string,
+): { root: string; cacheDir: string; dispose(): void } {
+  const base = mkdtempSync(join(tmpdir(), "obtc-rerun-"));
+  const root = join(base, "vault");
+  const cache = join(base, "cache");
+  cpSync(vaultRoot, root, { recursive: true, dereference: true });
+  for (const name of SANDBOX_DBS) {
+    const src = join(cacheDir, name);
+    if (existsSync(src)) cpSync(src, join(cache, name), { dereference: true });
+  }
+  // THE-737: a session minted today writes trace_store='cache' — its JSONL lives under
+  // <cacheDir>/traces/, not under the vault. Skipping this copy would make --sandbox find
+  // `no_capture` for every record on the ONLY generation of session anything writes now
+  // (nothing constructs trace_store='vault' any more; see sessions.ts's own comment on the
+  // column), which defeats the command as thoroughly as staging into the real vault would —
+  // just as a silent false negative instead of an unsafe write.
+  const tracesSrc = join(cacheDir, CACHE_TRACE_SUBDIR);
+  if (existsSync(tracesSrc))
+    cpSync(tracesSrc, join(cache, CACHE_TRACE_SUBDIR), { recursive: true, dereference: true });
+  return {
+    root,
+    cacheDir: cache,
+    dispose: () => rmSync(base, { recursive: true, force: true }),
+  };
 }

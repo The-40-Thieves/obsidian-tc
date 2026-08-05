@@ -9,12 +9,12 @@
 // green — and the mutation below would not go red either. makeTestVault registers M1 tools, takes
 // `acl: { readOnly: true }`, and builds its ToolRegistry with NO aclResolver (m1-helpers.ts:75), so
 // nothing swaps ctx.acl mid-dispatch.
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { withReadOnlyAcl } from "../src/cli/commands/rerun";
-import { rerunSession } from "../src/workspace/rerun";
+import { rerunSession, stageSandbox } from "../src/workspace/rerun";
 import { appendTrace, insertSession } from "../src/workspace/sessions";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 
@@ -244,5 +244,40 @@ describe("THE-645 item 3 — withReadOnlyAcl", () => {
     // (e.g. `v.acl.readOnly = true` instead of spreading a new object) would mutate silently — the
     // root-only assertion above would not catch that class of bug at all.
     expect(original.vaults[0].acl.readOnly).toBe(false);
+  });
+});
+
+describe("THE-645 item 3 — sandbox staging", () => {
+  it("copies the vault so a write to the copy leaves the original untouched", () => {
+    v = readOnlyVault({ "a.md": "original" });
+    const sb = stageSandbox(v.root, cacheDir as string);
+    try {
+      expect(readFileSync(join(sb.root, "a.md"), "utf8")).toBe("original");
+      writeFileSync(join(sb.root, "a.md"), "changed in sandbox");
+      // The point: the real vault is untouched.
+      expect(v.read("a.md")).toBe("original");
+    } finally {
+      sb.dispose();
+    }
+  });
+
+  it("copies cache.db when it exists — an empty index would diverge every search for the wrong reason", () => {
+    v = readOnlyVault({ "a.md": "x" });
+    writeFileSync(join(cacheDir as string, "cache.db"), "fake-db-bytes");
+    const sb = stageSandbox(v.root, cacheDir as string);
+    try {
+      expect(existsSync(join(sb.cacheDir, "cache.db"))).toBe(true);
+      expect(readFileSync(join(sb.cacheDir, "cache.db"), "utf8")).toBe("fake-db-bytes");
+    } finally {
+      sb.dispose();
+    }
+  });
+
+  it("dispose removes the staged copy", () => {
+    v = readOnlyVault({ "a.md": "x" });
+    const sb = stageSandbox(v.root, cacheDir as string);
+    const staged = sb.root;
+    sb.dispose();
+    expect(existsSync(staged)).toBe(false);
   });
 });
