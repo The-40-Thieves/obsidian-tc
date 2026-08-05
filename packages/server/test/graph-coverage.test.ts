@@ -78,6 +78,7 @@ describe("THE-631: graphSearch coverage estimate", () => {
       arms: ["seed"],
       armsContributed: 1,
       armsPossible: 5,
+      confidence: { available: false as const, reason: "not_calibrated" as const },
       expansionSkipped: true, // router: top1 dominance routes to seeds-only
       expansionTruncated: false, // expansion never ran
       requested: 10,

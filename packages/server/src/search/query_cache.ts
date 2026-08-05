@@ -305,8 +305,15 @@ const TRACE_SELECTOR_FIELDS = ["traceNotePath"] as const;
  *  `onCoverage` does not fire and the tool layer omits `coverage` entirely (the schema field is
  *  optional for exactly this). A stale threshold therefore cannot produce a WRONG staleness count
  *  from cache — only an absent one, which is already the documented behaviour for every coverage
- *  field. */
-const COVERAGE_ONLY_FIELDS = ["staleThresholdDays"] as const;
+ *  field.
+ *
+ *  THE-733 adds `scoreCalibration` and `engineVersion` on the same grounds. Both reach exactly one
+ *  place — `confidenceFor`, whose output is the `confidence` field of the coverage estimate — and
+ *  nothing downstream of it touches scoring, fusion or ordering. Two searches differing only in
+ *  which calibration row was current return byte-identical RESULTS and must share a cache entry;
+ *  keying on them would fragment the cache every time a vault is recalibrated, for no change in
+ *  what is cached. */
+const COVERAGE_ONLY_FIELDS = ["staleThresholdDays", "scoreCalibration", "engineVersion"] as const;
 
 /** Fields excluded from the key because they are derived from (query text, representation), both
  *  of which the key already carries — see the header note on circularity. */

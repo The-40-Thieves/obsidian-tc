@@ -5,6 +5,7 @@ import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
+import { persistCalibration } from "../../experiential/calibration";
 import {
   DEFAULT_GAP_THRESHOLD,
   detectGaps,
@@ -57,9 +58,30 @@ export async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
       const tops: number[] = [];
       for (const hits of hitsByQuery) if (hits[0]) tops.push(hits[0].score);
       const d = scoreDistribution(tops);
+      // THE-733: PERSIST it. This print used to be the distribution's entire lifetime, which is
+      // why THE-631 item 1 (percentile confidence) was unbuildable: nothing could read a per-vault
+      // percentile from the request path, leaving only a global constant calibrated on one vault.
+      persistCalibration(edb, {
+        vault_id: vaultId,
+        computed_at: Date.now(),
+        n: d.n,
+        min: d.min,
+        p5: d.p5,
+        p10: d.p10,
+        p25: d.p25,
+        median: d.median,
+        p75: d.p75,
+        p90: d.p90,
+        p95: d.p95,
+        engine_version: VERSION,
+        // Not recorded yet: NULL is honestly "unknown provenance", and writing a placeholder would
+        // make an unverified calibration indistinguishable from a verified one.
+        config_fingerprint: null,
+      });
       process.stdout.write(
         `calibrate (${vaultId}, n=${d.n}): min=${d.min.toFixed(4)} p5=${d.p5.toFixed(4)} p10=${d.p10.toFixed(4)} p25=${d.p25.toFixed(4)} median=${d.median.toFixed(4)} p75=${d.p75.toFixed(4)} p90=${d.p90.toFixed(4)} p95=${d.p95.toFixed(4)}\n` +
-          `suggested threshold (p5): ${d.p5.toFixed(4)} (shipped default ${DEFAULT_GAP_THRESHOLD})\n`,
+          `suggested threshold (p5): ${d.p5.toFixed(4)} (shipped default ${DEFAULT_GAP_THRESHOLD})\n` +
+          `persisted: score_calibration for ${vaultId} (n=${d.n}, engine ${VERSION})\n`,
       );
       return;
     }

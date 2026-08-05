@@ -3,6 +3,7 @@
 // stage module can share them without a dependency cycle back on graph_search.ts itself.
 // graph_search.ts re-exports GraphSearchOptions/GraphSearchResult/FusionMode so the public import
 // path (`from "./graph_search"` / `from "../../search/graph_search"`) is unchanged for callers.
+import type { RetrievalConfidence, ScoreCalibration } from "../../experiential/calibration";
 import type { ColbertMatrix } from "../colbert";
 import type { OnRerankOutcome, Reranker } from "../rerank";
 import type { SparseVec } from "../sparse";
@@ -57,6 +58,16 @@ export interface CoverageEstimate {
    *  `staleReturned`. A pruned or unindexed note is not evidence of freshness, and "absent" must
    *  stay distinguishable from "fresh" at the read surface. */
   staleUnknown: number;
+  /** THE-631 item 1 / THE-733 — where this query's top fused score falls in the VAULT'S OWN
+   *  calibrated distribution. A discriminated result: an uncalibrated vault reports
+   *  `available: false` with a reason rather than a number derived from a global constant.
+   *
+   *  That is the whole point. A fused RRF score is not comparable across vaults, so the only
+   *  number otherwise reachable here is `DEFAULT_GAP_THRESHOLD` — an n=136 calibration on one
+   *  vault — and THE-631 condemned using it in advance: "a confidence number computed from
+   *  another vault's percentiles is worse than no confidence number, because it looks
+   *  authoritative." Absent and low are different claims and are reported differently. */
+  confidence: RetrievalConfidence;
   /** The threshold `staleReturned` was computed against, so the count is interpretable without
    *  knowing the server's configuration. */
   staleThresholdDays: number;
@@ -243,6 +254,16 @@ export interface GraphSearchOptions {
    *  not of the engine: measured 2026-08-04, the live vault's oldest note is 107 days old, so at
    *  the 365 default this count is 0 for every query there. Only read when onCoverage is set. */
   staleThresholdDays?: number;
+  /** THE-733: the vault's persisted score calibration, read by the CALLER from experiential.db.
+   *  Passed in rather than looked up here because `score_calibration` lives in the experiential
+   *  store and this module only holds the authored cache db — giving the search path a second
+   *  handle to satisfy a reported-only side channel would be the wrong trade. `null`/absent yields
+   *  `confidence: { available: false, reason: "not_calibrated" }`, never a fabricated number. */
+  scoreCalibration?: ScoreCalibration | null;
+  /** Server version the running engine is, compared against the calibration's to FLAG a stale
+   *  distribution. Absent means the comparison cannot be made, which reads as stale — the
+   *  conservative direction. */
+  engineVersion?: string;
   /** THE-632: vault-relative path to FOLLOW through the pipeline. Additive and
    *  observability-only, on the same "pure side-channel" contract as onCoverage above — it never
    *  filters, boosts, or reorders anything, and the returned results are byte-identical with and
