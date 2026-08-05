@@ -1,0 +1,69 @@
+# THE-657 — answer an OPEN QUESTION, not gate a pull request.
+#
+# `registerVaultWatch` is a no-op on win32 because the vitest WORKER PROCESS died outright on
+# `build-test (windows-latest)` — twice, no exception, no failing assertion. What was never
+# established is whether a LONG-LIVED server is affected the same way: the test process churns many
+# watchers, a server holds one per vault for its lifetime.
+#
+# The ticket says "CI cannot answer it because the process dies before it can report anything".
+# That is true of VITEST — a dead worker takes the reporter with it — and not of the runner. A
+# standalone process reports by exit code, and prints heartbeats so a death mid-run still shows how
+# far it got.
+#
+# WORKFLOW_DISPATCH ONLY, and that is deliberate. This is a diagnostic, not a gate: it soaks for a
+# minute per platform and its answer changes only when Node or the OS does. Wiring it to `pull_request`
+# would add a minute to every PR to re-answer a settled question, and a required check that soaks
+# would be a flaky gate by construction. Run it when someone wants to revisit the win32 branch.
+name: watch-soak
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Soak duration per platform (seconds)"
+        required: false
+        default: "60"
+      files:
+        description: "Vault size (files)"
+        required: false
+        default: "400"
+      edits:
+        description: "Edits generated over the run"
+        required: false
+        default: "2000"
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    # Windows is the question; ubuntu and macos are the CONTROLS. A Windows failure only means
+    # something if the identical harness survives elsewhere — otherwise it is a bug in the harness,
+    # which is exactly the ambiguity the vitest result already suffered from.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      # No install step: the harness is dependency-free plain node, on purpose. A repro that needs
+      # `bun install` is not the minimal repro a Node bug report would want.
+      # Inputs go through `env:`, never interpolated into the run: line. `workflow_dispatch` inputs
+      # are free text — `--files "1; rm -rf /"` is a shell injection if pasted into a command, and
+      # "only writers can dispatch" is a permission argument, not a safety one. This repo has a
+      # required `no untrusted context in shell steps` check for exactly this shape.
+      #
+      # The harness parses them with Number(), so a non-numeric value becomes NaN and the run fails
+      # on its own terms rather than doing something surprising.
+      - name: soak
+        env:
+          SOAK_FILES: ${{ inputs.files || '400' }}
+          SOAK_EDITS: ${{ inputs.edits || '2000' }}
+          SOAK_SECONDS: ${{ inputs.seconds || '60' }}
+        run: node scripts/watch-soak.mjs --files "$SOAK_FILES" --edits "$SOAK_EDITS" --seconds "$SOAK_SECONDS"
+        shell: bash
