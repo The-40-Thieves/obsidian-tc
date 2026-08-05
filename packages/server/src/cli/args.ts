@@ -34,6 +34,7 @@ export type CliCommand =
       since?: number;
       until?: number;
       transcript?: string;
+      transcriptIndex?: string;
       maxJudged?: number;
       judgeConcurrency?: number;
       minJudgedForKill?: number;
@@ -108,14 +109,24 @@ Usage:
                                           LLM Pass-3 semantic-edge densification via the local gateway (graph densification)
   obsidian-tc reflect [path] [--max-judged N]
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
-  obsidian-tc citation-infer [path] --transcript <file> (--session <id> | --since <ms> [--until <ms>])
+  obsidian-tc citation-infer [path] (--transcript <file> (--session <id> | --since <ms> [--until <ms>])
+                                             | --transcript-index <file.jsonl>)
                             [--max-judged N] [--judge-concurrency N] [--min-judged-for-kill N] [--allow-uncertain]
                                           Infer which retrieved chunks were actually USED in a response
                                           and stamp cited_in_response / citation_score / citation_state
                                           over the retrievals in scope (THE-170). Two stages: a cheap
                                           ROUGE-L/cosine filter, then a gateway judge over the
-                                          survivors. The transcript is assistant-side text the server
-                                          never sees, so it is read from a file.
+                                          survivors. The transcript is assistant-side text no MCP
+                                          surface supplies, so it is fed in rather than observed.
+                                          --transcript-index takes JSONL, one object per retrieval
+                                          ({vault, surface_type, query, retrieved_at, transcript}),
+                                          and runs ONE PASS PER ENTRY — a window spanning several
+                                          queries has several answers, and scoring chunks against
+                                          their concatenation attributes citations across queries
+                                          that never saw each other (THE-717). Ambiguous and empty
+                                          entries are SKIPPED and reported, never guessed at. The
+                                          transcript must already be filtered to text produced AFTER
+                                          retrieved_at.
                                           --judge-concurrency bounds the judge fan-out (default 3);
                                           --min-judged-for-kill floors the parse-failure kill switch
                                           (default 10) so one bad reply cannot abort a small pass
@@ -351,6 +362,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         "--since",
         "--until",
         "--transcript",
+        "--transcript-index",
         "--max-judged",
         "--judge-concurrency",
         "--min-judged-for-kill",
@@ -363,6 +375,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
       const since = num("--since");
       const until = num("--until");
       const transcript = flagValue(rest, "--transcript");
+      const transcriptIndex = flagValue(rest, "--transcript-index");
       // THE-617 item 3: same --max-judged shape as the `reflect` command, applied to this
       // command's OWN MAX_JUDGED (a separate knob — see citation.ts's InferCitationsOptions).
       const mv = flagValue(rest, "--max-judged");
@@ -402,6 +415,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(since !== undefined ? { since } : {}),
         ...(until !== undefined ? { until } : {}),
         ...(transcript !== undefined ? { transcript } : {}),
+        ...(transcriptIndex !== undefined ? { transcriptIndex } : {}),
         ...(allowUncertain ? { allowUncertain } : {}),
         ...(maxJudged !== undefined ? { maxJudged } : {}),
         ...(jc !== undefined ? { judgeConcurrency: jc } : {}),

@@ -268,6 +268,25 @@ describe("parseCliArgs — citation-infer --max-judged (THE-617 item 3)", () => 
     });
   });
 
+  it("parses --transcript-index without eating the positional config path (THE-717)", () => {
+    // The trap the strip list exists for: --transcript-index carries a VALUE, so it must be spliced
+    // out two entries at a time or positional() reads its filename as the config path. Its name is
+    // also a prefix-superset of --transcript, which is the other way this could go wrong.
+    const cmd = parseCliArgs([
+      "citation-infer",
+      "--transcript-index",
+      "idx.jsonl",
+      "/etc/cfg.json",
+    ]);
+    expect(cmd).toMatchObject({
+      kind: "citation-infer",
+      transcriptIndex: "idx.jsonl",
+      input: "/etc/cfg.json",
+    });
+    // ...and it must not be confused for --transcript, which scopes differently.
+    expect((cmd as { transcript?: string }).transcript).toBeUndefined();
+  });
+
   it("parses the valueless --allow-uncertain WITHOUT eating the positional config path", () => {
     // The trap this pins: the value-carrying flags are spliced out of `scan` two entries at a
     // time so positional() cannot mistake a flag's value for the config path. --allow-uncertain
