@@ -5,6 +5,7 @@ import type {
   ToolResult,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { type AuditEvent, writeEvent } from "../../audit";
+import { redactSecrets } from "../../experiential/redact";
 import type { MetricsRecorder, ToolCallStatus } from "../../metrics/registry";
 import { SPAN_ATTR } from "../../otel/attrs";
 import { callerHash } from "../../throttle";
@@ -62,8 +63,48 @@ export interface DispatchObservabilityDeps {
   metrics?: MetricsRecorder;
   emit?: (vaultId: string, type: MorgianaEventType, data: Partial<MorgianaEventData>) => void;
   sessionTracer?: RegistryOptions["sessionTracer"];
+  /** THE-736: capture arguments onto the trace. Off unless the operator opts in. */
+  traceContent?: boolean;
+  maxTraceArgsBytes?: number;
   onAuditFailure?: RegistryOptions["onAuditFailure"];
   onEpisode?: RegistryOptions["onEpisode"];
+}
+
+/**
+ * THE-736 — the arguments half of a trace record, or nothing at all.
+ *
+ * Returns an EMPTY object when capture is off, so the field is absent rather than null. Absent
+ * means "not captured"; a null would be indistinguishable from "captured, and it was null" — the
+ * failure-encoded-as-a-valid-value shape this repo keeps finding.
+ *
+ * Redaction is not optional and is not this function's invention: it reuses `redactSecrets`, the
+ * same scanner the episode capture bus runs, so a pattern added for one surface protects both.
+ * The cap is applied AFTER redaction, so truncation can never cut a secret in half and leave the
+ * prefix readable.
+ */
+/** Ceiling on the text handed to the secret scanner. Orders of magnitude above the 4 KiB arg
+ *  cap, so it only ever bites on pathological input. */
+const REDACT_SCAN_CEILING = 64 * 1024;
+
+export function captureArgs(
+  rawInput: unknown,
+  enabled: boolean,
+  maxBytes: number,
+): { args?: string; args_scan?: string } {
+  if (!enabled) return {};
+  const full = JSON.stringify(rawInput ?? null);
+  // Bound what the scanner sees, independently of any one pattern. Redaction runs BEFORE the size
+  // cap on purpose (so a cut cannot split a secret), which means the scanner would otherwise face
+  // unbounded caller-controlled text on the dispatch path. This is defence in depth against the
+  // whole regex set rather than one fixed pattern, and it is lossless in practice: the ceiling is
+  // far above `maxBytes`, so everything discarded here would have been truncated away anyway —
+  // it can never drop a secret INTO the output, only out of it.
+  const raw = full.length > REDACT_SCAN_CEILING ? full.slice(0, REDACT_SCAN_CEILING) : full;
+  const { text, redactions } = redactSecrets(raw);
+  const truncated = text.length > maxBytes;
+  const args = truncated ? `${text.slice(0, maxBytes)}…[truncated]` : text;
+  const scan = truncated ? "truncated" : redactions > 0 ? `redacted:${redactions}` : "clean";
+  return { args, args_scan: scan };
 }
 
 export class DispatchObservability {
@@ -75,6 +116,9 @@ export class DispatchObservability {
     data: Partial<MorgianaEventData>,
   ) => void;
   private readonly sessionTracer?: RegistryOptions["sessionTracer"];
+  /** THE-736: `sessions.traceContent`. Default false — capture is opt-in. */
+  private readonly traceContent: boolean;
+  private readonly maxTraceArgsBytes: number;
   private readonly onAuditFailure?: RegistryOptions["onAuditFailure"];
   private readonly onEpisode?: RegistryOptions["onEpisode"];
 
@@ -83,6 +127,8 @@ export class DispatchObservability {
     this.metrics = deps.metrics;
     this.emit = deps.emit;
     this.sessionTracer = deps.sessionTracer;
+    this.traceContent = deps.traceContent ?? false;
+    this.maxTraceArgsBytes = deps.maxTraceArgsBytes ?? 4096;
     this.onAuditFailure = deps.onAuditFailure;
     this.onEpisode = deps.onEpisode;
   }
@@ -241,6 +287,10 @@ export class DispatchObservability {
             result_size: resultSize,
             status,
             ...(code ? { error_code: code } : {}),
+            // THE-736: the arguments, only when the operator turned capture on. Same policy as
+            // experiential `captureContent` — secret-scanned, size-capped — and deliberately the
+            // same helper, so the two capture surfaces cannot drift on what counts as a secret.
+            ...captureArgs(rawInput, this.traceContent, this.maxTraceArgsBytes),
           },
         );
       } catch {

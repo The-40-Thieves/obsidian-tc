@@ -358,6 +358,17 @@ export interface TraceRecord {
   duration_ms?: number;
   args_hash?: string;
   result_size?: number;
+  /**
+   * THE-736: the dispatch's raw parsed arguments, secret-scanned and size-capped. Present ONLY
+   * when `sessions.traceContent` is on — absent is the normal value, not a gap.
+   *
+   * `args_hash` above stays regardless and is not redundant: it is computed over the UNREDACTED
+   * input, so it still identifies a call whose captured text was scrubbed or truncated.
+   */
+  args?: string;
+  /** THE-736: "clean" | "redacted:<n>" | "truncated" — what the scan did on the way in, so a
+   *  replay can tell a faithful argument from a scrubbed one BEFORE re-issuing it. */
+  args_scan?: string;
   [key: string]: unknown;
 }
 

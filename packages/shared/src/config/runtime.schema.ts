@@ -168,6 +168,16 @@ export const SessionsConfigSchema = z
       .describe(
         "Open a workspace session automatically on a principal's first authenticated dispatch when it has none, instead of waiting for an explicit start_session. Off by default: session correlation changes what the server retains about who read what.",
       ),
+    /** THE-736 content axis: also persist each dispatch's raw parsed arguments on the session
+     *  trace, so a recorded session can be REPLAYED. Off until the THE-238 poisoning defence
+     *  lands — the same write-on gate ordering `experiential.captureContent` waits on, and
+     *  deliberately the same vocabulary rather than a second one. */
+    traceContent: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Also persist each dispatch's raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed. Off by default: a trace carrying arguments holds note bodies and search queries, which is a capture-posture decision, not a wiring one. Traces live in cacheDir (never the vault) so they are not reachable through the note surface — see THE-737.",
+      ),
     windowSeconds: z
       .number()
       .int()

@@ -56,13 +56,20 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // `transcriptIndex`, and nothing in this package can produce one: it needs the ASSISTANT'S answer,
 // which no MCP surface hands to a server. A default-on flag pointing at a file that does not exist
 // would dead-letter a job on every tick. No existing key, type, default or constraint moved.
+// THE-736: rebaselined deliberately for ONE NEW KEY — `sessions.traceContent` (boolean, default
+// FALSE). It gates capturing each dispatch's raw parsed arguments onto the session trace, so a
+// recorded session can be replayed; the trace previously stored only `args_hash`, which is not
+// invertible, so replay was impossible at any effort level. Default off because capturing
+// arguments is a capture-posture decision — the same gate `experiential.captureContent` waits on
+// (the THE-238 poisoning red-team), and deliberately the same vocabulary rather than a second one.
+// No existing key, type, default or constraint moved.
 // THE-657: rebaselined deliberately, DESCRIPTION TEXT ONLY. The Windows watcher is enabled, so
 // three descriptions that said it is "not active on Windows" are now false. No key, type, default
 // or constraint moved; `watch.enabled` and `reconcileIntervalMinutes` are byte-identical apart
 // from their prose. The crash was an 8.3 short path reaching libuv, not recursive fs.watch —
 // measured on windows-latest, which died under os.tmpdir() and survived twice under a realpath.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "851a2c3e1a3c847c937478c4bd9890927f3870a334f0ba2dc6a79b333482cd96";
+  "ddb11d8f90d1e48079e8da0fc5b72c53d0cabbab6e52ec7fb2a078aefba0405d";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

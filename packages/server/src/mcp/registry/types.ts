@@ -277,6 +277,9 @@ export interface RegistryOptions {
   onProfile?: (p: DispatchProfile) => void;
   /** THE-209 session tracer. When set, a dispatch whose ctx.sessionId is present appends a
    *  tool_invocation trace record to that session's JSONL (the transport wires the path). */
+  /** THE-736: capture each dispatch's raw parsed arguments onto the session trace
+   *  (`sessions.traceContent`). Off unless the operator opts in — see the schema for why. */
+  traceContent?: boolean;
   sessionTracer?: (
     session: { vaultId: string; sessionId: string; caller: string | null },
     record: TraceRecord,
