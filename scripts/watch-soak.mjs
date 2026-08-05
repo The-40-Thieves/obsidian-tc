@@ -28,7 +28,7 @@
 // Usage:  node scripts/watch-soak.mjs [--files N] [--edits N] [--seconds N] [--dir PATH]
 // Exit:   0 = survived (see the printed counters).  Anything else, or no output at all, is the
 //         finding — a process that vanishes mid-run is exactly what this is looking for.
-import { mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -43,6 +43,7 @@ const FILES = Number(arg("files", 400));
 const EDITS = Number(arg("edits", 2000));
 const SECONDS = Number(arg("seconds", 60));
 const DIR = arg("dir", "");
+const REALPATH = process.argv.includes("--realpath");
 
 // A realistic vault is nested, not flat: Node backs a recursive watch with a per-directory tree, so
 // a flat directory would exercise one internal watcher and prove nothing about the tree that
@@ -55,7 +56,20 @@ const FOLDERS = [
   "09-reference/decisions",
 ];
 
-const root = DIR || mkdtempSync(join(tmpdir(), "otc-watch-soak-"));
+// THE-657 follow-up: --realpath resolves the root through realpathSync before watching.
+//
+// The Windows crash is an ASSERTION INSIDE LIBUV, not a Node-level error:
+//   Assertion failed: !_wcsnicmp(filename, dir, dirlen), file src\\win\\fs-event.c, line 72
+// libuv compares each event's filename against the watched directory string. On the GitHub runner
+// os.tmpdir() resolves to `C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\...` — an 8.3 SHORT NAME — while
+// events arrive carrying the long form, so the prefix compare fails and libuv aborts the process.
+//
+// That makes the path SHAPE a confound: a crash under tmpdir does not prove recursive watch is
+// broken on Windows, only that this path shape is. --dir (a long, real path) and --realpath
+// (short -> long) are the two knobs that separate those, and separating them is the difference
+// between "keep the win32 gate forever" and "resolve the path and delete it".
+const rawRoot = DIR || mkdtempSync(join(tmpdir(), "otc-watch-soak-"));
+const root = REALPATH ? realpathSync.native(rawRoot) : rawRoot;
 let created = 0;
 for (const f of FOLDERS) mkdirSync(join(root, f), { recursive: true });
 for (let i = 0; i < FILES; i++) {
@@ -71,7 +85,7 @@ const started = Date.now();
 
 process.stdout.write(
   `watch-soak: node ${process.version} on ${process.platform}/${process.arch}\n` +
-    `watch-soak: root=${root} files=${created} folders=${FOLDERS.length} edits=${EDITS} seconds=${SECONDS}\n`,
+    `watch-soak: root=${root}${REALPATH ? ` (realpath from ${rawRoot})` : ""} files=${created} folders=${FOLDERS.length} edits=${EDITS} seconds=${SECONDS}\n`,
 );
 
 // ONE watcher, held for the whole run — the shape a server has.

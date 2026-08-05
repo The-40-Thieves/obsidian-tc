@@ -31,6 +31,12 @@ on:
         description: "Edits generated over the run"
         required: false
         default: "2000"
+      variant:
+        description: "Path shape to soak: tmpdir (default) | realpath (resolve 8.3 short names) | workspace (long path, not under tmp)"
+        required: false
+        default: "tmpdir"
+        type: choice
+        options: [tmpdir, realpath, workspace]
 
 permissions:
   contents: read
@@ -65,5 +71,18 @@ jobs:
           SOAK_FILES: ${{ inputs.files || '400' }}
           SOAK_EDITS: ${{ inputs.edits || '2000' }}
           SOAK_SECONDS: ${{ inputs.seconds || '60' }}
-        run: node scripts/watch-soak.mjs --files "$SOAK_FILES" --edits "$SOAK_EDITS" --seconds "$SOAK_SECONDS"
+          SOAK_VARIANT: ${{ inputs.variant || 'tmpdir' }}
+        run: |
+          # The variant is mapped to flags HERE rather than interpolated, and it is a `choice`
+          # input so the set is closed at the API. Two layers, because a free-text value reaching
+          # a run: line is the injection shape the repo's own gate exists to catch.
+          # An ARRAY, not a string: the workspace variant carries two argv entries, and an unquoted
+          # "$EXTRA" would rely on word splitting — which breaks the moment a path contains a space,
+          # and every Windows runner path is one `Program Files` away from that.
+          EXTRA=()
+          case "$SOAK_VARIANT" in
+            realpath)  EXTRA=(--realpath) ;;
+            workspace) mkdir -p "$GITHUB_WORKSPACE/soak-vault"; EXTRA=(--dir "$GITHUB_WORKSPACE/soak-vault") ;;
+          esac
+          node scripts/watch-soak.mjs --files "$SOAK_FILES" --edits "$SOAK_EDITS" --seconds "$SOAK_SECONDS" "${EXTRA[@]}"
         shell: bash
