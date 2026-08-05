@@ -1,7 +1,17 @@
 // THE-170 — citation inference: the AUTOMATIC outcome writer over chunk_retrievals. Given a
-// session transcript (assistant-side text the MCP server itself never sees), infer per
-// retrieved chunk whether it was actually USED in the response and stamp
-// cited_in_response / citation_score (record_retrieval_feedback is the manual counterpart).
+// session transcript, infer per retrieved chunk whether it was actually USED in the response
+// and stamp cited_in_response / citation_score (record_retrieval_feedback is the manual
+// counterpart).
+//
+// THE-717/THE-675 — WHERE THE TRANSCRIPT COMES FROM, because this comment got it wrong for
+// months. It used to read "assistant-side text the MCP server itself never sees", and that
+// sentence was quoted forward as proof the whole feature was unbuildable. It is true of the
+// MCP PROTOCOL and says nothing about the HOST: a client is free to ship its own transcripts
+// somewhere the server can read, and on at least one deployment it already was. The premise
+// was never re-tested because it looked authoritative.
+// The seam is therefore a plain JSONL index file — `experiential.citationInfer.transcriptIndex`,
+// one object per retrieval — with the producer OUT of tree. Any client and any log store can
+// fill it. Do not derive a blocker here from a fact about the protocol.
 // Two-stage per the 2026-05-16 design anchors, de-vendored onto local seams:
 //   Stage 1 (cheap filter): ROUGE-L F of chunk content vs the transcript, OR max cosine of
 //   the chunk's STORED embedding against embedded transcript blocks. Thresholds 0.05 / 0.30
