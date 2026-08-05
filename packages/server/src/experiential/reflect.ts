@@ -327,20 +327,26 @@ export async function extractPreferences(
   // which the membrane forbids joining to from this store — object ids cross by value, never by
   // foreign key. So the evidence pool is broader than the partition while the learned row is
   // attributed to the vault whose episodes drove the extraction. Stated rather than silently true.
-  const feedback = edb
+  // THE-644 item 2 — NAMED FOR THE COLUMN IT READS. This was called `feedback` while selecting
+  // `outcome`, and `chunk_retrievals.feedback` is a DIFFERENT column that this file reads nowhere.
+  // The mismatch made the item look already-done to anyone who grepped the variable name instead
+  // of the query: the ticket flagged it twice as a trap and asked for exactly this rename. Wiring
+  // the real `feedback` column into extraction is still open, and is a ranking-adjacent change
+  // needing THE-641's eval gate — do not add it here without one.
+  const retrievalOutcomes = edb
     .prepare(
       `SELECT query_text, outcome FROM chunk_retrievals
        WHERE outcome IS NOT NULL AND query_text IS NOT NULL ORDER BY retrieved_at DESC LIMIT 20`,
     )
     .all() as Array<{ query_text: string; outcome: number }>;
-  if (episodes.length === 0 && feedback.length === 0)
+  if (episodes.length === 0 && retrievalOutcomes.length === 0)
     return { skipped: true, aborted: false, applied: 0, version: 0 };
   const lines = [
     ...episodes.map(
       (e) =>
         `episode outcome=${e.outcome > 0 ? "+1" : e.outcome < 0 ? "-1" : "0"} tool=${e.tool ?? "?"} status=${e.status}${e.summary ? ` summary=${e.summary.slice(0, 120)}` : ""}`,
     ),
-    ...feedback.map(
+    ...retrievalOutcomes.map(
       (f) => `retrieval outcome=${f.outcome > 0 ? "+1" : "-1"} query=${f.query_text.slice(0, 120)}`,
     ),
   ].join("\n");

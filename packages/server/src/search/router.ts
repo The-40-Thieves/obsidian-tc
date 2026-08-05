@@ -10,7 +10,8 @@
 //               everywhere the intent is absent).
 //   lexical   — exact-term shape (quoted phrase, or a short query carrying a corpus-rare
 //               term): short-circuit to the enriched BM25 stream and SKIP the embedding
-//               round-trip entirely — the cost win the router exists for.
+//               round-trip entirely — the cheapest class, and the one this router was
+//               designed around.
 //   standard  — everything else falls through to the measured engine unchanged (whose
 //               internal seed-strength router already handles the dense-vs-graph split).
 //
@@ -28,9 +29,25 @@
 // "below resolution" rather than "no effect". Full table: `packages/server/eval/README.md`.
 //
 // Note what this router is FOR when picking that metric: the lexical class short-circuits to BM25
-// and skips the embedding round-trip, so the win is COST. Non-inferiority on quality is the bar to
-// clear, not the effect to look for. `eval/run.ts` already accepts `--class-router` and applies the
+// and skips the embedding round-trip, so the effect to look for is COST, not quality. Non-inferiority
+// on quality is the bar to clear. `eval/run.ts` already accepts `--class-router` and applies the
 // same rules as serve, so measuring it needs no new code.
+//
+// THE-705 — BUT "the router is a cost win" IS NOT ESTABLISHED, and this header used to imply it was.
+// Only two of the three classes are cheaper-or-neutral. `temporal` routes to MORE work: it turns on
+// a retrieval stream that is otherwise off, so it ADDS a stream rather than skipping one. Counted
+// over the n=250 golden set on 2026-08-04 (deterministic — no timing involved):
+//
+//     standard  214  85.6%   unchanged
+//     temporal   21   8.4%   MORE work  — extra stream enabled
+//     lexical    15   6.0%   LESS work  — whole pipeline short-circuited
+//
+// That is 1.4 queries made more expensive for every 1 made cheaper. The net may still be favourable
+// — a lexical short-circuit skips an embed AND seed generation AND expansion AND fusion, while
+// temporal adds one stream to an already-running pipeline — but that is a timing question, and
+// THE-510 records that this host cannot answer it (CV 0.822 against a 0.2 target). Quality came back
+// non-inferior on all four metrics at an unusually tight resolution (nDCG MDE 0.0089), so the flag is
+// safe to enable and simply not motivated. It stays dark until the temporal branch's cost is known.
 import type { Database } from "../db/types";
 import { bm25Chunks } from "./chunk_fts";
 import type { GraphSearchResult } from "./graph_search";
