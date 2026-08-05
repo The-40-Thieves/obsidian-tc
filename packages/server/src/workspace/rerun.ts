@@ -210,25 +210,34 @@ export function stageSandbox(
   cacheDir: string,
 ): { root: string; cacheDir: string; dispose(): void } {
   const base = mkdtempSync(join(tmpdir(), "obtc-rerun-"));
-  const root = join(base, "vault");
-  const cache = join(base, "cache");
-  cpSync(vaultRoot, root, { recursive: true, dereference: true });
-  for (const name of SANDBOX_DBS) {
-    const src = join(cacheDir, name);
-    if (existsSync(src)) cpSync(src, join(cache, name), { dereference: true });
+  // Fix round 1, finding 2: a mid-copy failure (e.g. the vault disappearing underneath us, a full
+  // disk) must not leave `base` behind — nothing downstream would ever call `dispose()` for a
+  // staging call that never returned. Every throwing path from here on cleans up before
+  // rethrowing.
+  try {
+    const root = join(base, "vault");
+    const cache = join(base, "cache");
+    cpSync(vaultRoot, root, { recursive: true, dereference: true });
+    for (const name of SANDBOX_DBS) {
+      const src = join(cacheDir, name);
+      if (existsSync(src)) cpSync(src, join(cache, name), { dereference: true });
+    }
+    // THE-737: a session minted today writes trace_store='cache' — its JSONL lives under
+    // <cacheDir>/traces/, not under the vault. Skipping this copy would make --sandbox find
+    // `no_capture` for every record on the ONLY generation of session anything writes now
+    // (nothing constructs trace_store='vault' any more; see sessions.ts's own comment on the
+    // column), which defeats the command as thoroughly as staging into the real vault would —
+    // just as a silent false negative instead of an unsafe write.
+    const tracesSrc = join(cacheDir, CACHE_TRACE_SUBDIR);
+    if (existsSync(tracesSrc))
+      cpSync(tracesSrc, join(cache, CACHE_TRACE_SUBDIR), { recursive: true, dereference: true });
+    return {
+      root,
+      cacheDir: cache,
+      dispose: () => rmSync(base, { recursive: true, force: true }),
+    };
+  } catch (e) {
+    rmSync(base, { recursive: true, force: true });
+    throw e;
   }
-  // THE-737: a session minted today writes trace_store='cache' — its JSONL lives under
-  // <cacheDir>/traces/, not under the vault. Skipping this copy would make --sandbox find
-  // `no_capture` for every record on the ONLY generation of session anything writes now
-  // (nothing constructs trace_store='vault' any more; see sessions.ts's own comment on the
-  // column), which defeats the command as thoroughly as staging into the real vault would —
-  // just as a silent false negative instead of an unsafe write.
-  const tracesSrc = join(cacheDir, CACHE_TRACE_SUBDIR);
-  if (existsSync(tracesSrc))
-    cpSync(tracesSrc, join(cache, CACHE_TRACE_SUBDIR), { recursive: true, dereference: true });
-  return {
-    root,
-    cacheDir: cache,
-    dispose: () => rmSync(base, { recursive: true, force: true }),
-  };
 }
