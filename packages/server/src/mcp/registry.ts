@@ -116,6 +116,7 @@ export class ToolRegistry {
       metrics: opts.metrics,
       emit: opts.emit,
       sessionTracer: opts.sessionTracer,
+      traceContent: opts.traceContent,
       onAuditFailure: opts.onAuditFailure,
       onEpisode: opts.onEpisode,
     });

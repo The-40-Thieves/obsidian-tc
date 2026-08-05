@@ -243,10 +243,27 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const fromMs = parseIso(input.from, "from");
         const toMs = parseIso(input.to, "to");
-        const records: TraceRecord[] = [];
+        // Element type states what every row actually has: a trace record PLUS the session it came
+        // from. TraceRecord alone leaves session_id to the index signature (i.e. `unknown`), which
+        // the output schema rightly refuses.
+        const records: Array<TraceRecord & { session_id: string }> = [];
         const collect = (s: SessionRow): void => {
-          for (const rec of readTrace(traceAbsFor(deps, s, v, ctx, "read")))
-            records.push({ session_id: s.id, ...rec });
+          for (const rec of readTrace(traceAbsFor(deps, s, v, ctx, "read"))) {
+            // THE-736: captured ARGUMENTS never leave through this tool. Two facts make that
+            // necessary rather than cautious:
+            //   * TraceRecordOutput is `.catchall(z.unknown())`, so a new field flows to the
+            //     client by DEFAULT — omission has to be an act, not an oversight;
+            //   * this tool does not filter by principal. It is `read:workspace`-scoped and
+            //     returns any session's records in the vault, so returning captured note bodies
+            //     would be cross-principal content disclosure — the same class THE-737 closed at
+            //     the file level, arriving through a different door.
+            // Replay (THE-645 item 3) reads the trace FILE server-side and does not need this.
+            const { args: _args, args_scan: _scan, ...safe } = rec;
+            // `session_id` LAST, not first: TraceRecord carries an index signature, so a record
+            // that happened to contain its own `session_id` key would otherwise overwrite the
+            // authoritative one with whatever the file said.
+            records.push({ ...safe, session_id: s.id });
+          }
         };
         if (input.session_id) {
           const s = getSession(ctx.db, input.session_id);

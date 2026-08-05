@@ -27,6 +27,8 @@ export interface GovernanceDeps {
   /** THE-737: where session traces live now (beside cache.db). The sessionTracer resolves a
    *  cache-store row against this instead of the vault root. */
   cacheDir: string;
+  /** THE-736: `sessions.traceContent`. */
+  traceContent?: boolean;
   /** config.vaults */
   vaults: VaultConfigInput[];
   /** config.acl — root ACL, inherited by any vault without its own. */
@@ -102,6 +104,8 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
     // throttles. The RateLimiter object still exists (above) so get_metrics keeps reporting.
     rateLimiter: deps.throttle.enabled ? rateLimiter : undefined,
     toolVisibility: deps.toolVisibility,
+    // THE-736: trace argument capture, off unless configured.
+    traceContent: deps.traceContent,
     // THE-295: per-vault ACL enforcement at dispatch.
     aclResolver: (vaultId) => aclByVault.get(vaultId) ?? acl,
     // THE-414: vault-root resolver so dispatch can run central pathAcl enforcement with the same

@@ -413,6 +413,7 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `sessions.autoOpen` | `boolean` | `false` |  | Open a workspace session automatically on a principal's first authenticated dispatch when it has none, instead of waiting for an explicit start_session. Off by default: session correlation changes what the server retains about who read what. |
+| `sessions.traceContent` | `boolean` | `false` |  | Also persist each dispatch's raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed. Off by default: a trace carrying arguments holds note bodies and search queries, which is a capture-posture decision, not a wiring one. Traces live in cacheDir (never the vault) so they are not reachable through the note surface — see THE-737. |
 | `sessions.windowSeconds` | `number` | `1800` |  | How long a server-opened session keeps correlating before it becomes ELIGIBLE to be closed. This is a floor, not an exact lifetime: the closing is done by the maintenance sweep on ITS schedule (maintenance.intervalMinutes, default 60), so a session actually lives between windowSeconds and windowSeconds + that interval — with both defaults, between 30 and 90 minutes. A session is a bounded activity window, not an idle timeout: it is closed on age, never on inactivity, and the next request opens a fresh one. Explicit start_session sessions are never closed by the sweep — only end_session closes those. |
 
 ### `snapshots`

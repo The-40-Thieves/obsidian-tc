@@ -229,6 +229,7 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
   },
   "sessions": {
     "autoOpen": false,
+    "traceContent": false,
     "windowSeconds": 1800
   },
   "idempotencyTtlSeconds": 86400,
