@@ -100,6 +100,7 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
 
   const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
   registerM5Tools(registry, {
+    cacheDir: root,
     vaultRegistry,
     plur,
     memoryFolder: () => opts.memoryFolder ?? "memory",

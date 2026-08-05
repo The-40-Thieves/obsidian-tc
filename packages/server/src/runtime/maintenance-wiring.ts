@@ -15,10 +15,12 @@ import { registerMaintenanceSweep, type SweepCounts } from "../db/maintenance";
 import type { Database } from "../db/types";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import type { Scheduler } from "../scheduler/scheduler";
-import { resolveTraceDirs } from "../workspace/sessions";
+import { resolveCacheTraceDir, resolveTraceDirs } from "../workspace/sessions";
 
 export interface MaintenanceWiringDeps {
   db: Database;
+  /** THE-737: trace storage root, so the sweep prunes the new location too. */
+  cacheDir: string;
   /** config.maintenance */
   maintenance: {
     enabled: boolean;
@@ -68,7 +70,12 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
     jobsCompleteDays: deps.maintenance.jobsCompleteRetentionDays,
     jobsFailedDays: deps.maintenance.jobsFailedRetentionDays,
     tracesDays: deps.retention.tracesDays,
-    traceDirs: resolveTraceDirs(deps.vaults, deps.defaultTraceFolder),
+    // THE-737: sweep BOTH generations -- the cacheDir directory new sessions write to, and
+    // the legacy per-vault dirs that still hold pre-migration traces.
+    traceDirs: [
+      resolveCacheTraceDir(deps.cacheDir),
+      ...resolveTraceDirs(deps.vaults, deps.defaultTraceFolder),
+    ],
     ...(deps.edb !== undefined
       ? {
           edb: deps.edb,

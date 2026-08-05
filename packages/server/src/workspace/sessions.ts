@@ -9,7 +9,8 @@
 // take an already-resolved absolute path.
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
 import { resolveVaultPathChecked } from "../vault/paths";
 
@@ -23,10 +24,74 @@ export function genSessionId(): string {
  *  sessions) needs the same fallback m5 uses; tools/m5/shared.ts re-exports it. */
 export const DEFAULT_TRACE_FOLDER = ".obsidian-tc/traces";
 
-/** Vault-relative JSONL trace path for a session: <traceFolder>/<sessionId>.jsonl. */
+/** Vault-relative JSONL trace path for a session: <traceFolder>/<sessionId>.jsonl.
+ *  LEGACY (THE-737): only rows with `trace_store = 'vault'` resolve this way. New sessions write
+ *  to cacheDir — see `cacheTraceRelPath`. Kept so pre-migration rows stay readable. */
 export function traceRelPath(traceFolder: string, sessionId: string): string {
   const f = traceFolder.replace(/\\/g, "/").replace(/\/+$/, "");
   return `${f}/${sessionId}.jsonl`;
+}
+
+/**
+ * THE-737 — which store a session's `trace_path` is relative to.
+ *
+ * `vault` is the legacy generation (`<vaultRoot>/<traceFolder>/…`), `cache` the current one
+ * (`<cacheDir>/traces/…`). Carried as a column rather than inferred from the path string: the
+ * legacy folder is operator-configurable (`traceFolder` is `z.string().min(1)`), so a prefix sniff
+ * would be inference over a value the operator chose.
+ */
+export type TraceStore = "vault" | "cache";
+
+/** Subdirectory under `cacheDir` holding session traces. */
+export const CACHE_TRACE_SUBDIR = "traces";
+
+/** Session ids are minted by `genSessionId` — `sess_` + 24 hex. Pinned so a value that reached the
+ *  DB by some other route can never become a path segment. */
+const SESSION_ID_RE = /^sess_[0-9a-f]{24}$/;
+
+/** cacheDir-relative JSONL trace path: traces/<sessionId>.jsonl.
+ *
+ *  No vault segment, deliberately. Session ids are globally unique, so a per-vault directory would
+ *  buy nothing and would put an operator-chosen `vaultId` into a filesystem path. */
+export function cacheTraceRelPath(sessionId: string): string {
+  if (!SESSION_ID_RE.test(sessionId)) throw err.invalidInput("malformed session id", { sessionId });
+  return `${CACHE_TRACE_SUBDIR}/${sessionId}.jsonl`;
+}
+
+/**
+ * Resolve a cacheDir-relative trace path, refusing anything that escapes.
+ *
+ * `resolveVaultPathChecked` cannot be reused: it canonicalizes against a VAULT root and returns an
+ * ACL-relative path, neither of which applies here. The containment property still must hold —
+ * `sweepTraceFiles` DELETES from the directory this computes, and a delete path must be at least
+ * as strict as the write path that created the files.
+ */
+export function resolveCacheTracePath(cacheDir: string, relPath: string): string {
+  const clean = relPath.replace(/\\/g, "/");
+  const root = resolve(cacheDir);
+  const abs = resolve(root, clean);
+  const rel = relative(root, abs);
+  if (rel.startsWith("..") || isAbsolute(rel))
+    throw err.pathInvalid("trace path escapes the cache directory", { path: relPath });
+  return abs;
+}
+
+/**
+ * THE-737 — the ONE place a stored `trace_path` becomes an absolute path.
+ *
+ * Every reader and writer goes through this, so the two generations can never diverge at a call
+ * site. A `vault` row resolves against the vault root exactly as before; a `cache` row resolves
+ * against cacheDir with its own containment check.
+ */
+export function resolveTraceAbs(opts: {
+  store: TraceStore;
+  tracePath: string;
+  cacheDir: string;
+  vaultRoot: string;
+}): string {
+  return opts.store === "cache"
+    ? resolveCacheTracePath(opts.cacheDir, opts.tracePath)
+    : resolveVaultPathChecked(opts.vaultRoot, opts.tracePath).abs;
 }
 
 /** THE-610: absolute trace directory per vault, for the maintenance sweep's filesystem arm.
@@ -49,6 +114,18 @@ export function traceRelPath(traceFolder: string, sessionId: string): string {
  *  `start_session` fail at `resolveVaultPath`, so such a config is broken either way — refusing at
  *  boot turns a latent per-call error into an immediate, legible one, and silently skipping the
  *  vault would leave its traces growing forever, which is the bug this ticket exists to fix. */
+/**
+ * THE-737 — the cacheDir trace directory, for the THE-610 sweep.
+ *
+ * Returned ALONGSIDE the legacy per-vault dirs, never instead of them: old vault-resident traces
+ * still exist and must still age out, or moving the write path would silently convert a bounded
+ * growth curve into an unbounded one. `vaultId` is "*" because a cache trace file is not
+ * per-vault -- session ids are globally unique, so one directory serves every vault.
+ */
+export function resolveCacheTraceDir(cacheDir: string): { vaultId: string; dir: string } {
+  return { vaultId: "*", dir: resolveCacheTracePath(cacheDir, CACHE_TRACE_SUBDIR) };
+}
+
 export function resolveTraceDirs(
   vaults: readonly { id: string; path: string; workspace?: { traceFolder: string } }[],
   defaultFolder: string,
@@ -75,6 +152,8 @@ export interface SessionRow {
    *  none — which is every client under the current spec, so NULL is the normal value, not a gap. */
   client_name: string | null;
   client_version: string | null;
+  /** THE-737: which store `trace_path` is relative to. 'vault' on pre-migration rows. */
+  trace_store: TraceStore;
   /** THE-726: the server-OBSERVED principal that owns this session (`ctx.caller`), as distinct from
    *  `caller` above, which is the caller-SUPPLIED `input.caller`. Only this column may resolve an
    *  active session — see `activeSessionFor`. NULL on rows written before 20260804_001, which
@@ -83,7 +162,7 @@ export interface SessionRow {
 }
 
 const SESSION_COLS =
-  "id, vault_id, caller, started_at, ended_at, trace_path, metadata_json, client_name, client_version, principal";
+  "id, vault_id, caller, started_at, ended_at, trace_path, metadata_json, client_name, client_version, principal, trace_store";
 
 export interface InsertSessionInput {
   id: string;
@@ -102,12 +181,15 @@ export interface InsertSessionInput {
    *  caller-supplied declaration and cannot be trusted to identify who is calling. Optional so a
    *  transport with no authenticated principal writes NULL rather than a fabricated value. */
   principal?: string | null;
+  /** THE-737: defaults to 'cache' — every NEW session writes outside the vault. Only the legacy
+   *  read path constructs 'vault', and nothing writes it. */
+  traceStore?: TraceStore;
 }
 
 export function insertSession(db: Database, input: InsertSessionInput): SessionRow {
   db.prepare(
-    `INSERT INTO workspace_sessions (id, vault_id, caller, started_at, ended_at, trace_path, metadata_json, client_name, client_version, principal)
-     VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+    `INSERT INTO workspace_sessions (id, vault_id, caller, started_at, ended_at, trace_path, metadata_json, client_name, client_version, principal, trace_store)
+     VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.id,
     input.vaultId,
@@ -120,6 +202,7 @@ export function insertSession(db: Database, input: InsertSessionInput): SessionR
     input.clientInfo?.name ?? null,
     input.clientInfo?.version ?? null,
     input.principal ?? null,
+    input.traceStore ?? "cache",
   );
   return getSession(db, input.id) as SessionRow;
 }
@@ -192,7 +275,7 @@ export function openImplicitSession(
     vaultId: input.vaultId,
     caller: null,
     startedAt: input.now,
-    tracePath: traceRelPath(input.traceFolder, id),
+    tracePath: cacheTraceRelPath(id),
     principal: input.principal,
   });
   return { sessionId: id, vaultId: input.vaultId };

@@ -403,6 +403,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   const plurClient = createPlurBackend(config.plur);
   registerM5Tools(registry, {
     vaultRegistry: deps.vaultRegistry,
+    // THE-737: traces live beside cache.db / experiential.db now, not in the vault.
+    cacheDir: config.cacheDir,
     activeSessions: deps.activeSessions,
     reindex: deps.reindex,
     plur: plurClient,

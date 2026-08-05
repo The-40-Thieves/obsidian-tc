@@ -1,31 +1,65 @@
 // Domain 23 — Workspace memory + JSONL traces (G2.1). Three tools over the SQLite
 // workspace_sessions table plus an append-only JSONL trace file per session:
-// start_session, end_session, get_session_traces. Traces are vault-relative (path-safe
-// via resolveVaultPath, ACL-checked via enforcePathAcl) — overriding G2.3's cache_dir
-// sketch to honor THE-181's "ACL-checked" requirement. Reads take read:workspace,
+// start_session, end_session, get_session_traces.
+//
+// THE-737: traces are CACHE-resident, not vault-relative. They used to live under the vault
+// ("ACL-checked via enforcePathAcl", honoring THE-181 over G2.3's cache_dir sketch) — but a
+// vault-resident trace is readable through `read_note`: `.obsidian-tc` is not in
+// DEFAULT_DENY_ROOTS, and read_note takes a bare VaultPath with no extension restriction. So
+// G2.3 was right after all, for a reason it did not state. Legacy rows still resolve against
+// the vault and still get the folder-ACL check — see `traceAbsFor`. Reads take read:workspace,
 // mutations take write:workspace (write family — readOnly kill-switch applies, no
 // execute HITL floor; spec hitl:never). The append contract (appendTrace) is what the
 // ambient capture worker (THE-175) targets to add tool-invocation records over time.
 import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inTransaction } from "../../db/txn";
-import type { ToolDefinition } from "../../mcp/registry";
+import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { resolveVaultPath } from "../../vault/paths";
 import {
   appendTrace,
+  cacheTraceRelPath,
   endSession,
   genSessionId,
   getSession,
   insertSession,
   readTrace,
+  resolveCacheTracePath,
+  resolveTraceAbs,
   type SessionRow,
   sessionsInWindow,
   type TraceRecord,
-  traceRelPath,
 } from "../../workspace/sessions";
 import { defineTool } from "../m1/define";
-import { type M5Deps, traceFolderFor } from "./shared";
+import type { M5Deps } from "./shared";
+
+/**
+ * THE-737 — resolve a session's trace file, applying the folder ACL only where it means something.
+ *
+ * A LEGACY (`trace_store = 'vault'`) row's trace is inside the vault, so the folder ACL still gates
+ * it exactly as before — this does not weaken any existing deployment. A `'cache'` row's trace is
+ * outside the vault: there is no vault path to check, and the tool's `read:workspace` /
+ * `write:workspace` scope is the WHOLE control. That is a real reduction in defence-in-depth for
+ * the new generation and is stated here rather than left to be discovered, because the alternative
+ * -- keeping traces where the folder ACL applies -- is what made them readable via `read_note`.
+ *
+ * One function so no call site can forget which branch it is in.
+ */
+function traceAbsFor(
+  deps: M5Deps,
+  s: SessionRow,
+  v: { root: string },
+  ctx: CallerContext,
+  op: "read" | "write",
+): string {
+  if (s.trace_store === "vault") enforcePathAcl(ctx.acl, op, s.trace_path, v.root);
+  return resolveTraceAbs({
+    store: s.trace_store,
+    tracePath: s.trace_path,
+    cacheDir: deps.cacheDir,
+    vaultRoot: v.root,
+  });
+}
 
 /** Parse an optional ISO-8601 date to epoch-ms; throws invalid_input on a bad value. */
 function parseIso(value: string | undefined, field: string): number | undefined {
@@ -99,9 +133,11 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const now = (ctx.now ?? Date.now)();
         const id = genSessionId();
-        const tracePath = traceRelPath(traceFolderFor(deps, v.id), id);
-        const abs = resolveVaultPath(v.root, tracePath);
-        enforcePathAcl(ctx.acl, "write", tracePath, v.root);
+        // THE-737: traces are cacheDir-resident now, so there is no vault path to ACL-check.
+        // `write:workspace` is the whole control here, and that is stated rather than inherited —
+        // see `traceAbsFor` below for the legacy branch that still checks.
+        const tracePath = cacheTraceRelPath(id);
+        const abs = resolveCacheTracePath(deps.cacheDir, tracePath);
         // THE-572: two effects — a SQLite row and a JSONL trace file — that cannot share a
         // transaction. The row used to be inserted first, so an appendTrace throw left a durable
         // session row behind while dispatch deleted the idempotency claim, and a retry inserted a
@@ -167,8 +203,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         if (s.ended_at !== null)
           throw err.invalidInput("session already ended", { session_id: input.session_id });
         const now = (ctx.now ?? Date.now)();
-        const abs = resolveVaultPath(v.root, s.trace_path);
-        enforcePathAcl(ctx.acl, "write", s.trace_path, v.root);
+        const abs = traceAbsFor(deps, s, v, ctx, "write");
         appendTrace(abs, {
           ts: now,
           type: "session_end",
@@ -210,8 +245,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         const toMs = parseIso(input.to, "to");
         const records: TraceRecord[] = [];
         const collect = (s: SessionRow): void => {
-          enforcePathAcl(ctx.acl, "read", s.trace_path, v.root);
-          for (const rec of readTrace(resolveVaultPath(v.root, s.trace_path)))
+          for (const rec of readTrace(traceAbsFor(deps, s, v, ctx, "read")))
             records.push({ session_id: s.id, ...rec });
         };
         if (input.session_id) {

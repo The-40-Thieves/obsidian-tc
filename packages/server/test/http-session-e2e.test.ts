@@ -79,7 +79,7 @@ async function boot(): Promise<Booted> {
 
   const registry = new ToolRegistry();
   // No `activeSessions` — see the file header. The durable path must carry this alone.
-  for (const tool of buildSessionTools({ vaultRegistry })) registry.register(tool);
+  for (const tool of buildSessionTools({ vaultRegistry, cacheDir: root })) registry.register(tool);
   registry.register({
     name: "probe_retrieval",
     description: "test-only: logs one retrieval hit under whatever session the context carries",

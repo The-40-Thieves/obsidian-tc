@@ -762,9 +762,9 @@ describe("THE-573 #2: add_observation's read + render + append now share ONE wri
       const vaultRegistry = new VaultRegistry([{ id: "test", path: root }]);
       const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
       const regA = new ToolRegistry();
-      registerM5Tools(regA, { vaultRegistry });
+      registerM5Tools(regA, { vaultRegistry, cacheDir: "" });
       const regB = new ToolRegistry();
-      registerM5Tools(regB, { vaultRegistry });
+      registerM5Tools(regB, { vaultRegistry, cacheDir: "" });
       const base = {
         caller: "test",
         authenticated: true,

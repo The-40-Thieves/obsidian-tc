@@ -32,6 +32,7 @@ function fakeMorgiana() {
 }
 
 const baseDeps = (db: Database, morgiana: MorgianaEmitter) => ({
+  cacheDir: "",
   db,
   maintenance: {
     enabled: true,
