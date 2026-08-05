@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,078 tracked code files · 166,227 lines.
+**Scale:** 1,078 tracked code files · 166,254 lines.
 
-TypeScript 154,431 · JavaScript 7,677 · Python 1,640 · SQL 1,377 · Rust 742 · Shell 360.
+TypeScript 154,458 · JavaScript 7,677 · Python 1,640 · SQL 1,377 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -99,7 +99,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `db/` | 14 | 1,314 | provisioning, migrate runner, experiential store |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `plane/` | 6 | 938 | generative plane; `jobs/` holds the contradiction detector |
-| `workspace/` | 3 | 862 | session tracking |
+| `workspace/` | 3 | 889 | session tracking |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
 | `providers/` | 6 | 731 |  |
