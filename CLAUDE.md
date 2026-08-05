@@ -118,11 +118,13 @@ that constant is the one thing that cannot drift from reality.
 - **A new gate must be watched failing before it is trusted**, and needs a non-empty floor. A gate
   that has never failed proves nothing; one that scans zero files reports success.
 
-## Adding a tool moves seven things
+## Adding a tool moves eight things
 
-Four always, three more if the tool mutates or takes a vault. Measured 2026-08-03 adding three
+Five always, three more if the tool mutates or takes a vault. Measured 2026-08-03 adding three
 tools (154 → 157): the first four were known, **CI caught the last three**, and a local sweep that
-skipped `bun run lint` at the repo root missed two of those.
+skipped `bun run lint` at the repo root missed two of those. Item 5 was added 2026-08-04 adding
+`explain_answer` (157 → 158) — this file said *seven*, all seven were moved, and CI failed anyway
+on an eighth nobody had written down.
 
 **Always:**
 
@@ -140,24 +142,37 @@ skipped `bun run lint` at the repo root missed two of those.
    the generated marker regions (it rewrote 8 files last time). Running `docgen:facts-check` and
    skipping `docgen:render` is what failed `drift-gate` — `docgen:render -- --check` is the one that
    tells you.
+5. **The m7 metadata parity snapshot**, *if the tool lives in `m7/knowledge`* —
+   `test/m7-tool-metadata-parity.test.ts` pins an ordered, **byte-identical** snapshot of every m7
+   tool's public metadata (name, description, domain, scopes, tags, `hasPathAcl`, and the top-level
+   input/output keys), so a new tool in `buildKnowledgeTools` moves it by construction. It is an
+   inline literal rather than `toMatchSnapshot()` on purpose — there is no `__snapshots__` dir, so
+   an auto-written snapshot would be created-and-pass on its first run. **Derive the new entry from
+   the tool and read it back**, don't hand-type it.
+
+   A `z.union` outputSchema (the `availableWith` envelope) snapshots as **`outputKeys: []`** —
+   `topLevelShape` returns `undefined` for a union, correctly. That is the honest value, and it
+   also means the parity gate stops guarding that tool's output shape, so pair it with a
+   round-trip parse test. Compare **key sets** after parsing, not just `safeParse` success: Zod
+   objects are non-strict, so a field with no schema entry is silently stripped and still parses.
 
 **If the tool MUTATES** (`destructive: true`, or any `write:`/`admin:` scope):
 
-5. **`pathAcl`, or a documented exemption** — `test/acl-extraction-coverage.test.ts` (THE-414). A
+6. **`pathAcl`, or a documented exemption** — `test/acl-extraction-coverage.test.ts` (THE-414). A
    mutating tool that names no caller-controlled vault path belongs in `EXEMPT_NO_PATH` **with a
    comment saying why**. Being vault-*scoped* and *naming a path inside a vault* are different
    things; only the second is `pathAcl`'s business.
 
 **If it also takes a vault:**
 
-6. **`vaultArg`, and the field must be the branded `VaultId`** —
+7. **`vaultArg`, and the field must be the branded `VaultId`** —
    `test/vault-arg-coverage.test.ts` (THE-513 Part 2). The gate recognises a vault-shaped field by
    that schema, so `vault: z.string()` reads to it as *a mutating tool with no vault at all* and
    fails with a confusing message about a set you did not touch.
 
 **Whenever the target file is near the ceiling:**
 
-7. **biome's 700-line `noExcessiveLinesPerFile`** — three tools took `experiential-tools.ts` to 839.
+8. **biome's 700-line `noExcessiveLinesPerFile`** — three tools took `experiential-tools.ts` to 839.
    Splitting is the fix, but a naive split creates a **circular import** (`check:boundaries`,
    baseline **0**): lift the shared deps and helpers into a third module rather than having the new
    file import from the old one.
