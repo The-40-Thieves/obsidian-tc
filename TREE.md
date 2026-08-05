@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,078 tracked code files · 166,221 lines.
+**Scale:** 1,078 tracked code files · 166,227 lines.
 
-TypeScript 154,425 · JavaScript 7,677 · Python 1,640 · SQL 1,377 · Rust 742 · Shell 360.
+TypeScript 154,431 · JavaScript 7,677 · Python 1,640 · SQL 1,377 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -91,7 +91,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `mcp/` | 17 | 4,396 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 18 | 4,178 | work-memory tier: activation, retrieval log, forget, citations |
 | `runtime/` | 14 | 3,221 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `cli/` | 24 | 3,074 | arg parsing + subcommands |
+| `cli/` | 24 | 3,080 | arg parsing + subcommands |
 | `vault/` | 17 | 1,991 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `doctor/` | 9 | 1,716 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `migrations/` | 36 | 1,377 | hand-registered SQL. **Two chains** — see below |
@@ -141,7 +141,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 811 | `packages/server/src/doctor/checks.ts` |
 | 763 | `packages/server/src/cli/commands/doctor.ts` |
 | 740 | `packages/server/src/runtime/server-runtime.ts` |
-| 722 | `packages/server/src/cli/args.ts` |
+| 728 | `packages/server/src/cli/args.ts` |
 | 708 | `packages/server/src/mcp/server.ts` |
 | 688 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
