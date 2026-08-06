@@ -6,6 +6,133 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-08-06
+
+### Added
+
+- **`rerun` — re-run a recorded session against current vault state (#722, #721, #720, THE-645 item
+  3, THE-736, THE-737).** A session trace records what was dispatched; `rerun` replays it and
+  reports divergence. `sessions.traceContent` gates whether arguments are captured at all and is
+  **off by default** pending the THE-238 poisoning red-team, so on a default deployment every
+  recorded call classifies `no_capture` and nothing is re-executed — that is the designed state, not
+  a failure. Session traces also moved out of the vault into `cacheDir`, because `.obsidian-tc/` was
+  not in `DEFAULT_DENY_ROOTS` and traces were readable through `read_note`.
+
+- **`explain_answer` — the retrieval → chunk → citation → episode lineage chain (#705, THE-646 item
+  2).** What an answer actually used, rather than what was retrieved.
+
+- **`inspect_visibility` — why a tool is or is not offered (#718, THE-645 item 2).**
+
+- **Per-vault score calibration, and the confidence it makes possible (#711, THE-733, THE-631 item
+  1).** `gaps --calibrate` printed a distribution and returned, so no percentile existed at query
+  time and the only number reachable from the request path was a global constant from an n=136
+  calibration on one vault. The distribution is now persisted with provenance (engine version,
+  config fingerprint) — a distribution is only valid for the engine that produced it.
+
+- **Note staleness on the coverage estimate (#704, THE-631 item 2).**
+
+- **The citation pass finally has a producer (#708, #709, #707, THE-717).** A JSONL transcript seam,
+  a durable scheduled job, and a run log so "the pass never ran" and "the pass ran and stamped
+  nothing" stop being the same observation.
+
+- **Operation-aware authorization (#697, THE-727).** Policy resolves from the CALL, not only the
+  definition — the prerequisite for merging read+write tools.
+
+- **The vault watcher is enabled on Windows (#715, THE-657).** The crash was an 8.3 short path
+  reaching libuv, not recursive `fs.watch`.
+
+- **`ToolAnnotations.idempotentHint` (#733, THE-743).** Emitted only for mutating tools, from an
+  explicit per-tool declaration — never inferred from `acceptsIdempotencyKey`, which is a different
+  claim (a retry is safe *when the caller supplies a key*, and the key is optional).
+
+- **Per-decision eligibility reasons (#733, THE-746).** `evaluateEpisodes` records which rule
+  produced each verdict, plus a versioned policy id so a later rule change is distinguishable from a
+  data change. Held rows record a reason too — they stay `pending`, so without one "never evaluated"
+  and "evaluated and held" are indistinguishable.
+
+- **`experiential.activationDecay` (#733, THE-644 item 3).** The ACT-R decay exponent, finally
+  reachable from configuration. Every layer below already accepted a `decay` and nothing supplied
+  one. Weight falls as `days ** -decay`, so higher means faster forgetting: ~0.3 for a reference
+  vault, 0.5 default, ~0.8 for a journal.
+
+- **Two developer lookups (#726, #735).** `where-symbol` separates a symbol's declarations and uses
+  from prose that merely mentions it; `migration-impact` lists the hand-built test migration chains a
+  new migration affects, because 62 test files build their own chain and nothing gated them.
+
+### Changed
+
+- **`chunk_retrievals.outcome` is RETIRED (#731, THE-718).** It asked a task-level question of a
+  response-level row, so one task's verdict was attributed to every chunk a search happened to
+  return — no denominator, no estimand. Measured 0 stamps across 108 rows, and the tool was
+  unreachable until 2026-08-03, so the zero was never evidence about adoption.
+
+  `agent_episodes.outcome` is **kept and renamed `task_result`** — an episode *is* the task, so the
+  axis is coherent there; only the name was wrong.
+
+  **`note_quality` scoring changed as a consequence.** It divided citations by *all* retrievals, so
+  an unjudged retrieval entered the average as a citation of zero — the "call every unread note bad"
+  failure its own docstring exists to prevent. The denominator is now `observed_retrievals`, and
+  zero observations scores NULL rather than mid-range. `SCORE_VERSION` is 2; rows scored under the
+  old formula keep version 1.
+
+  **`record_retrieval_feedback` no longer accepts `outcome`**, and `feedback` is now required. Under
+  `.strict()` a client still sending the retired field gets a hard rejection rather than a silent
+  drop.
+
+- **Sparse weights are stored PACKED, not as JSONB (#727, then #729, THE-711).** Both landed in this
+  release and the second replaces the first: #727 stored weights as JSONB on the reasoning that
+  `json_extract` got faster, but `sparseSearch` never calls `json_extract` — it selects `weights`
+  and `JSON.parse`s them, so JSONB added a binary→text render and measured **12.6% slower**
+  (207.1ms → 233.3ms). #729 replaced the representation entirely with a packed
+  `[u32 count][u32 id×n][f32 w×n]` blob scored by merge-intersection. Anyone reading #727 alone
+  would have the wrong picture of the shipped state.
+
+- **`chunk_fts` is contentless, keyed on the chunks rowid (#728, THE-711).** The FTS index carried a
+  second copy of every chunk body. It now stores none, resolving matches back through the rowid.
+  Note the shape change is invisible to a naive test: under `content=''` a query like
+  `SELECT count(*) FROM chunk_fts WHERE path = ?` matches zero **unconditionally**, so an assertion
+  written that way passes vacuously whether or not the index works.
+
+### Fixed
+
+- **A judge that did not ANSWER is no longer counted as one that answered unparseably (#732, #734,
+  THE-717, THE-613).** `parse_failures` merged transport failures with unparseable replies, which
+  have opposite remedies. Both live citation passes logged 3/3 "parse failures" that were every one
+  of them an HTTP 404 from a retired inference deployment — the log sent an operator to debug prompts
+  for three days. The kill switch still trips on the SUM, because splitting the counters without
+  that would let an all-404 pass compute 0/N and abort nothing. The same conflation is fixed in the
+  contradiction judge, which shares the role.
+
+- **An invocation that plans zero passes now records that it ran (#733, THE-744).** `openCitationRun`
+  is per-entry, so a pass over an empty transcript index wrote nothing at all and
+  `SELECT * FROM citation_runs` — the documented way to ask "did it ever fire?" — answered no.
+
+- **`busy_timeout` is installed before any pragma that can contend (#723, THE-745).** A WAL
+  conversion under contention needs an EXCLUSIVE lock; applied after `journal_mode=WAL`, the timeout
+  could not protect the very statement that most needed it.
+
+- **`--acl-allow` silently dropped 53% of ground truth on a path separator (#710, THE-695).**
+
+- **The stage-2 judge fan-out is bounded and the kill switch has a floor (#703, THE-621).**
+
+- **`reflect --max-judged` outlived the judge it capped (#724, THE-747).** Parsed, validated,
+  advertised in `--help`, consumed by nothing.
+
+- **A nameless job spec is refused at registration (#701, THE-715 item 3).**
+
+- **Rerun hygiene: WAL staging, audit attribution, policy refusals, exit codes (#730, THE-738,
+  THE-739, THE-740, THE-742).** `--sandbox` copied a live WAL database without its sidecars, so the
+  staged copy lagged the real one; it now uses `VACUUM INTO`. Replayed calls are marked in the audit
+  log rather than being indistinguishable from real traffic, and "refused by rerun's own policy" is
+  no longer reported as "vault state diverged".
+
+- **doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and
+  the experiential charter is stated (#700, THE-715, THE-713).**
+
+- **Release and CI: draft-release no longer races itself on the plugin zip, and the release is
+  verified whole (#695, THE-731); the quiet-host perf calibration is keyed by CPU architecture
+  (#699, THE-510).**
+
 ## [1.19.0] - 2026-08-04
 
 ### Added

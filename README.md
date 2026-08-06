@@ -3,7 +3,7 @@
 > Obsidian Turbocharged — governed, agent-ready vault access over MCP.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-![Status: Shipped v1.19.0](https://img.shields.io/badge/Status-Shipped_v1.19.0-success)
+![Status: Shipped v1.20.0](https://img.shields.io/badge/Status-Shipped_v1.20.0-success)
 
 ```bash
 npm install -g obsidian-tc      # Node >= 24 or Bun >= 1.1
@@ -59,7 +59,7 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 
 ## Status
 
-✅ **Shipped — v1.19.0** (2026-08-02). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.19.0`. The surface is **159 tools across 31 domains**, presented by default via the triad facade described above.
+✅ **Shipped — v1.20.0** (2026-08-02). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.20.0`. The surface is **159 tools across 31 domains**, presented by default via the triad facade described above.
 
 The v1.6–v1.7 line turned the server into a **measured memory engine** (full detail in the [CHANGELOG](./CHANGELOG.md)):
 
