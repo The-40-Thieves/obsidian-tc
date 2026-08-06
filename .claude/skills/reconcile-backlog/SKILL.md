@@ -15,7 +15,9 @@ Three things it adds that the single-ticket skill does not cover:
    that opened (or a claim that it opened) is invisible to it. On 2026-08-04 a reconciliation
    asserted sqlite-vec 0.1.10 had shipped; it had not, and one `npm view` refuted it.
 2. **Blocker edges.** `blockedBy` is the least reliable field on a ticket here. Blockers close
-   without their dependents being revisited, so a "blocked" ticket is frequently startable.
+   without their dependents being revisited, so a "blocked" ticket is frequently startable. Note
+   that most edges in this backlog are **prose, not the field** — see the grammar rule in Stage 2,
+   which is what makes this stage work at all.
 3. **An on-disk ledger.** A 40+ ticket pass will outlive its context window. Verdicts written to
    disk as you go make the pass resumable and stop you re-deriving what you already proved.
 
@@ -24,7 +26,8 @@ Three things it adds that the single-ticket skill does not cover:
 **Cheapest disqualifier first.** Most tickets are resolved without reading code:
 
 ```
-blocker state  ->  one API read
+blocker edge   ->  grep the body for a FORWARD-POINTER verb, then one API read on what it names
+                   (state alone discriminates nothing — 31 of 34 cited tickets are already Done)
 upstream gate  ->  one npm view / context7 / web check
 already shipped ->  one grep for the CAPABILITY (not the ticket's identifier)
 coordinates    ->  scripted file:line resolution
@@ -67,7 +70,38 @@ just where <Symbol>          # DECLARED / USED / PROSE-ONLY; exit 1 when nothing
 not exist" assertions, and this repo's comments discuss deleted symbols by name. A grep that finds
 the obituary reports the corpse as alive.
 
-Per blocker edge, read the blocker's *current* state.
+### Blocker edges: the state is not the finding — the GRAMMAR is
+
+Reading the blocker's current state is necessary and **nowhere near sufficient**. Measured
+2026-08-06 over the whole open backlog: **31 of the 34 tickets cited by open tickets are Done.**
+A sweep that flags "cites a closed ticket" therefore flags almost everything and discriminates
+nothing.
+
+Mature backlogs cite closed work constantly, and legitimately. Classify by how the sentence *uses*
+the reference:
+
+| grammar | example | verdict |
+|---|---|---|
+| **historical attribution** | "THE-310 exists because `vault_edges` had no `vault_id`" | correct — leave it |
+| **provenance** | "shipped in #675, cited in that release's CHANGELOG" | correct — leave it |
+| **forward pointer** | "blocked on THE-222", "pending THE-296", "waits on someone taking X" | **defect once closed** |
+
+Only the third is a stale edge. Grep for the *verbs*, not the ids:
+
+```bash
+rg -i 'blocked (on|by)|pending|waits? on|gated on|until .*THE-[0-9]|prerequisite' <body-on-disk>
+```
+
+Three instances of exactly this shipped undetected until 2026-08-06 — THE-296 cited as live in the
+README (it had closed by *de-scoping that very README*), THE-675 on THE-671, and THE-222 on both
+THE-642 and THE-647. Each rendered as a valid link, so nothing flagged them. **A closed ticket cited
+as a forward pointer reads as "work someone will get to" when the truth is "nobody owns this"** —
+and those need opposite decisions, which is why the distinction is worth a stage.
+
+A caution when building the closed-set oracle: `list_issues state=Done limit=N` returns exactly `N`
+with `hasNextPage: true`, and unioning two orderings did **not** close it (250 -> 285, still
+paginated). So it is one-directional — **presence proves Done; absence proves nothing.** Never
+render a "not closed" verdict from it.
 
 ## Stage 3 — External gates (context7 + web)
 
