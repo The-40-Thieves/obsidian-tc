@@ -491,12 +491,17 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   // failures. Splitting the two for reporting without summing them here would have been a safety
   // regression, not a fix: an all-404 pass would compute parseFailures/judged = 0/N and never
   // abort, which is precisely the outage this change exists to make visible.
+  // Report the RATIO THAT DROVE THE DECISION, then break it down. An earlier version of this named
+  // only the dominant fault, which reintroduced the exact defect being fixed one layer up: a pass
+  // with 1 parse + 1 transport failure in 25 aborts on 2/25 but would have logged "1/25 judge parse
+  // failures" — a number that reads as comfortably BELOW the 5% threshold it had just exceeded, and
+  // that silently drops the transport failure. A log must never contradict the action it explains.
+  // Both counts are always shown, including zeros, so the breakdown always sums to the headline.
   const unusable = parseFailures + judgeErrors;
-  // Name the DOMINANT fault, because the two send an operator to different places.
   const why =
-    judgeErrors > parseFailures
-      ? `${judgeErrors}/${judged} judge transport failures (the judge did not answer — check the gateway role's endpoint and credential)`
-      : `${parseFailures}/${judged} judge parse failures (the judge answered unparseably — check the prompt and the model)`;
+    `${unusable}/${judged} unusable judge verdicts ` +
+    `(${judgeErrors} transport — the judge did not answer, check the gateway role's endpoint and ` +
+    `credential; ${parseFailures} unparseable — the judge answered, check the prompt and the model)`;
   const ratioExceeded = judged > 0 && unusable / judged > th.killSwitch;
   const aborted = ratioExceeded && judged >= minJudgedForKill;
   if (aborted) log(`citation-infer: kill switch — ${why}`);

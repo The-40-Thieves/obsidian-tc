@@ -274,6 +274,45 @@ describe("citation inference (THE-170)", () => {
     // the unparseable case in the test directly above still reports parseFailures = 1, judgeErrors = 0.
   });
 
+  // Found by cross-vendor review, not by me: my first version logged only the DOMINANT fault, so a
+  // MIXED pass aborted on 2/25 while reporting "1/25 judge parse failures" — a number that reads as
+  // below the threshold it had just exceeded. The log contradicted the action. This pins that the
+  // headline is the ratio that DROVE the decision and that both counts always appear.
+  it("a MIXED failure pass logs the combined ratio, not just the dominant fault (THE-717)", async () => {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    const ins = cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)");
+    ins.run("c1", `${CHUNK_CITED} alpha`);
+    ins.run("c2", `${CHUNK_CITED} beta`);
+    seedRetrieval(edb, "r1", "c1", "s1");
+    seedRetrieval(edb, "r2", "c2", "s1");
+
+    const logged: string[] = [];
+    let call = 0;
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      minJudgedForKill: 1,
+      log: (m: string) => logged.push(m),
+      judge: async () => {
+        call += 1;
+        if (call === 1) throw new Error("connection refused"); // transport
+        return { text: "definitely not json", model: "fake" }; // unparseable
+      },
+    });
+    expect(stats.judgeErrors).toBe(1);
+    expect(stats.parseFailures).toBe(1);
+    expect(stats.aborted).toBe(true);
+    const line = logged.find((m) => m.includes("kill switch")) ?? "";
+    // The headline must be the ratio the switch actually used (2 of 2), never one component of it.
+    expect(line).toContain("2/2 unusable judge verdicts");
+    // ...and the breakdown must name BOTH, so the parts visibly sum to the headline.
+    expect(line).toContain("1 transport");
+    expect(line).toContain("1 unparseable");
+  });
+
   it("an all-transport-failure pass STILL trips the kill switch (the regression this fix could have caused)", async () => {
     const edb = edb0();
     const cacheDb = cacheDb0();
