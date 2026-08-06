@@ -56,7 +56,8 @@
     "test:scripts": "node --test scripts/*.test.mjs",
     "typecheck": "bun run --filter='*' typecheck",
     "where": "node scripts/where-symbol.mjs",
-    "vec:embed": "node scripts/gen-embedded-vec.mjs"
+    "vec:embed": "node scripts/gen-embedded-vec.mjs",
+    "db:pages": "node scripts/db-page-report.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",
