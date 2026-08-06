@@ -146,6 +146,10 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // "parse failures" that were every one of them an HTTP 404. The kill switch still trips on the
   // SUM, so a total outage keeps aborting; only the reporting is split.
   "20260806_004_citation_runs_judge_errors.sql",
+  // THE-744: 20260806_005 adds citation_runs.entries. A pass over an EMPTY transcript index wrote
+  // no row at all — openCitationRun is per-ENTRY, so zero entries meant zero passes and zero rows,
+  // and a healthy scheduler with nothing to do looked identical to one that was never registered.
+  "20260806_005_citation_runs_entries.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

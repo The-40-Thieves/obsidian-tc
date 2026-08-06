@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import type { Database } from "../db/types";
 import { type InferCitationsOptions, inferCitations } from "./citation";
+import { closeCitationRun, openCitationRun } from "./citation-runs";
 import { parseTranscriptIndex, planCitationPasses } from "./transcript-source";
 
 /** The knobs a caller supplies; scope and transcript come from the index, never from the caller. */
@@ -65,6 +66,38 @@ export async function runCitationIndexPasses(
 ): Promise<CitationIndexRunResult> {
   const { entries, malformed } = parseTranscriptIndex(readFileSync(indexPath, "utf8"));
   const plan = planCitationPasses(entries);
+
+  // THE-744: an invocation that plans ZERO passes writes its own row. `openCitationRun` is called
+  // once per pass, so without this a successful run over an empty index left `citation_runs`
+  // byte-identical to a deployment where the feature was never enabled — and `SELECT * FROM
+  // citation_runs` is the documented way to answer "did the pass ever fire?". It answered "no".
+  //
+  // Scoped `index`, never `window`/`session`, so `passesCoveringWindow` cannot return it: an
+  // invocation that did no work must not read as coverage of any retrieval. `entries` is recorded
+  // rather than assumed zero, because "the index was empty" and "entries existed but every one was
+  // skipped or malformed" both land here and are different operational stories.
+  //
+  // Deliberately NOT an error and NOT a non-zero exit — a pass with no work is a healthy pass, and
+  // THE-645 item 3 settled that this signal belongs in the record, not the exit status.
+  if (plan.passes.length === 0) {
+    const now = Date.now();
+    const runId = openCitationRun(edb, {
+      scope: "index",
+      judgePresent: opts.judge != null,
+      startedAt: now,
+    });
+    closeCitationRun(edb, runId, {
+      entries: entries.length,
+      scoped: 0,
+      stage1Pass: 0,
+      judged: 0,
+      parseFailures: 0,
+      judgeErrors: 0,
+      stamped: 0,
+      aborted: false,
+      finishedAt: Date.now(),
+    });
+  }
 
   let scoped = 0;
   let cited = 0;
