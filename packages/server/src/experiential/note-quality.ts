@@ -26,8 +26,9 @@ import type { Database } from "../db/types";
 export const STALE_EDIT_DAYS = 365;
 /** Days since last RETRIEVAL beyond which a note is `stale_access`. Mirrors metrics.ts's 30d cut. */
 export const STALE_ACCESS_DAYS = 30;
-/** Bump when the scoring formula changes. Old rows keep their own version and stay honest. */
-export const SCORE_VERSION = 1;
+/** Bump when the scoring formula changes. Old rows keep their own version and stay honest.
+ *  v2 (THE-718): dropped the outcome term and re-based the citation rate on OBSERVED retrievals. */
+export const SCORE_VERSION = 2;
 const MS_PER_DAY = 86_400_000;
 /** Cross-store id batching, matching experiential/metrics.ts — chunk_retrievals has no vault_id. */
 const BATCH = 200;
@@ -44,7 +45,8 @@ export interface NoteQualityRow {
   last_retrieved_at: number | null;
   retrievals: number;
   citations: number;
-  outcome_balance: number;
+  /** Retrievals carrying a citation VERDICT (0 or 1) — the denominator for `citations`. THE-718. */
+  observed_retrievals: number;
   in_degree: number;
   out_degree: number;
   orphan: number;
@@ -94,12 +96,25 @@ function hasBodyShaColumn(cacheDb: Database): boolean {
  * regardless, because those are knowable without any usage evidence.
  */
 export function scoreNote(row: Omit<NoteQualityRow, "quality_score" | "flags">): number | null {
-  if (row.retrievals === 0) return null;
-  // Usefulness: citations-per-retrieval, nudged by the outcome balance, penalised for duplication.
-  const citationRate = row.citations / row.retrievals;
-  const outcome = Math.max(-1, Math.min(1, row.outcome_balance / row.retrievals));
+  // THE-718: the denominator is OBSERVED retrievals — ones the citation pass actually returned a
+  // verdict for — not retrievals that merely happened. This previously divided by `retrievals`,
+  // which entered every unjudged retrieval into the average as a citation of ZERO. With the
+  // citation pass down (its `judge` role 404s against the retired Modal deployment, THE-717) that
+  // is every retrieval, so the formula was scoring "we never looked" identically to "we looked and
+  // it was never cited" — the precise failure the contract above exists to prevent. It did not
+  // look broken, because imputing the neutral 0.5 for the old outcome term kept every score
+  // plausibly mid-range: 1180 rows held 4 distinct values whose ceiling, 0.3, was exactly what the
+  // formula yields when BOTH usage inputs are dead.
+  //
+  // Guarding on observed_retrievals means a vault whose citation pass has never run scores NULL
+  // everywhere rather than mid-range everywhere. That is the honest reading, and it puts the
+  // outage in the output instead of hiding it behind a number.
+  if (row.observed_retrievals === 0) return null;
+  // Usefulness: citations-per-OBSERVED-retrieval, penalised for duplication. The outcome term is
+  // gone (20260806_001) — it asked a task-level question of a response-level row.
+  const citationRate = row.citations / row.observed_retrievals;
   const dupPenalty = row.dup_ratio ?? 0;
-  const raw = 0.6 * citationRate + 0.2 * ((outcome + 1) / 2) + 0.2 * (1 - dupPenalty);
+  const raw = 0.75 * citationRate + 0.25 * (1 - dupPenalty);
   return Math.max(0, Math.min(1, raw));
 }
 
@@ -202,7 +217,7 @@ export function recomputeNoteQuality(
   // path mapping is joined in JS over batched id slices, exactly as metrics.ts does.
   const stats = new Map<
     string,
-    { access_count: number; last_accessed_at: number; citations: number; outcome_balance: number }
+    { access_count: number; last_accessed_at: number; citations: number; observed: number }
   >();
   // THE-620: this queries the chunk_access_stats VIEW, not the chunk_retrievals table it wraps —
   // guard on the view's own existence, since it is a LATER migration (20260712_002) than the table
@@ -213,14 +228,14 @@ export function recomputeNoteQuality(
   if (tableExists(edb, "chunk_access_stats", { includeViews: true })) {
     for (const s of edb
       .prepare(
-        "SELECT chunk_id, access_count, last_accessed_at, citations, outcome_balance FROM chunk_access_stats",
+        "SELECT chunk_id, access_count, last_accessed_at, citations, observed FROM chunk_access_stats",
       )
       .all() as Array<{
       chunk_id: string;
       access_count: number;
       last_accessed_at: number;
       citations: number;
-      outcome_balance: number;
+      observed: number;
     }>) {
       stats.set(s.chunk_id, s);
     }
@@ -239,15 +254,15 @@ export function recomputeNoteQuality(
   }
   const usage = new Map<
     string,
-    { retrievals: number; citations: number; outcome: number; last: number | null }
+    { retrievals: number; citations: number; observed: number; last: number | null }
   >();
   for (const [chunkId, s] of stats) {
     const path = pathByChunk.get(chunkId);
     if (path === undefined) continue; // deleted or foreign-vault chunk
-    const u = usage.get(path) ?? { retrievals: 0, citations: 0, outcome: 0, last: null };
+    const u = usage.get(path) ?? { retrievals: 0, citations: 0, observed: 0, last: null };
     u.retrievals += s.access_count;
     u.citations += s.citations;
-    u.outcome += s.outcome_balance;
+    u.observed += s.observed;
     u.last = u.last === null ? s.last_accessed_at : Math.max(u.last, s.last_accessed_at);
     usage.set(path, u);
   }
@@ -265,7 +280,7 @@ export function recomputeNoteQuality(
   const upsert = edb.prepare(
     `INSERT INTO note_quality (
        vault_id, path, computed_at, chunk_count, dup_chunk_count, dup_ratio, mtime, age_days,
-       last_retrieved_at, retrievals, citations, outcome_balance, in_degree, out_degree, orphan,
+       last_retrieved_at, retrievals, citations, observed_retrievals, in_degree, out_degree, orphan,
        contradictions_open, tombstoned, quality_score, score_version, flags
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(vault_id, path) DO UPDATE SET
@@ -273,7 +288,7 @@ export function recomputeNoteQuality(
        dup_chunk_count = excluded.dup_chunk_count, dup_ratio = excluded.dup_ratio,
        mtime = excluded.mtime, age_days = excluded.age_days,
        last_retrieved_at = excluded.last_retrieved_at, retrievals = excluded.retrievals,
-       citations = excluded.citations, outcome_balance = excluded.outcome_balance,
+       citations = excluded.citations, observed_retrievals = excluded.observed_retrievals,
        in_degree = excluded.in_degree, out_degree = excluded.out_degree, orphan = excluded.orphan,
        contradictions_open = excluded.contradictions_open, tombstoned = excluded.tombstoned,
        quality_score = excluded.quality_score, score_version = excluded.score_version,
@@ -304,7 +319,7 @@ export function recomputeNoteQuality(
         last_retrieved_at: u?.last ?? null,
         retrievals: u?.retrievals ?? 0,
         citations: u?.citations ?? 0,
-        outcome_balance: u?.outcome ?? 0,
+        observed_retrievals: u?.observed ?? 0,
         in_degree,
         out_degree,
         orphan: in_degree === 0 && out_degree === 0 ? 1 : 0,
@@ -326,7 +341,7 @@ export function recomputeNoteQuality(
         base.last_retrieved_at,
         base.retrievals,
         base.citations,
-        base.outcome_balance,
+        base.observed_retrievals,
         base.in_degree,
         base.out_degree,
         base.orphan,

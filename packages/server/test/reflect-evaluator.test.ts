@@ -30,6 +30,13 @@ function edb0(): Database {
     { version: "20260626_001", sql: sql("20260626_001_experiential_init.sql") },
     { version: "20260711_001", sql: sql("20260711_001_experiential_outcome.sql") },
     { version: "20260711_002", sql: sql("20260711_002_agent_episodes.sql") },
+    // THE-718: the `outcome` column this fixture seeds was renamed to `task_result`
+    // (20260806_003). That migration touches only agent_episodes, so it composes onto this prefix
+    // without dragging in the rest of the chain.
+    {
+      version: "20260806_003",
+      sql: sql("20260806_003_agent_episodes_task_result.sql"),
+    },
     { version: "20260712_001", sql: sql("20260712_001_preference_profile.sql") },
     // THE-710: the vault partition. Included here rather than in a separate fixture so every
     // existing assertion below runs against the PARTITIONED schema, not the pre-migration one.
@@ -47,13 +54,13 @@ function seed(
     args_hash: string | null;
     caller: string;
     tool: string;
-    outcome: number | null;
+    task_result: number | null;
     blocked: number;
     vault_id: string | null;
   }> = {},
 ): void {
   db.prepare(
-    `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, outcome, eligibility, blocked, valid_from, vault_id)
+    `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, task_result, eligibility, blocked, valid_from, vault_id)
      VALUES (?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
@@ -62,7 +69,7 @@ function seed(
     over.tool ?? "read_note",
     over.status ?? "ok",
     over.args_hash ?? null,
-    over.outcome ?? null,
+    over.task_result ?? null,
     over.eligibility ?? "pending",
     over.blocked ?? 0,
     NOW,
@@ -93,11 +100,11 @@ describe("evaluateEpisodes (THE-222)", () => {
     expect(elig(db, "poisoned")).toBe("ineligible"); // the invariant
   });
 
-  it("holds a known-bad outcome (outcome=-1) but still promotes a plain error (THE-565)", async () => {
+  it("holds a known-bad task_result (-1) but still promotes a plain error (THE-565)", async () => {
     const db = edb0();
-    seed(db, "bad", { status: "ok", outcome: -1 }); // an explicit bad outcome: held
-    seed(db, "err", { status: "error", outcome: null }); // a failed dispatch, no bad stamp: promoted
-    seed(db, "neutral", { status: "ok", outcome: 0 }); // outcome recorded, not bad: promoted
+    seed(db, "bad", { status: "ok", task_result: -1 }); // an explicit bad result: held
+    seed(db, "err", { status: "error", task_result: null }); // a failed dispatch, no bad stamp: promoted
+    seed(db, "neutral", { status: "ok", task_result: 0 }); // result recorded, not bad: promoted
     const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000 });
     expect(stats).toMatchObject({ scanned: 3, promoted: 2, held: 1, denied: 0 });
     expect(elig(db, "bad")).toBe("pending"); // the THE-565 hardening
@@ -288,7 +295,7 @@ describe("preference profile (ACE typed deltas)", () => {
     // agent_episodes.vault_id is nullable. Attributing such an episode to a default vault would
     // invent exactly the attribution the migration purged old rows to avoid inventing.
     const db = edb0();
-    seed(db, "no-vault", { outcome: 1, eligibility: "eligible", vault_id: null });
+    seed(db, "no-vault", { task_result: 1, eligibility: "eligible", vault_id: null });
     let sawEvidence = false;
     const judge = async () => {
       sawEvidence = true;
@@ -302,8 +309,13 @@ describe("preference profile (ACE typed deltas)", () => {
 
   it("extractPreferences only sees ITS OWN vault's episodes", async () => {
     const db = edb0();
-    seed(db, "mine", { outcome: 1, eligibility: "eligible", tool: "read_note", vault_id: V1 });
-    seed(db, "theirs", { outcome: 1, eligibility: "eligible", tool: "write_note", vault_id: V2 });
+    seed(db, "mine", { task_result: 1, eligibility: "eligible", tool: "read_note", vault_id: V1 });
+    seed(db, "theirs", {
+      task_result: 1,
+      eligibility: "eligible",
+      tool: "write_note",
+      vault_id: V2,
+    });
     let evidence = "";
     const judge = async (req: { messages: Array<{ content: string }> }) => {
       evidence = req.messages.map((m) => m.content).join("\n");
@@ -332,7 +344,7 @@ describe("preference profile (ACE typed deltas)", () => {
 
   it("extractPreferences: skipped without a judge; aborted on a parse failure applies nothing", async () => {
     const db = edb0();
-    seed(db, "o1", { outcome: 1, eligibility: "eligible" });
+    seed(db, "o1", { task_result: 1, eligibility: "eligible" });
     expect(await extractPreferences(db, V1, { judge: null, nowMs: NOW })).toMatchObject({
       skipped: true,
     });
@@ -351,11 +363,11 @@ describe("preference profile (ACE typed deltas)", () => {
     expect(preferenceProfile(db, V1).entries[0]?.key).toBe("fast-reads");
   });
 
-  it("excludes ineligible episodes from the judge even when they carry an outcome (A3)", async () => {
+  it("excludes ineligible episodes from the judge even when they carry a task_result (A3)", async () => {
     const db = edb0();
-    // both carry a (test-seeded) non-null outcome; only the eligible one may reach the judge.
-    seed(db, "good", { eligibility: "eligible", outcome: 1, tool: "read_note" });
-    seed(db, "poison", { eligibility: "ineligible", outcome: 1, tool: "exfiltrate_secrets" });
+    // both carry a (test-seeded) non-null task_result; only the eligible one may reach the judge.
+    seed(db, "good", { eligibility: "eligible", task_result: 1, tool: "read_note" });
+    seed(db, "poison", { eligibility: "ineligible", task_result: 1, tool: "exfiltrate_secrets" });
     let seenPrompt = "";
     const judge = async (req: unknown) => {
       seenPrompt = JSON.stringify(req);

@@ -14,8 +14,9 @@
 // work_episodes is the INSPECTION surface (the first-party list/inspect verb): it shows
 // pending/ineligible state for management, hides tombstoned rows unless include_blocked.
 // work_forget surfaces the control-1 tombstone as a user verb. record_retrieval_feedback is
-// the THE-230 outcome writer: stamps feedback/outcome onto the most recent retrieval
-// event(s) for a chunk, feeding the ACT-R recompute.
+// the THE-230 feedback writer: stamps `feedback` onto the most recent retrieval event(s)
+// for a chunk, feeding the ACT-R recompute. It no longer accepts an `outcome` — THE-718
+// retired that axis as a task-level question asked of a response-level row.
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
@@ -497,19 +498,21 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       // it sat at 0 stamps across 97 retrieval events — so the trigger comes first and the ACL
       // detail is compressed to the part a caller can actually respond to.
       description:
-        "Report which retrieved chunks actually helped. CALL THIS after you act on a search result: outcome (-1|0|+1) = did acting on it lead somewhere good, feedback (-1|0|+1) = was it the right chunk. Stamp the chunks you genuinely used, not every hit, and stamp -1 when a confidently-returned chunk was wrong — a negative is worth more than silence. This is the only signal separating a chunk that gets RETRIEVED from one that gets USED: it feeds the ACT-R activation recompute, so stamping is what makes later retrieval better, and not stamping leaves ranking blind. Targets your most recent retrieval event(s) for that chunk (last_n, default 1). Returns `updated`; when that is 0 it also returns `reason` — `session_scope` (you own retrievals for this chunk, none in the current scope) or `no_owned_retrievals` (nothing of yours matches), so a no-op is never silent. You may only stamp retrievals your own caller produced (THE-568); an unidentified caller cannot stamp, and admin:workspace crosses both that and the session scope.",
+        "Report which retrieved chunks actually helped. CALL THIS after you act on a search result: feedback (-1|0|+1) = was this the right chunk to return for that query. Stamp the chunks you genuinely used, not every hit, and stamp -1 when a confidently-returned chunk was wrong — a negative is worth more than silence. This is the only signal separating a chunk that gets RETRIEVED from one that gets USED: it feeds the ACT-R activation recompute, so stamping is what makes later retrieval better, and not stamping leaves ranking blind. Judge the RETRIEVAL, not your task: whether the task went well is a different question this tool deliberately no longer accepts (THE-718). Targets your most recent retrieval event(s) for that chunk (last_n, default 1). Returns `updated`; when that is 0 it also returns `reason` — `session_scope` (you own retrievals for this chunk, none in the current scope) or `no_owned_retrievals` (nothing of yours matches), so a no-op is never silent. You may only stamp retrievals your own caller produced (THE-568); an unidentified caller cannot stamp, and admin:workspace crosses both that and the session scope.",
+      // THE-718: `outcome` is gone, not deprecated. It asked a TASK-level question ("did acting on
+      // this lead somewhere good") of a RESPONSE-level row, so one task's verdict was attributed to
+      // every chunk the search happened to return — an estimand with no denominator. `feedback` is
+      // now required rather than one-of-two, which is what the old `.refine` was working around.
+      // Under `.strict()` a caller still passing `outcome` gets a hard rejection instead of a
+      // silent drop; that is deliberate, and safe — the column recorded 0 stamps in its lifetime.
       inputSchema: z
         .object({
           chunk_id: z.string().min(1),
-          feedback: z.number().int().min(-1).max(1).optional(),
-          outcome: z.number().int().min(-1).max(1).optional(),
+          feedback: z.number().int().min(-1).max(1),
           session_id: z.string().optional(),
           last_n: z.number().int().positive().max(50).default(1),
         })
-        .strict()
-        .refine((v) => v.feedback !== undefined || v.outcome !== undefined, {
-          message: "provide feedback and/or outcome",
-        }),
+        .strict(),
       outputSchema: availableWith({
         chunk_id: z.string(),
         updated: z.number().int(),
@@ -569,7 +572,10 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
             last_retrieved_at: z.number().nullable(),
             retrievals: z.number(),
             citations: z.number(),
-            outcome_balance: z.number(),
+            // THE-718: replaced outcome_balance. This is the DENOMINATOR for `citations` — how many
+            // of `retrievals` the citation pass actually returned a verdict for. citations/
+            // retrievals was the old rate and it read an unjudged retrieval as an uncited one.
+            observed_retrievals: z.number(),
             in_degree: z.number(),
             out_degree: z.number(),
             contradictions_open: z.number(),
@@ -604,7 +610,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
             last_retrieved_at: r.last_retrieved_at,
             retrievals: r.retrievals,
             citations: r.citations,
-            outcome_balance: r.outcome_balance,
+            observed_retrievals: r.observed_retrievals,
             in_degree: r.in_degree,
             out_degree: r.out_degree,
             contradictions_open: r.contradictions_open,

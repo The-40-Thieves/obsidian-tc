@@ -30,16 +30,10 @@ function edb0(): Database {
   return db;
 }
 
-function addRetrieval(
-  db: Database,
-  chunkId: string,
-  at: number,
-  feedback: number | null = null,
-  outcome: number | null = null,
-) {
+function addRetrieval(db: Database, chunkId: string, at: number, feedback: number | null = null) {
   db.prepare(
-    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, feedback, outcome) VALUES (?, ?, ?, ?, ?)",
-  ).run(`${chunkId}-${at}`, chunkId, at, feedback, outcome);
+    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, feedback) VALUES (?, ?, ?, ?)",
+  ).run(`${chunkId}-${at}`, chunkId, at, feedback);
 }
 
 describe("ACT-R activation recompute (THE-227)", () => {
@@ -75,8 +69,6 @@ describe("ACT-R activation recompute (THE-227)", () => {
     expect(staleClean).toBe(0.5);
     const staleNegFb = actrActivation([{ retrieved_at: NOW - 200 * DAY, feedback: -1 }], NOW);
     expect(staleNegFb).toBeLessThan(0.5);
-    const staleNegOut = actrActivation([{ retrieved_at: NOW - 200 * DAY, outcome: -1 }], NOW);
-    expect(staleNegOut).toBeLessThan(0.5);
     // research escape hatch: the raw ACT-R curve without the floor
     const unfloored = actrActivation([{ retrieved_at: NOW - 200 * DAY }], NOW, {
       staleFloor: false,
@@ -115,22 +107,20 @@ describe("ACT-R activation recompute (THE-227)", () => {
     expect(errors).toHaveLength(1);
   });
 
-  it("outcome axis folds multiplicatively with feedback (THE-230)", () => {
+  // THE-718: this replaces "outcome axis folds multiplicatively with feedback (THE-230)". The
+  // outcome axis was retired (20260806_001), so `feedback` is now the ONLY weighting input and the
+  // bound narrows from w in [0.25, 4] to [0.5, 2]. Kept as a weighting test rather than deleted:
+  // dropping it would leave the surviving axis with no end-to-end coverage at all.
+  it("feedback is the only weighting axis, and recompute reads it end-to-end", () => {
     const base = actrActivation([{ retrieved_at: NOW - DAY / 2 }], NOW);
-    const badOutcome = actrActivation([{ retrieved_at: NOW - DAY / 2, outcome: -1 }], NOW);
-    const goodOutcome = actrActivation([{ retrieved_at: NOW - DAY / 2, outcome: 1 }], NOW);
-    expect(badOutcome).toBeLessThan(base);
-    expect(goodOutcome).toBeGreaterThan(base);
-    // relevant-but-dead-end (fb +1, outcome -1) cancels back to base weight
-    const canceled = actrActivation(
-      [{ retrieved_at: NOW - DAY / 2, feedback: 1, outcome: -1 }],
-      NOW,
-    );
-    expect(canceled).toBeCloseTo(base, 10);
+    const badFeedback = actrActivation([{ retrieved_at: NOW - DAY / 2, feedback: -1 }], NOW);
+    const goodFeedback = actrActivation([{ retrieved_at: NOW - DAY / 2, feedback: 1 }], NOW);
+    expect(badFeedback).toBeLessThan(base);
+    expect(goodFeedback).toBeGreaterThan(base);
     // recompute reads the column end-to-end
     const db = edb0();
-    addRetrieval(db, "deadend", NOW - DAY, 1, -1);
-    addRetrieval(db, "winner", NOW - DAY, 1, 1);
+    addRetrieval(db, "deadend", NOW - DAY, -1);
+    addRetrieval(db, "winner", NOW - DAY, 1);
     recomputeActivation(db, NOW);
     const rows = db
       .prepare("SELECT object_id, cached_activation_score FROM vault_object_state")

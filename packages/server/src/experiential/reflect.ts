@@ -20,26 +20,27 @@
 //   * unstable evidence — the same caller+tool+args_hash showing BOTH ok and error among the
 //     pending set — is held pending rather than promoted (contradictory runs are not a lesson
 //     yet, they are noise or an attack surface).
-//   * THE-565: an episode the system has already judged a BAD outcome (`outcome = -1`) is held
+//   * THE-565: an episode the system has already judged a BAD result (`task_result = -1`) is held
 //     pending, never auto-promoted — a known-negative-outcome row must not enter the eligible
-//     pool as a default lesson. This is the one place the deterministic pass consults the outcome
-//     axis. NOTE the deliberate asymmetry: a `status = 'error'` dispatch with NO bad outcome
+//     pool as a default lesson. This is the one place the deterministic pass consults the
+//     task-result axis. NOTE the deliberate asymmetry: a `status = 'error'` dispatch with no bad result
 //     still promotes ("errors are lessons too" — a forbidden delete teaches a boundary); it is
-//     the explicit -1 outcome, not a failed dispatch, that we refuse. `status`/`skipped` are
+//     the explicit -1 task_result, not a failed dispatch, that we refuse. `status`/`skipped` are
 //     otherwise unchanged.
 //
 //     THE-721: this gate is CORRECT, TESTED and INERT. An earlier version of this comment said
 //     the -1 was "stamped by the citation / session-close outcome pass". No such writer exists,
 //     and none ever did: `agent_episodes` has seven write statements across the tree and not one
-//     of them sets `outcome`, so the column is NULL on 363 of 363 live rows. The citation pass
-//     stamps `chunk_retrievals` columns only, and there is no session-close outcome pass —
+//     of them sets it, so the column is NULL on 414 of 414 live rows (re-measured 2026-08-06; it
+//     was 363 when this was written, and the ratio has never moved off 1.0). The citation pass
+//     stamps `chunk_retrievals` columns only, and there is no session-close pass —
 //     sessions.ts and session-tools.ts never touch the column. The same false claim is frozen
 //     into migration 20260711_001's header, which is checksum-pinned and cannot be corrected in
 //     place; THE-721 carries it.
 //
 //     The consequence is bounded rather than dangerous: an unreachable HOLD is more permissive
 //     than designed, not less, and there is no known-bad set to leak because nothing marks one.
-//     reflect-evaluator.test.ts:96 seeds `outcome: -1` directly and asserts the hold, so the gate
+//     reflect-evaluator.test.ts:96 seeds `task_result: -1` directly and asserts the hold, so the gate
 //     is ready the moment a producer exists. Whether to build one is the open question on THE-721.
 import type { Database } from "../db/types";
 import { type GatewayRoles, prompt } from "../plane/gateway";
@@ -59,8 +60,9 @@ interface PendingRow {
   status: string;
   args_hash: string | null;
   summary: string | null;
-  /** THE-230 outcome axis (-1 | 0 | +1 | null). -1 (known-bad) is held; see the invariants. */
-  outcome: number | null;
+  /** Task result (-1 | 0 | +1 | null), renamed from `outcome` in 20260806_002. -1 (known-bad)
+   *  is held; see the invariants. */
+  task_result: number | null;
 }
 
 /**
@@ -110,7 +112,7 @@ export function partitionPending(pending: PendingRow[]): {
   const candidates: PendingRow[] = [];
   let held = 0;
   for (const r of pending) {
-    if (unstable(r) || r.outcome === -1) held++;
+    if (unstable(r) || r.task_result === -1) held++;
     else candidates.push(r);
   }
   return { candidates, held };
@@ -125,7 +127,7 @@ export async function evaluateEpisodes(
 ): Promise<EvaluateStats> {
   const pending = edb
     .prepare(
-      `SELECT id, caller, tool, status, args_hash, summary, outcome FROM agent_episodes
+      `SELECT id, caller, tool, status, args_hash, summary, task_result FROM agent_episodes
        WHERE eligibility = 'pending' AND blocked = 0
          AND (valid_until IS NULL OR valid_until > ?)
        ORDER BY ts ASC`,
@@ -293,8 +295,9 @@ export function preferenceProfile(
   };
 }
 
-/** Gateway-gated preference extraction: evidence = recent outcome-bearing episodes + retrieval
- *  feedback; the judge proposes typed deltas (strict JSON, capped); a parse failure aborts the
+/** Gateway-gated preference extraction: evidence = recent task_result-bearing episodes (THE-718
+ *  removed the retrieval half — see the note at the query); the judge proposes typed deltas
+ *  (strict JSON, capped); a parse failure aborts the
  *  batch — nothing half-applies. Without a judge the pass reports skipped (the deterministic
  *  evaluator above still ran). */
 export async function extractPreferences(
@@ -311,43 +314,30 @@ export async function extractPreferences(
   // a decision rather than as an accident of SQL three-valued logic.
   const episodes = edb
     .prepare(
-      `SELECT tool, status, outcome, summary FROM agent_episodes
+      `SELECT tool, status, task_result, summary FROM agent_episodes
        WHERE vault_id = ? AND vault_id IS NOT NULL
-         AND blocked = 0 AND eligibility = 'eligible' AND outcome IS NOT NULL ORDER BY ts DESC LIMIT ?`,
+         AND blocked = 0 AND eligibility = 'eligible' AND task_result IS NOT NULL
+       ORDER BY ts DESC LIMIT ?`,
     )
     .all(vaultId, maxEvidence) as Array<{
     tool: string | null;
     status: string;
-    outcome: number;
+    task_result: number;
     summary: string | null;
   }>;
-  // THE-710 scope note: retrieval feedback is NOT vault-scoped here, and cannot cheaply be. It is
-  // corpus-level by design (SECURITY.md classifies chunk_retrievals as content-level, "a relevance
-  // signal about a chunk, not about a principal"), and the vault of a chunk_id lives in cache.db,
-  // which the membrane forbids joining to from this store — object ids cross by value, never by
-  // foreign key. So the evidence pool is broader than the partition while the learned row is
-  // attributed to the vault whose episodes drove the extraction. Stated rather than silently true.
-  // THE-644 item 2 — NAMED FOR THE COLUMN IT READS. This was called `feedback` while selecting
-  // `outcome`, and `chunk_retrievals.feedback` is a DIFFERENT column that this file reads nowhere.
-  // The mismatch made the item look already-done to anyone who grepped the variable name instead
-  // of the query: the ticket flagged it twice as a trap and asked for exactly this rename. Wiring
-  // the real `feedback` column into extraction is still open, and is a ranking-adjacent change
-  // needing THE-641's eval gate — do not add it here without one.
-  const retrievalOutcomes = edb
-    .prepare(
-      `SELECT query_text, outcome FROM chunk_retrievals
-       WHERE outcome IS NOT NULL AND query_text IS NOT NULL ORDER BY retrieved_at DESC LIMIT 20`,
-    )
-    .all() as Array<{ query_text: string; outcome: number }>;
-  if (episodes.length === 0 && retrievalOutcomes.length === 0)
-    return { skipped: true, aborted: false, applied: 0, version: 0 };
+  // THE-718: the second evidence source here was `chunk_retrievals.outcome`, retired in
+  // 20260806_001. It is REMOVED rather than repointed at `chunk_retrievals.feedback`, because the
+  // comment this replaces said so explicitly — wiring the real `feedback` column into extraction
+  // "is a ranking-adjacent change needing THE-641's eval gate — do not add it here without one",
+  // and deleting the column it was reading is not that gate. Preference extraction now runs on
+  // episode evidence alone. The THE-710 scope note that lived here described why retrieval feedback
+  // could not be vault-scoped (chunk vaults live in cache.db, across the membrane); it goes with the
+  // query, and comes back with it if THE-641 lands.
+  if (episodes.length === 0) return { skipped: true, aborted: false, applied: 0, version: 0 };
   const lines = [
     ...episodes.map(
       (e) =>
-        `episode outcome=${e.outcome > 0 ? "+1" : e.outcome < 0 ? "-1" : "0"} tool=${e.tool ?? "?"} status=${e.status}${e.summary ? ` summary=${e.summary.slice(0, 120)}` : ""}`,
-    ),
-    ...retrievalOutcomes.map(
-      (f) => `retrieval outcome=${f.outcome > 0 ? "+1" : "-1"} query=${f.query_text.slice(0, 120)}`,
+        `episode task_result=${e.task_result > 0 ? "+1" : e.task_result < 0 ? "-1" : "0"} tool=${e.tool ?? "?"} status=${e.status}${e.summary ? ` summary=${e.summary.slice(0, 120)}` : ""}`,
     ),
   ].join("\n");
   try {
@@ -448,7 +438,7 @@ export interface EpisodeBacklog {
 export function readEpisodeBacklog(edb: Database, nowMs: number): EpisodeBacklog {
   const pending = edb
     .prepare(
-      `SELECT id, caller, tool, status, args_hash, summary, outcome, ts FROM agent_episodes
+      `SELECT id, caller, tool, status, args_hash, summary, task_result, ts FROM agent_episodes
        WHERE eligibility = 'pending' AND blocked = 0
          AND (valid_until IS NULL OR valid_until > ?)
        ORDER BY ts ASC`,

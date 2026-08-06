@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   // chunk, so its ACT-R activation is high; every other chunk keeps a NULL score (bubble-safe inert).
   const now = Date.now();
   const ins = edb.prepare(
-    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, surface_type, query_text, rank_in_results, rerank_score, cited_in_response, citation_score, feedback, outcome) VALUES (?, ?, ?, 'seed', 'oracle', 'seed', 1, 1.0, 1, 1.0, 1, 1)",
+    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, surface_type, query_text, rank_in_results, rerank_score, cited_in_response, citation_score, feedback) VALUES (?, ?, ?, 'seed', 'oracle', 'seed', 1, 1.0, 1, 1.0, 1)",
   );
   edb.exec("BEGIN");
   try {

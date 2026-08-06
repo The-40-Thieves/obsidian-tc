@@ -79,7 +79,7 @@ const EXEMPT_NO_PATH = new Set<string>([
   "git_commit", // commits the already-staged index; touches no vault file through the ACL surface
   "enqueue_capture", // enqueues to the capture_queue table; no vault write until commit_capture
   "work_forget", // deletion propagation within the experiential store (not authored vault notes)
-  "record_retrieval_feedback", // stamps an outcome on an experiential retrieval-log row
+  "record_retrieval_feedback", // stamps feedback on an experiential retrieval-log row
   // THE-633: a goal is free text plus a terminal state in the experiential store. There is no
   // vault-relative path anywhere in the input, so there is nothing for pathAcl to extract —
   // the same reason work_forget and record_retrieval_feedback sit here. Both are still

@@ -35,12 +35,11 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
     // Deliberately NOT a ratio threshold ("N retrievals and still 0 stamps"). A threshold needs
     // evidence to calibrate and this repo gates behaviour on measurement, not on a plausible
     // number. Making the count visible is the prerequisite for choosing one later.
-    {
-      table: "chunk_retrievals",
-      column: "outcome",
-      writer: on ? "on-demand" : "disabled",
-      lever: "an agent calling record_retrieval_feedback after acting on a result (THE-718)",
-    },
+    // `chunk_retrievals.outcome` used to sit here alongside `feedback`. It was RETIRED rather than
+    // fixed (20260806_001): the liveness report did its job — 0 stamps over the column's whole
+    // lifetime — and asking why turned up an estimand problem no writer could have solved, since a
+    // task-level verdict has no denominator on a response-level row. Reaching "delete it" from a
+    // dead-column reading is the outcome this check was built for.
     {
       table: "chunk_retrievals",
       column: "feedback",
@@ -73,9 +72,9 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
     // experiential store is disabled — a column with no producer is structurally unwritten.
     {
       table: "agent_episodes",
-      column: "outcome",
+      column: "task_result",
       writer: "none",
-      lever: "no producer exists — the THE-230 parity axis was never given a writer",
+      lever: "no producer exists — renamed from `outcome` in 20260806_002; still needs a writer",
     },
     {
       table: "agent_episodes",

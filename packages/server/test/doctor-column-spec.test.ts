@@ -16,9 +16,13 @@ describe("derived.column-liveness spec", () => {
     const names = experientialColumnSpec({ experiential: true }).map(
       (s) => `${s.table}.${s.column}`,
     );
-    expect(names).toContain("chunk_retrievals.outcome");
     expect(names).toContain("chunk_retrievals.feedback");
-    expect(names).toContain("agent_episodes.outcome");
+    expect(names).toContain("agent_episodes.task_result");
+    // THE-718: `chunk_retrievals.outcome` was the column this check was opened about, and reading
+    // it dead is what retired it (20260806_001). The spec must no longer name it — a spec entry
+    // for a dropped column makes the doctor query a column that does not exist.
+    expect(names).not.toContain("chunk_retrievals.outcome");
+    expect(names).not.toContain("agent_episodes.outcome");
   });
 
   // Without at least one column that IS reliably written, a green run proves only that the scan
@@ -32,25 +36,25 @@ describe("derived.column-liveness spec", () => {
     expect(live.map((s) => `${s.table}.${s.column}`)).toContain("agent_episodes.status");
   });
 
-  // Verified against episodes.ts's INSERT column list: it writes neither `outcome` nor `summary`,
+  // Verified against episodes.ts's INSERT column list: it writes neither `task_result` nor `summary`,
   // and the only UPDATE statements touch blocked/eligibility (forget.ts NULLs summary rather
   // than filling it). "none" is a different claim from "disabled" and must not be reported as one.
   it("classifies columns with no producer as `none`, not `disabled`", () => {
     const spec = experientialColumnSpec({ experiential: true });
     const byName = (n: string) => spec.find((s) => `${s.table}.${s.column}` === n);
-    expect(byName("agent_episodes.outcome")?.writer).toBe("none");
+    expect(byName("agent_episodes.task_result")?.writer).toBe("none");
     expect(byName("agent_episodes.summary")?.writer).toBe("none");
   });
 
-  // The emitter for outcome/feedback is a client action (THE-718: the acting agent stamps it), so
+  // The emitter for feedback is a client action (THE-718: the acting agent stamps it), so
   // an unstamped column is "awaiting its first use", not a fault. Classifying it "enabled" would
   // warn on day one of a correct deployment — the exact cry-wolf failure derived.liveness was
   // rewritten to avoid when it produced eleven warnings on a healthy install.
   it("classifies client-driven columns as on-demand so they report without warning", () => {
     const spec = experientialColumnSpec({ experiential: true });
     const byName = (n: string) => spec.find((s) => `${s.table}.${s.column}` === n);
-    expect(byName("chunk_retrievals.outcome")?.writer).toBe("on-demand");
     expect(byName("chunk_retrievals.feedback")?.writer).toBe("on-demand");
+    expect(byName("chunk_retrievals.citation_state")?.writer).toBe("on-demand");
   });
 
   it("reports every column as disabled when the experiential store is off", () => {

@@ -131,7 +131,7 @@ describe("THE-602 branch coverage: experiential-tools.ts", () => {
     const feedback = un<{ available: boolean }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ sessionId: "s1" }),
       ),
     );
@@ -294,10 +294,16 @@ describe("THE-602 branch coverage: experiential-tools.ts", () => {
     expect(JSON.parse(row.details)).toMatchObject({ actor: null });
   });
 
-  it("record_retrieval_feedback: feedback-only (outcome omitted) leaves outcome untouched via COALESCE", async () => {
+  // THE-718: this test used to be "feedback-only (outcome omitted) leaves outcome untouched via
+  // COALESCE". Both halves of that premise are gone — `outcome` was retired (20260806_001) and
+  // `feedback` is now required, so there is no partial-update case left for COALESCE to protect.
+  // What replaces it is the property that actually needs a guard once COALESCE is gone: a later
+  // stamp OVERWRITES an earlier one rather than being dropped. Seeded non-NULL deliberately, since
+  // `SET feedback = ?` over a NULL would pass under either implementation.
+  it("record_retrieval_feedback: a later stamp overwrites the prior feedback value", async () => {
     const db = edb0();
     db.prepare(
-      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller, outcome) VALUES ('r1', 'c1', ?, 's1', 'tester', 1)",
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller, feedback) VALUES ('r1', 'c1', ?, 's1', 'tester', 1)",
     ).run(NOW);
     const { registry, ctx } = harness(db);
     const res = un<{ updated: number }>(
@@ -308,11 +314,26 @@ describe("THE-602 branch coverage: experiential-tools.ts", () => {
       ),
     );
     expect(res.updated).toBe(1);
-    const row = db
-      .prepare("SELECT feedback, outcome FROM chunk_retrievals WHERE id = 'r1'")
-      .get() as { feedback: number; outcome: number };
+    const row = db.prepare("SELECT feedback FROM chunk_retrievals WHERE id = 'r1'").get() as {
+      feedback: number;
+    };
     expect(row.feedback).toBe(-1);
-    expect(row.outcome).toBe(1); // untouched: COALESCE(NULL, outcome) keeps the prior value
+  });
+
+  // `outcome` is not merely ignored — it is REJECTED. The input schema is `.strict()`, so a client
+  // still sending the retired axis gets a hard error instead of a silently dropped field.
+  it("record_retrieval_feedback: rejects the retired `outcome` field", async () => {
+    const db = edb0();
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('r1', 'c1', ?, 's1', 'tester')",
+    ).run(NOW);
+    const { registry, ctx } = harness(db);
+    const res = await registry.dispatch(
+      "record_retrieval_feedback",
+      { chunk_id: "c1", feedback: 1, outcome: 1 },
+      ctx({ sessionId: "s1" }),
+    );
+    expect(res.ok).toBe(false);
   });
 
   // THE-718 REVERSES this assertion. It previously read "a null-caller principal stamps only
@@ -338,15 +359,15 @@ describe("THE-602 branch coverage: experiential-tools.ts", () => {
     const { registry, ctx } = harness(db);
     const denied = await registry.dispatch(
       "record_retrieval_feedback",
-      { chunk_id: "c1", outcome: 1 },
+      { chunk_id: "c1", feedback: 1 },
       ctx({ caller: null, sessionId: "s1" }),
     );
     expect(denied.ok).toBe(false);
     if (!denied.ok) expect(denied.error.code).toBe("forbidden");
-    const row = db.prepare("SELECT outcome FROM chunk_retrievals WHERE id = 'r-anon'").get() as {
-      outcome: number | null;
+    const row = db.prepare("SELECT feedback FROM chunk_retrievals WHERE id = 'r-anon'").get() as {
+      feedback: number | null;
     };
-    expect(row.outcome).toBeNull();
+    expect(row.feedback).toBeNull();
   });
 
   it("note_quality_report: flags filter narrows results; omitting flags returns everything", async () => {

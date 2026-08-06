@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,085 tracked code files · 167,579 lines.
+**Scale:** 1,088 tracked code files · 167,781 lines.
 
-TypeScript 155,382 · JavaScript 8,078 · Python 1,640 · SQL 1,377 · Rust 742 · Shell 360.
+TypeScript 155,505 · JavaScript 8,078 · Python 1,640 · SQL 1,456 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,17 +86,17 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 83 | 16,320 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 83 | 16,326 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 54 | 10,592 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,400 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `experiential/` | 18 | 4,180 | work-memory tier: activation, retrieval log, forget, citations |
+| `experiential/` | 18 | 4,183 | work-memory tier: activation, retrieval log, forget, citations |
 | `runtime/` | 14 | 3,221 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `cli/` | 24 | 3,113 | arg parsing + subcommands |
 | `vault/` | 17 | 1,991 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `doctor/` | 9 | 1,716 | `obsidian-tc doctor` — checks, report rendering, runner |
-| `migrations/` | 36 | 1,377 | hand-registered SQL. **Two chains** — see below |
+| `doctor/` | 9 | 1,715 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `migrations/` | 39 | 1,456 | hand-registered SQL. **Two chains** — see below |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
-| `db/` | 15 | 1,329 | provisioning, migrate runner, experiential store |
+| `db/` | 15 | 1,352 | provisioning, migrate runner, experiential store |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `workspace/` | 3 | 1,039 | session tracking |
 | `plane/` | 6 | 938 | generative plane; `jobs/` holds the contradiction detector |
@@ -118,7 +118,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 376 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 379 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -143,7 +143,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 740 | `packages/server/src/runtime/server-runtime.ts` |
 | 732 | `packages/server/src/cli/args.ts` |
 | 708 | `packages/server/src/mcp/server.ts` |
-| 688 | `packages/server/src/tools/m8/experiential-tools.ts` |
+| 694 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |

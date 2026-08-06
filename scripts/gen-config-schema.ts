@@ -68,8 +68,13 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // or constraint moved; `watch.enabled` and `reconcileIntervalMinutes` are byte-identical apart
 // from their prose. The crash was an 8.3 short path reaching libuv, not recursive fs.watch —
 // measured on windows-latest, which died under os.tmpdir() and survived twice under a realpath.
+// THE-718: rebaselined deliberately, DESCRIPTION TEXT ONLY. `maintenance.retrievalsRetentionDays`
+// explained itself by naming the four aggregates a prune rewrites, one of which was
+// `outcome_balance` — a chunk_access_stats column that no longer exists after 20260806_001
+// replaced it with `observed`. The description named a column, so retiring the column made the
+// prose false. No key, type, default or constraint moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "ddb11d8f90d1e48079e8da0fc5b72c53d0cabbab6e52ec7fb2a078aefba0405d";
+  "cfdede1ecf82bcab52ff38d5ff976591cb36eaa1147e68eb309dcbe13f316288";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

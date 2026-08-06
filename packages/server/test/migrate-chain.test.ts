@@ -5,6 +5,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
+import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
 import { openMemoryDb } from "./helpers";
 
@@ -76,7 +77,9 @@ describe("merged migration chain (integration)", () => {
     expect(tableExists(db, "vault_object_state")).toBe(true);
     expect(tableExists(db, "chunk_retrievals")).toBe(true);
     expect(tableExists(db, "agent_episodes")).toBe(true);
-    // THE-230 outcome axis present and writable
+    // THE-230 outcome axis present and writable AT THIS POINT IN THE CHAIN. 20260806_001 later
+    // retires it (THE-718) — this prefix stops long before that, and asserting the historical
+    // state here is correct. The end state is asserted by the full-chain test below.
     db.prepare(
       "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, outcome) VALUES ('x', 'c', 1, 1)",
     ).run();
@@ -108,5 +111,49 @@ describe("merged migration chain (integration)", () => {
       .filter((f) => f.endsWith(".sql"))
       .filter((f) => !chainSources.includes(f));
     expect(missing).toEqual([]);
+  });
+
+  // THE-718. The prefix test above stops at 20260711_002 and correctly still sees `outcome`, so it
+  // structurally cannot observe a retirement that happens 12 migrations later. This runs the WHOLE
+  // registered chain and asserts the end state — the shape a fresh install actually gets.
+  it("experiential.db: the FULL chain retires the outcome axis and renames the episode one", () => {
+    const db = openMemoryDb();
+    const full = EXPERIENTIAL_MIGRATION_FILES.map((f) => ({ version: versionOf(f), sql: read(f) }));
+    runMigrations(db, full);
+    const cols = (name: string) =>
+      (db.prepare(`SELECT name FROM pragma_table_info('${name}')`).all() as { name: string }[]).map(
+        (c) => c.name,
+      );
+
+    const retrievals = cols("chunk_retrievals");
+    expect(retrievals).not.toContain("outcome");
+    // The surviving axis, asserted so a passing "not present" above cannot be a misspelled table
+    // name or an empty result set reading as success.
+    expect(retrievals).toContain("feedback");
+    expect(retrievals).toContain("cited_in_response");
+
+    const view = cols("chunk_access_stats");
+    expect(view).toEqual(
+      expect.arrayContaining([
+        "chunk_id",
+        "access_count",
+        "last_accessed_at",
+        "citations",
+        "observed",
+      ]),
+    );
+    expect(view).not.toContain("outcome_balance");
+
+    const quality = cols("note_quality");
+    expect(quality).toContain("observed_retrievals");
+    expect(quality).not.toContain("outcome_balance");
+
+    // Renamed, NOT dropped — a rename that silently became a drop would still satisfy a
+    // "does not contain outcome" assertion on its own.
+    const episodes = cols("agent_episodes");
+    expect(episodes).toContain("task_result");
+    expect(episodes).not.toContain("outcome");
+
+    expect(runMigrations(db, full)).toEqual([]); // idempotent re-run
   });
 });

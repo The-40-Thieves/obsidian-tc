@@ -1,7 +1,7 @@
 // derived.column-liveness (THE-720) — the half derived.liveness structurally cannot see.
 //
 // derived.liveness classifies TABLES by row count. chunk_retrievals had 97 rows for 18 days and
-// reported `live` the whole time, while outcome and feedback were NULL on all 97 — the signal
+// reported `live` the whole time, while the judgement columns were NULL on all 97 — the signal
 // three tickets depend on, invisible to a row count. note_quality is the same shape from the other
 // direction: 1,151 rows, quality_score NULL on 1,111, and 36 of the 40 scored rows carrying the
 // identical 0.30. Row count passes; the distribution does not.
@@ -43,7 +43,7 @@ describe("derived.column-liveness", () => {
   it("a populated table whose column is 100% NULL warns when the writer is ENABLED", async () => {
     const r = await run([
       col({
-        column: "experiential.chunk_retrievals.outcome",
+        column: "experiential.chunk_retrievals.feedback",
         rows: 97,
         nonNull: 0,
         writer: "enabled",
@@ -52,7 +52,7 @@ describe("derived.column-liveness", () => {
     ]);
     expect(r.status).toBe("warning");
     expect(r.details?.silent).toEqual([
-      "experiential.chunk_retrievals.outcome (an agent calling record_retrieval_feedback)",
+      "experiential.chunk_retrievals.feedback (an agent calling record_retrieval_feedback)",
     ]);
     expect(r.issues?.join(" ")).toContain("97 rows");
     expect(r.remediation).toBeTruthy();
@@ -102,10 +102,10 @@ describe("derived.column-liveness", () => {
 
   it("a column with varied values is live", async () => {
     const r = await run([
-      col({ column: "chunk_retrievals.outcome", rows: 97, nonNull: 40, distinct: 3 }),
+      col({ column: "chunk_retrievals.feedback", rows: 97, nonNull: 40, distinct: 3 }),
     ]);
     expect(r.status).toBe("ok");
-    expect(r.details?.live).toEqual(["chunk_retrievals.outcome=40/97"]);
+    expect(r.details?.live).toEqual(["chunk_retrievals.feedback=40/97"]);
   });
 
   // The note_quality shape: written, non-NULL, and carrying one value forever. As dead as NULL for
@@ -123,10 +123,10 @@ describe("derived.column-liveness", () => {
   it("constant columns do not mask a real silent column alongside them", async () => {
     const r = await run([
       col({ column: "note_quality.quality_score", rows: 1151, nonNull: 40, distinct: 1 }),
-      col({ column: "chunk_retrievals.outcome", rows: 97, nonNull: 0, writer: "enabled" }),
+      col({ column: "chunk_retrievals.feedback", rows: 97, nonNull: 0, writer: "enabled" }),
     ]);
     expect(r.status).toBe("warning");
-    expect(r.details?.silent).toEqual(["chunk_retrievals.outcome (some lever)"]);
+    expect(r.details?.silent).toEqual(["chunk_retrievals.feedback (some lever)"]);
     expect(r.details?.constant).toHaveLength(1);
     expect(r.issues?.join(" ")).not.toContain("quality_score");
   });

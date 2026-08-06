@@ -125,6 +125,22 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // ONE vault. Carries provenance (engine_version, config_fingerprint) because a distribution
   // is only valid for the engine that produced it.
   "20260805_002_score_calibration.sql",
+  // THE-718 (final): 20260806_001 retires chunk_retrievals.outcome — a task-level question stamped
+  // on a response-level row, so it never had a denominator. Measured 0 stamps across 108 rows, and
+  // the column was unreachable until 2026-08-03, so the zero is not low adoption of a working
+  // signal. Recreates chunk_access_stats first (SQLite refuses DROP COLUMN under a view), swapping
+  // the view's outcome_balance aggregate for `observed` — the denominator scoring was missing.
+  // cited_in_response deliberately SURVIVES: its writer is automatic and merely broken (THE-717).
+  "20260806_001_retire_retrieval_outcome.sql",
+  // THE-718: 20260806_002 swaps note_quality.outcome_balance for observed_retrievals. SPLIT from
+  // _001 because the two touch different tables and note_quality arrives 14 migrations later, so a
+  // combined migration could not be applied to any prefix that has chunk_retrievals without it.
+  "20260806_002_note_quality_observed.sql",
+  // THE-718 (final): 20260806_003 renames agent_episodes.outcome -> task_result. Kept, not
+  // retired — an episode IS the task, so the axis is coherent here. The old name claimed "parity
+  // with chunk_retrievals outcome axis" and collided with both agent_episodes.status (dispatch
+  // outcome) and cache.db's unrelated jobs.outcome.
+  "20260806_003_agent_episodes_task_result.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

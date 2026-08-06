@@ -128,7 +128,7 @@ describe("sweepExperiential — chunk_retrievals and the view it feeds", () => {
   it("REWRITES chunk_access_stats — the consequence, asserted rather than only documented", () => {
     // This is why the default is a year rather than the 30-90 days the cache.db arms use. The view
     // is a live aggregate: pruning does not just reclaim disk, it changes access_count and
-    // outcome_balance, which feed activation and note quality. A long-tail note genuinely useful
+    // observed/citations, which feed activation and note quality. A long-tail note genuinely useful
     // two years ago would start looking never-accessed.
     const db = freshEdb();
     insertRetrieval(db, "c1", NOW - 400 * DAY);
