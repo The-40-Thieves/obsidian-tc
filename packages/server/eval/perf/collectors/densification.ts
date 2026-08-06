@@ -60,6 +60,37 @@ export function collectDensification(vault: VaultCtx): MetricSample[] {
       // exact-match invariant. A regression — the case this exists for — still fails.
       direction: "higher-worse",
     },
+    // THE-419: the PER-CALL cost. `vec_knn_calls` above is a property of the TRAVERSAL — how many
+    // KNNs densification issues — and it cannot see the thing THE-419 is gated on. That ticket
+    // waits for "a MEASURED large-vault vector-latency bottleneck", and an ANN index's entire
+    // proposition is lowering the cost of EACH call while leaving the count identical. Measured
+    // against the count, a perfect ANN index and a catastrophic one are the same number.
+    //
+    // Before this, the gate was unmeasurable as written: the only mention of the measurement
+    // anywhere in the repo was the sentence demanding it (docs/plans/2026-07-12-...:67), and
+    // eval/perf carried no vector-latency metric at all — so neither the gate opening NOR a
+    // latency regression could ever surface.
+    //
+    // `warn`, not `hard`, and deliberately: this is wall time on a 4-core box shared with ~43
+    // containers, and every other timing here (index.chunks_per_s, embed.texts_per_s,
+    // boot.module_eval_ms) is warn for the same reason. A hard gate on it would flap and get muted,
+    // which is how a gate stops being one. The DETERMINISTIC half of this pair is already hard —
+    // that split is the file header's stated design, not a concession.
+    //
+    // Guarded on `knnEdges` because that is exactly the condition the throw above makes
+    // `vecKnnCalls > 0` under; a tag-only densify scenario would otherwise divide by zero and
+    // publish NaN, which compares equal to nothing and would gate silently forever.
+    ...(densify.knnEdges
+      ? [
+          {
+            key: "densify.vec_knn_mean_ms",
+            value: vault.vecKnnTotalMs / vault.vecKnnCalls,
+            unit: "ms",
+            class: "warn",
+            direction: "higher-worse",
+          } satisfies MetricSample,
+        ]
+      : []),
     {
       key: "densify.edges_similar_to",
       value: similarTo,
