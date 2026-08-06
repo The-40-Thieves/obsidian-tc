@@ -35,16 +35,109 @@
 // be a second, unpinned copy of a capability this repo already gates on.
 import { execFileSync } from "node:child_process";
 
-const DECL_PATTERNS = [
-  ["const", (n) => `const ${n} = $V`],
-  ["let", (n) => `let ${n} = $V`],
-  ["function", (n) => `function ${n}($$$P) { $$$B }`],
-  ["async function", (n) => `async function ${n}($$$P) { $$$B }`],
-  ["class", (n) => `class ${n} { $$$B }`],
-  ["interface", (n) => `interface ${n} { $$$B }`],
-  ["type", (n) => `type ${n} = $T`],
-  ["enum", (n) => `enum ${n} { $$$B }`],
-];
+// Declaration forms, matched by NODE KIND and name FIELD — never by a source-text pattern.
+//
+// THE BUG THIS REPLACES is the exact failure this script exists to prevent, committed by the script
+// itself. The previous implementation matched text patterns like `function ${n}($$$P) { $$$B }`.
+// That pattern has no slot for a RETURN-TYPE ANNOTATION, which sits between the parameter list and
+// the body — so in a strict-TypeScript repo it matched almost nothing:
+//
+//   function plain(a) { … }                              matched
+//   function typed(a: string): string { … }              NO MATCH
+//   export function exFn<T>(a: T): T[] { … }             NO MATCH
+//
+// Every other pattern had the same defect wherever a declaration carries an optional clause the
+// pattern has no slot for — `extends`, `implements`, type parameters, or a type annotation:
+//
+//   interface Extended extends Plain { … }               NO MATCH
+//   class C<T> implements I { … }                        NO MATCH
+//   type GenericAlias<T> = T[]                           NO MATCH
+//   const typedConst: string = "x"                       NO MATCH
+//
+// So `where <anyTypedFunction>` printed `DECLARED 0 — a real zero, not an empty grep` and exited 1,
+// which is this repo's worst failure shape: a false absence wearing an authoritative label, in the
+// tool other workflows cite when they need an absence to be checkable. Measured 2026-08-06 —
+// `experientialTableSpec` reported 0 while declared at `doctor/table-spec.ts:45`.
+//
+// Kind+field matching has no such holes: the annotation, the generics and the heritage clauses are
+// siblings of the name field, not text the pattern must anticipate. Verified against a fixture
+// covering all of the forms above — see `where-symbol.patterns.test.mjs`, which is the test that
+// did not exist and is why this survived. `classify()` was well covered; the pattern list was not.
+//
+// Kind names are GRAMMAR-specific, so this is a per-language map. An unknown language must fail
+// loudly (below) rather than return no declarations — that would be this same bug in a new costume.
+const DECL_KINDS_BY_LANG = {
+  ts: [
+    ["const/let", "variable_declarator"],
+    ["function", "function_declaration"],
+    ["class", "class_declaration"],
+    ["interface", "interface_declaration"],
+    ["type", "type_alias_declaration"],
+    ["enum", "enum_declaration"],
+  ],
+  rust: [
+    ["fn", "function_item"],
+    ["struct", "struct_item"],
+    ["enum", "enum_item"],
+    ["trait", "trait_item"],
+    ["const", "const_item"],
+    ["static", "static_item"],
+    ["type", "type_item"],
+  ],
+};
+// The JS/TSX grammars share TypeScript's node names for every form above.
+for (const alias of ["tsx", "js", "jsx"]) DECL_KINDS_BY_LANG[alias] = DECL_KINDS_BY_LANG.ts;
+
+export { DECL_KINDS_BY_LANG };
+
+/**
+ * Declaration hits for one node KIND, by exact name.
+ *
+ * Unlike `sg()` below, this does NOT swallow failures. A malformed rule and a genuine absence both
+ * produce an empty result, and treating them alike is precisely how the pattern defect above
+ * survived: `sg()` discards stderr (`stdio: [,, "ignore"]`) and returns `[]` from its catch, so a
+ * query that never ran was indistinguishable from a symbol that does not exist. A declaration
+ * lookup is the one call whose zero this script asks readers to TRUST, so its zero has to be earned.
+ */
+function sgRule(kind, symbol, lang, path) {
+  const rule = JSON.stringify({
+    id: "where-symbol",
+    language: lang,
+    rule: { kind, has: { field: "name", regex: `^${symbol}$` } },
+  });
+  let out;
+  try {
+    out = execFileSync("ast-grep", ["scan", "--inline-rules", rule, "--json=compact", path], {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    const why = (e.stderr || e.message || "").toString().trim().split("\n")[0];
+    throw new Error(`ast-grep failed for kind \`${kind}\` (${lang}): ${why}`);
+  }
+  return out.trim() ? JSON.parse(out) : [];
+}
+
+/**
+ * Every declaration of `symbol` under `path`, as `[{kind, at}]`.
+ *
+ * Exported so the KIND MAP can be tested against a real parser. That is the gap that let the
+ * previous text patterns ship broken: `classify()` was thoroughly covered, and the pattern list —
+ * the part that actually decides whether a symbol is declared — had no test at all, because it
+ * needed a parser to exercise. See `where-symbol.patterns.test.mjs`.
+ */
+export function findDeclarations(symbol, lang, path) {
+  const kinds = DECL_KINDS_BY_LANG[lang];
+  if (!kinds) throw new Error(`no declaration-kind map for lang \`${lang}\``);
+  const out = [];
+  for (const [label, kind] of kinds) {
+    for (const m of sgRule(kind, symbol, lang, path)) {
+      out.push({ kind: label, at: `${m.file}:${m.range.start.line + 1}` });
+    }
+  }
+  return out;
+}
 
 /** ast-grep JSON, or [] when the pattern simply does not match (exit 1 is "no matches", not an error). */
 function sg(pattern, lang, path) {
@@ -125,13 +218,22 @@ if (!isMain) {
     process.exit(2);
   }
 
+  // Refuse rather than return an empty declaration set. Node-kind names are grammar-specific, so a
+  // language with no map here would report DECLARED 0 for every symbol in it — a false absence
+  // presented as a checkable zero, which is the defect this script was just repaired for.
+  const kinds = DECL_KINDS_BY_LANG[lang];
+  if (!kinds) {
+    console.error(
+      `no declaration-kind map for --lang ${lang}. Known: ${Object.keys(DECL_KINDS_BY_LANG).sort().join(", ")}.\n` +
+        "Add its node kinds rather than letting this report every symbol as undeclared.",
+    );
+    process.exit(2);
+  }
+
   const loc = (m) => `${m.file}:${m.range.start.line + 1}`;
 
   // Declarations first, so a structural occurrence can be classified as declaration-or-use.
-  const declarations = [];
-  for (const [kind, mk] of DECL_PATTERNS) {
-    for (const m of sg(mk(symbol), lang, path)) declarations.push({ kind, at: loc(m) });
-  }
+  const declarations = findDeclarations(symbol, lang, path);
 
   // A bare identifier pattern matches identifier NODES: never a comment, never a string body.
   const structural = sg(symbol, lang, path).map(loc);

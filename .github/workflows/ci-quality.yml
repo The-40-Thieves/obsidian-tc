@@ -142,6 +142,27 @@ jobs:
         # applies to all, which is what is wanted here.
         run: ast-grep scan --error
 
+      # `where-symbol.mjs` decides whether a symbol is DECLARED, and `verify-ticket-premise` cites
+      # its exit 1 as what makes "this symbol does not exist" a checkable claim. Its declaration
+      # matcher shipped broken: text patterns with no slot for a return-type annotation reported
+      # `DECLARED 0 — a real zero, not an empty grep` for essentially every typed function in the
+      # repo. A false absence, wearing an authoritative label, inside the tool used to verify claims.
+      #
+      # It survived because its tests covered `classify()` — a pure function that was never wrong —
+      # and never touched the pattern list, which needs a PARSER to exercise. This is the only job
+      # with ast-grep provisioned, so the parser-dependent half runs here rather than in
+      # `test:scripts`, where it would skip silently on every run.
+      #
+      # WHERE_SYMBOL_REQUIRE_ASTGREP=1 turns "ast-grep missing" into a hard error instead of a skip:
+      # without it, a broken install would retire this file while the job stayed green.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: where-symbol declaration matcher (needs a real parser)
+        env:
+          WHERE_SYMBOL_REQUIRE_ASTGREP: '1'
+        run: node --test scripts/where-symbol.patterns.test.mjs
+
   hadolint:
     name: hadolint (Dockerfile style + correctness)
     runs-on: ubuntu-latest
