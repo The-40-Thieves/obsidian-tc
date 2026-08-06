@@ -98,7 +98,11 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
       ...common,
     });
     process.stdout.write(
-      `citation-infer: scoped=${stats.scoped} stage1Pass=${stats.stage1Pass} judged=${stats.judged} cited=${stats.cited} uncertain=${stats.uncertain} parseFailures=${stats.parseFailures}${stats.aborted ? " ABORTED(kill-switch)" : ""}\n`,
+      // judgeErrors is printed UNCONDITIONALLY alongside parseFailures, not folded into it and not
+      // omitted when zero. Leaving it out meant a transport failure below the kill-switch ratio was
+      // invisible everywhere except the database: stdout said `parseFailures=0` and nothing else
+      // ever mentioned it, which is the same silence this whole change exists to remove.
+      `citation-infer: scoped=${stats.scoped} stage1Pass=${stats.stage1Pass} judged=${stats.judged} cited=${stats.cited} uncertain=${stats.uncertain} parseFailures=${stats.parseFailures} judgeErrors=${stats.judgeErrors}${stats.aborted ? " ABORTED(kill-switch)" : ""}\n`,
     );
   } finally {
     edb.close?.();

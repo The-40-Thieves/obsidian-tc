@@ -1,0 +1,36 @@
+-- 20260806_004_citation_runs_judge_errors.sql
+-- THE-717 follow-up: separate "the judge did not ANSWER" from "the judge answered UNPARSEABLY".
+--
+-- `parse_failures` counted both. citation.ts wraps the judge call in `try { ... } catch { return
+-- null }`, and every null incremented `parseFailures` — so a transport failure (connection refused,
+-- HTTP 404, timeout) was recorded identically to a model emitting prose instead of JSON. Those have
+-- opposite remedies: one is an endpoint or a credential, the other is a prompt or a model choice.
+--
+-- This was not hypothetical. Measured on the live store 2026-08-06, both passes that had ever run:
+--
+--   id  started (UTC)        scoped judged parse_failures stamped aborted judge_present
+--    1  2026-08-05 22:52:40    3      3          3            0       0         1
+--    2  2026-08-06 04:46:55    3      3          3            0       0         1
+--
+-- Read as written, that is a model that cannot produce JSON. What actually happened is that the
+-- gateway `judge` role had been returning HTTP 404 (`modal-http: invalid function call`) since
+-- 2026-08-03, when the Modal workspace was disabled for exhausted credit. Every one of those six
+-- "parse failures" was a 404. An operator reading this log goes to look at prompts and response
+-- formats; the fault was an address.
+--
+-- `judge_present` compounded it rather than catching it. It means "a judge was CONFIGURED", never
+-- "a judge ANSWERED", so it read 1 throughout a total outage — the log's two most reassuring
+-- columns both stayed healthy while nothing worked. That column's semantics are correct and are
+-- NOT changed here (it is read as stage-1-only mode, and 20260805_001's header defines it that
+-- way); `judge_errors` is what makes the distinction visible. `judge_errors = judged > 0` now says
+-- "configured and never answered" unambiguously.
+--
+-- NULLABLE, matching every other outcome counter in this table: NULL means the pass has not
+-- returned yet, and existing rows keep NULL rather than being backfilled to 0 — a 0 would assert
+-- that those two runs had no transport errors, which is exactly backwards.
+--
+-- The KILL SWITCH deliberately still trips on the SUM. Moving transport failures out of
+-- `parse_failures` without that would have made a total outage stop tripping it at all: the ratio
+-- is failures/judged, and an all-404 pass would compute 0/judged = 0. See citation.ts — the switch
+-- keys on unusable verdicts (parse + transport), and only the REPORTING is split.
+ALTER TABLE citation_runs ADD COLUMN judge_errors INTEGER;
