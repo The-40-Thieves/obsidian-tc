@@ -21,7 +21,13 @@ import {
   rerunSession,
   stageSandbox,
 } from "../src/workspace/rerun";
-import { exitCodeFor } from "../src/workspace/rerun-verdict";
+import {
+  exitCodeFor,
+  RERUN_EXIT_OPERATIONAL,
+  type RerunRecord,
+  type RerunVerdict,
+  summarizeRerun,
+} from "../src/workspace/rerun-verdict";
 import { appendTrace, insertSession } from "../src/workspace/sessions";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 
@@ -312,9 +318,16 @@ describe("THE-645 item 3 fix round 2 — what observe mode must refuse, and what
       vaultRootFor: () => (v as TestVault).root,
     });
 
-    expect(out.records[0]?.replayed?.error_code).toBe("forbidden");
-    // THE property — not the verdict string. `add_vault` declares no `vaultArg`, so the
-    // vault-binding guard cannot see it; the scope gate is the only thing that stops it.
+    // THE-738: this is now `refused_by_policy`, not a divergence. The refusal is unchanged — the
+    // scope gate still stops the call — but it is RERUN'S OWN refusal (RERUN_SCOPES omits admin),
+    // so reporting it as "the vault answered differently" was wrong and flipped the exit code to 1
+    // on a run where nothing had moved.
+    expect(out.records[0]?.verdict).toBe("refused_by_policy");
+    expect(out.records[0]?.divergence).toBe("none");
+    expect(exitCodeFor(out.summary)).not.toBe(1);
+    // THE property — and note it is unchanged by any of the above, which is the point. `add_vault`
+    // declares no `vaultArg`, so the vault-binding guard cannot see it; the scope gate is the only
+    // thing that stops it. How the refusal is REPORTED must never affect whether it HAPPENS.
     expect(v.vaultRegistry.has("intruder")).toBe(false);
   });
 
@@ -409,6 +422,59 @@ describe("THE-645 item 3 — withReadOnlyAcl", () => {
     // (e.g. `v.acl.readOnly = true` instead of spreading a new object) would mutate silently — the
     // root-only assertion above would not catch that class of bug at all.
     expect(original.vaults[0].acl.readOnly).toBe(false);
+  });
+});
+
+describe("THE-738 — rerun's own refusals are not divergence, and exit 1 means one thing", () => {
+  it("counts refused_by_policy separately, and it does NOT flip the exit code", () => {
+    const rec = (verdict: RerunVerdict, divergence: string): RerunRecord =>
+      ({
+        seq: 0,
+        ts: 0,
+        tool: "t",
+        caller: null,
+        recorded: {},
+        verdict,
+        reason: "",
+        replayed: null,
+        divergence,
+      }) as unknown as RerunRecord;
+
+    // A run where every non-runnable call was refused BY RERUN must not report divergence: this
+    // is the whole defect — read-only m4 bridge tools under --sandbox, and admin: calls in observe
+    // mode, were each reported as "the vault changed".
+    const s = summarizeRerun([rec("runnable", "none"), rec("refused_by_policy", "none")]);
+    expect(s.byVerdict.refused_by_policy).toBe(1);
+    expect(s.diverged).toBe(0);
+    expect(exitCodeFor(s)).toBe(0);
+  });
+
+  it("still reports a REAL divergence — the refusal carve-out must not swallow one", () => {
+    const rec = (verdict: RerunVerdict, divergence: string): RerunRecord =>
+      ({
+        seq: 0,
+        ts: 0,
+        tool: "t",
+        caller: null,
+        recorded: {},
+        verdict,
+        reason: "",
+        replayed: null,
+        divergence,
+      }) as unknown as RerunRecord;
+    const s = summarizeRerun([rec("runnable", "status"), rec("refused_by_policy", "none")]);
+    expect(s.diverged).toBe(1);
+    expect(exitCodeFor(s)).toBe(1);
+  });
+
+  it("gives operational failure its OWN code, distinct from divergence", () => {
+    // The collision this closes: a thrown error used to exit 1, the same as "the vault changed",
+    // so a script gating on $? -eq 1 could not tell them apart.
+    expect(RERUN_EXIT_OPERATIONAL).toBe(3);
+    expect(RERUN_EXIT_OPERATIONAL).not.toBe(1);
+    // and the three verdict-derived codes stay what they were
+    const none = summarizeRerun([]);
+    expect(exitCodeFor(none)).toBe(2);
   });
 });
 

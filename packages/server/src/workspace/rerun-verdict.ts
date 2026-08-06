@@ -14,7 +14,13 @@ export type RerunVerdict =
   | "redacted"
   | "truncated"
   | "skipped_mutating"
-  | "unparseable";
+  | "unparseable"
+  // THE-738: rerun ITSELF declined this call — the sandbox stripped the plugin bridge, or the
+  // scope set this runner grants does not cover the tool. Distinct from `diverged` on purpose:
+  // `diverged` must mean VAULT STATE MOVED, which is the only thing worth alerting on. Folding a
+  // self-inflicted refusal into it made every read-only m4 bridge tool under --sandbox, and every
+  // admin: call in observe mode, report as a divergence and flip the exit code to 1.
+  | "refused_by_policy";
 
 export interface ClassifiedRecord {
   verdict: RerunVerdict;
@@ -104,6 +110,7 @@ const ZERO: Record<RerunVerdict, number> = {
   truncated: 0,
   skipped_mutating: 0,
   unparseable: 0,
+  refused_by_policy: 0,
 };
 
 export function summarizeRerun(records: RerunRecord[]): RerunSummary {
@@ -125,6 +132,22 @@ export function summarizeRerun(records: RerunRecord[]): RerunSummary {
  * observable outcome — and while `sessions.traceContent` is off, total refusal is the only
  * reachable path. Conditions are disjoint and evaluated in this order.
  */
+/**
+ * THE-738 — exit codes, and why there are four.
+ *
+ *   0  ran, nothing moved
+ *   1  DIVERGENCE FOUND — the vault answered differently
+ *   2  nothing was runnable (no verdict could be formed)
+ *   3  the command did not run (unknown session, --vault mismatch, staging failure)
+ *
+ * 3 exists because 1 used to mean two different things. A thrown error reached `main()`'s catch,
+ * which writes `fatal: ...` and also exits 1 — so a script gating on `$? -eq 1` could not tell
+ * "the vault changed" from "the command never ran". Exit 2 was already minted to keep
+ * total-refusal distinguishable from success; leaving this collision in place undercut the same
+ * reasoning.
+ */
+export const RERUN_EXIT_OPERATIONAL = 3;
+
 export function exitCodeFor(summary: RerunSummary): 0 | 1 | 2 {
   if (summary.runnable === 0) return 2;
   if (summary.diverged > 0) return 1;

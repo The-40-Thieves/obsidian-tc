@@ -51,8 +51,8 @@ import { dirname, join } from "node:path";
 import { FolderAcl } from "../acl";
 import { openDatabase } from "../db/open";
 import type { Database } from "../db/types";
-import type { ToolRegistry } from "../mcp/registry";
-import { READ_ONLY_DENIAL_MESSAGE } from "../mcp/registry/policy-gates";
+import { READ_ONLY_DENIAL_MESSAGE, type ToolRegistry } from "../mcp/registry";
+
 import {
   classifyRecord,
   type RerunRecord,
@@ -138,7 +138,23 @@ export interface RerunResult {
 interface DispatchLike {
   ok: boolean;
   data?: unknown;
-  error?: { code?: string; message?: string };
+  /** `details.required` is the SCOPE GATE's own signal — `assertScopesGranted` is the only thing
+   *  that attaches it (`err.forbidden(msg, { required })`). Matching on it rather than on the bare
+   *  `forbidden` code is the same discipline `skipped_mutating` already follows: four different
+   *  gates throw `forbidden`, and folding them together is what turned real regressions into
+   *  expected skips. */
+  error?: { code?: string; message?: string; details?: { required?: unknown } };
+}
+
+/** True when a required scope falls outside what THIS RUNNER grants — i.e. the refusal is rerun's
+ *  own policy, not the vault disagreeing. RERUN_SCOPES is family wildcards minus `admin`, so in
+ *  practice this is the admin: family. Computed from the runner's own grant set rather than from a
+ *  message, so it cannot drift when a gate's wording changes. */
+function refusedByRerunScope(err: DispatchLike["error"]): boolean {
+  const required = err?.details?.required;
+  if (!Array.isArray(required)) return false;
+  const families = new Set(RERUN_SCOPES.map((s) => s.split(":")[0]));
+  return required.some((r) => typeof r === "string" && !families.has(r.split(":")[0] as string));
 }
 
 export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
@@ -250,6 +266,34 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
         ...common,
         verdict: "skipped_mutating",
         reason: "mutating call refused by the read-only ACL (observe mode)",
+        replayed: null,
+        divergence: "none",
+      });
+      continue;
+    }
+
+    // THE-738: refusals this runner caused are NOT divergence.
+    //
+    // `plugin_unreachable` is the sandbox stripping restApiUrl/restApiKey so bridge tools cannot
+    // reach the live Obsidian app — correct, and the only safe answer, since a filesystem copy
+    // cannot bound a network write. But the strip is wholesale, so `openBridge` throws it for
+    // every m4 tool including the READ-ONLY ones (list_tasks, git_status, git_diff,
+    // eval_dataview_field, ocr_attachment, search_omnisearch, ...). Each was recorded `ok`, now
+    // returns an error, and so reported as diverged.
+    //
+    // The scope case is the same shape in observe mode: an `admin:` call is refused because
+    // RERUN_SCOPES deliberately omits that family.
+    //
+    // This is exactly the class the design doc names — "every search diverges for a reason
+    // unrelated to the change being investigated" — arriving through a different door.
+    if (!res.ok && (code === "plugin_unreachable" || refusedByRerunScope(res.error))) {
+      records.push({
+        ...common,
+        verdict: "refused_by_policy",
+        reason:
+          code === "plugin_unreachable"
+            ? "the sandbox stripped the plugin bridge, so this tool could not reach the Obsidian app — rerun's own refusal, not a vault change"
+            : "this runner does not grant the scope this tool requires (RERUN_SCOPES omits admin) — rerun's own refusal, not a vault change",
         replayed: null,
         divergence: "none",
       });

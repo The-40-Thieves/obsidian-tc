@@ -3,7 +3,7 @@ import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { openDatabase } from "../../db/open";
 import { buildServerRuntime } from "../../runtime/server-runtime";
 import { rerunSession, stageSandbox } from "../../workspace/rerun";
-import { exitCodeFor } from "../../workspace/rerun-verdict";
+import { exitCodeFor, RERUN_EXIT_OPERATIONAL } from "../../workspace/rerun-verdict";
 import { getSession } from "../../workspace/sessions";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
@@ -57,10 +57,11 @@ function withoutBridgeTransport(v: ServerConfig["vaults"][number]): ServerConfig
  *  not an operator typo (see `stageForSandbox` for that case). */
 function configuredVaultPath(cfg: ServerConfig, vaultId: string): string {
   const v = cfg.vaults.find((x) => x.id === vaultId);
-  if (!v) {
-    process.stderr.write(`rerun: unknown vault ${vaultId}\n`);
-    process.exit(2);
-  }
+  // THE-742: THROW, never process.exit(). This runs inside the command's try/finally, and
+  // process.exit() does not unwind — the `finally` blocks that close the database and the runtime
+  // would simply not run. Throwing reaches main()'s catch, which now exits 3 (operational
+  // failure), so the distinction from "divergence found" survives too.
+  if (!v) throw new Error(`rerun: unknown vault ${vaultId}`);
   return v.path;
 }
 
@@ -106,7 +107,28 @@ async function stageForSandbox(
   return { vaultId, ...staged };
 }
 
+/**
+ * THE-738 — operational failures exit 3, not 1.
+ *
+ * `exitCodeFor` returns 1 for "divergence found", but a thrown error (unknown session id, --vault
+ * mismatch, a staging failure) reached `main()`'s catch, which writes `fatal: ...` and ALSO exits
+ * 1. A script gating on `$? -eq 1` therefore could not tell "the vault changed" from "the command
+ * did not run". This wrapper keeps those throws out of the global catch and gives them their own
+ * code, so all four outcomes stay distinguishable.
+ *
+ * Scoped to this command deliberately: `main()`'s exit-1-on-throw is every other command's
+ * contract, and rerun is the one whose exit code IS its entire output.
+ */
 export async function run_rerun(cmd: Cmd<"rerun">): Promise<void> {
+  try {
+    await runRerunInner(cmd);
+  } catch (e) {
+    process.stderr.write(`fatal: ${(e as Error).message}\n`);
+    process.exitCode = RERUN_EXIT_OPERATIONAL;
+  }
+}
+
+async function runRerunInner(cmd: Cmd<"rerun">): Promise<void> {
   // Observe mode (the default) forces read-only BEFORE the runtime exists. --sandbox keeps the
   // real config, because everything it touches is a disposable copy.
   const cfg = cmd.sandbox
