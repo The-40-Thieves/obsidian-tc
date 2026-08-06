@@ -55,6 +55,7 @@
     "test": "bun run --filter='*' test",
     "test:scripts": "node --test scripts/*.test.mjs",
     "typecheck": "bun run --filter='*' typecheck",
+    "where": "node scripts/where-symbol.mjs",
     "vec:embed": "node scripts/gen-embedded-vec.mjs"
   },
   "devDependencies": {

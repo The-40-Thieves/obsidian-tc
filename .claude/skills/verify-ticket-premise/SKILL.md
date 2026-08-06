@@ -35,6 +35,19 @@ For each, distinguish three outcomes — they mean different things:
 
 Read the line. Do not infer from the file existing.
 
+**Resolve MOVED-vs-GONE structurally, not with `rg`.** A line number is the most perishable thing
+a ticket can cite — `cli.ts` went 1256 → 113 lines in one refactor and five tickets still pointed
+into the gap. Ask where the symbol *is*:
+
+```bash
+just where <Symbol>                      # or: bun run where <Symbol> --path packages/server/src
+```
+
+It reports **DECLARED / USED / PROSE-ONLY** and exits 1 when nothing declares the symbol. The third
+bucket is the one `rg` cannot give you: lines that mention the symbol in a comment or string. In
+this repo that is not a rounding error — `MAX_JUDGED` reads as 4 ripgrep lines and 2 real ones,
+and the two extra are a comment about a constant deleted from another file (THE-747).
+
 ### 3. Re-derive every number
 Tickets quote tool counts, test counts, line counts, coverage, corpus sizes, versions. Check each:
 
@@ -65,7 +78,13 @@ PREMISE FALSE         — do not implement; close or rewrite the ticket
 ## Rules
 
 - **Zero hits is a result you must state.** Write ``0 hits for `<exact pattern>` ``. An empty grep
-  and a real absence are indistinguishable unless you say which you found.
+  and a real absence are indistinguishable unless you say which you found. `just where <Symbol>`
+  makes the zero checkable — it exits 1 on "nothing declares this", so an absence claim has an
+  exit code behind it rather than a silent empty result.
+- **A comment is not a call site.** Prose in this repo cites symbols, tickets and invariants
+  constantly, and a comment written to explain a REMOVAL reads as evidence the thing survives.
+  Two separate wrong verdicts here came from counting prose as code. Check the PROSE-ONLY bucket
+  before quoting any count.
 - **Do not build an inventory from one grep.** Check the code that *consumes* a symbol, not only its
   definition.
 - **"Code exists" ≠ "code is reachable."** Several subsystems here were built, tested, and wired to

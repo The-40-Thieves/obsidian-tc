@@ -57,6 +57,16 @@ Per coordinate, resolve to **EXACT / MOVED / GONE**. A structural refactor silen
 every ticket citing the files it touched, and no gate catches it because tickets are not code —
 `cli.ts` went 1256 → 113 lines and five tickets still cited lines 381, 793, 855, 1300.
 
+Resolve them with the parser, not with `rg`:
+
+```bash
+just where <Symbol>          # DECLARED / USED / PROSE-ONLY; exit 1 when nothing declares it
+```
+
+**PROSE-ONLY is the bucket that decides absence claims.** A backlog pass reads dozens of "X does
+not exist" assertions, and this repo's comments discuss deleted symbols by name. A grep that finds
+the obituary reports the corpse as alive.
+
 Per blocker edge, read the blocker's *current* state.
 
 ## Stage 3 — External gates (context7 + web)
