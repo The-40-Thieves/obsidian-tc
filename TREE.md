@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,097 tracked code files · 169,290 lines.
+**Scale:** 1,099 tracked code files · 169,525 lines.
 
-TypeScript 156,373 · JavaScript 8,632 · Python 1,640 · SQL 1,543 · Rust 742 · Shell 360.
+TypeScript 156,608 · JavaScript 8,632 · Python 1,640 · SQL 1,543 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -98,8 +98,8 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `db/` | 15 | 1,368 | provisioning, migrate runner, experiential store |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
+| `plane/` | 7 | 1,076 | generative plane; `jobs/` holds the contradiction detector |
 | `workspace/` | 3 | 1,039 | session tracking |
-| `plane/` | 6 | 969 | generative plane; `jobs/` holds the contradiction detector |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
 | `providers/` | 6 | 731 |  |
@@ -118,7 +118,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 383 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 384 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -278,7 +278,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**393 modules · 1750 dependencies · 118 distinct subsystem pairs · 786 cross-subsystem imports.**
+**394 modules · 1752 dependencies · 118 distinct subsystem pairs · 787 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -310,9 +310,9 @@ flowchart LR
   runtime[runtime<br/>14 files]
   bridge[bridge<br/>8 files]
   model[model<br/>7 files]
+  plane[plane<br/>7 files]
   embeddings[embeddings<br/>6 files]
   formats[formats<br/>6 files]
-  plane[plane<br/>6 files]
   providers[providers<br/>6 files]
   metrics[metrics<br/>4 files]
   scheduler[scheduler<br/>4 files]
@@ -352,6 +352,7 @@ flowchart LR
   embeddings -->|5| search
   mcp -->|5| otel
   memory -->|5| vault
+  plane -->|5| db
   runtime -->|5| util
   runtime -->|5| morgiana
   search -->|5| embeddings
@@ -364,7 +365,7 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 229 | `tools` | 360 |
-| `db` | 140 | `runtime` | 141 |
+| `db` | 141 | `runtime` | 141 |
 | `search` | 97 | `cli` | 67 |
 | `mcp` | 92 | `search` | 66 |
 | `experiential` | 35 | `experiential` | 24 |
