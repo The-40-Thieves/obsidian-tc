@@ -30,12 +30,16 @@ const CHAIN = CACHE_MIGRATION_FILES.map((f) => ({ version: versionOf(f), sql: re
 function countingDb(): { db: any; probes: () => number } {
   const db = openMemoryDb();
   runMigrations(db, CHAIN);
-  db.exec(
-    "CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(vault_id UNINDEXED, chunk_id UNINDEXED, path, content)",
-  );
+  // THE-711 follow-up: chunk_fts is contentless and carries no vault of its own — `termDf` resolves
+  // the vault by joining `chunks` on rowid. So the fixture must seed BOTH sides; the FTS row alone
+  // used to be enough, and a lone FTS row now joins to nothing and counts zero.
   db.prepare(
-    "INSERT INTO chunk_fts (vault_id, chunk_id, path, content) VALUES ('main','c1','09-secret/s.md','zarquon appears only here')",
+    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES ('c1','main','09-secret/s.md','0','[]','zarquon appears only here','h1',1,0,0)",
   ).run();
+  db.exec(
+    "CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(content, content='', contentless_delete=1, tokenize='porter unicode61')",
+  );
+  db.exec("INSERT INTO chunk_fts (rowid, content) SELECT rowid, content FROM chunks");
   let prepares = 0;
   const raw = db.prepare.bind(db);
   db.prepare = (sql: string) => {

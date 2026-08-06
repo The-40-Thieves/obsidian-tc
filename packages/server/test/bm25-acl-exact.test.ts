@@ -35,27 +35,28 @@ function seeded(hiddenCount: number): Database {
   db.exec(
     "CREATE TABLE acl_path_members (set_id INTEGER NOT NULL REFERENCES acl_path_sets(set_id) ON DELETE CASCADE, path TEXT NOT NULL, PRIMARY KEY (set_id, path)) WITHOUT ROWID",
   );
-  if (!ensureChunkFts(db)) {
-    throw new Error(
-      "FTS5 unavailable — THE-695's assertions cannot run. Refusing to pass vacuously.",
-    );
-  }
   db.prepare("INSERT INTO acl_path_sets VALUES (1,'fp','main',1,1,1)").run();
   db.prepare("INSERT INTO acl_path_members VALUES (1,'02-visible.md')").run();
 
   const addChunk = db.prepare(
     "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'main', ?, '0', '[]', ?, ?, 1, 0, 0)",
   );
-  const addFts = db.prepare(
-    "INSERT INTO chunk_fts (vault_id, chunk_id, path, content) VALUES ('main', ?, ?, ?)",
-  );
   for (let i = 0; i < hiddenCount; i++) {
     addChunk.run(`h${i}`, "09-hidden.md", "needle", `hh${i}`);
-    addFts.run(`h${i}`, "09-hidden.md", "needle");
   }
   const long = `needle ${"filler ".repeat(40)}`;
   addChunk.run("v1", "02-visible.md", long, "hv1");
-  addFts.run("v1", "02-visible.md", long);
+
+  // THE-711 follow-up: the index is built AFTER the chunks, by ensureChunkFts's own
+  // count-divergence rebuild — the same path production takes. This fixture used to hand-write
+  // `INSERT INTO chunk_fts (vault_id, chunk_id, path, content)`, which a contentless table has no
+  // columns for; building it through the real function means the fixture cannot drift from the
+  // production shape again.
+  if (!ensureChunkFts(db)) {
+    throw new Error(
+      "FTS5 unavailable — THE-695's assertions cannot run. Refusing to pass vacuously.",
+    );
+  }
   return db;
 }
 

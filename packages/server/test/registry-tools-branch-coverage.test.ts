@@ -306,6 +306,7 @@ describe("THE-602 registry-tools branch coverage", () => {
           rows_dropped: {
             chunks: number;
             vec_chunks: number;
+            chunk_fts: number;
             embeddings: number;
             idempotency_keys: number;
             event_log: number;
@@ -314,6 +315,9 @@ describe("THE-602 registry-tools branch coverage", () => {
         expect(d.rows_dropped).toEqual({
           chunks: 0,
           vec_chunks: 0,
+          // THE-711 follow-up: reset_vault_cache now drops the vault's contentless FTS entries
+          // explicitly, before the chunks that own their rowids.
+          chunk_fts: 0,
           embeddings: 0,
           idempotency_keys: 0,
           event_log: 0,
