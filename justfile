@@ -124,3 +124,14 @@ ticket-drift tickets="":
 #   just where inferCitations packages/server/src  # narrow the path
 where symbol path="packages":
     node scripts/where-symbol.mjs "{{symbol}}" --path "{{path}}"
+
+# Attribute a database's size to the tables and indexes inside it, and report which SQLite is
+# reading it. READ-ONLY — safe against a live production file, which is the intended use.
+#
+# It is a NODE script on purpose: `dbstat` is compile-time (SQLITE_ENABLE_DBSTAT_VTAB), present in
+# node:sqlite and ABSENT from Bun's bundled SQLite, which is the production runtime. So the running
+# server structurally cannot answer "what is in these 226 MB" and no doctor check could either.
+#
+#   just db-pages ~/.obsidian-tc/cache.db
+db-pages +paths:
+    node scripts/db-page-report.mjs {{paths}}

@@ -75,8 +75,20 @@ describe("encode->store wiring (THE-388)", () => {
     const chunks = n("SELECT COUNT(*) AS n FROM chunks");
     expect(n("SELECT COUNT(*) AS n FROM chunk_sparse")).toBe(chunks);
     expect(n("SELECT COUNT(*) AS n FROM chunk_colbert")).toBe(chunks);
-    const s = db.prepare("SELECT weights FROM chunk_sparse LIMIT 1").get() as { weights: string };
+    // THE-711: `weights` is JSONB (a BLOB), so it is read back through `json()` — the same
+    // accessor sparseSearch uses. Selecting the raw column and JSON.parse-ing it asserted the
+    // STORAGE FORMAT rather than the stored value, which is why this line broke when the format
+    // changed while the round-trip stayed correct.
+    const s = db.prepare("SELECT json(weights) AS weights FROM chunk_sparse LIMIT 1").get() as {
+      weights: string;
+    };
     expect(JSON.parse(s.weights)).toEqual({ tok_a: 0.9, tok_b: 0.3 });
+    // The bytes really are JSONB, not text that happens to parse — otherwise the change above
+    // would be a no-op wearing a passing test.
+    const raw = db.prepare("SELECT typeof(weights) AS t FROM chunk_sparse LIMIT 1").get() as {
+      t: string;
+    };
+    expect(raw.t).toBe("blob");
     const c = db.prepare("SELECT vectors FROM chunk_colbert LIMIT 1").get() as { vectors: string };
     expect(JSON.parse(c.vectors)).toEqual([
       [1, 0],
