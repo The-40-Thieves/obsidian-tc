@@ -10,8 +10,8 @@ import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import {
-  ELIGIBILITY_POLICY_VERSION,
   applyPreferenceDeltas,
+  ELIGIBILITY_POLICY_VERSION,
   evaluateEpisodes,
   extractPreferences,
   preferenceProfile,
@@ -121,7 +121,9 @@ describe("evaluateEpisodes (THE-222)", () => {
 
     const row = (id: string) =>
       db
-        .prepare("SELECT eligibility, eligibility_reason, eligibility_policy FROM agent_episodes WHERE id = ?")
+        .prepare(
+          "SELECT eligibility, eligibility_reason, eligibility_policy FROM agent_episodes WHERE id = ?",
+        )
         .get(id) as {
         eligibility: string;
         eligibility_reason: string | null;

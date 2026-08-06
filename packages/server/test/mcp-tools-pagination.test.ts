@@ -130,9 +130,7 @@ describe("tools/list annotations + title", () => {
   // THE-743. Three properties, and the first two are the ones a naive implementation gets wrong.
   it("idempotentHint: declared on a mutating tool, ABSENT on a read-only one (THE-743)", async () => {
     const r = new ToolRegistry();
-    r.register(
-      toolWith("set_thing", { requiredScopes: ["write:notes"], idempotent: true }),
-    );
+    r.register(toolWith("set_thing", { requiredScopes: ["write:notes"], idempotent: true }));
     r.register(toolWith("read_thing_2", { requiredScopes: ["read:notes"], idempotent: true }));
     const { client, server } = await connect(r);
     const tools = (await client.listTools()).tools;

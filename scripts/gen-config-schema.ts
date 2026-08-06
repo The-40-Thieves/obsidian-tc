@@ -73,8 +73,14 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // `outcome_balance` — a chunk_access_stats column that no longer exists after 20260806_001
 // replaced it with `observed`. The description named a column, so retiring the column made the
 // prose false. No key, type, default or constraint moved.
+// THE-644 item 3: rebaselined for a NEW KEY, `experiential.activationDecay` — the first time the
+// ACT-R decay exponent is reachable from configuration. Every layer beneath already accepted a
+// decay (`recomputeActivation(edb, now, { decay })`, `registerActivationRecompute`'s `deps.decay`)
+// and nothing ever supplied one, so the knob existed with no handle and the only way to change it
+// was an eval-harness script. Additive, defaulted to the existing 0.5, and threaded to its
+// consumer in the same change — this repo has deleted four declared-but-unwired keys.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "cfdede1ecf82bcab52ff38d5ff976591cb36eaa1147e68eb309dcbe13f316288";
+  "6f8c4763dbc96820a73018343db99fe42b7a970bee9758ac4abcb64fd5c56903";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

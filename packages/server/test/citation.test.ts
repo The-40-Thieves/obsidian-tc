@@ -35,6 +35,9 @@ const EXP_CHAIN = [
   // THE-717 follow-up: 20260806_004 adds citation_runs.judge_errors. It ALTERs only that
   // table, so it composes onto this prefix without pulling in the rest of the chain.
   { version: "20260806_004", sql: read("20260806_004_citation_runs_judge_errors.sql") },
+  // THE-744: 20260806_005 adds citation_runs.entries, which closeCitationRun now writes on
+  // every path. ALTERs only that table, so it composes onto this prefix.
+  { version: "20260806_005", sql: read("20260806_005_citation_runs_entries.sql") },
 ];
 const NOW = 1_700_000_000_000;
 

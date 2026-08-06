@@ -231,11 +231,15 @@ export function createObservability(deps: ObservabilityDeps): Observability {
 export function wireActivationRecompute(
   scheduler: Scheduler,
   observability: Pick<Observability, "onActivationRecompute">,
-  deps: { edb: Database; intervalMs: number },
+  deps: { edb: Database; intervalMs: number; decay?: number | undefined },
 ): void {
   registerActivationRecompute(scheduler, {
     edb: deps.edb,
     intervalMs: deps.intervalMs,
+    // THE-644 item 3: forwarded only when set, so an absent config key leaves
+    // `recomputeActivation`'s own default in charge rather than pinning it here. Every layer below
+    // already accepted a decay; this wiring was the one link that dropped it.
+    ...(deps.decay !== undefined ? { decay: deps.decay } : {}),
     onRecompute: (stats) => observability.onActivationRecompute("activation-recompute", stats),
     onError: (e) =>
       process.stderr.write(

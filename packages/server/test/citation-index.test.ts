@@ -7,17 +7,16 @@
 //
 // The acceptance test the ticket asked for is the first one below: run against an empty index and
 // assert the log is NON-EMPTY afterwards. It was watched failing against the pre-fix code.
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import { runCitationIndexPasses } from "../src/experiential/citation-index";
-import { PASS_WINDOW_TOLERANCE_MS } from "../src/experiential/transcript-source";
 import { citationRunsCovering } from "../src/experiential/citation-runs";
+import { PASS_WINDOW_TOLERANCE_MS } from "../src/experiential/transcript-source";
 import { openMemoryDb } from "./helpers";
 
 const read = (name: string) =>
