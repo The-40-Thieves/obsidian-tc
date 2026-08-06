@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,085 tracked code files · 167,277 lines.
+**Scale:** 1,085 tracked code files · 167,395 lines.
 
-TypeScript 155,080 · JavaScript 8,078 · Python 1,640 · SQL 1,377 · Rust 742 · Shell 360.
+TypeScript 155,198 · JavaScript 8,078 · Python 1,640 · SQL 1,377 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -98,8 +98,8 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `db/` | 15 | 1,329 | provisioning, migrate runner, experiential store |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
+| `workspace/` | 3 | 962 | session tracking |
 | `plane/` | 6 | 938 | generative plane; `jobs/` holds the contradiction detector |
-| `workspace/` | 3 | 889 | session tracking |
 | `metrics/` | 4 | 852 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
 | `providers/` | 6 | 731 |  |
@@ -278,7 +278,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**392 modules · 1747 dependencies · 118 distinct subsystem pairs · 785 cross-subsystem imports.**
+**392 modules · 1748 dependencies · 118 distinct subsystem pairs · 786 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -364,7 +364,7 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 229 | `tools` | 360 |
-| `db` | 139 | `runtime` | 141 |
+| `db` | 140 | `runtime` | 141 |
 | `search` | 97 | `search` | 66 |
 | `mcp` | 93 | `cli` | 66 |
 | `experiential` | 35 | `experiential` | 24 |

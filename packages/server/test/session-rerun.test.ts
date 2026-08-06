@@ -14,7 +14,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { withReadOnlyAcl } from "../src/cli/commands/rerun";
-import { rerunSession, stageSandbox } from "../src/workspace/rerun";
+import { openDatabase } from "../src/db/open";
+import {
+  RERUN_CALLER_PREFIX,
+  rerunCaller,
+  rerunSession,
+  stageSandbox,
+} from "../src/workspace/rerun";
 import { exitCodeFor } from "../src/workspace/rerun-verdict";
 import { appendTrace, insertSession } from "../src/workspace/sessions";
 import { makeTestVault, type TestVault } from "./m1-helpers";
@@ -406,10 +412,27 @@ describe("THE-645 item 3 — withReadOnlyAcl", () => {
   });
 });
 
+describe("THE-740 — replayed calls are attributable, not indistinguishable", () => {
+  it("prefixes the caller so synthetic event_log rows are excludable", () => {
+    expect(rerunCaller("alice")).toBe("rerun:alice");
+    // The original principal stays legible — that is why a prefix beat a new column.
+    expect(rerunCaller("alice").endsWith("alice")).toBe(true);
+    expect(rerunCaller("alice").startsWith(RERUN_CALLER_PREFIX)).toBe(true);
+  });
+
+  it("never leaves a replayed row indistinguishable from an unattributed real one", () => {
+    // A null caller must NOT stay null: an un-prefixed null row is exactly what a real
+    // unattributed call writes, so the two would be impossible to tell apart afterwards.
+    expect(rerunCaller(null)).toBe("rerun:");
+    expect(rerunCaller(null)).not.toBe(null);
+    expect(rerunCaller(null).startsWith(RERUN_CALLER_PREFIX)).toBe(true);
+  });
+});
+
 describe("THE-645 item 3 — sandbox staging", () => {
-  it("copies the vault so a write to the copy leaves the original untouched", () => {
+  it("copies the vault so a write to the copy leaves the original untouched", async () => {
     v = readOnlyVault({ "a.md": "original" });
-    const sb = stageSandbox(v.root, cacheDir as string);
+    const sb = await stageSandbox(v.root, cacheDir as string);
     try {
       expect(readFileSync(join(sb.root, "a.md"), "utf8")).toBe("original");
       writeFileSync(join(sb.root, "a.md"), "changed in sandbox");
@@ -420,21 +443,43 @@ describe("THE-645 item 3 — sandbox staging", () => {
     }
   });
 
-  it("copies cache.db when it exists — an empty index would diverge every search for the wrong reason", () => {
+  // THE-739. The previous version of this test wrote the literal string "fake-db-bytes" to a file
+  // named cache.db and asserted it came back — which proves cpSync ran, and nothing about whether a
+  // SQLite database survives staging. That is the gap the ticket names, so this opens the staged
+  // copy and reads a row committed just before staging.
+  it("stages a REAL database as a consistent snapshot, including uncheckpointed WAL writes", async () => {
     v = readOnlyVault({ "a.md": "x" });
-    writeFileSync(join(cacheDir as string, "cache.db"), "fake-db-bytes");
-    const sb = stageSandbox(v.root, cacheDir as string);
+    const src = join(cacheDir as string, "cache.db");
+    const live = await openDatabase(src);
+    live.exec("CREATE TABLE t (k TEXT PRIMARY KEY, val TEXT)");
+    live.prepare("INSERT INTO t VALUES ('before-staging','present')").run();
+    // The connection stays OPEN across staging — this is the production shape (`serve` holds one),
+    // and it is what leaves the write sitting in an uncheckpointed -wal that a file copy misses.
+    const sb = await stageSandbox(v.root, cacheDir as string);
     try {
       expect(existsSync(join(sb.cacheDir, "cache.db"))).toBe(true);
-      expect(readFileSync(join(sb.cacheDir, "cache.db"), "utf8")).toBe("fake-db-bytes");
+      const staged = await openDatabase(join(sb.cacheDir, "cache.db"));
+      try {
+        const row = staged.prepare("SELECT val FROM t WHERE k = 'before-staging'").get() as
+          | { val: string }
+          | undefined;
+        // Under the old cpSync this row was absent — the exact failure that surfaced as
+        // `unknown session` on a session that had just ended.
+        expect(row?.val).toBe("present");
+      } finally {
+        staged.close?.();
+      }
+      // And the snapshot is self-contained: no sidecars to keep in sync.
+      expect(existsSync(join(sb.cacheDir, "cache.db-wal"))).toBe(false);
     } finally {
+      live.close?.();
       sb.dispose();
     }
   });
 
-  it("dispose removes the staged copy", () => {
+  it("dispose removes the staged copy", async () => {
     v = readOnlyVault({ "a.md": "x" });
-    const sb = stageSandbox(v.root, cacheDir as string);
+    const sb = await stageSandbox(v.root, cacheDir as string);
     const staged = sb.root;
     sb.dispose();
     expect(existsSync(staged)).toBe(false);

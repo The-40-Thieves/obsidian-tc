@@ -45,10 +45,11 @@
 // gates the write is THIS file's `readOnly: true` literal a few lines below, so that is what
 // task-3-report.md's mutation cycle flips instead, and watches go red with the note actually
 // overwritten on disk before restoring it.
-import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { FolderAcl } from "../acl";
+import { openDatabase } from "../db/open";
 import type { Database } from "../db/types";
 import type { ToolRegistry } from "../mcp/registry";
 import { READ_ONLY_DENIAL_MESSAGE } from "../mcp/registry/policy-gates";
@@ -59,6 +60,20 @@ import {
   summarizeRerun,
 } from "./rerun-verdict";
 import { CACHE_TRACE_SUBDIR, getSession, readTrace, resolveTraceAbs } from "./sessions";
+
+/**
+ * THE-740 — the principal a re-issued call is attributed to in `event_log`.
+ *
+ * `rerun:` prefix rather than a new column: it needs no migration, keeps the original principal
+ * readable (`rerun:alice` still says alice), and makes the rows filterable with a LIKE. A null
+ * caller becomes `rerun:` rather than staying null, so a synthetic row is never indistinguishable
+ * from an unattributed real one.
+ */
+export const RERUN_CALLER_PREFIX = "rerun:";
+
+export function rerunCaller(caller: string | null): string {
+  return `${RERUN_CALLER_PREFIX}${caller ?? ""}`;
+}
 
 /**
  * The scopes a re-issued call is authenticated with.
@@ -179,7 +194,19 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
 
     const started = Date.now();
     const res = (await opts.registry.dispatch(common.tool, classified.args, {
-      caller: row.caller,
+      // THE-740: every re-issued call goes through the real dispatch — which is the point, since a
+      // re-run that passes is evidence about the actual gates — and `recordOutcome` therefore
+      // writes an `event_log` row for each one, into the REAL cache.db in observe mode. Attributed
+      // to the raw `row.caller`, those rows were byte-indistinguishable from live traffic by a
+      // principal who did not make the calls: audit history gained synthetic entries, per-caller
+      // volume double-counted a replayed session, and a re-run of a session containing a denial
+      // re-recorded that denial against the original caller.
+      //
+      // Prefixing keeps the original principal legible while making the rows excludable from any
+      // analysis over event_log. This repo already treats audit integrity as load-bearing (the
+      // forget log is hash-chained; THE-605 reasons explicitly about which commands may write
+      // audit rows), and synthesising indistinguishable rows was never part of that reasoning.
+      caller: rerunCaller(row.caller),
       authenticated: true,
       // Family wildcards minus `admin` — see RERUN_SCOPES for why "the original call already
       // cleared scope/auth" was not true and what `["*"]` let through.
@@ -261,6 +288,52 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
  *  diverges for a reason unrelated to the change being investigated. */
 const SANDBOX_DBS = ["cache.db", "experiential.db"] as const;
 
+/**
+ * THE-739 — stage ONE database as a consistent snapshot.
+ *
+ * `cpSync` was wrong here, and quietly. Every adapter sets `PRAGMA journal_mode = WAL`, so a live
+ * database's recent writes sit in a `-wal` sidecar that a file copy does not take. In production
+ * `serve` holds a connection, so nothing checkpoints it. The staged copy therefore LAGS the real
+ * one by whatever is uncheckpointed, and can tear under a concurrent writer.
+ *
+ * The failure it produced reads as something else entirely: `rerun <id> --sandbox` on a session
+ * that just ended finds the row in the REAL cache.db, stages a copy, and then throws
+ * `unknown session` against the STAGED copy — because the row was still in the WAL. That looks
+ * like a corrupt session id, not a staging defect.
+ *
+ * `VACUUM INTO` is SQLite's own consistent-snapshot primitive: one statement, checkpoints
+ * implicitly, and writes a single self-contained file with no sidecars to keep in sync. Preferred
+ * over copying the `-wal`/`-shm` alongside (still racy under a concurrent writer) and over the
+ * backup API (more code for the same guarantee).
+ *
+ * Falls back to `cpSync` when the source will not open as a database — a truncated or non-SQLite
+ * file staged for a test fixture must not abort the whole run, and copying it preserves the
+ * previous behaviour exactly for that case.
+ */
+async function stageDatabase(src: string, dest: string): Promise<void> {
+  // `cpSync` creates missing parent directories; VACUUM INTO does NOT — it fails on a missing
+  // path and would silently fall through to the copy below, reinstating the exact WAL-lag bug this
+  // function exists to fix. Caught by the staging test, which is the point of asserting a row
+  // rather than asserting that a file appeared.
+  mkdirSync(dirname(dest), { recursive: true });
+  try {
+    const db = await openDatabase(src);
+    try {
+      // The destination must not exist; VACUUM INTO refuses to overwrite.
+      db.exec(`VACUUM INTO ${quoteSqlString(dest)}`);
+    } finally {
+      db.close?.();
+    }
+  } catch {
+    cpSync(src, dest, { dereference: true });
+  }
+}
+
+/** Single-quote a path for SQL. VACUUM INTO takes a string literal, not a bind parameter. */
+function quoteSqlString(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
 /** Best-effort removal of a staged sandbox directory. NEVER THROWS: `dispose()` runs in
  *  `cli/commands/rerun.ts`'s outermost `finally`, so a throw here would escape into `main()`'s
  *  `.catch()`, which writes `fatal: ...` and exits 1 — turning "I could not delete a scratch dir"
@@ -292,10 +365,10 @@ function safeDispose(base: string): void {
  * COPY, never symlink — a symlinked database is the live one, and the whole guarantee of sandbox
  * mode is that everything it touches is throwaway.
  */
-export function stageSandbox(
+export async function stageSandbox(
   vaultRoot: string,
   cacheDir: string,
-): { root: string; cacheDir: string; dispose(): void } {
+): Promise<{ root: string; cacheDir: string; dispose(): void }> {
   const base = mkdtempSync(join(tmpdir(), "obtc-rerun-"));
   // Fix round 1, finding 2: a mid-copy failure (e.g. the vault disappearing underneath us, a full
   // disk) must not leave `base` behind — nothing downstream would ever call `dispose()` for a
@@ -307,7 +380,7 @@ export function stageSandbox(
     cpSync(vaultRoot, root, { recursive: true, dereference: true });
     for (const name of SANDBOX_DBS) {
       const src = join(cacheDir, name);
-      if (existsSync(src)) cpSync(src, join(cache, name), { dereference: true });
+      if (existsSync(src)) await stageDatabase(src, join(cache, name));
     }
     // THE-737: a session minted today writes trace_store='cache' — its JSONL lives under
     // <cacheDir>/traces/, not under the vault. Skipping this copy would make --sandbox find

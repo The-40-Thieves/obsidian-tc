@@ -102,7 +102,7 @@ async function stageForSandbox(
   } finally {
     probeDb.close?.();
   }
-  const staged = stageSandbox(configuredVaultPath(cfg, vaultId), cfg.cacheDir);
+  const staged = await stageSandbox(configuredVaultPath(cfg, vaultId), cfg.cacheDir);
   return { vaultId, ...staged };
 }
 
