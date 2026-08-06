@@ -147,20 +147,6 @@ export function deleteChunkFtsRow(db: Database, rowid: number): void {
 }
 
 /**
- * Delete every FTS row belonging to a vault. MUST run BEFORE the vault's chunks are deleted — it
- * resolves rowids through `chunks`, which is the only place that mapping exists.
- *
- * This is the bulk counterpart to deleteChunkFtsRow and exists because `registry-tools.ts` drops a
- * whole vault with one `DELETE FROM chunks WHERE vault_id = ?`. There is no per-chunk rowid to
- * capture there, and afterwards the mapping is gone, so the FTS rows would be unreachable.
- */
-export function deleteChunkFtsRowsForVault(db: Database, vaultId: string): void {
-  db.prepare(
-    "DELETE FROM chunk_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE vault_id = ?)",
-  ).run(vaultId);
-}
-
-/**
  * Drop a pre-THE-711 chunk_fts so the contentless definition can replace it.
  *
  * `CREATE VIRTUAL TABLE IF NOT EXISTS` is a no-op against an existing table of the OLD shape, so
