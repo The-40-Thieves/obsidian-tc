@@ -58,6 +58,10 @@ export interface IndexedChunk {
 export type IndexHook = (chunks: IndexedChunk[]) => void;
 
 export interface ExistingRow {
+  /** THE-711 follow-up: the chunks rowid. chunk_fts is contentless and can only be deleted from by
+   *  rowid, and that mapping dies with the chunks row — so the delete path must carry it in rather
+   *  than look it up after the fact. Selected in both preloadChunkState and the per-path fallback. */
+  rowid: number;
   id: string;
   content_hash: string;
   /** THE-531: the model of this chunk's ACTIVE embedding, or null when it has none. A mismatch with

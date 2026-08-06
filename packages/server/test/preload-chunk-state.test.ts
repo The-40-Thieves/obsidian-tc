@@ -98,7 +98,11 @@ describe("THE-501 bulk chunk-state preload", () => {
     expect(map.has("a.md")).toBe(true);
     expect(map.has("b.md")).toBe(true);
     const row = map.get("a.md")?.[0];
-    expect(Object.keys(row ?? {}).sort()).toEqual(["active_model", "content_hash", "id"]);
+    // THE-711 follow-up: `rowid` joined this row. It is not incidental — chunk_fts is contentless
+    // and its deletes key on the chunks rowid, which stops resolving once the chunk is gone, so the
+    // preload has to carry it rather than look it up later.
+    expect(Object.keys(row ?? {}).sort()).toEqual(["active_model", "content_hash", "id", "rowid"]);
+    expect(typeof row?.rowid).toBe("number");
     expect(row?.active_model).toBe("fake:A");
     v.cleanup();
   });

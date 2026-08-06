@@ -104,10 +104,20 @@ describe("indexNote transaction rollback (WP3 invariant)", () => {
       .prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'chunk_fts'")
       .get() as { x: number } | undefined;
     if (ftsTableExists) {
-      const fts = real.prepare("SELECT count(*) AS c FROM chunk_fts WHERE path = ?").get(PATH) as {
-        c: number;
-      };
+      // THE-711 follow-up: chunk_fts is contentless — `WHERE path = ?` is not just unavailable,
+      // it would silently match zero and pass vacuously. The path is resolved through the join to
+      // chunks instead, which is also the stronger check: it asserts no FTS row SURVIVES for this
+      // note, orphan or otherwise, rather than that no row carries its path.
+      const fts = real
+        .prepare(
+          "SELECT count(*) AS c FROM chunk_fts JOIN chunks ON chunks.rowid = chunk_fts.rowid WHERE chunks.path = ?",
+        )
+        .get(PATH) as { c: number };
       expect(fts.c).toBe(0);
+      // And no orphan was left behind either: totals stay reconciled, which is what keeps
+      // ensureChunkFts from triggering a full reindex on the next open.
+      const n = (sql: string) => (real.prepare(sql).get() as { n: number }).n;
+      expect(n("SELECT COUNT(*) AS n FROM chunk_fts")).toBe(n("SELECT COUNT(*) AS n FROM chunks"));
     }
 
     const generationTableExists = real

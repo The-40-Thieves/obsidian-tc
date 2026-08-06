@@ -165,10 +165,13 @@ export function deindexNote(
     () => {
       // THE-316: static-arity SQL on the deindex write path (also driven once per note in the
       // stale-path sweep) — cache by SQL text so the sweep does not recompile these on every call.
-      const rows = cachedPrepare(db, "SELECT id FROM chunks WHERE vault_id = ? AND path = ?").all(
-        vaultId,
-        path,
-      ) as Array<{ id: string }>;
+      // THE-711 follow-up: `rowid` is selected alongside `id` because chunk_fts is contentless and
+      // can only be deleted from by rowid — and that rowid stops being resolvable the moment the
+      // chunks row goes. Captured here, used at the delete below, before delChunk runs.
+      const rows = cachedPrepare(
+        db,
+        "SELECT rowid, id FROM chunks WHERE vault_id = ? AND path = ?",
+      ).all(vaultId, path) as Array<{ rowid: number; id: string }>;
       const delEmb = cachedPrepare(db, "DELETE FROM chunk_embeddings WHERE chunk_id = ?");
       const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
       const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
@@ -177,10 +180,12 @@ export function deindexNote(
         ? cachedPrepare(db, DELETE_CONTRADICTIONS_SQL)
         : null;
       for (const r of rows) {
+        // FTS first: it is the only delete here whose key (rowid) is owned by the chunks row, so
+        // it is the only one that must not follow delChunk.
+        if (hasChunkFts) deleteChunkFtsRow(db, r.rowid);
         delEmb.run(r.id);
         delChunk.run(r.id);
         if (delVec) delVec.run(r.id);
-        if (hasChunkFts) deleteChunkFtsRow(db, r.id);
         if (hasChunkSparse) deleteChunkSparse(db, r.id);
         if (hasChunkColbert) deleteChunkColbert(db, r.id);
         if (delContra) delContra.run(r.id, r.id);

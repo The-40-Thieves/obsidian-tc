@@ -98,10 +98,17 @@ describe("THE-406 contextual chunk enrichment", () => {
       0,
     );
     if (!ensureChunkFts(db, { enrich: true })) return; // FTS5 not compiled into this runtime
-    const row = db.prepare("SELECT content FROM chunk_fts WHERE chunk_id = 'c1'").get() as {
-      content: string;
-    };
-    expect(row.content).toBe("Vault Health — Setup\n\nrun the reconcile nightly");
+
+    // THE-711 follow-up: chunk_fts is contentless, so the indexed text cannot be read back. That
+    // is not a weaker assertion — it is a better one. Enrichment exists so the title and heading
+    // crumb become SEARCHABLE, so the property is tested by searching for them: "Vault Health" and
+    // "Setup" appear only in the enriched prefix, never in the raw body. A rebuild that
+    // de-enriched (the exact failure THE-408 guards, and the one external-content FTS5 would have
+    // caused silently) matches neither.
+    expect(bm25Chunks(db, "v1", "vault health", 5).map((h) => h.chunk_id)).toEqual(["c1"]);
+    expect(bm25Chunks(db, "v1", "Setup", 5).map((h) => h.chunk_id)).toEqual(["c1"]);
+    // ...and the RAW body is still what comes back, never the enriched copy.
+    expect(bm25Chunks(db, "v1", "reconcile", 5)[0]?.content).toBe("run the reconcile nightly");
   });
 
   it("BM25 matches on the title but returns the raw content", async () => {

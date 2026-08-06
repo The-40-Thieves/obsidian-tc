@@ -78,14 +78,20 @@ export function applyNoteWrites(
     db,
     "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
   );
+  // THE-711 follow-up: resolves a chunk id to the rowid a contentless chunk_fts entry keys on.
+  const rowidOf = cachedPrepare(db, "SELECT rowid FROM chunks WHERE id = ?");
   let deleted = 0;
   let dedupUnresolved = 0;
   for (const e of plan.existing) {
     if (plan.desiredIds.has(e.id)) continue;
+    // FTS first. Its key is the chunks rowid, which stops resolving once delChunk runs — this
+    // ordering used to be the other way round, and under a contentless index that would have
+    // orphaned an entry on every delete. See deleteChunkFtsRow's header for why an orphan is a
+    // full-reindex-on-every-open problem rather than a stale-row problem.
+    if (hasChunkFts) deleteChunkFtsRow(db, e.rowid);
     delEmb.run(e.id);
     delChunk.run(e.id);
     if (delVec) delVec.run(e.id);
-    if (hasChunkFts) deleteChunkFtsRow(db, e.id);
     if (hasChunkSparse) deleteChunkSparse(db, e.id);
     if (hasChunkColbert) deleteChunkColbert(db, e.id);
     if (delContra) delContra.run(e.id, e.id);
@@ -156,7 +162,16 @@ export function applyNoteWrites(
     }
     // THE-406: BM25 matches on the same text the dense vector embeds (enriched when the flag is
     // on); bm25Chunks JOINs chunks for the raw display content, so search output is unchanged.
-    if (hasChunkFts) upsertChunkFtsRow(db, d.id, vaultId, plan.path, d.embedText ?? d.content);
+    //
+    // THE-711 follow-up: the rowid is READ BACK rather than taken from the upsert. `upChunk` is an
+    // ON CONFLICT DO UPDATE, so this is an insert on a new chunk and an update on an existing one,
+    // and only the insert case would have a meaningful lastInsertRowid — using it would bind the
+    // FTS entry to the wrong chunk on every re-index of unchanged content. `id` is the PRIMARY
+    // KEY, so this is an index seek.
+    if (hasChunkFts) {
+      const rid = rowidOf.get(d.id) as { rowid: number } | undefined;
+      if (rid) upsertChunkFtsRow(db, rid.rowid, d.embedText ?? d.content);
+    }
     // THE-395: an empty head (the serving runtime could not produce it) is skipped, not stored —
     // an all-empty chunk_sparse / chunk_colbert would only bloat scans with dead rows.
     const sp = plan.sparse?.[i];

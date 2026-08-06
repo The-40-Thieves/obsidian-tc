@@ -47,8 +47,24 @@ export function ensureChunkFts(
     return false;
   }
   try {
+    // THE-711 follow-up: chunk_fts is CONTENTLESS. It stores only the inverted index; the text it
+    // indexed is not kept a second time. Measured before the change: `chunk_fts_content` was
+    // 14.5 MB of a 226 MB cache.db, holding a copy of text that already lives in `chunks.content`.
+    //
+    // CONTENTLESS, NOT EXTERNAL-CONTENT, and that is forced rather than chosen. External content
+    // (`content='chunks'`) reads a column back out of the content table — but under THE-408 the
+    // indexed text is `enrichChunkText(path, crumbs, content)`, a DERIVED string that is not any
+    // column of `chunks`. Pointing FTS5 at `chunks` would silently re-read raw content and
+    // de-enrich the index. Contentless never reads the text back, so enrichment survives.
+    //
+    // The consequence that shapes the rest of this file: a contentless table's declared columns
+    // CANNOT be read or filtered — `SELECT ... WHERE vault_id = ?` returns nothing, silently. So
+    // identity and scoping come from a join to `chunks` on rowid, and every write path keys on
+    // rowid. `contentless_delete=1` (FTS5 3.43+; the runtimes here are 3.53) is what makes
+    // `DELETE ... WHERE rowid = ?` legal at all.
+    migrateChunkFtsShape(db);
     db.exec(
-      "CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(chunk_id UNINDEXED, vault_id UNINDEXED, path UNINDEXED, content, tokenize='porter unicode61')",
+      "CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(content, content='', contentless_delete=1, tokenize='porter unicode61')",
     );
     const now = opts.now ?? Date.now;
     const version = "20260710_001_chunk_fts";
@@ -65,20 +81,20 @@ export function ensureChunkFts(
     if (nChunks !== nFts) {
       db.exec("DELETE FROM chunk_fts");
       if (opts.enrich === true) {
+        // Enriched rebuild. `rowid` is selected explicitly and written as the FTS rowid: it is the
+        // ONLY join key a contentless index has, so a rebuild that let SQLite assign rowids would
+        // produce an index that matches correctly and then joins to the wrong chunks.
         // THE-408: an enriched index rebuilds ENRICHED — reconstruct the THE-406 embed/BM25 text
         // from path + headings + content in JS (the SQL-only path cannot parse the headings JSON).
         const rows = db
-          .prepare("SELECT id, vault_id, path, headings, content FROM chunks")
+          .prepare("SELECT rowid, path, headings, content FROM chunks")
           .all() as Array<{
-          id: string;
-          vault_id: string;
+          rowid: number;
           path: string;
           headings: string;
           content: string;
         }>;
-        const ins = db.prepare(
-          "INSERT INTO chunk_fts (chunk_id, vault_id, path, content) VALUES (?, ?, ?, ?)",
-        );
+        const ins = db.prepare("INSERT INTO chunk_fts (rowid, content) VALUES (?, ?)");
         for (const r of rows) {
           let crumbs: string[] = [];
           try {
@@ -86,12 +102,10 @@ export function ensureChunkFts(
           } catch {
             // malformed headings metadata degrades to a title-only prefix, never a failed rebuild
           }
-          ins.run(r.id, r.vault_id, r.path, enrichChunkText(r.path, crumbs, r.content));
+          ins.run(r.rowid, enrichChunkText(r.path, crumbs, r.content));
         }
       } else {
-        db.exec(
-          "INSERT INTO chunk_fts (chunk_id, vault_id, path, content) SELECT id, vault_id, path, content FROM chunks",
-        );
+        db.exec("INSERT INTO chunk_fts (rowid, content) SELECT rowid, content FROM chunks");
       }
     }
     chunkFtsCache.set(db, true);
@@ -106,25 +120,69 @@ export function ensureChunkFts(
  * Replace a chunk's FTS row (FTS5 has no UPSERT; delete-then-insert). Caller owns the transaction
  * and the hasChunkFts guard.
  */
-export function upsertChunkFtsRow(
-  db: Database,
-  chunkId: string,
-  vaultId: string,
-  path: string,
-  content: string,
-): void {
-  db.prepare("DELETE FROM chunk_fts WHERE chunk_id = ?").run(chunkId);
-  db.prepare("INSERT INTO chunk_fts (chunk_id, vault_id, path, content) VALUES (?, ?, ?, ?)").run(
-    chunkId,
-    vaultId,
-    path,
-    content,
-  );
+export function upsertChunkFtsRow(db: Database, rowid: number, content: string): void {
+  db.prepare("DELETE FROM chunk_fts WHERE rowid = ?").run(rowid);
+  db.prepare("INSERT INTO chunk_fts (rowid, content) VALUES (?, ?)").run(rowid, content);
 }
 
-/** Delete a chunk's FTS row. Caller owns the transaction and the hasChunkFts guard. */
-export function deleteChunkFtsRow(db: Database, chunkId: string): void {
-  db.prepare("DELETE FROM chunk_fts WHERE chunk_id = ?").run(chunkId);
+/**
+ * Delete a chunk's FTS row, BY ROWID.
+ *
+ * The signature is the safety mechanism, not a style choice. A contentless index can only be
+ * deleted from by rowid, and the rowid belongs to the `chunks` row — so once that row is gone the
+ * entry is unreachable forever. The delete path in persist-note-plan.ts removed the chunk BEFORE
+ * calling this, which under a chunk-id signature would have compiled, run, and silently orphaned
+ * an index entry.
+ *
+ * Taking a `number` makes that unrepresentable: a caller cannot obtain a rowid after deleting the
+ * row it belongs to, so the compiler enforces the ordering that a comment could only request.
+ *
+ * Orphans are not a cosmetic problem here. `ensureChunkFts` rebuilds whenever
+ * `COUNT(chunks) !== COUNT(chunk_fts)`, so a single orphan makes those counts disagree
+ * permanently and triggers a FULL reindex of every chunk on every open — a silent, unbounded
+ * performance regression rather than a missing search result.
+ */
+export function deleteChunkFtsRow(db: Database, rowid: number): void {
+  db.prepare("DELETE FROM chunk_fts WHERE rowid = ?").run(rowid);
+}
+
+/**
+ * Delete every FTS row belonging to a vault. MUST run BEFORE the vault's chunks are deleted — it
+ * resolves rowids through `chunks`, which is the only place that mapping exists.
+ *
+ * This is the bulk counterpart to deleteChunkFtsRow and exists because `registry-tools.ts` drops a
+ * whole vault with one `DELETE FROM chunks WHERE vault_id = ?`. There is no per-chunk rowid to
+ * capture there, and afterwards the mapping is gone, so the FTS rows would be unreachable.
+ */
+export function deleteChunkFtsRowsForVault(db: Database, vaultId: string): void {
+  db.prepare(
+    "DELETE FROM chunk_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE vault_id = ?)",
+  ).run(vaultId);
+}
+
+/**
+ * Drop a pre-THE-711 chunk_fts so the contentless definition can replace it.
+ *
+ * `CREATE VIRTUAL TABLE IF NOT EXISTS` is a no-op against an existing table of the OLD shape, so
+ * without this an upgraded install would keep its 4-column content-storing index, and every write
+ * below (which addresses `rowid`/`content` only) would fail against it.
+ *
+ * Detection reads the stored DDL rather than probing behaviour: a contentless table is exactly one
+ * whose CREATE statement carries `contentless_delete`. Dropping an FTS5 table drops its shadow
+ * tables with it; `ensureChunkFts`'s existing count-divergence check then rebuilds the index,
+ * because an empty chunk_fts can never match a non-empty chunks.
+ *
+ * Note the freed pages do NOT shrink the file on their own — they go to the freelist and are
+ * reused. Reclaiming disk needs a VACUUM, which this deliberately does not run: a VACUUM of a
+ * 226 MB database inside a lazy provisioning path would be a startup stall nobody asked for.
+ */
+function migrateChunkFtsShape(db: Database): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chunk_fts'")
+    .get() as { sql: string | null } | undefined;
+  if (row === undefined) return; // no table yet — the CREATE below makes a contentless one
+  if (row.sql?.includes("contentless_delete")) return; // already migrated
+  db.exec("DROP TABLE chunk_fts");
 }
 
 /** Tokenise free text the way the lexical stream consumes it: lowercase, split on
@@ -229,7 +287,10 @@ export function bm25Chunks(
       // Exact: LIMIT k over the already-filtered set, so there is no window to fall outside of.
       return db
         .prepare(
-          "SELECT chunk_fts.chunk_id AS chunk_id, chunk_fts.path AS path, chunks.content AS content, bm25(chunk_fts) AS rank FROM chunk_fts JOIN chunks ON chunks.id = chunk_fts.chunk_id JOIN acl_path_members a ON a.set_id = ? AND a.path = chunk_fts.path WHERE chunk_fts.vault_id = ? AND chunk_fts MATCH ? ORDER BY rank LIMIT ?",
+          // Every identity/scoping column now comes from `chunks`, never from chunk_fts: a
+          // contentless index returns nothing for its declared columns, so `chunk_fts.vault_id`
+          // would have silently matched zero rows rather than erroring.
+          "SELECT chunks.id AS chunk_id, chunks.path AS path, chunks.content AS content, bm25(chunk_fts) AS rank FROM chunk_fts JOIN chunks ON chunks.rowid = chunk_fts.rowid JOIN acl_path_members a ON a.set_id = ? AND a.path = chunks.path WHERE chunks.vault_id = ? AND chunk_fts MATCH ? ORDER BY rank LIMIT ?",
         )
         .all(aclSetId, vaultId, match, k) as LexicalHit[];
     }
@@ -238,7 +299,7 @@ export function bm25Chunks(
     // search output. Rows are 1:1 by construction (written in the same transaction).
     return db
       .prepare(
-        "SELECT chunk_fts.chunk_id AS chunk_id, chunk_fts.path AS path, chunks.content AS content, bm25(chunk_fts) AS rank FROM chunk_fts JOIN chunks ON chunks.id = chunk_fts.chunk_id WHERE chunk_fts.vault_id = ? AND chunk_fts MATCH ? ORDER BY rank LIMIT ?",
+        "SELECT chunks.id AS chunk_id, chunks.path AS path, chunks.content AS content, bm25(chunk_fts) AS rank FROM chunk_fts JOIN chunks ON chunks.rowid = chunk_fts.rowid WHERE chunks.vault_id = ? AND chunk_fts MATCH ? ORDER BY rank LIMIT ?",
       )
       .all(vaultId, match, overFetch)
       .filter((r) => readable((r as LexicalHit).path))

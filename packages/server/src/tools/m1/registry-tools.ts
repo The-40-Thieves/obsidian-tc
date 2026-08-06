@@ -105,6 +105,7 @@ const ResetVaultCacheOutput = z.object({
   rows_dropped: z.object({
     chunks: z.number().int(),
     vec_chunks: z.number().int(),
+    chunk_fts: z.number().int(),
     embeddings: z.number().int(),
     idempotency_keys: z.number().int(),
     event_log: z.number().int(),
@@ -253,6 +254,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
         const rows_dropped = {
           chunks: 0,
           vec_chunks: 0,
+          chunk_fts: 0,
           embeddings: 0,
           idempotency_keys: 0,
           event_log: 0,
@@ -274,6 +276,23 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
             );
           } catch {
             /* vec_chunks absent (node:sqlite or extension not loaded) */
+          }
+          // THE-711 follow-up: drop the vault's FTS entries BEFORE its chunks. chunk_fts is
+          // contentless, so its only key is the chunks rowid — after the delete below that
+          // mapping is gone and the rows are unreachable.
+          //
+          // Not strictly a correctness fix: chunk_fts was never cleaned up here, and
+          // ensureChunkFts rebuilds on any count divergence, so orphans already self-healed. What
+          // it avoids is the SHAPE of that healing — a full reindex of every chunk in the database
+          // on the next open, triggered by resetting one vault.
+          try {
+            rows_dropped.chunk_fts = del(
+              ctx.db,
+              "DELETE FROM chunk_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE vault_id = ?)",
+              v.id,
+            );
+          } catch {
+            /* chunk_fts absent (OBSIDIAN_TC_DISABLE_FTS, or a cache.db predating it) */
           }
           rows_dropped.chunks = del(ctx.db, "DELETE FROM chunks WHERE vault_id = ?", v.id);
         }

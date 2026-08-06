@@ -30,12 +30,21 @@ export function querySpecificity(db: Database, vaultId: string, query: string): 
   const terms = [...new Set(queryTerms(query))].slice(0, MAX_TERMS);
   if (terms.length === 0) return null;
   try {
+    // THE-711 follow-up: chunk_fts is contentless, so `WHERE chunk_fts.vault_id = ?` matches
+    // NOTHING and returns 0 without erroring — which here would have silently disabled adaptive
+    // RRF rather than failing loudly. The corpus size comes from `chunks` instead: the two are
+    // 1:1 by construction (ensureChunkFts rebuilds on any count divergence), and `chunks` has an
+    // index on (vault_id, path) where the old FTS scan had none.
     const { n } = db
-      .prepare("SELECT COUNT(*) AS n FROM chunk_fts WHERE vault_id = ?")
-      .get(vaultId) as { n: number };
+      .prepare("SELECT COUNT(*) AS n FROM chunks WHERE vault_id = ?")
+      .get(vaultId) as {
+      n: number;
+    };
     if (n === 0) return null;
+    // df still needs the FTS table for MATCH; the join resolves the vault. MATCH narrows first, so
+    // the join is over matched rows rather than the corpus.
     const dfStmt = db.prepare(
-      "SELECT COUNT(*) AS df FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ?",
+      "SELECT COUNT(*) AS df FROM chunk_fts JOIN chunks ON chunks.rowid = chunk_fts.rowid WHERE chunks.vault_id = ? AND chunk_fts MATCH ?",
     );
     // BM25 idf, normalized by its df->0 ceiling so a corpus-unique term sits near 1.
     const idfMax = Math.log(1 + (n + 0.5) / 0.5);

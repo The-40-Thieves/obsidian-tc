@@ -39,13 +39,14 @@ export function estimateEmbedTokens(text: string): number {
 export function preloadChunkState(db: Database, vaultId: string): Map<string, ExistingRow[]> {
   const rows = db
     .prepare(
-      "SELECT c.path AS path, c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? ORDER BY c.path",
+      "SELECT c.path AS path, c.rowid AS rowid, c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? ORDER BY c.path",
     )
     .all(vaultId) as Array<ExistingRow & { path: string }>;
   const byPath = new Map<string, ExistingRow[]>();
   for (const r of rows) {
     const list = byPath.get(r.path);
     const row: ExistingRow = {
+      rowid: r.rowid,
       id: r.id,
       content_hash: r.content_hash,
       active_model: r.active_model,
@@ -135,7 +136,7 @@ export function computeNotePlan(
     preloadedExisting?.get(path) ??
     (db
       .prepare(
-        "SELECT c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.path = ?",
+        "SELECT c.rowid AS rowid, c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.path = ?",
       )
       .all(vaultId, path) as ExistingRow[]);
   const existingById = new Map(existing.map((e) => [e.id, e]));
