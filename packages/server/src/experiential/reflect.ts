@@ -86,9 +86,23 @@ interface PendingRow {
  * a known-bad outcome (-1) is held. A plain `status = 'error'` with no bad-outcome stamp still
  * promotes — errors are lessons too.
  */
+/** THE-746: the version of the RULE SET below, stamped alongside every verdict. Bump it whenever a
+ *  rule is added, removed or changed — that is what lets a later re-run be told apart from a data
+ *  change, the confound THE-672 had to control for by hand. */
+export const ELIGIBILITY_POLICY_VERSION = 1;
+
+/** Why a row got the verdict it got. Closed set: every branch below names exactly one. */
+export type EligibilityReason =
+  | "promoted_stable"
+  | "held_unstable_evidence"
+  | "held_bad_task_result";
+
 export function partitionPending(pending: PendingRow[]): {
   candidates: PendingRow[];
   held: number;
+  /** THE-746: the held rows WITH the rule that held each one. `held` above is retained as a plain
+   *  count because EvaluateStats and the reflect CLI both read it. */
+  holds: Array<{ row: PendingRow; reason: EligibilityReason }>;
 } {
   const statusesByKey = new Map<string, Set<string>>();
   const keyOf = (r: PendingRow): string | null =>
@@ -110,12 +124,19 @@ export function partitionPending(pending: PendingRow[]): {
     return s?.has("ok") === true && s.has("error");
   };
   const candidates: PendingRow[] = [];
-  let held = 0;
+  const holds: Array<{ row: PendingRow; reason: EligibilityReason }> = [];
   for (const r of pending) {
-    if (unstable(r) || r.task_result === -1) held++;
+    // PRECEDENCE IS DELIBERATE AND MUST STAY STABLE: a row can be BOTH unstable and carry
+    // task_result = -1, and an audit trail whose reason flips between runs on the same data is
+    // worse than none. Instability is reported first because it is a property of the EVIDENCE SET
+    // (this row plus its siblings) while task_result is a property of the row alone — the wider
+    // fact is the more useful one to surface, and the narrower one is still recoverable from the
+    // row's own column.
+    if (unstable(r)) holds.push({ row: r, reason: "held_unstable_evidence" });
+    else if (r.task_result === -1) holds.push({ row: r, reason: "held_bad_task_result" });
     else candidates.push(r);
   }
-  return { candidates, held };
+  return { candidates, held: holds.length, holds };
 }
 
 /** Evaluator pass: pending -> eligible under the deterministic rules. Ineligible rows are
@@ -141,11 +162,22 @@ export async function evaluateEpisodes(
   };
   if (pending.length === 0) return stats;
 
-  const { candidates, held } = partitionPending(pending);
+  const { candidates, held, holds } = partitionPending(pending);
   stats.held = held;
 
   const promote = edb.prepare(
-    "UPDATE agent_episodes SET eligibility = 'eligible' WHERE id = ? AND eligibility = 'pending'",
+    `UPDATE agent_episodes
+        SET eligibility = 'eligible', eligibility_reason = ?, eligibility_policy = ?
+      WHERE id = ? AND eligibility = 'pending'`,
+  );
+  // THE-746: a HELD row keeps `eligibility = 'pending'` — being held is not a state change, it is
+  // the absence of one — but it still records WHY it was passed over. Without this the two reasons
+  // for a row sitting at 'pending' (never evaluated / evaluated and held) are indistinguishable,
+  // which is the same never-ran-vs-ran-and-did-nothing conflation THE-744 fixed one plane over.
+  const hold = edb.prepare(
+    `UPDATE agent_episodes
+        SET eligibility_reason = ?, eligibility_policy = ?
+      WHERE id = ? AND eligibility = 'pending'`,
   );
   // `denied` is retained and stays 0 here. Nothing in this pass denies any more: the only source of
   // 'ineligible' is assessPoison at capture time (episodes.ts:184), which this WHERE never selects.
@@ -153,8 +185,11 @@ export async function evaluateEpisodes(
   // read it, and because a future deterministic deny rule belongs in this counter rather than a new
   // one.
   for (const r of candidates) {
-    promote.run(r.id);
+    promote.run("promoted_stable", ELIGIBILITY_POLICY_VERSION, r.id);
     stats.promoted++;
+  }
+  for (const h of holds) {
+    hold.run(h.reason, ELIGIBILITY_POLICY_VERSION, h.row.id);
   }
   return stats;
 }

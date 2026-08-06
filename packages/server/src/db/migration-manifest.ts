@@ -150,6 +150,10 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // no row at all — openCitationRun is per-ENTRY, so zero entries meant zero passes and zero rows,
   // and a healthy scheduler with nothing to do looked identical to one that was never registered.
   "20260806_005_citation_runs_entries.sql",
+  // THE-746: 20260806_006 records WHY evaluateEpisodes reached each eligibility verdict, plus the
+  // policy VERSION that produced it. THE-672's measurement had to diff two hand-made database
+  // copies to learn which rule fired; versioning separates a later policy change from a data one.
+  "20260806_006_episode_eligibility_reason.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */
