@@ -106,3 +106,21 @@ ticket-drift tickets="":
     #!/usr/bin/env bash
     if [ -z "{{tickets}}" ]; then node scripts/check-ticket-drift.mjs; \
     else node scripts/check-ticket-drift.mjs --tickets "{{tickets}}"; fi
+
+# Where is a symbol, STRUCTURALLY — and how much of what `rg` reports is prose about the code
+# rather than the code. ast-grep (tree-sitter with the grammars embedded) parses; ripgrep does not.
+#
+# This exists because a grep count is routinely quoted here as evidence a symbol is present or
+# absent, and comments in this repo talk about symbols constantly — including symbols that were
+# DELETED, whose explanatory comment then reads as evidence they survive. `MAX_JUDGED` in
+# citation.ts is the worked example: rg says 4 lines, the parser says 2, and the 2-line difference
+# is a comment about a constant removed from a different file entirely (THE-747).
+#
+# Exit 1 when nothing DECLARES the symbol, so "it does not exist" is checkable rather than an
+# empty grep you have to interpret. Pairs with the verify-ticket-premise skill's rule that a zero
+# result must be stated explicitly.
+#
+#   just where MAX_JUDGED                          # default: packages/
+#   just where inferCitations packages/server/src  # narrow the path
+where symbol path="packages":
+    node scripts/where-symbol.mjs "{{symbol}}" --path "{{path}}"
