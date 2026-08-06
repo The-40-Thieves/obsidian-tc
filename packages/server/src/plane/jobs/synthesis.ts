@@ -6,6 +6,12 @@
 
 import { trimToBoundary } from "../../search/evidence";
 import { type IsoWeek, isoWeek } from "../../util/iso-week";
+import {
+  type ContradictionCoverage,
+  contradictionCoverage,
+  coverageCaveat,
+  NO_COVERAGE_LOSS,
+} from "../contradiction-coverage";
 import { type GatewayRoles, prompt } from "../gateway";
 import type { JobContext, JobResult } from "../plane";
 
@@ -133,14 +139,23 @@ export function buildUserMessage(
   contradictions: ContradictionRow[],
   maxChars: number,
   reserved = 0,
+  coverage: ContradictionCoverage = NO_COVERAGE_LOSS,
 ): BuiltMessage {
   const budget = Math.max(0, maxChars - reserved);
   const CHUNK_HEADER = "RECENT CHUNKS:\n";
   const CONTRA_HEADER = "\n\nOPEN CONTRADICTIONS:\n";
   const NONE = "(none)";
+  // THE-646: charged as FIXED SCAFFOLDING, alongside the headers, and never as an elastic item.
+  //
+  // The caveat exists to stop a short contradiction list being read as a complete one. If it were
+  // packed like a chunk it would be the first thing dropped on a tight budget — and it would drop
+  // precisely when the message is most crowded, leaving the reader with a list that looks whole.
+  // A truncated message may carry fewer contradictions; it must never carry fewer WARNINGS.
+  const caveat = coverageCaveat(coverage);
   // Fixed scaffolding is charged first, so a tiny budget yields a small valid message rather than
   // one that silently exceeds it.
-  let spent = CHUNK_HEADER.length + CONTRA_HEADER.length + NONE.length;
+  let spent =
+    CHUNK_HEADER.length + CONTRA_HEADER.length + NONE.length + (caveat ? caveat.length + 2 : 0);
 
   const contraParts: string[] = [];
   let contradictionsUsed = 0;
@@ -167,6 +182,9 @@ export function buildUserMessage(
     chunkParts.length === 0 ? NONE : chunkParts.join("\n\n"),
     "\n\nOPEN CONTRADICTIONS:",
     contraParts.length === 0 ? NONE : contraParts.join("\n\n"),
+    // Below the list, so it qualifies what was just read — including the `(none)` case, which is
+    // the one this whole change exists for.
+    ...(caveat ? [`\n${caveat}`] : []),
   ].join("\n");
 
   return {
@@ -223,11 +241,15 @@ export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
 
     // The budget bounds the WHOLE request, so the system prompt is charged against it here rather
     // than left as invisible overhead the caller cannot see.
+    // THE-646: what the contradiction list CANNOT speak for. Read per vault, from the job queue's
+    // own terminal states — the durable record of a check that ended without a verdict.
+    const coverage = contradictionCoverage(ctx.db, vaultId);
     const built = buildUserMessage(
       recent,
       contradictions,
       ctx.maxPromptChars ?? DEFAULT_MAX_PROMPT_CHARS,
       SYSTEM_PROMPT.length,
+      coverage,
     );
     if (built.chunksDropped > 0 || built.contradictionsDropped > 0) {
       ctx.log?.(
