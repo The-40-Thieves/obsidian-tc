@@ -257,10 +257,12 @@ export interface InferCitationsOptions {
   allowUncertain?: boolean;
   thresholds?: { rouge?: number; cosine?: number; killSwitch?: number };
   /** THE-617 item 3 — cap on how many stage-1 survivors get judged per run (bounded judge
-   *  cost). Same default/shape as reflect.ts's identically-named MAX_JUDGED, but this is a
-   *  SEPARATE knob: citation-inference judgements and episode-evaluation judgements are
-   *  independent workloads and should be tunable independently. Override via --max-judged on
-   *  the citation-infer CLI. Default 25. */
+   *  cost). Override via --max-judged on the citation-infer CLI. Default 25.
+   *
+   *  THE-747: this used to be documented as the counterpart to an identically-named MAX_JUDGED in
+   *  reflect.ts, kept separate because citation-inference and episode-evaluation were independent
+   *  workloads. THE-701 deleted the episode judge, so reflect.ts has no such constant and there is
+   *  no longer a second workload to stay tunable apart from. This is the only MAX_JUDGED left. */
   maxJudged?: number;
   /** THE-621 item 1 — how many judge calls may be in flight at once. The stage-2 loop was serial,
    *  so a full pass spent most of a minute awaiting one verdict at a time before anything was

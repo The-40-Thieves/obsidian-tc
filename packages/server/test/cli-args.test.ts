@@ -247,6 +247,34 @@ describe("parseCliArgs — token mint (THE-658)", () => {
   });
 });
 
+describe("parseCliArgs — reflect no longer takes --max-judged (THE-747)", () => {
+  // THE-701 removed the episode-eligibility judge; the flag that capped it outlived it by four
+  // days, parsed and validated and passed to nothing. These pin the removal.
+  it("REJECTS --max-judged rather than ignoring it", () => {
+    const cmd = parseCliArgs(["reflect", "--max-judged", "5"]);
+    expect(cmd.kind).toBe("error");
+    expect((cmd as { message: string }).message).toContain("no longer supported");
+  });
+
+  // The load-bearing one. positional() takes the first non-dash token, so a silently-dropped flag
+  // would leave its VALUE as the first candidate and resolve the config path to "5".
+  it("never lets the dropped flag's VALUE become the config path", () => {
+    const cmd = parseCliArgs(["reflect", "--max-judged", "5"]);
+    expect(cmd).not.toMatchObject({ kind: "reflect", input: "5" });
+  });
+
+  it("still parses a positional path and --config", () => {
+    expect(parseCliArgs(["reflect", "/v/cfg.json"])).toMatchObject({
+      kind: "reflect",
+      input: "/v/cfg.json",
+    });
+    expect(parseCliArgs(["reflect", "--config", "/v/c.json"])).toMatchObject({
+      kind: "reflect",
+      input: "/v/c.json",
+    });
+  });
+});
+
 describe("parseCliArgs — citation-infer --max-judged (THE-617 item 3)", () => {
   it("parses --max-judged alongside the config path without eating it as a value", () => {
     const cmd = parseCliArgs([

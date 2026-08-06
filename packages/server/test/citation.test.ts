@@ -276,10 +276,12 @@ describe("citation inference (THE-170)", () => {
     expect(stats.cited).toBe(1);
   });
 
-  // THE-617 item 3 — the module-local MAX_JUDGED=25 had no override anywhere (unlike
-  // reflect.ts's identically-shaped constant, which reflect's CLI already exposes via
-  // --max-judged). Threaded the same way: an opts override here, --max-judged on the
-  // citation-infer CLI.
+  // THE-617 item 3 — the module-local MAX_JUDGED=25 had no override anywhere. Threaded as an
+  // opts override here, --max-judged on the citation-infer CLI.
+  //
+  // THE-747: the original comment justified this against reflect.ts's identically-shaped constant
+  // and its own --max-judged flag. THE-701 removed the episode judge; both are gone, and the
+  // reflect flag was deleted in THE-747 after outliving what it capped.
   it("maxJudged caps how many stage-1 survivors get judged, overriding the default", async () => {
     const edb = edb0();
     const cacheDb = cacheDb0();

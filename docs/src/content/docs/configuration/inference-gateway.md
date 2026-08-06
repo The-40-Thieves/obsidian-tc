@@ -11,7 +11,7 @@ through it by **role**:
 | Role | Used by |
 | --- | --- |
 | `synthesize` | `reflect` (grounded answers with provenance), the sleep-time `plane` consolidation |
-| `judge` | the work-episode evaluator (can only *lower* verdicts), citation-inference stage 2, preference extraction |
+| `judge` | citation-inference stage 2, preference extraction |
 | `extract` | reserved for extraction pipelines |
 
 **Absence is a supported state.** With no gateway configured, `reflect` returns
@@ -109,6 +109,12 @@ obsidian-tc never changes:
 
 With the gateway live: `reflect` synthesis and `mode: "challenge"`,
 `knowledge_challenge` (red-team against decision history), the 4-hour `plane`
-sleep-time consolidation, the episode evaluator's judge layer, gateway-gated
-preference extraction, and citation-inference stage 2. The sleep-time half also
-runs offline via `obsidian-tc reflect` (CLI), which gates on the same env vars.
+sleep-time consolidation, gateway-gated preference extraction, and
+citation-inference stage 2. The sleep-time half also runs offline via
+`obsidian-tc reflect` (CLI), which gates on the same env vars.
+
+The **episode-eligibility evaluator is deliberately not on this list.** It used
+to consult the `judge` role, and no longer does: measurement showed the judge's
+entire effect was reproducing a `status = "error"` comparison, so it was removed
+and the pass is now purely deterministic. It therefore runs identically with or
+without a gateway, and acquires no network dependency at all.
