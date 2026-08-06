@@ -111,8 +111,15 @@ const STOPWORDS = new Set([
 function termDf(db: Database, vaultId: string, term: string, rareDfMax = 3): number {
   const quoted = `"${term.replace(/"/g, "")}"`;
   try {
+    // THE-711 follow-up: the vault filter moved onto `chunks` because chunk_fts is contentless and
+    // its declared columns read back as nothing. The disclosure posture above is unchanged — it
+    // rests on WHICH CALLERS reach this function, not on how the count is expressed — but note the
+    // failure mode this avoided: the old predicate would have returned 0 for every term, making
+    // every term look corpus-unique to the rare-term signal.
     const row = db
-      .prepare("SELECT COUNT(*) AS n FROM chunk_fts WHERE vault_id = ? AND chunk_fts MATCH ?")
+      .prepare(
+        "SELECT COUNT(*) AS n FROM chunk_fts JOIN chunks ON chunks.rowid = chunk_fts.rowid WHERE chunks.vault_id = ? AND chunk_fts MATCH ?",
+      )
       .get(vaultId, quoted) as { n: number } | undefined;
     const n = row?.n ?? 0;
     // Past the rare window the exact value is irrelevant to every caller of this function, so it is
