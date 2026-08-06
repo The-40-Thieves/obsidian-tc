@@ -11,13 +11,14 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import { runCitationIndexPasses } from "../src/experiential/citation-index";
 import { citationRunsCovering } from "../src/experiential/citation-runs";
 import { PASS_WINDOW_TOLERANCE_MS } from "../src/experiential/transcript-source";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
@@ -47,9 +48,22 @@ function cacheDb0(): Database {
   return db;
 }
 
+// Every temp dir this suite makes is tracked and removed in afterEach. THE-685 measured 7,655
+// accumulated directories from suites in exactly the untracked shape — silent on POSIX because the
+// OS reaps /tmp and silent in CI because the runner is discarded, so it surfaces only on Windows
+// where %TEMP% is never reaped. `rmTemp` is best-effort by construction (it retries the Windows
+// file-lock errors and swallows the rest): a teardown that throws fails the suite with every
+// assertion passing, which is the failure shape it exists to remove.
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  while (tempDirs.length > 0) rmTemp(tempDirs.pop() as string);
+});
+
 /** Write a JSONL index file and return its path. */
 function indexFile(lines: string[]): string {
   const dir = mkdtempSync(join(tmpdir(), "otc-cidx-"));
+  tempDirs.push(dir);
   const p = join(dir, "transcript-index.jsonl");
   writeFileSync(p, lines.length > 0 ? `${lines.join("\n")}\n` : "");
   return p;
