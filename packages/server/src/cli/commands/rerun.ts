@@ -3,7 +3,11 @@ import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { openDatabase } from "../../db/open";
 import { buildServerRuntime } from "../../runtime/server-runtime";
 import { rerunSession, stageSandbox } from "../../workspace/rerun";
-import { exitCodeFor, RERUN_EXIT_OPERATIONAL } from "../../workspace/rerun-verdict";
+import {
+  exitCodeFor,
+  RERUN_EXIT_OPERATIONAL,
+  RerunUsageError,
+} from "../../workspace/rerun-verdict";
 import { getSession } from "../../workspace/sessions";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
@@ -61,7 +65,7 @@ function configuredVaultPath(cfg: ServerConfig, vaultId: string): string {
   // process.exit() does not unwind — the `finally` blocks that close the database and the runtime
   // would simply not run. Throwing reaches main()'s catch, which now exits 3 (operational
   // failure), so the distinction from "divergence found" survives too.
-  if (!v) throw new Error(`rerun: unknown vault ${vaultId}`);
+  if (!v) throw new RerunUsageError(`rerun: unknown vault ${vaultId}`);
   return v.path;
 }
 
@@ -123,8 +127,11 @@ export async function run_rerun(cmd: Cmd<"rerun">): Promise<void> {
   try {
     await runRerunInner(cmd);
   } catch (e) {
-    process.stderr.write(`fatal: ${(e as Error).message}\n`);
-    process.exitCode = RERUN_EXIT_OPERATIONAL;
+    // A usage error carries its own code (2, matching prefetch.ts). Everything else is an
+    // operational failure that used to exit 1 alongside "divergence found".
+    const usage = e instanceof RerunUsageError;
+    process.stderr.write(`${usage ? "" : "fatal: "}${(e as Error).message}\n`);
+    process.exitCode = usage ? e.exitCode : RERUN_EXIT_OPERATIONAL;
   }
 }
 

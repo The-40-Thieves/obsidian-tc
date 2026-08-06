@@ -144,6 +144,9 @@ interface RerunJson {
   summary: { runnable: number; diverged: number };
   records: Array<{
     tool: string;
+    // THE-738: a record refused by rerun's own policy reports `divergence: "none"` and no
+    // `replayed` payload — asserted by the bridge test below.
+    divergence?: string;
     verdict: string;
     replayed: { status: string; error_code?: string } | null;
   }>;
@@ -349,8 +352,13 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
       // THE property: the live app was never contacted.
       expect(hits).toEqual([]);
       // And the call failed loudly rather than being silently skipped or reported as a success.
+      // THE-738: it is now `refused_by_policy` — the sandbox stripped the bridge, so this is
+      // RERUN'S OWN refusal, not the vault answering differently. It must NOT count as divergence
+      // (every read-only m4 tool would otherwise report one), but it must still be visible and
+      // must still never have reached the app — which `hits` above is what actually proves.
       expect(parsed.records[0]?.tool).toBe("git_stage");
-      expect(parsed.records[0]?.replayed?.status).toBe("error");
+      expect(parsed.records[0]?.verdict).toBe("refused_by_policy");
+      expect(parsed.records[0]?.divergence).toBe("none");
     } finally {
       await new Promise<void>((ok) => app.close(() => ok()));
     }

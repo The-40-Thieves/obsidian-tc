@@ -148,6 +148,16 @@ export function summarizeRerun(records: RerunRecord[]): RerunSummary {
  */
 export const RERUN_EXIT_OPERATIONAL = 3;
 
+/**
+ * A USAGE error — the operator named something that does not exist. Kept at exit 2 deliberately:
+ * `prefetch.ts` already exits 2 for an unknown `--vault`, and an unknown vault was never part of
+ * the exit-1 collision THE-738 exists to fix. Only throws that previously reached `main()`'s catch
+ * (and so exited 1, indistinguishable from "the vault changed") get the new code 3.
+ */
+export class RerunUsageError extends Error {
+  readonly exitCode = 2;
+}
+
 export function exitCodeFor(summary: RerunSummary): 0 | 1 | 2 {
   if (summary.runnable === 0) return 2;
   if (summary.diverged > 0) return 1;
