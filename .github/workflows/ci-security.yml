@@ -152,12 +152,38 @@ jobs:
         #
         # --no-update: the binary is checksum-pinned above; letting it self-update at runtime would
         #   silently replace the thing that was verified.
-        # --fail: trufflehog exits 0 WITH FINDINGS unless this is passed. Verified at wiring time
-        #   against a seeded RSA private key: exit 183, Detector Type: PrivateKey. Without it this
-        #   job is green no matter what it finds.
+        # --fail: trufflehog exits 0 WITH FINDINGS unless this is passed. Without it this job is
+        #   green no matter what it finds.
+        #
+        #   CORRECTION 2026-08-06: this said "verified at wiring time against a seeded RSA private
+        #   key: exit 183, Detector Type: PrivateKey". That does NOT reproduce under the flags on
+        #   this line. Re-run today: a freshly generated RSA key dropped in the tree gives exit 0,
+        #   because `--only-verified` VERIFIES a private key against remote services and a key that
+        #   exists nowhere cannot verify. The detector is armed — dropping --only-verified reports
+        #   it as `Found unverified result / Detector Type: PrivateKey` — but the seeded-key floor
+        #   test as written proves nothing about THIS invocation.
+        #
+        #   So the honest statement of what this job catches: a credential that is BOTH detectable
+        #   AND live. A leaked-but-revoked key, or a well-formed key that was never registered
+        #   anywhere, is invisible to it. gitleaks (fail-closed, pattern-based, every PR) is the
+        #   half that catches those, which is why the pair exists.
         # --fail-on-scan-errors: narrows the fail-open window above. A scan that errors part-way
         #   otherwise reports "0 verified" — identical output to a clean repo.
-        run: trufflehog filesystem . --only-verified --no-update --fail --fail-on-scan-errors
+        # --exclude-detectors=lob: the Lob detector VERIFIED the pytest function name
+        #   `test_rerank_requires_query_and_documents` as a live Lob key on 2026-08-06, under
+        #   --only-verified. Every run before ~15:00 UTC passed and every run after failed, on any
+        #   branch including a one-file docs PR; the binary is pinned (--no-update) and the file is
+        #   unchanged since #248, so the moving part is Lob's remote verification, not this repo.
+        #
+        #   Scoped to ONE detector on purpose. Lob is a direct-mail/address-verification API
+        #   (postcards, letters, address validation) and obsidian-tc has no postal surface, no
+        #   customers and no outbound physical mail — so its true-positive rate here is ZERO BY
+        #   CONSTRUCTION, and dropping it costs no coverage. Every other detector stays armed.
+        #
+        #   The alternative considered and rejected: allow-listing the one string. That fixes one
+        #   line and leaves the detector free to verify the next arbitrary identifier, which is the
+        #   failure mode being removed rather than a different one.
+        run: trufflehog filesystem . --only-verified --no-update --fail --fail-on-scan-errors --exclude-detectors=lob
 
   checkov:
     runs-on: ubuntu-latest
