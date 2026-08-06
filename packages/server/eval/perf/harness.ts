@@ -100,6 +100,15 @@ const BEGIN_STMT = /^\s*BEGIN\b/i;
 export interface CountingDatabase extends Database {
   writeTxnCount: number;
   vecKnnCalls: number;
+  /** THE-419: cumulative wall time inside vec0 KNN `.all()` calls, milliseconds.
+   *
+   *  The call COUNT (above) is a property of the traversal and is deterministic; this is a TIMING
+   *  and is not. It exists because THE-419's gate — "a MEASURED large-vault vector-latency
+   *  bottleneck" — was unmeasurable as written: nothing in eval/perf recorded vector latency at
+   *  all, so neither the gate nor a regression against it could ever fire. Counting calls does not
+   *  substitute: ANN's whole proposition is lowering the cost PER call, which a call count cannot
+   *  see by construction. */
+  vecKnnTotalMs: number;
 }
 export function countingDatabase(base: Database): CountingDatabase {
   // Wrap a prepared statement so each .all() on a vec0 KNN increments the counter. Only `all` is
@@ -110,14 +119,25 @@ export function countingDatabase(base: Database): CountingDatabase {
       run: (...p: unknown[]) => stmt.run(...p),
       get: (...p: unknown[]) => stmt.get(...p),
       all: (...p: unknown[]) => {
-        wrapped.vecKnnCalls += 1;
-        return stmt.all(...p);
+        // THE-419: time the call, not the preparation. Measured around `.all()` because that is the
+        // execution, and a cached statement prepares once and runs per chunk — timing preparation
+        // would report near-zero and look like a fast index.
+        const t0 = performance.now();
+        try {
+          return stmt.all(...p);
+        } finally {
+          // `finally` so a throwing query still records its cost. A KNN that fails slowly is the
+          // exact shape a latency gate should catch, and an early return would hide it.
+          wrapped.vecKnnTotalMs += performance.now() - t0;
+          wrapped.vecKnnCalls += 1;
+        }
       },
     };
   };
   const wrapped: CountingDatabase = {
     writeTxnCount: 0,
     vecKnnCalls: 0,
+    vecKnnTotalMs: 0,
     exec(sql: string) {
       if (BEGIN_STMT.test(sql)) wrapped.writeTxnCount += 1;
       base.exec(sql);
@@ -148,6 +168,10 @@ export interface VaultCtx {
    *  unit densification's cost is actually expressed in. Non-zero only for a densify scenario —
    *  a plain index does no vector KNN. */
   vecKnnCalls: number;
+  /** THE-419: cumulative vec0 KNN wall time for this build, milliseconds. Divided by `vecKnnCalls`
+   *  it is the per-call latency THE-419's scale gate is expressed in. Zero for a non-densify
+   *  scenario, exactly like the call count. */
+  vecKnnTotalMs: number;
   /** THE-581: the scenario that produced this vault, so a collector can tell whether densification
    *  was supposed to run and refuse to report a silent skip as a clean measurement. */
   scenario: Scenario;
@@ -254,6 +278,7 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
     chunkCount,
     writeTxnCount: db.writeTxnCount,
     vecKnnCalls: db.vecKnnCalls,
+    vecKnnTotalMs: db.vecKnnTotalMs,
     scenario: sc,
     indexMs,
     cleanup: () => {

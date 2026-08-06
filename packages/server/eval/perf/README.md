@@ -113,6 +113,30 @@ The collector **throws** rather than emitting zeros if a densify scenario produc
 
 **Demonstrated, not asserted.** Doubling the per-chunk `vecKnn` call in `computeKnnEdges` moved `densify.vec_knn_calls` 200 → 400 and the gate failed (`FAIL densify.vec_knn_calls: 400 vs baseline 200 (tol 0.15)`, exit 1); reverting returned it to 200 and exit 0.
 
+### `densify.vec_knn_mean_ms` — the PER-CALL half (THE-419)
+
+The call count above is a property of the **traversal**. It cannot see per-call cost, and that is
+precisely what an ANN index changes: HNSW/IVF lowers the cost of each KNN while leaving the count
+identical. Measured against `vec_knn_calls` alone, a perfect ANN index and a catastrophic one are
+the same number.
+
+THE-419 is gated on *"a MEASURED large-vault vector-latency bottleneck"*, and before this metric that
+gate was **unmeasurable as written** — the only mention of the measurement anywhere in the repo was
+the sentence demanding it (`docs/plans/2026-07-12-rust-python-workload-partition.md:67`), and
+`eval/perf` recorded no vector latency at all. Neither the gate opening nor a latency regression
+could surface.
+
+`warn`, not `hard`, for the same reason every other timing here is: it is wall time, and the
+deterministic half of the pair (`vec_knn_calls`) is already `hard`. Timed around `.all()` rather
+than preparation — a cached statement prepares once and runs per chunk, so timing preparation would
+report near-zero and look like a fast index.
+
+**Known limitation, stated so it is not mistaken for coverage.** Only the `densify` scenario runs
+densification (100 notes / 200 chunks); `large` and `vault100k` do not, so no KNN executes there.
+This metric therefore measures per-call latency at ONE small corpus size. That is enough to catch a
+latency regression and to give THE-419's gate a number to name; it is **not** a large-vault
+measurement, and opening that gate needs a second point on the curve.
+
 **No baseline is committed yet.** Recording one needs a quiet host (the harness correctly refuses on a loaded one — calibration CV 0.822 against a 0.2 threshold), so it goes through the CI baseline workflow the same way `small`'s did. Until then the scenario runs on demand and is not part of the CI-gated set.
 
 ### Cold boot (family 16, THE-515)
