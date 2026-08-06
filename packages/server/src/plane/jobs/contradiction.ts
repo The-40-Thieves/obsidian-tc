@@ -97,11 +97,26 @@ export interface ContradictionStats {
   checked: number;
   flagged: number;
   skipped: number;
-  /** THE-613: pairs the judge could not rule on — call threw, or the reply did not parse.
+  /** THE-613: pairs the judge could not rule on — call threw, OR the reply did not parse.
    *  NOT the same as a pair judged `no_conflict`. Without this a total gateway outage returned
    *  `{ checked: N, flagged: 0, skipped: 0 }`, byte-identical to a healthy run over a vault with
-   *  no contradictions, and the caller had no way to tell "examined and clear" from "never asked". */
+   *  no contradictions, and the caller had no way to tell "examined and clear" from "never asked".
+   *
+   *  Stays the TOTAL. `judgeErrors` below is the transport subset, so unparseable = unjudged -
+   *  judgeErrors. That is deliberately the OPPOSITE split from citation.ts, where `parseFailures`
+   *  was narrowed instead of a total being kept: there the field was NAMED for parsing, so
+   *  narrowing made the name true. Here `unjudged` is correctly named for the total and narrowing
+   *  it would make the name a lie. Same defect, different fix, because the names differ. */
   unjudged: number;
+  /** THE-613 follow-up: of `unjudged`, the pairs where the judge NEVER ANSWERED — the call threw
+   *  (transport, HTTP, timeout) — as distinct from answering unparseably. Opposite remedies: an
+   *  endpoint or a credential, versus a prompt or a model.
+   *
+   *  Not hypothetical, and it is the same outage that produced the citation-side version of this:
+   *  the gateway `judge` role — which this pass shares — returned HTTP 404 from 2026-08-03 to
+   *  2026-08-06 after the Modal workspace was disabled for exhausted credit. Every pair in that
+   *  window would have landed in `unjudged` and read as a model that cannot emit JSON. */
+  judgeErrors: number;
 }
 
 export async function checkContradictions(
@@ -109,7 +124,13 @@ export async function checkContradictions(
   vaultId: string,
   chunks: IndexedChunk[],
 ): Promise<ContradictionStats> {
-  const stats: ContradictionStats = { checked: 0, flagged: 0, skipped: 0, unjudged: 0 };
+  const stats: ContradictionStats = {
+    checked: 0,
+    flagged: 0,
+    skipped: 0,
+    unjudged: 0,
+    judgeErrors: 0,
+  };
   if (!ctx.roles) return stats; // generative disabled -> nothing to judge
   const insert = ctx.db.prepare(
     "INSERT OR IGNORE INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, cosine_similarity, judge_verdict, judge_rationale, judge_model, status, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
@@ -163,19 +184,29 @@ export async function checkContradictions(
           `FRAGMENT A:\n${t.chunk.content}\n\nFRAGMENT B:\n${t.neighborContent}`,
         ),
       );
-      return { verdict: parseVerdict(res.text), model: res.model };
+      // `threw: false` even when parseVerdict returns null — the judge ANSWERED, its reply was
+      // just unusable. This is the only place that can still tell the two apart.
+      return { verdict: parseVerdict(res.text), model: res.model, threw: false };
     } catch {
-      return { verdict: null, model: "" };
+      return { verdict: null, model: "", threw: true };
     }
   });
   // Phase 3 — apply inserts serially (single-connection writes), in task order.
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i] as JudgeTask;
-    const { verdict, model } = verdicts[i] as { verdict: Verdict | null; model: string };
+    const { verdict, model, threw } = verdicts[i] as {
+      verdict: Verdict | null;
+      model: string;
+      threw: boolean;
+    };
     // THE-613: could-not-judge is counted, not silently treated as clear. Both still `continue` —
     // an unjudged pair writes no row, exactly as before — but the COUNT now leaves the function.
+    // The follow-up adds WHICH kind: `unjudged` stays the total and `judgeErrors` is the transport
+    // subset, so an operator can tell "the endpoint is down" from "the model is babbling" without
+    // reading logs. Both remedies are real and they point in opposite directions.
     if (verdict === null) {
       stats.unjudged += 1;
+      if (threw) stats.judgeErrors += 1;
       continue;
     }
     if (verdict.kind === "no_conflict") continue;

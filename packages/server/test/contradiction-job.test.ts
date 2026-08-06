@@ -107,8 +107,35 @@ describe("contradiction detector (judge seam + sqlite-vec neighbors)", () => {
     expect(stats.checked).toBeGreaterThan(0);
     expect(stats.unjudged).toBe(stats.checked);
     expect(stats.flagged).toBe(0);
+    // THE-613 follow-up: a THROWN judge is a TRANSPORT failure, and every unjudged pair here is
+    // one. Before this the two causes shared a single counter, so a gateway that answered 404 to
+    // every call — which the shared `judge` role actually did from 2026-08-03 to 2026-08-06 —
+    // reported identically to a model emitting prose, and sent an operator to debug prompts.
+    expect(stats.judgeErrors).toBe(stats.unjudged);
     // and nothing was written — the failure must not fabricate rows either
     const n = (db.prepare("SELECT COUNT(*) AS n FROM contradictions").get() as { n: number }).n;
     expect(n).toBe(0);
+  });
+
+  // The CONTROL for the assertion above, and the one that makes it mean something: a judge that
+  // ANSWERS but unparseably must land in `unjudged` and NOT in `judgeErrors`. Without this pair,
+  // `judgeErrors === unjudged` would also hold for a counter that simply mirrored the total.
+  it("an unparseable reply is unjudged but NOT a transport error (THE-613 follow-up)", async () => {
+    const db = baseDb();
+    addChunk(db, "a", "A.md", [1, 0, 0]);
+    addChunk(db, "b", "B.md", [0.95, 0.312, 0]);
+    const roles = {
+      judge: async () => ({ text: "definitely not json", model: "fake" }),
+    } as unknown as GatewayRoles;
+    const stats = await checkContradictions({ db, roles, now: () => 1 }, "v1", [
+      { id: "a", path: "A.md", content: "alpha", embedding: [1, 0, 0] },
+    ]);
+    expect(stats.checked).toBeGreaterThan(0);
+    // The judge answered, so the pair is unjudged...
+    expect(stats.unjudged).toBe(stats.checked);
+    // ...but nothing threw, so it is NOT a transport error. This is the distinction the split
+    // exists for: same `unjudged` total, opposite remedy.
+    expect(stats.judgeErrors).toBe(0);
+    expect(stats.flagged).toBe(0);
   });
 });
