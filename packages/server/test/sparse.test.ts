@@ -41,7 +41,7 @@ describe("sparse retrieval (THE-388)", () => {
 
   it("sparseSearch returns [] when chunk_sparse is absent or the query is empty", () => {
     const db = db0();
-    expect(sparseSearch(db, VAULT, { a: 1 }, 10)).toEqual([]); // table not provisioned
+    expect(sparseSearch(db, VAULT, { 1: 1 }, 10)).toEqual([]); // table not provisioned
     ensureChunkSparse(db);
     expect(sparseSearch(db, VAULT, {}, 10)).toEqual([]); // empty query
   });
@@ -52,10 +52,17 @@ describe("sparse retrieval (THE-388)", () => {
     addChunkRow(db, "c1", "A.md");
     addChunkRow(db, "c2", "B.md");
     addChunkRow(db, "c3", "C.md");
-    upsertChunkSparse(db, "c1", VAULT, { obsidian: 0.9, note: 0.3 });
-    upsertChunkSparse(db, "c2", VAULT, { obsidian: 0.2, graph: 0.8 });
-    upsertChunkSparse(db, "c3", VAULT, { unrelated: 1.0 });
-    const hits = sparseSearch(db, VAULT, { obsidian: 1.0 }, 10);
+    // THE-711: token ids are NUMERIC by construction — pairSparse (the only real producer) builds
+    // keys with String(tokenId), and the packed format encodes them as u32. These stand in for
+    // "obsidian" / "note" / "graph" / "unrelated".
+    const OBSIDIAN = 11;
+    const NOTE = 22;
+    const GRAPH = 33;
+    const UNRELATED = 44;
+    upsertChunkSparse(db, "c1", VAULT, { [OBSIDIAN]: 0.9, [NOTE]: 0.3 });
+    upsertChunkSparse(db, "c2", VAULT, { [OBSIDIAN]: 0.2, [GRAPH]: 0.8 });
+    upsertChunkSparse(db, "c3", VAULT, { [UNRELATED]: 1.0 });
+    const hits = sparseSearch(db, VAULT, { [OBSIDIAN]: 1.0 }, 10);
     expect(hits.map((h) => h.chunk_id)).toEqual(["c1", "c2"]); // c3 has zero overlap
     expect(hits[0]?.score).toBeCloseTo(0.9);
   });
@@ -64,11 +71,11 @@ describe("sparse retrieval (THE-388)", () => {
     const db = db0();
     ensureChunkSparse(db);
     addChunkRow(db, "c1", "A.md");
-    upsertChunkSparse(db, "c1", VAULT, { x: 1 });
-    upsertChunkSparse(db, "c1", VAULT, { y: 2 }); // overwrite
-    expect(sparseSearch(db, VAULT, { x: 1 }, 10)).toEqual([]); // old weights gone
-    expect(sparseSearch(db, VAULT, { y: 1 }, 10).map((h) => h.chunk_id)).toEqual(["c1"]);
+    upsertChunkSparse(db, "c1", VAULT, { 7: 1 });
+    upsertChunkSparse(db, "c1", VAULT, { 8: 2 }); // overwrite
+    expect(sparseSearch(db, VAULT, { 7: 1 }, 10)).toEqual([]); // old weights gone
+    expect(sparseSearch(db, VAULT, { 8: 1 }, 10).map((h) => h.chunk_id)).toEqual(["c1"]);
     deleteChunkSparse(db, "c1");
-    expect(sparseSearch(db, VAULT, { y: 1 }, 10)).toEqual([]);
+    expect(sparseSearch(db, VAULT, { 8: 1 }, 10)).toEqual([]);
   });
 });
