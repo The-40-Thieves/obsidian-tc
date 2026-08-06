@@ -31,6 +31,13 @@ function edb0(): Database {
     { version: "20260626_001", sql: sql("20260626_001_experiential_init.sql") },
     { version: "20260711_001", sql: sql("20260711_001_experiential_outcome.sql") },
     { version: "20260711_002", sql: sql("20260711_002_agent_episodes.sql") },
+    // THE-718: the `outcome` column this fixture seeds was renamed to `task_result`
+    // (20260806_003). That migration touches only agent_episodes, so it composes onto this prefix
+    // without dragging in the rest of the chain.
+    {
+      version: "20260806_003",
+      sql: sql("20260806_003_agent_episodes_task_result.sql"),
+    },
     { version: "20260712_001", sql: sql("20260712_001_preference_profile.sql") },
     { version: "20260712_003", sql: sql("20260712_003_forget_log.sql") },
   ]);
@@ -70,7 +77,7 @@ describe("forget atomicity (C1)", () => {
     const edb = edb0();
     edb
       .prepare(
-        `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, outcome, eligibility, blocked, valid_from)
+        `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, task_result, eligibility, blocked, valid_from)
          VALUES ('e1', ?, 'alice', 'dispatch', 'tool_call', 'read_note', 'ok', NULL, NULL, 'eligible', 0, ?)`,
       )
       .run(NOW, NOW);

@@ -56,7 +56,7 @@ The converged retrieval engine shipped in the v1.4–v1.7 line: GraphRAG graph-w
 
 The experiential tier is a **membrane**: a physically separate `experiential.db` beside the authored `cache.db`, with its own migration chain. Nothing in it can reach an authored chunk except through query-time composition.
 
-- **Write side** — `chunk_retrievals` logs every serve-path retrieval (with later-stamped `outcome` and `cited_in_response` axes); `agent_episodes` auto-captures dispatch outcomes (content capture defaults **off**), born `pending`, with a deterministic pre-ingest poison scanner that marks injection-shaped content born-ineligible.
+- **Write side** — `chunk_retrievals` logs every serve-path retrieval (with later-stamped `feedback` and `cited_in_response` axes; the `outcome` axis was retired in THE-718); `agent_episodes` auto-captures dispatch outcomes (content capture defaults **off**), born `pending`, with a deterministic pre-ingest poison scanner that marks injection-shaped content born-ineligible.
 - **Evaluation** (`obsidian-tc reflect`, sleep-time) — pending episodes promote under deterministic rules; an optional gateway judge can only lower; the same pass maintains a **versioned preference profile** updated only by typed deltas.
 - **Read side** — the M8 tools enforce the reader contract: eligible-only, tombstones, trust floor, caller partition.
 - **Deletion** — `forget` propagates through derived state with tombstone-vs-erase modes and a **hash-chained `forget_log`** (editing any entry breaks verification).

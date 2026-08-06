@@ -27,8 +27,11 @@ const CHAIN = EXPERIENTIAL_MIGRATION_FILES.map((f) => ({ version: versionOf(f), 
 // THE-620: a chain with chunk_retrievals but WITHOUT the chunk_access_stats VIEW (20260712_002) —
 // the same "minimal harness" shape contribution.test.ts already exercises for workspace_sessions.
 // Mimics an experiential.db that predates that migration.
+// THE-718: 20260806_001 must come out too — it DROPs and re-CREATEs the same view, so leaving it
+// in both fails outright (no such view to drop) and, with a tolerant drop, would silently hand the
+// view back and make this fixture identical to the full chain.
 const CHAIN_NO_ACCESS_VIEWS = EXPERIENTIAL_MIGRATION_FILES.filter(
-  (f) => f !== "20260712_002_access_views.sql",
+  (f) => f !== "20260712_002_access_views.sql" && f !== "20260806_001_retire_retrieval_outcome.sql",
 ).map((f) => ({ version: versionOf(f), sql: read(f) }));
 
 const NOW = 1_800_000_000_000;
@@ -219,7 +222,7 @@ describe("THE-537 note_quality rollup", () => {
       last_retrieved_at: null,
       retrievals: 0,
       citations: 0,
-      outcome_balance: 0,
+      observed_retrievals: 0,
       in_degree: 1,
       out_degree: 1,
       orphan: 0,

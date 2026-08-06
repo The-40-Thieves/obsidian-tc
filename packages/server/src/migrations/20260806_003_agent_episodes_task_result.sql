@@ -1,0 +1,18 @@
+-- 20260806_002_agent_episodes_task_result.sql
+-- THE-718 (final): agent_episodes.outcome -> task_result.
+--
+-- This column is KEPT. Unlike chunk_retrievals.outcome (retired in 20260806_001), an episode IS
+-- the task, so "how did the task go" has a coherent denominator here -- one row, one task, one
+-- verdict. The problem was only the name: the column's own comment read "parity with
+-- chunk_retrievals outcome axis", asserting a shared axis with a column that measured a different
+-- unit. That framing is what made the two look aggregatable, and the rename removes the invitation.
+--
+-- `task_result` also stops colliding with the two OTHER things called outcome in this schema:
+-- agent_episodes.status (ok | error | skipped -- the DISPATCH outcome, whether the call itself
+-- completed) and jobs.outcome in cache.db (20260728_002, unrelated and untouched). A task can
+-- succeed through a retried dispatch or fail through a clean one; keeping both on a name that
+-- reads as "outcome" is how those got conflated in the first place.
+--
+-- RENAME COLUMN preserves the data. 414 rows exist and none are stamped, so nothing is riding on
+-- the values, but the rename is the reversible half of this change and there is no reason to drop.
+ALTER TABLE agent_episodes RENAME COLUMN outcome TO task_result;

@@ -2,7 +2,8 @@
 // work_search returns eligible-only by default (honest-empty pre-evaluator), never surfaces
 // tombstoned/expired rows, partitions by caller, enforces the trust floor; work_episodes is
 // the inspection surface; work_forget flips the control-1 tombstone; record_retrieval_feedback
-// stamps the THE-230 outcome axis onto the latest retrieval event(s).
+// stamps the THE-230 feedback axis onto the latest retrieval event(s). The companion
+// `outcome` axis was retired in 20260806_001 (THE-718).
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -322,7 +323,7 @@ describe("M8 experiential tools (THE-229)", () => {
     const res = un<{ updated: number }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1, feedback: 1 },
+        { chunk_id: "c1", feedback: 1 },
         // these retrievals have a NULL session -> the stamp is unscoped, which now needs
         // admin:workspace (P1.7). A per-session stamp is covered by the dedicated test below.
         ctx({ grantedScopes: new Set(["write:workspace", "admin:workspace"]) }),
@@ -330,10 +331,10 @@ describe("M8 experiential tools (THE-229)", () => {
     );
     expect(res.updated).toBe(1); // last_n defaults to 1 -> newest only
     const rows = db
-      .prepare("SELECT query_text, feedback, outcome FROM chunk_retrievals ORDER BY retrieved_at")
-      .all() as Array<{ query_text: string; feedback: number | null; outcome: number | null }>;
-    expect(rows[0]).toMatchObject({ query_text: "q1", feedback: null, outcome: null });
-    expect(rows[1]).toMatchObject({ query_text: "q2", feedback: 1, outcome: 1 });
+      .prepare("SELECT query_text, feedback FROM chunk_retrievals ORDER BY retrieved_at")
+      .all() as Array<{ query_text: string; feedback: number | null }>;
+    expect(rows[0]).toMatchObject({ query_text: "q1", feedback: null });
+    expect(rows[1]).toMatchObject({ query_text: "q2", feedback: 1 });
   });
 
   it("P1.7: any_caller without admin:workspace is forbidden (partition is an authz boundary)", async () => {
@@ -380,7 +381,7 @@ describe("M8 experiential tools (THE-229)", () => {
     // no session_id, no active session, not admin -> forbidden (was a silent unscoped write)
     const denied = await registry.dispatch(
       "record_retrieval_feedback",
-      { chunk_id: "c1", outcome: 1 },
+      { chunk_id: "c1", feedback: 1 },
       ctx(),
     );
     expect(denied.ok).toBe(false);
@@ -389,7 +390,7 @@ describe("M8 experiential tools (THE-229)", () => {
     const ok = un<{ updated: number }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ sessionId: "s1" }),
       ),
     );
@@ -410,35 +411,35 @@ describe("M8 experiential tools (THE-229)", () => {
     const foreign = un<{ updated: number }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ caller: "caller-b", sessionId: "s1" }),
       ),
     );
     expect(foreign.updated).toBe(0);
     expect(
       (
-        db.prepare("SELECT outcome FROM chunk_retrievals WHERE id = 'r-a'").get() as {
-          outcome: number | null;
+        db.prepare("SELECT feedback FROM chunk_retrievals WHERE id = 'r-a'").get() as {
+          feedback: number | null;
         }
-      ).outcome,
+      ).feedback,
     ).toBeNull();
 
     // caller-a, same session -> owns it, can stamp
     const own = un<{ updated: number }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ caller: "caller-a", sessionId: "s1" }),
       ),
     );
     expect(own.updated).toBe(1);
 
     // reset, then prove admin:workspace crosses the caller partition (a foreign caller, no session)
-    db.prepare("UPDATE chunk_retrievals SET outcome = NULL WHERE id = 'r-a'").run();
+    db.prepare("UPDATE chunk_retrievals SET feedback = NULL WHERE id = 'r-a'").run();
     const admin = un<{ updated: number }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: -1 },
+        { chunk_id: "c1", feedback: -1 },
         ctx({
           caller: "caller-b",
           grantedScopes: new Set(["write:workspace", "admin:workspace"]),
@@ -472,7 +473,7 @@ describe("M8 experiential tools (THE-229)", () => {
     const res = un<{ updated: number }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ sessionId: "s1" }),
       ),
     );
@@ -488,17 +489,17 @@ describe("M8 experiential tools (THE-229)", () => {
     const foreign = un<{ updated: number }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ caller: "caller-b", sessionId: "s1" }),
       ),
     );
     expect(foreign.updated).toBe(0);
     expect(
       (
-        db.prepare("SELECT outcome FROM chunk_retrievals WHERE id = 'r-a'").get() as {
-          outcome: number | null;
+        db.prepare("SELECT feedback FROM chunk_retrievals WHERE id = 'r-a'").get() as {
+          feedback: number | null;
         }
-      ).outcome,
+      ).feedback,
     ).toBeNull();
   });
 
@@ -511,7 +512,7 @@ describe("M8 experiential tools (THE-229)", () => {
     const res = un<{ updated: number }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ sessionId: "s1" }),
       ),
     );
@@ -529,7 +530,7 @@ describe("M8 experiential tools (THE-229)", () => {
     const res = un<{ updated: number; reason?: string }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ sessionId: "s1" }),
       ),
     );
@@ -548,14 +549,14 @@ describe("M8 experiential tools (THE-229)", () => {
     const foreign = un<{ updated: number; reason?: string }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ caller: "caller-b", sessionId: "s1" }),
       ),
     );
     const absent = un<{ updated: number; reason?: string }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "no-such-chunk", outcome: 1 },
+        { chunk_id: "no-such-chunk", feedback: 1 },
         ctx({ caller: "caller-b", sessionId: "s1" }),
       ),
     );
@@ -581,17 +582,17 @@ describe("M8 experiential tools (THE-229)", () => {
     const { registry, ctx } = harness(db);
     const denied = await registry.dispatch(
       "record_retrieval_feedback",
-      { chunk_id: "c1", outcome: 1 },
+      { chunk_id: "c1", feedback: 1 },
       ctx({ caller: null, sessionId: "s1" }),
     );
     expect(denied.ok).toBe(false);
     if (!denied.ok) expect(denied.error.code).toBe("forbidden");
     expect(
       (
-        db.prepare("SELECT outcome FROM chunk_retrievals WHERE id = 'legacy'").get() as {
-          outcome: number | null;
+        db.prepare("SELECT feedback FROM chunk_retrievals WHERE id = 'legacy'").get() as {
+          feedback: number | null;
         }
-      ).outcome,
+      ).feedback,
     ).toBeNull();
   });
 
@@ -606,7 +607,7 @@ describe("M8 experiential tools (THE-229)", () => {
     const { registry, ctx } = harness(db);
     const denied = await registry.dispatch(
       "record_retrieval_feedback",
-      { chunk_id: "c1", outcome: 1 },
+      { chunk_id: "c1", feedback: 1 },
       ctx({ caller: "", sessionId: "s1" }),
     );
     expect(denied.ok).toBe(false);
@@ -622,7 +623,7 @@ describe("M8 experiential tools (THE-229)", () => {
     const admin = un<{ updated: number }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ caller: null, grantedScopes: new Set(["write:workspace", "admin:workspace"]) }),
       ),
     );
@@ -638,7 +639,7 @@ describe("M8 experiential tools (THE-229)", () => {
     const res = un<{ updated: number; reason?: string }>(
       await registry.dispatch(
         "record_retrieval_feedback",
-        { chunk_id: "c1", outcome: 1 },
+        { chunk_id: "c1", feedback: 1 },
         ctx({ sessionId: "s1" }),
       ),
     );

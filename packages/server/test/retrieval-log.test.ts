@@ -70,11 +70,11 @@ describe("retrieval logging (THE-230)", () => {
       rank_in_results: 1,
       rerank_score: 0.91,
     });
-    // The outcome axis rides null until its writers land (THE-170 / feedback surface).
+    // The judgement axes ride null until their writers land (THE-170 / feedback surface). The
+    // `outcome` column that used to be asserted here was retired in 20260806_001 (THE-718).
     expect(rows[0]?.cited_in_response).toBeNull();
     expect(rows[0]?.citation_score).toBeNull();
     expect(rows[0]?.feedback).toBeNull();
-    expect((rows[0] as Row & { outcome: number | null }).outcome).toBeNull();
     expect(rows[2]?.rerank_score).toBeNull();
   });
 

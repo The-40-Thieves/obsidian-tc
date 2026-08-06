@@ -14,11 +14,11 @@ const DEFAULT_DECAY = 0.5; // ACT-R base-level decay d
 export interface RetrievalEvent {
   /** ms epoch. */
   retrieved_at: number;
-  /** Relevance: -1 | 0 | +1 (nullable) — "was this the right chunk". */
+  /** Relevance: -1 | 0 | +1 (nullable) — "was this the right chunk". THE-718: this is the ONLY
+   *  weighting axis. The companion `outcome` ("did acting on it lead somewhere good") was retired
+   *  in 20260806_001 — it asked about the task, not the retrieval, so folding it in here credited
+   *  or blamed every chunk a successful task happened to touch. */
   feedback?: number | null;
-  /** THE-230 outcome axis: -1 | 0 | +1 (nullable) — "did acting on it lead somewhere good".
-   *  Folded multiplicatively with feedback, same bounded halving/doubling. */
-  outcome?: number | null;
 }
 
 /**
@@ -29,8 +29,8 @@ export interface RetrievalEvent {
  *
  * More recent + more frequent retrievals raise B. `sigmoid` maps B -> (0,1) with 0.5 at B=0 (a
  * single access exactly 1 day ago), matching bubble_safe_rerank's 0.5 = inert 1.0x. No events ->
- * 0.5 (cold start). Negative feedback halves an event's weight, positive doubles it; the
- * THE-230 outcome axis folds the same way multiplicatively (bounded w ∈ [0.25, 4]).
+ * 0.5 (cold start). Negative feedback halves an event's weight, positive doubles it (w ∈ [0.5, 2];
+ * it was [0.25, 4] while the retired outcome axis multiplied in — THE-718).
  */
 export function actrActivation(
   events: RetrievalEvent[],
@@ -44,16 +44,15 @@ export function actrActivation(
   for (const e of events) {
     const days = Math.max((now - e.retrieved_at) / MS_PER_DAY, MIN_DELTA_DAYS);
     const wFeedback = e.feedback === -1 ? 0.5 : e.feedback === 1 ? 2 : 1;
-    const wOutcome = e.outcome === -1 ? 0.5 : e.outcome === 1 ? 2 : 1;
-    if (e.feedback === -1 || e.outcome === -1) negativeEvidence = true;
-    sum += wFeedback * wOutcome * days ** -d;
+    if (e.feedback === -1) negativeEvidence = true;
+    sum += wFeedback * days ** -d;
   }
   if (sum <= 0) return 0.5;
   const raw = 1 / (1 + Math.exp(-Math.log(sum)));
   // THE-193 stale-floor DECISION: clamp at 0.5 (neutral). Time alone never demotes a chunk
   // below never-retrieved — without the floor, one old retrieval ranks BELOW no retrieval at
-  // all, a perverse ordering. Explicit negative evidence (feedback/outcome = -1) may still
-  // demote below neutral: the outcome axis stays live. staleFloor: false preserves the raw
+  // all, a perverse ordering. Explicit negative evidence (feedback = -1) may still demote below
+  // neutral — that axis stays live. staleFloor: false preserves the raw
   // ACT-R curve for research runs.
   if ((opts.staleFloor ?? true) && raw < 0.5 && !negativeEvidence) return 0.5;
   return raw;
@@ -143,25 +142,24 @@ export function recomputeActivation(
     incremental
       ? edb
           .prepare(
-            "SELECT chunk_id, retrieved_at, feedback, outcome FROM chunk_retrievals WHERE chunk_id IN (SELECT DISTINCT chunk_id FROM chunk_retrievals WHERE rowid > ?) ORDER BY chunk_id",
+            "SELECT chunk_id, retrieved_at, feedback FROM chunk_retrievals WHERE chunk_id IN (SELECT DISTINCT chunk_id FROM chunk_retrievals WHERE rowid > ?) ORDER BY chunk_id",
           )
           .all(watermark)
       : edb
           .prepare(
-            "SELECT chunk_id, retrieved_at, feedback, outcome FROM chunk_retrievals ORDER BY chunk_id",
+            "SELECT chunk_id, retrieved_at, feedback FROM chunk_retrievals ORDER BY chunk_id",
           )
           .all()
   ) as Array<{
     chunk_id: string;
     retrieved_at: number;
     feedback: number | null;
-    outcome: number | null;
   }>;
 
   const byChunk = new Map<string, RetrievalEvent[]>();
   for (const r of rows) {
     const list = byChunk.get(r.chunk_id) ?? [];
-    list.push({ retrieved_at: r.retrieved_at, feedback: r.feedback, outcome: r.outcome });
+    list.push({ retrieved_at: r.retrieved_at, feedback: r.feedback });
     byChunk.set(r.chunk_id, list);
   }
   const upsert = edb.prepare(

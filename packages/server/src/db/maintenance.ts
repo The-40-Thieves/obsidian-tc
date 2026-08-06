@@ -142,8 +142,12 @@ function sweepJobs(
  * windows the cache.db arms use. `chunk_access_stats` is a VIEW over this table:
  *
  *   SELECT chunk_id, COUNT(*) AS access_count, MAX(retrieved_at) AS last_accessed_at,
- *          SUM(cited_in_response) AS citations, SUM(outcome) AS outcome_balance
+ *          SUM(cited_in_response = 1) AS citations,
+ *          SUM(cited_in_response IS NOT NULL) AS observed
  *   FROM chunk_retrievals GROUP BY chunk_id
+ *
+ * (THE-718 replaced the old `SUM(outcome) AS outcome_balance` aggregate with `observed` when the
+ * outcome axis was retired in 20260806_001.)
  *
  * so deleting rows REWRITES those numbers, and they feed activation and note quality. Pruning
  * aggressively would make a long-tail note that was genuinely useful two years ago look

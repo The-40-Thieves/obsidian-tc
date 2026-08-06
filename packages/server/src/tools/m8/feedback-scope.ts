@@ -11,8 +11,7 @@ import { CROSS_PRINCIPAL_SCOPE, canCrossPrincipal } from "./shared";
 
 export interface FeedbackStampInput {
   chunk_id: string;
-  feedback?: number;
-  outcome?: number;
+  feedback: number;
   session_id?: string;
   last_n: number;
 }
@@ -28,7 +27,8 @@ export interface FeedbackStampResult {
 }
 
 /**
- * Stamp feedback/outcome onto the most recent retrieval event(s) for a chunk.
+ * Stamp `feedback` onto the most recent retrieval event(s) for a chunk. THE-718 retired the
+ * companion `outcome` axis (20260806_001), so this writes one column, not two.
  *
  * Authorization is two layers, and only the first is a partition. THE-568 made per-caller ownership
  * the primary boundary (`AND caller IS ?`), mirroring the agent_episodes partition; P1.7's session
@@ -85,13 +85,13 @@ export function stampRetrievalFeedback(
   const res = edb
     .prepare(
       `UPDATE chunk_retrievals
-         SET feedback = COALESCE(?, feedback), outcome = COALESCE(?, outcome)
+         SET feedback = ?
        WHERE id IN (
          SELECT id FROM chunk_retrievals WHERE chunk_id = ? ${sessionClause} ${callerClause}
          ORDER BY retrieved_at DESC LIMIT ?
        )`,
     )
-    .run(input.feedback ?? null, input.outcome ?? null, ...selectParams, input.last_n);
+    .run(input.feedback, ...selectParams, input.last_n);
   if (res.changes > 0) return { available: true, chunk_id: input.chunk_id, updated: res.changes };
 
   // `updated: 0` is otherwise the same response shape as a successful stamp, and in production it

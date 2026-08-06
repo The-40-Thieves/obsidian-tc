@@ -23,6 +23,10 @@ function edb0(): Database {
     { version: "20260626_001", sql: sql("20260626_001_experiential_init.sql") },
     { version: "20260711_001", sql: sql("20260711_001_experiential_outcome.sql") },
     { version: "20260712_002", sql: sql("20260712_002_access_views.sql") },
+    // THE-718: _001 recreates the view without the outcome aggregate and drops the column. It
+    // composes onto this prefix precisely because the note_quality half was split into _002 —
+    // note_quality does not exist here and is not needed to exercise the view.
+    { version: "20260806_001", sql: sql("20260806_001_retire_retrieval_outcome.sql") },
   ]);
   return db;
 }
@@ -32,18 +36,11 @@ function logHit(
   id: string,
   chunkId: string,
   at: number,
-  over: Partial<{ cited: number | null; outcome: number | null; surface: string }> = {},
+  over: Partial<{ cited: number | null; surface: string }> = {},
 ): void {
   db.prepare(
-    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, surface_type, query_text, rank_in_results, cited_in_response, outcome) VALUES (?, ?, ?, ?, 'q', 1, ?, ?)",
-  ).run(
-    id,
-    chunkId,
-    at,
-    over.surface ?? "search_semantic",
-    over.cited ?? null,
-    over.outcome ?? null,
-  );
+    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, surface_type, query_text, rank_in_results, cited_in_response) VALUES (?, ?, ?, ?, 'q', 1, ?)",
+  ).run(id, chunkId, at, over.surface ?? "search_semantic", over.cited ?? null);
 }
 
 function cache0(): Database {
@@ -67,18 +64,23 @@ function cache0(): Database {
 }
 
 describe("chunk_access_stats view (THE-44)", () => {
-  it("derives count, last access, citations, and outcome balance from the log", () => {
+  it("derives count, last access, citations, and OBSERVED count from the log", () => {
     const edb = edb0();
-    logHit(edb, "r1", "a1", NOW - 5 * DAY);
-    logHit(edb, "r2", "a1", NOW - 2 * DAY, { cited: 1, outcome: 1 });
-    logHit(edb, "r3", "a1", NOW - 1 * DAY, { outcome: -1 });
+    logHit(edb, "r1", "a1", NOW - 5 * DAY); // never judged -> not observed
+    logHit(edb, "r2", "a1", NOW - 2 * DAY, { cited: 1 });
+    logHit(edb, "r3", "a1", NOW - 1 * DAY, { cited: 0 }); // judged and NOT cited -> observed
     const row = edb
       .prepare("SELECT * FROM chunk_access_stats WHERE chunk_id = 'a1'")
       .get() as Record<string, number>;
     expect(row.access_count).toBe(3);
     expect(row.last_accessed_at).toBe(NOW - 1 * DAY);
     expect(row.citations).toBe(1);
-    expect(row.outcome_balance).toBe(0); // +1 - 1
+    // THE-718: the distinction the old outcome_balance column could not draw. r1 was never judged,
+    // r3 was judged and came back uncited — 2 observations, not 3, and not 1. `access_count` and
+    // `observed` differing here is the whole point: citations/access_count would read 1/3 and
+    // silently score the unjudged retrieval as a negative.
+    expect(row.observed).toBe(2);
+    expect(row.outcome_balance).toBeUndefined();
   });
 });
 
