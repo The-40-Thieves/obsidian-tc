@@ -34,6 +34,7 @@
 // directories configured and cannot parse a file until grammars are cloned and built — it would
 // be a second, unpinned copy of a capability this repo already gates on.
 import { execFileSync } from "node:child_process";
+import { astGrep } from "./ast-grep-bin.mjs";
 
 // Declaration forms, matched by NODE KIND and name FIELD — never by a source-text pattern.
 //
@@ -107,11 +108,16 @@ function sgRule(kind, symbol, lang, path) {
   });
   let out;
   try {
-    out = execFileSync("ast-grep", ["scan", "--inline-rules", rule, "--json=compact", path], {
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const bin = astGrep();
+    out = execFileSync(
+      bin.cmd,
+      [...bin.prefix, "scan", "--inline-rules", rule, "--json=compact", path],
+      {
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
   } catch (e) {
     const why = (e.stderr || e.message || "").toString().trim().split("\n")[0];
     throw new Error(`ast-grep failed for kind \`${kind}\` (${lang}): ${why}`);
@@ -142,9 +148,10 @@ export function findDeclarations(symbol, lang, path) {
 /** ast-grep JSON, or [] when the pattern simply does not match (exit 1 is "no matches", not an error). */
 function sg(pattern, lang, path) {
   try {
+    const bin = astGrep();
     const out = execFileSync(
-      "ast-grep",
-      ["run", "-p", pattern, "-l", lang, "--json=compact", path],
+      bin.cmd,
+      [...bin.prefix, "run", "-p", pattern, "-l", lang, "--json=compact", path],
       { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
     );
     return out.trim() ? JSON.parse(out) : [];
