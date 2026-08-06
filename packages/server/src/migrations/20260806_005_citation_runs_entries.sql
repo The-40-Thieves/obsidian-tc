@@ -1,0 +1,23 @@
+-- 20260806_005_citation_runs_entries.sql
+-- THE-744: a pass over an EMPTY transcript index left the log byte-identical to a deployment where
+-- the feature was never enabled.
+--
+-- `openCitationRun` is called once per transcript-index ENTRY, so an index with zero entries
+-- produced zero passes and zero rows. A correctly configured, correctly wired, successfully
+-- executed invocation therefore wrote nothing at all. Measured in production on 2026-08-05:
+--
+--   $ obsidian-tc citation-infer --transcript-index /cache/transcript-index.jsonl
+--   citation-infer: entries=0 passes=0 skipped=0 malformed=0 scoped=0 cited=0   (exit 0)
+--   SELECT COUNT(*) FROM citation_runs;  -> 0
+--
+-- That is the failure-encoded-as-a-valid-result shape landing on the very surface built to prevent
+-- it: 20260805_001's own header says the empty-SCOPE pass "gets a row like any other pass", and it
+-- does — but only once a pass exists. The gap is one level up, at the INVOCATION.
+--
+-- Note the empty-scope case (an entry whose window selects no rows) was already recorded and still
+-- is; this is specifically the zero-PASSES case, which also covers "entries existed but every one
+-- was skipped or malformed" — hence recording the entry count rather than assuming it is zero.
+--
+-- `entries` is NULL on a per-pass row, deliberately. A pass is not an invocation and does not know
+-- how many entries its invocation read; 0 would assert it did know and that the answer was none.
+ALTER TABLE citation_runs ADD COLUMN entries INTEGER;

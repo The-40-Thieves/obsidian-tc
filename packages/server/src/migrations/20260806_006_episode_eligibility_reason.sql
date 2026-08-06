@@ -1,0 +1,28 @@
+-- 20260806_006_episode_eligibility_reason.sql
+-- THE-746: `evaluateEpisodes` writes an eligibility verdict and nothing about WHY.
+--
+-- The pass promotes, holds and denies against stacked rules — born-ineligible poison verdicts,
+-- unstable evidence (the same caller+tool+args_hash showing both ok and error), THE-565's
+-- task_result = -1 hold, and the deterministic "errors are lessons too" promotion. It records the
+-- resulting `eligibility` alone, so the only way to learn which rule fired was to diff two copies
+-- of the database by hand.
+--
+-- That is not hypothetical: THE-672's entire measurement — 337 episodes, four arms, the 35-row
+-- blast radius, the 94.6% reproduction of `status = 'error'` — was obtained exactly that way, by
+-- snapshotting before the pass, running two arms against separate copies, and comparing row by
+-- row. Every future policy question about this pass costs the same manual setup until the reason
+-- is in-band.
+--
+-- It compounds with THE-701 removing the judge: the pass is now fully deterministic, so every
+-- verdict has a NAMEABLE rule behind it. There is no nondeterminism left to excuse an unexplained
+-- outcome.
+--
+-- TWO columns, not one, and the second is the point. `eligibility_policy` versions the RULE SET
+-- that produced the reason, so a later policy change is distinguishable from a data change —
+-- precisely the confound THE-672 had to work around by hand. A reason string alone would let a
+-- re-run under different rules look like the same verdict.
+--
+-- Both NULLABLE: rows evaluated before this migration have no recoverable reason, and 0 or a
+-- placeholder would assert one. NULL means "evaluated under an unrecorded policy", which is true.
+ALTER TABLE agent_episodes ADD COLUMN eligibility_reason TEXT;
+ALTER TABLE agent_episodes ADD COLUMN eligibility_policy INTEGER;

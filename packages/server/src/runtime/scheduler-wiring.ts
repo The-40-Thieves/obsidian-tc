@@ -100,6 +100,11 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       config.experiential.citationInfer.transcriptIndex !== undefined
         ? config.experiential.citationInfer.intervalHours * 3_600_000
         : undefined,
+    // THE-644 item 3: the ACT-R decay exponent. Every layer beneath already accepted one —
+    // `recomputeActivation(edb, now, { decay })` and `registerActivationRecompute`'s `deps.decay`
+    // both existed — and nothing ever supplied it, so the only way to change the constant was the
+    // eval harness's `seed-activation.ts --decay`, a script rather than a shipped surface.
+    activationDecay: config.experiential.activationDecay,
   });
 
   // #14: job-queue runner tick. Unconditional — makeJobRunner no-ops with zero handlers, so this

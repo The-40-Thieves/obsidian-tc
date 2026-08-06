@@ -22,8 +22,12 @@
 // never registered". It gets a row like any other pass.
 import type { Database } from "../db/types";
 
-/** Which axis a pass selected its rows on. Mirrors `inferCitations`'s only two scoping modes. */
-export type CitationRunScope = "session" | "window";
+/** Which axis a pass selected its rows on. `session` and `window` mirror `inferCitations`'s two
+ *  scoping modes. THE-744 adds `index`: not a pass at all, but a record that an index-driven
+ *  INVOCATION ran and planned zero passes. It carries no window and no session ON PURPOSE, so
+ *  `passesCoveringWindow`'s `scope_kind = 'window' | 'session'` filter never returns it — an
+ *  invocation that did no work must never read as coverage of anything. */
+export type CitationRunScope = "session" | "window" | "index";
 
 export interface CitationRunOpen {
   scope: CitationRunScope;
@@ -36,6 +40,11 @@ export interface CitationRunOpen {
 }
 
 export interface CitationRunClose {
+  /** Transcript-index entries the INVOCATION read. Set only on an `index`-scoped row; NULL on a
+   *  per-pass row, because a pass does not know how many entries its invocation read and a 0 would
+   *  assert that it did. Distinguishes "the index was empty" from "entries existed but every one
+   *  was skipped or malformed" — both plan zero passes. */
+  entries?: number | undefined;
   scoped: number;
   stage1Pass: number;
   judged: number;
@@ -64,6 +73,8 @@ export interface CitationRunRow {
   stage1_pass: number | null;
   judged: number | null;
   parse_failures: number | null;
+  /** Entries the invocation read; NULL on per-pass rows (20260806_005). */
+  entries: number | null;
   /** Judge calls that never ANSWERED, as distinct from answered-unparseably (20260806_004). */
   judge_errors: number | null;
   stamped: number | null;
@@ -108,7 +119,7 @@ export function closeCitationRun(edb: Database, id: number, c: CitationRunClose)
     .prepare(
       `UPDATE citation_runs
         SET finished_at = ?, scoped = ?, stage1_pass = ?, judged = ?,
-            parse_failures = ?, judge_errors = ?, stamped = ?, aborted = ?
+            parse_failures = ?, judge_errors = ?, stamped = ?, aborted = ?, entries = ?
       WHERE id = ?`,
     )
     .run(
@@ -120,6 +131,7 @@ export function closeCitationRun(edb: Database, id: number, c: CitationRunClose)
       c.judgeErrors,
       c.stamped,
       c.aborted ? 1 : 0,
+      c.entries ?? null,
       id,
     );
 }

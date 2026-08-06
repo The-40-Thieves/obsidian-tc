@@ -110,6 +110,7 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
+| `experiential.activationDecay` | `number` | `0.5` |  | ACT-R decay exponent for the activation recompute. Weight falls as days ** -decay, so HIGHER means faster forgetting: ~0.3 for a reference vault where month-old notes still count, 0.5 (default, the ACT-R literature value), ~0.8 for a journal where last week is what matters. |
 | `experiential.activationRerank` | `boolean` | `false` |  | Build the ACT-R cached-activation-score lookup and thread it to every M7 graphSearch call. NOT YET WIRED to the serve-path bubble pass (bubble_safe_rerank) — that requires opts.bubbleSafe.enabled, which nothing under src/ sets, so enabling this flag currently changes no ranking. See THE-424 for the (deliberately deferred) wiring decision. |
 | `experiential.captureContent` | `boolean` | `false` |  | Also persist each episode's raw parsed arguments, secret-scanned and size-capped. Off until the poisoning defence lands: this is the write-side of the gate. |
 | `experiential.captureEpisodes` | `boolean` | `true` |  | Record every dispatch outcome as an agent_episodes row — tool, status, duration, sizes, hashes, attribution. No payloads are stored. |

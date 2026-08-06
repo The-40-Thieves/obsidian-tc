@@ -11,6 +11,7 @@ import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import {
   applyPreferenceDeltas,
+  ELIGIBILITY_POLICY_VERSION,
   evaluateEpisodes,
   extractPreferences,
   preferenceProfile,
@@ -36,6 +37,12 @@ function edb0(): Database {
     {
       version: "20260806_003",
       sql: sql("20260806_003_agent_episodes_task_result.sql"),
+    },
+    // THE-746: eligibility_reason / eligibility_policy. Also agent_episodes-only, so it composes
+    // onto this prefix the same way.
+    {
+      version: "20260806_006",
+      sql: sql("20260806_006_episode_eligibility_reason.sql"),
     },
     { version: "20260712_001", sql: sql("20260712_001_preference_profile.sql") },
     // THE-710: the vault partition. Included here rather than in a separate fixture so every
@@ -98,6 +105,63 @@ describe("evaluateEpisodes (THE-222)", () => {
     expect(elig(db, "e1")).toBe("eligible");
     expect(elig(db, "e2")).toBe("eligible"); // errors are lessons too
     expect(elig(db, "poisoned")).toBe("ineligible"); // the invariant
+  });
+
+  // THE-746. Before this, the ONLY way to learn which rule produced a verdict was to diff two
+  // hand-made copies of the database — that is literally how THE-672's 337-episode measurement was
+  // obtained. These assert the reason is in-band, that a HELD row records one too (it keeps
+  // eligibility 'pending', so without a reason "never evaluated" and "evaluated and held" are
+  // indistinguishable), and that the precedence between two simultaneously-true hold rules is
+  // pinned rather than incidental.
+  it("records a per-decision reason and the policy version (THE-746)", async () => {
+    const db = edb0();
+    seed(db, "good", { status: "ok", task_result: null });
+    seed(db, "bad", { status: "ok", task_result: -1 });
+    await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+
+    const row = (id: string) =>
+      db
+        .prepare(
+          "SELECT eligibility, eligibility_reason, eligibility_policy FROM agent_episodes WHERE id = ?",
+        )
+        .get(id) as {
+        eligibility: string;
+        eligibility_reason: string | null;
+        eligibility_policy: number | null;
+      };
+
+    expect(row("good")).toMatchObject({
+      eligibility: "eligible",
+      eligibility_reason: "promoted_stable",
+      eligibility_policy: ELIGIBILITY_POLICY_VERSION,
+    });
+    // The held row stays pending — being held is the ABSENCE of a state change — but it is no
+    // longer silent about why.
+    expect(row("bad")).toMatchObject({
+      eligibility: "pending",
+      eligibility_reason: "held_bad_task_result",
+      eligibility_policy: ELIGIBILITY_POLICY_VERSION,
+    });
+  });
+
+  it("a row that is BOTH unstable and bad reports instability, stably (THE-746 precedence)", async () => {
+    const db = edb0();
+    // Same caller+tool+args_hash showing ok AND error makes the cluster unstable; the ok row also
+    // carries task_result = -1, so both hold rules fire on it at once.
+    seed(db, "u-ok", { status: "ok", args_hash: "h1", tool: "t", task_result: -1 });
+    seed(db, "u-err", { status: "error", args_hash: "h1", tool: "t", task_result: null });
+    await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+    const reason = (id: string) =>
+      (
+        db.prepare("SELECT eligibility_reason AS r FROM agent_episodes WHERE id = ?").get(id) as {
+          r: string | null;
+        }
+      ).r;
+    // Instability wins: it is a property of the EVIDENCE SET, the wider fact, and task_result is
+    // still recoverable from the row's own column. An audit whose reason flips between runs on
+    // identical data would be worse than no audit, so this precedence is pinned deliberately.
+    expect(reason("u-ok")).toBe("held_unstable_evidence");
+    expect(reason("u-err")).toBe("held_unstable_evidence");
   });
 
   it("holds a known-bad task_result (-1) but still promotes a plain error (THE-565)", async () => {

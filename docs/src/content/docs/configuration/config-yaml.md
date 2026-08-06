@@ -108,6 +108,7 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "logRetrievals": true,
     "captureEpisodes": true,
     "captureContent": false,
+    "activationDecay": 0.5,
     "activationRerank": false,
     "citationInfer": {
       "enabled": false,

@@ -335,6 +335,37 @@ export const ExperientialConfigSchema = z.object({
     .describe(
       "Also persist each episode's raw parsed arguments, secret-scanned and size-capped. Off until the poisoning defence lands: this is the write-side of the gate.",
     ),
+  /** THE-644 item 3: the ACT-R decay exponent, finally reachable from configuration.
+   *
+   *  `actrActivation` has always taken a `decay` and every layer below the wiring forwarded it —
+   *  `recomputeActivation(edb, now, { decay })` and `registerActivationRecompute`'s `deps.decay`
+   *  both existed. Nothing ever SUPPLIED one, so the only way to change it was the eval harness's
+   *  `seed-activation.ts --decay`, which is a script and not a shipped surface. The knob existed
+   *  and had no handle.
+   *
+   *  DIRECTION, measured against `actrActivation` rather than assumed, because a backwards preset
+   *  is worse than none. Weight decays as `days ** -decay`, so HIGHER decay means FASTER
+   *  forgetting. A 30-day-old retrieval is worth:
+   *
+   *      decay 0.3 -> 0.36    slow forgetting, long memory
+   *      decay 0.5 -> 0.18    the ACT-R literature default, and ours
+   *      decay 0.8 -> 0.066   fast forgetting, recency-dominated
+   *
+   *  PRESETS, as practices rather than numbers: a heavily-cited reference vault wants ~0.3, where
+   *  a note that mattered a month ago still counts; a daily journal or worklog wants ~0.8, where
+   *  last week is what matters. 0.5 is the default and the right answer when unsure.
+   *
+   *  Bounded (0, 2]: 0 would make activation time-invariant, which is not decay at all, and past
+   *  ~2 a two-day-old hit is already worth a quarter of a one-day-old one — beyond that the
+   *  parameter stops expressing a practice and starts expressing a bug. */
+  activationDecay: z
+    .number()
+    .gt(0)
+    .max(2)
+    .default(0.5)
+    .describe(
+      "ACT-R decay exponent for the activation recompute. Weight falls as days ** -decay, so HIGHER means faster forgetting: ~0.3 for a reference vault where month-old notes still count, 0.5 (default, the ACT-R literature value), ~0.8 for a journal where last week is what matters.",
+    ),
   /** THE-187/193: builds and threads the cached_activation_score lookup (activationFor) to every
    *  M7 graphSearch call site. THE-535: as of THE-465/THE-447 this does NOT wire the ACT-R
    *  activation bubble pass (bubble_safe_rerank) into the serve path — that pass only fires when

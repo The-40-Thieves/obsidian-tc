@@ -283,6 +283,67 @@ describe("THE-645 item 1: onActivationRecompute reaches the exposition", () => {
       'obsidian_tc_activation_recompute_chunks_total{vault="activation-recompute"} 1',
     );
   });
+
+  // THE-644 item 3. Every layer beneath this wiring already accepted a `decay` and forwarded it;
+  // this function was the one link that dropped it, so `experiential.activationDecay` had nowhere
+  // to land and the constant was unreachable outside an eval script. Asserting the OBSERVABLE
+  // consequence rather than the argument: two decays over the same event log must produce
+  // different cached scores, which is only true if the value actually arrived.
+  it("wireActivationRecompute: the configured decay reaches recomputeActivation (THE-644)", async () => {
+    const scoreWith = async (decay: number | undefined): Promise<number> => {
+      const db = await seededDb();
+      const observability = createObservability(baseDeps(db));
+      const edb = experientialDb();
+      // A RECENT retrieval, and the reason is worth stating because the obvious choice does not
+      // work. THE-193's stale floor clamps any raw activation below 0.5 back UP to 0.5 unless
+      // there is explicit negative evidence, and a single old retrieval lands under the floor at
+      // every decay — so an "old hit" version of this test reads 0.5 == 0.5 and passes whether or
+      // not the value was ever forwarded. Measured: at 45 days both 0.1 and 1.5 return exactly 0.5.
+      const recent = Date.now() - 2 * 3_600_000;
+      edb
+        .prepare("INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at) VALUES ('r1','hot',?)")
+        .run(recent);
+      vi.useFakeTimers();
+      try {
+        const scheduler = new Scheduler();
+        wireActivationRecompute(scheduler, observability, {
+          edb,
+          intervalMs: 1000,
+          ...(decay !== undefined ? { decay } : {}),
+        });
+        scheduler.start();
+        await vi.advanceTimersByTimeAsync(1000);
+        await scheduler.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+      const row = edb
+        .prepare(
+          "SELECT cached_activation_score AS s FROM vault_object_state WHERE object_id='hot'",
+        )
+        .get() as { s: number };
+      return row.s;
+    };
+
+    const lowExp = await scoreWith(0.1);
+    const highExp = await scoreWith(1.5);
+    const dflt = await scoreWith(undefined);
+
+    // The exponent arrived: three distinct scores over an identical event log.
+    //
+    // DIRECTION, stated carefully because it inverts inside one day and a preset written from the
+    // wrong half would be backwards. Weight is `days ** -decay`. Above one day that is < 1, so a
+    // larger exponent attenuates harder — the "higher decay = faster forgetting" the config
+    // presets describe. BELOW one day it is > 1, so a larger exponent AMPLIFIES. This fixture sits
+    // at two hours, so the high exponent scores higher; that is the same formula, not a
+    // contradiction, and it is the only window where the stale floor does not hide the difference.
+    expect(highExp).toBeGreaterThan(lowExp);
+    // Omitting the option must leave recomputeActivation's own default in charge rather than
+    // pinning a second copy of it in the wiring — two defaults are how they drift apart. 0.5 sits
+    // between 0.1 and 1.5, so a default that silently became one of the extremes would show here.
+    expect(dflt).toBeGreaterThan(lowExp);
+    expect(dflt).toBeLessThan(highExp);
+  });
 });
 
 describe("THE-612: onVecRebuild reaches the exposition", () => {

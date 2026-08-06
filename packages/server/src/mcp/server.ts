@@ -216,6 +216,12 @@ function toolAnnotations(def: ToolDefinition): NonNullable<Tool["annotations"]> 
     readOnlyHint: !mutating,
     destructiveHint: def.destructive === true,
     openWorldHint: false,
+    // THE-743: the fourth annotation. Emitted ONLY for mutating tools, because the spec defines it
+    // as meaningful only when `readOnlyHint == false` — sending it alongside `readOnlyHint: true`
+    // would state a fact the spec says carries no information, and reads as a contradiction.
+    // Sourced from an explicit per-tool declaration, never inferred: see ToolDefinition.idempotent
+    // for why it is NOT `acceptsIdempotencyKey` and why every tool here is currently false.
+    ...(mutating ? { idempotentHint: def.idempotent === true } : {}),
   };
 }
 

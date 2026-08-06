@@ -399,12 +399,17 @@ export function registerNoteQualitySchedule(
     /** config.experiential.citationInfer.intervalHours in ms, or undefined when the pass is off.
      *  Its own cadence rather than the maintenance interval: the pass costs gateway judge calls. */
     citationIntervalMs?: number | undefined;
+    /** config.experiential.activationDecay — the ACT-R decay exponent (THE-644 item 3). Threaded
+     *  rather than defaulted here: `recomputeActivation` owns the default, and a second copy of it
+     *  in the wiring is how two defaults drift apart. */
+    activationDecay?: number | undefined;
   },
 ): void {
   if (!deps.experientialOpen) return;
   wireActivationRecompute(scheduler, deps.observability, {
     edb: deps.experientialDb,
     intervalMs: deps.intervalMs,
+    ...(deps.activationDecay !== undefined ? { decay: deps.activationDecay } : {}),
   });
   // THE-698: the evaluator pass that promotes pending -> eligible. It had NO scheduled caller —
   // only the manual `obsidian-tc reflect` CLI — so on the live deployment 337 of 337 episodes sat
