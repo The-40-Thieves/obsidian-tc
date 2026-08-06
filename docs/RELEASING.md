@@ -46,7 +46,24 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
    the companion-plugin assets → a draft GitHub Release with checksums. See *What a tag produces* and
    *Ordered npm publish* below for the details.
 
-5. **Publish the draft Release** once the assets are attached and verified.
+5. **Verify the assets** — the Release is already PUBLISHED, not a draft. `publish.yml` sets
+   `draft: false` deliberately (*"releases were left as drafts, so 'Latest' went stale"*), so there
+   is no publish step to perform; the tag both builds and publishes. This step is verification only:
+
+   ```sh
+   npm view obsidian-tc version                 # 11 packages must all be at the new version
+   gh release view v<x.y.z> --json assets       # 11 assets: 5 binaries, plugin zip, .mcpb,
+                                                # SHASUMS256.txt, and 3 loose BRAT files
+   docker manifest inspect ghcr.io/the-40-thieves/obsidian-tc:<x.y.z>   # amd64 + arm64
+   ```
+
+   Two things that have misled a check here before:
+
+   - **A RED publish job can still have shipped almost everything.** One cut went 18/19 with npm
+     and ghcr both fine and a single asset missing. Read WHICH jobs failed; do not re-run blind.
+   - **`sha256sum -c SHASUMS256.txt` verifies NOTHING against downloaded assets** and still exits 0.
+     The manifest carries build-time paths (`./mcpb/obsidian-tc.mcpb`), which match no downloaded
+     file, so `-c` reports "no file was verified" rather than a mismatch. Compare a hash directly.
 
 ## What a tag produces
 
