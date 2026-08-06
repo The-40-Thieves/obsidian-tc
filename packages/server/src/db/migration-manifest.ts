@@ -141,6 +141,11 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // with chunk_retrievals outcome axis" and collided with both agent_episodes.status (dispatch
   // outcome) and cache.db's unrelated jobs.outcome.
   "20260806_003_agent_episodes_task_result.sql",
+  // THE-717 follow-up: 20260806_004 splits `judge_errors` out of `parse_failures`. A judge that is
+  // DOWN was recorded identically to a judge that is BABBLING — both live passes logged 3/3
+  // "parse failures" that were every one of them an HTTP 404. The kill switch still trips on the
+  // SUM, so a total outage keeps aborting; only the reporting is split.
+  "20260806_004_citation_runs_judge_errors.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

@@ -32,6 +32,9 @@ const EXP_CHAIN = [
   // anything. Added here for the same reason 20260731_001 was: this chain is minimal by choice,
   // so each addition is a deliberate statement that the function under test now depends on it.
   { version: "20260805_001", sql: read("20260805_001_citation_runs.sql") },
+  // THE-717 follow-up: 20260806_004 adds citation_runs.judge_errors. It ALTERs only that
+  // table, so it composes onto this prefix without pulling in the rest of the chain.
+  { version: "20260806_004", sql: read("20260806_004_citation_runs_judge_errors.sql") },
 ];
 const NOW = 1_700_000_000_000;
 
@@ -239,6 +242,64 @@ describe("citation inference (THE-170)", () => {
     const r = rows(edb);
     expect(r.find((x) => x.id === "r1")?.cited_in_response).toBeNull(); // clean rerun possible
     expect(r.find((x) => x.id === "r2")?.cited_in_response).toBe(0);
+  });
+
+  // THE-717 follow-up. The live store recorded two passes as 3/3 "parse failures" that were every
+  // one of them an HTTP 404 — the judge was DOWN, not babbling, and the log sent an operator to
+  // debug prompts for three days. These two tests pin the distinction, and the second pins the
+  // safety property that the obvious version of this fix would have silently broken.
+  it("a judge that THROWS counts as a transport error, not a parse failure (THE-717)", async () => {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cA", CHUNK_CITED);
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cB", CHUNK_UNCITED);
+    seedRetrieval(edb, "r1", "cA", "s1");
+    seedRetrieval(edb, "r2", "cB", "s1");
+
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      minJudgedForKill: 1,
+      // Exactly the shape of the outage: the gateway rejects, the call throws.
+      judge: async () => {
+        throw new Error("litellm.NotFoundError: modal-http: invalid function call");
+      },
+    });
+    expect(stats.judgeErrors).toBe(1);
+    // The whole point: this must NOT be reported as the judge answering unparseably.
+    expect(stats.parseFailures).toBe(0);
+    // ...and the CONTROL, so a passing assertion above cannot be a counter that never increments:
+    // the unparseable case in the test directly above still reports parseFailures = 1, judgeErrors = 0.
+  });
+
+  it("an all-transport-failure pass STILL trips the kill switch (the regression this fix could have caused)", async () => {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cA", CHUNK_CITED);
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cB", CHUNK_UNCITED);
+    seedRetrieval(edb, "r1", "cA", "s1");
+    seedRetrieval(edb, "r2", "cB", "s1");
+
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      minJudgedForKill: 1,
+      judge: async () => {
+        throw new Error("connection refused");
+      },
+    });
+    // Moving transport failures OUT of parseFailures without summing them into the kill-switch
+    // ratio would make this `false`: the ratio would compute 0/1 and a total outage would abort
+    // nothing. That is a worse failure than the one being fixed, so it is pinned here explicitly.
+    expect(stats.aborted).toBe(true);
+    expect(stats.judgeErrors).toBe(1);
+    expect(stats.parseFailures).toBe(0);
+    // Survivors stay NULL so the pass is cleanly rerunnable once the endpoint is back.
+    expect(rows(edb).find((x) => x.id === "r1")?.cited_in_response).toBeNull();
   });
 
   it("stage-1-only mode (no judge) stamps survivors cited=1 with the stage-1 score", async () => {
@@ -665,7 +726,12 @@ describe("stage-2 preflight hardening (THE-621)", () => {
       },
     });
     expect(stats.judged).toBe(4);
-    expect(stats.parseFailures).toBe(1); // the throw counts as a failure, exactly as before
+    // THE-717 follow-up: a THROWN call is a TRANSPORT failure, not a parse failure. This line read
+    // `parseFailures === 1` until 2026-08-06 — the assertion was correct about the count and wrong
+    // about the cause, and that conflation is what made a three-day HTTP 404 outage read as a
+    // model unable to emit JSON. The isolation property this test exists for is unchanged.
+    expect(stats.judgeErrors).toBe(1);
+    expect(stats.parseFailures).toBe(0);
     expect(stats.cited).toBe(3); // the other three are unaffected
   });
 

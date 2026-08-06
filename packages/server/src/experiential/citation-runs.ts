@@ -39,7 +39,12 @@ export interface CitationRunClose {
   scoped: number;
   stage1Pass: number;
   judged: number;
+  /** Judge replies that ANSWERED but did not parse. Send an operator to the prompt/model. */
   parseFailures: number;
+  /** Judge calls that never answered at all — transport, HTTP, timeout (20260806_004). Send an
+   *  operator to the gateway role's endpoint and credential. Folding these two together is what
+   *  made a three-day HTTP 404 outage read as a model that cannot emit JSON. */
+  judgeErrors: number;
   /** Rows actually written. THE number that matters — a pass can be healthy and stamp zero. */
   stamped: number;
   aborted: boolean;
@@ -59,6 +64,8 @@ export interface CitationRunRow {
   stage1_pass: number | null;
   judged: number | null;
   parse_failures: number | null;
+  /** Judge calls that never ANSWERED, as distinct from answered-unparseably (20260806_004). */
+  judge_errors: number | null;
   stamped: number | null;
   aborted: number | null;
   judge_present: number;
@@ -101,7 +108,7 @@ export function closeCitationRun(edb: Database, id: number, c: CitationRunClose)
     .prepare(
       `UPDATE citation_runs
         SET finished_at = ?, scoped = ?, stage1_pass = ?, judged = ?,
-            parse_failures = ?, stamped = ?, aborted = ?
+            parse_failures = ?, judge_errors = ?, stamped = ?, aborted = ?
       WHERE id = ?`,
     )
     .run(
@@ -110,6 +117,7 @@ export function closeCitationRun(edb: Database, id: number, c: CitationRunClose)
       c.stage1Pass,
       c.judged,
       c.parseFailures,
+      c.judgeErrors,
       c.stamped,
       c.aborted ? 1 : 0,
       id,

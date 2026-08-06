@@ -291,6 +291,9 @@ export interface InferCitationsStats {
   /** Judge abstentions. Always 0 unless `allowUncertain` is set. */
   uncertain: number;
   parseFailures: number;
+  /** Judge calls that never ANSWERED (transport/HTTP/timeout). THE-717 follow-up: previously
+   *  folded into `parseFailures`, which sent operators to debug prompts during an endpoint outage. */
+  judgeErrors: number;
   aborted: boolean;
 }
 
@@ -342,6 +345,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
       stage1Pass: 0,
       judged: 0,
       parseFailures: 0,
+      judgeErrors: 0,
       stamped: 0,
       aborted: false,
       finishedAt: Date.now(),
@@ -353,6 +357,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
       cited: 0,
       uncertain: 0,
       parseFailures: 0,
+      judgeErrors: 0,
       aborted: false,
     };
   }
@@ -429,6 +434,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   const verdicts = new Map<string, JudgeVerdict>();
   let judged = 0;
   let parseFailures = 0;
+  let judgeErrors = 0;
   if (opts.judge && passers.length > 0) {
     const judge = opts.judge;
     const toJudge = passers.slice(0, opts.maxJudged ?? MAX_JUDGED);
@@ -452,11 +458,17 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
           ),
           responseFormat: { type: "json_object" },
         };
+        // THE-717 follow-up: a judge that never ANSWERED and a judge that answered UNPARSEABLY
+        // are different faults with opposite remedies — an endpoint/credential vs a prompt/model.
+        // Collapsing both to `null` is what made a three-day HTTP 404 outage read as "the model
+        // cannot produce JSON" in citation_runs. Discriminated here, at the only place that can
+        // still tell them apart; everything downstream is counting.
         try {
           const res = await judge(req);
-          return parseVerdict(res.text, opts.allowUncertain === true);
+          const v = parseVerdict(res.text, opts.allowUncertain === true);
+          return v === null ? { kind: "unparseable" as const } : { kind: "ok" as const, v };
         } catch {
-          return null;
+          return { kind: "transport" as const };
         }
       },
     );
@@ -465,8 +477,9 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     // count byte-identical to the serial version regardless of which judge call returned first.
     judged = settled.length;
     for (let i = 0; i < settled.length; i++) {
-      const v = settled[i];
-      if (v) verdicts.set((toJudge[i] as Assessment).chunkId, v);
+      const r = settled[i];
+      if (r?.kind === "ok") verdicts.set((toJudge[i] as Assessment).chunkId, r.v);
+      else if (r?.kind === "transport") judgeErrors += 1;
       else parseFailures += 1;
     }
   }
@@ -474,14 +487,24 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   // anything. Below the floor a failure still leaves its own row NULL for a clean rerun — it just
   // no longer discards the verdicts that DID parse alongside it.
   const minJudgedForKill = Math.max(1, opts.minJudgedForKill ?? MIN_JUDGED_FOR_KILL);
-  const ratioExceeded = judged > 0 && parseFailures / judged > th.killSwitch;
+  // THE-717 follow-up: the switch keys on UNUSABLE verdicts — parse failures AND transport
+  // failures. Splitting the two for reporting without summing them here would have been a safety
+  // regression, not a fix: an all-404 pass would compute parseFailures/judged = 0/N and never
+  // abort, which is precisely the outage this change exists to make visible.
+  const unusable = parseFailures + judgeErrors;
+  // Name the DOMINANT fault, because the two send an operator to different places.
+  const why =
+    judgeErrors > parseFailures
+      ? `${judgeErrors}/${judged} judge transport failures (the judge did not answer — check the gateway role's endpoint and credential)`
+      : `${parseFailures}/${judged} judge parse failures (the judge answered unparseably — check the prompt and the model)`;
+  const ratioExceeded = judged > 0 && unusable / judged > th.killSwitch;
   const aborted = ratioExceeded && judged >= minJudgedForKill;
-  if (aborted) log(`citation-infer: kill switch — ${parseFailures}/${judged} judge parse failures`);
+  if (aborted) log(`citation-infer: kill switch — ${why}`);
   else if (ratioExceeded) {
     // Say so out loud. A suppressed abort that logged nothing would be indistinguishable from a
     // clean pass in the operator's output, which is the failure shape this repo keeps re-finding.
     log(
-      `citation-infer: ${parseFailures}/${judged} judge parse failures exceed the ${th.killSwitch} kill-switch ratio, but the pass is below the ${minJudgedForKill}-judgement floor — stamping the ${judged - parseFailures} verdict(s) that parsed`,
+      `citation-infer: ${why} exceed the ${th.killSwitch} kill-switch ratio, but the pass is below the ${minJudgedForKill}-judgement floor — stamping the ${judged - unusable} verdict(s) that parsed`,
     );
   }
 
@@ -550,6 +573,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     stage1Pass: passers.length,
     judged,
     parseFailures,
+    judgeErrors,
     stamped: stampedRows,
     aborted,
     finishedAt: Date.now(),
@@ -562,6 +586,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     cited,
     uncertain,
     parseFailures,
+    judgeErrors,
     aborted,
   };
 }
