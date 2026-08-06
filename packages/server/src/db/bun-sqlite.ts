@@ -1,6 +1,7 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connectionPragmas } from "./pragmas";
 import { EMBEDDED_SQLITE_BASE64 } from "./sqlite-embedded";
 import type { Database as Db, RunResult, Statement } from "./types";
 
@@ -67,20 +68,10 @@ export async function openBunSqlite(path: string): Promise<Db> {
   // Must precede the constructor below — setCustomSQLite is a no-op once a Database exists.
   useEmbeddedSqlite(BunDatabase);
   const db = new BunDatabase(path, { create: true });
-  // Server-tuned per-connection baseline (THE-273): WAL + synchronous=NORMAL is the documented
-  // safe pairing; busy_timeout waits instead of throwing SQLITE_BUSY when the reindex, the boot
-  // reconcile, and a live tool call touch cache.db at once; the larger page cache + mmap keep the
-  // brute-force scan and the recursive graph walk resident.
-  for (const p of [
-    "PRAGMA foreign_keys = ON",
-    "PRAGMA journal_mode = WAL",
-    "PRAGMA synchronous = NORMAL",
-    "PRAGMA busy_timeout = 5000",
-    "PRAGMA cache_size = -32000",
-    "PRAGMA temp_store = MEMORY",
-    "PRAGMA mmap_size = 268435456",
-  ])
-    db.exec(p);
+  // Server-tuned per-connection baseline (THE-273), shared with the two Node adapters so the
+  // ORDER cannot drift between them — busy_timeout must precede anything that can contend
+  // (THE-745). See db/pragmas.ts.
+  for (const p of connectionPragmas()) db.exec(`PRAGMA ${p}`);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     // THE-687: bun:sqlite types its bind parameters as SQLQueryBindings, while the Statement port

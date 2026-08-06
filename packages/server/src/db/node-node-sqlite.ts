@@ -1,3 +1,4 @@
+import { connectionPragmas } from "./pragmas";
 import type { Database as Db, RunResult, Statement } from "./types";
 
 // Minimal shape of the built-in node:sqlite surface we use (typed locally so this compiles
@@ -27,18 +28,10 @@ export async function openNodeSqlite(path: string): Promise<Db> {
     DatabaseSync: new (location: string) => NsDatabase;
   };
   const db = new DatabaseSync(path);
-  // Same per-connection baseline as the better-sqlite3 adapter (THE-273), applied via exec since
-  // node:sqlite has no dedicated pragma() helper.
-  for (const p of [
-    "foreign_keys = ON",
-    "journal_mode = WAL",
-    "synchronous = NORMAL",
-    "busy_timeout = 5000",
-    "cache_size = -32000",
-    "temp_store = MEMORY",
-    "mmap_size = 268435456",
-  ])
-    db.exec(`PRAGMA ${p}`);
+  // Same per-connection baseline as the other adapters (THE-273), shared so the ORDER cannot drift
+  // between them — busy_timeout must precede anything that can contend (THE-745). See
+  // db/pragmas.ts. Applied via exec since node:sqlite has no dedicated pragma() helper.
+  for (const p of connectionPragmas()) db.exec(`PRAGMA ${p}`);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     return {
