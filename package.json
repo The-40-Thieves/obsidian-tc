@@ -2,7 +2,7 @@
   "name": "obsidian-tc-monorepo",
   "version": "1.20.0",
   "private": true,
-  "description": "Obsidian Turbocharged — comprehensive, model-agnostic, agent-ready Obsidian MCP server",
+  "description": "Obsidian Turbocharged \u2014 comprehensive, model-agnostic, agent-ready Obsidian MCP server",
   "license": "AGPL-3.0-only",
   "author": "The 40 Thieves",
   "repository": {
@@ -44,6 +44,7 @@
     "config:schema:check": "bun scripts/gen-config-schema.ts --check",
     "format": "biome format --write .",
     "lint": "biome check --error-on-warnings .",
+    "knip": "knip",
     "map": "node scripts/gen-tree-map.mjs",
     "map:check": "node scripts/gen-tree-map.mjs --check",
     "migrations:embed": "node scripts/gen-embedded-migrations.mjs",
@@ -65,6 +66,7 @@
     "@biomejs/biome": "^2.5.5",
     "dependency-cruiser": "18.1.0",
     "jscpd": "^5.0.12",
+    "knip": "6.32.0",
     "typescript": "^7.0.2"
   },
   "engines": {
