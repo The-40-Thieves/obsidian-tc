@@ -21,12 +21,14 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { astGrep } from "./ast-grep-bin.mjs";
 import { DECL_KINDS_BY_LANG, findDeclarations } from "./where-symbol.mjs";
 
 /** ast-grep lives in ci-quality.yml's pinned job, not in the one running `test:scripts`. */
 const hasAstGrep = (() => {
   try {
-    execFileSync("ast-grep", ["--version"], { stdio: "ignore" });
+    const bin = astGrep();
+    execFileSync(bin.cmd, [...bin.prefix, "--version"], { stdio: "ignore" });
     return true;
   } catch {
     return false;

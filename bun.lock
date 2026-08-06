@@ -5,6 +5,7 @@
     "": {
       "name": "obsidian-tc-monorepo",
       "devDependencies": {
+        "@ast-grep/cli": "0.45.0",
         "@biomejs/biome": "^2.5.5",
         "dependency-cruiser": "18.1.0",
         "jscpd": "^5.0.12",
@@ -13,14 +14,14 @@
     },
     "packages/native": {
       "name": "@the-40-thieves/obsidian-tc-native",
-      "version": "1.16.0",
+      "version": "1.20.0",
       "devDependencies": {
         "@napi-rs/cli": "^3.7.2",
       },
     },
     "packages/plugin": {
       "name": "@the-40-thieves/obsidian-tc-plugin",
-      "version": "1.16.0",
+      "version": "1.20.0",
       "devDependencies": {
         "@types/node": "^24.0.0",
         "builtin-modules": "^4.0.0",
@@ -32,7 +33,7 @@
     },
     "packages/server": {
       "name": "obsidian-tc",
-      "version": "1.16.0",
+      "version": "1.20.0",
       "bin": {
         "obsidian-tc": "./dist/cli.js",
       },
@@ -67,7 +68,7 @@
     },
     "packages/shared": {
       "name": "@the-40-thieves/obsidian-tc-shared",
-      "version": "1.16.0",
+      "version": "1.20.0",
       "dependencies": {
         "zod": "^4.0.0",
       },
@@ -92,6 +93,22 @@
     "vite": "^7.0.0",
   },
   "packages": {
+    "@ast-grep/cli": ["@ast-grep/cli@0.45.0", "", { "dependencies": { "detect-libc": "2.1.2" }, "optionalDependencies": { "@ast-grep/cli-darwin-arm64": "0.45.0", "@ast-grep/cli-darwin-x64": "0.45.0", "@ast-grep/cli-linux-arm64-gnu": "0.45.0", "@ast-grep/cli-linux-x64-gnu": "0.45.0", "@ast-grep/cli-win32-arm64-msvc": "0.45.0", "@ast-grep/cli-win32-ia32-msvc": "0.45.0", "@ast-grep/cli-win32-x64-msvc": "0.45.0" }, "bin": { "sg": "sg", "ast-grep": "ast-grep" } }, "sha512-OQ4pcktMtg1hcQat/iCpX9r8HJ7mU/2SZVoGHA9id2gEfosvDw5m5RINQXsSRZXQW8bl45FW6FhdK0O2FiKjsw=="],
+
+    "@ast-grep/cli-darwin-arm64": ["@ast-grep/cli-darwin-arm64@0.45.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-/GqKTawC6/g9k+NDr0u3PvJ0LJkmY5NH4GfvwrgmB8HjRVOoUXWQx5vVzZoEVrAcTogfNWEMs4I5Gdh+glQvPw=="],
+
+    "@ast-grep/cli-darwin-x64": ["@ast-grep/cli-darwin-x64@0.45.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-SvcLPpOX2HaPepwuuSzTRdnrlcaVprQGdwuoW00+KWRjGZJj5z0WGIY84wjfTYhzUxaN5+z4GlCwLGgn0ojMzw=="],
+
+    "@ast-grep/cli-linux-arm64-gnu": ["@ast-grep/cli-linux-arm64-gnu@0.45.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-N0vVTmASn/YR76BoY1zrIltLJ+PJ/zOv2aszX51Wym1ZA6P75tUPctofXh6KzEpESMdx2DcIDyDWVRi672SaQQ=="],
+
+    "@ast-grep/cli-linux-x64-gnu": ["@ast-grep/cli-linux-x64-gnu@0.45.0", "", { "os": "linux", "cpu": "x64" }, "sha512-rAMZJzAiBuXMViuJgdPeMZXI9HnqwMCh3ybIoj8dfWBPsAywKgU8vyH4kd/R5fFr/oB4lKVhTJ2/mEBsOQTHaQ=="],
+
+    "@ast-grep/cli-win32-arm64-msvc": ["@ast-grep/cli-win32-arm64-msvc@0.45.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-9RMvGHSE7uMGzlrQ296caPUkF5jX3KcWewyUJLqpxtEQVwZUkJ7R2/rSxBhjZeg7dp1+keIgt/vH/7FyIO5Wwg=="],
+
+    "@ast-grep/cli-win32-ia32-msvc": ["@ast-grep/cli-win32-ia32-msvc@0.45.0", "", { "os": "win32", "cpu": "ia32" }, "sha512-jkQtIpWYJcorhfoRh99cMyeK+edAaysF2z2MR3bRdCDE8EcNfWfqGuWDcLInXwFWFX739dQ6rq9ev3e9o+owXA=="],
+
+    "@ast-grep/cli-win32-x64-msvc": ["@ast-grep/cli-win32-x64-msvc@0.45.0", "", { "os": "win32", "cpu": "x64" }, "sha512-2okmFrV/NP1qBATV21+pFIFiUlh5QbKNzTjCTyuaOhCzt0TwYao/RF5b2VUfsvBMtLqYj4rz69GvcPikznskfg=="],
+
     "@babel/helper-string-parser": ["@babel/helper-string-parser@7.29.7", "", {}, "sha512-Pb5ijPrZ89GDH8223L4UP8i6QApWxs04RbPQJTeWDV0/keR2E36MeKnyr6LYmUUvqRRI+Iv87SuF1W6ErINzYw=="],
 
     "@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@7.29.7", "", {}, "sha512-qehxGkRj55h/ff8EMaJ+cYhyaKlHIxqYDn682wQD7RNp9UujOQsHog2uS0r2vzr4pW+sXf90NeeayjcNaX3fFg=="],

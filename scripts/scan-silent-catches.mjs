@@ -35,6 +35,7 @@
 //
 // Shell-free: ast-grep is invoked via execFileSync with an argument array, never through a shell.
 import { execFileSync } from "node:child_process";
+import { astGrep as resolveAstGrep } from "./ast-grep-bin.mjs";
 
 const SRC = "packages/server/src";
 
@@ -52,13 +53,17 @@ const SIGNAL =
 function astGrep(pattern) {
   let out;
   try {
-    out = execFileSync("ast-grep", ["run", "-p", pattern, "-l", "ts", "--json", SRC], {
+    const bin = resolveAstGrep();
+    out = execFileSync(bin.cmd, [...bin.prefix, "run", "-p", pattern, "-l", "ts", "--json", SRC], {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     });
   } catch (e) {
     if (e?.code === "ENOENT") {
-      console.error("scan-silent-catches: ast-grep is not on PATH. Install it (mise) and re-run.");
+      console.error(
+        "scan-silent-catches: ast-grep is unavailable. Run `bun install` (it is a devDependency)\n" +
+          "or put it on PATH.",
+      );
       console.error("Refusing to report a count this script did not actually measure.");
       process.exit(2);
     }

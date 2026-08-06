@@ -61,6 +61,7 @@
     "db:pages": "node scripts/db-page-report.mjs"
   },
   "devDependencies": {
+    "@ast-grep/cli": "0.45.0",
     "@biomejs/biome": "^2.5.5",
     "dependency-cruiser": "18.1.0",
     "jscpd": "^5.0.12",
