@@ -105,6 +105,15 @@ that constant is the one thing that cannot drift from reality.
 - **Migrations are append-only, hand-registered, checksum-pinned.** Add the `.sql`, append it to
   `db/migration-manifest.ts`, regenerate the embedded copy. Editing a *shipped* migration is a hard
   startup error. There is no down-migration and no dry-run.
+
+  **There is a FOURTH step, and nothing gates it: `just migration-impact <file.sql>`.** Those three
+  steps are all gated (`migrations-manifest.test.ts`, `migrations:embed:check`) — the test suite is
+  not. **62 test files hand-build their own literal migration chain**; only 16 read the manifest.
+  A new migration leaves all 62 behind, and without this lookup you find the affected ones one red
+  CI build at a time — that cost three separate rounds on 2026-08-06. The duplication is deliberate
+  (a minimal chain makes a test's schema dependencies explicit; see `citation.test.ts`'s own note),
+  so the fix is knowing the set, not collapsing it. It prints the chains that CREATE the table your
+  migration touches; not all of them will break, it is the set to CHECK.
 - **`bun --compile` bakes `import.meta.url` and embeds no assets.** That is why migrations are
   codegen'd into a `.ts` module. Any `readFileSync` of a `.sql`/`.json` asset ships a binary that
   only runs on the build machine.

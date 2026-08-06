@@ -254,7 +254,7 @@ describe("preference profile (ACE typed deltas)", () => {
     applyPreferenceDeltas(db, V1, [{ key: "k", op: "retract" }], NOW + 1);
     expect(preferenceProfile(db, V1).entries).toHaveLength(0); // weight 0 filtered
     const raw = db
-      .prepare("SELECT weight AS w FROM preference_profile WHERE vault_id='" + V1 + "' AND key='k'")
+      .prepare(`SELECT weight AS w FROM preference_profile WHERE vault_id='${V1}' AND key='k'`)
       .get() as {
       w: number;
     };

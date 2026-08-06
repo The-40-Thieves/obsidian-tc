@@ -56,6 +56,7 @@
     "test:scripts": "node --test scripts/*.test.mjs",
     "typecheck": "bun run --filter='*' typecheck",
     "where": "node scripts/where-symbol.mjs",
+    "migration-impact": "node scripts/migration-impact.mjs",
     "vec:embed": "node scripts/gen-embedded-vec.mjs",
     "db:pages": "node scripts/db-page-report.mjs"
   },
