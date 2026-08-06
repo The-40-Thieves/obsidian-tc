@@ -40,6 +40,14 @@ import {
 } from "./registry/types";
 import { ALLOW_ALL, type VisibilityCaller } from "./visibility";
 
+// WP4.3: assertScopesGranted moved to registry/policy-gates.ts, memoizeSerialized/takeSerialized
+// to registry/result-governance.ts — both unchanged, re-exported so every existing importer
+// (resources.ts, mcp/server.ts) keeps working unchanged (check:facade-parity pins this file's
+// export surface).
+// THE-742: re-exported so consumers do not reach past this facade into `registry/policy-gates`.
+// rerun.ts needs the read-only gate's exact message to tell its `forbidden` from the three other
+// gates that throw the same code — a legitimate need that was being met by a deep import.
+export { READ_ONLY_DENIAL_MESSAGE } from "./registry/policy-gates";
 // WP4.1: types + tool storage now live under ./registry/ (types.ts, tool-store.ts). Re-exported
 // here so every existing importer of this facade keeps working unchanged — check:facade-parity
 // pins this file's export surface byte-for-byte against origin/main.
@@ -52,10 +60,6 @@ export type {
   ToolDomain,
   ToolIcon,
 };
-// WP4.3: assertScopesGranted moved to registry/policy-gates.ts, memoizeSerialized/takeSerialized
-// to registry/result-governance.ts — both unchanged, re-exported so every existing importer
-// (resources.ts, mcp/server.ts) keeps working unchanged (check:facade-parity pins this file's
-// export surface).
 export { assertScopesGranted, memoizeSerialized, TOOL_DOMAINS, takeSerialized };
 
 export class ToolRegistry {
