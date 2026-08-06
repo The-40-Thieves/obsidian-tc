@@ -52,7 +52,7 @@ export type CliCommand =
       json?: boolean;
     }
   | { kind: "densify-llm"; input?: string; vault?: string }
-  | { kind: "reflect"; input?: string; maxJudged?: number }
+  | { kind: "reflect"; input?: string }
   | {
       kind: "metrics";
       input?: string;
@@ -115,7 +115,7 @@ Usage:
                                           Prewarm the session-bootstrap context cache (THE-136)
   obsidian-tc densify-llm [path] [--vault id]
                                           LLM Pass-3 semantic-edge densification via the local gateway (graph densification)
-  obsidian-tc reflect [path] [--max-judged N]
+  obsidian-tc reflect [path]
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
   obsidian-tc rerun <session-id> [path] [--vault <id>] [--sandbox] [--json]
                                         Re-issue a recorded session's captured tool arguments
@@ -411,8 +411,10 @@ export function parseCliArgs(argv: string[]): CliCommand {
       const until = num("--until");
       const transcript = flagValue(rest, "--transcript");
       const transcriptIndex = flagValue(rest, "--transcript-index");
-      // THE-617 item 3: same --max-judged shape as the `reflect` command, applied to this
-      // command's OWN MAX_JUDGED (a separate knob — see citation.ts's InferCitationsOptions).
+      // THE-617 item 3: caps how many stage-1 survivors reach the judge, against this command's
+      // own MAX_JUDGED (see citation.ts's InferCitationsOptions). THE-747: `reflect` used to carry
+      // an identically-shaped flag; THE-701 deleted the judge it capped, so this is now the only
+      // --max-judged in the CLI and there is no second knob to keep it distinct from.
       const mv = flagValue(rest, "--max-judged");
       let maxJudged: number | undefined;
       if (mv !== undefined) {
@@ -598,23 +600,25 @@ export function parseCliArgs(argv: string[]): CliCommand {
     }
     // THE-222: sleep-time reflect — episode-eligibility evaluator + preference-profile update.
     if (first === "reflect") {
+      // THE-747: this command used to accept --max-judged, capping the episode-eligibility judge.
+      // THE-701 removed that judge, and the flag outlived it — parsed, range-validated, advertised
+      // in --help, and passed to nothing. Removed rather than rewired: there is no longer a judge
+      // here to bound. The citation-infer command's --max-judged is a different, live knob.
+      //
+      // It is REJECTED rather than ignored, for the reason the `token mint` branch documents: the
+      // positional scan takes the first non-dash token, so silently dropping the flag would leave
+      // its VALUE behind and `reflect --max-judged 5` would resolve the config path to "5".
+      // Erroring also tells an operator with it in a script that it has not worked since THE-701.
+      if (rest.includes("--max-judged"))
+        return {
+          kind: "error",
+          message:
+            "--max-judged is no longer supported on `reflect`: THE-701 removed the episode-eligibility judge it capped, and the pass is now purely deterministic. The citation-infer command's --max-judged is unaffected.",
+        };
       const scan = [...rest];
-      for (const f of ["--max-judged", "--config"]) {
-        const i = scan.indexOf(f);
-        if (i >= 0) scan.splice(i, 2);
-      }
-      const mv = flagValue(rest, "--max-judged");
-      let maxJudged: number | undefined;
-      if (mv !== undefined) {
-        maxJudged = Number.parseInt(mv, 10);
-        if (!Number.isFinite(maxJudged) || maxJudged < 0)
-          return { kind: "error", message: "--max-judged must be a non-negative integer" };
-      }
-      return {
-        kind: "reflect",
-        input: flagValue(rest, "--config") ?? positional(scan),
-        ...(maxJudged !== undefined ? { maxJudged } : {}),
-      };
+      const i = scan.indexOf("--config");
+      if (i >= 0) scan.splice(i, 2);
+      return { kind: "reflect", input: flagValue(rest, "--config") ?? positional(scan) };
     }
     // THE-136: anticipatory prefetch — compose the bootstrap bundle and write the prewarm cache.
     if (first === "prefetch") {
