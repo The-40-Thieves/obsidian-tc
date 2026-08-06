@@ -50,7 +50,7 @@ describe("sparse RRF stream in graph_search (THE-388)", () => {
     const db = db0();
     addChunk(db, "seed", "S.md", vd(0.99));
     addChunk(db, "n0", "N0.md", vd(0.9));
-    addChunk(db, "sp", "SP.md", vd(0.0), { obsidian: 0.9, retrieval: 0.5 });
+    addChunk(db, "sp", "SP.md", vd(0.0), { 11: 0.9, 22: 0.5 });
     const results = await graphSearch(db, {
       query: "x",
       queryVec: [1, 0, 0, 0],
@@ -59,7 +59,7 @@ describe("sparse RRF stream in graph_search (THE-388)", () => {
       finalTopK: 10,
       router: { enabled: false },
       lexical: { enabled: false },
-      querySparse: { obsidian: 1.0 },
+      querySparse: { 11: 1.0 },
     });
     const ids = results.map((r) => r.chunk_id);
     expect(ids).toContain("sp");
@@ -69,7 +69,7 @@ describe("sparse RRF stream in graph_search (THE-388)", () => {
   it("no-op without querySparse (sparse chunk stays unrecovered)", async () => {
     const db = db0();
     addChunk(db, "seed", "S.md", vd(0.99));
-    addChunk(db, "sp", "SP.md", vd(0.0), { obsidian: 0.9 });
+    addChunk(db, "sp", "SP.md", vd(0.0), { 11: 0.9 });
     const results = await graphSearch(db, {
       query: "x",
       queryVec: [1, 0, 0, 0],

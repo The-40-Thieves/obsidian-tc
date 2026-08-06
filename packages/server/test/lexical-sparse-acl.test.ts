@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import { bm25Chunks, ensureChunkFts } from "../src/search/chunk_fts";
-import { ensureChunkSparse, sparseSearch } from "../src/search/sparse";
+import { ensureChunkSparse, sparseSearch, upsertChunkSparse } from "../src/search/sparse";
 import { floatBlob } from "../src/search/vec";
 import { openMemoryDb } from "./helpers";
 
@@ -110,13 +110,13 @@ describe("THE-632: BM25 applies the read ACL before its top-k cut", () => {
 });
 
 describe("THE-632: sparse search applies the read ACL before its top-k cut", () => {
+  // THE-711: writes go through the PRODUCTION writer rather than hand-rolled SQL. This helper
+  // used to INSERT a JSON.stringify'd blob into a `weights` column directly, which meant the
+  // fixture encoded the storage format and broke the moment that format changed. upsertChunkSparse
+  // owns the encoding; the test should only own the values.
   const addSparse = (db: Database, id: string, weights: Record<string, number>): void => {
     ensureChunkSparse(db);
-    db.prepare("INSERT INTO chunk_sparse (chunk_id, vault_id, weights) VALUES (?, ?, ?)").run(
-      id,
-      VAULT,
-      JSON.stringify(weights),
-    );
+    upsertChunkSparse(db, id, VAULT, weights);
   };
 
   it("never returns an unreadable chunk, even as the strongest match", () => {
@@ -124,11 +124,11 @@ describe("THE-632: sparse search applies the read ACL before its top-k cut", () 
     const db = seedDb();
     addChunk(db, "priv", PRIVATE, "classified");
     addChunk(db, "pub", "00-public.md", "ordinary");
-    addSparse(db, "priv", { zarquon: 9.0 });
-    addSparse(db, "pub", { ordinary: 0.1 });
+    addSparse(db, "priv", { 4242: 9.0 });
+    addSparse(db, "pub", { 9999: 0.1 });
 
-    const leaky = sparseSearch(db, VAULT, { zarquon: 1.0 }, 10);
-    const guarded = sparseSearch(db, VAULT, { zarquon: 1.0 }, 10, readable);
+    const leaky = sparseSearch(db, VAULT, { 4242: 1.0 }, 10);
+    const guarded = sparseSearch(db, VAULT, { 4242: 1.0 }, 10, readable);
 
     expect(leaky.map((h) => h.path)).toContain(PRIVATE);
     expect(guarded).toHaveLength(0);
@@ -139,12 +139,12 @@ describe("THE-632: sparse search applies the read ACL before its top-k cut", () 
     const db = seedDb();
     for (let i = 0; i < 12; i++) {
       addChunk(db, `p${i}`, `09-private/n${i}.md`, "x");
-      addSparse(db, `p${i}`, { term: 5.0 });
+      addSparse(db, `p${i}`, { 77: 5.0 });
     }
     addChunk(db, "vis", "00-visible.md", "x");
-    addSparse(db, "vis", { term: 0.01 }); // weakest match, would never survive a top-1 cut
+    addSparse(db, "vis", { 77: 0.01 }); // weakest match, would never survive a top-1 cut
 
-    const hits = sparseSearch(db, VAULT, { term: 1.0 }, 1, readable);
+    const hits = sparseSearch(db, VAULT, { 77: 1.0 }, 1, readable);
     expect(hits).toHaveLength(1);
     expect(hits[0]?.path).toBe("00-visible.md");
   });

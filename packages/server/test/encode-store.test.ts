@@ -8,6 +8,7 @@ import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import type { EmbeddingProvider, MultiVectorEmbedding } from "../src/embeddings/provider";
 import { indexNote } from "../src/search/indexer";
+import { unpackSparse } from "../src/search/sparse";
 import { openMemoryDb } from "./helpers";
 
 const INIT_SQL = readFileSync(
@@ -49,7 +50,7 @@ const multiRep: EmbeddingProvider = {
   async embedFull(texts): Promise<MultiVectorEmbedding[]> {
     return texts.map(() => ({
       dense: [1, 0, 0, 0],
-      sparse: { tok_a: 0.9, tok_b: 0.3 },
+      sparse: { 101: 0.9, 202: 0.3 },
       colbert: [
         [1, 0],
         [0, 1],
@@ -75,17 +76,25 @@ describe("encode->store wiring (THE-388)", () => {
     const chunks = n("SELECT COUNT(*) AS n FROM chunks");
     expect(n("SELECT COUNT(*) AS n FROM chunk_sparse")).toBe(chunks);
     expect(n("SELECT COUNT(*) AS n FROM chunk_colbert")).toBe(chunks);
-    // THE-711: `weights` is JSONB (a BLOB), so it is read back through `json()` — the same
-    // accessor sparseSearch uses. Selecting the raw column and JSON.parse-ing it asserted the
-    // STORAGE FORMAT rather than the stored value, which is why this line broke when the format
-    // changed while the round-trip stayed correct.
-    const s = db.prepare("SELECT json(weights) AS weights FROM chunk_sparse LIMIT 1").get() as {
-      weights: string;
+    // THE-711: weights are stored PACKED (u32 ids + f32 weights, ids ascending) and read back
+    // through unpackSparse — the decode the scoring path deliberately never performs. Asserting
+    // the round-tripped VALUE rather than the on-disk bytes is what keeps this from re-breaking on
+    // the next format change; it broke on the last one precisely because it asserted the format.
+    //
+    // f32 is lossy against the f64 literals written above, so the comparison is by tolerance. That
+    // precision loss is a real property of the format, not a test artefact.
+    const s = db.prepare("SELECT weights_packed AS w FROM chunk_sparse LIMIT 1").get() as {
+      w: Uint8Array;
     };
-    expect(JSON.parse(s.weights)).toEqual({ tok_a: 0.9, tok_b: 0.3 });
-    // The bytes really are JSONB, not text that happens to parse — otherwise the change above
-    // would be a no-op wearing a passing test.
-    const raw = db.prepare("SELECT typeof(weights) AS t FROM chunk_sparse LIMIT 1").get() as {
+    const w = unpackSparse(s.w);
+    expect(Object.keys(w).sort()).toEqual(["101", "202"]);
+    expect(w["101"]).toBeCloseTo(0.9, 6);
+    expect(w["202"]).toBeCloseTo(0.3, 6);
+    // And the bytes really are a BLOB — otherwise the format change would be a no-op wearing a
+    // passing test.
+    const raw = db
+      .prepare("SELECT typeof(weights_packed) AS t FROM chunk_sparse LIMIT 1")
+      .get() as {
       t: string;
     };
     expect(raw.t).toBe("blob");
