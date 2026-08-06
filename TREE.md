@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,078 tracked code files · 166,254 lines.
+**Scale:** 1,080 tracked code files · 166,375 lines.
 
-TypeScript 154,458 · JavaScript 7,677 · Python 1,640 · SQL 1,377 · Rust 742 · Shell 360.
+TypeScript 154,579 · JavaScript 7,677 · Python 1,640 · SQL 1,377 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -96,7 +96,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `doctor/` | 9 | 1,716 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `migrations/` | 36 | 1,377 | hand-registered SQL. **Two chains** — see below |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
-| `db/` | 14 | 1,314 | provisioning, migrate runner, experiential store |
+| `db/` | 15 | 1,329 | provisioning, migrate runner, experiential store |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `plane/` | 6 | 938 | generative plane; `jobs/` holds the contradiction detector |
 | `workspace/` | 3 | 889 | session tracking |
@@ -118,7 +118,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 375 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 376 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -278,7 +278,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**391 modules · 1744 dependencies · 118 distinct subsystem pairs · 785 cross-subsystem imports.**
+**392 modules · 1747 dependencies · 118 distinct subsystem pairs · 785 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -306,7 +306,7 @@ flowchart LR
   experiential[experiential<br/>18 files]
   mcp[mcp<br/>17 files]
   vault[vault<br/>17 files]
-  db[(db<br/>14 files)]
+  db[(db<br/>15 files)]
   runtime[runtime<br/>14 files]
   bridge[bridge<br/>8 files]
   model[model<br/>7 files]

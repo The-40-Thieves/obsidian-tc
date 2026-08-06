@@ -1,3 +1,4 @@
+import { connectionPragmas } from "./pragmas";
 import type { Database as Db, RunResult, Statement } from "./types";
 
 /**
@@ -21,20 +22,11 @@ import type { Database as Db, RunResult, Statement } from "./types";
 export async function openBetterSqlite3(path: string): Promise<Db> {
   const { default: BetterSqlite3 } = await import("better-sqlite3");
   const db = new BetterSqlite3(path);
-  // Server-tuned per-connection baseline (THE-273): WAL + synchronous=NORMAL (documented safe
-  // pairing); busy_timeout waits instead of throwing SQLITE_BUSY under concurrent access; larger
-  // page cache + mmap keep hot scans resident. better-sqlite3 caches statements internally, so
-  // prepareCached here mainly bounds wrapper allocation (the real win is on bun:sqlite).
-  for (const p of [
-    "foreign_keys = ON",
-    "journal_mode = WAL",
-    "synchronous = NORMAL",
-    "busy_timeout = 5000",
-    "cache_size = -32000",
-    "temp_store = MEMORY",
-    "mmap_size = 268435456",
-  ])
-    db.pragma(p);
+  // Server-tuned per-connection baseline (THE-273), shared with the other adapters so the ORDER
+  // cannot drift between them — busy_timeout must precede anything that can contend (THE-745).
+  // See db/pragmas.ts. better-sqlite3 caches statements internally, so prepareCached here mainly
+  // bounds wrapper allocation (the real win is on bun:sqlite).
+  for (const p of connectionPragmas()) db.pragma(p);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     return {
