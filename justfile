@@ -125,6 +125,14 @@ ticket-drift tickets="":
 where symbol path="packages":
     node scripts/where-symbol.mjs "{{symbol}}" --path "{{path}}"
 
+# Which hand-built TEST migration chains does a migration affect? Run it as step 4 of adding one,
+# BEFORE opening the PR — 62 test files build their own chain and nothing gates them, so the set
+# is otherwise discovered one red CI build at a time (three of them on 2026-08-06).
+#   just migration-impact 20260806_003_agent_episodes_task_result.sql
+#   just migration-impact --all      # the standing split: manifest-driven vs hand-built
+migration-impact migration:
+    node scripts/migration-impact.mjs "{{migration}}"
+
 # Attribute a database's size to the tables and indexes inside it, and report which SQLite is
 # reading it. READ-ONLY — safe against a live production file, which is the intended use.
 #
