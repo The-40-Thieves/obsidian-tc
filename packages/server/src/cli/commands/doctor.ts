@@ -18,6 +18,7 @@ import {
   renderText,
 } from "../../doctor";
 import { experientialColumnSpec } from "../../doctor/column-spec";
+import { experientialTableSpec } from "../../doctor/table-spec";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
@@ -333,6 +334,8 @@ async function probeDerivedTables(
     aclConfigured: boolean;
     /** True when destructive note writes capture an undo (config.snapshots.enabled). */
     snapshots: boolean;
+    /** True when the coverage-gap sweep is SCHEDULED, not merely when the store is open. */
+    gapSweepScheduled: boolean;
   },
 ): Promise<DerivedTableState[]> {
   const out: DerivedTableState[] = [];
@@ -438,31 +441,10 @@ async function probeDerivedTables(
     let edb: Awaited<ReturnType<typeof openDatabase>> | undefined;
     try {
       edb = await openDatabase(expPath);
-      const reflectLever = "the reflect pass extracting preferences from episodes";
-      const spec: Array<[string, DerivedTableState["writer"], string]> = [
-        ["preference_profile", cfg.experiential ? "enabled" : "disabled", reflectLever],
-        ["preference_deltas", cfg.experiential ? "enabled" : "disabled", reflectLever],
-        [
-          "gap_reports",
-          cfg.experiential ? "enabled" : "disabled",
-          "running `obsidian-tc gaps` to persist a pass",
-        ],
-        [
-          "forget_log",
-          cfg.experiential ? "on-demand" : "disabled",
-          "a client calling the work_forget / forget verb",
-        ],
-        // Writing today — the healthy baseline for this store.
-        ["agent_episodes", cfg.experiential ? "enabled" : "disabled", "episode capture"],
-        ["chunk_retrievals", cfg.experiential ? "enabled" : "disabled", "retrieval logging"],
-        [
-          "vault_object_state",
-          cfg.experiential ? "enabled" : "disabled",
-          "the activation recompute",
-        ],
-        ["note_quality", cfg.experiential ? "enabled" : "disabled", "the note-quality rollup job"],
-      ];
-      for (const [table, writer, lever] of spec) {
+      // The SET lives in doctor/table-spec.ts so it can be asserted independently of the probe
+      // that consumes it — same separation, and same floor argument, as column-spec.ts.
+      const spec = experientialTableSpec(cfg);
+      for (const { table, writer, lever } of spec) {
         const c = count(edb, table);
         out.push({ table: `experiential.${table}`, rows: c ?? 0, writer, lever });
       }
@@ -663,6 +645,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         // "configured but empty" on installs that correctly never build one. Test the content.
         aclConfigured: hasAclRules(config.acl) || config.vaults.some((v) => hasAclRules(v.acl)),
         snapshots: config.snapshots.enabled,
+        // The SCHEDULER's own predicate, mirrored. scheduler-wiring registers the sweep on exactly
+        // this; reading `experiential` here instead is what produced the wrong classification.
+        gapSweepScheduled: experientialEnabled && config.experiential.gapSweep.enabled,
       })
     : undefined;
   // THE-720: the column-level companion. Same probe gate and the same experiential predicate the
