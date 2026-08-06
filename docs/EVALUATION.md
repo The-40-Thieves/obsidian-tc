@@ -113,6 +113,30 @@ that reach the docs go through a single reviewed file,
 [`docs/project-facts.json`](./project-facts.json), with a CI drift gate — never scraped from a run
 automatically, because a number that updates itself is a number nobody checked.
 
+### Run `sync-facts --check` on the eval host after any golden-set change
+
+`goldenSetSize` in `project-facts.json` is a claim about a file CI cannot see. The check that
+verifies it therefore cannot live in CI, and this is the step that replaces it:
+
+```bash
+# on the machine that holds the golden set
+bun scripts/docgen/sync-facts.ts --check --golden <path>/multi-hop-golden-set.yaml
+```
+
+Exit **0** means the recorded figure matches the set. Exit **1** means it has drifted — re-run
+without `--check` to update, and commit the result as a reviewed change.
+
+**Do not wire this into CI.** Without `--golden` it exits **2** — "golden set not found" — because
+the set is private and gitignored, so a CI job could only ever fail for the wrong reason. Tolerating
+that exit to make the job green would produce a gate that can neither pass nor fail, which is worse
+than no gate: it is the shape this whole document exists to argue against. The exit codes are doing
+their job; the missing piece was a human running the command, which is what this section is.
+
+Verified 2026-08-06: exit 2 with no `--golden`, exit 0 against the real set, `goldenSetSize` 250
+and current. Note the figure the set *sizes* — the nDCG/recall numbers derived from it — has no
+equivalent automated check; `sync-facts` deliberately refuses to scrape it, for the reason in the
+paragraph above.
+
 ## Why there is no headline benchmark number
 
 Not for lack of a benchmark to run. Because the available ones measure something else, and because
