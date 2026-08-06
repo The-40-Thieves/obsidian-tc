@@ -160,6 +160,25 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  cross-checks this against the schema in both directions: declared-but-schema-silent and
    *  schema-exposes-a-key-but-undeclared both fail. */
   acceptsIdempotencyKey?: boolean;
+  /** THE-743: the MCP spec's `ToolAnnotations.idempotentHint` — "calling the tool repeatedly with
+   *  the same arguments will have no additional effect on its environment", default false,
+   *  meaningful ONLY when `readOnlyHint == false`. Advisory metadata; dispatch authorizes on
+   *  `requiredScopes` / `destructive` and MUST NOT start enforcing on this.
+   *
+   *  DELIBERATELY NOT DERIVED FROM `acceptsIdempotencyKey` ABOVE. Those are different claims and
+   *  conflating them would advertise something false: accepting a key means a retry is safe WHEN
+   *  THE CALLER SUPPLIES ONE, and the key is optional — a repeat without it still has an effect.
+   *  `idempotentHint` is unconditional, about the arguments alone.
+   *
+   *  NO TOOL DECLARES THIS TODAY, and that is a finding rather than an omission. Every mutating
+   *  call on this server leaves a durable record by construction: `forget_log` is an append-only
+   *  hash-chained audit (one INSERT per call), and destructive note writes capture a snapshot for
+   *  `restore_note` (THE-648, on by default under `trusted-local`). A second identical call
+   *  therefore appends a second audit row or a second snapshot version — an additional effect on
+   *  the environment, which is exactly what the hint denies. So `false` is the honest value for all
+   *  60 mutating tools, and it is also the spec default; the value of declaring the field is that
+   *  the next tool to be genuinely idempotent has somewhere to say so, and a gate that checks it. */
+  idempotent?: boolean;
   description: string;
   inputSchema: z.ZodType<I>;
   /** Optional output schema (MUST be a Zod OBJECT) advertised as the tool's `outputSchema`
