@@ -26,18 +26,18 @@ if (!KEY) {
 // Measured cause: a non-ASCII byte. Copying a key out of a rendered page picks up smart quotes,
 // en-dashes and non-breaking spaces, none of which can go in a header. CR/LF are trimmed above.
 //
-// Reports the OFFENDING POSITION AND CODEPOINT, never the key. That is enough to fix a paste and
-// nothing a log should not hold — `[[reference-never-log-argv-that-carries-secrets]]` applies to
-// diagnostics too.
-const bad = [...KEY].findIndex((ch) => {
-  const c = ch.codePointAt(0);
-  return c < 0x21 || c > 0x7e;
-});
-if (bad !== -1) {
-  const c = KEY.codePointAt(bad);
+// Reports NOTHING derived from the key — not the offending codepoint, not its index, not the
+// length. The first version of this printed the codepoint and the length "so a paste is fixable",
+// and CodeQL correctly flagged it js/clear-text-logging (high): a codepoint IS one character of the
+// secret, and a length narrows it. Written directly under a comment citing
+// `[[reference-never-log-argv-that-carries-secrets]]`, which is how that rule gets broken — the
+// leak felt like metadata rather than content.
+//
+// The diagnostic loses nothing that matters: the action is "re-copy the key as plain text" either
+// way, and CI logs are retained where a key character should never be.
+if (!/^[\x21-\x7e]+$/.test(KEY)) {
   console.error(
-    `fetch-linear-tickets: LINEAR_API_KEY contains a character that cannot go in an HTTP header — ` +
-      `index ${bad} of ${KEY.length}, codepoint U+${c.toString(16).toUpperCase().padStart(4, "0")}.`,
+    "fetch-linear-tickets: LINEAR_API_KEY contains a character that cannot go in an HTTP header.",
   );
   console.error(
     "  A Linear personal key is plain ASCII (lin_api_…). This is almost always a paste artifact:",
