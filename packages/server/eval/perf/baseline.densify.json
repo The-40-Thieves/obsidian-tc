@@ -6,8 +6,43 @@
     "class": "hard",
     "direction": "exact"
   },
+  "index.notes_count": {
+    "value": 100,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "index.notes_per_s": {
+    "value": 356.2758623765913,
+    "tol": 0.25,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "lower-worse"
+  },
+  "embed.tokens": {
+    "value": 2577,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
+  "embed.tokens_per_s": {
+    "value": 9181.228973444759,
+    "tol": 0.25,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "lower-worse"
+  },
+  "harness.vault_count": {
+    "value": 1,
+    "tol": 0,
+    "mode": "ratio",
+    "class": "hard",
+    "direction": "exact"
+  },
   "index.chunks_per_s": {
-    "value": 633.7956094848578,
+    "value": 712.5517247531826,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -28,7 +63,7 @@
     "direction": "exact"
   },
   "embed.texts_per_s": {
-    "value": 380.2773656909146,
+    "value": 427.53103485190957,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -48,6 +83,13 @@
     "class": "hard",
     "direction": "higher-worse"
   },
+  "densify.vec_knn_mean_ms": {
+    "value": 0.2989306550000003,
+    "tol": 0.5,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "higher-worse"
+  },
   "densify.edges_similar_to": {
     "value": 533,
     "tol": 0,
@@ -63,7 +105,7 @@
     "direction": "exact"
   },
   "densify.index_ms": {
-    "value": 290.960075,
+    "value": 253.530399,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -105,7 +147,7 @@
     "direction": "lower-worse"
   },
   "retrieval.ndcg_per_ms": {
-    "value": 0.052274173721973245,
+    "value": 0.05499602528237817,
     "tol": 0.5,
     "mode": "abs",
     "class": "warn",
@@ -140,14 +182,14 @@
     "direction": "exact"
   },
   "freshness.ms": {
-    "value": 122.52483399999994,
+    "value": 99.80329700000004,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "storage.bytes": {
-    "value": 1638400,
+    "value": 1572864,
     "tol": 0.15,
     "mode": "ratio",
     "class": "hard",
@@ -161,28 +203,56 @@
     "direction": "exact"
   },
   "storage.txn_ms": {
-    "value": 0.9219570000000203,
+    "value": 0.7557610000000068,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "storage.cpu_ms": {
-    "value": 1.487,
+    "value": 1.273,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
+  "storage.lock_wait_observed": {
+    "value": 1,
+    "tol": 0.15,
+    "mode": "abs",
+    "class": "hard",
+    "direction": "lower-worse"
+  },
+  "storage.lock_busy_observed": {
+    "value": 1,
+    "tol": 0.15,
+    "mode": "abs",
+    "class": "hard",
+    "direction": "lower-worse"
+  },
+  "storage.lock_wait_ms": {
+    "value": 251.17,
+    "tol": 0.5,
+    "mode": "ratio",
+    "class": "warn",
+    "direction": "higher-worse"
+  },
+  "storage.lock_wait_at_least_timeout": {
+    "value": 1,
+    "tol": 0.15,
+    "mode": "abs",
+    "class": "hard",
+    "direction": "lower-worse"
+  },
   "runtime.eventloop_p99_ms": {
-    "value": 63.832063,
+    "value": 62.521343,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "runtime.peak_rss_mb": {
-    "value": 172.56640625,
+    "value": 167.03515625,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -196,14 +266,14 @@
     "direction": "exact"
   },
   "http.cold_ms": {
-    "value": 22.035863000000063,
+    "value": 24.603446000000076,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "http.warm_ms": {
-    "value": 5.749096999999892,
+    "value": 1.0572769999998854,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -217,7 +287,7 @@
     "direction": "exact"
   },
   "http.concurrent2_p99_ms": {
-    "value": 3.6116480000000593,
+    "value": 1.499674000000141,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -231,7 +301,7 @@
     "direction": "exact"
   },
   "http.concurrent8_p99_ms": {
-    "value": 10.563380999999936,
+    "value": 4.504549000000225,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -245,7 +315,7 @@
     "direction": "exact"
   },
   "migration.ms": {
-    "value": 1.2086530000001403,
+    "value": 1.2397609999998167,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -259,7 +329,7 @@
     "direction": "exact"
   },
   "shutdown.ms": {
-    "value": 0.21844899999996414,
+    "value": 0.08060900000009497,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
