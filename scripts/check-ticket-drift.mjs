@@ -62,8 +62,13 @@ const TICKET_RE = /\bTHE-(\d{1,5})\b/g;
  *  literal enum value all over the experiential code, so a bare \bpending\b matched provenance
  *  comments in reflect.ts on the first run. Requiring a determiner after it ("pending the red-team")
  *  keeps the English sense and drops the SQL one. */
+// `once` is NOT here, and that was measured rather than assumed. Across four full-board runs it
+// produced nearly every false positive — "normalized ONCE here", "retry ONCE", "resolved ONCE at
+// startup", "the cap has been raised ONCE" — against exactly one true finding, which has since been
+// rewritten anyway. English overwhelmingly means "one time", not "at the moment when". A term whose
+// precision is that bad is not worth an allowlist entry per occurrence.
 const DEP_WORDS =
-  /\b(?:until|awaiting|blocked on|gated on|waits? on|waiting on|filled at|deferred to|left to|once|after)\b|\bpending\s+(?:the|a|an|its)\b/gi;
+  /\b(?:until|awaiting|blocked on|gated on|waits? on|waiting on|filled at|deferred to|left to|after)\b|\bpending\s+(?:the|a|an|its)\b/gi;
 
 /** How far a dependency word may sit from the ticket id and still be ABOUT it. Proximity is what
  *  separates "off until the THE-238 defence" from "the glob is normalized ONCE here; the PATH is
@@ -133,10 +138,10 @@ const DEP_ALLOW = new Map([
   ["packages/server/eval/perf/spearman.ts::THE-594", "past-tense narrative"],
   // A narrative about prose that HAD drifted and was corrected.
   ["packages/server/scripts/docgen/facts-check.ts::THE-599", "past-tense narrative"],
-  // "that cap has already been raised ONCE" — counts raises.
-  ["packages/server/src/vault/watcher.ts::THE-610", "governs a count, not the ticket"],
-  // "`tracesDays` was removed ONCE for exactly that reason" — counts removals.
-  ["packages/server/test/config.test.ts::THE-610", "governs a count, not the ticket"],
+  // NOTE: two THE-610 entries lived here ("the cap has been raised once", "`tracesDays` was removed
+  // once") and were deleted when `once` came out of DEP_WORDS. Every surviving entry is `after` in
+  // its temporal sense. Re-derive this list by emptying the Map and re-running rather than trusting
+  // it — an allowlist entry that outlives its cause is the same defect this script exists to catch.
 ]);
 
 const COMMENT_LINE = /^\s*(\/\/|\*|\/\*|--|#|<!--)/;
