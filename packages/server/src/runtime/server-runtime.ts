@@ -449,6 +449,7 @@ export async function buildServerRuntime(
         embeddingProvider,
         hasVec,
         chunkContext: config.embeddings.chunkContext,
+        chunkTokens: config.indexing.chunkTokens, // THE-424
         indexing: config.indexing,
         vaults: config.vaults,
         watch: config.watch,
@@ -575,6 +576,7 @@ export async function buildServerRuntime(
       embeddingProvider,
       embedConfig,
       chunkContext: config.embeddings.chunkContext,
+      chunkTokens: config.indexing.chunkTokens, // THE-424
       representation: indexResources.representation,
       densify: config.retrieval.densify,
       vaultRegistry,

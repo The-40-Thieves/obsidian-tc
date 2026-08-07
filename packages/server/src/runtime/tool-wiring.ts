@@ -293,6 +293,7 @@ export function wireM1Tools(deps: M1WiringDeps): void {
         provider: deps.embeddingProvider,
         embed: deps.embedConfig,
         chunkContext: config.embeddings.chunkContext,
+        chunkTokens: config.indexing.chunkTokens, // THE-424
         representation: deps.representation,
         densify: config.retrieval.densify,
         vaultId,
@@ -363,6 +364,9 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     ...(deps.retrievalLog ? { retrievalLog: deps.retrievalLog } : {}),
     // THE-406: index_vault must index with the same enrichment as the boot reconcile.
     chunkContext: config.embeddings.chunkContext,
+    // THE-424: and at the same chunk budget, for the same reason — a vault indexed by the boot
+    // reconcile at one budget and re-indexed by index_vault at another is silently incoherent.
+    chunkTokens: config.indexing.chunkTokens,
     // THE-460: index_vault must fold the same revision as the boot reconcile — see
     // search/indexing/index-vault.ts's VecFingerprint construction site.
     representation: deps.representation,

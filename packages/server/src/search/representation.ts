@@ -6,6 +6,7 @@
 
 import { createHash } from "node:crypto";
 import { canonicalJson } from "../hash";
+import { DEFAULT_CHUNK_TOKENS } from "./chunk";
 
 /** The vec0 table's distance_metric. Bump/change this when the DDL's distance_metric changes
  *  (e.g. cosine -> l2) — stored distances are meaningless across a metric change. */
@@ -125,6 +126,16 @@ export interface RepresentationManifest {
    *  RUNTIME response field, not something config states up front) — "unknown" for every
    *  statically-configured provider. */
   normalized: Knowable<boolean>;
+  /** THE-424: the chunker's token budget (indexing.chunkTokens, default 512). Always knowable —
+   *  a plain int with a schema default, so there is no "never asked" case to distinguish.
+   *
+   *  This is the ONLY axis here that changes what a chunk IS rather than what its vector MEANS,
+   *  which is why the UPGRADE COST note on `representationFingerprint` does not extend to it.
+   *  Every other axis leaves chunk ids and boundaries alone, so `vec_chunks` can refill from the
+   *  stored `chunk_embeddings` rows. Move this one and those rows describe text that no current
+   *  chunk contains — the refill would silently repopulate the index with vectors for chunks that
+   *  no longer exist. Changing it means a real re-index, provider calls and all. */
+  chunkTokens: number;
 }
 
 /** Project a RepresentationManifest down to the VecFingerprint it embeds — a straight field pick,
@@ -198,6 +209,9 @@ export interface ManifestConfigLike {
   truncate?: boolean;
   queryPrefix?: string;
   documentPrefix?: string;
+  /** THE-424: indexing.chunkTokens. Optional here and defaulted below to the chunker's own 512,
+   *  so a caller that predates this field keeps producing the pre-THE-424 fingerprint string. */
+  chunkTokens?: number;
 }
 
 /**
@@ -239,6 +253,7 @@ export function buildRepresentationManifest(
     multiVector: typeof provider.embedFull === "function",
     // Only reported at RUNTIME (model/tei.ts's EmbedResult.normalized); nothing states it up front.
     normalized: "unknown",
+    chunkTokens: cfg.chunkTokens ?? DEFAULT_CHUNK_TOKENS,
   };
 }
 
@@ -257,6 +272,15 @@ export function buildRepresentationManifest(
  * refills locally: no provider calls, no re-embed, no billing. That is why no compatibility shim
  * is carried — one would buy immunity from a cost that does not exist, at the price of
  * conditional-equivalence logic inside the identity comparison.
+ *
+ * THE-424 — `chunkTokens` is the ONE exception, and the paragraph above must not be read as
+ * covering it. The free-refill argument rests on stored vectors still describing the chunks that
+ * exist. Every other axis preserves chunk boundaries and only changes how a vector is interpreted;
+ * chunkTokens changes the boundaries themselves, so after a change the stored rows describe text
+ * no current chunk contains and the refill would repopulate the index with vectors for chunks that
+ * are gone. Changing it costs a real re-index. Adding it did not: existing configs take the 512
+ * default, their chunks are byte-identical, and only the fingerprint string gains a suffix — which
+ * is the cheap local rebuild this paragraph describes.
  */
 export function representationFingerprint(m: RepresentationManifest): string {
   return [
@@ -276,5 +300,10 @@ export function representationFingerprint(m: RepresentationManifest): string {
     String(m.truncate),
     String(m.multiVector),
     m.normalized === "unknown" ? "" : String(m.normalized),
+    // THE-424. Appended, never inserted: the suffix-extension rule above is what lets a legacy
+    // string stay a readable prefix of a current one. Unconditional, per the same paragraph's
+    // refusal of conditional-equivalence logic — a default-512 deployment does move its
+    // fingerprint string, and that costs it a local vec rebuild rather than a re-embed.
+    String(m.chunkTokens),
   ].join("|");
 }

@@ -294,6 +294,7 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
+| `indexing.chunkTokens` | `number` | `512` |  | Chunker token budget: a note section over this many estimated tokens is sub-split on paragraph boundaries. Participates in the representation fingerprint, and unlike the other axes a change here requires a full re-index — different budget means different chunk boundaries, so stored vectors no longer describe any chunk that exists. |
 | `indexing.queueMax` | `number` | `1000` |  | Soft cap on distinct pending paths, surfaced as backpressure in server_health. Writes are never dropped when it is exceeded. |
 | `indexing.streamingWalk` | `boolean` | `false` |  | Walk the vault lazily per-directory (walkVaultStream) instead of materializing the full sorted file list before indexing starts. Lower peak memory on large vaults; index output is unchanged either way. |
 | `indexing.writeConcurrency` | `number` | `8` |  | Ceiling on concurrent index/embed calls across ALL vaults. |

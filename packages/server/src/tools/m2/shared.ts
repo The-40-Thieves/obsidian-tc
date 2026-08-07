@@ -12,6 +12,9 @@ import type { VaultRegistry } from "../../vault/registry";
 export interface M2Deps {
   vaultRegistry: VaultRegistry;
   embeddingProvider: EmbeddingProvider;
+  /** THE-424: config.indexing.chunkTokens, forwarded to index_vault so a tool-driven reindex
+   *  chunks at the same budget as the boot reconcile. Undefined -> the chunker's 512 default. */
+  chunkTokens?: number;
   /**
    * Optional Dataview-bridge accessor (wired by cli.ts from the M4 substrate).
    * Returns a connected client + the per-vault timeout, or throws a degraded

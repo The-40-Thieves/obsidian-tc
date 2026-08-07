@@ -83,6 +83,7 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
         representation: resources.representation,
         embed: resources.embedConfig,
         chunkContext: cfg.embeddings.chunkContext,
+        chunkTokens: cfg.indexing.chunkTokens, // THE-424
         densify: cfg.retrieval.densify,
         vaultId: v.id,
         root: v.path,

@@ -62,7 +62,8 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "writeConcurrency": 8,
     "writeConcurrencyPerVault": 4,
     "queueMax": 1000,
-    "streamingWalk": false
+    "streamingWalk": false,
+    "chunkTokens": 512
   },
   "retrieval": {
     "rrfK": 10,

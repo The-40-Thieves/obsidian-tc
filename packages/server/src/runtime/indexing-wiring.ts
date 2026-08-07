@@ -53,6 +53,11 @@ export interface IndexResourcesDeps {
    *  path" claim. */
   configDir?: string;
   securityProfile?: "hardened" | "trusted-local";
+  /** THE-424: config.indexing.chunkTokens. Lives on `indexing` rather than `embeddings`, so it is
+   *  threaded in beside the embeddings block rather than through it — but it must reach the
+   *  manifest, because this is the ONE place a representation identity is derived and chunk size
+   *  is part of that identity. Optional so a caller that predates it keeps the 512 default. */
+  chunkTokens?: number;
 }
 
 /** THE-288: mutable index-health tracker surfaced by server_health. reconcile flips pending ->
@@ -114,7 +119,12 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
   // .representation) rather than rebuilt there, so boot and the index_vault tool cannot compute
   // different identities for the same table — the unbounded-rebuild-loop hazard the old
   // hand-built pair carried, previously guarded only by a parity test.
-  const representation = buildRepresentationManifest(embeddingProvider, deps.embeddings);
+  // THE-424: chunkTokens rides in alongside the embeddings block — it belongs to config.indexing,
+  // but the manifest is one flat identity and this is its only derivation point.
+  const representation = buildRepresentationManifest(embeddingProvider, {
+    ...deps.embeddings,
+    ...(deps.chunkTokens !== undefined ? { chunkTokens: deps.chunkTokens } : {}),
+  });
   const hasVec = ensureVecChunks(deps.db, representation, {
     now: Date.now,
     onRebuild: deps.onVecRebuild,
@@ -157,6 +167,8 @@ export interface IndexCoordinatorDeps {
   db: Database;
   embeddingProvider: EmbeddingProvider;
   hasVec: boolean;
+  /** THE-424: config.indexing.chunkTokens. Undefined -> the chunker's 512 default. */
+  chunkTokens?: number;
   /** config.embeddings.chunkContext */
   chunkContext: boolean;
   /** config.indexing */

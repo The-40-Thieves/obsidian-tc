@@ -318,6 +318,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       hasBodySha, // THE-454: dedup (and thus vector-copy) only when the body_sha column exists
       args.provider.id, // THE-531: re-embed a model-superseded chunk even when content is unchanged
       preloadedExisting, // THE-501: plan from the bulk chunk-state load, no per-note query
+      args.chunkTokens, // THE-424: indexing.chunkTokens; undefined -> the chunker's 512 default
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
