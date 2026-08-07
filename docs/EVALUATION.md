@@ -1,12 +1,15 @@
 # Evaluation methodology
 
-obsidian-tc publishes **no headline benchmark score**. This document explains what is measured
-instead, how, and what that does and does not let you conclude. It exists because *our* corpus is
-private and the method does not have to be.
+obsidian-tc publishes **no headline benchmark score**, and that is a deliberate position rather than
+an absence. This document explains what is measured instead, how, and what that does and does not
+let you conclude.
 
-Read ["What would change this"](#what-would-change-this) before concluding that a published score is
-impossible here. As of 2026-08-07 it is not — a public, wikilink-structured corpus with a peer's
-published number exists, so "no headline score" is a choice rather than a constraint.
+It does now publish **one reproducible retrieval result on a public corpus** — see
+[Published on a public corpus](#published-on-a-public-corpus-2026-08-07). The distinction matters:
+that number lives here, beside its own caveats, power analysis and the label scheme it depends on.
+It is not on the README. A figure quoted where its qualifications are not is the exact thing this
+project withdrew a set of headline numbers for on 2026-08-07, and re-creating that shape somewhere
+more prominent would undo the lesson rather than apply it.
 
 Operator instructions — how to actually run the harness — live in
 [`packages/server/eval/README.md`](../packages/server/eval/README.md). This document is the *why*.
@@ -97,27 +100,101 @@ graph-vs-baseline delta, and that delta was reading a 60-deep arm against a 30-d
 That is now fixed: the same depth and the same collapse apply to every arm, and each artifact
 records `armDepth` so this is checkable rather than inferred from a flag name.
 
-### Why there is still no replacement number, and the trap to avoid
+### The trap that delayed the replacement, and the correction it needed
 
-The obvious move is to re-derive the figures against one of the bge-m3 indexes already on the eval
-host. **That does not work, and the reason is worth writing down.**
+The obvious move was to re-derive the figures against a bge-m3 index already on the eval host. That
+produced a number that looked like a finding and was not, and the diagnosis took two wrong turns
+worth recording.
 
-`vec_index_fingerprint` records the embedding provider, model and dimensionality — it says nothing
-about the *schema* the rest of the index was built under. Those caches were built on 2026-08-01 at
-v1.13.0 and carry **22 applied migrations; the manifest now holds 42.** Running current retrieval
-code against them exercises a 20-migration-old FTS and edge layout. The pure-dense baseline is
-unaffected (it reads vec0 and the embeddings, which have not moved), so it reproduces byte-identical
-across runs — which makes the setup look valid. The RRF-fused graph arm reads the tables those
-migrations touched, and it does not.
+**What actually happens.** A cache built before `chunk_fts` became contentless (THE-711) has FTS
+rowids that are *independent* of `chunks.rowid`. Current code joins on that identity, so the join
+does not fail — it **pairs BM25 hits to the wrong chunks**. Measured on a real pre-THE-711 cache:
+8,933 of 13,451 rows "joined", all mis-paired, and 4,897 dropped.
 
-Concretely: on that stale index the graph arm scores ~0.64 nDCG@10 where the same arm scored ~0.77
-on 2026-08-01 code, while the baseline is unchanged at 0.7484. **A one-sided regression of that
-shape is the signature of a stale index, not a retrieval result**, and it is not evidence about the
-graph walk in either direction.
+**Why it reads as a retrieval result.** The pure-dense arm never touches FTS, so it reproduces
+byte-identically while the RRF-fused arm collapses. On the same 250 queries:
 
-So a valid re-derivation needs a **fresh index on current code** — the ~6 minute, ~$0.078 re-index
-THE-748 originally sized. "Same embeddings" is not "same index"; check `schema_migrations` against
-the manifest before trusting any eval artifact built on a reused cache.
+```
+                baseline stale -> fresh     graph stale -> fresh
+ndcg_at_10        0.7484 -> 0.7471            0.6387 -> 0.7695
+bridge_recall     0.7360 -> 0.7360            0.6840 -> 0.8080
+
+baseline moved -0.0013      graph moved +0.1308      ratio 97.5x
+```
+
+**A one-sided shift with the other arm frozen is the signature of a stale index, not a retrieval
+result.** Perfect reproducibility on one arm is not evidence the harness is valid — it can mean that
+arm simply does not read what broke.
+
+Two corrections, since the first diagnoses were wrong and are quotable from this project's own
+history. It is **not** a migration-count problem: a freshly built `cache.db` legitimately applies 24
+migrations while the manifest holds 42 across multiple stores, so comparing those counts is
+meaningless, and the real gap was three. And it is **not** `acl_path_sets`, which is inert on this
+path. It is the FTS shape, specifically.
+
+The read path now **refuses** a pre-THE-711 `chunk_fts` rather than mis-joining it (THE-750), so
+this failure mode is loud from here on. Still: never reuse an eval cache across a
+retrieval-touching schema change. "Same embeddings" is not "same index", and
+`vec_index_fingerprint` records the embedding provider and dimensionality but **no schema version**,
+so it cannot tell you an index is current.
+
+## Published on a public corpus (2026-08-07)
+
+The figures withdrawn above were unreproducible by anyone outside this project. These are not: the
+corpus is public, the judgments are third-party and MIT-licensed, and the harness is in this repo.
+
+**Corpus.** Andy Matuschak's [evergreen notes](https://notes.andymatuschak.org/), crawled with the
+preparation script published by [`flowing-abyss/obsidian-hybrid-search`](https://github.com/flowing-abyss/obsidian-hybrid-search)
+— **1,357 notes, 5,671 wikilinks**, indexed to 2,986 chunks and 8,335 edges on a fresh
+`BAAI/bge-m3` index. Their **78 hand-judged queries** are the relevance labels; all 72 distinct
+target paths resolve in the index. Nothing is redistributed here: that repo ships the *judgments*,
+and the corpus is fetched from its source.
+
+**Two binarizations, because theirs are graded and ours are binary.** Their labels distinguish
+`relevant` from `partial`; `computeQueryMetrics` scores a flat expected-path set. Collapsing that
+distinction one way or the other is a *choice*, and partials nearly triple the label set (92 → 243
+target paths) — so both are reported and the truth is bracketed by the pair.
+
+| n=78, `BAAI/bge-m3`, no flags, both arms at depth 30 | baseline | graph | Δ | 95% CI | perm p |
+| --- | --- | --- | --- | --- | --- |
+| **strict** nDCG@10 (relevant only) | 0.869 | **0.914** | +0.045 | [0.000, 0.092] | 0.0540 |
+| **strict** recall@10 | 0.942 | **0.979** | +0.036 | [0.004, 0.079] | 0.1230 |
+| **lenient** nDCG@10 (partials count) | 0.628 | **0.689** | +0.061 | [0.031, 0.092] | **0.0002** |
+| **lenient** recall@10 | 0.631 | **0.696** | +0.065 | [0.025, 0.111] | 0.0022 |
+
+Both clear the −0.015 non-inferiority floor. **Read the strict arm as underpowered rather than
+null:** its MDE at n=78 is **0.065** and the observed effect is 0.045, so p=0.054 means "below this
+corpus's resolution", not "no effect". The lenient contrast is quieter (σ_d 0.135 vs 0.206,
+MDE 0.043) and clears comfortably. Both point the same way at a similar magnitude.
+
+**This is not comparable to the peer's published 0.753**, and the temptation to line them up should
+be resisted: different embedder (they ran `Xenova/multilingual-e5-small`; this is `bge-m3` at
+1024d), different binarization, different harness boundary. Worth one observation only — their
+graded 0.753 falls *between* our lenient 0.689 and strict 0.914, which is the ordering a graded
+metric bracketed by two binarizations should produce. A sanity signal, not a comparison. Running
+their corpus through *their* harness would be the comparable experiment, and has not been done.
+
+**Where the effect sits is suggestive only.** Per-category deltas put it in `quote-fragment`
+(+0.21), `disambiguation` (+0.20) and `linked-neighborhood` (+0.12) — but those buckets are n=3–23,
+carry no BH correction across 8 comparisons, and mostly sit under the whole-corpus MDE. The
+`linked-neighborhood` slice is the one that would actually speak to whether graph expansion earns
+its keep, and at n=6 it is directionally supportive and statistically nothing.
+
+**`bridge_recall` reads 0.000 → 0.000 and that is an absence of labels, not a result.** This corpus
+declares no multi-hop bridges, so the field is empty by construction and the multi-hop ship gate is
+inapplicable to it.
+
+### Corroboration on the private set
+
+The same comparison on the private n=250 golden set, fresh index, current code: graph beats the
+semantic baseline by **+0.022 nDCG@10** (95% CI [0.002, 0.044], permutation p=0.0336) and
+**+0.027 recall@10** (p=0.0311), both non-inferior, with bridge recall 0.736 → 0.808. That number is
+**not** independently reproducible — it is the internal benchmark, on the private corpus this
+document has already explained the limits of — and it is recorded here as corroboration rather than
+as a headline. Note it also sits below its own MDE (0.030), so it is significant at less than 80%
+power.
+
+Two corpora, two label schemes, same direction.
 
 ## Published negative results
 
@@ -311,17 +388,20 @@ dangerous, not less — retrieval-vs-answer cut, judge model, and top-k all move
 their public corpus through *this* harness is the comparison that would mean something; citing their
 figure next to ours is not.
 
-The options therefore stand, re-ordered: run the Matuschak corpus through this repo's own harness
-and publish both the number and the method; publish a synthetic link-structured vault; or a partial
-BEIR number with an explicit caveat about which stages it fails to exercise. The first is now the
-cheapest and the most credible, and it was previously believed impossible.
+**The first option has since been taken** — see
+[Published on a public corpus](#published-on-a-public-corpus-2026-08-07). What remains open is the
+permission-aware corpus, for which nothing public exists; a synthetic link-structured vault; or a
+partial BEIR number carrying an explicit caveat about which stages it fails to exercise.
 
 The position that publishing this methodology — including the negative results and the resolution
-limits — beats a borrowed number measured on the wrong shape of data is unchanged. What has changed
-is that a right-shaped corpus is now available, so "we publish no score" is a choice from here on
-rather than a constraint.
+limits — beats a borrowed number measured on the wrong shape of data is unchanged. What changed is
+that a right-shaped corpus turned out to exist, so the single number now published is one anybody
+can re-derive.
 
 If you are evaluating obsidian-tc against alternatives, the honest summary is: the retrieval
-mechanisms here are gated by a pre-registered statistical rule, two of them failed it and shipped
-dark with their numbers recorded, and the corpus that produced those numbers is private. Weigh that
-against a competitor's headline figure accordingly — in either direction.
+mechanisms here are gated by a pre-registered statistical rule; two of them failed it and ship dark
+with their numbers recorded; one public-corpus comparison is published above with both its
+binarizations and its power limits; and the larger internal corpus behind everything else is
+private. Weigh that against a competitor's headline figure accordingly — noting, from the section
+above, that a headline figure on a conversational benchmark may be grading the reader rather than
+the retriever, and may be scored against a key with known errors.
