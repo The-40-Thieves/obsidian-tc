@@ -170,10 +170,11 @@ function migrateChunkFtsShape(db: Database): void {
   if (row === undefined) return; // no table yet — the CREATE below makes a contentless one
   if (row.sql?.includes("contentless_delete")) return; // already migrated
   db.exec("DROP TABLE chunk_fts");
-  // The shape just changed under any handle that already cached a verdict. Only a positive verdict
-  // is ever cached (see assertContentlessChunkFts), so this drop can only invalidate a stale
-  // "contentless" answer — which cannot happen, since we only get here when it was NOT contentless.
-  // Cleared anyway: the cost is nothing and the invariant should not depend on that argument.
+  // Belt-and-braces, and measured to be exactly that: removing this line changes no observable
+  // behaviour, because `assertContentlessChunkFts` early-returns only on `=== true` and therefore
+  // re-reads the DDL after any negative. Kept so the cache's correctness does not rest on that one
+  // comparison staying `=== true` forever — a later `if (cached !== undefined)` would silently
+  // strand a repaired handle, and this line is what makes that edit safe.
   contentlessCache.delete(db);
 }
 

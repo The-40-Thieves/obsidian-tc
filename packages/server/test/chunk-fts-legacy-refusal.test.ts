@@ -13,9 +13,25 @@
 // Each test is paired with the mutation it catches:
 //
 //   refuses legacy shape  -> delete the assertContentlessChunkFts call    (silent mis-join returns)
-//   raised past the catch -> move the call inside bm25Chunks' try         (swallowed into `[]`)
+//   other failures -> []  -> make the guard rethrow everything            (a louder, different bug)
 //   contentless is quiet  -> make the guard throw unconditionally         (every install breaks)
 //   absent table is quiet -> treat a missing chunk_fts as an error        (lazy provisioning breaks)
+//
+// The fifth test (repair mid-life) is NOT paired with a mutation, and the reason is worth stating:
+// the obvious one — "cache the negative verdict too" — is a NO-OP. `assertContentlessChunkFts`
+// early-returns only on `=== true`, so a cached `false` falls through and re-reads the DDL anyway.
+// Tried it, with and without the invalidation in `migrateChunkFtsShape`: 5 passed both times. That
+// is the mutation-did-not-apply trap, not a gap in the test — the design is correct by
+// construction rather than by assertion, and the test documents the behaviour regardless.
+//
+// Checked against the current specs rather than from memory (2026-08-07):
+//   - Vitest 4: `expect(() => fn()).toThrow(/re/)` is the documented form. The hand-rolled
+//     try/catch + boolean this file first used for the second test was non-idiomatic AND asserted
+//     the same thing as the first; it was replaced with the assertion only that test can make.
+//   - SQLite FTS5: `contentless_delete=1` is 3.43.0+, and `DELETE FROM ft WHERE rowid=?` IS legal
+//     on such a table — what is unsupported is the special `INSERT INTO ft(ft, ...) VALUES(
+//     'delete', ...)` command form. A contentless table returns SQL NULL for every declared
+//     column, which is why identity has to come from the join to `chunks`.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -87,22 +103,22 @@ describe("THE-750 — refuse a pre-THE-711 chunk_fts rather than mis-join it", (
     expect(() => bm25Chunks(db, VAULT, "alpha", 5)).toThrow(/pre-THE-711|contentless_delete/);
   });
 
-  it("raises PAST bm25Chunks' catch — the refusal is not swallowed into []", () => {
+  it("still swallows OTHER failures into [] — only the shape refusal escapes the catch", () => {
     const db = seedDb();
     if (!ftsAvailable(db)) return;
     addChunk(db, "c1", "a.md", "alpha beta gamma");
-    seedLegacyChunkFts(db);
+    expect(ensureChunkFts(db)).toBe(true); // healthy contentless table: the guard will pass
 
-    // The distinction this asserts: `[]` is what the surrounding try/catch produces for every other
-    // failure, and `[]` is also a legitimate answer. Only a throw is unambiguous.
-    let threw = false;
-    try {
-      const hits = bm25Chunks(db, VAULT, "alpha", 5);
-      expect(hits).toBeUndefined(); // unreachable; fails loudly if the guard is swallowed
-    } catch {
-      threw = true;
-    }
-    expect(threw).toBe(true);
+    // Now break something the guard does NOT police, inside the try's reach: the join target.
+    // `assertContentlessChunkFts` only reads chunk_fts' DDL, so it still passes; the query then
+    // fails and must be caught exactly as before.
+    db.exec("DROP TABLE chunks");
+
+    // This is the assertion the previous version of this test could not make. Proving "the legacy
+    // shape throws" is already covered above; what is NOT otherwise pinned is that moving a throw
+    // outside the catch did not stop the catch doing its job for everything else. A guard that
+    // converted every failure into an exception would be a different, louder bug.
+    expect(bm25Chunks(db, VAULT, "alpha", 5)).toEqual([]);
   });
 
   it("stays SILENT on the contentless shape — the guard must not fire on a healthy install", () => {
