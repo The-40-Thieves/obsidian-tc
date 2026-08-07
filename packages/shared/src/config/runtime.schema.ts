@@ -169,14 +169,22 @@ export const SessionsConfigSchema = z
         "Open a workspace session automatically on a principal's first authenticated dispatch when it has none, instead of waiting for an explicit start_session. Off by default: session correlation changes what the server retains about who read what.",
       ),
     /** THE-736 content axis: also persist each dispatch's raw parsed arguments on the session
-     *  trace, so a recorded session can be REPLAYED. Off until the THE-238 poisoning defence
-     *  lands — the same write-on gate ordering `experiential.captureContent` waits on, and
-     *  deliberately the same vocabulary rather than a second one. */
+     *  trace, so a recorded session can be REPLAYED.
+     *
+     *  ON under trusted-local as of 2026-08-07, decided jointly with `experiential.captureContent`
+     *  because they are one posture question at two granularities. The operator has accepted that
+     *  traces hold user content; arguments are secret-scanned and size-capped on the way in, and
+     *  traces live in cacheDir rather than the vault (see THE-737), so they are not reachable
+     *  through the note surface.
+     *
+     *  This is what makes `obsidian-tc rerun` usable: with no captured arguments every record
+     *  classifies `no_capture` and the command exits 2 on all of them, which is a shipped feature
+     *  doing nothing. `securityProfile: "hardened"` sets it back to false. */
     traceContent: z
       .boolean()
-      .default(false)
+      .default(true)
       .describe(
-        "Also persist each dispatch's raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed. Off by default: a trace carrying arguments holds note bodies and search queries, which is a capture-posture decision, not a wiring one. Traces live in cacheDir (never the vault) so they are not reachable through the note surface — see THE-737.",
+        'Also persist each dispatch\'s raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `obsidian-tc rerun`. On under the trusted-local posture; `securityProfile: "hardened"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface — see THE-737.',
       ),
     windowSeconds: z
       .number()

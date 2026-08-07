@@ -943,8 +943,8 @@
           "type": "boolean"
         },
         "captureContent": {
-          "default": false,
-          "description": "Also persist each episode's raw parsed arguments, secret-scanned and size-capped. Off until the poisoning defence lands: this is the write-side of the gate.",
+          "default": true,
+          "description": "Also persist each episode's raw parsed arguments, secret-scanned and size-capped, so work-memory carries what a call actually did rather than only that it happened. On under the trusted-local posture; `securityProfile: \"hardened\"` turns it off, as does setting it false explicitly.",
           "type": "boolean"
         },
         "activationDecay": {
@@ -1656,8 +1656,8 @@
           "type": "boolean"
         },
         "traceContent": {
-          "default": false,
-          "description": "Also persist each dispatch's raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed. Off by default: a trace carrying arguments holds note bodies and search queries, which is a capture-posture decision, not a wiring one. Traces live in cacheDir (never the vault) so they are not reachable through the note surface — see THE-737.",
+          "default": true,
+          "description": "Also persist each dispatch's raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `obsidian-tc rerun`. On under the trusted-local posture; `securityProfile: \"hardened\"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface — see THE-737.",
           "type": "boolean"
         },
         "windowSeconds": {

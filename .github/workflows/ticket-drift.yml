@@ -1,0 +1,56 @@
+# THE-540's scheduled half, finally wired 2026-08-07. The script has existed since 2026-07-25 and
+# its own header said "Weekly + dispatch, like check-release-lag.mjs" — but no workflow ever invoked
+# it, so it ran only when somebody remembered. That is the same shape of defect the script hunts:
+# a stated intent that nothing enforces.
+#
+# A nag, not a PR gate. Citing an open ticket while working on it is normal and correct, so a
+# per-PR gate would fire on every good PR.
+name: ticket-drift
+on:
+  schedule:
+    - cron: "0 15 * * 1" # Mondays 15:00 UTC, an hour after release-lag so they do not interleave
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+
+      # The `secrets` context is NOT available in a step-level `if:`, so the presence of the token
+      # has to become a step output first. Branching on `secrets.LINEAR_API_KEY != ''` directly
+      # parses fine and then evaluates to a constant, which is the quiet kind of broken.
+      - id: probe
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${LINEAR_API_KEY:-}" ]; then
+            echo "have_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_key=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: cross-check against Linear
+        if: steps.probe.outputs.have_key == 'true'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/fetch-linear-tickets.mjs obsidian-tc > /tmp/tickets.json
+          node scripts/check-ticket-drift.mjs --tickets /tmp/tickets.json --strict
+
+      # When the token is absent this runs INVENTORY MODE and annotates a warning rather than
+      # either failing or passing quietly. A job that goes green having checked nothing is the
+      # failure THE-544 documents; a job permanently red on a fork gets muted and then covers
+      # nothing. The warning is what keeps "it was green" from being read as "it was checked".
+      - name: inventory only (no LINEAR_API_KEY)
+        if: steps.probe.outputs.have_key != 'true'
+        run: |
+          set -euo pipefail
+          echo "::warning title=ticket-drift ran partially::LINEAR_API_KEY is not set, so only the inventory ran. Neither the not-started check nor the closed-as-live-dependency check could fire. A green run here is NOT evidence that the code's ticket citations are current."
+          node scripts/check-ticket-drift.mjs

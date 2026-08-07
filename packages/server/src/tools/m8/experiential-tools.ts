@@ -3,8 +3,10 @@
 // contract at the retrieval boundary:
 //   * blocked (tombstoned) rows NEVER surface in work_search — control 1, absolute;
 //   * eligibility gates memory-use: work_search defaults to 'eligible' only (honest-empty
-//     until the THE-222 sleep-time evaluator stamps rows), include_pending is an explicit
-//     opt-in that still carries the trust floor;
+//     until `evaluateEpisodes` in experiential/reflect.ts stamps rows — named by symbol, not
+//     by ticket, because the id this used to cite closed 2026-07-12 and the pass it names is
+//     scheduled and running), include_pending is an explicit opt-in that still carries the
+//     trust floor;
 //   * bi-temporal validity: expired rows (valid_until <= now) never surface — control 3;
 //   * per-agent partitioning: results default to the CALLING principal's own episodes;
 //     any_caller is an explicit cross-partition request — the THE-238 partitioning control;

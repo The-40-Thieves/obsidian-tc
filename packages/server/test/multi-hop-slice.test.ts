@@ -2,8 +2,9 @@
 //
 // These tests exist because a generator bug is INVISIBLE downstream. A slice that quietly emitted
 // direct seed→target edges, or reused a "distinctive" term across many notes, would make every A/B
-// built on it measure nothing while every eval run looked perfectly healthy — and the tickets
-// blocked on this (THE-651, THE-629) would then ship on a null meaning "not measured" rather than
+// built on it measure nothing while every eval run looked perfectly healthy — and any A/B built
+// on it (THE-651 is the open one; THE-629 closed 2026-08-04) would ship on a null meaning
+// "not measured" rather than
 // "no effect", which is the exact failure feedback-state-the-detectable-effect-before-running
 // describes.
 import { describe, expect, it } from "vitest";

@@ -16,6 +16,14 @@ const HARDENED_BASE: Record<string, unknown> = {
   // default of 10) is still hardened-specific and both keys merge as one object.
   snapshots: { enabled: true, retention: 20 },
   transports: { http: { enabled: false } },
+  // 2026-08-07: the two CONTENT-capture axes flipped on in the schema (trusted-local now stores
+  // secret-scanned call arguments, which is what makes `rerun` usable). Hardened must not inherit
+  // that: storing note bodies and search queries is the opposite of least-privilege, and this
+  // profile exists to be the restrained posture rather than the current one. Listed explicitly and
+  // NOT relied on as a schema default, for the reason THE-648 records two entries above — a
+  // default that agrees today can be re-decided tomorrow, and the profile should not move with it.
+  experiential: { captureContent: false },
+  sessions: { traceContent: false },
 };
 
 /** Two-level merge where `override` wins. Nested plain objects merge one level deep; every other

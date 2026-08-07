@@ -1,8 +1,9 @@
 // THE-228 — the agent_episodes capture bus. Consumes the registry's onEpisode hook (one call
 // per dispatch outcome, session or not) and appends one row per episode to agent_episodes in
 // the experiential store. Capture-everything on the ACTION axis; the CONTENT axis (raw args)
-// is gated by `captureContent` (default OFF until the THE-238 poisoning defense red-team
-// gate is green) and, when on, args are secret-scanned (redaction, THE-227 constraint 1)
+// is gated by `captureContent` (default OFF by an unowned capture-posture decision, NOT by a
+// pending dependency — see the schema note on the key) and, when on,
+// args are secret-scanned (redaction, THE-227 constraint 1)
 // and size-capped before storage. The THE-238 layer-1 poison scan runs on every capture
 // regardless of content persistence, stamping tags/trust/eligibility. Rows are born
 // eligibility='pending' (high poison risk -> 'ineligible') — the sleep-time evaluator
@@ -74,8 +75,9 @@ export { redactSecrets, SECRET_PATTERNS } from "./redact";
 export interface EpisodeCaptureOptions {
   now?: () => number;
   onError?: (err: unknown) => void;
-  /** Persist scanned + capped raw args JSON. Default false — the content axis stays off
-   *  until THE-238's poisoning defense lands (write-on gate ordering). */
+  /** Persist scanned + capped raw args JSON. Default false — the content axis stays off by an
+   *  unowned capture-posture decision, NOT by a pending dependency. The poisoning defence it
+   *  used to defer to shipped 2026-07-11 and its layer-1 scan runs regardless of this flag. */
   captureContent?: boolean;
   /** Byte cap on stored args_json AFTER redaction (default 4096). */
   maxArgsBytes?: number;

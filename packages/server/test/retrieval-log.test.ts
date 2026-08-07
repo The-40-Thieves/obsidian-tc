@@ -70,7 +70,9 @@ describe("retrieval logging (THE-230)", () => {
       rank_in_results: 1,
       rerank_score: 0.91,
     });
-    // The judgement axes ride null until their writers land (THE-170 / feedback surface). The
+    // The judgement axes ride null here because this fixture never runs their writers: the
+    // citation pass is config-gated (`experiential.citationInfer.enabled`) and `feedback` needs
+    // an agent to call record_retrieval_feedback. Not "until a writer lands" — both exist. The
     // `outcome` column that used to be asserted here was retired in 20260806_001 (THE-718).
     expect(rows[0]?.cited_in_response).toBeNull();
     expect(rows[0]?.citation_score).toBeNull();

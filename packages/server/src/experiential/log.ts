@@ -3,8 +3,11 @@
 // chunk to chunk_retrievals in the experiential store. TOOL-LAYER ONLY by design — the eval
 // harness calls the search cores directly and must never pollute the log (THE-187 eval/serve
 // hygiene). Best-effort: a logging failure goes to onError and never fails the search that
-// triggered it. The outcome axis (cited_in_response / citation_score / feedback) rides these
-// rows null until its writers land (THE-170 citation gate, feedback surface).
+// triggered it. The judgement axes (cited_in_response / citation_score / feedback) ride these
+// rows null, for TWO different reasons that are easy to conflate: the citation writer exists and
+// is scheduled but is held by `experiential.citationInfer.enabled`, whereas `feedback` has no
+// automatic producer at all and needs an agent to call record_retrieval_feedback. Neither is a
+// missing dependency; one is config and one is adoption.
 import { randomUUID } from "node:crypto";
 import type { Database } from "../db/types";
 
