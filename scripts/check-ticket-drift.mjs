@@ -18,6 +18,31 @@
 //   2. Only NOT-STARTED tickets can fail the run. An "In Progress" ticket being referenced is
 //      exactly what you expect. Code existing for something nobody has started is the actual smell.
 //
+// ---------------------------------------------------------------------------------------------
+// DIRECTION 2, added 2026-08-07: a CLOSED ticket cited as a LIVE DEPENDENCY.
+//
+// The check above walks the OPEN ticket list, so a closed ticket can never appear in its output —
+// the blindness was structural, not a bug. Measured on this repo the day it was added: 415 distinct
+// ids referenced across 1,307 tracked files, of which 21 were open (checked) and at least 238 were
+// closed or cancelled (never checked). An 11x asymmetry, in the direction that had already caused
+// real damage:
+//
+//   * `experiential.captureContent` and `sessions.traceContent` were both default-off "until the
+//     THE-238 poisoning defense red-team". THE-238 closed 2026-07-11 and never contained a
+//     red-team — the comment named an event no ticket has ever owned. Two config defaults, and
+//     `obsidian-tc rerun` inert in production, waiting on it.
+//   * `agent_episodes.summary` is documented "filled at consolidation (THE-222)". THE-222 closed
+//     2026-07-12 having shipped `reflect` and never touched that column.
+//
+// The distinction that makes this checkable rather than noisy: PROVENANCE vs DEPENDENCY.
+// "THE-228 — the agent_episodes capture bus" is provenance. It is correct, permanent, and should
+// never be flagged. "off until THE-238 lands" is a dependency — a claim about the future, which a
+// closed ticket can no longer satisfy. Only dependency-phrased references to closed tickets fail.
+//
+// The durable fix this encodes: cite an ARTIFACT or a CONDITION, not a ticket. "until the THE-238
+// red-team" rots the moment THE-238 closes; "while args_json is NULL on every row" is checkable in
+// SQL and cannot.
+//
 // References are ranked by where they live, because they mean different things:
 //   src / workflow  -> STRONG. Shipped code or shipped CI cites this ticket.
 //   scripts / test  -> STRONG. Same: it is executable and it is on main.
@@ -30,10 +55,124 @@ import { readFileSync } from "node:fs";
 
 const TICKET_RE = /\bTHE-(\d{1,5})\b/g;
 
+/** Words that turn a citation into a FORWARD DEPENDENCY. Deliberately narrow: every one of these
+ *  asserts the ticket has not happened yet, which is exactly the claim a closed ticket falsifies.
+ *
+ *  `pending` is NOT here as a bare word, and that is load-bearing: `eligibility='pending'` is a
+ *  literal enum value all over the experiential code, so a bare \bpending\b matched provenance
+ *  comments in reflect.ts on the first run. Requiring a determiner after it ("pending the red-team")
+ *  keeps the English sense and drops the SQL one. */
+const DEP_WORDS =
+  /\b(?:until|awaiting|blocked on|gated on|waits? on|waiting on|filled at|deferred to|left to|once|after)\b|\bpending\s+(?:the|a|an|its)\b/gi;
+
+/** How far a dependency word may sit from the ticket id and still be ABOUT it. Proximity is what
+ *  separates "off until the THE-238 defence" from "the glob is normalized ONCE here; the PATH is
+ *  still normalized per call ... (THE-272)" — same word, 110 characters and one topic apart.
+ *
+ *  Calibrated by running the full board rather than a sample: at 10 tickets the loose version looked
+ *  clean, and only across 250 closed ones did `once` and `after` show up as the noise they are.
+ *  Every real finding on this repo sits inside ~25 characters, so 30 is the whole budget — 70 was
+ *  tried first and let a third of the coincidences straight back in. A sentence break inside the gap
+ *  disqualifies it regardless of distance. */
+const DEP_MAX_GAP = 30;
+
+/** A dependency word in the PAST tense is history, not a promise: "that cap has already been raised
+ *  once (THE-610)", "no coverage until THE-583 came to replace it", "`tracesDays` was removed once
+ *  for exactly that reason". All true, all permanent, none a claim the ticket still owes anything.
+ *
+ *  Measured, not assumed: this took the full-board residue from 12 candidates to 9. The remaining
+ *  nine are in DEP_ALLOW — regex does not finish this job, and pretending otherwise is how a gate
+ *  ends up quietly wrong rather than loudly incomplete.
+ *
+ *  A real dependency reads present/future — "off until the defence LANDS", "filled AT consolidation",
+ *  "honest-empty until the evaluator STAMPS rows" — and none of those trip this. */
+const PAST_TENSE =
+  /\b(?:was|were|had|has been|have been|came|landed|shipped|already|used to|previously|no longer)\b/i;
+
+/** Areas whose references are strong evidence — declared here because both areaOf()'s callers and
+ *  the dependency scan need it. */
+const STRONG_AREAS = new Set(["src", "workflow", "scripts", "test"]);
+
+/** This file documents the failure mode by QUOTING the stale phrases it hunts for, so it matches
+ *  itself on every run. Excluded deliberately: a check that reports its own documentation as a
+ *  finding trains people to ignore it. */
+const SELF = "scripts/check-ticket-drift.mjs";
+
+/** Shipped migrations are IMMUTABLE — checksum-pinned, and editing one is a hard startup error on
+ *  every existing deployment. `20260711_002_agent_episodes.sql` genuinely does say "gist, filled at
+ *  consolidation (THE-222)" about a ticket that closed without building it, and that sentence can
+ *  never be corrected in place. Exempted so the check can go green, because a gate that is
+ *  permanently red for an unfixable reason gets muted and then covers nothing.
+ *  The correction belongs in the code that READS the column, which is not exempt. */
+const IMMUTABLE = /^packages\/server\/src\/migrations\/.*\.sql$/;
+
+/** Triaged 2026-08-07 over the full board — THE-540's own Done-when ("each flagged ticket either
+ *  closed, or annotated explaining why it is legitimately open; that first triage is the real
+ *  deliverable"). Every entry is a dependency word governing something OTHER than the ticket beside
+ *  it, verified by reading the comment. Keyed on file+ticket rather than ticket alone, so the same
+ *  id in a NEW file still fires.
+ *
+ *  Add to this only after reading the comment and concluding the citation is provenance. Rewriting
+ *  the sentence is always the better fix; this exists so nine coincidences cannot hold the gate red
+ *  and get it muted. */
+const DEP_ALLOW = new Map([
+  // "keeps the experiential handle closed AFTER BOOT PROVISIONING" — a lifecycle phrase.
+  ["packages/shared/src/config/retrieval.schema.ts::THE-230", "governs boot provisioning"],
+  // "Runs AFTER applyVaultAcl" — describes ACL resolution ORDER, not a wait on the ticket.
+  ["packages/server/src/mcp/registry/input-binding.ts::THE-267", "governs dispatch ordering"],
+  // "throttle every pass AFTER THE FIRST" — counts scheduler passes.
+  ["packages/server/src/runtime/plane-wiring.ts::THE-296", "governs pass count"],
+  // "AFTER a same-dimension model swap" — names the test scenario.
+  ["packages/server/test/model-swap-reembed.test.ts::THE-460", "governs the swap scenario"],
+  // "under 2026-07-28 AFTER THE SDK MIGRATES" — a real forward dependency, on the upstream SDK
+  // rather than on this ticket. The ticket id next to it is provenance for the dual-era support.
+  ["packages/server/src/otel/propagation.ts::THE-583", "governs the upstream SDK, not the ticket"],
+  // "flaked ... even AFTER a recalibration" — history of a fix that already happened.
+  ["packages/server/eval/perf/run.ts::THE-584", "past-tense narrative"],
+  // "still flaked ... AFTER landing in the unit suite" — same shape.
+  ["packages/server/eval/perf/spearman.ts::THE-594", "past-tense narrative"],
+  // A narrative about prose that HAD drifted and was corrected.
+  ["packages/server/scripts/docgen/facts-check.ts::THE-599", "past-tense narrative"],
+  // "that cap has already been raised ONCE" — counts raises.
+  ["packages/server/src/vault/watcher.ts::THE-610", "governs a count, not the ticket"],
+  // "`tracesDays` was removed ONCE for exactly that reason" — counts removals.
+  ["packages/server/test/config.test.ts::THE-610", "governs a count, not the ticket"],
+]);
+
+const COMMENT_LINE = /^\s*(\/\/|\*|\/\*|--|#|<!--)/;
+
+/** Collapse wrapped comment prose to one line. These comments wrap — "off until the THE-238
+ *  poisoning defence \n *  lands" is one sentence to a reader and two lines to a naive grep. */
+const flatten = (s) => s.replace(/[\r\n]+[ \t]*(\/\/+|\*+|--|#)?[ \t]*/g, " ").replace(/\s+/g, " ");
+
+/** Contiguous runs of comment lines. Dependency words and ticket ids only pair when they sit in the
+ *  SAME block of prose — measured on the first run: `(retrievals[0]?.retrieved_at ?? until) + …` is
+ *  CODE, and pairing its `until` with a THE-717 in the comment two lines below is a false positive.
+ *  Markdown is prose throughout, so every line counts there. */
+function commentBlocks(text, isProse) {
+  const blocks = [];
+  let cur = null;
+  for (const line of text.split("\n")) {
+    if (isProse || COMMENT_LINE.test(line)) {
+      cur ??= [];
+      cur.push(line);
+    } else if (cur) {
+      blocks.push(cur.join("\n"));
+      cur = null;
+    }
+  }
+  if (cur) blocks.push(cur.join("\n"));
+  return blocks;
+}
+
 /** Where a reference lives. Order matters: a test under packages/ must classify as `test`, not `src`.
- *  Which of these count as strong evidence is declared once, in STRONG_AREAS below. */
+ *  Which of these count as strong evidence is declared once, in STRONG_AREAS above. */
 function areaOf(path) {
   if (path.startsWith(".github/")) return "workflow";
+  // Markdown is PROSE wherever it lives. `packages/server/eval/perf/README.md` was classifying as
+  // `src` purely because of its prefix, which promoted a design note to executable evidence — the
+  // opposite of the docs rule three lines down. Checked before the prefix tests for that reason.
+  if (path.endsWith(".md")) return "docs";
   if (/(^|\/)test\//.test(path) || path.endsWith(".test.ts")) return "test";
   if (path.startsWith("scripts/")) return "scripts";
   if (path.startsWith("docs/")) return "docs";
@@ -61,7 +200,7 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-/** id -> Map<area, Set<path>> */
+/** id -> { areas: Map<area, Set<path>>, dep: Map<path, evidence> } */
 const refs = new Map();
 for (const file of files) {
   let text;
@@ -70,16 +209,42 @@ for (const file of files) {
   } catch {
     continue; // binary or unreadable; nothing to match
   }
+  const area = areaOf(file);
   const seen = new Set();
   for (const m of text.matchAll(TICKET_RE)) {
     const id = `THE-${m[1]}`;
-    if (seen.has(id)) continue; // one hit per file per ticket keeps the report readable
-    seen.add(id);
-    const area = areaOf(file);
-    if (!refs.has(id)) refs.set(id, new Map());
-    const byArea = refs.get(id);
-    if (!byArea.has(area)) byArea.set(area, new Set());
-    byArea.get(area).add(file);
+    if (!refs.has(id)) refs.set(id, { areas: new Map(), dep: new Map() });
+    const rec = refs.get(id);
+    if (!seen.has(id)) {
+      seen.add(id); // one PATH hit per file per ticket keeps the report readable
+      if (!rec.areas.has(area)) rec.areas.set(area, new Set());
+      rec.areas.get(area).add(file);
+    }
+  }
+  // Dependency phrasing is a SEPARATE pass over comment blocks, and it deliberately does not honour
+  // the dedup above: the first mention of a ticket in a file is usually the header's provenance line
+  // ("THE-228 — the capture bus"), and the load-bearing one ("off until THE-238 lands") comes later.
+  if (!STRONG_AREAS.has(area) || file === SELF || IMMUTABLE.test(file)) continue;
+  for (const block of commentBlocks(text, file.endsWith(".md"))) {
+    const flat = flatten(block);
+    for (const m of flat.matchAll(TICKET_RE)) {
+      const id = `THE-${m[1]}`;
+      const rec = refs.get(id);
+      if (!rec || rec.dep.has(file) || DEP_ALLOW.has(`${file}::${id}`)) continue;
+      const before = flat.slice(Math.max(0, m.index - 160), m.index);
+      // The LAST dependency word before the id is the candidate; anything earlier is a different
+      // clause. DEP_WORDS is /g, so matchAll is safe here and lastIndex never leaks between files.
+      const hit = [...before.matchAll(DEP_WORDS)].pop();
+      if (!hit) continue;
+      const gap = before.slice(hit.index + hit[0].length);
+      if (gap.length > DEP_MAX_GAP || /[.;!?]\s/.test(gap)) continue;
+      const evidence = `${before}${flat.slice(m.index, m.index + 60)}`.trim();
+      // Tense is checked over the clause AROUND the citation, not just the gap: "until THE-583 CAME
+      // to replace it" puts the tell after the id, "HAS ALREADY been raised once (THE-610)" before.
+      if (PAST_TENSE.test(`${before.slice(hit.index)}${flat.slice(m.index, m.index + 60)}`))
+        continue;
+      rec.dep.set(file, evidence);
+    }
   }
 }
 
@@ -92,8 +257,12 @@ if (ticketsArg === -1) {
     `check-ticket-drift: ${ids.length} distinct ticket ids referenced across ${files.length} tracked files.`,
   );
   console.log(
-    'Pass --tickets <file> (JSON: [{"id":"THE-1","state":"Todo"}]) to cross-check against open tickets.',
+    'Pass --tickets <file> (JSON: [{"id":"THE-1","state":"Todo"}]) to cross-check. Include CLOSED',
   );
+  console.log(
+    "tickets in that list as well as open ones — the closed direction is the one nothing checked",
+  );
+  console.log("until 2026-08-07, and it is where THE-238 and THE-222 went wrong.");
   console.log(ids.join(" "));
   process.exit(0);
 }
@@ -111,24 +280,37 @@ if (!Array.isArray(tickets) || tickets.length === 0) {
   process.exit(1);
 }
 
-// "Not started" is the failing condition. Anything already in flight is expected to be cited.
+// "Not started" is the failing condition for direction 1. Anything already in flight is expected
+// to be cited.
 const NOT_STARTED = new Set(["backlog", "todo", "triage", "unstarted"]);
 
-/** Areas whose references are strong evidence — kept in one place, used by areaOf() and below. */
-const STRONG_AREAS = new Set(["src", "workflow", "scripts", "test"]);
+// Direction 2. `canceled` and `cancelled` are both listed because Linear emits the one-l spelling
+// and humans hand-writing a fixture reliably type the other; a state that falls through this set
+// is silently treated as open, which would make the check under-report rather than fail loudly.
+const CLOSED = new Set(["done", "completed", "canceled", "cancelled", "duplicate", "merged"]);
 
 const strong = [];
 const weak = [];
+const staleDeps = [];
 for (const t of tickets) {
-  const byArea = refs.get(t.id);
-  if (!byArea) continue;
+  const rec = refs.get(t.id);
+  if (!rec) continue;
+  const state = String(t.state ?? "").toLowerCase();
   const row = {
     id: t.id,
     state: t.state ?? "?",
     title: t.title ?? "",
-    notStarted: NOT_STARTED.has(String(t.state ?? "").toLowerCase()),
-    areas: [...byArea.entries()].map(([area, paths]) => [area, [...paths].sort()]),
+    notStarted: NOT_STARTED.has(state),
+    closed: CLOSED.has(state),
+    areas: [...rec.areas.entries()].map(([area, paths]) => [area, [...paths].sort()]),
+    dep: [...rec.dep.entries()].sort(([a], [b]) => a.localeCompare(b)),
   };
+  // A closed ticket cited only as provenance is CORRECT and must never be flagged — that is the
+  // whole reason this keys on dependency phrasing rather than on the reference existing.
+  if (row.closed) {
+    if (row.dep.length > 0) staleDeps.push(row);
+    continue;
+  }
   const hasStrong = row.areas.some(([area]) => STRONG_AREAS.has(area));
   (hasStrong ? strong : weak).push(row);
 }
@@ -147,31 +329,77 @@ function report(rows, heading) {
   }
 }
 
+const closedCount = tickets.filter((t) => CLOSED.has(String(t.state ?? "").toLowerCase())).length;
 console.log(
-  `check-ticket-drift: ${tickets.length} open tickets vs ${refs.size} ids referenced across ${files.length} tracked files.`,
+  `check-ticket-drift: ${tickets.length} tickets (${tickets.length - closedCount} open, ${closedCount} closed) vs ${refs.size} ids referenced across ${files.length} tracked files.`,
 );
+if (closedCount === 0) {
+  console.log(
+    "  NOTE: the ticket list contains no closed tickets, so the stale-dependency check cannot fire.",
+  );
+  console.log(
+    "  Pass closed tickets too — that direction is the one that caused THE-238 and THE-222.",
+  );
+}
 report(strong, "Referenced by CODE, CI, scripts or tests — verify against main before scheduling:");
 report(
   weak,
   "Referenced only by docs (weak signal — design notes discuss unstarted work legitimately):",
 );
 
+if (staleDeps.length > 0) {
+  console.log("\nCLOSED tickets cited as a LIVE DEPENDENCY in executable content:");
+  for (const r of staleDeps.sort((a, b) => Number(a.id.slice(4)) - Number(b.id.slice(4)))) {
+    console.log(`  ${r.id}  [${r.state}]  ${r.title}`.trimEnd());
+    for (const [path, evidence] of r.dep) {
+      console.log(`      ${path}`);
+      console.log(`        "…${evidence.slice(0, 150)}…"`);
+    }
+  }
+}
+
+// Direction 2 FAILS --strict, as of the 2026-08-07 triage. Getting here took four passes over the
+// full board (304 tickets, 1,307 files), and the order matters: 11 real findings fixed, then
+// comment-block scoping, then proximity, then tense, then a 10-entry allowlist for the residue.
+// Regex does not reach zero on English — the allowlist is what makes the gate honest rather than
+// approximately right, and it is keyed on file+ticket so the same id in a new file still fires.
 const failing = strong.filter((r) => r.notStarted);
-if (failing.length === 0) {
-  console.log("\ncheck-ticket-drift: no not-started ticket is referenced by executable content.");
+if (failing.length === 0 && staleDeps.length === 0) {
+  console.log(
+    "\ncheck-ticket-drift: no not-started ticket is referenced by executable content, and no closed",
+  );
+  console.log("ticket is cited as a live dependency.");
   process.exit(0);
 }
 
-console.log(
-  `\ncheck-ticket-drift: ${failing.length} NOT-STARTED ticket(s) are referenced by executable content: ${failing
-    .map((r) => r.id)
-    .join(", ")}`,
-);
-console.log(
-  "Each is either already (partly) done, or its code comment is aspirational. Verify, then",
-);
-console.log(
-  "close it or annotate why it is legitimately open — see THE-540 for the triage convention.",
-);
+if (failing.length > 0) {
+  console.log(
+    `\ncheck-ticket-drift: ${failing.length} NOT-STARTED ticket(s) are referenced by executable content: ${failing
+      .map((r) => r.id)
+      .join(", ")}`,
+  );
+  console.log(
+    "Each is either already (partly) done, or its code comment is aspirational. Verify, then",
+  );
+  console.log(
+    "close it or annotate why it is legitimately open — see THE-540 for the triage convention.",
+  );
+}
+
+if (staleDeps.length > 0) {
+  console.log(
+    `\ncheck-ticket-drift: ${staleDeps.length} CLOSED ticket(s) are cited as a live dependency: ${staleDeps
+      .map((r) => r.id)
+      .join(", ")}`,
+  );
+  console.log(
+    "The comment promises something the ticket can no longer deliver. Rewrite it to name the",
+  );
+  console.log(
+    "ARTIFACT or CONDITION it is actually waiting on — a condition stays true or false on its own,",
+  );
+  console.log("whereas a ticket id silently becomes a lie the moment the ticket closes.");
+}
+
 // Advisory by default so this can be run freely; the scheduled workflow passes --strict to go red.
 process.exit(process.argv.includes("--strict") ? 1 : 0);

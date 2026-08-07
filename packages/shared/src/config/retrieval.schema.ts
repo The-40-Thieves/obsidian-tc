@@ -327,13 +327,22 @@ export const ExperientialConfigSchema = z.object({
       "Record every dispatch outcome as an agent_episodes row — tool, status, duration, sizes, hashes, attribution. No payloads are stored.",
     ),
   /** THE-228 content axis: also persist the raw parsed args (secret-scanned + size-capped)
-   *  on each episode. Default OFF until the THE-238 poisoning defense lands — the write-on
-   *  gate ordering. */
+   *  on each episode.
+   *
+   *  ON under trusted-local as of 2026-08-07. The capture-posture decision this had been deferring
+   *  to was taken rather than discovered: the poisoning defence shipped 2026-07-11, its layer-1
+   *  scan runs on every capture, args are secret-scanned and size-capped before storage, and the
+   *  deployment is single-principal. What the default was actually resting on was an owner, not a
+   *  control.
+   *
+   *  `securityProfile: "hardened"` sets this back to false — retaining raw arguments is the
+   *  opposite of least-privilege, and a posture named for restraint should not inherit a capture
+   *  default from the permissive one. Same call as `sessions.traceContent`, decided together. */
   captureContent: z
     .boolean()
-    .default(false)
+    .default(true)
     .describe(
-      "Also persist each episode's raw parsed arguments, secret-scanned and size-capped. Off until the poisoning defence lands: this is the write-side of the gate.",
+      'Also persist each episode\'s raw parsed arguments, secret-scanned and size-capped, so work-memory carries what a call actually did rather than only that it happened. On under the trusted-local posture; `securityProfile: "hardened"` turns it off, as does setting it false explicitly.',
     ),
   /** THE-644 item 3: the ACT-R decay exponent, finally reachable from configuration.
    *

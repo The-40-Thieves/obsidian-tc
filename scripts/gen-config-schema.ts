@@ -60,8 +60,9 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // FALSE). It gates capturing each dispatch's raw parsed arguments onto the session trace, so a
 // recorded session can be replayed; the trace previously stored only `args_hash`, which is not
 // invertible, so replay was impossible at any effort level. Default off because capturing
-// arguments is a capture-posture decision — the same gate `experiential.captureContent` waits on
-// (the THE-238 poisoning red-team), and deliberately the same vocabulary rather than a second one.
+// arguments is a capture-posture decision — the same call `experiential.captureContent` is off
+// for, and deliberately the same vocabulary rather than a second one. That decision is unowned
+// rather than blocked; the poisoning defence it was once deferred to shipped on 2026-07-11.
 // No existing key, type, default or constraint moved.
 // THE-657: rebaselined deliberately, DESCRIPTION TEXT ONLY. The Windows watcher is enabled, so
 // three descriptions that said it is "not active on Windows" are now false. No key, type, default
@@ -79,8 +80,24 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // and nothing ever supplied one, so the knob existed with no handle and the only way to change it
 // was an eval-harness script. Additive, defaulted to the existing 0.5, and threaded to its
 // consumer in the same change — this repo has deleted four declared-but-unwired keys.
+// THE-540 direction 2: rebaselined deliberately. TWO DEFAULTS MOVED — this is a behavioural change,
+// not a prose pass, and it is the whole point of the change rather than a side effect of one.
+//
+// `experiential.captureContent` and `sessions.traceContent` both went false -> TRUE under the
+// trusted-local posture. Both had been off "until the THE-238 poisoning defence lands"; that
+// defence landed 2026-07-11, and THE-238 never contained the red-team the comments named, so the
+// gate was an event no ticket has ever owned. The controls that DO exist all shipped: layer-1
+// poison scan on every capture, secret redaction, size caps, and traces held in cacheDir rather
+// than the vault. What was missing was a decision, and it has now been taken.
+//
+// The cost of leaving them off was concrete: `args_json` NULL on every episode, and `obsidian-tc
+// rerun` — 16 commits and 99 tests — exiting 2 on every production record because nothing had
+// arguments to re-issue.
+//
+// `securityProfile: "hardened"` pins both back to false. Content capture is the opposite of
+// least-privilege and that profile must not inherit a permissive default.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "6f8c4763dbc96820a73018343db99fe42b7a970bee9758ac4abcb64fd5c56903";
+  "357096611d45f10cbcedf9b35751ad737ca713c4c88fc8c733c153e2200bc7b3";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

@@ -107,7 +107,7 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
   "experiential": {
     "logRetrievals": true,
     "captureEpisodes": true,
-    "captureContent": false,
+    "captureContent": true,
     "activationDecay": 0.5,
     "activationRerank": false,
     "citationInfer": {
@@ -230,7 +230,7 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
   },
   "sessions": {
     "autoOpen": false,
-    "traceContent": false,
+    "traceContent": true,
     "windowSeconds": 1800
   },
   "idempotencyTtlSeconds": 86400,

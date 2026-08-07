@@ -46,9 +46,10 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
       writer: on ? "on-demand" : "disabled",
       lever: "an agent calling record_retrieval_feedback after acting on a result (THE-718)",
     },
-    // Stamped only by inferCitations, whose sole wired call site is the CLI and which needs a
-    // transcript no MCP surface supplies (THE-717, blocked on THE-675). On-demand rather than
-    // enabled: nothing schedules it, so "never ran" is the current design, not a malfunction.
+    // Stamped only by inferCitations. The pass IS reachable now — the scheduled job and the
+    // transcript producer both shipped 2026-08-05. What holds it is config, not a missing
+    // dependency: `experiential.citationInfer.enabled`. So a NULL here reports the current
+    // configuration rather than a malfunction — read the flag before calling it one.
     //
     // "never ran" is now CHECKABLE rather than assumed: THE-717 item 2 added the `citation_runs`
     // log, so a NULL here no longer conflates never-covered with covered-then-aborted. Read the

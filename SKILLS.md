@@ -184,7 +184,8 @@ retrieval skill; reach for it first when answering from the vault.
 (retrieval events + dispatch episodes) into `experiential.db`, physically separate
 from your notes, with a pre-ingest secret/poison scanner and an outcome axis. By
 default it records the *action* axis only (tool, status, sizes, hashes, **no
-payloads**); `experiential.captureContent` opts into secret-scanned args. This is
+payloads**); `experiential.captureContent` adds secret-scanned args, on under the
+trusted-local posture and off under `hardened`. This is
 the substrate for a knowledge flywheel (`metrics`, `gaps`, `activation-recompute`),
 not something an agent reads as if it were authored content.
 
@@ -348,7 +349,7 @@ The complete option surface (every field, default, env var, and CLI command) is 
 | `auth.mode` | `none` | `jwt` for anything non-loopback (required by the interlock). |
 | `toolFacade.mode` | `triad` | `flat` if your client prefers the full list. |
 | `transports.http.enabled` | false | Many-client / remote (then set auth). |
-| `experiential.captureContent` | false | Opt into storing (scanned) call args. |
+| `experiential.captureContent` | true | Stores (scanned) call args. `securityProfile: "hardened"` turns it off. |
 | `OBSIDIAN_TC_GATEWAY_URL` (env) | unset | Enable the generative tier (`reflect`, `densify-llm`, `plane`). |
 
 **Gotchas that bite new users**

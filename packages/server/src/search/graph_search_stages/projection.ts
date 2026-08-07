@@ -55,8 +55,9 @@ export function finalize(
 // finalize), so the bubble-safe composition is pre-plumbed here too — strictly off by default.
 // Without opts.bubbleSafe.enabled (or without activationFor) this is BYTE-IDENTICAL to the prior
 // `capped.map((c) => toResult(c, scoreOf(c)))` projection, so the default path is unchanged until a
-// live signal (e.g. activation once THE-228 populates chunk_retrievals) turns it on and it is
-// measured on the golden set.
+// live signal turns it on and it is measured on the golden set. chunk_retrievals is populated
+// today, so what is open is the measurement, not the signal's existence — see the THE-424 note on
+// `finalize` above.
 export function projectWithBubbleSafe(
   items: Candidate[],
   scoreOf: (c: Candidate) => number,
