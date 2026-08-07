@@ -2,12 +2,22 @@
   "scenario": "small",
   "mode": "isolated-median",
   "samples": 5,
-  "measuredAtSha": "1a3e9555aff92c998c7ec962647cdfd2895e2171",
+  "measuredAtSha": "d4f06195f10cd718a0a4702428e0944ae757387a",
   "treeDirty": false,
-  "measuredAt": "2026-07-26T04:31:20.579Z",
+  "measuredAt": "2026-08-07T06:36:24.457Z",
   "host": {
     "platform": "linux",
     "arch": "x64",
     "cpus": 4
+  },
+  "calibration": {
+    "cpuMs": {
+      "median": 16.552933999999823,
+      "cv": 0.041902399290985784
+    },
+    "ioMs": {
+      "median": 5.174183999999968,
+      "cv": 0.07237281782700178
+    }
   }
 }
