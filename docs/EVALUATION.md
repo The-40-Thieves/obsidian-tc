@@ -223,6 +223,49 @@ in its context window.** A memory layer can, and frequently does, perform worse 
 layer at all, because compression and summarisation destroy information faster than they organise
 it.
 
+### And the LoCoMo column above is scored against a key with known errors
+
+Every LoCoMo figure in that table — ours included, had we published one — predates an audit that
+found the benchmark's own answer key is wrong on a material fraction of questions.
+
+The [Penfield Labs LoCoMo audit](https://github.com/dial481/locomo-audit) (April 2026) examined all
+**1,540** non-adversarial questions and found **156 issues**: **99 that corrupt scoring (6.4% of
+questions)** plus 57 that are citation-metadata errors only. The score-corrupting ones break down as
+hallucinated facts (33), temporal miscalculations (26), speaker-attribution errors (24), ambiguous
+answers (13) and incomplete answers (3).
+
+**The error rate is highest exactly where a graph retriever would be judged:** 9.9% on the multi-hop
+category and 9.4% on open-domain, against 4.3% on single-hop factual.
+
+The audit's own conclusion is the number worth carrying:
+
+> The theoretical maximum score for a perfectly correct system is ~93.6%
+
+Set that beside the table. A vendor's self-reported LoCoMo figure of 92.5% sits **1.1 points under
+the benchmark's ceiling** — a claim that should be read with the ceiling in hand rather than at face
+value.
+
+**What this does and does not invalidate.** A wrong answer key penalises every system roughly
+equally, so the *relative* ordering above — and therefore the argument this section makes — survives
+it. What does not survive is any *absolute* LoCoMo number, from anyone, scored before April 2026 and
+not stated as corrected. The competitor harness at
+[`basic-memory-benchmarks`](https://github.com/basicmachines-co/basic-memory-benchmarks) now ships
+the corrections and requires runs to declare which key they used; that is the right posture and this
+project would adopt it before quoting a LoCoMo number of its own.
+
+### One more reason a conversational benchmark cannot grade this engine
+
+The same competitor harness publishes a `baseline-grep` arm — literally grep — and it reaches
+**recall@10 0.937** on LongMemEval-60 and **1.000** on their 274-question ConvoMem set, in 1–5 ms.
+Their own failure analysis puts the retrieval ceiling at 0.983–1.000 and attributes **96–100% of
+end-to-end failures to the answerer rather than to retrieval**.
+
+On the corpora this field competes over, retrieval is close to saturated: the scoreboard is grading
+the reader, not the retriever. That is the sharpest available argument for measuring this engine on
+a **linked, permissioned** corpus instead — not because those numbers would be flattering, but
+because a benchmark grep can max out cannot distinguish any two retrievers, including ours from a
+bad one.
+
 ### The consequence for anyone building this
 
 **A memory benchmark without a no-memory control arm is uninterpretable.** Absent that baseline you
