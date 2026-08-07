@@ -105,8 +105,20 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // the defect THE-535 raised and answered by making the DESCRIPTION honest ("not yet wired"). Part A
 // answers it the other way, in the M7 options builder, so the hedge had to go.
 // Deliberately NOT a default change: the A/B that would move it off false is THE-424 Part B.
+// THE-424: rebaselined for ONE NEW KEY — `indexing.chunkTokens` (int, default 512, bounded
+// [64, 8192]). The chunker's `ChunkOptions.maxTokens` has always existed and `chunkNote(body)` was
+// always called with no options, so the budget was pinned at an inline 512 and the only way to
+// change it was to edit chunk.ts. Same shape as `experiential.activationDecay` before THE-644
+// item 3 — a knob with no handle — and fixed the same way: additive, defaulted to the value already
+// in force, and threaded to its consumer in the same change rather than declared and left dark.
+// No existing key, type, default or constraint moved, and every existing index keeps its exact
+// chunk boundaries because the default IS the old hardcoded value.
+//
+// It also joins the representation fingerprint, which the other capture-posture rebaselines above
+// did not have to think about: chunk size is the first axis that changes what a chunk IS rather
+// than what its vector MEANS, so two indexes at different budgets must not compare equal.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "b4abbe86c1815271bbbd95cc00f9ba0db0786fd8255a531be87632e909fa5df4";
+  "789ffa9b46ffd7f2906bce8f92b9ae04bc04e700bca7a2952ec98a35e16e9644";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

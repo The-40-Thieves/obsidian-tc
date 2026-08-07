@@ -90,6 +90,10 @@ export function computeNotePlan(
    *  When present, this note's slice is used and no per-note chunk query runs. Omitted -> per-note
    *  query (the single-note indexing path). */
   preloadedExisting?: Map<string, ExistingRow[]>,
+  /** THE-424: indexing.chunkTokens. Undefined -> the chunker's own DEFAULT_CHUNK_TOKENS, which is
+   *  what every caller got before this parameter existed, so an un-updated caller is unchanged
+   *  rather than silently re-chunked. Last in the list for the same reason. */
+  chunkTokens?: number,
 ): PlanResult {
   const body = parseNote(raw).body;
   // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
@@ -100,7 +104,7 @@ export function computeNotePlan(
   // THE-406: with enrichment on, the content hash is computed over the ENRICHED text, so flipping
   // embeddings.chunkContext re-embeds every chunk on the next pass instead of silently serving
   // vectors built from a different representation.
-  const desired = chunkNote(body)
+  const desired = chunkNote(body, chunkTokens !== undefined ? { maxTokens: chunkTokens } : {})
     .map((c): PlannedChunk => {
       // body_sha keys on the RAW body (c.content), PRE-enrichment — it must NOT depend on the
       // path-salted embed text, so identical bodies at different paths collide (migration

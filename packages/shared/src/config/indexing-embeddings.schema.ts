@@ -246,6 +246,32 @@ export const IndexingConfigSchema = z
       .describe(
         "Walk the vault lazily per-directory (walkVaultStream) instead of materializing the full sorted file list before indexing starts. Lower peak memory on large vaults; index output is unchanged either way.",
       ),
+    /** THE-424: the chunker's token budget. `ChunkOptions.maxTokens` has always existed and
+     *  `chunkNote(body)` has always been called with NO options, so the budget was pinned at the
+     *  512 default and the only way to change it was to edit chunk.ts. Same shape as
+     *  experiential.activationDecay before THE-644 item 3: a knob with no handle. Additive,
+     *  defaulted to the existing 512, and threaded to its consumer in the same change.
+     *
+     *  UNLIKE every other representation axis, changing this DOES require a re-embed. The
+     *  fingerprint comment in search/representation.ts explains that a fingerprint change is
+     *  normally free because `vec_chunks` refills from the already-stored `chunk_embeddings`
+     *  rows — that holds because no other axis moves `provider.id` OR the chunk boundaries. This
+     *  one moves the boundaries: different budget means different chunk ids, different content
+     *  hashes, and stored vectors that describe text no chunk contains any more. Budget a full
+     *  re-index, and prefer a fresh cacheDir over mutating a live one.
+     *
+     *  Bounded [64, 8192]: below ~64 a chunk cannot carry a heading breadcrumb plus a sentence,
+     *  and 8192 is bge-m3's context ceiling — past it the tail is silently truncated by the
+     *  provider rather than by us, which is the failure mode hardest to see from the index. */
+    chunkTokens: z
+      .number()
+      .int()
+      .min(64)
+      .max(8192)
+      .default(512)
+      .describe(
+        "Chunker token budget: a note section over this many estimated tokens is sub-split on paragraph boundaries. Participates in the representation fingerprint, and unlike the other axes a change here requires a full re-index — different budget means different chunk boundaries, so stored vectors no longer describe any chunk that exists.",
+      ),
   })
   .prefault({});
 export type IndexingConfig = z.infer<typeof IndexingConfigSchema>;

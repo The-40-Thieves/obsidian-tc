@@ -17,6 +17,12 @@ export interface ChunkOptions {
   maxTokens?: number;
 }
 
+/** THE-424: the chunker's default token budget, and the schema default for indexing.chunkTokens.
+ *  Exported so the config schema, the representation fingerprint and this chunker cannot drift to
+ *  three different notions of "the default" — before THE-424 this was an inline 512 here and
+ *  nothing else could see it. */
+export const DEFAULT_CHUNK_TOKENS = 512;
+
 // ~4 characters per token — the standard rough estimate for English prose. Used
 // only for budgeting/observability, never for billing, so an estimate is fine.
 export function estimateTokens(text: string): number {
@@ -121,7 +127,7 @@ export function enrichChunkText(path: string, headings: string[], content: strin
 }
 
 export function chunkNote(body: string, opts: ChunkOptions = {}): Chunk[] {
-  const maxTokens = opts.maxTokens ?? 512;
+  const maxTokens = opts.maxTokens ?? DEFAULT_CHUNK_TOKENS;
   const sections = splitSections(body);
   const chunks: Chunk[] = [];
   sections.forEach((section, sectionIdx) => {

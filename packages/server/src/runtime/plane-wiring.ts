@@ -252,6 +252,8 @@ export interface ReconcileRunnerDeps {
   embedConfig: { batchSize: number; concurrency: number; maxBatchTokens: number };
   /** config.embeddings.chunkContext */
   chunkContext: boolean;
+  /** THE-424: config.indexing.chunkTokens. Undefined -> the chunker's 512 default. */
+  chunkTokens?: number;
   /** THE-683: the representation identity built ONCE by wireIndexResources and passed through,
    *  never re-derived here. Replaces the loose `revision` field, whose doc had to warn that it
    *  "must match indexing-wiring.ts" — a constraint the type system now enforces instead. */

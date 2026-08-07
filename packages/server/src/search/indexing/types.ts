@@ -148,6 +148,11 @@ export interface IndexVaultArgs {
    *  every index path (boot reconcile, index_vault tool, index-on-write): the chunk content hash
    *  covers the enriched text, so mixed values would re-embed the same chunks back and forth. */
   chunkContext?: boolean;
+  /** THE-424: indexing.chunkTokens — the chunker's token budget for this pass. Undefined -> the
+   *  chunker's DEFAULT_CHUNK_TOKENS (512), i.e. the pre-THE-424 behaviour. Must agree with the
+   *  chunkTokens folded into `representationManifest` below: they describe the same pass, and a
+   *  disagreement would index at one budget while fingerprinting as another. */
+  chunkTokens?: number;
   /** THE-683: the representation identity of the index this pass writes into, built ONCE by the
    *  caller with `buildRepresentationManifest`. Required, and deliberately not defaulted: this used
    *  to be re-derived here from loose fields (`chunkContext`, `revision`) that had to match

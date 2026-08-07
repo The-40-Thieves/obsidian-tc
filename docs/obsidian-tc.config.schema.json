@@ -698,6 +698,13 @@
           "default": false,
           "description": "Walk the vault lazily per-directory (walkVaultStream) instead of materializing the full sorted file list before indexing starts. Lower peak memory on large vaults; index output is unchanged either way.",
           "type": "boolean"
+        },
+        "chunkTokens": {
+          "default": 512,
+          "description": "Chunker token budget: a note section over this many estimated tokens is sub-split on paragraph boundaries. Participates in the representation fingerprint, and unlike the other axes a change here requires a full re-index — different budget means different chunk boundaries, so stored vectors no longer describe any chunk that exists.",
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 8192
         }
       }
     },

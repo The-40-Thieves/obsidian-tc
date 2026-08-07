@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_CHUNK_TOKENS } from "../src/search/chunk";
 import {
   buildRepresentationManifest,
   CHUNKER_VERSION,
@@ -24,6 +25,7 @@ function manifest(overrides: Partial<RepresentationManifest> = {}): Representati
     distanceMetric: VEC_DISTANCE_METRIC,
     enrichmentVersion: ENRICHMENT_VERSION,
     chunkerVersion: CHUNKER_VERSION,
+    chunkTokens: DEFAULT_CHUNK_TOKENS,
     schemaGen: VEC_SCHEMA_GEN,
     revision: "unknown",
     pooling: "unknown",
@@ -83,6 +85,7 @@ describe("RepresentationManifest / representationManifestHash", () => {
       distanceMetric: VEC_DISTANCE_METRIC,
       enrichmentVersion: ENRICHMENT_VERSION,
       chunkerVersion: CHUNKER_VERSION,
+      chunkTokens: DEFAULT_CHUNK_TOKENS,
       schemaGen: VEC_SCHEMA_GEN,
       revision: "abcd1234",
       pooling: "last-token",
@@ -96,6 +99,7 @@ describe("RepresentationManifest / representationManifestHash", () => {
     // Same values, reverse insertion order — a fresh object literal, not a copy of `a`.
     const b: RepresentationManifest = {
       normalized: true,
+      chunkTokens: DEFAULT_CHUNK_TOKENS,
       multiVector: true,
       maxInputTokens: 8192,
       truncate: true,
@@ -161,6 +165,7 @@ describe("manifestVecFingerprint (no-reindex guarantee)", () => {
       maxInputTokens: "unknown",
       multiVector: false, // ollamaProvider has no embedFull
       normalized: "unknown",
+      chunkTokens: DEFAULT_CHUNK_TOKENS, // THE-424: absent from config -> the chunker's own default
     };
   }
 
@@ -262,5 +267,35 @@ describe("representationFingerprint", () => {
 
   it("collapses an 'unknown' sentinel to the empty field, never the literal text", () => {
     expect(representationFingerprint(manifest())).not.toContain("unknown");
+  });
+});
+
+// THE-424 — chunkTokens is the first representation axis that changes what a chunk IS rather than
+// what its vector MEANS. Two indexes built at different budgets hold different chunk ids over
+// different text, so they must not fingerprint alike: `ensureVecChunks` would otherwise refill
+// vec_chunks from chunk_embeddings rows describing text no current chunk contains.
+describe("chunkTokens participates in the representation identity (THE-424)", () => {
+  it("a different chunk budget yields a different fingerprint AND hash", () => {
+    const a = manifest({ chunkTokens: 512 });
+    const b = manifest({ chunkTokens: 256 });
+    expect(representationFingerprint(a)).not.toBe(representationFingerprint(b));
+    expect(representationManifestHash(a)).not.toBe(representationManifestHash(b));
+  });
+
+  it("defaults to the chunker's own constant when config omits it — one notion of 'the default'", () => {
+    const built = buildRepresentationManifest(
+      { provider: "openai", model: "m", dimensions: 3 },
+      {},
+    );
+    expect(built.chunkTokens).toBe(DEFAULT_CHUNK_TOKENS);
+    expect(DEFAULT_CHUNK_TOKENS).toBe(512);
+  });
+
+  it("is APPENDED to the fingerprint, so a pre-THE-424 string stays a strict prefix", () => {
+    // The suffix-extension rule the function's own doc comment relies on: a legacy fingerprint is
+    // readable as a prefix of the current one, which is what makes a mismatch diagnosable by eye.
+    const fp = representationFingerprint(manifest({ chunkTokens: 512 }));
+    expect(fp.endsWith("|512")).toBe(true);
+    expect(fp.slice(0, fp.lastIndexOf("|"))).not.toContain("512|");
   });
 });
