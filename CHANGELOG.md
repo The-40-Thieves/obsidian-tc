@@ -6,6 +6,79 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-08-07
+
+### Changed
+
+- **Capture is ON by default under `trusted-local` (#759, THE-540).**
+  `experiential.captureContent` and `sessions.traceContent` both moved `false` → **`true`**. Both had
+  been held off "until the THE-238 poisoning defence lands"; that defence landed 2026-07-11, and
+  THE-238 never contained the red-team the comments named — so the gate was an event no ticket had
+  ever owned. The controls that do exist all shipped: layer-1 poison scan on every capture, secret
+  redaction, size caps, and traces held in `cacheDir` rather than the vault. The cost of leaving
+  them off was concrete: `args_json` NULL on every episode, and `rerun` — 16 commits and 99 tests —
+  exiting 2 on every production record because nothing had arguments to re-issue.
+  `securityProfile: "hardened"` pins both back to `false`; so does setting either explicitly.
+  **This release is what makes that flip real.** The default lives in the published tag, and
+  production deploys the tag, not `main` — the change has been on `main` since 2026-08-07 and inert
+  in production the whole time.
+
+- **`experiential.activationRerank` now applies a ranking change (#762, THE-424 Part A, THE-535).**
+  The flag built the ACT-R cached-activation-score lookup and threaded it to every M7 `graphSearch`
+  call site while changing no ranking: the bubble pass fires only when BOTH `activationFor` and
+  `opts.bubbleSafe.enabled` are set, and nothing under `src/` set the latter. The M7 options builder
+  now sets both together, so one flag governs the whole feature.
+  **It still ships `false`** — Part B's A/B (paired permutation surviving BH-FDR **and**
+  ΔnDCG ≥ 0.010) is what would move the default. Turning it on closes a
+  `chunk_retrievals → recomputeActivation → cached_activation_score → ranking → chunk_retrievals`
+  loop, which damps rather than amplifies because the bubble pass is a single pass that moves any
+  item at most one position and the multiplier is bounded to `[0.8, 1.2]` at the default `k`.
+
+### Added
+
+- **A ticket-drift gate that can actually fail (#761, #760, THE-540).** Weekly workflow cross-checking
+  every `THE-nnn` reference in tracked files against Linear in **both** directions — including the
+  closed direction, which nothing had ever checked and which is where THE-238 and THE-222 went
+  wrong. Verified end to end across 484 tickets.
+- **vec0 KNN latency measurement (#744, THE-419).** The gate could not fire without it.
+- **`knip` and `@ast-grep/cli` declared and wired to scripts (#743, #742).**
+
+### Fixed
+
+- **Read-only consumers refuse a stale `chunk_fts` instead of silently mis-joining it (#755, THE-750).**
+- **Synthesis reported "(none)" while 159 contradiction checks had no verdict (#740).** Absent and
+  negative had been the same rendering.
+- **`doctor` misclassified three derived tables (#737),** and the spec is now pinned.
+- **`where-symbol` reported `DECLARED 0` for nearly every typed declaration (#739).**
+- **`--path-dedup` widened only the graph arm (#752).** The unreproducible headline eval figures are
+  withdrawn rather than restated.
+- **Densify baseline re-recorded on the CI runner (#745, THE-534).**
+
+### Security
+
+- **`js-yaml` override floor was one patch BELOW the fix for CVE-2026-59870 (#749).**
+- **The `sharp` override was the last unbounded one in the repo (#750)** — an unbounded `">=X"`
+  forces dependents across majors.
+- **Excluded the `lob` secret detector (#748)** — it verified a pytest name as a live key.
+
+### Removed
+
+- **`@modelcontextprotocol/node` (#751)** — never imported, and the docs claimed it was load-bearing.
+- **`tslib` and `deleteChunkFtsRowsForVault` (#746)** — two genuinely dead surfaces.
+
+### Documentation
+
+- **The public-corpus eval result is published, and the stale-index diagnosis corrected (#758, #753).**
+  An earlier −0.110 "failure" was a stale-index artifact; a public link-structured corpus does exist,
+  correcting a "None exists" claim.
+- **The LoCoMo column is scored against a key with known errors (#757)** — 6.4% of the key is
+  score-corrupting, and the column now says so.
+- **The MCP-client compatibility row is re-verified at 1.20.0 (#756),** with why traffic cannot fill
+  the rest (the gateway hides `client_name`).
+- **Two perf claims went stale when #745 merged (#754); `sync-facts --check` is documented as an
+  eval-host step (#747); `reconcile-backlog` keys on blocker GRAMMAR rather than STATE (#741); the
+  outcome-axis claim is retired and two dead eval references repointed (#738).**
+
 ## [1.20.0] - 2026-08-06
 
 ### Added
