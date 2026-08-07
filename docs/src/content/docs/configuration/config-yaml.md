@@ -326,7 +326,7 @@ server never binds a routable address.
 
 ### `retrieval.densify` — graph densification (experimental)
 
-Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a multi-hop query can reach bridge notes that were never explicitly linked. **All off/conservative by default and unmeasured** — the prior THE-135 virtual-hop sat at an 80% bridge-recall ceiling *below* the current champion (bridge recall 0.831), so densification ships dark behind these flags pending a multi-hop golden-set A/B, exactly like `retrieval.sparse` / `retrieval.colbert`. Derived edges are rebuildable cache and are **never** written back into notes as wikilinks; hub tags and hub nodes emit no edges.
+Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a multi-hop query can reach bridge notes that were never explicitly linked. **All off/conservative by default and unmeasured** — the prior THE-135 virtual-hop sat at an 80% bridge-recall ceiling, and the champion figure it was judged against has since been **withdrawn as unreproducible** (THE-748), so densification ships dark behind these flags pending a multi-hop golden-set A/B that establishes its own control, exactly like `retrieval.sparse` / `retrieval.colbert`. Derived edges are rebuildable cache and are **never** written back into notes as wikilinks; hub tags and hub nodes emit no edges.
 
 | Field | Default | What it does |
 | --- | --- | --- |

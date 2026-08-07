@@ -163,13 +163,17 @@ want to do. Counts are approximate; the surface is 143 tools / 31 domains.
 
 These are the skills that set obsidian-tc apart. Teach your agent to prefer them.
 
-**Measured retrieval, not asserted.** Every ranking change is gated by an n=136
+**Measured retrieval, not asserted.** Every ranking change is gated by an n=250
 multi-hop golden set with a statistical ship rule (paired permutation, BH-FDR,
-a ΔnDCG ≥ 0.010 cost gate). The live champion: graph nDCG@10 **0.786**, recall@10
-**0.871**, bridge recall **0.831**. Contextual chunk enrichment measured **+0.223
-nDCG** and defaults on. The practical takeaway for an agent: **trust the default
-retrieval**, it is the measured optimum for this vault, and experimental streams
-that did not beat it ship *dark* behind flags (see below).
+a ΔnDCG ≥ 0.010 cost gate). Named "champion" figures previously quoted here were
+**withdrawn on 2026-08-07** (THE-748) as unreproducible; see
+[`docs/EVALUATION.md`](./docs/EVALUATION.md) for what is measured and how.
+Contextual chunk enrichment measured **+0.223 nDCG** and defaults on. The
+practical takeaway for an agent is narrower than it used to read: **the defaults
+are the measured configuration**, and experimental streams that did not beat
+their control ship *dark* behind flags (see below). There is currently **no
+published figure** for how the graph walk compares to plain dense retrieval on
+this corpus (THE-748) — do not quote one.
 
 **`vault_context`, the one-call context primitive.** Instead of hand-orchestrating
 search + graph + rerank, call `get_context(query, token_budget)` and get a

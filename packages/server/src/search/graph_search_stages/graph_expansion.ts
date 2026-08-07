@@ -203,8 +203,10 @@ function nodeDegrees(db: Database, vaultId: string, paths: string[]): Map<string
             // neighbourhoods. Counting derived edges here let densification sabotage itself: doubling the
             // edge count inflated every degree, pushing legitimate bridge notes past the hub threshold
             // and suppressing the exact nodes densification exists to surface (measured: bridge recall
-            // 0.831 -> 0.824 with derived edges counted). Excluding the derived types leaves the literal
-            // graph's degrees byte-identical, so the shipped champion is unaffected.
+            // 0.831 -> 0.824 with derived edges counted). The DELTA is what justifies this exclusion and
+            // it still holds; the 0.831 absolute was withdrawn as unreproducible in THE-748, so do not
+            // reuse it as a bar. Excluding the derived types leaves the literal graph's degrees
+            // byte-identical, so defaults are unaffected either way.
             `SELECT ${col} AS p, COUNT(*) AS n FROM vault_edges
              WHERE vault_id = ?
                AND edge_type NOT IN ('shared_tag', 'similar_to', 'semantically_similar_to')
