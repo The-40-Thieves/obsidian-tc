@@ -14,6 +14,15 @@ Contributions welcome — the [reproduction steps](#reproducing-a-row) below are
 Measured against **obsidian-tc 1.19.0** on **Ubuntu 24.04 aarch64** (Ampere), which is also the
 platform of a required CI leg and of the maintainer's production deployment.
 
+**Re-verified on 1.20.0 (2026-08-07)** by re-running the stdio probe from
+[Reproducing a row](#reproducing-a-row). Every claim in the Claude Code row still holds: the
+negotiated version is `2025-11-25`, `tools/list` returns exactly the three facade tools, each
+carrying `name` / `title` / `description` / `inputSchema` / `annotations`, and the advertised
+capabilities are `tools` / `prompts` / `resources` / `logging`. The captured output below is left at
+its original 1.19.0 capture rather than restamped — it was a real observation on a real config, and
+re-labelling it with a version it was not taken under would be the kind of quiet drift this page
+exists to avoid.
+
 | Client | stdio | Streamable HTTP | Surface | `outputSchema` | Auth |
 |---|---|---|---|---|---|
 | **Claude Code** | ✅ connects | ✅ connects | 3-tool facade | ✅ honoured | bearer on HTTP; none on stdio |
@@ -23,6 +32,14 @@ platform of a required CI leg and of the maintainer's production deployment.
 
 The three unfilled rows need a desktop session driving GUI clients. Nothing about them is known to
 be broken; they simply have not been exercised.
+
+**Why daily production use does not fill them.** It is reasonable to assume a server in constant use
+must know which clients connect to it — obsidian-tc even captures `client_name` / `client_version`
+from MCP `_meta`. In the maintainer's deployment those columns are `NULL` on every session, because
+every request arrives through a gateway that presents its own principal; the end-user client sits
+behind that hop and is structurally invisible to the server. So this matrix cannot be back-filled
+from traffic, however much traffic there is. It needs **direct** client-to-server connections, which
+is exactly what the reproduction steps below describe.
 
 ## What was observed
 
