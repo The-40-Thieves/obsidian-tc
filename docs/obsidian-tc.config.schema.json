@@ -956,7 +956,7 @@
         },
         "activationRerank": {
           "default": false,
-          "description": "Build the ACT-R cached-activation-score lookup and thread it to every M7 graphSearch call. NOT YET WIRED to the serve-path bubble pass (bubble_safe_rerank) — that requires opts.bubbleSafe.enabled, which nothing under src/ sets, so enabling this flag currently changes no ranking. See THE-424 for the (deliberately deferred) wiring decision.",
+          "description": "Apply the ACT-R cached-activation-score signal to graph search ranking: builds the lookup, threads it to every M7 graphSearch call, and enables the bounded bubble pass that composes it into the fused order (each item moves at most one position). Ships off; the A/B that would justify turning it on is THE-424 Part B.",
           "type": "boolean"
         },
         "citationInfer": {

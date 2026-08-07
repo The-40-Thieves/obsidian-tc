@@ -143,22 +143,27 @@ describe("ServerConfigSchema", () => {
   });
 });
 
-describe("ExperientialConfigSchema.activationRerank (THE-535)", () => {
-  // The prior describe string claimed this flag "applies the ACT-R activation bubble pass" on
-  // serve-path vault_graph_search. It does not: the bubble pass (bubble_safe_rerank) only fires
-  // when BOTH activationFor AND opts.bubbleSafe.enabled are set
-  // (graph_search_stages/projection.ts), and nothing under src/ ever sets bubbleSafe. This test
-  // pins that the description now tells the truth — not-yet-wired, no ranking change — and
-  // references THE-424 as where the wiring decision belongs, so a future edit that silently
-  // reverts to an overclaiming description gets caught here.
-  it("describes the flag as NOT wired into the serve-path bubble pass, referencing THE-424", () => {
+describe("ExperientialConfigSchema.activationRerank (THE-424 Part A)", () => {
+  // This assertion has now been inverted once, deliberately, and the history is the point.
+  //
+  // THE-535 found the describe string claiming the flag "applies the ACT-R activation bubble pass"
+  // when it did not — the pass needs BOTH activationFor AND opts.bubbleSafe.enabled, and nothing
+  // under src/ set the latter. The fix then was to make the DESCRIPTION honest ("not yet wired"),
+  // and this test pinned that.
+  //
+  // THE-424 Part A made the CODE honest instead: the M7 options builder now sets bubbleSafe under
+  // this same flag, so the original claim is true and the "not yet wired" hedge became the lie.
+  // What is really being pinned across both versions is one invariant — the description and the
+  // behaviour agree — so the test moves whenever the behaviour does, and an edit that reintroduces
+  // a stale hedge is caught exactly like an overclaim was.
+  it("describes the flag as applying a ranking change, with no stale not-wired hedge", () => {
     const desc = ExperientialConfigSchema.shape.activationRerank.description ?? "";
-    expect(desc).toMatch(/not.{0,20}wired/i);
-    expect(desc).toContain("THE-424");
-    expect(desc.toLowerCase()).not.toMatch(/appl(y|ies).{0,40}bubble pass/i);
+    expect(desc).toMatch(/bubble pass/i);
+    expect(desc).toMatch(/ranking|order/i);
+    expect(desc).not.toMatch(/not.{0,20}wired/i);
   });
 
-  it("still defaults to false (no behavior change from this ticket)", () => {
+  it("still defaults to false — Part A wires the lever, Part B decides where it rests", () => {
     const parsed = ExperientialConfigSchema.parse({});
     expect(parsed.activationRerank).toBe(false);
   });

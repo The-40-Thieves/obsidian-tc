@@ -30,13 +30,13 @@ export function finalize(
   opts: GraphSearchOptions,
 ): GraphSearchResult[] {
   const activationFor = opts.activationFor;
-  // THE-535: opts.bubbleSafe is never set anywhere under src/ — only eval/run.ts and
-  // test/bubble-safe-wiring.test.ts set it. config.experiential.activationRerank builds and
-  // threads activationFor (cli.ts) to every M7 call site, but that alone can't reach this branch:
-  // this `if` is therefore always true in production today, and the bubble pass below is
-  // unreachable on the serve path. Wiring bubbleSafe into the serve path is a deliberate step
-  // left to THE-424 (it closes a chunk_retrievals -> ranking -> chunk_retrievals feedback loop and
-  // needs its own damping argument), not a drive-by fix.
+  // THE-424 Part A wired this to the serve path: the M7 options builder
+  // (tools/m7/knowledge/retrieval-runtime.ts) now sets bubbleSafe alongside activationFor, both
+  // gated on config.experiential.activationRerank. THE-535 previously recorded this branch as
+  // unreachable outside eval/run.ts and the tests; that is no longer true, and the damping
+  // argument the wiring owed lives at the call site.
+  // Still strictly off by DEFAULT — activationRerank ships false, so the guard below remains the
+  // production path until an operator opts in.
   if (!opts.bubbleSafe?.enabled || !activationFor) {
     return ranked.map(({ item, score }) => toResult(item, score));
   }
@@ -52,22 +52,23 @@ export function finalize(
 }
 
 // THE-447: the default graph_rrf/convex path projects directly (it does NOT route through
-// finalize), so the bubble-safe composition is pre-plumbed here too — strictly off by default.
+// finalize), so the bubble-safe composition is wired here too — strictly off by default.
 // Without opts.bubbleSafe.enabled (or without activationFor) this is BYTE-IDENTICAL to the prior
-// `capped.map((c) => toResult(c, scoreOf(c)))` projection, so the default path is unchanged until a
-// live signal turns it on and it is measured on the golden set. chunk_retrievals is populated
-// today, so what is open is the measurement, not the signal's existence — see the THE-424 note on
-// `finalize` above.
+// `capped.map((c) => toResult(c, scoreOf(c)))` projection, so the DEFAULT config is unchanged: what
+// THE-424 Part A added is an operator's ability to turn it on, not a change to what ships. The
+// measurement that decides whether the default should move is Part B — see the note on `finalize`
+// above.
 export function projectWithBubbleSafe(
   items: Candidate[],
   scoreOf: (c: Candidate) => number,
   opts: GraphSearchOptions,
 ): GraphSearchResult[] {
   const activationFor = opts.activationFor;
-  // THE-535: this is the gate the DEFAULT serve path (fusionMode graph_rrf/convex — what every
-  // M7 tool call site uses) actually hits. Same story as `finalize` above: opts.bubbleSafe is
-  // never set under src/, so config.experiential.activationRerank building activationFor cannot
-  // reach the bubble pass below — it is unreachable in production. See THE-424.
+  // This is the gate the DEFAULT serve path (fusionMode graph_rrf/convex — what every M7 tool call
+  // site uses) actually hits, so it is the one THE-424 Part A had to reach. Same story as
+  // `finalize` above: the options builder sets bubbleSafe and activationFor together under
+  // config.experiential.activationRerank, and the bubble pass below is now reachable in production
+  // when an operator turns that flag on. It stays inert on the default config, which ships false.
   if (!opts.bubbleSafe?.enabled || !activationFor) {
     return items.map((c) => toResult(c, scoreOf(c)));
   }

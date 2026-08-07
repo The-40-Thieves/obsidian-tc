@@ -96,8 +96,17 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 //
 // `securityProfile: "hardened"` pins both back to false. Content capture is the opposite of
 // least-privilege and that profile must not inherit a permissive default.
+// THE-424 Part A: rebaselined deliberately, DESCRIPTION TEXT ONLY — but the prose moved because the
+// BEHAVIOUR did, which is the opposite of the usual description-only entry above. No key, type,
+// default or constraint moved: `experiential.activationRerank` is still a boolean still defaulting
+// to false. What changed is that the flag now does what it says. It used to build the
+// cached-activation-score lookup and thread it to every M7 graphSearch call while changing no
+// ranking, because the bubble pass needs `opts.bubbleSafe.enabled` and nothing under src/ set it —
+// the defect THE-535 raised and answered by making the DESCRIPTION honest ("not yet wired"). Part A
+// answers it the other way, in the M7 options builder, so the hedge had to go.
+// Deliberately NOT a default change: the A/B that would move it off false is THE-424 Part B.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "357096611d45f10cbcedf9b35751ad737ca713c4c88fc8c733c153e2200bc7b3";
+  "b4abbe86c1815271bbbd95cc00f9ba0db0786fd8255a531be87632e909fa5df4";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
