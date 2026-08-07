@@ -61,12 +61,13 @@ const TICKET_RE = /\bTHE-(\d{1,5})\b/g;
  *  `pending` is NOT here as a bare word, and that is load-bearing: `eligibility='pending'` is a
  *  literal enum value all over the experiential code, so a bare \bpending\b matched provenance
  *  comments in reflect.ts on the first run. Requiring a determiner after it ("pending the red-team")
- *  keeps the English sense and drops the SQL one. */
-// `once` is NOT here, and that was measured rather than assumed. Across four full-board runs it
-// produced nearly every false positive — "normalized ONCE here", "retry ONCE", "resolved ONCE at
-// startup", "the cap has been raised ONCE" — against exactly one true finding, which has since been
-// rewritten anyway. English overwhelmingly means "one time", not "at the moment when". A term whose
-// precision is that bad is not worth an allowlist entry per occurrence.
+ *  keeps the English sense and drops the SQL one.
+ *
+ *  `once` is not here either, and that was measured rather than assumed. Across four full-board runs
+ *  it produced nearly every false positive — "normalized ONCE here", "retry ONCE", "resolved ONCE at
+ *  startup", "the cap has been raised ONCE" — against exactly one true finding, since rewritten
+ *  anyway. English overwhelmingly means "one time", not "at the moment when". A term with that
+ *  precision is not worth an allowlist entry per occurrence. */
 const DEP_WORDS =
   /\b(?:until|awaiting|blocked on|gated on|waits? on|waiting on|filled at|deferred to|left to|after)\b|\bpending\s+(?:the|a|an|its)\b/gi;
 
@@ -142,6 +143,60 @@ const DEP_ALLOW = new Map([
   // once") and were deleted when `once` came out of DEP_WORDS. Every surviving entry is `after` in
   // its temporal sense. Re-derive this list by emptying the Map and re-running rather than trusting
   // it — an allowlist entry that outlives its cause is the same defect this script exists to catch.
+]);
+
+/** DIRECTION 1's triage, 2026-08-07. This is THE-540's own Done-when finally met: "each flagged
+ *  ticket either closed, or annotated explaining why it is legitimately open."
+ *
+ *  The first real dispatch flagged 18. Exactly one was a true positive — THE-748, whose own banner
+ *  read SETTLED with all three of its items resolved; closed. The other 17 are below.
+ *
+ *  They share a shape worth naming, because it is why direction 1 fires so much on this repo: a
+ *  GATED or PARKED ticket is cited by the very code that implements its dark flag, its tripwire
+ *  test, or the substrate it will one day consume. The reference is evidence the decision was
+ *  recorded where it is enforced — the opposite of drift. `projection.ts` saying "left to THE-424"
+ *  is the system working.
+ *
+ *  Keyed on TICKET, not file+ticket (unlike DEP_ALLOW): the claim here is about the ticket's state,
+ *  not about one comment, so a new reference in a new file does not change the answer. The cost is
+ *  that an entry survives its own ticket becoming genuinely done — so RE-DERIVE this by emptying the
+ *  Map and re-running, rather than trusting it. Same instruction DEP_ALLOW carries, same reason. */
+const NOT_STARTED_ALLOW = new Map([
+  [
+    "THE-175",
+    "design-only, G2-gated; cited by capture_queue/poison as the substrate it will target",
+  ],
+  ["THE-418", "reranker half SHIPPED v1.9.0 (colbert.ts is real); the PLAID half is scale-gated"],
+  ["THE-419", "gated; cited by the perf harness that would host the measurement its gate needs"],
+  [
+    "THE-421",
+    "cited by the CI guards and synthetic slice that shipped BECAUSE of it; residual is the fork",
+  ],
+  [
+    "THE-424",
+    "the canonical case — projection.ts says 'left to THE-424' about a deliberately unwired path",
+  ],
+  ["THE-468", "scale-gated; cited by the perf gate/scenarios that define its entry criterion"],
+  [
+    "THE-510",
+    "cited by perf run + router as the CV-variance constraint; blocker refuted, work still open",
+  ],
+  [
+    "THE-539",
+    "ICEBOX by design; cited by design docs and check-table-readers, named in this file's header",
+  ],
+  [
+    "THE-628",
+    "cited by gen-multi-hop-slice as a future consumer; needs a global-query slice first",
+  ],
+  ["THE-633", "tables and tools SHIPPED #675; what remains is an adoption DECISION, not code"],
+  ["THE-642", "item 2 shipped #673; item 1 now blocked on THE-752, which exists as of today"],
+  ["THE-643", "recompute schedule shipped #576 and is producing rows; 3 items remain"],
+  ["THE-644", "items 1 and 3 shipped; item 2's substance orphaned when THE-641 was cancelled"],
+  ["THE-645", "items 1-3 shipped (#563/#718/#722); only in-flight index progress remains"],
+  ["THE-651", "golden slice exists; what remains is a new branch in the router"],
+  ["THE-673", "extractor rewrite; one derivable axis, cited by the reflect path it would replace"],
+  ["THE-705", "item 2 CLOSED (class router stays dark); item 1 is a packaging gap"],
 ]);
 
 const COMMENT_LINE = /^\s*(\/\/|\*|\/\*|--|#|<!--)/;
@@ -305,7 +360,10 @@ for (const t of tickets) {
     id: t.id,
     state: t.state ?? "?",
     title: t.title ?? "",
-    notStarted: NOT_STARTED.has(state),
+    // An allowlisted ticket is still REPORTED (its row and reason stay visible, so the list can be
+    // re-derived by reading the run) but does not fail — the same shape as DEP_ALLOW.
+    notStarted: NOT_STARTED.has(state) && !NOT_STARTED_ALLOW.has(t.id),
+    allowReason: NOT_STARTED_ALLOW.get(t.id) ?? null,
     closed: CLOSED.has(state),
     areas: [...rec.areas.entries()].map(([area, paths]) => [area, [...paths].sort()]),
     dep: [...rec.dep.entries()].sort(([a], [b]) => a.localeCompare(b)),
@@ -324,8 +382,11 @@ function report(rows, heading) {
   if (rows.length === 0) return;
   console.log(`\n${heading}`);
   for (const r of rows.sort((a, b) => Number(a.id.slice(4)) - Number(b.id.slice(4)))) {
-    const flag = r.notStarted ? "NOT STARTED" : r.state;
+    const flag = r.notStarted ? "NOT STARTED" : r.allowReason ? "triaged" : r.state;
     console.log(`  ${r.id}  [${flag}]  ${r.title}`.trimEnd());
+    // The reason is printed, not just the suppression, so the allowlist can be re-derived by
+    // reading a run rather than by opening this file and trusting it.
+    if (r.allowReason) console.log(`      ↳ legitimately open: ${r.allowReason}`);
     for (const [area, paths] of r.areas) {
       const shown = paths.slice(0, 3).join(", ");
       const more = paths.length > 3 ? ` (+${paths.length - 3} more)` : "";

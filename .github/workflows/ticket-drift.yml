@@ -35,21 +35,16 @@ jobs:
             echo "have_key=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # Runs WITHOUT --strict, and that is a measured decision rather than caution.
+      # --strict RESTORED 2026-08-07, after the triage its earlier removal was waiting on.
       #
-      # The first real dispatch (2026-08-07) failed on 19 NOT-STARTED tickets referenced by
-      # executable content — every one pre-existing and legitimate. The script's own header names
-      # two of them: THE-424 is cited by code that is explicitly NOT wired, THE-539 by design docs
-      # while iceboxed on purpose. `--strict` existed for this workflow, which had never been built,
-      # so its failing behaviour had never once been run against reality.
+      # The first dispatch failed on 18 NOT-STARTED tickets cited by executable content. Triaged:
+      # exactly ONE was a true positive (THE-748, whose own banner read SETTLED — closed), and the
+      # other 17 are gated or parked tickets cited by the code implementing their dark flag or
+      # tripwire, now annotated in the script's NOT_STARTED_ALLOW with a reason each.
       #
-      # A weekly job red on 19 correct findings gets muted inside a month, and a muted gate covers
-      # nothing — the same argument DEP_ALLOW makes in the script. The report is the value until
-      # someone triages direction 1 the way direction 2 was triaged.
-      #
-      # ENTRY CRITERION for adding --strict back: the 19 are each either closed, annotated as
-      # legitimately-open, or allowlisted. Direction 2 is already clean and would go red on a new
-      # stale citation the day that flag returns.
+      # So this job can now fail, and failing means something: a ticket the code cites that nobody
+      # has triaged, or a closed ticket newly cited as a live dependency. Both verified by injection
+      # rather than by argument — see the commit.
       - name: cross-check against Linear
         if: steps.probe.outputs.have_key == 'true'
         env:
@@ -57,7 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/fetch-linear-tickets.mjs obsidian-tc > /tmp/tickets.json
-          node scripts/check-ticket-drift.mjs --tickets /tmp/tickets.json
+          node scripts/check-ticket-drift.mjs --tickets /tmp/tickets.json --strict
 
       # When the token is absent this runs INVENTORY MODE and annotates a warning rather than
       # either failing or passing quietly. A job that goes green having checked nothing is the
