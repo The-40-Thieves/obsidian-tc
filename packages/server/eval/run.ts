@@ -589,6 +589,28 @@ async function main(): Promise<void> {
   // (needs --activation). BUBBLE_SAFE_K overrides the default k. The A/B lever for measuring it.
   const bubbleSafe = argv.includes("--bubble-safe");
   const bubbleSafeK = process.env.BUBBLE_SAFE_K ? Number(process.env.BUBBLE_SAFE_K) : undefined;
+  // THE-424 Part A: the two flags are now COUPLED, because the serve path couples them. Since Part A
+  // the M7 options builder sets activationFor and bubbleSafe together under one config key
+  // (experiential.activationRerank), so neither flag alone corresponds to any reachable production
+  // state, and "needs --activation" above stopped being advice and became a requirement.
+  //
+  // This refuses rather than silently proceeding, and the asymmetry is the reason: both degenerate
+  // combinations are INERT, not loud. `--bubble-safe` without a lookup and `--activation` without
+  // the bubble pass each leave projection.ts's guard returning the fused order untouched. An arm
+  // like that produces a clean, plausible, correctly-formatted "no significant difference" — the
+  // parked-lever false negative THE-424 exists to avoid — and nothing downstream could tell it
+  // apart from a real null. Same call as THE-750: refuse rather than mis-measure.
+  if (bubbleSafe !== activation) {
+    const supplied = bubbleSafe ? "--bubble-safe" : "--activation";
+    const missing = bubbleSafe ? "--activation" : "--bubble-safe";
+    process.stderr.write(
+      `${supplied} requires ${missing} (THE-424 Part A). The serve path sets activationFor and\n` +
+        `bubbleSafe together under experiential.activationRerank, so ${supplied} alone measures a\n` +
+        `combination production cannot reach — and it measures it as INERT, which reads as a\n` +
+        `legitimate null result. Pass both, or neither.\n`,
+    );
+    process.exit(2);
+  }
   // THE-258: `--class-router` — the deterministic class router (lexical short-circuit +
   // temporal auto-stream), same rules as retrieval.classRouter on serve.
   const classRouter = argv.includes("--class-router");
