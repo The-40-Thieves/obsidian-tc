@@ -25,9 +25,17 @@ pins the `mcp` Python SDK at `1.28.1`, whose ceiling is 2025-11-25 — "losing l
 outage." Losing the modern era is separately guarded because the opt-in that serves it is easy to
 regress silently (moving it to the wrong object leaves every *existing* test green).
 
-Both server package dependencies are pinned to their non-beta 2.0.0 release as of this writing
-(`packages/server/package.json`: `@modelcontextprotocol/server` and `@modelcontextprotocol/node`
-both `"2.0.0"`), which is what makes the modern-era assertions below possible at all.
+The SDK that makes the modern-era assertions below possible is
+**`@modelcontextprotocol/server`**, pinned to its non-beta `"2.0.0"` release
+(`packages/server/package.json`). It is the only one of the v2 packages this repo imports — 13
+import sites across 12 files.
+
+This paragraph used to name `@modelcontextprotocol/node` alongside it as jointly load-bearing. That
+was wrong in both directions: `/node` is the **Node.js middleware adapter** (it wraps
+`@hono/node-server` for callers who want the SDK to own their HTTP layer), it is not a dependency of
+`/server` — the peer edge runs the other way — and this repo never imported it, because
+`src/transports/` implements its own transport directly on `@hono/node-server` and `Bun.serve`. It
+was removed as an unused dependency; nothing in the matrix below rested on it.
 
 ## Capability matrix
 
