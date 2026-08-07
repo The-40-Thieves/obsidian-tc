@@ -375,21 +375,25 @@ export const ExperientialConfigSchema = z.object({
     .describe(
       "ACT-R decay exponent for the activation recompute. Weight falls as days ** -decay, so HIGHER means faster forgetting: ~0.3 for a reference vault where month-old notes still count, 0.5 (default, the ACT-R literature value), ~0.8 for a journal where last week is what matters.",
     ),
-  /** THE-187/193: builds and threads the cached_activation_score lookup (activationFor) to every
-   *  M7 graphSearch call site. THE-535: as of THE-465/THE-447 this does NOT wire the ACT-R
-   *  activation bubble pass (bubble_safe_rerank) into the serve path — that pass only fires when
-   *  BOTH activationFor AND opts.bubbleSafe.enabled are set (graph_search_stages/projection.ts),
-   *  and nothing under src/ ever sets bubbleSafe (only eval/run.ts and
-   *  test/bubble-safe-wiring.test.ts do). So enabling this flag currently changes NO ranking —
-   *  it only builds the lookup table the bubble pass would consume once wired. Wiring bubbleSafe
-   *  into the serve path is a deliberate architectural step (it closes the
+  /** THE-187/193: builds the cached_activation_score lookup (activationFor) and threads it to every
+   *  M7 graphSearch call site. THE-424 Part A additionally sets opts.bubbleSafe there, so this one
+   *  flag now governs BOTH halves — the lookup and the ACT-R bubble pass that consumes it. Before
+   *  Part A the flag built the lookup and changed no ranking, which is the defect THE-535 raised;
+   *  it now does what its name says.
+   *
+   *  Still ships FALSE. The A/B that decides whether the default should move is THE-424 Part B
+   *  (ship rule: paired permutation surviving BH-FDR AND dNDCG >= 0.010).
+   *
+   *  Turning it on closes a feedback loop —
    *  chunk_retrievals -> recomputeActivation -> cached_activation_score -> ranking -> chunk_retrievals
-   *  feedback loop and needs its own damping argument) left to THE-424. */
+   *  — which damps rather than amplifies because the bubble pass moves any item at most one
+   *  position and the multiplier is bounded to [0.8, 1.2] at the default k. The full argument sits
+   *  at the wiring site (tools/m7/knowledge/retrieval-runtime.ts), next to the code it constrains. */
   activationRerank: z
     .boolean()
     .default(false)
     .describe(
-      "Build the ACT-R cached-activation-score lookup and thread it to every M7 graphSearch call. NOT YET WIRED to the serve-path bubble pass (bubble_safe_rerank) — that requires opts.bubbleSafe.enabled, which nothing under src/ sets, so enabling this flag currently changes no ranking. See THE-424 for the (deliberately deferred) wiring decision.",
+      "Apply the ACT-R cached-activation-score signal to graph search ranking: builds the lookup, threads it to every M7 graphSearch call, and enables the bounded bubble pass that composes it into the fused order (each item moves at most one position). Ships off; the A/B that would justify turning it on is THE-424 Part B.",
     ),
   /** THE-717: the scheduled citation pass. `inferCitations` had exactly one caller — the offline
    *  `obsidian-tc citation-infer` CLI — so every citation column was NULL on 105 of 105 live rows:

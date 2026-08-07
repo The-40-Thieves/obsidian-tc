@@ -216,9 +216,22 @@ export function createRetrievalCaches(opts: QueryCacheOptions): RetrievalCaches 
 //
 //   isReadable     — the read predicate. Purely a function of (ACL config, granted scopes), which
 //                    IS in the key as the ACL fingerprint. This is the isolation guarantee.
-//   activationFor  — a DB lookup of cached_activation_score. Inert unless bubbleSafe.enabled, and
-//                    even then bounded to a one-position shift. Activation recompute does not bump
-//                    the generation, so the TTL is what bounds its staleness (documented above).
+//   activationFor  — a DB lookup of cached_activation_score. RE-REVIEWED for THE-424 Part A, which
+//                    wired bubbleSafe into the serve path: this entry used to lead with "inert
+//                    unless bubbleSafe.enabled", and that clause is now false whenever an operator
+//                    sets experiential.activationRerank. The claim that survives, and the whole
+//                    argument today: what the sentinel drops is the lookup's IDENTITY, and identity
+//                    is not what varies — one process holds exactly one activationFor, built once
+//                    from config (runtime/stores.ts). What varies is the VALUES it returns, since
+//                    recomputeActivation rewrites cached_activation_score without bumping the
+//                    generation. So a cache hit inside the TTL can serve an order computed from
+//                    pre-recompute activation. That is bounded twice over — the bubble pass moves
+//                    any item at most one position, and the TTL bounds how stale the scores can be
+//                    (documented above) — so the error is at most one adjacent swap of slightly
+//                    stale provenance, never a wrong result set. Accepted deliberately: keying on
+//                    activation values would invalidate the whole cache on every recompute, which
+//                    costs more than the one-slot drift it would fix. If the bubble pass ever
+//                    becomes a full re-sort, this trade dies and activation must enter the key.
 //   onStage        — observability only, cannot change results.
 //   onStageMetric  — observability only, cannot change results.
 //   onFusionWeights— observability only (THE-538 policy provenance), cannot change results. Note

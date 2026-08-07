@@ -291,7 +291,29 @@ export function buildGraphSearchOptions(
     ...(site.traceNotePath && site.onRetrievalTrace
       ? { traceNotePath: site.traceNotePath, onRetrievalTrace: site.onRetrievalTrace }
       : {}),
-    ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
+    // THE-424 Part A: the serve path now APPLIES the ACT-R bubble pass, not just the lookup.
+    // `activationFor` is built only under config.experiential.activationRerank (runtime/stores.ts),
+    // so a single flag governs both halves — building the lookup and composing it into the order.
+    // That was THE-187's stated goal, and THE-535 had already recorded it as the accepted
+    // resolution before the wiring existed. Set in the shared options builder rather than at each
+    // graphSearch call site, for the same reason onVecFallback/onStageMetric are: a per-call-site
+    // ranking input is how coverage goes silently partial.
+    //
+    // DAMPING ARGUMENT — the reason this was never a drive-by fix. Wiring this closes a loop:
+    //   chunk_retrievals -> recomputeActivation -> cached_activation_score -> activationFor
+    //     -> ranking -> chunk_retrievals
+    // It damps rather than amplifies, and the bound is structural, not empirical:
+    //   1. bubble_safe_rerank.ts is ONE pass with a moved-flag, so |final - original| <= 1 for
+    //      every item. A chunk cannot climb the ranking by being retrieved; it can gain one slot
+    //      and then nothing more, however high its activation goes.
+    //   2. Activation enters as a multiplier `1 + (activation - 0.5) * k` bounded to [0.8, 1.2] at
+    //      the default k=0.4, and is provably inert at activation=0.5 (cold start / no info).
+    // Per-cycle gain is therefore bounded well under 1 and the fused order stays ground truth.
+    // That bound IS the safety property: if bubbleSafeRerank ever becomes a full re-sort, this
+    // argument dies with it and the wiring must be re-justified before it ships.
+    ...(deps.activationFor
+      ? { activationFor: deps.activationFor, bubbleSafe: { enabled: true } }
+      : {}),
     // THE-585: vec0 -> brute-force degradation signal, bound to this vault. Threaded through the
     // options builder so EVERY graph-search site gets it — wiring it per call site is how a
     // counter ends up covering some paths and silently missing others.

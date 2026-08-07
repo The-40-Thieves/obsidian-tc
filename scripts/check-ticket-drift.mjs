@@ -154,8 +154,13 @@ const DEP_ALLOW = new Map([
  *  They share a shape worth naming, because it is why direction 1 fires so much on this repo: a
  *  GATED or PARKED ticket is cited by the very code that implements its dark flag, its tripwire
  *  test, or the substrate it will one day consume. The reference is evidence the decision was
- *  recorded where it is enforced — the opposite of drift. `projection.ts` saying "left to THE-424"
- *  is the system working.
+ *  recorded where it is enforced — the opposite of drift. `check-table-readers` naming THE-539, an
+ *  ICEBOX ticket, is the system working.
+ *
+ *  This paragraph used to cite `projection.ts` saying "left to THE-424" as the canonical example.
+ *  THE-424 Part A then wired that path and deleted the phrase, which is worth leaving on the record:
+ *  the example a gate uses to explain itself can go stale exactly like the code it scans, and this
+ *  file is SELF-excluded from its own scan, so nothing here would ever have caught it.
  *
  *  Keyed on TICKET, not file+ticket (unlike DEP_ALLOW): the claim here is about the ticket's state,
  *  not about one comment, so a new reference in a new file does not change the answer. The cost is
@@ -174,7 +179,7 @@ const NOT_STARTED_ALLOW = new Map([
   ],
   [
     "THE-424",
-    "the canonical case — projection.ts says 'left to THE-424' about a deliberately unwired path",
+    "Part A SHIPPED (bubbleSafe is wired); Part B is the gated A/B, cited by the tripwire that pins A",
   ],
   ["THE-468", "scale-gated; cited by the perf gate/scenarios that define its entry criterion"],
   [
