@@ -117,6 +117,18 @@ function normHits(hits: RankedChunk[]): RankedChunk[] {
  * bridge recall — is scored against expected PATHS. So comparing the two arms as-shipped measures
  * "deduped by note" against "not deduped by note" and credits the whole difference to the fan-out.
  * The unit has to match on both sides before the fusion effect is readable.
+ *
+ * THE-748: "both sides" means ALL THREE arms, not just the two graph ones. This used to be applied
+ * to the graph arm alone — with `FANOUT_OVERFETCH_K` depth behind it — while the semantic baseline
+ * stayed at TOP_K and un-deduped. The fan-out A/B (graph-vs-graph) was unaffected and correct; the
+ * graph-vs-baseline delta printed by the same run was not, and was read as if it were. Applying it
+ * to the baseline too costs nothing here and removes a number that could only ever mislead.
+ *
+ * A note on comparability: this CHANGES the recorded `baseline` arm for `--path-dedup` runs.
+ * Artifacts written before 2026-08-07 hold a 30-deep un-deduped baseline; ones written after hold
+ * a 60-deep deduped one. `armDepth` in the artifact says which, so the two are distinguishable
+ * rather than silently poolable. Graph-arm values are unchanged, so every published fan-out and
+ * max-per-cluster result still stands.
  */
 function dedupeByPath(hits: RankedChunk[], k: number): RankedChunk[] {
   const seen = new Set<string>();
@@ -323,8 +335,17 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       queryVec = qv ?? [];
     }
 
+    // THE-748: the baseline arm gets the SAME retrieval depth as the graph arm. `--path-dedup`
+    // used to widen only the graph side (`FANOUT_OVERFETCH_K` below), leaving this at TOP_K and
+    // never deduping it — so every `--path-dedup` artifact silently compared a 60-deep graph arm
+    // against a 30-deep baseline. Measured on one index and one golden set, that asymmetry alone
+    // FLIPPED THE SIGN of the headline comparison: graph-vs-baseline nDCG@10 read +0.025 with the
+    // arms at 60/30 and −0.110 with both at 30 (n=250, p=0.0001). The flag was correct for the
+    // fan-out A/B it was built for — which compares two GRAPH arms, and is unaffected by this —
+    // but nothing at the point of use said it was safe only for that.
+    const armK = opts.pathDedup ? FANOUT_OVERFETCH_K : TOP_K;
     const baseRaw = semanticSearch(opts.db, opts.vaultId, queryVec, {
-      k: TOP_K,
+      k: armK,
       ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
     });
     // THE-400: z-margin over the SAME top-30 dense pool the graph side seeds from (seedCount
@@ -332,9 +353,15 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
     // `top1 < 0.55` fired 0/32 on nomic (dense cosines never dip that low), making the reranker
     // acceptance slice degenerate. z1 < 1.0 == "top-1 within ~1σ of the seed pool" (ambiguous), and
     // matches the gated-rerank hardZ default wired below.
-    const z1 = seedZMargin(baseRaw.map((h) => h.score));
+    //
+    // Sliced to TOP_K, never `armK`: widening the fetch above must not silently redefine the
+    // hard-query subset. `semanticSearch` returns a ranked list, so the first TOP_K of a k=60
+    // fetch are exactly the k=30 fetch — this keeps z1 (and therefore `hard`) bit-identical to
+    // every run recorded before the widening.
+    const z1 = seedZMargin(baseRaw.slice(0, TOP_K).map((h) => h.score));
     const hard = z1 < 1.0;
-    const baseHits = normHits(baseRaw.map((h) => ({ chunk_id: h.chunk_id, path: h.path })));
+    const baseNorm = normHits(baseRaw.map((h) => ({ chunk_id: h.chunk_id, path: h.path })));
+    const baseHits = opts.pathDedup ? dedupeByPath(baseNorm, TOP_K) : baseNorm;
     const runGraph = async (
       text: string,
       vec: number[],
@@ -352,6 +379,10 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         // dedupeByPath with the same number of chunks. Without this the control's 30 chunks could
         // collapse below 30 notes while the fan-out's stayed at 30 — a depth difference the metrics
         // would read as a ranking difference.
+        //
+        // THE-748: `armK` above applies the identical widening to the SEMANTIC BASELINE, so all
+        // three arms now enter dedupeByPath at the same depth. Read them together — a change to
+        // one of these two lines that is not mirrored in the other re-creates the asymmetry.
         finalTopK: opts.pathDedup && !fanOut ? FANOUT_OVERFETCH_K : TOP_K,
         reranker: opts.reranker ?? null,
         ...(opts.seedCount !== undefined ? { seedCount: opts.seedCount } : {}),
@@ -624,7 +655,7 @@ async function main(): Promise<void> {
         "--metadata-prior enables the POST-FUSION frontmatter authority boost (representative rules; META_PRIOR_CLAMP env, default 0.5).\n" +
         "--decompose enables THE-404 sub-query decomposition for z-hard queries (Ollama; DECOMPOSE_MODEL/DECOMPOSE_Z envs).\n" +
         '--fanout <variants.json> enables the THE-448 multi-query fan-out over supplied phrasings ({"<query text>": ["variant", ...]}).\n' +
-        "--path-dedup collapses the graph arm to one hit per note. REQUIRED on both arms of a --fanout A/B (the fan-out dedupes by path; a plain search does not).\n" +
+        "--path-dedup collapses EVERY arm to one hit per note, fetching at 2x depth to fill it. REQUIRED on both arms of a --fanout A/B (the fan-out dedupes by path; a plain search does not). It is a DEPTH switch as well as a dedup switch — see armDepth in the --json artifact.\n" +
         "--max-per-cluster <n> caps chunks per cluster_id (THE-73 diversification). Requires a CLUSTERED index (`obsidian-tc cluster`); the run refuses rather than silently no-op.\n" +
         "--temporal enables the THE-221 conditional temporal stream (fires only on explicit temporal intent).\n" +
         "SPARSE_URL=<bge-m3 token_classify server> + --sparse fuses the learned-sparse stream into a NON-bge dense pipeline (THE-403).\n" +
@@ -1081,7 +1112,20 @@ async function main(): Promise<void> {
     ].filter((x): x is string => typeof x === "string");
     // Strip the retained raw hits (THE-446, --diagnose only) so --json stays lean.
     const lean = report.perQuery.map(({ baselineRaw: _b, treatmentRaw: _t, ...rest }) => rest);
-    writeFileSync(jsonPath, JSON.stringify({ flags, perQuery: lean }, null, 2));
+    // THE-748: the retrieval depth each arm actually ran at, recorded rather than inferred from
+    // the flag list. `--path-dedup` reads as a de-duplication switch and was ALSO a depth switch,
+    // which is how a 60-vs-30 comparison survived being quoted as a headline. An artifact whose
+    // two arms differ here is not a valid graph-vs-baseline read, and now says so on its face.
+    //
+    // The `graph` figure is PER VARIANT on a `--fanout` run: each phrasing runs at TOP_K and the
+    // variants are then fused, so the two arms are comparable by construction there and this pair
+    // reads 60/30 without being asymmetric. Equality is the right check only on a non-fan-out run.
+    const armDepth = {
+      baseline: pathDedup ? FANOUT_OVERFETCH_K : TOP_K,
+      graph: pathDedup && !fanoutPath ? FANOUT_OVERFETCH_K : TOP_K,
+      graphIsPerVariant: !!fanoutPath,
+    };
+    writeFileSync(jsonPath, JSON.stringify({ flags, armDepth, perQuery: lean }, null, 2));
     process.stdout.write(`wrote ${jsonPath}\n`);
   }
   process.exit(report.noRegression ? 0 : 1);

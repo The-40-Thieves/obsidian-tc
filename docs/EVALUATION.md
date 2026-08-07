@@ -72,6 +72,49 @@ full set, needs 0.062. <!-- facts-check:ignore: per-metric resolution figures fr
 Quoting the headline for a bridge-gated experiment overstates the resolution by nearly 2×. The full
 per-metric table lives in `packages/server/eval/README.md`.
 
+## Withdrawn: the headline retrieval figures (2026-08-07)
+
+The README and `SKILLS.md` used to quote `graph nDCG@10 0.786 / recall@10 0.871 / bridge recall
+0.831` as the live champion. **Those figures are withdrawn.** Two independent reasons, both
+checkable:
+
+**They are unreproducible.** They entered the README on 2026-07-11, which predates the oldest
+eval artifact still on the eval host. The closest surviving n=136 artifact gives 0.7897 / 0.8736 /
+0.8309 — only bridge recall matches. Their provenance cannot be recovered, so they cannot be
+defended, corrected, or re-derived.
+
+**And the harness that would re-derive them had a defect.** `--path-dedup` collapsed the graph arm
+to one hit per note *and*, to fill that quota, widened only that arm's retrieval depth from 30 to
+60 (`FANOUT_OVERFETCH_K`). The semantic baseline stayed at 30 and was never deduped. The flag was
+written for the fan-out A/B — which compares two **graph** arms and is unaffected, so every
+published fan-out and `maxPerCluster` result stands — but the same run also printed a
+graph-vs-baseline delta, and that delta was reading a 60-deep arm against a 30-deep one.
+
+That is now fixed: the same depth and the same collapse apply to every arm, and each artifact
+records `armDepth` so this is checkable rather than inferred from a flag name.
+
+### Why there is still no replacement number, and the trap to avoid
+
+The obvious move is to re-derive the figures against one of the bge-m3 indexes already on the eval
+host. **That does not work, and the reason is worth writing down.**
+
+`vec_index_fingerprint` records the embedding provider, model and dimensionality — it says nothing
+about the *schema* the rest of the index was built under. Those caches were built on 2026-08-01 at
+v1.13.0 and carry **22 applied migrations; the manifest now holds 42.** Running current retrieval
+code against them exercises a 20-migration-old FTS and edge layout. The pure-dense baseline is
+unaffected (it reads vec0 and the embeddings, which have not moved), so it reproduces byte-identical
+across runs — which makes the setup look valid. The RRF-fused graph arm reads the tables those
+migrations touched, and it does not.
+
+Concretely: on that stale index the graph arm scores ~0.64 nDCG@10 where the same arm scored ~0.77
+on 2026-08-01 code, while the baseline is unchanged at 0.7484. **A one-sided regression of that
+shape is the signature of a stale index, not a retrieval result**, and it is not evidence about the
+graph walk in either direction.
+
+So a valid re-derivation needs a **fresh index on current code** — the ~6 minute, ~$0.078 re-index
+THE-748 originally sized. "Same embeddings" is not "same index"; check `schema_migrations` against
+the manifest before trusting any eval artifact built on a reused cache.
+
 ## Published negative results
 
 The gate is only credible if it has refused things. Two mechanisms were built, measured, and left

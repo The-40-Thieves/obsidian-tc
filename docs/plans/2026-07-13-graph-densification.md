@@ -1,5 +1,12 @@
 # Graph densification pass (graphify spec-donor port)
 
+> **CORRECTION 2026-08-07 (THE-748) — the acceptance bar below is void.** This plan tells an
+> implementer to beat `bridge recall 0.831 / graph nDCG@10 0.786`. Those figures were withdrawn as
+> unreproducible, and the comparison that produced them ran the graph arm at twice the baseline's
+> retrieval depth. **Do not use them as a bar.** Densification needs its own control, measured with
+> both arms at equal depth on the current backend; see `docs/EVALUATION.md`. The rest of this
+> document is preserved as the dated design record it is.
+
 Status: building (2026-07-13). Branch `feat/graph-densification`.
 Lineage: vault decisions `2026-07-02-graphify-plur-plane-split` (spec donor, Seam 1 densification)
 + `2026-06-26-graphify-separate-non-vault-mcp` (vault-egress boundary). Evidence base:

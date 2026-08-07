@@ -17,7 +17,7 @@ CloudEvents, rate limiter, 8-triple native prebuilds, this docs site):
   passes. Per-vault GraphRAG edge isolation shipped. Mechanisms that lost their A/B
   (cross-encoder rerankers, learned sparse, ColBERT, convex fusion, query
   decomposition, MMR, the class router's lexical short-circuit) ship **dark** behind
-  flags, with the numbers recorded on their tickets. **Graph densification** (derived `shared_tag` / vec0-kNN / LLM Pass-3 edges beyond authored wikilinks, `retrieval.densify.*`) is wired but **unmeasured** — it ships dark pending a multi-hop golden-set A/B (the prior THE-135 virtual-hop hit an 80% bridge-recall ceiling below the 0.831 champion).
+  flags, with the numbers recorded on their tickets. **Graph densification** (derived `shared_tag` / vec0-kNN / LLM Pass-3 edges beyond authored wikilinks, `retrieval.densify.*`) is wired but **unmeasured** — it ships dark pending a multi-hop golden-set A/B (the prior THE-135 virtual-hop hit an 80% bridge-recall ceiling; the champion figure it was compared against has since been withdrawn as unreproducible — THE-748 — so that comparison needs re-deriving before it means anything).
 - **The experiential work-memory tier** (v1.6): a quarantined second store with
   serve-path retrieval logging, auto-captured work episodes (poison-scanned,
   evaluator-stamped eligibility), and reader tools under a strict contract.
