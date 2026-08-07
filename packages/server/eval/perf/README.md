@@ -137,7 +137,9 @@ This metric therefore measures per-call latency at ONE small corpus size. That i
 latency regression and to give THE-419's gate a number to name; it is **not** a large-vault
 measurement, and opening that gate needs a second point on the curve.
 
-**No baseline is committed yet.** Recording one needs a quiet host (the harness correctly refuses on a loaded one — calibration CV 0.822 against a 0.2 threshold), so it goes through the CI baseline workflow the same way `small`'s did. Until then the scenario runs on demand and is not part of the CI-gated set.
+**The baseline IS committed** as of 2026-08-06 (#745): `densify.vec_knn_mean_ms` sits in `baseline.densify.json` at **0.2989 ms**, `warn` / `higher-worse` / tol 0.5, so the scenario is now part of the CI-gated set. It was recorded through the `perf-baseline` workflow on `ubuntu-latest`, not on a dev box — recording one here still fails, and correctly so (calibration CV 0.822 against a 0.2 threshold).
+
+Read the ceiling with the limitation above in mind: it gates per-call KNN latency at ONE small corpus size, and a second point on the curve is still what THE-419 needs.
 
 ### Cold boot (family 16, THE-515)
 
@@ -347,7 +349,7 @@ Now a baselined key with no sample is a violation of its own class (`reason: "mi
 
 **Large improvements are reported, never silently accepted.** An improvement never fails (blocking a good change would be worse than the bug), but one beyond 2× is listed as `STALE BASELINE`, because a baseline that no longer describes the system gets cited later in a go/no-go.
 
-**What the gate still cannot see.** Re-read the "What this harness does NOT cover" section above before trusting a null result. Densification *was* the headline entry here — `buildVault()` called `indexVault()` without `densify` and no collector emitted a densification metric, which is why THE-486's 113× improvement passed CI without comment: there was never a number to compare, and no tolerance change could have produced one. THE-581 closed that with the `densify` scenario and family 15, so THE-533's write cost is now expressible as a gated number rather than a table in a PR body. Note the residual: the `densify` scenario has no committed baseline yet (it needs a quiet host), so until that lands the coverage exists but is not enforced in CI.
+**What the gate still cannot see.** Re-read the "What this harness does NOT cover" section above before trusting a null result. Densification *was* the headline entry here — `buildVault()` called `indexVault()` without `densify` and no collector emitted a densification metric, which is why THE-486's 113× improvement passed CI without comment: there was never a number to compare, and no tolerance change could have produced one. THE-581 closed that with the `densify` scenario and family 15, so THE-533's write cost is now expressible as a gated number rather than a table in a PR body. That residual closed on 2026-08-06 (#745): `baseline.densify.json` is committed and recorded on `ubuntu-latest`, so the coverage is now enforced in CI rather than merely present.
 
 ## Synthetic Labelled Set
 
