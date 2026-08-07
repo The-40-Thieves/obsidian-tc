@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,101 tracked code files · 169,901 lines.
+**Scale:** 1,102 tracked code files · 170,260 lines.
 
-TypeScript 156,905 · JavaScript 8,711 · Python 1,640 · SQL 1,543 · Rust 742 · Shell 360.
+TypeScript 156,959 · JavaScript 9,016 · Python 1,640 · SQL 1,543 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,14 +86,14 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 83 | 16,326 | domains m1–m8 + admin. The MCP tool surface |
-| `search/` | 54 | 10,636 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `tools/` | 83 | 16,328 | domains m1–m8 + admin. The MCP tool surface |
+| `search/` | 54 | 10,637 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,425 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `experiential/` | 18 | 4,301 | work-memory tier: activation, retrieval log, forget, citations |
+| `experiential/` | 18 | 4,306 | work-memory tier: activation, retrieval log, forget, citations |
 | `runtime/` | 14 | 3,235 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `cli/` | 24 | 3,102 | arg parsing + subcommands |
 | `vault/` | 17 | 1,991 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `doctor/` | 10 | 1,806 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `doctor/` | 10 | 1,807 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `migrations/` | 42 | 1,543 | hand-registered SQL. **Two chains** — see below |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `db/` | 15 | 1,368 | provisioning, migrate runner, experiential store |
@@ -110,7 +110,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `memory/` | 2 | 453 | entity extraction and materialization for the memory folder |
 | `auth/` | 3 | 427 | JWT verification, JWKS, RFC 9728 protected-resource metadata |
 | `graph/` | 1 | 381 | graph analytics (centrality, components) behind the health tools |
-| `config/` | 3 | 313 | config load, `explain`, and the security-profile resolver |
+| `config/` | 3 | 321 | config load, `explain`, and the security-profile resolver |
 | `gateway/` | 2 | 285 | inference-gateway client — the `judge`/`synthesize` roles |
 | `plur/` | 2 | 214 | PLUR client (local + remote) for the experiential plane |
 | `otel/` | 3 | 190 | OpenTelemetry tracing, attributes, context propagation |
@@ -143,7 +143,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 740 | `packages/server/src/runtime/server-runtime.ts` |
 | 732 | `packages/server/src/cli/args.ts` |
 | 714 | `packages/server/src/mcp/server.ts` |
-| 694 | `packages/server/src/tools/m8/experiential-tools.ts` |
+| 696 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
