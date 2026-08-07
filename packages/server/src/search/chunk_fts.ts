@@ -6,6 +6,7 @@
 // chunks never become chunks), so a row-count divergence rebuilds it wholesale from chunks; no
 // per-write sync-detector is needed. Runtime-provisioned like notes_fts/vec_chunks: a cache.db
 // written under an FTS5-less adapter stays openable under one with FTS5.
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
 import { enrichChunkText } from "./chunk";
 
@@ -169,6 +170,58 @@ function migrateChunkFtsShape(db: Database): void {
   if (row === undefined) return; // no table yet — the CREATE below makes a contentless one
   if (row.sql?.includes("contentless_delete")) return; // already migrated
   db.exec("DROP TABLE chunk_fts");
+  // Belt-and-braces, and measured to be exactly that: removing this line changes no observable
+  // behaviour, because `assertContentlessChunkFts` early-returns only on `=== true` and therefore
+  // re-reads the DDL after any negative. Kept so the cache's correctness does not rest on that one
+  // comparison staying `=== true` forever — a later `if (cached !== undefined)` would silently
+  // strand a repaired handle, and this line is what makes that edit safe.
+  contentlessCache.delete(db);
+}
+
+/** Handles already proven to hold a post-THE-711 contentless `chunk_fts`. Only the POSITIVE verdict
+ *  is cached: a legacy shape throws, and a handle that repairs itself mid-life must be able to
+ *  answer differently on its next call. */
+const contentlessCache = new WeakMap<Database, boolean>();
+
+/**
+ * THE-750: refuse to run the lexical stream against a pre-THE-711 `chunk_fts`, rather than
+ * returning wrong rows.
+ *
+ * `bm25Chunks` joins `chunks.rowid = chunk_fts.rowid`, which is only meaningful for the contentless
+ * table whose rowids are deliberately aligned. A 4-column content-storing `chunk_fts` has its own
+ * independent rowids, so that join does not fail — it **silently pairs FTS hits to the wrong
+ * chunks**. Measured on a real pre-THE-711 cache: 8,933 of 13,451 rows "joined" (all mis-paired)
+ * and 4,897 dropped, which cost the fused arm ~0.13 nDCG@10 while the pure-dense arm — which never
+ * touches FTS — reproduced byte-identically. A one-sided degradation with no error is exactly the
+ * shape that reads as a retrieval finding; it cost a full session before being traced.
+ *
+ * `ensureChunkFts` repairs this, but it is reachable ONLY from the write path
+ * (`indexing/index-vault.ts`, `indexing/index-note.ts`). A read-only consumer — the eval harness,
+ * `doctor --probe`, anything opening an archived or copied cache — can never trigger the repair,
+ * so for those callers the only honest options are "refuse" and "return wrong rows".
+ *
+ * Throws rather than returning empty: an empty lexical arm is itself a plausible-looking result
+ * (a query that matches nothing), so degrading silently to `[]` would re-create the same class of
+ * bug one layer up. A missing table is NOT an error here — callers gate on `ensureChunkFts`'s
+ * boolean, and provisioning is lazy by design.
+ */
+function assertContentlessChunkFts(db: Database): void {
+  if (contentlessCache.get(db) === true) return;
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chunk_fts'")
+    .get() as { sql: string | null } | undefined;
+  if (row === undefined) return; // no table — not this function's problem
+  if (row.sql?.includes("contentless_delete") === true) {
+    contentlessCache.set(db, true);
+    return;
+  }
+  throw err.internal(
+    "chunk_fts is the pre-THE-711 content-storing shape, whose rowids are NOT aligned to chunks.rowid. " +
+      "The lexical (BM25) stream would silently return rows joined to the WRONG chunks, so it is refused. " +
+      "Re-index this cache to rebuild chunk_fts (`obsidian-tc index <config>`); the repair runs on the " +
+      "write path only, so a read-only consumer cannot perform it.",
+    { table: "chunk_fts", expected: "contentless_delete", remedy: "re-index" },
+  );
 }
 
 /** Tokenise free text the way the lexical stream consumes it: lowercase, split on
@@ -264,6 +317,9 @@ export function bm25Chunks(
   if (k <= 0) return [];
   const match = chunkFtsMatch(query);
   if (match === null) return [];
+  // THE-750: DELIBERATELY outside the try below. That catch turns every failure into `[]`, so a
+  // refusal raised inside it would be swallowed into exactly the silence this guard exists to end.
+  assertContentlessChunkFts(db);
   const readable = isReadable ?? (() => true);
   // Same constant as semantic.ts's KNN over-fetch, deliberately — one number to reason about when
   // asking "how hidden can a vault be before an arm underfills?".
