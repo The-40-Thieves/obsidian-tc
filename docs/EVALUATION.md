@@ -1,8 +1,12 @@
 # Evaluation methodology
 
 obsidian-tc publishes **no headline benchmark score**. This document explains what is measured
-instead, how, and what that does and does not let you conclude. It exists because the corpus is
+instead, how, and what that does and does not let you conclude. It exists because *our* corpus is
 private and the method does not have to be.
+
+Read ["What would change this"](#what-would-change-this) before concluding that a published score is
+impossible here. As of 2026-08-07 it is not — a public, wikilink-structured corpus with a peer's
+published number exists, so "no headline score" is a choice rather than a constraint.
 
 Operator instructions — how to actually run the harness — live in
 [`packages/server/eval/README.md`](../packages/server/eval/README.md). This document is the *why*.
@@ -231,12 +235,48 @@ against the honest alternative of *not having it*.
 
 ## What would change this
 
-A published score requires a corpus that is public, link-structured, and permission-aware. None
-exists. The options under consideration are a synthetic link-structured vault published alongside
-the harness, an existing openly-licensed markdown corpus, or a partial BEIR number carrying an
-explicit caveat about which stages it fails to exercise. The current position is that publishing
-this methodology — including the negative results and the resolution limits — is worth
-more than a borrowed number measured on the wrong shape of data.
+This section used to say a published score requires a corpus that is public, link-structured and
+permission-aware, and that **none exists**. That is now wrong on two of the three criteria, and the
+correction is more interesting than the claim was.
+
+**A public, link-structured markdown corpus exists, and an Obsidian-side peer has already published
+a number on it.** [`flowing-abyss/obsidian-hybrid-search`](https://mcpservers.org/servers/flowing-abyss/obsidian-hybrid-search)
+evaluates against **Andy Matuschak's evergreen notes** — 1,357 notes with 5,000+ internal links and
+78 hand-judged queries — and publishes result JSONs alongside the fixtures:
+
+| | nDCG@5 | nDCG@10 | MRR | Hit@1 | Recall@10 |
+| --- | --- | --- | --- | --- | --- |
+| Matuschak evergreen notes (1,357 notes, 78 queries) | 0.722 | **0.753** | 0.874 | 0.795 | 0.972 |
+
+That corpus is the first public one with a **real wikilink topology**, which makes it the first
+available outside test of whether graph expansion earns its keep — the mechanism this engine is
+built around and the one a flat document benchmark cannot exercise.
+
+**Three caveats, none of which restore the old claim.**
+
+*It is not permission-aware.* Folder ACLs remain untested by any public corpus, so one of the three
+original criteria still genuinely has nothing behind it.
+
+*The comparable number was not measured on a comparable embedder.* That 0.753 comes from
+`Xenova/multilingual-e5-small` running locally. This engine runs `BAAI/bge-m3` at 1024d. The same
+project's third evaluation (LongMemEval-S, 22,419 notes, 470 queries) **does** use `baai/bge-m3` and
+reports nDCG@5 0.895 — but on a conversational corpus, which is the shape problem this document
+already describes. So there is no single row that is comparable on both corpus shape and embedder.
+
+*Their numbers come from their harness.* Comparing across harnesses makes boundary differences more
+dangerous, not less — retrieval-vs-answer cut, judge model, and top-k all move a score. Running
+their public corpus through *this* harness is the comparison that would mean something; citing their
+figure next to ours is not.
+
+The options therefore stand, re-ordered: run the Matuschak corpus through this repo's own harness
+and publish both the number and the method; publish a synthetic link-structured vault; or a partial
+BEIR number with an explicit caveat about which stages it fails to exercise. The first is now the
+cheapest and the most credible, and it was previously believed impossible.
+
+The position that publishing this methodology — including the negative results and the resolution
+limits — beats a borrowed number measured on the wrong shape of data is unchanged. What has changed
+is that a right-shaped corpus is now available, so "we publish no score" is a choice from here on
+rather than a constraint.
 
 If you are evaluating obsidian-tc against alternatives, the honest summary is: the retrieval
 mechanisms here are gated by a pre-registered statistical rule, two of them failed it and shipped
