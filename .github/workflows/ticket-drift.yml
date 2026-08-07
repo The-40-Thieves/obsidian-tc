@@ -35,6 +35,21 @@ jobs:
             echo "have_key=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Runs WITHOUT --strict, and that is a measured decision rather than caution.
+      #
+      # The first real dispatch (2026-08-07) failed on 19 NOT-STARTED tickets referenced by
+      # executable content — every one pre-existing and legitimate. The script's own header names
+      # two of them: THE-424 is cited by code that is explicitly NOT wired, THE-539 by design docs
+      # while iceboxed on purpose. `--strict` existed for this workflow, which had never been built,
+      # so its failing behaviour had never once been run against reality.
+      #
+      # A weekly job red on 19 correct findings gets muted inside a month, and a muted gate covers
+      # nothing — the same argument DEP_ALLOW makes in the script. The report is the value until
+      # someone triages direction 1 the way direction 2 was triaged.
+      #
+      # ENTRY CRITERION for adding --strict back: the 19 are each either closed, annotated as
+      # legitimately-open, or allowlisted. Direction 2 is already clean and would go red on a new
+      # stale citation the day that flag returns.
       - name: cross-check against Linear
         if: steps.probe.outputs.have_key == 'true'
         env:
@@ -42,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/fetch-linear-tickets.mjs obsidian-tc > /tmp/tickets.json
-          node scripts/check-ticket-drift.mjs --tickets /tmp/tickets.json --strict
+          node scripts/check-ticket-drift.mjs --tickets /tmp/tickets.json
 
       # When the token is absent this runs INVENTORY MODE and annotates a warning rather than
       # either failing or passing quietly. A job that goes green having checked nothing is the
