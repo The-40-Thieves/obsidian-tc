@@ -323,13 +323,16 @@ Do not hand-write an entry for an architecture you have not measured on a quiet 
 
 ### The reference host is the CI runner (THE-534)
 
-**Do not record a baseline on a developer machine.** The reference is the machine the gate compares on: `ubuntu-latest`, via the `perf-baseline` workflow (`workflow_dispatch` → pick a scenario → it opens a PR with the recorded files).
+**Do not record a baseline on a developer machine.** The reference is the machine the gate compares on: `ubuntu-latest`, via the `perf-baseline` workflow (`workflow_dispatch` → pick a scenario → it uploads the recorded files as a run artifact, which you download and commit).
 
 This is a decision, not a convenience. A baseline is only meaningful if it was measured somewhere reproducible, and a dev box generally is not: the host this project is built on sits at load ~7 across 4 cores with 43 containers, where the harness correctly **refuses** to record (calibration CV 0.822 against a 0.2 threshold). The options were to weaken the refusal or to move the reference; the refusal is the feature, so the reference moved.
 
 Three properties are deliberate:
 
-- **It opens a PR, it does not push.** Recording moves to CI; *review* does not. A self-updating baseline would ratchet in a regression one green run at a time — the exact failure THE-534 exists to prevent. Review the **direction** of every changed number: one that moved the worse way is a regression being accepted into the reference, and needs a reason in the PR.
+- **It hands back a file, it does not push.** Recording moves to CI; *review* does not. A self-updating baseline would ratchet in a regression one green run at a time — the exact failure THE-534 exists to prevent. Review the **direction** of every changed number: one that moved the worse way is a regression being accepted into the reference, and needs a reason in the PR you open.
+
+  It used to push a branch and try to open a PR on it, which never worked — Actions cannot create PRs here (an org-level setting; the repo-level API returns 409) — so every run left an orphan branch behind. The artifact is the same deliverable without the litter, and the job token dropped to `contents: read` as a result.
+- **The artifact carries `perf-report.json`, not just the baseline.** That file holds the raw per-sample series; the committed `baseline.*.json` keeps only aggregates, and aggregates cannot tell a noisy metric from a bimodal one. `storage.txn_ms` and `storage.cpu_ms` turned out to be the latter — two disjoint clusters ~3x apart, switching together on 30/30 samples — and the only surviving raw copy at the time was in run logs, which expire. Artifact retention is set to 90 days for that reason.
 - **`workflow_dispatch` only.** Re-baselining is a deliberate act taken when the system changed on purpose. On a schedule or on push it would quietly absorb drift.
 - **It shares the gate's `perf-exclusive` concurrency group**, so a recording run can never be contended by a gate run on the same shared capacity.
 
