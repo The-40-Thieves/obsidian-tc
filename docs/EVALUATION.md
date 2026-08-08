@@ -198,7 +198,7 @@ Two corpora, two label schemes, same direction.
 
 ## Published negative results
 
-The gate is only credible if it has refused things. Two mechanisms were built, measured, and left
+The gate is only credible if it has refused things. Three mechanisms were built, measured, and left
 off by their own numbers.
 
 ### Multi-query fan-out (RRF over query variants)
@@ -223,6 +223,54 @@ an agent to use it.
 
 Measured negative at every *k* tested. Clustering still runs; the live store is deliberately left
 unclustered for ranking purposes. Kept dark.
+
+### Deterministic edge densification (`retrieval.densify`) — both types, flat on coverage
+
+Measured 2026-08-08 on the n=250 multi-hop set (103 bridge-bearing queries, MDE 0.0223 on
+`bridge_recall`). `retrieval.densify` builds derived edges without any LLM: `knnEdges` from vec0
+neighbours over the embeddings that already exist, `tagEdges` from shared-frontmatter-tag
+co-occurrence. Both had shipped, both were dark, and **neither had ever been measured for retrieval
+quality** — only for latency.
+
+Each arm walks the same index as its own control; only `includeInWalk` differs, so the contrast is a
+pure search-side toggle with identical chunks, vectors and literal edges on both sides.
+
+| arm | derived edges | build | Δ bridge_recall | p | ΔnDCG@10 |
+| --- | --- | --- | --- | --- | --- |
+| `knnEdges` floor 0.0 | 6,777 | 250 s | −0.008 | 0.73 | −0.002, non-inferior |
+| `knnEdges` floor 0.6 | 6,683 | 255 s | −0.008 | 0.73 | −0.002, non-inferior |
+| `knnEdges` floor 0.8 | 1,549 | 249 s | +0.000 | 1.00 | −0.002, non-inferior |
+| `tagEdges` fanout 25 | 9,260 | **6.5 s** | +0.000 | 1.00 | −0.002, non-inferior |
+
+**Nothing significant on any metric, at any density, for either edge type.** Up to +74% connectivity
+over the 12,567 literal edges moved coverage by less than a third of the detectable threshold. The
+nDCG null is a strong one rather than an underpowered shrug: σ_d 0.046 puts the contrast-specific
+MDE at **0.008**, so the study could have seen a 0.008 shift and measured 0.002.
+
+The treatment was not inert — it reordered 30 of 250 queries and changed 8 queries' bridge outcomes,
+which cancelled to exactly zero. And the instrument was live: 202 of 250 queries carry a non-zero
+`bridge_recall` on this corpus, unlike the public evergreen set, which declares no bridges at all and
+where this metric is structurally unmeasurable.
+
+**Why it is a coherent null rather than a disappointment.** Both cheap edge types connect notes that
+are already mutually findable — kNN edges mirror the similarity the dense retriever has already
+exploited before the graph walk starts, and shared tags connect notes a human already filed
+together. Neither expresses a relation that is absent from both the embedding and the tag
+vocabulary, which is what the unreachable-target queries actually need. So "connectivity is the
+ceiling" is true of the *kind* of edge, not the *count*.
+
+Two knobs are worth recording from the sweep even though the headline is flat:
+
+- `knnMinSim: 0.6` is **nearly inert** for `bge-m3` — only 1.4% of top-8 neighbours fall below it
+  (75.8% sit between 0.6 and 0.8, 22.9% above 0.8). Floors 0.0 and 0.6 produced byte-identical
+  result files. A meaningful sweep uses 0.7/0.75.
+- On the public evergreen corpus, `knnEdges` at floor 0.0 **fails** the −0.015 non-inferiority floor
+  on strict labels (Δ −0.009, lower bound −0.026). The shipped default of `knnMinSim: 0` keeps every
+  neighbour the kNN returns, and on that corpus it costs precision at rank 10.
+
+All four arms stay off by default. `eval/densify-index.ts` (kNN) and `eval/densify-tags-index.ts`
+(tags) rebuild each edge set on an existing index without a reindex, so re-running this costs
+minutes rather than the 48+ a full `indexVault` reconcile per cell would.
 
 ## Why the corpus is private, and what that costs
 
