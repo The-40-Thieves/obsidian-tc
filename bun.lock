@@ -15,14 +15,14 @@
     },
     "packages/native": {
       "name": "@the-40-thieves/obsidian-tc-native",
-      "version": "1.20.0",
+      "version": "1.21.0",
       "devDependencies": {
         "@napi-rs/cli": "^3.7.2",
       },
     },
     "packages/plugin": {
       "name": "@the-40-thieves/obsidian-tc-plugin",
-      "version": "1.20.0",
+      "version": "1.21.0",
       "devDependencies": {
         "@types/node": "^24.0.0",
         "builtin-modules": "^4.0.0",
@@ -33,7 +33,7 @@
     },
     "packages/server": {
       "name": "obsidian-tc",
-      "version": "1.20.0",
+      "version": "1.21.0",
       "bin": {
         "obsidian-tc": "./dist/cli.js",
       },
@@ -67,7 +67,7 @@
     },
     "packages/shared": {
       "name": "@the-40-thieves/obsidian-tc-shared",
-      "version": "1.20.0",
+      "version": "1.21.0",
       "dependencies": {
         "zod": "^4.0.0",
       },
@@ -88,6 +88,7 @@
     "ip-address": ">=10.3.1 <11",
     "js-yaml": ">=4.3.1 <5",
     "minimatch": ">=10.2.5 <11",
+    "nanoid": ">=3.3.17 <4",
     "postcss": ">=8.5.18 <9",
     "vite": "^7.0.0",
   },
@@ -902,7 +903,7 @@
 
     "mute-stream": ["mute-stream@3.0.0", "", {}, "sha512-dkEJPVvun4FryqBmZ5KhDo0K9iDXAwn08tMLDinNdRBNPcYEDiWYysLcc6k3mjTMlbP9KyylvRpd4wFtwrT9rw=="],
 
-    "nanoid": ["nanoid@3.3.16", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-bzlKTyNJ7+LdGIIwy8ijFpIqEQIvafahV7eYykJ8Cvh42EdJeODoJ6gUJXpQJvej1BddH8OqTXZNE/KfbWAu8Q=="],
+    "nanoid": ["nanoid@3.3.18", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w=="],
 
     "napi-build-utils": ["napi-build-utils@2.0.0", "", {}, "sha512-GEbrYkbfF7MoNaoh2iGG84Mnf/WZfB0GdGEsM8wz7Expx/LlWf5U8t9nvJKXSp3qr5IsEbK04cBGhol/KwOsWA=="],
 
