@@ -494,8 +494,11 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
 
     perQuery.push({
       id: q.id,
-      baseline: computeQueryMetrics(q, baseHits),
-      graph: computeQueryMetrics(q, graphHits),
+      // THE-751: the search's OWN isReadable is threaded in so `leaked_paths` reports the shipped
+      // boundary rather than a second predicate that could drift from it. Undefined on the
+      // unrestricted arm, which leaves leaked_paths null — "not checked", not "checked, none".
+      baseline: computeQueryMetrics(q, baseHits, opts.isReadable),
+      graph: computeQueryMetrics(q, graphHits, opts.isReadable),
       hard,
       z1,
       ...(opts.retainRaw ? { baselineRaw: baseHits, treatmentRaw: graphHits } : {}),
@@ -1054,6 +1057,32 @@ async function main(): Promise<void> {
   process.stdout.write(`\n${describePower(dN, "power ΔnDCG@10  ")}\n`);
   process.stdout.write(`${describeNonInferiority(dN, "non-inferiority ΔnDCG@10 ")}\n`);
   process.stdout.write(`${describeNonInferiority(dR, "non-inferiority Δrecall@10")}\n`);
+
+  // THE-751: leakage is a CORRECTNESS gate, so it is printed unconditionally under --acl-allow and
+  // printed LOUDLY when non-zero — never left as a field somebody has to go find in the JSON. The
+  // expected value is exactly 0; n does not bound it, so there is no "not significant" reading of a
+  // leak. `leaked_paths` is null on the unrestricted arm, which is why this block is gated on the
+  // ACL being in force rather than on the count being falsy.
+  if (report.perQuery.some((r) => r.graph.leaked_paths !== null)) {
+    const leakedQueries = report.perQuery.filter((r) => (r.graph.leaked_paths ?? 0) > 0);
+    const leakedTotal = report.perQuery.reduce((n, r) => n + (r.graph.leaked_paths ?? 0), 0);
+    if (leakedTotal === 0) {
+      process.stdout.write(
+        `ACL leakage        : 0 unreadable path(s) returned across ${report.perQuery.length} quer(ies) — PASS\n`,
+      );
+    } else {
+      process.stdout.write(
+        `ACL leakage        : *** ${leakedTotal} UNREADABLE PATH(S) RETURNED across ` +
+          `${leakedQueries.length}/${report.perQuery.length} quer(ies) — FAIL ***\n` +
+          "  The retrieval returned content this principal cannot read. That is an authorization\n" +
+          "  defect, not a ranking regression, and no quality number below is meaningful until it\n" +
+          `  is zero. Offending queries: ${leakedQueries
+            .map((r) => r.id)
+            .slice(0, 8)
+            .join(", ")}\n`,
+      );
+    }
+  }
 
   // THE-449: per-category slices. Printed WITH --diagnose because that is where a reader is asking
   // "why did this move?" — the aggregate above already answers "did it move?". Sorted by delta so

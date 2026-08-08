@@ -29,6 +29,7 @@ function qm(recall: number, bridge: 0 | 1): QueryMetrics {
     expected_total: 2,
     bridge_satisfied: bridge === 1,
     result_paths_unique: 0,
+    leaked_paths: null, // THE-751: no ACL in this fixture — null is "not checked", not "none".
   };
 }
 
