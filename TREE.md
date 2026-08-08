@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,102 tracked code files · 170,607 lines.
+**Scale:** 1,102 tracked code files · 170,615 lines.
 
-TypeScript 157,197 · JavaScript 9,125 · Python 1,640 · SQL 1,543 · Rust 742 · Shell 360.
+TypeScript 157,205 · JavaScript 9,125 · Python 1,640 · SQL 1,543 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -87,7 +87,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
 | `tools/` | 83 | 16,353 | domains m1–m8 + admin. The MCP tool surface |
-| `search/` | 54 | 10,696 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `search/` | 54 | 10,704 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `mcp/` | 17 | 4,425 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `experiential/` | 18 | 4,306 | work-memory tier: activation, retrieval log, forget, citations |
 | `runtime/` | 14 | 3,255 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
@@ -153,7 +153,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 586 | `packages/server/src/tools/m3/base-tools.ts` |
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
 | 565 | `packages/server/src/search/graph_search.ts` |
-| 556 | `packages/server/src/search/query_cache.ts` |
+| 564 | `packages/server/src/search/query_cache.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 526 | `packages/server/src/transports/http.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
