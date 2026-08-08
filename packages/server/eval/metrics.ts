@@ -59,6 +59,17 @@ export interface QueryMetrics {
   expected_total: number;
   bridge_satisfied: boolean;
   result_paths_unique: number;
+  /** THE-751: paths this query RETURNED that the caller's ACL does not permit. Null when no ACL is
+   *  in force (the unrestricted arm), so "not checked" and "checked, none" stay distinguishable —
+   *  0 and null mean different things and a leakage report must never conflate them.
+   *
+   *  This is a CORRECTNESS gate, not a quality metric: the expected value is exactly 0, so n does
+   *  not bound its conclusiveness. A single leaked path on a 21-query arm is as much a finding as
+   *  one on a 1000-query arm. Computed here rather than in a separate runner because this is the
+   *  one place that already holds the returned paths, and re-deriving them elsewhere would be a
+   *  second implementation of the retrieval path — the failure eval/run.ts's --acl-allow header
+   *  already refuses for the ACL predicate itself. */
+  leaked_paths: number | null;
 }
 
 export interface AggregateMetrics {
@@ -85,7 +96,13 @@ function uniquePathsInOrder(chunks: RankedChunk[]): string[] {
   return ordered;
 }
 
-export function computeQueryMetrics(query: GoldenQuery, results: RankedChunk[]): QueryMetrics {
+export function computeQueryMetrics(
+  query: GoldenQuery,
+  results: RankedChunk[],
+  /** THE-751: the SAME predicate the search ran under. Passing the search's own isReadable (rather
+   *  than rebuilding one) is what makes a zero here evidence about the shipped boundary. */
+  isReadable?: (rel: string) => boolean,
+): QueryMetrics {
   const allPaths = uniquePathsInOrder(results);
   const top10 = allPaths.slice(0, 10);
   const top10Set = new Set(top10);
@@ -151,6 +168,7 @@ export function computeQueryMetrics(query: GoldenQuery, results: RankedChunk[]):
     expected_total: expectedTotal,
     bridge_satisfied,
     result_paths_unique: allPaths.length,
+    leaked_paths: isReadable ? allPaths.filter((p) => !isReadable(p)).length : null,
   };
 }
 
