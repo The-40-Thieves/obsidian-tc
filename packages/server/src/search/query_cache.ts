@@ -227,8 +227,16 @@ export function createRetrievalCaches(opts: QueryCacheOptions): RetrievalCaches 
 //                    generation. So a cache hit inside the TTL can serve an order computed from
 //                    pre-recompute activation. That is bounded twice over — the bubble pass moves
 //                    any item at most one position, and the TTL bounds how stale the scores can be
-//                    (documented above) — so the error is at most one adjacent swap of slightly
-//                    stale provenance, never a wrong result set. Accepted deliberately: keying on
+//                    (documented above).
+//                    CORRECTED after THE-424 Part B: this used to end "never a wrong result set",
+//                    reasoning that a one-position bound cannot change top-K MEMBERSHIP. It can.
+//                    An item at rank K+1 moving to rank K is a one-position move that swaps a
+//                    document into the returned set. Measured on the public evergreen corpus: zero
+//                    membership changes at the 512-token chunk budget, but 1-2 queries of 78 at 256,
+//                    because denser chunks crowd the rank-K boundary. The POSITION bound held in
+//                    both; the set-invariance was a property of that corpus at that budget, never of
+//                    the mechanism. So the honest bound is: at most one adjacent swap, which at fine
+//                    chunk budgets may mean one document entering or leaving the top-K. Accepted deliberately: keying on
 //                    activation values would invalidate the whole cache on every recompute, which
 //                    costs more than the one-slot drift it would fix. If the bubble pass ever
 //                    becomes a full re-sort, this trade dies and activation must enter the key.
