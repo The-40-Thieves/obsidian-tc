@@ -196,6 +196,73 @@ power.
 
 Two corpora, two label schemes, same direction.
 
+## Permission-aware retrieval on the same public corpus (2026-08-08)
+
+The third criterion above — a corpus that is *permission-aware* — had nothing behind it, and no
+public one exists. Rather than wait for one, the axis was **constructed** on top of the corpus
+already in use. The result is, as far as a literature sweep could find, the **first permission-aware
+document-retrieval benchmark**: existing permission benchmarks
+([RBAC text-to-SQL](https://arxiv.org/html/2607.22115v1),
+[Role-Conditioned Refusals](https://arxiv.org/pdf/2510.07642), MultiPER-Enterprise) all measure SQL
+generation or LLM refusal reasoning, not retrieval under access control.
+
+**Why it is cheap here and was not for the work it borrows from.** The RBAC text-to-SQL corpus needed
+GPT-4 plus a four-expert panel to derive per-role ground truth, because SQL column permissions are
+semantic. Folder ACLs are not. `readableRel(acl, rel)` is a pure function of an ACL and a path, so
+for principal *P* with ACL *A*:
+
+```
+expected_P  =  expected  INTERSECT  { p : readableRel(A, p) }
+```
+
+Ground truth is **computed, not judged** — the 78 third-party judgments become per-principal
+judgments by intersection, and a reader can verify that intersection without running anything.
+
+**The overlay** (`eval/acl-overlay.json`) defines four principals over alphabetical title ranges,
+deliberately **overlapping** at the seams — the one design choice copied directly from the RBAC
+paper, because disjoint roles make any out-of-whitelist path trivially detectable and the leakage
+test vacuous. 41 of 78 strict queries are scoreable for more than one principal.
+
+**Leakage — the primary metric, and a correctness gate rather than a quality one:**
+
+| binarization | principal | n | unreadable paths returned |
+| --- | --- | --- | --- |
+| strict | P1 `a-f` | 40 | **0** |
+| strict | P2 `d-l` | 36 | **0** |
+| strict | P3 `k-s` | 26 | **0** |
+| lenient | P1 | 56 | **0** |
+| lenient | P2 | 48 | **0** |
+| lenient | P3 | 46 | **0** |
+
+**252 principal-query evaluations, zero leaks.** Leakage has an expected value of exactly 0, so *n*
+does not bound its conclusiveness — one leaked path on a 26-query arm is as much a finding as one on
+a 1000-query arm, and there is no "not significant" reading of a leak.
+
+The ACL is built through the same `FolderAcl` + `makeIndexReadable` factory the boot reconcile,
+`add_vault` and the index-on-write hook use, and the leakage check consumes **the search's own
+`isReadable`** rather than rebuilding one — a zero from a predicate that is not the shipped one
+would be evidence about nothing.
+
+`leaked_paths` is `null` when no ACL is in force, never `0`: "not checked" and "checked, none" are
+different claims, and conflating them would print PASS for an arm where the boundary was never
+evaluated. Five tests pin every state including a **failing** one, because a gate that has only
+reported PASS is indistinguishable from one wired to a constant — the defect THE-699 found in this
+very harness.
+
+**A fourth principal was refused, and that is the harness working.** `P4` (`r-z` plus digits) leaves
+only 21 of 78 queries with a reachable target, below `run.ts`'s n≥26 floor: *"the whitelist is too
+narrow to measure anything — widen it, or the report measures the ACL rather than the retrieval."*
+One query of 78 is readable by no principal at all and is excluded rather than scored zero.
+
+**The honest caveat, which must travel with any citation of this.** A self-authored ACL overlay is a
+self-authored benchmark, and this document has already called that the weakest form of evidence. It
+is defensible here only because the *overlay* is arbitrary while the *ground truth derived from it*
+is not: the intersection is mechanical, committed, and independently checkable. Say both halves.
+
+What this does **not** establish is under-fill — recall lost against each principal's own achievable
+ceiling, which is the interesting quality number and is power-limited at these per-principal *n*.
+That is reported with its *n* attached rather than pooled, and is not yet published here.
+
 ## Published negative results
 
 The gate is only credible if it has refused things. Three mechanisms were built, measured, and left
@@ -422,8 +489,9 @@ built around and the one a flat document benchmark cannot exercise.
 
 **Three caveats, none of which restore the old claim.**
 
-*It is not permission-aware.* Folder ACLs remain untested by any public corpus, so one of the three
-original criteria still genuinely has nothing behind it.
+*It was not permission-aware — that criterion has since been met by construction rather than by
+finding a corpus.* See [Permission-aware retrieval on the same public
+corpus](#permission-aware-retrieval-on-the-same-public-corpus-2026-08-08) below.
 
 *The comparable number was not measured on a comparable embedder.* That 0.753 comes from
 `Xenova/multilingual-e5-small` running locally. This engine runs `BAAI/bge-m3` at 1024d. The same
@@ -437,9 +505,10 @@ their public corpus through *this* harness is the comparison that would mean som
 figure next to ours is not.
 
 **The first option has since been taken** — see
-[Published on a public corpus](#published-on-a-public-corpus-2026-08-07). What remains open is the
-permission-aware corpus, for which nothing public exists; a synthetic link-structured vault; or a
-partial BEIR number carrying an explicit caveat about which stages it fails to exercise.
+[Published on a public corpus](#published-on-a-public-corpus-2026-08-07) — and the permission-aware
+criterion has been met by *constructing* the missing axis rather than waiting for a corpus to appear
+with it (below). What remains open is a synthetic link-structured vault, or a partial BEIR number
+carrying an explicit caveat about which stages it fails to exercise.
 
 The position that publishing this methodology — including the negative results and the resolution
 limits — beats a borrowed number measured on the wrong shape of data is unchanged. What changed is
