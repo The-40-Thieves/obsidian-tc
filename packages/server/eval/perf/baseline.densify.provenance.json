@@ -2,22 +2,41 @@
   "scenario": "densify",
   "mode": "isolated-median",
   "samples": 5,
-  "measuredAtSha": "af33c5cb210b29cfe08e967c77faa5044c34158e",
+  "measuredAtSha": "9d1b2fbfbcf556c522432c9dfb4376fa19cd58e6",
   "treeDirty": false,
-  "measuredAt": "2026-08-06T14:25:19.773Z",
+  "measuredAt": "2026-08-09T01:29:11.334Z",
   "host": {
     "platform": "linux",
     "arch": "x64",
     "cpus": 4
   },
+  "recordedExact": {
+    "index.chunk_count": 200,
+    "index.notes_count": 100,
+    "embed.tokens": 2577,
+    "harness.vault_count": 1,
+    "embed.call_count": 2,
+    "densify.edges_similar_to": 533,
+    "densify.edges_shared_tag": 865,
+    "graph.candidates_seed": 30,
+    "graph.candidates_expand": 80,
+    "graph.candidates_fused": 85,
+    "freshness.visible": 1,
+    "storage.txn_count": 200,
+    "http.handshake_ok": 1,
+    "http.concurrent2_ok_count": 2,
+    "http.concurrent8_ok_count": 8,
+    "migration.rebuilt": 1,
+    "shutdown.drained": 1
+  },
   "calibration": {
     "cpuMs": {
-      "median": 17.041870000000017,
-      "cv": 0.16171907235964317
+      "median": 15.003881999999976,
+      "cv": 0.02669475336780652
     },
     "ioMs": {
-      "median": 6.679219000000103,
-      "cv": 0.1455811961015125
+      "median": 6.574258999999984,
+      "cv": 0.06272513180734361
     }
   }
 }

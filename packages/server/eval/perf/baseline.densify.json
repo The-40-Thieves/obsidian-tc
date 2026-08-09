@@ -14,7 +14,7 @@
     "direction": "exact"
   },
   "index.notes_per_s": {
-    "value": 356.2758623765913,
+    "value": 340.61879815129964,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -28,7 +28,7 @@
     "direction": "exact"
   },
   "embed.tokens_per_s": {
-    "value": 9181.228973444759,
+    "value": 8777.746428358992,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -42,7 +42,7 @@
     "direction": "exact"
   },
   "index.chunks_per_s": {
-    "value": 712.5517247531826,
+    "value": 681.2375963025993,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -63,7 +63,7 @@
     "direction": "exact"
   },
   "embed.texts_per_s": {
-    "value": 427.53103485190957,
+    "value": 408.7425577815596,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -84,7 +84,7 @@
     "direction": "higher-worse"
   },
   "densify.vec_knn_mean_ms": {
-    "value": 0.2989306550000003,
+    "value": 0.31336115499999834,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -105,7 +105,7 @@
     "direction": "exact"
   },
   "densify.index_ms": {
-    "value": 253.530399,
+    "value": 268.478736,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -147,7 +147,7 @@
     "direction": "lower-worse"
   },
   "retrieval.ndcg_per_ms": {
-    "value": 0.05499602528237817,
+    "value": 0.05332155087530291,
     "tol": 0.5,
     "mode": "abs",
     "class": "warn",
@@ -182,7 +182,7 @@
     "direction": "exact"
   },
   "freshness.ms": {
-    "value": 99.80329700000004,
+    "value": 111.1937059999999,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -203,14 +203,14 @@
     "direction": "exact"
   },
   "storage.txn_ms": {
-    "value": 0.7557610000000068,
+    "value": 0.5743820000000142,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "storage.cpu_ms": {
-    "value": 1.273,
+    "value": 0.584,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -231,7 +231,7 @@
     "direction": "lower-worse"
   },
   "storage.lock_wait_ms": {
-    "value": 251.17,
+    "value": 251.07,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -245,14 +245,14 @@
     "direction": "lower-worse"
   },
   "runtime.eventloop_p99_ms": {
-    "value": 62.521343,
+    "value": 63.504383,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "runtime.peak_rss_mb": {
-    "value": 167.03515625,
+    "value": 167.6796875,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -266,14 +266,14 @@
     "direction": "exact"
   },
   "http.cold_ms": {
-    "value": 24.603446000000076,
+    "value": 25.11621699999978,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "http.warm_ms": {
-    "value": 1.0572769999998854,
+    "value": 1.1249309999998331,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -287,7 +287,7 @@
     "direction": "exact"
   },
   "http.concurrent2_p99_ms": {
-    "value": 1.499674000000141,
+    "value": 1.7278039999996508,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -301,7 +301,7 @@
     "direction": "exact"
   },
   "http.concurrent8_p99_ms": {
-    "value": 4.504549000000225,
+    "value": 5.27647399999978,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -315,7 +315,7 @@
     "direction": "exact"
   },
   "migration.ms": {
-    "value": 1.2397609999998167,
+    "value": 1.2338339999996606,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -329,7 +329,7 @@
     "direction": "exact"
   },
   "shutdown.ms": {
-    "value": 0.08060900000009497,
+    "value": 0.07474000000001979,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
