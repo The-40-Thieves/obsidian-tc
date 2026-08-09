@@ -23,10 +23,10 @@ import {
   measureIoScalingRho,
   type VectorContentionResult,
 } from "./contention";
-import { evaluate } from "./gate";
+import { checkCoherence, evaluate } from "./gate";
 import { buildVault } from "./harness";
 import { type AggregatedReport, toMedianReport } from "./isolate";
-import { type Baseline, type PerfReport, toMarkdown } from "./report";
+import { type Baseline, type BaselineProvenance, type PerfReport, toMarkdown } from "./report";
 import { runIsolatedSamples } from "./sample";
 import { SCENARIOS, type Scenario } from "./scenarios";
 import { SPEARMAN_THRESHOLD } from "./spearman";
@@ -230,6 +230,12 @@ function writeBaselineProvenance(
   name: Scenario["name"],
   mode: "isolated-median" | "single-shot",
   samples: number,
+  /** THE-754: every `exact` metric's value AT RECORD TIME, so a later hand-edit is detectable.
+   *  Those are the keys that get edited in place — an exact metric fails the gate the moment it
+   *  moves, so adding a tool forces `boot.tools_registered` up while the timing keys beside it,
+   *  sitting inside a warn tolerance, keep describing the smaller system. Snapshotting them here is
+   *  what lets `checkCoherence` say "this file is no longer the recording it claims to be". */
+  exactValues: Record<string, number>,
   /** THE-584: the per-channel calibration this recording was accepted under. Recorded so a PAST
    *  baseline can be re-judged later — the CPU-only scalar could not answer "was the host's disk
    *  slow when this was measured?", which is precisely the question the 40-90% drift raised.
@@ -254,7 +260,7 @@ function writeBaselineProvenance(
   // this flag exists to bless. `baseline.small.provenance.json` carries that false positive today.
   // A flag that is always true carries no information and would camouflage a genuinely dirty run.
   const dirty = treeDirtyAtStart;
-  const provenance = {
+  const provenance: BaselineProvenance = {
     scenario: name,
     mode,
     samples,
@@ -262,6 +268,7 @@ function writeBaselineProvenance(
     treeDirty: dirty,
     measuredAt: new Date().toISOString(),
     host: { platform: process.platform, arch: process.arch, cpus: cpus().length },
+    recordedExact: exactValues,
     ...(calibration
       ? {
           calibration: Object.fromEntries(
@@ -305,7 +312,12 @@ function writeBaseline(
   }
   writeFileSync(`eval/perf/baseline.${name}.json`, `${JSON.stringify(baseline, null, 2)}\n`);
   process.stdout.write(`\nwrote eval/perf/baseline.${name}.json\n`);
-  writeBaselineProvenance(name, mode, samples, calibration);
+  const exactValues = Object.fromEntries(
+    Object.entries(baseline)
+      .filter(([, b]) => b.direction === "exact")
+      .map(([k, b]) => [k, b.value]),
+  );
+  writeBaselineProvenance(name, mode, samples, exactValues, calibration);
 }
 
 /** Returns true iff a hard failure occurred (caller decides when to exit — isolated mode also
@@ -332,12 +344,38 @@ function runGate(name: Scenario["name"], report: PerfReport): boolean {
     );
   }
 
-  if (result.hardFailures.length > 0) {
+  // THE-754: is this baseline still the recording its provenance claims? A missing sidecar, or one
+  // predating `recordedExact`, is reported as NOT CHECKED rather than folded into the OK line —
+  // "not measured" has to stay distinguishable from "measured and fine", which is the same rule
+  // that makes the ACL harness report `leaked_paths: null` instead of 0 when it did not look.
+  let recordedExact: Record<string, number> | undefined;
+  try {
+    const prov = JSON.parse(
+      readFileSync(`eval/perf/baseline.${name}.provenance.json`, "utf8"),
+    ) as BaselineProvenance;
+    recordedExact = prov.recordedExact;
+  } catch {
+    recordedExact = undefined;
+  }
+  const coherence = checkCoherence(baseline, recordedExact);
+  if (recordedExact === undefined) {
+    process.stdout.write(
+      `NOT CHECKED baseline coherence: no recordedExact in eval/perf/baseline.${name}.provenance.json — re-record to enable the check (THE-754).\n`,
+    );
+  }
+
+  if (result.hardFailures.length > 0 || coherence.length > 0) {
     for (const f of result.hardFailures) process.stderr.write(`FAIL ${describe(f)}\n`);
+    for (const c of coherence) {
+      const was = Number.isNaN(c.recorded) ? "ABSENT at record time" : String(c.recorded);
+      process.stderr.write(
+        `FAIL baseline coherence ${c.key}: recorded ${was}, committed ${c.current} — this baseline was hand-edited after it was recorded, so every timing key beside it describes a different system. Re-record instead of editing in place (THE-754).\n`,
+      );
+    }
     return true;
   }
   process.stdout.write(
-    `perf gate OK (${result.warnings.length} warnings, ${result.stale.length} stale)\n`,
+    `perf gate OK (${result.warnings.length} warnings, ${result.stale.length} stale, coherence ${recordedExact === undefined ? "NOT CHECKED" : "OK"})\n`,
   );
   return false;
 }

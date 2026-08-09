@@ -334,6 +334,18 @@ Three properties are deliberate:
   It used to push a branch and try to open a PR on it, which never worked — Actions cannot create PRs here (an org-level setting; the repo-level API returns 409) — so every run left an orphan branch behind. The artifact is the same deliverable without the litter, and the job token dropped to `contents: read` as a result.
 - **The artifact carries `perf-report.json`, not just the baseline.** That file holds the raw per-sample series; the committed `baseline.*.json` keeps only aggregates, and aggregates cannot tell a noisy metric from a bimodal one. `storage.txn_ms` and `storage.cpu_ms` turned out to be the latter — two disjoint clusters ~3x apart, switching together on 30/30 samples — and the only surviving raw copy at the time was in run logs, which expire. Artifact retention is set to 90 days for that reason.
 - **`workflow_dispatch` only.** Re-baselining is a deliberate act taken when the system changed on purpose. On a schedule or on push it would quietly absorb drift.
+- **The baseline is a RECORDING, not a file you edit.** `--update-baseline` snapshots every `exact`
+  metric's value into the provenance sidecar as `recordedExact`, and the gate fails if a committed
+  `exact` value no longer matches it. Editing one key in place — the old advice for bumping
+  `boot.tools_registered` when a tool is added — leaves every timing key beside it describing a
+  system that no longer exists. That is not hypothetical: between 2026-07-27 and 08-05 the count was
+  bumped seven times (148 → 157) while `boot.tools_list_ms` stayed at what 148 tools cost, and it was
+  compared against that figure for 13 days without a single gate noticing, because the drift fitted
+  inside a 0.5 warn tolerance. Re-record instead (THE-754).
+
+  A baseline recorded before this shipped has no `recordedExact`, and the gate says
+  **`coherence NOT CHECKED`** rather than folding it into the OK line — "not checked" has to stay
+  distinguishable from "checked and clean", or the reassurance is manufactured.
 - **It shares the gate's `perf-exclusive` concurrency group**, so a recording run can never be contended by a gate run on the same shared capacity.
 
 A refused recording (contention detected) fails the job and opens no PR — so a PR existing is itself the evidence that contention was not detected.

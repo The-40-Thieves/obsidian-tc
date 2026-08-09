@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluate } from "../eval/perf/gate";
+import { checkCoherence, evaluate } from "../eval/perf/gate";
 import type { Baseline, PerfReport } from "../eval/perf/report";
 
 const baseline: Baseline = {
@@ -341,5 +341,54 @@ describe("THE-534 perf gate audit — large improvements must be REPORTED, never
       b,
     );
     expect(r.stale).toHaveLength(0);
+  });
+});
+
+describe("THE-754 baseline coherence — is this file still the recording it claims to be?", () => {
+  // The shape that actually happened: an `exact` count edited in place as tools were added, while
+  // the warn-class timing beside it kept describing the smaller system.
+  const withCount = (count: number): Baseline => ({
+    "boot.tools_registered": {
+      value: count,
+      tol: 0,
+      mode: "ratio",
+      class: "hard",
+      direction: "exact",
+    },
+    "boot.tools_list_ms": {
+      value: 22.157218,
+      tol: 0.5,
+      mode: "ratio",
+      class: "warn",
+      direction: "higher-worse",
+    },
+  });
+
+  it("reports nothing when the committed exact values still match the recording", () => {
+    expect(checkCoherence(withCount(148), { "boot.tools_registered": 148 })).toEqual([]);
+  });
+
+  it("catches the real 2026-07-27..08-05 edit: count bumped 148 -> 157, timings never re-recorded", () => {
+    const breaks = checkCoherence(withCount(157), { "boot.tools_registered": 148 });
+    expect(breaks).toEqual([{ key: "boot.tools_registered", recorded: 148, current: 157 }]);
+  });
+
+  it("catches an exact key ADDED by hand after recording (absent from the snapshot)", () => {
+    const breaks = checkCoherence(withCount(148), {});
+    expect(breaks).toHaveLength(1);
+    expect(breaks[0]?.key).toBe("boot.tools_registered");
+    expect(Number.isNaN(breaks[0]?.recorded as number)).toBe(true);
+  });
+
+  it("ignores warn-class drift — this checks EDITS, not regressions", () => {
+    const edited = withCount(148);
+    (edited["boot.tools_list_ms"] as { value: number }).value = 37.81;
+    expect(checkCoherence(edited, { "boot.tools_registered": 148 })).toEqual([]);
+  });
+
+  it("returns [] for a pre-THE-754 provenance, which the CALLER must report as NOT CHECKED", () => {
+    // Deliberately indistinguishable from clean here; run.ts prints "NOT CHECKED" off the
+    // `undefined`, so the false green cannot be produced by this function alone.
+    expect(checkCoherence(withCount(157), undefined)).toEqual([]);
   });
 });
