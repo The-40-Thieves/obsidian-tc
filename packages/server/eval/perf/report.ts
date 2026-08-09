@@ -26,6 +26,29 @@ export interface MetricSample {
   direction: Direction;
 }
 
+/**
+ * The `baseline.<scenario>.provenance.json` sidecar. Declared here, and used on BOTH the write side
+ * (run.ts's `writeBaselineProvenance`) and the read side (its gate path), so the two cannot drift on
+ * a field name — renaming `recordedExact` on one side stops compiling on the other. THE-754's whole
+ * failure was a file quietly not meaning what a reader assumed, so the reader and writer agreeing is
+ * a compile-time property here rather than a test that has to remember to exist.
+ *
+ * Only the fields a consumer reads are pinned; the writer adds more (host, mode, samples, …).
+ */
+export interface BaselineProvenance {
+  scenario: string;
+  mode: "isolated-median" | "single-shot";
+  samples: number;
+  measuredAtSha: string;
+  treeDirty: boolean;
+  measuredAt: string;
+  host: { platform: string; arch: string; cpus: number };
+  /** THE-754: every `exact` metric's value at record time. Optional because every baseline recorded
+   *  before this shipped lacks it — and its absence means "not checked", never "coherent". */
+  recordedExact?: Record<string, number>;
+  calibration?: Record<string, { median: number; cv: number }>;
+}
+
 export interface BaselineEntry {
   value: number;
   tol: number;

@@ -145,6 +145,19 @@ on an eighth nobody had written down.
    what makes the map itself load-bearing.
 3. **`boot.tools_registered`** — `eval/perf/baseline.small.json`, hard/exact. Pinned **2 lower**
    than `REGISTERED_TOOL_COUNT`, since `health` and `index_status` register inline in `cli.ts`.
+
+   **Do NOT hand-edit it. RE-RECORD the baseline** — dispatch `perf-baseline.yml`, download the
+   artifact, commit all three files. Editing this key in place now fails the coherence check
+   (THE-754): the provenance sidecar snapshots every `exact` value at record time, and a mismatch
+   means the timing keys beside it were measured against a different tool surface.
+
+   That check exists because hand-editing was the documented advice here until 2026-08-08, and it
+   produced exactly the failure you would expect. Between 07-27 and 08-05 this key was bumped seven
+   times (148 → 157) while every `boot.*` timing stayed frozen at what 148 tools cost, sitting
+   inside a 0.5 warn tolerance where nothing could see it. `boot.tools_list_ms` was then compared
+   against a 148-tool figure for 13 days, and read +70.6% when finally re-recorded — none of it a
+   regression. An `exact` key fails loudly so it stays current and *looks* like evidence; the `warn`
+   keys beside it rot silently.
 4. **Docs prose — two separate gates, and running one is not running the other.**
    `docgen:facts-check` finds narrative counts (25 sites across 14 files last time),
    `check-version-coherence.mjs` separately pins ~9 *headline* anchors, and **`docgen:render`** owns

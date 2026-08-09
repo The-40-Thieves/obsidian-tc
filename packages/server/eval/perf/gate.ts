@@ -27,6 +27,63 @@ export interface GateResult {
   stale: StaleBaselineEntry[];
 }
 
+/** An `exact` metric whose committed value no longer matches what it was when the baseline was
+ *  RECORDED — i.e. the file was hand-edited afterwards and is no longer that recording. */
+export interface CoherenceBreak {
+  key: string;
+  /** The value the recording produced, from the provenance sidecar. */
+  recorded: number;
+  /** What the committed baseline says today. */
+  current: number;
+}
+
+/**
+ * THE-754: has this baseline been hand-edited since it was recorded?
+ *
+ * `stale` above catches a baseline that stopped describing the system because the system got much
+ * better. This catches the other way in: the file stopped being a recording at all.
+ *
+ * Measured on `baseline.small.json`, 2026-07-27 to 08-05: `boot.tools_registered` was edited upward
+ * seven times as tools were added (148 -> 149 -> 150 -> 152 -> 155 -> 156 -> 157) while every timing
+ * key stayed frozen at what 148 tools had cost. By 08-05 the file asserted 157 tools costing a
+ * 148-tool figure, and `boot.tools_list_ms` was compared against it for 13 days — passing, because
+ * the drift stayed inside a 0.5 warn tolerance. When it was finally re-recorded the metric moved
+ * +70.6%, none of which was a regression: projected schema JSON had grown +95.3%.
+ *
+ * The asymmetry is the mechanism, and it is structural rather than anyone's oversight. An `exact`
+ * metric fails the gate on any change, so it gets maintained and stays current. The `warn` metrics
+ * beside it sit inside a tolerance, so nothing forces them and they keep whatever the last full
+ * recording produced. The maintained key then READS like current evidence — that is how "the tool
+ * count is identical in both baselines" got written down while the real counts were 148 and 157.
+ *
+ * So: any edited `exact` key means the timing keys next to it were measured under a different
+ * system, and comparing them is not a measurement. Reported per-key rather than as one flag so the
+ * message can name what moved.
+ *
+ * `recordedExact` absent (every baseline recorded before this shipped) returns `[]`, which is NOT a
+ * clean bill of health — the caller must say "not checked" rather than "coherent". A silent [] here
+ * would be the same false green this exists to remove.
+ */
+export function checkCoherence(
+  baseline: Baseline,
+  recordedExact: Record<string, number> | undefined,
+): CoherenceBreak[] {
+  if (recordedExact === undefined) return [];
+  const breaks: CoherenceBreak[] = [];
+  for (const [key, b] of Object.entries(baseline)) {
+    if (b.direction !== "exact") continue;
+    const recorded = recordedExact[key];
+    // A key absent from the snapshot was ADDED to the baseline by hand after recording — same
+    // class of edit, and it would otherwise slip through as "nothing to compare".
+    if (recorded === undefined) {
+      breaks.push({ key, recorded: Number.NaN, current: b.value });
+      continue;
+    }
+    if (recorded !== b.value) breaks.push({ key, recorded, current: b.value });
+  }
+  return breaks;
+}
+
 /** An improvement this large means the committed baseline is no longer a description of the system.
  *  Deliberately generous: normal run-to-run noise and ordinary wins sit far below 2x, so this fires
  *  on step changes (THE-486 measured 113.9x) rather than chattering on every good commit. */
