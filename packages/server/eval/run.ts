@@ -27,6 +27,11 @@ import type { SparseVec } from "../src/search/sparse";
 import { sliceByCategory } from "./categories";
 import { analyzeQuery, type QueryFailureAnalysis, recommendV11 } from "./failure_analysis";
 import {
+  assertFlagDependencies,
+  DEFAULT_DECOMPOSE_MODEL,
+  DEFAULT_DECOMPOSE_URL,
+} from "./flag-liveness";
+import {
   type AggregateMetrics,
   aggregateMetrics,
   computeQueryMetrics,
@@ -477,8 +482,8 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
     if (opts.decompose && z1 < (opts.decompose.zThreshold ?? 2.54)) {
       const subs = await decomposeQuery(
         q.query_text,
-        opts.decompose.model ?? "llama3.2:3b",
-        opts.decompose.baseUrl ?? "http://127.0.0.1:11434",
+        opts.decompose.model ?? DEFAULT_DECOMPOSE_MODEL,
+        opts.decompose.baseUrl ?? DEFAULT_DECOMPOSE_URL,
       );
       if (subs.length > 0) {
         const vecs = await opts.provider.embed(subs, { input: "query" });
@@ -788,6 +793,11 @@ async function main(): Promise<void> {
   // THE-187: --activation loads the experiential store's cached scores once (read-only) into
   // a map; a missing store/table degrades to an empty map (all-inert) with a stderr note.
   let activationLookup: ((chunkId: string) => number | null) | undefined;
+  // THE-807: hoisted so the preflight can refuse an all-inert activation arm. The comment above and
+  // the "running all-inert" note below describe a DELIBERATE degradation, which is fine for a
+  // production read and wrong for a measurement: an all-null lookup maps to the inert multiplier,
+  // so the arm scores identically to its control while the artifact records `activation`.
+  let activationRows = 0;
   if (activation) {
     const map = new Map<string, number>();
     try {
@@ -808,6 +818,7 @@ async function main(): Promise<void> {
       );
     }
     process.stderr.write(`--activation: ${map.size} chunk(s) carry activation state\n`);
+    activationRows = map.size;
     activationLookup = (chunkId) => map.get(chunkId) ?? null;
   }
   // THE-394: a Cohere/Jina-shaped /rerank backend for the eval (TEI or vLLM), injected via
@@ -920,6 +931,32 @@ async function main(): Promise<void> {
       );
       process.exit(1);
     }
+  }
+
+  // THE-807: refuse before scoring anything if a requested flag cannot actually do its work. Three
+  // flags used to fall back to the plain path on a missing backend and still stamp themselves into
+  // the artifact below, which is a null that reads as a measurement. Checked here because it is the
+  // first point where the provider and the reranker both exist — liveness is resolved against the
+  // objects the run will really use, not against a URL that might disagree with them.
+  try {
+    await assertFlagDependencies(
+      [
+        ...(sparseFlag ? ["sparse"] : []),
+        ...(gatedRerank ? ["gated-rerank"] : []),
+        ...(decompose ? ["decompose"] : []),
+        ...(activation ? ["activation"] : []),
+      ],
+      {
+        provider,
+        reranker,
+        decomposeUrl: process.env.DECOMPOSE_URL ?? DEFAULT_DECOMPOSE_URL,
+        decomposeModel: process.env.DECOMPOSE_MODEL ?? DEFAULT_DECOMPOSE_MODEL,
+        activationRows,
+      },
+    );
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
   }
 
   const report = await runEval({
