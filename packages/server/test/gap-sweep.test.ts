@@ -24,6 +24,7 @@ const sql = (p: string): string =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${p}`, import.meta.url)), "utf8");
 const NOW = 1_700_000_000_000;
 const V = "vault-one";
+const V2 = "vault-two";
 
 function edb0(): Database {
   const db = openMemoryDb();
@@ -36,38 +37,113 @@ function edb0(): Database {
   return db;
 }
 
-function logQuery(db: Database, id: string, text: string | null, at: number): void {
+/** THE-804: `chunk_retrievals` has no `vault_id`, so the sweep's query source can only be scoped by
+ *  resolving `chunk_id` through the AUTHORED store. That makes a real `chunks` table part of this
+ *  fixture rather than an optional extra. The full initial migration is used rather than a
+ *  hand-rolled CREATE TABLE so the fixture cannot drift from the column the resolver reads. */
+function cdb0(): Database {
+  const db = openMemoryDb();
+  runMigrations(db, [{ version: "20260519_001", sql: sql("20260519_001_initial.sql") }]);
+  return db;
+}
+
+/** Register a chunk in the authored store so a retrieval logged against it is attributable. */
+function addChunk(cdb: Database, chunkId: string, vaultId: string): void {
+  cdb
+    .prepare(
+      `INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at)
+     VALUES (?, ?, ?, '0', '[]', 'x', 'h', 1, 0, 0)`,
+    )
+    .run(chunkId, vaultId, `${vaultId}/note.md`);
+}
+
+function logQuery(db: Database, id: string, text: string | null, at: number, chunkId = "c1"): void {
   // Only the columns the migrations in edb0() actually create — later migrations add more, and
   // naming one of those here would fail as a FIXTURE bug that reads like a code bug.
   db.prepare(
     `INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, surface_type, query_text, rank_in_results, rerank_score)
-     VALUES (?, 'c1', ?, 'search', ?, 1, 0.5)`,
-  ).run(id, at, text);
+     VALUES (?, ?, ?, 'search', ?, 1, 0.5)`,
+  ).run(id, chunkId, at, text);
 }
 
 describe("recentQueries — the scheduled pass's query source", () => {
+  /** One vault, one chunk, so the scope filter is satisfied and the ordering rules are what shows. */
+  function oneVault(): { edb: Database; cdb: Database } {
+    const cdb = cdb0();
+    addChunk(cdb, "c1", V);
+    return { edb: edb0(), cdb };
+  }
+
   it("returns DISTINCT queries newest-first, capped", () => {
     // The design decision this pins: an unattended "where is the vault thin?" pass draws on what was
     // actually asked. A fixed golden set would measure the golden set forever.
-    const db = edb0();
-    logQuery(db, "a", "oldest", NOW - 300);
-    logQuery(db, "b", "middle", NOW - 200);
-    logQuery(db, "c", "middle", NOW - 100); // same text, more recent
-    logQuery(db, "d", "newest", NOW);
-    expect(recentQueries(db, 10)).toEqual(["newest", "middle", "oldest"]);
-    expect(recentQueries(db, 2)).toEqual(["newest", "middle"]);
+    const { edb, cdb } = oneVault();
+    logQuery(edb, "a", "oldest", NOW - 300);
+    logQuery(edb, "b", "middle", NOW - 200);
+    logQuery(edb, "c", "middle", NOW - 100); // same text, more recent
+    logQuery(edb, "d", "newest", NOW);
+    expect(recentQueries(edb, cdb, V, 10)).toEqual(["newest", "middle", "oldest"]);
+    expect(recentQueries(edb, cdb, V, 2)).toEqual(["newest", "middle"]);
   });
 
   it("skips null and empty query text rather than sweeping a blank", () => {
-    const db = edb0();
-    logQuery(db, "a", null, NOW);
-    logQuery(db, "b", "", NOW - 1);
-    logQuery(db, "c", "real", NOW - 2);
-    expect(recentQueries(db, 10)).toEqual(["real"]);
+    const { edb, cdb } = oneVault();
+    logQuery(edb, "a", null, NOW);
+    logQuery(edb, "b", "", NOW - 1);
+    logQuery(edb, "c", "real", NOW - 2);
+    expect(recentQueries(edb, cdb, V, 10)).toEqual(["real"]);
   });
 
   it("returns nothing on an empty log rather than throwing", () => {
-    expect(recentQueries(edb0(), 10)).toEqual([]);
+    expect(recentQueries(edb0(), cdb0(), V, 10)).toEqual([]);
+  });
+
+  // THE-804 — the leak this function shipped with.
+  //
+  // `recentQueries` took no vaultId and was called INSIDE the sweep's `for (vaultId of vaultIds)`
+  // loop, so every vault was swept with every OTHER vault's raw query text, and `GapItem.query`
+  // persists that text verbatim into one vault's `gap_reports.items`.
+  //
+  // A single-vault fixture cannot see this — which is why the three tests above passed for the
+  // life of the defect. The second vault IS the test.
+  it("returns only the queries logged against THIS vault", () => {
+    const cdb = cdb0();
+    addChunk(cdb, "c-one", V);
+    addChunk(cdb, "c-two", V2);
+    const edb = edb0();
+    logQuery(edb, "a", "vault one secret", NOW - 100, "c-one");
+    logQuery(edb, "b", "vault two secret", NOW, "c-two");
+
+    expect(recentQueries(edb, cdb, V, 10)).toEqual(["vault one secret"]);
+    expect(recentQueries(edb, cdb, V2, 10)).toEqual(["vault two secret"]);
+  });
+
+  it("does not let the cap be spent on another vault's queries", () => {
+    // The ordering interaction that makes the leak worse than it first looks: the other vault's
+    // queries are NEWER here, so an unscoped reader would fill the entire cap with them and this
+    // vault would be swept using none of its own.
+    const cdb = cdb0();
+    addChunk(cdb, "c-one", V);
+    addChunk(cdb, "c-two", V2);
+    const edb = edb0();
+    logQuery(edb, "a", "mine", NOW - 100, "c-one");
+    logQuery(edb, "b", "theirs-1", NOW - 2, "c-two");
+    logQuery(edb, "c", "theirs-2", NOW - 1, "c-two");
+
+    expect(recentQueries(edb, cdb, V, 2)).toEqual(["mine"]);
+  });
+
+  it("fails CLOSED on a retrieval whose chunk is gone — unattributable is not this vault's", () => {
+    // Re-chunking drops old ids (explain_answer sees this on 7 of 81 live chunk_ids). A retrieval
+    // that can no longer be attributed to a vault must not be swept into one: including it would
+    // reintroduce the leak for exactly the rows whose provenance is unrecoverable.
+    const cdb = cdb0();
+    addChunk(cdb, "c-one", V);
+    const edb = edb0();
+    logQuery(edb, "a", "attributable", NOW - 100, "c-one");
+    logQuery(edb, "b", "orphaned", NOW, "c-vanished");
+
+    expect(recentQueries(edb, cdb, V, 10)).toEqual(["attributable"]);
   });
 });
 
@@ -92,7 +168,7 @@ describe("registerGapSweep", () => {
     // turns a reported task into an unreported one.
     const box = capture();
     registerGapSweep(fakeScheduler(box), {
-      cacheDb: openMemoryDb(),
+      cacheDb: cdb0(),
       experientialDb: edb0(),
       provider: { id: "t", embed: async () => [] } as never,
       vaultIds: [V],
@@ -112,7 +188,7 @@ describe("registerGapSweep", () => {
     const box = capture();
     let embedCalls = 0;
     registerGapSweep(fakeScheduler(box), {
-      cacheDb: openMemoryDb(),
+      cacheDb: cdb0(),
       experientialDb: edb,
       provider: {
         id: "test",
