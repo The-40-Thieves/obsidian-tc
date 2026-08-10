@@ -53,7 +53,7 @@ import { bm25Chunks } from "./chunk_fts";
 import type { GraphSearchResult } from "./graph_search";
 import { parseTemporalIntent } from "./temporal";
 
-export type RouteClass = "lexical" | "temporal" | "standard";
+export type RouteClass = "lexical" | "temporal" | "standard" | "multi_hop";
 
 export interface RouteDecision {
   class: RouteClass;
@@ -192,7 +192,42 @@ export function routeQuery(
     }
   }
 
+  // THE-651: multi-hop, and it is LAST on purpose.
+  //
+  // Placing it here means it can only capture queries that would otherwise be `standard`, so
+  // lexical and temporal routing are provably untouched by this class. That is not tidiness — it
+  // is what makes the decomposition A/B a clean contrast: the control arm and the decompose arm
+  // route identically on every query this branch does not claim, so any measured difference is
+  // decomposition and nothing else.
+  //
+  // Deterministic, matching the rest of this file. THE-448 measured UNCONDITIONAL fan-out at
+  // −0.047 nDCG@10 (p=0.0004); the published fix is a classifier in front of the decomposer, and
+  // a classifier that needs an LLM call to decide whether to make an LLM call would spend the
+  // latency the conditioning exists to save.
+  const mh = multiHopSignals(query);
+  if (mh.length > 0) {
+    signals.push(...mh);
+    return { class: "multi_hop", signals };
+  }
+
   return { class: "standard", signals };
+}
+
+/** Relational and comparative markers: the question asks how two things connect, rather than
+ *  asking for one thing. Deliberately generous — a false multi-hop costs one decomposition call
+ *  and falls back to the same fused pool, while a false single-hop silently removes the query from
+ *  the effect slice and quietly shrinks the experiment. */
+const MULTI_HOP_RE =
+  /\b(relates? to|related to|connects? to|connection|connections|links? to|linked to|inform(?:s|ed)?|influenc\w+|underpins?|ties? into|apply to|applies to|compare[sd]?|versus|vs\.?|difference between|between|across|derives? from|leads? to|feed(?:s)? into)\b/i;
+
+/**
+ * Which multi-hop markers a query carries. Exported for the eval harness's slice accounting: the
+ * pre-registered effect slice is "bridge-labeled AND routed multi-hop", and that intersection has
+ * to be countable without running a retrieval.
+ */
+export function multiHopSignals(query: string): string[] {
+  const m = MULTI_HOP_RE.exec(query);
+  return m ? [`multi-hop:${m[0].toLowerCase().trim()}`] : [];
 }
 
 /**
