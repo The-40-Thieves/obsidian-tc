@@ -27,7 +27,6 @@
 // option that says nothing.
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import type { Database } from "../../../db/types";
 import { citationRunsCovering } from "../../../experiential/citation-runs";
 import {
   buildAnswerLineage,
@@ -36,6 +35,7 @@ import {
   type LineageRetrievalRow,
 } from "../../../experiential/lineage";
 import type { ToolDefinition } from "../../../mcp/registry";
+import { chunkPathResolver } from "../../../search/chunk-vault";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
@@ -122,7 +122,7 @@ export function createExplainAnswerTool(deps: M7Deps): ToolDefinition {
       // Resolve paths from the AUTHORED store. A chunk_id with no row here is genuinely gone
       // (the note was edited or deleted and re-chunked), which the lineage reports rather than
       // drops — 7 of 81 distinct retrieved chunk_ids on the live store.
-      const pathOf = pathResolver(ctx.db, v.id);
+      const pathOf = chunkPathResolver(ctx.db, v.id);
       const retrievals: LineageRetrievalRow[] = [];
       for (const r of rows) {
         const path = pathOf(r.chunk_id);
@@ -170,18 +170,4 @@ export function createExplainAnswerTool(deps: M7Deps): ToolDefinition {
       };
     },
   });
-}
-
-/** Memoised chunk_id -> path lookup over the authored store. Returns null when the chunk is gone. */
-function pathResolver(db: Database, vaultId: string): (chunkId: string) => string | null {
-  const stmt = db.prepare("SELECT path FROM chunks WHERE id = ? AND vault_id = ?");
-  const cache = new Map<string, string | null>();
-  return (chunkId) => {
-    const hit = cache.get(chunkId);
-    if (hit !== undefined) return hit;
-    const row = stmt.get(chunkId, vaultId) as { path: string } | undefined;
-    const path = row?.path ?? null;
-    cache.set(chunkId, path);
-    return path;
-  };
 }
