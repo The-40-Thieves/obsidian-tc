@@ -740,6 +740,41 @@
           "description": "Gate a cross-encoder rerank of the fused top-K onto hard queries only (weak top-1 seed, router silent). A no-op without a configured reranker (model-tier BGE or the gateway /rerank passthrough).",
           "type": "boolean"
         },
+        "gatedRerankHardness": {
+          "description": "The hardness rule behind `gatedRerank`, and the only config path to it. Defaults reproduce the shipped behaviour exactly; changing `mode` is a ranking change that owes an eval gate.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "mode": {
+              "default": "cosine",
+              "description": "Which hardness rule gates the rerank: absolute top-1 cosine, or the model-agnostic z-margin. Default `cosine` preserves the shipped behaviour; `zMargin` is what THE-400 built and has never been the production default.",
+              "type": "string",
+              "enum": [
+                "cosine",
+                "zMargin"
+              ]
+            },
+            "hardTop1": {
+              "default": 0.55,
+              "description": "Cosine mode: a query is hard when the top-1 seed cosine is below this.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "hardZ": {
+              "default": 1,
+              "description": "z-margin mode: a query is hard when the top-1 z-score over the seed-cosine pool is below this. 1.0 matches the eval harness's long-standing default.",
+              "type": "number"
+            },
+            "pool": {
+              "default": 20,
+              "description": "How many fused candidates the reranker sees on a hard query.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
         "graphStream": {
           "description": "Capped graph-expansion stream: expand from the top seeds only, cap neighbours per seed, and drop high-degree hub nodes so index/dashboard pages cannot flood the fused ranking. Off by default — measured neutral on quality, but it removes ~22% of the expansion candidate pool.",
           "default": {},

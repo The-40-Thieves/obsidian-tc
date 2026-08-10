@@ -242,6 +242,10 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `retrieval.densify.maxTagFanout` | `number` | `25` |  | A tag applied to more notes than this is treated as a hub rather than a signal and emits no edges. |
 | `retrieval.densify.tagEdges` | `boolean` | `false` |  | Emit shared-frontmatter-tag co-occurrence edges (edge_type shared_tag). |
 | `retrieval.gatedRerank` | `boolean` | `false` |  | Gate a cross-encoder rerank of the fused top-K onto hard queries only (weak top-1 seed, router silent). A no-op without a configured reranker (model-tier BGE or the gateway /rerank passthrough). |
+| `retrieval.gatedRerankHardness.hardTop1` | `number` | `0.55` |  | Cosine mode: a query is hard when the top-1 seed cosine is below this. |
+| `retrieval.gatedRerankHardness.hardZ` | `number` | `1` |  | z-margin mode: a query is hard when the top-1 z-score over the seed-cosine pool is below this. 1.0 matches the eval harness's long-standing default. |
+| `retrieval.gatedRerankHardness.mode` | `enum(cosine\|zMargin)` | `"cosine"` |  | Which hardness rule gates the rerank: absolute top-1 cosine, or the model-agnostic z-margin. Default `cosine` preserves the shipped behaviour; `zMargin` is what THE-400 built and has never been the production default. |
+| `retrieval.gatedRerankHardness.pool` | `number` | `20` |  | How many fused candidates the reranker sees on a hard query. |
 | `retrieval.graphStream.enabled` | `boolean` | `false` |  | Enable the capped graph-expansion stream. Off by default: measured neutral on ranking quality (0 of 8 metrics significant at n=250) though non-inferior, so this is a cost lever rather than a quality one. |
 | `retrieval.graphStream.expansionSeeds` | `number` | `8` |  | Expand only from the top-N seeds by score. |
 | `retrieval.graphStream.hubDegreeCap` | `number` | `40` |  | Drop expansion candidates whose authored degree exceeds this, so index and dashboard pages cannot flood the fused ranking. Counts literal edges only — counting derived edges would let densification inflate every degree and suppress the bridges it exists to surface. |

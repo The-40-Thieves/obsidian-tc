@@ -117,8 +117,23 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // It also joins the representation fingerprint, which the other capture-posture rebaselines above
 // did not have to think about: chunk size is the first axis that changes what a chunk IS rather
 // than what its vector MEANS, so two indexes at different budgets must not compare equal.
+// THE-806: rebaselined for ONE NEW BLOCK — `retrieval.gatedRerankHardness` (mode `cosine` |
+// `zMargin`, hardTop1 0.55, hardZ 1.0, pool 20). This IS the behavioral PR for the change, which is
+// what the refusal message above asks for; it is not a hash bumped alongside an unrelated refactor.
+//
+// The block is additive and its defaults reproduce the shipped gate EXACTLY. `hardZ`/`hardTop1`
+// already existed as GraphSearchOptions fields with no config surface at all, and the only non-test
+// code that set either was eval/run.ts — so production always took the `top1 < 0.55` branch while
+// the harness always took the z-margin one, and the two arms measured different gates. Giving them
+// a surface is what makes the arms comparable; flipping `mode` is a ranking change that owes the
+// n=250 paired permutation gate and THE-400's unmet acceptance.
+//
+// Same shape as the THE-424 rebaseline above: a knob with no handle, made additive, defaulted to
+// the value already in force, and threaded to its consumer in the same change rather than declared
+// and left dark. No existing key, type, default or constraint moved — `retrieval.gatedRerank` stays
+// a plain boolean, so no existing config file changes meaning.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "789ffa9b46ffd7f2906bce8f92b9ae04bc04e700bca7a2952ec98a35e16e9644";
+  "24330dc14093267a4dd99f3e7c23b994ef7240ca7fc07a586ce0c0eaf0d78fa4";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
