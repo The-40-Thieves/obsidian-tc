@@ -53,11 +53,22 @@ signature in the vec/indexing path, the bun-smoke project is what catches those 
 `lint` job currently runs biome plus `check:boundaries`, `check:dev-dep-imports`,
 `check:perf-timing-scope`, `check:ingest-telemetry-wiring`, `check:config-paths`,
 `check:duplicate-exports`, `check:duplication`, `check:export-surface`, `check:facade-parity` and
-`test:scripts`; `check:config-threading` lives in `ci-security.yml`.
+`test:scripts`.
 
-Two `check:*` scripts exist in `package.json` that **no workflow invokes** — `check:merge-driver`,
-and historically `check:export-surface` / `check:facade-parity` until they were wired. A script
-existing is not a gate running: grep the workflows, not `package.json`.
+**`check:config-threading` is NOT a script — do not try to run it.** No such entry exists in either
+`package.json`. The config-threading gate lives in `ci-security.yml`, which invokes the file
+directly: `node scripts/check-config-threading.mjs`. Enumerating gates from `package.json` misses
+it entirely, and `bun run check:config-threading` fails with "Script not found", which reads as a
+failing gate rather than a missing one.
+
+`check:merge-driver` **is** in `package.json` and no *workflow* invokes it — deliberately. It
+verifies `merge.*.driver` in `.git/config`, which git never commits or clones, so CI can only
+either re-check the setup it just ran (tautological) or fail on every fresh clone. It is a **local**
+diagnostic, run via `prepare` on install and available as `just check-merge-driver`. Leave it out
+of CI.
+
+The general rule still holds — a script existing is not a gate running, and a gate running is not
+always a script. Grep the workflows, not `package.json`, and expect both directions to differ.
 
 **Don't run the full suite locally.** This box is 4 cores shared with ~43 containers; GitHub-hosted
 runners are free and unmetered for public repos, and cover three OSes:

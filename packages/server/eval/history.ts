@@ -93,7 +93,23 @@ function corpusProvenance(path: string): { sha256: string; n: number } {
   return { sha256, n: parsed.queries.length };
 }
 
-function metricsOf(perQuery: EvalQueryResult[], side: Side): Record<string, number> {
+/** THE-807: the return type was `Record<string, number>`, which under `noUncheckedIndexedAccess`
+ *  makes every read `number | undefined` even though the literal below always sets all seven keys —
+ *  so `b.mean_ndcg_at_10.toFixed(4)` was an unguarded call on a possibly-undefined value. Naming the
+ *  keys fixes it at the root rather than asserting non-null at each of the four call sites, and it
+ *  also means dropping a key here becomes a compile error at those sites instead of a runtime
+ *  `undefined.toFixed`. */
+type RunMetrics = {
+  mean_recall_at_10: number;
+  mean_mrr_at_10: number;
+  mean_ndcg_at_10: number;
+  bridge_recall_rate: number;
+  mean_bridge_ndcg_at_10: number;
+  bridge_query_count: number;
+  query_count: number;
+};
+
+function metricsOf(perQuery: EvalQueryResult[], side: Side): RunMetrics {
   const agg = aggregateMetrics(perQuery.map((p) => p[side]));
   return {
     mean_recall_at_10: agg.mean_recall_at_10,
