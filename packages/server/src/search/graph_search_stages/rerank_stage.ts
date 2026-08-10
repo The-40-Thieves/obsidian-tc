@@ -59,3 +59,39 @@ export async function applyGatedRerank(input: GatedRerankInput): Promise<GraphSe
   }
   return projectWithBubbleSafe(capped, scoreOfWithPrior, opts);
 }
+
+/** Used only when a caller threads no hardness block — real configs always carry one, because the
+ *  schema `.prefault({})`s it, so in practice only fixtures land here. These values MUST equal the
+ *  schema's defaults; `gated-rerank-hardness-config.test.ts` asserts that by parsing the schema and
+ *  comparing, so the two cannot drift into disagreeing about what "the default gate" means. */
+const GATED_RERANK_HARDNESS_FALLBACK = {
+  mode: "cosine",
+  hardTop1: 0.55,
+  hardZ: 1.0,
+  pool: 20,
+} as const;
+
+/** THE-806: build the `gatedRerank` options from config, so production and the eval harness can
+ *  construct the SAME object.
+ *
+ *  Before this, production sent `{ enabled: true }` — leaving both knobs undefined and therefore
+ *  always taking the cosine branch in `applyGatedRerank` above — while `eval/run.ts` sent `hardZ`,
+ *  always taking the z-margin branch. Neither arm could reach the other's rule, so any golden-set
+ *  result for `--gated-rerank` measured a gate production cannot execute.
+ *
+ *  Exactly ONE knob is emitted, chosen by `mode`. That is deliberate: the gate keys on
+ *  `hardZ !== undefined`, so emitting both would make `hardTop1` permanently unreachable and turn
+ *  a config value into a decoration. */
+export function gatedRerankOptionsFromConfig(hardness?: {
+  mode: "cosine" | "zMargin";
+  hardTop1: number;
+  hardZ: number;
+  pool: number;
+}): NonNullable<GraphSearchOptions["gatedRerank"]> {
+  const h = hardness ?? GATED_RERANK_HARDNESS_FALLBACK;
+  return {
+    enabled: true,
+    pool: h.pool,
+    ...(h.mode === "zMargin" ? { hardZ: h.hardZ } : { hardTop1: h.hardTop1 }),
+  };
+}

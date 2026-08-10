@@ -38,6 +38,19 @@ export interface M7Deps {
     /** THE-394/THE-591: gated cross-encoder rerank (retrieval.gatedRerank). Absent/false ->
      *  graphSearch's gatedRerank stage never fires, byte-identical to today. */
     gatedRerank?: boolean;
+    /** THE-806: which hardness rule the gate uses (retrieval.gatedRerankHardness), and the only
+     *  config path to it. Read ONLY when `gatedRerank` is true.
+     *
+     *  Optional here because the schema `.prefault({})`s it, so a real config always supplies it
+     *  and only fixtures omit it. `gatedRerankOptionsFromConfig` owns the fallback, and
+     *  `gated-rerank-hardness-config.test.ts` pins that fallback to the SCHEMA's parsed defaults —
+     *  two sources of a default that cannot silently disagree. */
+    gatedRerankHardness?: {
+      mode: "cosine" | "zMargin";
+      hardTop1: number;
+      hardZ: number;
+      pool: number;
+    };
   };
   /** Config-driven POST-FUSION ranking overlays (config.ranking); absent -> graphSearch defaults
    *  (metadata prior OFF). */

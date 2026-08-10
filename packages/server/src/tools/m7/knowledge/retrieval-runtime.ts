@@ -20,6 +20,7 @@ import type {
   GraphSearchResult,
 } from "../../../search/graph_search";
 import type { StageMetric } from "../../../search/graph_search_stages/instrumentation";
+import { gatedRerankOptionsFromConfig } from "../../../search/graph_search_stages/rerank_stage";
 import { callerAclFingerprint } from "../../../search/prefetch";
 import type { QueryCacheContext, QueryVectors } from "../../../search/query_cache";
 import type { RerankOutcome } from "../../../search/rerank";
@@ -264,7 +265,12 @@ export function buildGraphSearchOptions(
     // hubDegreeCap/perSeedCap/expansionSeeds must travel with it or an operator who tunes the cap
     // gets the default silently.
     ...(deps.retrieval?.graphStream?.enabled ? { graphStream: deps.retrieval.graphStream } : {}),
-    ...(deps.retrieval?.gatedRerank ? { gatedRerank: { enabled: true } } : {}),
+    // THE-806: build the hardness rule from config instead of sending a bare `{ enabled: true }`.
+    // The bare object left hardZ/hardTop1 undefined, which pinned production to the cosine branch
+    // while the eval harness always set hardZ and took the z-margin one — two arms, two gates.
+    ...(deps.retrieval?.gatedRerank
+      ? { gatedRerank: gatedRerankOptionsFromConfig(deps.retrieval.gatedRerankHardness) }
+      : {}),
     ...(deps.ranking?.metadataPrior?.enabled ? { metadataPrior: deps.ranking.metadataPrior } : {}),
     ...(site.querySparse ? { querySparse: site.querySparse } : {}),
     ...(site.queryColbert ? { queryColbert: site.queryColbert } : {}),

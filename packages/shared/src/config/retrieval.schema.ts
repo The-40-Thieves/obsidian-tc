@@ -59,6 +59,52 @@ export const RetrievalConfigSchema = z.object({
     .describe(
       "Gate a cross-encoder rerank of the fused top-K onto hard queries only (weak top-1 seed, router silent). A no-op without a configured reranker (model-tier BGE or the gateway /rerank passthrough).",
     ),
+  /** THE-806: the hardness rule `gatedRerank` uses, and the ONLY way to reach it from config.
+   *
+   *  Until this existed, `hardZ`/`hardTop1` were `GraphSearchOptions` fields with no config
+   *  surface, and the only non-test code that set either was `eval/run.ts`. Production sent
+   *  `{ enabled: true }` and therefore ALWAYS took the absolute-cosine branch; the harness sent
+   *  `{ enabled: true, hardZ: 1.0 }` and therefore ALWAYS took the z-margin branch. **The two arms
+   *  ran different gates by construction**, so any golden-set result for `--gated-rerank` measured
+   *  a code path production could not execute — the THE-699 shape.
+   *
+   *  Defaults reproduce today's production behaviour EXACTLY (`cosine` at 0.55, pool 20), so this
+   *  block changes no ranking on its own. Flipping `mode` is a ranking change and owes the paired
+   *  permutation gate at n=250 — THE-400's unmet acceptance (Z1 calibration per backbone, then the
+   *  A/B) is what decides the default, not this schema. */
+  gatedRerankHardness: z
+    .object({
+      /** `cosine` = `top1 < hardTop1` (absolute, model-specific — the 0.55 gate fired 0/32 on
+       *  nomic). `zMargin` = `zMargin < hardZ` (distribution-relative, model-agnostic). */
+      mode: z
+        .enum(["cosine", "zMargin"])
+        .default("cosine")
+        .describe(
+          "Which hardness rule gates the rerank: absolute top-1 cosine, or the model-agnostic z-margin. Default `cosine` preserves the shipped behaviour; `zMargin` is what THE-400 built and has never been the production default.",
+        ),
+      hardTop1: z
+        .number()
+        .min(0)
+        .max(1)
+        .default(0.55)
+        .describe("Cosine mode: a query is hard when the top-1 seed cosine is below this."),
+      hardZ: z
+        .number()
+        .default(1.0)
+        .describe(
+          "z-margin mode: a query is hard when the top-1 z-score over the seed-cosine pool is below this. 1.0 matches the eval harness's long-standing default.",
+        ),
+      pool: z
+        .number()
+        .int()
+        .positive()
+        .default(20)
+        .describe("How many fused candidates the reranker sees on a hard query."),
+    })
+    .prefault({})
+    .describe(
+      "The hardness rule behind `gatedRerank`, and the only config path to it. Defaults reproduce the shipped behaviour exactly; changing `mode` is a ranking change that owes an eval gate.",
+    ),
   /** Graph densification (graphify spec-donor port): derived edges added to vault_edges beyond the
    *  literal wikilink layer, to reach multi-hop targets whose bridge notes are not explicitly linked.
    *  All OFF by default and measured on the multi-hop golden set before any flip — the THE-135

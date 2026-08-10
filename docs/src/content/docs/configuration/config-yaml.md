@@ -71,6 +71,12 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "sparse": false,
     "colbert": false,
     "gatedRerank": false,
+    "gatedRerankHardness": {
+      "mode": "cosine",
+      "hardTop1": 0.55,
+      "hardZ": 1,
+      "pool": 20
+    },
     "graphStream": {
       "enabled": false,
       "expansionSeeds": 8,
