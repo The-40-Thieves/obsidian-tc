@@ -30,10 +30,17 @@ export interface FlagLivenessContext {
   /** The embedding provider actually handed to `runEval`. `embedFull` is optional on
    *  `EmbeddingProvider` and implemented by `bgeM3Provider` alone. */
   provider: { embedFull?: unknown };
-  /** The reranker actually handed to `runEval`, or null when `RERANK_URL` is unset. */
-  reranker: unknown;
+  /** The reranker actually handed to `runEval`, or null when `RERANK_URL` is unset. NOTE: presence
+   *  is NOT liveness here — see the `gated-rerank` check, which calls it. */
+  reranker: ((query: string, documents: string[], topN: number) => Promise<unknown[]>) | null;
   /** Resolved decomposition backend (DECOMPOSE_URL, else the Ollama default). */
   decomposeUrl: string;
+  /** The model the decomposer will ask for. A reachable daemon that lacks this model fails on
+   *  /api/chat, which `decomposeQuery` swallows. */
+  decomposeModel: string;
+  /** How many chunks actually carry cached activation state. Zero means the lookup returns null for
+   *  every chunk, i.e. the inert multiplier on every candidate. */
+  activationRows: number;
   /** Injectable for the test; defaults to global fetch. */
   fetchFn?: typeof fetch;
 }
@@ -52,6 +59,13 @@ export interface FlagDependency {
 }
 
 const PROBE_TIMEOUT_MS = 3_000;
+
+/** The decomposer's defaults, declared ONCE. They were briefly written twice — once where the run
+ *  calls the decomposer and once in the preflight — which would let the check validate a different
+ *  backend or model than the run actually asks for, and a preflight that disagrees with the code it
+ *  guards is worse than none. */
+export const DEFAULT_DECOMPOSE_URL = "http://127.0.0.1:11434";
+export const DEFAULT_DECOMPOSE_MODEL = "llama3.2:3b";
 
 /** Flags whose realized behavior depends on something outside this process, checked here.
  *  Keyed by the token they contribute to the `--json` artifact flag list (the template-literal
@@ -74,40 +88,107 @@ export const DEPENDENCY_GATED_FLAGS: Record<string, FlagDependency> = {
   },
   "gated-rerank": {
     cli: "--gated-rerank",
-    // `applyGatedRerank` opens with `if (!opts.reranker) reportRerankOutcome("not_configured")` and
-    // falls through to the plain projection. That outcome is honest and `run.ts` never reads it, so
-    // both arms of a rerank A/B would take the pass-through branch and the contrast would be two
-    // identical no-ops.
-    check: async (ctx) => ({
-      live: ctx.reranker !== null && ctx.reranker !== undefined,
-      detail:
-        "no reranker is configured, so the gated-rerank stage would report not_configured and pass " +
-        "results through unchanged on BOTH arms. Set RERANK_URL to a Cohere/Jina-shaped /rerank " +
-        "backend.",
-    }),
+    // PRESENCE IS NOT LIVENESS, and getting that wrong here would have reproduced the very bug this
+    // module exists to stop. `run.ts` builds the reranker closure from RERANK_URL alone, so a
+    // non-null reranker proves only that an env var was set. If the endpoint is unreachable or
+    // malformed, `rerankWithScores` catches it (rerank.ts: `provider_error` -> `fallback()`) and
+    // returns the INPUT ORDER — a scoreable `gated-rerank` arm in which nothing was reranked.
+    //
+    // So the check calls the reranker. Invoking the real closure exercises the whole path the run
+    // will take, including response parsing, which a bare URL ping does not: a backend that answers
+    // 200 with an unparseable body is just as inert as one that is down.
+    check: async (ctx) => {
+      if (!ctx.reranker) {
+        return {
+          live: false,
+          detail:
+            "no reranker is configured, so the gated-rerank stage would report not_configured and " +
+            "pass results through unchanged on BOTH arms. Set RERANK_URL to a Cohere/Jina-shaped " +
+            "/rerank backend.",
+        };
+      }
+      try {
+        const probe = await ctx.reranker("liveness probe", ["alpha", "beta"], 1);
+        return Array.isArray(probe) && probe.length > 0
+          ? { live: true, detail: "" }
+          : {
+              live: false,
+              detail:
+                "RERANK_URL answered but returned no usable hits, so rerankWithScores would report " +
+                "malformed_response and fall back to the input order — a gated-rerank arm in which " +
+                "nothing was reranked.",
+            };
+      } catch (err) {
+        return {
+          live: false,
+          detail:
+            `the configured RERANK_URL backend failed a probe request (${
+              err instanceof Error ? err.message : String(err)
+            }). rerankWithScores catches this as provider_error and returns the input ranking, so ` +
+            "the arm would score identically to its control.",
+        };
+      }
+    },
   },
   decompose: {
     cli: "--decompose",
-    // The one genuine network probe: the decomposer's failure path is a `catch` that returns [],
-    // by design ("never breaks the eval"), so nothing downstream can tell a dead backend from a
-    // model that declined to split the query.
+    // Two failures to separate, because they need different evidence. The daemon can be down, OR it
+    // can be up without the configured model — and the second is invisible to a health ping:
+    // /api/tags answers 200, /api/chat then 404s, and decomposeQuery() swallows that into [] by
+    // design ("never breaks the eval"). Checking reachability alone would have let a
+    // model-not-pulled run produce a stamped null.
     check: async (ctx) => {
       const fetchFn = ctx.fetchFn ?? fetch;
       const url = `${ctx.decomposeUrl.replace(/\/$/, "")}/api/tags`;
-      const unreachable = (why: string): LivenessResult => ({
+      const dead = (why: string): LivenessResult => ({
         live: false,
         detail:
           `the decomposition backend at ${ctx.decomposeUrl} is unreachable (${why}). ` +
           "decomposeQuery() swallows this and returns the original query, so the run would score " +
           "the baseline against itself. Point DECOMPOSE_URL at a live backend.",
       });
+      let body: { models?: Array<{ name?: string; model?: string }> };
       try {
         const res = await fetchFn(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
-        return res.ok ? { live: true, detail: "" } : unreachable(`HTTP ${res.status}`);
+        if (!res.ok) return dead(`HTTP ${res.status}`);
+        body = (await res.json()) as typeof body;
       } catch (err) {
-        return unreachable(err instanceof Error ? err.message : String(err));
+        return dead(err instanceof Error ? err.message : String(err));
       }
+      // Ollama reports "llama3.2:3b"; a request for an untagged "llama3.2" resolves to ":latest",
+      // so match both rather than rejecting a legitimate shorthand.
+      const installed = (body.models ?? [])
+        .map((m) => m.name ?? m.model ?? "")
+        .filter((n) => n.length > 0);
+      const wanted = ctx.decomposeModel;
+      const present = installed.some((n) => n === wanted || n === `${wanted}:latest`);
+      return present
+        ? { live: true, detail: "" }
+        : {
+            live: false,
+            detail:
+              `the decomposition backend at ${ctx.decomposeUrl} is reachable but does not have ` +
+              `model "${wanted}" (installed: ${installed.length > 0 ? installed.join(", ") : "none"}). ` +
+              "/api/chat would fail and decomposeQuery() would swallow it, so the run would score " +
+              "the baseline against itself. Pull the model, or set DECOMPOSE_MODEL.",
+          };
     },
+  },
+  activation: {
+    cli: "--activation",
+    // `run.ts` loads cached activation scores and DELIBERATELY degrades to an empty map on a
+    // missing store or table — it even prints "running all-inert" and carries on. That is a
+    // reasonable production read and an invalid measurement: a null activation is the inert
+    // multiplier, so every candidate scores exactly as it would in the control while the artifact
+    // records `activation`. This flag was originally classified dependency-free here; it reads an
+    // external SQLite store, and two independent reviewers caught the misclassification.
+    check: async (ctx) => ({
+      live: ctx.activationRows > 0,
+      detail:
+        "no chunk carries cached activation state (0 rows loaded from experiential.db), so the " +
+        "activation lookup returns null for every candidate and the arm scores identically to its " +
+        "control. Populate vault_object_state.cached_activation_score first.",
+    }),
   },
 };
 
@@ -133,7 +214,6 @@ export const NO_EXTERNAL_DEPENDENCY_FLAGS: ReadonlySet<string> = new Set([
   "z-router",
   "metadata-prior",
   "temporal",
-  "activation",
   "class-router",
   "path-dedup",
 ]);

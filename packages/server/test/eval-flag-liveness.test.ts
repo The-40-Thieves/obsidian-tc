@@ -16,6 +16,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   assertFlagDependencies,
+  DEFAULT_DECOMPOSE_MODEL,
+  DEFAULT_DECOMPOSE_URL,
   DEPENDENCY_GATED_FLAGS,
   type FlagLivenessContext,
   GUARDED_ELSEWHERE_FLAGS,
@@ -145,51 +147,58 @@ async function captureRefusal(
 
 describe("dependency-gated flags refuse when their backend is absent (THE-807)", () => {
   const deadFetch: typeof fetch = () => Promise.reject(new Error("connect ECONNREFUSED"));
-  const liveFetch: typeof fetch = () => Promise.resolve(new Response("{}", { status: 200 }));
+  /** A healthy Ollama that HAS the configured model. */
+  const liveFetch: typeof fetch = () =>
+    Promise.resolve(
+      Response.json({ models: [{ name: DEFAULT_DECOMPOSE_MODEL }, { name: "other:7b" }] }),
+    );
+  const ALL = ["sparse", "gated-rerank", "decompose", "activation"];
 
-  const absent = {
+  const absent: FlagLivenessContext = {
     provider: {},
     reranker: null,
-    decomposeUrl: "http://127.0.0.1:11434",
+    decomposeUrl: DEFAULT_DECOMPOSE_URL,
+    decomposeModel: DEFAULT_DECOMPOSE_MODEL,
+    activationRows: 0,
     fetchFn: deadFetch,
   };
-  const present = {
+  const present: FlagLivenessContext = {
     provider: { embedFull: () => Promise.resolve([]) },
-    reranker: () => Promise.resolve([]),
-    decomposeUrl: "http://127.0.0.1:11434",
+    reranker: () => Promise.resolve([{ index: 0, relevanceScore: 0.9 }]),
+    decomposeUrl: DEFAULT_DECOMPOSE_URL,
+    decomposeModel: DEFAULT_DECOMPOSE_MODEL,
+    activationRows: 12,
     fetchFn: liveFetch,
   };
 
-  it("refuses all three when every backend is missing", async () => {
-    await expect(
-      assertFlagDependencies(["sparse", "gated-rerank", "decompose"], absent),
-    ).rejects.toBeInstanceOf(InertEvalFlagError);
+  it("refuses all four when every backend is missing", async () => {
+    await expect(assertFlagDependencies(ALL, absent)).rejects.toBeInstanceOf(InertEvalFlagError);
   });
 
   it("names the specific backend rather than failing generically", async () => {
     // The acceptance criterion is that the refusal is actionable: an operator must learn WHICH
     // dependency is missing. A generic "not configured" is what let this class hide.
-    const err = await captureRefusal(["sparse", "gated-rerank", "decompose"], absent);
-    expect(err.failures).toHaveLength(3);
+    const err = await captureRefusal(ALL, absent);
+    expect(err.failures).toHaveLength(4);
     expect(err.message).toContain("SPARSE_URL");
     expect(err.message).toContain("RERANK_URL");
     expect(err.message).toContain("DECOMPOSE_URL");
-    expect(err.message).toContain("http://127.0.0.1:11434");
+    expect(err.message).toContain(DEFAULT_DECOMPOSE_URL);
+    expect(err.message).toContain("cached_activation_score");
   });
 
   it("reports EVERY missing backend in one run, not just the first", async () => {
-    const err = await captureRefusal(["sparse", "gated-rerank", "decompose"], absent);
+    const err = await captureRefusal(ALL, absent);
     expect(err.failures.map((f) => f.split(":")[0])).toEqual([
       "--sparse",
       "--gated-rerank",
       "--decompose",
+      "--activation",
     ]);
   });
 
   it("passes when every backend is present", async () => {
-    await expect(
-      assertFlagDependencies(["sparse", "gated-rerank", "decompose"], present),
-    ).resolves.toBeUndefined();
+    await expect(assertFlagDependencies(ALL, present)).resolves.toBeUndefined();
   });
 
   it("ignores flags that are not dependency-gated", async () => {
@@ -210,13 +219,57 @@ describe("dependency-gated flags refuse when their backend is absent (THE-807)",
     ).rejects.toThrow(/embedFull/);
   });
 
-  it("--gated-rerank keys on a non-null reranker", async () => {
+  it("--gated-rerank refuses when no reranker is configured at all", async () => {
     await expect(assertFlagDependencies(["gated-rerank"], absent)).rejects.toThrow(
       /not_configured/,
     );
+  });
+
+  // THE THREE BELOW ARE THE REVIEW FINDINGS ON THIS PR, kept as regressions.
+  //
+  // The first cut of this module checked PRESENCE — a non-null reranker, a reachable daemon — which
+  // is the same declaration-not-behavior mistake the module exists to prevent, made inside the fix.
+  // Two independent reviewers reproduced all three. Each is pinned so the weaker check cannot come
+  // back.
+
+  it("--gated-rerank refuses a reranker whose endpoint FAILS (presence is not liveness)", async () => {
+    // run.ts builds the closure from RERANK_URL alone, so a dead endpoint still yields a function.
+    // rerankWithScores would catch the failure as provider_error and return the input order.
+    const brokenEndpoint = () => Promise.reject(new Error("fetch failed: ECONNREFUSED"));
     await expect(
-      assertFlagDependencies(["gated-rerank"], { ...present, reranker: undefined }),
-    ).rejects.toThrow(/RERANK_URL/);
+      assertFlagDependencies(["gated-rerank"], { ...present, reranker: brokenEndpoint }),
+    ).rejects.toThrow(/provider_error/);
+  });
+
+  it("--gated-rerank refuses a reranker that answers with no usable hits", async () => {
+    // A 200 with an unparseable body is exactly as inert as a dead backend; rerankWithScores
+    // reports malformed_response and falls back to the input order either way.
+    const emptyResult = () => Promise.resolve([]);
+    await expect(
+      assertFlagDependencies(["gated-rerank"], { ...present, reranker: emptyResult }),
+    ).rejects.toThrow(/malformed_response/);
+  });
+
+  it("--decompose refuses when the daemon is UP but the model is not installed", async () => {
+    // /api/tags answering 200 proves reachability, not that /api/chat can serve the model.
+    // decomposeQuery() swallows the resulting 404 into [], so this would have been a stamped null.
+    const wrongModels: typeof fetch = () =>
+      Promise.resolve(Response.json({ models: [{ name: "some-other-model:7b" }] }));
+    const err = await captureRefusal(["decompose"], { ...present, fetchFn: wrongModels });
+    expect(err.message).toContain(`does not have model "${DEFAULT_DECOMPOSE_MODEL}"`);
+    expect(err.message).toContain("some-other-model:7b");
+  });
+
+  it("--decompose accepts an untagged model name that resolves to :latest", async () => {
+    const latestOnly: typeof fetch = () =>
+      Promise.resolve(Response.json({ models: [{ name: "mistral:latest" }] }));
+    await expect(
+      assertFlagDependencies(["decompose"], {
+        ...present,
+        decomposeModel: "mistral",
+        fetchFn: latestOnly,
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("--decompose treats a non-2xx probe as dead, not just a thrown fetch", async () => {
@@ -224,5 +277,33 @@ describe("dependency-gated flags refuse when their backend is absent (THE-807)",
     await expect(
       assertFlagDependencies(["decompose"], { ...present, fetchFn: notFound }),
     ).rejects.toThrow(/HTTP 404/);
+  });
+
+  it("--activation refuses when the store loaded ZERO rows", async () => {
+    // run.ts degrades to an empty map and prints "running all-inert", then carries on. A null
+    // activation is the inert multiplier, so the arm scores identically to its control.
+    await expect(
+      assertFlagDependencies(["activation"], { ...present, activationRows: 0 }),
+    ).rejects.toThrow(/0 rows loaded/);
+    await expect(
+      assertFlagDependencies(["activation"], { ...present, activationRows: 1 }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("activation is NOT classified dependency-free — it reads experiential.db", () => {
+    // The original classification here was wrong. Pinned because the mistake is easy to repeat:
+    // the flag looks like a pure scoring switch and is in fact an external-store read.
+    expect(NO_EXTERNAL_DEPENDENCY_FLAGS.has("activation")).toBe(false);
+    expect("activation" in DEPENDENCY_GATED_FLAGS).toBe(true);
+  });
+
+  it("the decomposer default is declared once, not duplicated in run.ts", () => {
+    // Two copies of the default would let the preflight validate a different model or backend than
+    // the run actually asks for — a check that disagrees with the code it guards.
+    const src = readFileSync(RUN_TS, "utf8");
+    expect(src).not.toContain('"llama3.2:3b"');
+    expect(src).not.toContain('"http://127.0.0.1:11434"');
+    expect(src).toContain("DEFAULT_DECOMPOSE_MODEL");
+    expect(src).toContain("DEFAULT_DECOMPOSE_URL");
   });
 });
