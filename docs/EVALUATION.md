@@ -259,9 +259,58 @@ self-authored benchmark, and this document has already called that the weakest f
 is defensible here only because the *overlay* is arbitrary while the *ground truth derived from it*
 is not: the intersection is mechanical, committed, and independently checkable. Say both halves.
 
-What this does **not** establish is under-fill — recall lost against each principal's own achievable
-ceiling, which is the interesting quality number and is power-limited at these per-principal *n*.
-That is reported with its *n* attached rather than pooled, and is not yet published here.
+### Under-fill: the secondary metric (2026-08-10)
+
+Leakage above is a correctness gate. **Under-fill** is the quality half — recall lost against each
+principal's *own* achievable ceiling — and it is the number the `acl_path_sets` work (THE-694/695)
+exists to protect, because the over-fetch window means a heavily-restricted principal can lose
+recall for reasons unrelated to ranking.
+
+**The ceiling really is 1.0, and that was checked rather than assumed.** Under-fill is only
+`1 − recall@10` if every query's visible target set fits inside the 10 slots. Measured across all
+eight arms: the largest `expected_P` is **6** (lenient P4) and **zero queries** in any arm exceed 10
+targets. So no part of the number below is arithmetic rather than retrieval.
+
+| binarization | principal | *n* | recall@10 | under-fill | vs unrestricted |
+| --- | --- | --- | --- | --- | --- |
+| strict | P1 `a-f` | 40 | 1.000 | **0.000** | −0.021 better |
+| strict | P2 `d-l` | 36 | 1.000 | **0.000** | −0.021 better |
+| strict | P3 `k-s` | 26 | 0.981 | 0.019 | −0.002 better |
+| lenient | P1 `a-f` | 56 | 0.842 | 0.158 | −0.146 better |
+| lenient | P2 `d-l` | 48 | 0.792 | 0.208 | −0.096 better |
+| lenient | P3 `k-s` | 46 | 0.760 | 0.240 | −0.064 better |
+| lenient | P4 `r-9` | 35 | 0.651 | 0.349 | **+0.045 worse** |
+
+"vs unrestricted" compares each principal's under-fill to the same figure on the unrestricted run
+published above — strict 0.021, lenient 0.304.
+
+**The headline: over-refusal does not materialise at most ACL widths.** Six of seven principals
+under-fill *less* than the unrestricted baseline. That is not a surprise once stated — a restricted
+principal has fewer targets to find in the same 10 slots — but it is the opposite of the failure the
+over-fetch window was feared to cause, and it had not been measured.
+
+**The signal worth keeping is the trend, not any single row.** Under-fill rises monotonically as the
+whitelist narrows — lenient P1 −0.146, P2 −0.096, P3 −0.064, P4 **+0.045** — crossing the
+unrestricted baseline exactly at the narrowest principal that can be scored at all. So over-refusal
+is real, it is a function of how restrictive the ACL is, and on this corpus it becomes visible only
+at the boundary where the harness is already close to refusing the arm.
+
+**A fourth principal became measurable, and one arm is still refused.** P4 lenient clears the n≥26
+floor at 35 and is reported above; P4 strict leaves only 21 of 78 and is still refused, with the
+harness's own message: *"the whitelist is too narrow to measure anything — widen it, or the report
+measures the ACL rather than the retrieval."* That refusal is the gate working. Including P4 lenient
+takes the run to **287 principal-query evaluations, still zero leaks**.
+
+**Three caveats that must travel with these numbers.**
+
+1. **The comparison to unrestricted is UNPAIRED.** Each principal scores a different subset of
+   queries (only those with ≥1 reachable target) against a different target set. It is a directional
+   comparison, not a significance test, and no *p* is claimed for it.
+2. ***n* is 26–56 per principal and is NOT pooled.** Pooling would be wrong twice over: the
+   principals overlap by construction (41 of 78 strict queries are scoreable for more than one), so
+   the arms are not independent, and each principal's ceiling is a different quantity.
+3. **The self-authored-overlay caveat above applies here unchanged.** The overlay is arbitrary; the
+   ground truth derived from it is not.
 
 ## Published negative results
 
