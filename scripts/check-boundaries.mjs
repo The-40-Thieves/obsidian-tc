@@ -69,6 +69,22 @@ const UNREACHABLE_ALLOWLIST = new Map([
   // acl-path-set.test.ts until the consumers are wired. The staleAllowlist check below is what
   // forces this entry out again the moment that happens — it cannot rot into decoration.
   ["packages/server/src/search/acl_path_set.ts", "THE-694/695: dark until the consumers are wired"],
+  // THE-634: the proactive-surfacing engine — goal-anchored scoring plus the interrupt threshold —
+  // landed AHEAD of a delivery path, and unusually the reason is a protocol fact rather than a
+  // pending decision. The only unsolicited server->client channel this server has is a
+  // `subscriptions/listen` stream, which is 2026-07-28 ONLY (docs/MCP-COMPATIBILITY.md reads `n/a`
+  // for legacy), and production reaches obsidian-tc through LiteLLM, which pins `mcp` 1.28.1 with a
+  // 2025-11-25 ceiling. Wiring a consumer today would publish into a stream nothing on this
+  // deployment can subscribe to.
+  //
+  // The engine is the half that is testable without a client, and it is covered by
+  // advisory-threshold.test.ts. The staleAllowlist check below forces both entries out the moment a
+  // real consumer imports them, so this cannot rot into decoration.
+  ["packages/server/src/experiential/advisory.ts", "THE-634: dark until a delivery channel exists"],
+  [
+    "packages/server/src/experiential/advisory-policy.ts",
+    "THE-634: dark until a delivery channel exists",
+  ],
 ]);
 
 function run(cmd, args) {

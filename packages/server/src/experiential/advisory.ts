@@ -24,7 +24,25 @@
 // 2025-11-25 ceiling, so no advisory could be delivered to it today whatever this module produced.
 // Scoring is buildable and testable now; the transport is not, and shipping one into a stream
 // nothing can subscribe to is the failure this ticket's own banner cites against THE-633.
-import type { GoalRow } from "./goals";
+/**
+ * The goal fields scoring needs — STRUCTURAL, and deliberately not `GoalRow` from `./goals`.
+ *
+ * `goals.test.ts` constraint 3 asserts that nothing under `experiential/` imports the goals store,
+ * because `reflect.ts` gaining a goals write would mean stated intent stops being stated — the one
+ * assumption the membrane decision rests on. A first draft here used `import type { GoalRow }`,
+ * which is erased at runtime and carries no write capability, and the gate flagged it anyway
+ * because its detection is a source regex that cannot tell a type import from a value one.
+ *
+ * The gate is right to be blunt, and the fix is not to teach it an exemption: this module never
+ * needed the store's row shape, only three fields. Taking them structurally removes the import edge
+ * entirely, leaves a security-adjacent invariant untouched, and lets the scorer be tested without
+ * the goals module at all. `GoalRow` is structurally assignable, so callers pass rows directly.
+ */
+export interface AdvisoryGoal {
+  id: string;
+  text: string;
+  status: string;
+}
 
 /** Something that happened and might be worth mentioning: a changed note, or derived-plane output.
  *  `text` is what gets compared to the goal — a title plus a snippet, not a whole note. */
@@ -60,7 +78,7 @@ export type SimilarityFn = (goalText: string, candidateText: string) => number;
  * caller passing `status: "any"` must not accidentally surface work against an abandoned goal.
  */
 export function scoreAgainstGoals(
-  goals: readonly GoalRow[],
+  goals: readonly AdvisoryGoal[],
   candidates: readonly AdvisoryCandidate[],
   similarity: SimilarityFn,
 ): ScoredAdvisory[] {

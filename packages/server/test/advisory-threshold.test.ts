@@ -13,7 +13,7 @@
 // and production sits behind a 2025-11-25 gateway. The engine is tested; the transport does not
 // exist and is not stubbed, because a stub would assert a shape nobody has agreed to.
 import { describe, expect, it } from "vitest";
-import type { AdvisoryCandidate, ScoredAdvisory } from "../src/experiential/advisory";
+import type { AdvisoryCandidate, AdvisoryGoal, ScoredAdvisory } from "../src/experiential/advisory";
 import { scoreAgainstGoals } from "../src/experiential/advisory";
 import type { AdvisoryPolicy, AdvisorySessionState } from "../src/experiential/advisory-policy";
 import {
@@ -22,22 +22,14 @@ import {
   remainingBudget,
   selectAdvisories,
 } from "../src/experiential/advisory-policy";
-import type { GoalRow } from "../src/experiential/goals";
 
 const POLICY: AdvisoryPolicy = { minScore: 0.6, topK: 2, maxPerSession: 3, dismissalPenalty: 1 };
 const FRESH: AdvisorySessionState = { emitted: 0, dismissed: 0, seenRefs: new Set() };
 
-function goal(id: string, text: string, status: GoalRow["status"] = "open"): GoalRow {
-  return {
-    id,
-    vault_id: "v",
-    text,
-    status,
-    source: "stated",
-    created_at: 1,
-    target_date: null,
-    closed_at: null,
-  };
+/** Three fields, not a store row. `scoreAgainstGoals` takes `AdvisoryGoal` structurally so it never
+ *  imports the goals store — see the type's own docblock and goals.test.ts constraint 3. */
+function goal(id: string, text: string, status = "open"): AdvisoryGoal {
+  return { id, text, status };
 }
 
 function cand(ref: string, text: string, at = 100): AdvisoryCandidate {
