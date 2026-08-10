@@ -1,8 +1,11 @@
 # MCP protocol & client compatibility
 
-THE-510 shipped two deliverables. **Deliverable A (perf benchmarks) is gated on a measurement
-host and is out of scope here.** This is deliverable B only: what obsidian-tc's MCP surface can
-be shown to support, and what cannot honestly be claimed yet.
+THE-510 shipped two deliverables. **Deliverable A (perf benchmarks) is now published** — see
+[Performance benchmarks](https://obsidian-tc.the40thieves.io/observability/performance-benchmarks/).
+Its "gated on a measurement host" blocker was refuted on 2026-08-07: six isolated `ubuntu-latest`
+dispatches cleared the harness's own variance gate, six times out of six. This page is deliverable
+B only: what obsidian-tc's MCP surface can be shown to support, and what cannot honestly be claimed
+yet.
 
 **Ground rule: nothing below is asserted without evidence.** Every row cites where that evidence
 comes from — a test in this repo's own conformance suite, a source-level check against a locally
@@ -69,7 +72,7 @@ Evidence key:
 | DNS-rebinding guard (`Host`/`Origin` allow-listing) | enforced | enforced | suite — `http-rebinding-guard.test.ts` — transport-level, not protocol-era-scoped |
 | Protected Resource Metadata (RFC 9728) | served when `resource`/AS are configured | served when `resource`/AS are configured | suite — `mcp-auth-prm.test.ts` — transport-level, not protocol-era-scoped |
 | Per-caller dispatch isolation (identity/scopes/vault never leak across concurrent callers) | enforced | enforced | suite — `http-caller-isolation.test.ts` — transport-level, not protocol-era-scoped |
-| Live third-party client (Claude Desktop, Cursor, VS Code, Claude Code, an actual LiteLLM instance, MCP Inspector, …) | **not tested** | **not tested** | none — see "What this page does not claim," below |
+| Live third-party client (Claude Desktop, Cursor, VS Code, an actual LiteLLM instance, MCP Inspector, …) | **not tested** | **not tested** | none — see "What this page does not claim," below. Claude Code is the exception: re-verified against 1.20.0 and recorded in the [client matrix](https://obsidian-tc.the40thieves.io/getting-started/mcp-clients/) |
 
 ## SDK support (a different axis — read separately)
 
