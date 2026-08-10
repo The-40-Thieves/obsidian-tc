@@ -55,6 +55,14 @@ const FANOUT_OVERFETCH_K = Math.max(TOP_K * 2, TOP_K + 10);
 // Golden-set paths are Windows-style (KMS-era); normalize both sides to forward slashes so the
 // comparison is separator-agnostic against whatever the local index stored.
 const norm = (p: string): string => p.replace(/\\/g, "/");
+
+/** The floor both ground-truth guards share: a run whose expected paths are mostly absent scores
+ *  near 0 everywhere and says nothing about the thing under test. Declared ONCE at module scope
+ *  because it is now enforced in two places — the corpus-coverage check and the `--acl-allow`
+ *  narrowing — and two copies of "how much ground truth is enough" would drift into disagreeing
+ *  about what counts as measurable. A third is already generous; below it the surviving sample is
+ *  too small and too biased for a metric delta to mean anything. */
+const MIN_SURVIVING_FRACTION = 1 / 3;
 function normQuery(q: GoldenQuery): GoldenQuery {
   return {
     ...q,
@@ -864,6 +872,54 @@ async function main(): Promise<void> {
       );
     fanout = { variantsFor: (t) => map.get(t) ?? [] };
   }
+  // THE-807: does this golden set describe THIS index at all?
+  //
+  // The `--acl-allow` guard below refuses when a whitelist filters most of the ground truth away,
+  // and its reasoning applies with more force to the BASE case it never covered: that guard lives
+  // inside `if (aclAllow)`, so a run with no flags at all had nothing checking that the golden
+  // set's targets exist in the corpus being scored.
+  //
+  // Measured, not hypothetical: pairing `eval-config.evergreen.json` (a public evergreen corpus,
+  // `notes/...`) with `multi-hop-golden-set.yaml` (private-vault paths, `09-reference/...`) scores
+  // ZERO of 260 target paths and still prints a complete report — every metric 0.000, σ_d 0.000,
+  // MDE 0.000, "no-regression: PASS", and NON-INFERIOR on both metrics. A config and a golden set
+  // are chosen independently on the command line, so mispairing them takes one wrong argument and
+  // produces something that reads exactly like a clean null.
+  //
+  // Coverage is printed on EVERY run, not only on refusal: a run at 70% is worth seeing even though
+  // it is allowed to proceed, and a silent pass teaches nobody where the floor is.
+  {
+    const indexed = new Set(
+      (
+        db
+          .prepare("SELECT DISTINCT path FROM chunks WHERE vault_id = ?")
+          .all(firstVault.id) as Array<{ path: string }>
+      ).map((r) => norm(r.path)),
+    );
+    // Normalised on both sides. The golden sets are KMS-era and carry Windows separators; comparing
+    // raw would report 0% on a perfectly good pairing, which is the same false refusal in reverse.
+    const covered = golden.queries.filter((q) =>
+      q.target_paths.some((p) => indexed.has(norm(p))),
+    ).length;
+    const total = golden.queries.length;
+    process.stderr.write(
+      `golden-set coverage: ${covered}/${total} queries have at least one target path in the index ` +
+        `(${indexed.size} indexed paths, vault '${firstVault.id}')\n`,
+    );
+    if (covered < total * MIN_SURVIVING_FRACTION) {
+      const missing = golden.queries
+        .flatMap((q) => q.target_paths)
+        .find((p) => !indexed.has(norm(p)));
+      console.error(
+        `only ${covered}/${total} golden queries have a target path in this index ` +
+          `(need at least ${Math.ceil(total * MIN_SURVIVING_FRACTION)}). This golden set does not ` +
+          "describe this corpus — almost certainly the config and the golden set are mispaired, or " +
+          `the index was never built. Example unmatched target: ${missing ?? "(none)"}. ` +
+          "Refusing: scoring it would report 0.000 everywhere and read as a measurement.",
+      );
+      process.exit(1);
+    }
+  }
   // THE-699: build the read predicate from the PRODUCTION FolderAcl, then restrict the ground
   // truth by the same predicate — retrieval and qrels must agree about what is reachable, or the
   // metrics measure the ACL rather than the retrieval.
@@ -919,10 +975,8 @@ async function main(): Promise<void> {
     // reachable target and would still have emitted a full report, which is a number that reads as
     // a measurement and is not one.
     //
-    // A third is already generous. Below that the surviving sample is too small and too biased
-    // toward whatever the whitelist happens to cover for a metric delta to mean anything.
+    // The floor is MIN_SURVIVING_FRACTION, now shared with the corpus-coverage guard above.
     const surviving = golden.queries.length - emptied;
-    const MIN_SURVIVING_FRACTION = 1 / 3;
     if (surviving < golden.queries.length * MIN_SURVIVING_FRACTION) {
       console.error(
         `acl-allow left only ${surviving}/${golden.queries.length} queries with a reachable target ` +

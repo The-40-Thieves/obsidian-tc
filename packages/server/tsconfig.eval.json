@@ -1,0 +1,12 @@
+{
+  // THE-807: `eval/` was outside the typechecker — tsconfig.json includes only ["src", "test"], so
+  // the harness that decides which retrieval changes ship was the one directory CI never
+  // type-checked. Measurement-authoritative code was allowed to rot.
+  //
+  // A SEPARATE PROJECT rather than widening the main `include`, following the tsconfig.bun-smoke
+  // precedent: the eval harness imports from src, so folding it in would drag its files into the
+  // same program and any future eval-only lib/type need would have to be granted to src as well.
+  // Keeping it separate means eval can never loosen the Node type floor that src compiles against.
+  "extends": "./tsconfig.json",
+  "include": ["eval", "src"]
+}

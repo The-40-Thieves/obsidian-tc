@@ -116,7 +116,9 @@ async function main(): Promise<void> {
     const cur = acc.get(r.p);
     if (!cur) acc.set(r.p, { v: Float32Array.from(f), n: 1 });
     else {
-      for (let i = 0; i < cur.v.length; i++) cur.v[i] += f[i] ?? 0;
+      // `?? 0` on both sides: an in-bounds TypedArray read is never undefined at runtime, but
+      // noUncheckedIndexedAccess cannot know the bound, and a compound `+=` reads before it writes.
+      for (let i = 0; i < cur.v.length; i++) cur.v[i] = (cur.v[i] ?? 0) + (f[i] ?? 0);
       cur.n++;
     }
   }
@@ -124,11 +126,14 @@ async function main(): Promise<void> {
   for (const [p, { v, n }] of acc) {
     let s = 0;
     for (let i = 0; i < v.length; i++) {
-      v[i] /= n;
-      s += v[i] * v[i];
+      // Read once into a local: the original divided in place and then re-read the element to
+      // square it, which is two indexed reads of a value the checker cannot prove is defined.
+      const x = (v[i] ?? 0) / n;
+      v[i] = x;
+      s += x * x;
     }
     const norm = Math.sqrt(s) || 1;
-    for (let i = 0; i < v.length; i++) v[i] /= norm;
+    for (let i = 0; i < v.length; i++) v[i] = (v[i] ?? 0) / norm;
     nvec.set(p, v);
   }
   const cos = (a: string, b: string): number => {

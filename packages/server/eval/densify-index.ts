@@ -33,6 +33,7 @@ import { openDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { computeKnnEdges, reconcileDerivedEdges } from "../src/search/derived-edges";
 import { indexVault } from "../src/search/indexer";
+import { buildRepresentationManifest } from "../src/search/representation";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -64,14 +65,21 @@ const chunks = (db.prepare("SELECT count(*) AS n FROM chunks").get() as { n: num
 if (settleOnly) {
   // The expensive path, run ONCE: a full reconcile so the corpus stops moving under the sweep.
   const t0 = performance.now();
+  // THE-460 fix B: createEmbeddingProvider suffixes provider.id with `@<revision>` when
+  // config.embeddings.revision is set, so the fingerprint MUST fold the same value in — otherwise
+  // this harness and the server compute different fingerprints against the same cache.db and each
+  // DROPs and rebuilds what the other just built.
+  //
+  // THE-683 replaced the loose `revision` argument with a built manifest, and this call was left
+  // passing the old field for nine days: `eval/` was outside tsconfig.json's `include`, so no gate
+  // could see that `revision` no longer existed and that the now-REQUIRED `representation` was
+  // absent. Built here the same way `runtime/indexing-wiring.ts` and `eval/perf/harness.ts` build
+  // it, so all three derive one identity rather than three that must be kept in step.
+  const settleProvider = createEmbeddingProvider(config.embeddings);
   await indexVault({
     db,
-    provider: createEmbeddingProvider(config.embeddings),
-    // THE-460 fix B: createEmbeddingProvider suffixes provider.id with `@<revision>` when
-    // config.embeddings.revision is set, so this MUST fold the same value into the fingerprint —
-    // otherwise this harness and the server compute different fingerprints against the same
-    // cache.db and each DROPs and rebuilds what the other just built.
-    revision: config.embeddings.revision,
+    provider: settleProvider,
+    representation: buildRepresentationManifest(settleProvider, config.embeddings),
     vaultId: vault.id,
     root: vault.path,
     isReadable: () => true,

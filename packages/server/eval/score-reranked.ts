@@ -10,6 +10,7 @@ import {
   aggregateMetrics,
   computeQueryMetrics,
   GoldenSetSchema,
+  type QueryMetrics,
   type RankedChunk,
 } from "./metrics";
 import type { EvalQueryResult } from "./run";
@@ -41,8 +42,11 @@ const champById = new Map(champion.perQuery.map((p) => [p.id, p]));
 const norm = (p: string): string => p.replace(/\\/g, "/");
 
 // Pair reranked queries with the champion's graph-side metrics on the same ids.
-const rerankMetrics = [];
-const champMetrics = [];
+// Annotated: both are `push`ed after their declaration, so inference gave them `any[]` and every
+// later read was an unchecked `any` — including the paired-delta arithmetic below, where a renamed
+// metric field would have silently produced NaN rather than a compile error.
+const rerankMetrics: QueryMetrics[] = [];
+const champMetrics: QueryMetrics[] = [];
 for (const r of reranked.reranked) {
   const q = goldenById.get(r.id);
   const c = champById.get(r.id);
@@ -68,8 +72,11 @@ const ch = aggregateMetrics(champMetrics);
 const n = rerankMetrics.length;
 process.stdout.write(`\nTHE-441 Qwen3-Reranker-4B kill-shot — ${reranked.model}, n=${n}\n\n`);
 process.stdout.write(`${"metric".padEnd(16)}champion  reranked\n`);
-const row = (label: string, a: number, b: number): void =>
+const row = (label: string, a: number, b: number): void => {
+  // Block body, not a concise one: `process.stdout.write` returns a boolean, and an arrow with an
+  // explicit `: void` annotation cannot return it.
   process.stdout.write(`${label.padEnd(16)}${a.toFixed(3)}     ${b.toFixed(3)}\n`);
+};
 row("nDCG@10", ch.mean_ndcg_at_10, rr.mean_ndcg_at_10);
 row("recall@10", ch.mean_recall_at_10, rr.mean_recall_at_10);
 row("MRR@10", ch.mean_mrr_at_10, rr.mean_mrr_at_10);
