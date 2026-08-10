@@ -297,6 +297,7 @@ is covered in [docs/CUTOVER.md](./docs/CUTOVER.md).
 - [docs/CUTOVER.md](./docs/CUTOVER.md) — migrating from another Obsidian MCP server
 - [docs/MCP-COMPATIBILITY.md](./docs/MCP-COMPATIBILITY.md) — protocol-revision and capability compatibility matrix, evidence-backed
 - [docs/EVALUATION.md](./docs/EVALUATION.md) — how retrieval changes are measured, the ship rule, and the results that failed it
+- [Performance benchmarks](https://obsidian-tc.the40thieves.io/observability/performance-benchmarks/) — cold boot, indexing, retrieval and HTTP numbers recorded on a public CI runner behind a variance gate that refuses a noisy run
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — the dispatch pipeline and package layout
 - [SECURITY.md](./SECURITY.md) — threat model, protections, reporting
 
