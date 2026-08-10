@@ -26,6 +26,7 @@ import { semanticSearch } from "../src/search/semantic";
 import type { SparseVec } from "../src/search/sparse";
 import { sliceByCategory } from "./categories";
 import { analyzeQuery, type QueryFailureAnalysis, recommendV11 } from "./failure_analysis";
+import { assertFlagDependencies } from "./flag-liveness";
 import {
   type AggregateMetrics,
   aggregateMetrics,
@@ -920,6 +921,29 @@ async function main(): Promise<void> {
       );
       process.exit(1);
     }
+  }
+
+  // THE-807: refuse before scoring anything if a requested flag cannot actually do its work. Three
+  // flags used to fall back to the plain path on a missing backend and still stamp themselves into
+  // the artifact below, which is a null that reads as a measurement. Checked here because it is the
+  // first point where the provider and the reranker both exist — liveness is resolved against the
+  // objects the run will really use, not against a URL that might disagree with them.
+  try {
+    await assertFlagDependencies(
+      [
+        ...(sparseFlag ? ["sparse"] : []),
+        ...(gatedRerank ? ["gated-rerank"] : []),
+        ...(decompose ? ["decompose"] : []),
+      ],
+      {
+        provider,
+        reranker,
+        decomposeUrl: process.env.DECOMPOSE_URL ?? "http://127.0.0.1:11434",
+      },
+    );
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
   }
 
   const report = await runEval({
