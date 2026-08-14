@@ -27,8 +27,16 @@ export interface ParsedNote {
   rawFrontmatter: string | null;
 }
 
-/** Split a note into its frontmatter object (if any) and verbatim body. */
-export function parseNote(raw: string): ParsedNote {
+/**
+ * Split a note into its frontmatter object (if any) and verbatim body.
+ *
+ * `path` is optional and purely diagnostic — parseNote stays a pure parsing primitive over
+ * `raw` (some callers round-trip an in-memory buffer with no file behind it, e.g.
+ * parseEntityNote's graph-integrity check). THE-823: every production call site that reads a
+ * note off disk DOES have a path in scope by the time it calls parseNote, so all of them now
+ * pass one — a caller with no path is the deliberate exception, not a gap.
+ */
+export function parseNote(raw: string, path?: string): ParsedNote {
   const m = FRONTMATTER.exec(raw);
   if (!m) return { frontmatter: null, body: raw, hasFrontmatter: false, rawFrontmatter: null };
   let fm: Frontmatter;
@@ -40,12 +48,16 @@ export function parseNote(raw: string): ParsedNote {
     // THE-823: a bare `catch` discarded the YAML parser's own error — including the line/column it
     // already computed (YAMLParseError.message always ends its first line with "at line N, column
     // M:") — before anything downstream could read it, leaving "frontmatter is not valid YAML" as
-    // the caller's entire diagnostic. NOTE path-threading deferred (see THE-823 writeup): parseNote
-    // has ~19 non-test call sites and none pass a note path in today, so naming the FILE is out of
-    // scope here — only the parser's own line/column detail is restored.
+    // the caller's entire diagnostic. That half shipped first; this half threads the note PATH
+    // through too, so a large-vault boot reconcile names the offending file instead of leaving the
+    // reporter to bisect the vault by hand.
     const detail = e instanceof YAMLParseError ? e.message.split("\n")[0] : undefined;
+    const where = path ? ` in "${path}"` : "";
     throw err.invalidInput(
-      detail ? `frontmatter is not valid YAML: ${detail}` : "frontmatter is not valid YAML",
+      detail
+        ? `frontmatter is not valid YAML${where}: ${detail}`
+        : `frontmatter is not valid YAML${where}`,
+      path ? { path } : undefined,
     );
   }
   return {

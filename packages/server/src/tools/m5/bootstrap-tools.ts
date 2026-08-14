@@ -103,7 +103,7 @@ export function buildBootstrapTools(deps: M5Deps): ToolDefinition[] {
               continue;
             }
             const { raw, hash } = readNote(abs);
-            const parsed = parseNote(raw);
+            const parsed = parseNote(raw, rel);
             loaded.push({
               path: rel,
               content: raw,

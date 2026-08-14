@@ -248,7 +248,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           return { period: input.period, date: toISODate(date), path, exists: false };
         const { raw } = readNote(abs);
-        const parsed = parseNote(raw);
+        const parsed = parseNote(raw, path);
         return {
           period: input.period,
           date: toISODate(date),
@@ -399,7 +399,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           enforcePathAcl(ctx.acl, "read", resolved.path, v.root, ctx.grantedScopes);
         }
         const { raw } = readNote(abs);
-        const parsed = parseNote(raw);
+        const parsed = parseNote(raw, resolved.path);
         return {
           period: input.period,
           date: toISODate(date),

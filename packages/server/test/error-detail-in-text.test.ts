@@ -101,10 +101,9 @@ describe("THE-823: error detail reaches content[0].text", () => {
     await server.close();
   });
 
-  it("a malformed-frontmatter note surfaces the YAML parser's line/column in the text", async () => {
-    // NOTE path-threading: deliberately deferred (see THE-823 writeup — parseNote(raw) has ~19
-    // non-test call sites and none pass a note path in today), so this asserts line/column only,
-    // not the note's path.
+  it("a malformed-frontmatter note surfaces the YAML parser's line/column AND the note path in the text", async () => {
+    // THE-823 (deferred half, now closed): parseNote(raw) has ~19 non-test call sites; read_note's
+    // is one of them, and it has `rel` in scope at the call, so the path is no longer dropped.
     const vault = makeTestVault({
       files: { "bad.md": "---\na: [1, 2\nb: bad\n---\nbody\n" },
     });
@@ -126,6 +125,7 @@ describe("THE-823: error detail reaches content[0].text", () => {
     expect(res.isError).toBe(true);
     const text = textOf(res);
     expect(text).toMatch(/line 2, column 1/);
+    expect(text).toContain("bad.md");
     await client.close();
     await server.close();
     vault.cleanup();

@@ -106,7 +106,7 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
   const targetBase = baseOf(attachmentRel).toLowerCase();
   const out: string[] = [];
   for (const e of walkVault(root, { extensions: [".md"] })) {
-    const { body } = parseNote(readNote(resolveVaultPath(root, e.relPath)).raw);
+    const { body } = parseNote(readNote(resolveVaultPath(root, e.relPath)).raw, e.relPath);
     const hit = extractLinks(body).some((l) => {
       if (l.inCodeblock) return false;
       const t = normalizeTarget(l.target);

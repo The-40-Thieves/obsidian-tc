@@ -31,7 +31,7 @@ function readableNotes(root: string, acl: FolderAcl | undefined, sub?: string): 
 }
 
 function bodyOf(root: string, rel: string): string {
-  return parseNote(readNote(resolveVaultPath(root, rel)).raw).body;
+  return parseNote(readNote(resolveVaultPath(root, rel)).raw, rel).body;
 }
 
 function normTarget(t: string): string {
@@ -202,7 +202,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           throw err.noteNotFound("note not found", { path: rel });
 
         const index = buildVaultIndex(readableNotes(v.root, ctx.acl));
-        const links = extractLinks(parseNote(readNote(abs).raw).body)
+        const links = extractLinks(parseNote(readNote(abs).raw, rel).body)
           .filter((l) => !l.inCodeblock)
           .filter((l) => input.include_embeds || l.kind !== "embed")
           .map((l) => {

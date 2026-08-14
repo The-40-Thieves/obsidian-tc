@@ -136,7 +136,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const boards: Array<{ path: string; columns: number; cards: number }> = [];
         for (const e of walkVault(v.root, { sub, extensions: [".md"] })) {
           if (!readableRel(ctx.acl, e.relPath)) continue;
-          const parsed = parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw);
+          const parsed = parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath);
           if (!isBoard(parsed.frontmatter)) continue;
           const { columns } = parseBoard(parsed.body);
           boards.push({
@@ -166,7 +166,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
         const { raw, hash } = readNote(abs);
-        const parsed = parseNote(raw);
+        const parsed = parseNote(raw, rel);
         if (!isBoard(parsed.frontmatter))
           throw err.invalidInput("not a Kanban board (missing kanban-plugin: board)", {
             path: rel,
@@ -218,7 +218,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
             expected: input.prev_hash,
             actual: hash,
           });
-        const parsed = parseNote(raw);
+        const parsed = parseNote(raw, rel);
         if (!isBoard(parsed.frontmatter))
           throw err.invalidInput("not a Kanban board (missing kanban-plugin: board)", {
             path: rel,
@@ -278,7 +278,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
             expected: input.prev_hash,
             actual: hash,
           });
-        const parsed = parseNote(raw);
+        const parsed = parseNote(raw, rel);
         if (!isBoard(parsed.frontmatter))
           throw err.invalidInput("not a Kanban board (missing kanban-plugin: board)", {
             path: rel,
