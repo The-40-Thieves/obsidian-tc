@@ -10,6 +10,7 @@
 import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+  ElicitToken,
   err,
   Pagination,
   VaultId,
@@ -67,6 +68,10 @@ const MoveInput = z
     overwrite: z.boolean().default(false),
     update_references: z.boolean().default(true),
     options: WriteOptions.prefault({}),
+    // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+    // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema ever
+    // validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -254,6 +259,10 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       inputSchema: MoveInput,
       outputSchema: MoveAttachmentOutput,
       requiredScopes: ["write:attachments", "delete:attachments"],
+      // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
+      // the requireConfirmation call below (crossFolder || overwriteExisting); this only stops the
+      // wire annotation from advertising destructive: false for a tool that CAN demand confirmation.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const fromRel = normalizeVaultPath(input.from);

@@ -34,6 +34,8 @@ export interface ToolSpec<S extends z.ZodTypeAny, O> {
   /** Optional MCP 2025-11-25 icons metadata (THE-278). */
   icons?: ToolIcon[];
   destructive?: boolean;
+  /** THE-824: see ToolDefinition.conditionallyDestructive — display-only, never read by dispatch. */
+  conditionallyDestructive?: boolean;
   precheck?: (input: z.infer<S>, ctx: CallerContext) => void | Promise<void>;
   scopeClass?: string;
   /** THE-414: declarative folder-ACL path extraction — the vault-relative paths this tool touches,

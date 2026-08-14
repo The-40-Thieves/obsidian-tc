@@ -4,7 +4,13 @@
 // data is built from (parseNote/statNote/captureSnapshot etc. get renamed, derived, or
 // conditionally spread on the way out). Conditional spreads (`...(cond ? { x } : {})`) are
 // `.optional()`, never `.nullable()`.
-import { Pagination, VaultId, VaultPath, WriteOptions } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  ElicitToken,
+  Pagination,
+  VaultId,
+  VaultPath,
+  WriteOptions,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 
 // ── output schemas ───────────────────────────────────────────────────────────
@@ -149,6 +155,10 @@ export const WriteInput = z
     mode: WriteMode.default("create"),
     prev_hash: z.string().optional(),
     options: WriteOptions.prefault({}),
+    // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+    // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema ever
+    // validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -201,6 +211,8 @@ export const MoveInput = z
     update_backlinks: z.boolean().default(true),
     prev_hash: z.string().optional(),
     options: WriteOptions.prefault({}),
+    // THE-824: see WriteInput's elicit_token above.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -211,6 +223,8 @@ export const CopyInput = z
     to: VaultPath,
     overwrite: z.boolean().default(false),
     options: WriteOptions.prefault({}),
+    // THE-824: see WriteInput's elicit_token above.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 

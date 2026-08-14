@@ -193,6 +193,21 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   /** Optional MCP 2025-11-25 icons metadata (THE-278). Boundary-only; never read by dispatch. */
   icons?: ToolIcon[];
   destructive?: boolean;
+  /** THE-824: this tool calls `requireConfirmation` — it demands its elicit token
+   *  CONDITIONALLY (crossing a folder boundary, an overwrite, a bulk-cost floor, ...), decided at
+   *  runtime by the handler, so `destructive` above (which also drives the dispatch-time
+   *  isMutatingCall/hitlRequired gates via policy-gates.ts) MUST stay unset/false for it — setting
+   *  it would make dispatch demand a token on EVERY call, not just the ones the handler's own
+   *  check flags, which is a real behavior change this field must never cause.
+   *
+   *  It exists purely so the WIRE annotation can stop lying: the MCP spec's own default for
+   *  `destructiveHint` is `true` ("cautious"), so a mutating tool that CAN demand confirmation and
+   *  declares neither `destructive` nor this flag ends up advertising `destructive: false` — a
+   *  false statement, not a conservative one. `mcp/facade.ts`'s `isAdvertisedDestructive` and
+   *  `mcp/server.ts`'s `toolAnnotations` OR this in alongside `destructive` when rendering the wire
+   *  annotation; every authorization/HITL/read-only gate in mcp/registry/policy-gates.ts reads ONLY
+   *  the real `destructive` field above and must go on doing so. */
+  conditionallyDestructive?: boolean;
   /** Tool-specific precondition gate. Runs AFTER scope+ACL and BEFORE the HITL/elicit
    *  stage, so a rejection never consumes the single-use elicit token (D5). Throw an
    *  ObsidianTcError to reject. */

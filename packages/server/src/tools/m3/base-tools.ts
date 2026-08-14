@@ -12,6 +12,7 @@
 // unsupported_base_filter rather than silently matching all rows (THE-284; the Bases
 // DSL evaluator is THE-281).
 import {
+  ElicitToken,
   err,
   ObsidianTcError,
   Pagination,
@@ -74,6 +75,10 @@ const CreateInput = z
     base: z.record(z.string(), z.unknown()),
     overwrite: z.boolean().default(false),
     options: WriteOptions.prefault({}),
+    // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+    // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema ever
+    // validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -95,6 +100,8 @@ const UpdateInput = z
       })
       .strict(),
     prev_hash: z.string().optional(),
+    // THE-824: see CreateInput's elicit_token above.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -203,6 +210,10 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       inputSchema: CreateInput,
       outputSchema: CreateBaseOutput,
       requiredScopes: ["write:bases"],
+      // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
+      // the requireConfirmation call below; this only stops the wire annotation from advertising
+      // destructive: false for a tool that CAN demand confirmation.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
@@ -260,6 +271,8 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       inputSchema: UpdateInput,
       outputSchema: UpdateBaseOutput,
       requiredScopes: ["write:bases"],
+      // THE-824: see create_base above.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);

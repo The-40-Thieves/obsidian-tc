@@ -5,7 +5,7 @@
 // concurrent_modification). update_frontmatter's `replace` operation discards all
 // existing metadata, so it gates on confirmation via requireConfirmation; set/remove/
 // merge do not. Property keys are top-level by default; pass nested=true for dotted-path access (THE-198).
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -155,6 +155,10 @@ const UpdateInput = z
     create_if_missing: z.boolean().default(false),
     // THE-198: treat `key` as a dotted path (e.g. meta.author.name) for set/remove.
     nested: z.boolean().default(false),
+    // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+    // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema ever
+    // validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -261,6 +265,10 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       inputSchema: UpdateInput,
       outputSchema: UpdateFrontmatterOutput,
       requiredScopes: ["write:notes"],
+      // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
+      // the requireConfirmation call below (operation === "replace"); this only stops the wire
+      // annotation from advertising destructive: false for a tool that CAN demand confirmation.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);

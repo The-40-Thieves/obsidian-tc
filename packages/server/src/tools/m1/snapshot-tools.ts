@@ -2,7 +2,7 @@
 // store: snapshot_note (manual capture), list_snapshots, read_snapshot, restore_note. Auto
 // capture-on-write is wired in the notes/frontmatter handlers and gated by config.snapshots;
 // these tools are always available (list/read/restore operate on whatever snapshots exist).
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -149,10 +149,18 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
           path: VaultPath,
           snapshot_id: z.number().int().positive(),
           prev_hash: z.string().optional(),
+          // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+          // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema
+          // ever validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+          elicit_token: ElicitToken.optional(),
         })
         .strict(),
       outputSchema: RestoreNoteOutput,
       requiredScopes: ["write:notes"],
+      // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
+      // the requireConfirmation call below; this only stops the wire annotation from advertising
+      // destructive: false for a tool that CAN demand confirmation.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);

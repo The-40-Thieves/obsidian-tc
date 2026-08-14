@@ -123,7 +123,10 @@ const EXPECTED: ToolSnapshot[] = [
     tags: [],
     hasPathAcl: true,
     destructive: false,
-    inputKeys: ["content", "mode", "options", "path", "prev_hash", "vault"],
+    // THE-824: elicit_token is advertised for describe_capability discoverability but stripped
+    // off rawArgs before this schema ever validates it (mcp/server.ts), so it changes nothing
+    // about dispatch.
+    inputKeys: ["content", "elicit_token", "mode", "options", "path", "prev_hash", "vault"],
     outputKeys: [
       "bytes_written",
       "content_hash",
@@ -205,7 +208,17 @@ const EXPECTED: ToolSnapshot[] = [
     tags: [],
     hasPathAcl: true,
     destructive: false,
-    inputKeys: ["from", "options", "overwrite", "prev_hash", "to", "update_backlinks", "vault"],
+    // THE-824: see write_note's elicit_token comment above.
+    inputKeys: [
+      "elicit_token",
+      "from",
+      "options",
+      "overwrite",
+      "prev_hash",
+      "to",
+      "update_backlinks",
+      "vault",
+    ],
     outputKeys: [
       "backlinks_updated",
       "content_hash",
@@ -225,7 +238,8 @@ const EXPECTED: ToolSnapshot[] = [
     tags: [],
     hasPathAcl: true,
     destructive: false,
-    inputKeys: ["from", "options", "overwrite", "to", "vault"],
+    // THE-824: see write_note's elicit_token comment above.
+    inputKeys: ["elicit_token", "from", "options", "overwrite", "to", "vault"],
     outputKeys: ["content_hash", "copied", "from", "overwritten", "to", "trashed_dest_to", "vault"],
   },
 ];

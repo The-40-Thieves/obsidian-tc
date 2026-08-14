@@ -39,6 +39,19 @@ export function toJson(schema: z.ZodType): Tool["inputSchema"] {
   return cached;
 }
 
+// THE-824: what the WIRE `destructive` annotation says, as distinct from `def.destructive` (which
+// also drives dispatch-time authorization via isMutatingCall/hitlRequired and must stay untouched
+// by advertisement concerns). A tool that calls requireConfirmation only conditionally never sets
+// the real `destructive` flag — doing so would make dispatch demand a token on every call — but
+// leaving it unset made every one of these tools advertise `destructive: false`, contradicting the
+// MCP spec's own default (destructiveHint defaults to true). Shared by describeCapability,
+// domainTools here, and mcp/server.ts's toolAnnotations, so the three surfaces cannot drift apart.
+export function isAdvertisedDestructive(
+  def: Pick<ToolDefinition, "destructive" | "conditionallyDestructive">,
+): boolean {
+  return def.destructive === true || def.conditionallyDestructive === true;
+}
+
 /** Human-facing label for a snake_case tool name. */
 function titleize(name: string): string {
   return name
@@ -196,7 +209,7 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
     input_schema: toJson(def.inputSchema),
     ...(def.outputSchema ? { output_schema: toJson(def.outputSchema) } : {}),
     required_scopes: def.requiredScopes,
-    annotations: { read_only: !mutating, destructive: def.destructive === true },
+    annotations: { read_only: !mutating, destructive: isAdvertisedDestructive(def) },
     ...(def.icons ? { icons: def.icons } : {}),
   };
   describeMemo.set(def, out);
@@ -331,7 +344,7 @@ export function domainTools(tools: ToolDefinition[]): Tool[] {
       ),
       annotations: {
         readOnlyHint: members.every(isReadOnly),
-        destructiveHint: members.some((m) => m.destructive === true),
+        destructiveHint: members.some((m) => isAdvertisedDestructive(m)),
         openWorldHint: false,
       },
     });

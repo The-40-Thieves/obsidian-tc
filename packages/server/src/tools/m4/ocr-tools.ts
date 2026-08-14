@@ -4,7 +4,7 @@
 // set server-side and ACL-filters it before the bridge call; it overrides its
 // throttle scope class to `bulk` and ALWAYS requires human confirmation (a bulk HITL
 // floor: OCR is expensive). Plugin id is "text-extractor".
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -67,6 +67,15 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
           extensions: z.array(z.string()).optional(),
           force: z.boolean().optional(),
           max_concurrent: z.number().int().min(1).max(4).optional(),
+          // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+          // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema
+          // ever validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+          // Deliberately NOT paired with conditionallyDestructive: this tool is genuinely
+          // read-only (requiredScopes: ["read:ocr"], no vault mutation ever), and the MCP spec
+          // says destructiveHint is meaningful only when readOnlyHint == false — flipping it here
+          // would trade one false statement for another (a tool cannot both "not modify its
+          // environment" and "perform destructive updates").
+          elicit_token: ElicitToken.optional(),
         })
         .strict(),
       outputSchema: OcrBulkOutput,

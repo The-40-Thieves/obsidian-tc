@@ -7,6 +7,7 @@
 // conditional: overwriting an existing canvas and removing >10 nodes require a HITL
 // elicit token; ordinary creates and edits do not.
 import {
+  ElicitToken,
   err,
   Pagination,
   VaultId,
@@ -51,6 +52,10 @@ const CreateInput = z
     edges: EdgeArray.default([]),
     overwrite: z.boolean().default(false),
     options: WriteOptions.prefault({}),
+    // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+    // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema ever
+    // validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -65,6 +70,8 @@ const UpdateInput = z
     update_nodes: PartialById.optional(),
     update_edges: PartialById.optional(),
     prev_hash: z.string().optional(),
+    // THE-824: see CreateInput's elicit_token above.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -217,6 +224,11 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
       inputSchema: CreateInput,
       outputSchema: CreateCanvasOutput,
       requiredScopes: ["write:canvas"],
+      // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
+      // the requireConfirmation call below (ex.exists && input.overwrite); this only stops the
+      // wire annotation from advertising destructive: false, which the MCP spec's own default
+      // (true) says is a false statement for a tool that CAN demand confirmation.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
@@ -258,6 +270,8 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
       inputSchema: UpdateInput,
       outputSchema: UpdateCanvasOutput,
       requiredScopes: ["write:canvas"],
+      // THE-824: see create_canvas above.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);

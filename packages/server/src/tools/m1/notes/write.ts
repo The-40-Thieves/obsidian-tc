@@ -180,6 +180,10 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
     inputSchema: WriteInput,
     outputSchema: WriteNoteOutput,
     requiredScopes: ["write:notes"],
+    // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays the
+    // requireConfirmation call below (overwriting a non-empty note); this only stops the wire
+    // annotation from advertising destructive: false for a tool that CAN demand confirmation.
+    conditionallyDestructive: true,
     handler: (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);
