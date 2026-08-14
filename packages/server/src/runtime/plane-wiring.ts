@@ -58,19 +58,39 @@ export function createJobQueue(
   return new JobQueue(db, { now: Date.now, sql: sqlHooksFor("scheduler") });
 }
 
+/** THE-822: the one gate for every plane-scoped (contradiction/synthesis/audit) consumer of
+ *  `roles` in this file — `registerPlaneSchedule` above already required BOTH `plane.enabled` and
+ *  `roles`; this makes `createOnIndexedHook` and `wireJobHandlers` match instead of reading
+ *  `deps.roles` alone. `plane` is a REQUIRED dep on both, not optional, so a caller cannot forget
+ *  to state the plane's status. Module-private: `wireDomainTools` (tool-wiring.ts) must keep the
+ *  full, ungated `roles` for `reflect` and friends, which stay live with the plane off — it must
+ *  NOT call this helper. */
+function planeGatedRoles(deps: {
+  plane: { enabled: boolean };
+  roles: GatewayRoles | null;
+}): GatewayRoles | null {
+  return deps.plane.enabled ? deps.roles : null;
+}
+
 /**
  * W-INGEST onIndexed hook -> contradiction-check enqueue. The detector needs the gateway, so the
  * returned hook is a no-op factory (`undefined`) when `roles` is absent. Content-sensitive key:
  * chunk.id is deterministic from PATH+POSITION, not content, and enqueue() dedups against a
  * completed job's row forever (jobs are never pruned) — folding in the content hash makes an edit
  * (new content) a distinct key, re-judged, while an identical-content rapid re-index still dedups.
+ *
+ * THE-822: also requires `plane.enabled` (see planeGatedRoles) — `plane.enabled: false` must stop
+ * this per-index-write enqueue, not just the scheduled consolidation pass. With any gateway
+ * configured, a disabled plane was still enqueuing (and running) unattended per-chunk LLM calls on
+ * every index write across the whole vault.
  */
 export function createOnIndexedHook(deps: {
   jobQueue: JobQueue;
   roles: GatewayRoles | null;
+  plane: { enabled: boolean };
 }): (vaultId: string) => IndexHook | undefined {
   return (vaultId: string): IndexHook | undefined =>
-    deps.roles
+    planeGatedRoles(deps)
       ? (chunks) => {
           for (const c of chunks) {
             deps.jobQueue.enqueue("contradiction", {
@@ -94,6 +114,10 @@ export interface JobHandlersDeps {
   acl: FolderAcl;
   jobQueue: JobQueue;
   roles: GatewayRoles | null;
+  /** THE-822: gates the contradiction/synthesis/audit handlers below, via planeGatedRoles —
+   *  task-call and note-quality are unaffected. Required, not optional: every caller must state
+   *  the plane's status rather than a fourth call site being able to forget it. */
+  plane: { enabled: boolean };
   embeddingProvider: EmbeddingProvider;
   experientialOpen: boolean;
   experientialDb: Database;
@@ -124,7 +148,8 @@ export interface JobHandlersWiring {
 }
 
 /** Build the durable job-type handler map (task-call always; contradiction/synthesis/audit only
- *  with a gateway; note-quality only with the experiential store open) and the job-queue runner. */
+ *  with plane.enabled AND a gateway, THE-822; note-quality only with the experiential store open)
+ *  and the job-queue runner. */
 export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
   const jobHandlers = new Map<string, JobHandler>();
   jobHandlers.set(
@@ -136,8 +161,10 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
       queue: deps.jobQueue,
     }),
   );
-  if (deps.roles) {
-    const roles = deps.roles;
+  // THE-822: gated on plane.enabled AND roles, not roles alone — see planeGatedRoles above.
+  const gatedRoles = planeGatedRoles(deps);
+  if (gatedRoles) {
+    const roles = gatedRoles;
     jobHandlers.set("contradiction", async (job) => {
       const { vaultId, chunkId } = job.payload as { vaultId: string; chunkId: string };
       const chunk = loadChunkForContradiction(deps.db, vaultId, chunkId);
