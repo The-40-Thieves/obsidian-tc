@@ -106,8 +106,10 @@ const RECOVERY: Record<ErrorCode, string | null> = {
     "This key was already used with different arguments. Use a fresh key — reusing one with changed input is what this rejects.",
   idempotency_in_flight:
     "An earlier call with this key is still running. Wait and retry the SAME key; issuing a new one would apply the effect twice.",
+  // THE-826: names the CLI escape hatch for a client that cannot render the elicitation prompt
+  // itself (a modern client still gets the inputRequired round trip, unaffected).
   elicit_required:
-    "A human must approve this call. Re-send it with the token from the confirmation prompt; request a fresh prompt rather than reusing an old token.",
+    "A human must approve this call. A client with MCP elicitation gets an inputRequired prompt; otherwise mint one with `obsidian-tc elicit --hash <args_hash> --tool <name>` and resend. Never reuse an old token.",
   elicit_invalid:
     "The token was rejected or expired. Re-issue the original call with no token to trigger a fresh confirmation prompt.",
   overflow:

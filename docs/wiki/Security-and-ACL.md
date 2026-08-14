@@ -26,7 +26,7 @@ Global `acl.readOnly: true` short-circuits every write/delete to a `read_only_mo
 
 Destructive or large operations require confirmation. A tripped tool returns an `elicit_required` error carrying an `elicit_token`; the client re-invokes the **same tool** with that token to proceed. Tokens are **single-use, 5-minute default TTL (configurable via `elicitTtlSeconds`), bound to `(vault, tool_name, args_hash, caller)`** — a token cannot authorize a different tool or different args, and replay returns `token_already_consumed`.
 
-This is a custom token pattern, **not** MCP's native `elicitation` capability, so it works with any MCP client.
+This is a custom token pattern, **not** MCP's native `elicitation` capability, so it works with any MCP client. A client that also advertises MCP elicitation gets an `inputRequired` round trip instead; a client that does neither (e.g. Claude Code) has no way to complete the confirmation on its own — mint the token from the command line instead: `obsidian-tc elicit --hash <args_hash> --tool <tool_name>` (THE-826, see [`docs/src/content/docs/security/hitl-elicit.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/src/content/docs/security/hitl-elicit.md) for the full flow and its authorization boundary).
 
 ### Thresholds (hardcoded — not configurable)
 
