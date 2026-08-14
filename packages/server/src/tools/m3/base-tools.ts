@@ -473,7 +473,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         }> = [];
         const sortKeys: unknown[][] = [];
         for (const p of candidates) {
-          const { frontmatter, body } = parseNote(readNote(resolveVaultPath(v.root, p)).raw);
+          const { frontmatter, body } = parseNote(readNote(resolveVaultPath(v.root, p)).raw, p);
           const fm = frontmatter ?? {};
           const tags = normTags(fm);
           if (sType === "tag" && !tags.includes(String(sValue).replace(/^#/, ""))) continue;

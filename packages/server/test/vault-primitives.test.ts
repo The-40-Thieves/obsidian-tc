@@ -262,6 +262,28 @@ describe("frontmatter: parse + serialize", () => {
   it("carries the YAML parser's line/column into the thrown error, not just a generic message", () => {
     expect(() => parseNote("---\na: [1, 2\nb: bad\n---\nbody\n")).toThrow(/line 2, column 1/);
   });
+  // THE-823 (deferred half): the earlier fix restored the parser's line/column but left parseNote's
+  // ~19 non-test callers passing no path, so a boot-reconcile failure named neither the FIELD nor
+  // the FILE. path is optional so parseNote stays pure over `raw` — a caller with no file behind
+  // the buffer (parseEntityNote's round-trip check) must keep working unchanged.
+  it("names the note path in the thrown error when the caller passes one", () => {
+    expect(() => parseNote("---\na: [1, 2\nb: bad\n---\nbody\n", "notes/bad.md")).toThrow(
+      /notes\/bad\.md/,
+    );
+    expect(() => parseNote("---\na: [1, 2\nb: bad\n---\nbody\n", "notes/bad.md")).toThrow(
+      /line 2, column 1/,
+    );
+  });
+  it("a path-less caller still gets the line/column and no bogus path text", () => {
+    try {
+      parseNote("---\na: [1, 2\nb: bad\n---\nbody\n");
+      expect.unreachable("parseNote should have thrown");
+    } catch (e) {
+      const message = (e as Error).message;
+      expect(message).toMatch(/line 2, column 1/);
+      expect(message).not.toContain(' in "');
+    }
+  });
 });
 
 describe("links: extract + resolve", () => {

@@ -191,7 +191,7 @@ export function buildNoteRecord(
   stat: { mtime: number; size: number } | null,
   ts: number,
 ): NoteRecord {
-  const parsed = parseNote(raw);
+  const parsed = parseNote(raw, path);
   const fmTitle =
     parsed.frontmatter && typeof parsed.frontmatter.title === "string"
       ? parsed.frontmatter.title
@@ -208,7 +208,7 @@ export function buildNoteRecord(
   return {
     path,
     title: fmTitle ?? base,
-    tagsJson: JSON.stringify(noteTags(raw).all),
+    tagsJson: JSON.stringify(noteTags(raw, path).all),
     frontmatterJson,
     contentHash: contentHash(raw),
     mtime: stat?.mtime ?? ts,

@@ -22,7 +22,7 @@ function readableNotes(root: string, acl: FolderAcl | undefined): string[] {
     .filter((rel) => readableRel(acl, rel));
 }
 function bodyOf(root: string, rel: string): string {
-  return parseNote(readNote(resolveVaultPath(root, rel)).raw).body;
+  return parseNote(readNote(resolveVaultPath(root, rel)).raw, rel).body;
 }
 function isExternal(kind: string, target: string): boolean {
   return kind === "markdown" && /^[a-z]+:\/\//i.test(target);
@@ -412,7 +412,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         let withConfidence = 0;
         let withVerified = 0;
         for (const rel of notes) {
-          const fm = parseNote(readNote(resolveVaultPath(v.root, rel)).raw).frontmatter;
+          const fm = parseNote(readNote(resolveVaultPath(v.root, rel)).raw, rel).frontmatter;
           const top = rel.split("/")[0] ?? "";
           const folder = byFolder.get(top) ?? { scanned: 0, missing: 0 };
           folder.scanned++;

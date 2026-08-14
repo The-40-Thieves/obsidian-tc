@@ -357,7 +357,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
           actual: hash,
         });
       const eol = raw.includes("\r\n") ? "\r\n" : "\n";
-      const parsed = parseNote(raw);
+      const parsed = parseNote(raw, rel);
       const anchor = input.anchor ?? {
         type: "heading" as const,
         heading: input.target_heading as string,

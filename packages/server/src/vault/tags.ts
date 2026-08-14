@@ -75,9 +75,10 @@ export function frontmatterTags(fm: Frontmatter | null): string[] {
   return [...out];
 }
 
-/** Combined frontmatter + inline tags for a raw note. */
-export function noteTags(raw: string): NoteTags {
-  const parsed = parseNote(raw);
+/** Combined frontmatter + inline tags for a raw note. `path` is optional and diagnostic-only
+ *  (THE-823) — threaded through to parseNote so a malformed-YAML note names itself. */
+export function noteTags(raw: string, path?: string): NoteTags {
+  const parsed = parseNote(raw, path);
   const frontmatter = frontmatterTags(parsed.frontmatter);
   const inline = extractInlineTags(parsed.body);
   const all = [...new Set([...frontmatter, ...inline])].sort();
