@@ -19,6 +19,18 @@ export type CliCommand =
       ttl?: number;
       json?: boolean;
     }
+  /** THE-826: `elicit` mints a single-use HITL confirmation token bound to an args_hash an
+   *  elicit_required error returned — see cli/commands/elicit-mint.ts for the full design. No
+   *  `ttl` field, deliberately: the mint always uses the server's configured elicitTtlSeconds. */
+  | {
+      kind: "elicit-mint";
+      configPath?: string;
+      hash?: string;
+      tool?: string;
+      vault?: string;
+      caller?: string;
+      json?: boolean;
+    }
   | { kind: "version" }
   | { kind: "help" }
   | { kind: "plugin-install"; vaultPath: string }
@@ -184,6 +196,25 @@ Usage:
                                           Mint an HS256 bearer token from the config's auth block.
                                           Refuses to mint without an aud when the config binds one,
                                           or a --ttl above auth.tokenTtlSeconds (THE-658)
+  obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>] [--json]
+                                          Mint a single-use HITL confirmation token bound to the
+                                          args_hash an elicit_required error returned (THE-826) —
+                                          the route to a token for a client that does not implement
+                                          MCP elicitation (e.g. Claude Code). Authorization is
+                                          filesystem access to the SAME cache.db the live server
+                                          reads elicit_tokens from — the same trust boundary
+                                          'token mint' rests on for auth.jwtSecret. Bound to
+                                          exactly the vault, args_hash and --caller given: a token
+                                          minted for one call is refused for a different one.
+                                          Single-use (consumed atomically on redemption) and always
+                                          expires after the configured elicitTtlSeconds — there is
+                                          no --ttl flag, so this can never outlive what the live
+                                          server itself would issue. --caller defaults to "stdio",
+                                          the identity every locally-spawned MCP client presents
+                                          over the trusted stdio transport; pass --caller explicitly
+                                          to match a JWT 'sub' (the value given to
+                                          'token mint --sub') on an HTTP/jwt deployment. --vault is
+                                          required when the config lists more than one vault.
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 
@@ -258,6 +289,41 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(args.includes("--scopes") ? { scopes: args[args.indexOf("--scopes") + 1] ?? "" } : {}),
         ...(ttl !== undefined ? { ttl } : {}),
         json: args.includes("--json"),
+      };
+    }
+    // THE-826: `elicit` — mint a single-use HITL confirmation token bound to the args_hash an
+    // elicit_required error returned. --hash and --tool are required and enforced HERE (not only
+    // in planElicitMint) so a missing one exits 2 like every other usage error — the same
+    // duplication `token mint`'s --sub check documents above. No --ttl flag exists at all: the
+    // mint always uses the server's configured elicitTtlSeconds, so this parser can never even
+    // OFFER a way to mint a longer-lived token than the live server would issue.
+    if (first === "elicit") {
+      const scan = [...rest];
+      for (const f of ["--hash", "--tool", "--vault", "--caller", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const hash = flagValue(rest, "--hash");
+      const tool = flagValue(rest, "--tool");
+      const vault = flagValue(rest, "--vault");
+      const caller = flagValue(rest, "--caller");
+      if (hash === undefined) {
+        throw new CliError(
+          "elicit requires --hash (the args_hash the elicit_required error's details carried)",
+        );
+      }
+      if (tool === undefined) {
+        throw new CliError("elicit requires --tool (the tool name the confirmation is for)");
+      }
+      const configPath = flagValue(rest, "--config") ?? positional(scan);
+      return {
+        kind: "elicit-mint",
+        hash,
+        tool,
+        ...(configPath !== undefined ? { configPath } : {}),
+        ...(vault !== undefined ? { vault } : {}),
+        ...(caller !== undefined ? { caller } : {}),
+        json: rest.includes("--json"),
       };
     }
     if (first === "config") {
