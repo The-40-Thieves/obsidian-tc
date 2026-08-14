@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { isLoopbackHost } from "../net-host";
 import { AclConfigSchema, AuthConfigSchema } from "./auth-acl.schema";
+import { GatewayConfigSchema } from "./gateway.schema";
 import { EmbeddingsConfigSchema, IndexingConfigSchema } from "./indexing-embeddings.schema";
 import {
   MaintenanceConfigSchema,
@@ -74,6 +75,12 @@ export const ServerConfigObject = z.object({
   ),
   reranker: RerankerConfigSchema.optional().describe(
     "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else a graceful no-op.",
+  ),
+  // THE-832: connection config for the inference gateway itself (extract/synthesize/judge/rerank).
+  // ABSENT preserves today's behaviour exactly: falls through to OBSIDIAN_TC_GATEWAY_URL /
+  // OBSIDIAN_TC_GATEWAY_TOKEN, then to every generative seam degrading gracefully.
+  gateway: GatewayConfigSchema.optional().describe(
+    "Inference gateway connection. ABSENT falls through to OBSIDIAN_TC_GATEWAY_URL / OBSIDIAN_TC_GATEWAY_TOKEN, preserving today's behaviour exactly.",
   ),
   indexing: IndexingConfigSchema.describe("Index-on-write concurrency and backpressure."),
   retrieval: RetrievalConfigSchema.prefault({}).describe(

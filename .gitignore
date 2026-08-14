@@ -123,3 +123,10 @@ packages/server/perf-report.json
 packages/server/eval/perf/.node-parity.mjs
 packages/server/eval/perf/.node-parity.mjs.map
 packages/server/perf-node-parity.json
+
+# Linear ticket dump fetched by scripts/fetch-linear-tickets.mjs for the ticket-drift gate.
+# This repo is PUBLIC and cites bare THE-nnn ids in source comments deliberately (the gate parses
+# them), but this file is different in kind: it carries ticket TITLES and DESCRIPTIONS. Untracked
+# by habit until now, which left it one `git add -A` away from publishing the tracker's contents.
+packages/server/open-tickets.json
+open-tickets.json

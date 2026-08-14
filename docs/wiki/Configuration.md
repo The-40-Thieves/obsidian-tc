@@ -271,6 +271,13 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `experiential.gapSweep.maxQueries` | `number` | `50` |  | Upper bound on queries per sweep. The sweep draws the most recent DISTINCT logged queries from chunk_retrievals, so this caps both gateway cost and how far back a single pass reaches. |
 | `experiential.logRetrievals` | `boolean` | `true` |  | Append serve-path retrieval events (chunk id, rank, score, query text, surface) to experiential.db. Local-only telemetry feeding activation recompute and usage stats; eval runs never log. |
 
+### `gateway`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `gateway.baseUrl` | `string` | — |  | Inference gateway base URL. Takes precedence over the OBSIDIAN_TC_GATEWAY_URL environment variable when both are set — set this when a host application rewrites its own env block on restart, which would otherwise silently drop the env var and degrade every generative seam with no error. Absent falls through to the env var, then to graceful degradation. |
+| `gateway.token` | `string` | — |  | Bearer token (LiteLLM master/virtual key) for the gateway. Secret — never logged, and takes precedence over the OBSIDIAN_TC_GATEWAY_TOKEN environment variable when both are set. |
+
 ### `governor`
 
 | Key | Type | Default | Required | Description |
