@@ -12,7 +12,7 @@
 import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inWriteTransaction } from "../../db/txn";
-import type { CallerContext, ToolDefinition } from "../../mcp/registry";
+import type { ToolDefinition } from "../../mcp/registry";
 import {
   appendObservation,
   bfsGraph,
@@ -28,67 +28,18 @@ import {
   serializeObservations,
   setEntityVaultPath,
 } from "../../memory/entities";
-import { entityNotePath, materializeEntity, type RelationLink } from "../../memory/materialize";
+import { entityNotePath } from "../../memory/materialize";
 import { enforcePathAcl } from "../../vault/acl-path";
-import type { ResolvedVault } from "../../vault/registry";
 import { defineTool } from "../m1/define";
-import { type M5Deps, memoryFolderFor } from "./shared";
+import { materializeProjection, rematerialize } from "./memory-projection";
+import type { M5Deps } from "./shared";
+import { memoryFolderFor } from "./shared";
 
-/** Outgoing relations of an entity as [[link]] targets, for materialization. */
-function outgoingLinks(ctx: CallerContext, id: string): RelationLink[] {
-  return relationsForEntity(ctx.db, id)
-    .filter((r) => r.direction === "out")
-    .map((r) => ({ relationType: r.relation_type, targetName: r.other_name }));
-}
-
-/** The FILESYSTEM half of a rematerialize: regenerate an entity's .md projection from an
- *  EXPLICIT observation list, so a caller can render the state it is *about* to commit rather
- *  than the state already in SQLite (THE-572). Returns the written path, or null when the entity
- *  is not materialized. Writes no DB row — the caller persists `vault_path` itself, which is what
- *  lets that write join the caller's transaction.
- *
- *  Idempotent by construction: materializeEntity renders the whole note and writes it with
- *  writeNoteAtomic, so running it twice with the same inputs produces identical bytes. */
-function materializeProjection(
-  deps: M5Deps,
-  ctx: CallerContext,
-  v: ResolvedVault,
-  e: EntityRow,
-  observations: readonly string[],
-): string | null {
-  if (e.materialize !== 1) return null;
-  return materializeEntity({
-    root: v.root,
-    acl: ctx.acl,
-    folder: memoryFolderFor(deps, v.id),
-    id: e.id,
-    entityType: e.entity_type,
-    name: e.name,
-    observations: [...observations],
-    relations: outgoingLinks(ctx, e.id),
-    grantedScopes: ctx.grantedScopes,
-  }).vaultPath;
-}
-
-/** Regenerate an entity's .md projection from current SQLite state (no-op when the
- *  entity is not materialized). Returns the materialized path or the stored one. */
-function rematerialize(
-  deps: M5Deps,
-  ctx: CallerContext,
-  v: ResolvedVault,
-  e: EntityRow,
-  now: number,
-): string | null {
-  if (e.materialize !== 1) return e.vault_path;
-  const vaultPath = materializeProjection(
-    deps,
-    ctx,
-    v,
-    e,
-    parseObservations(e.observations),
-  ) as string;
-  setEntityVaultPath(ctx.db, e.id, vaultPath, now);
-  return vaultPath;
+/** THE-833: an entity is visible unless it's retired and the caller didn't opt in. Shared by
+ *  get_entity (single lookup + the by-name ambiguity candidates) and query_entity_graph (the BFS
+ *  result set) so "filtered by default" means the same thing in both places. */
+function isVisible(e: Pick<EntityRow, "status">, includeRetired: boolean): boolean {
+  return includeRetired || e.status !== "retired";
 }
 
 // THE-417: written from each handler's return statement. `observations` is parseObservations'
@@ -98,6 +49,7 @@ const CreateEntityOutput = z.object({
   entity_id: z.string(),
   type: z.string(),
   name: z.string(),
+  status: z.enum(["active", "retired"]),
   materialized: z.boolean(),
   vault_path: z.string().nullable(),
   created_at: z.number(),
@@ -115,6 +67,7 @@ const GetEntityOutput = z.object({
   entity_id: z.string(),
   type: z.string(),
   name: z.string(),
+  status: z.enum(["active", "retired"]),
   observations: z.array(z.string()),
   relations: z.array(EntityRelation),
   vault_path: z.string().nullable(),
@@ -142,6 +95,7 @@ const GraphNodeItem = z.object({
   entity_id: z.string(),
   type: z.string(),
   name: z.string(),
+  status: z.enum(["active", "retired"]),
   distance: z.number(),
   // bfsGraph's GraphNode.path: the hop-by-hop trail from the seed, not a vault path.
   path: z.array(z.object({ via_entity_id: z.string(), via_relation: z.string() })),
@@ -210,6 +164,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           entity_id: e.id,
           type: e.entity_type,
           name: e.name,
+          status: e.status,
           materialized: input.materialize,
           vault_path: vaultPath,
           created_at: e.created_at,
@@ -221,13 +176,14 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       name: "get_entity",
       domain: "knowledge",
       description:
-        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations.",
+        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set (THE-833).",
       inputSchema: z
         .object({
           vault: VaultId,
           entity_id: z.string().optional(),
           type: z.string().optional(),
           name: z.string().optional(),
+          include_retired: z.boolean().default(false),
         })
         .strict(),
       outputSchema: GetEntityOutput,
@@ -241,7 +197,12 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         } else if (input.type && input.name) {
           e = findEntity(ctx.db, v.id, input.type, input.name);
         } else if (input.name) {
-          const hits = findEntitiesByName(ctx.db, v.id, input.name);
+          // THE-833: a retired entity sharing a name with an active one should not count toward
+          // ambiguity when the caller hasn't opted in to see retired entities at all — filter the
+          // candidate set FIRST, the same order get_entity applies the filter to a resolved `e`.
+          const hits = findEntitiesByName(ctx.db, v.id, input.name).filter((h) =>
+            isVisible(h, input.include_retired),
+          );
           if (hits.length > 1)
             throw err.invalidInput("entity name is ambiguous; provide type", {
               name: input.name,
@@ -251,7 +212,8 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         } else {
           throw err.invalidInput("provide entity_id, or type+name, or name");
         }
-        if (!e) throw err.invalidInput("entity not found", { vault: v.id });
+        if (!e || !isVisible(e, input.include_retired))
+          throw err.invalidInput("entity not found", { vault: v.id });
         const relations = relationsForEntity(ctx.db, e.id).map((r) => ({
           target_id: r.other_id,
           target_name: r.other_name,
@@ -263,6 +225,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           entity_id: e.id,
           type: e.entity_type,
           name: e.name,
+          status: e.status,
           observations: parseObservations(e.observations),
           relations,
           vault_path: e.vault_path,
@@ -417,7 +380,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       name: "query_entity_graph",
       domain: "knowledge",
       description:
-        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered).",
+        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set (THE-833) — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -426,6 +389,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           relation_types: z.array(z.string()).optional(),
           entity_types: z.array(z.string()).optional(),
           direction: z.enum(["out", "in", "both"]).default("both"),
+          include_retired: z.boolean().default(false),
         })
         .merge(Pagination)
         .strict(),
@@ -434,14 +398,20 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const seed = getEntityById(ctx.db, input.seed_entity_id);
-        if (!seed || seed.vault_id !== v.id)
+        if (!seed || seed.vault_id !== v.id || !isVisible(seed, input.include_retired))
           throw err.invalidInput("seed entity not found", { seed_entity_id: input.seed_entity_id });
-        const nodes = bfsGraph(ctx.db, seed.id, {
+        const allNodes = bfsGraph(ctx.db, seed.id, {
           depth: input.depth,
           direction: input.direction,
           relationTypes: input.relation_types,
           entityTypes: input.entity_types,
         });
+        // THE-833: filter AFTER the walk, not during it (unlike bfsGraph's own entity_types/
+        // relation_types filters, which prune mid-traversal and so can make a downstream node
+        // unreachable through a filtered-out one). A retired node can still be a legitimate bridge
+        // — e.g. a deprecated tool [[link]]ing to its replacement — and excluding it mid-BFS would
+        // silently sever that path. Only which nodes are RETURNED is affected here.
+        const nodes = allNodes.filter((n) => isVisible(n.entity, input.include_retired));
         const limit = input.limit ?? 100;
         const start = input.cursor ? Number.parseInt(input.cursor, 10) || 0 : 0;
         const page = nodes.slice(start, start + limit);
@@ -453,6 +423,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
             entity_id: n.entity.id,
             type: n.entity.entity_type,
             name: n.entity.name,
+            status: n.entity.status,
             distance: n.distance,
             path: n.path,
           })),

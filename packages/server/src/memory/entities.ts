@@ -16,6 +16,11 @@ export function isUniqueViolation(e: unknown): boolean {
   return /UNIQUE constraint failed/i.test(msg);
 }
 
+/** THE-833: 'active' | 'retired'. Soft, reversible — a retired entity is filtered from
+ *  get_entity / query_entity_graph by default (explicit opt-in shows it) but is never deleted; the
+ *  append-only philosophy stays intact. See rename_entity in tools/m5, the reachable setter. */
+export type EntityStatus = "active" | "retired";
+
 export interface EntityRow {
   id: string;
   vault_id: string;
@@ -26,10 +31,11 @@ export interface EntityRow {
   vault_path: string | null;
   created_at: number;
   updated_at: number;
+  status: EntityStatus;
 }
 
 const ENTITY_COLS =
-  "id, vault_id, entity_type, name, observations, materialize, vault_path, created_at, updated_at";
+  "id, vault_id, entity_type, name, observations, materialize, vault_path, created_at, updated_at, status";
 
 /** Stable entity id, e.g. "ent_9f2c…". 12 random bytes = 24 hex chars. */
 export function genEntityId(): string {
@@ -143,6 +149,74 @@ export function appendObservation(
     id,
   );
   return { observationCount: parseObservations(next).length, updatedAt: now };
+}
+
+export interface EntityPatch {
+  name?: string;
+  status?: EntityStatus;
+}
+
+/** THE-833: rename_entity's data-layer half — updates `name` and/or `status` in place, keeping the
+ *  row's id (and therefore every relation pointing at it) stable. Returns the updated row, or
+ *  undefined if the id doesn't exist. Callers (tools/m5) are responsible for the natural-key
+ *  collision check and the materialized-note move; this function only touches SQLite. */
+export function updateEntity(
+  db: Database,
+  id: string,
+  patch: EntityPatch,
+  now: number,
+): EntityRow | undefined {
+  const sets: string[] = [];
+  const args: unknown[] = [];
+  if (patch.name !== undefined) {
+    sets.push("name = ?");
+    args.push(patch.name);
+  }
+  if (patch.status !== undefined) {
+    sets.push("status = ?");
+    args.push(patch.status);
+  }
+  if (sets.length === 0) return getEntityById(db, id);
+  sets.push("updated_at = ?");
+  args.push(now, id);
+  db.prepare(`UPDATE memory_entities SET ${sets.join(", ")} WHERE id = ?`).run(...args);
+  return getEntityById(db, id);
+}
+
+/** THE-833: delete_entity's data-layer half. Removes every relation touching `id` (both
+ *  directions) BEFORE the entity row itself — NOT relying on the schema's `ON DELETE CASCADE`,
+ *  because `foreign_keys` is per-connection runtime state (off by default) and the test harness's
+ *  `openMemoryDb()` never sets it; correctness here must not depend on a PRAGMA a caller forgot
+ *  (the same reasoning acl_path_sets' eviction path documents). Returns how many relation rows
+ *  were removed alongside whether the entity itself existed, so the caller can report both. */
+export function deleteEntity(
+  db: Database,
+  id: string,
+): { deleted: boolean; relationsDeleted: number } {
+  const relResult = db
+    .prepare("DELETE FROM memory_relations WHERE source_id = ? OR target_id = ?")
+    .run(id, id);
+  const entResult = db.prepare("DELETE FROM memory_entities WHERE id = ?").run(id);
+  return {
+    deleted: (entResult.changes as number) > 0,
+    relationsDeleted: relResult.changes as number,
+  };
+}
+
+/** Remove one typed relation. The inverse of `insertRelation`; `existed` distinguishes an actual
+ *  removal from a no-op (the edge was already gone). */
+export function deleteRelation(
+  db: Database,
+  sourceId: string,
+  targetId: string,
+  relationType: string,
+): { existed: boolean } {
+  const r = db
+    .prepare(
+      "DELETE FROM memory_relations WHERE source_id = ? AND target_id = ? AND relation_type = ?",
+    )
+    .run(sourceId, targetId, relationType);
+  return { existed: (r.changes as number) > 0 };
 }
 
 /** Insert a typed relation. Idempotent on the (source,target,type) composite PK;

@@ -52,11 +52,13 @@ describe("renderEntityNote", () => {
       id: "ent_1",
       entityType: "person",
       name: "Ada",
+      status: "active",
       observations: ["mathematician"],
       relations: [{ relationType: "collaborated_with", targetName: "Babbage" }],
     });
     expect(out).toContain("obsidian_tc_id: ent_1");
     expect(out).toContain("entity_type: person");
+    expect(out).toContain("status: active");
     expect(out).toContain("# Ada");
     expect(out).toContain("- mathematician");
     expect(out).toContain("- collaborated_with [[Babbage]]");
@@ -66,10 +68,26 @@ describe("renderEntityNote", () => {
         id: "ent_1",
         entityType: "person",
         name: "Ada",
+        status: "active",
         observations: ["mathematician"],
         relations: [{ relationType: "collaborated_with", targetName: "Babbage" }],
       }),
     ).toBe(out);
+  });
+
+  // THE-833: status is owned frontmatter (regenerated from SQLite, like entity_type), so it
+  // renders and round-trips through parseEntityNote the same way.
+  it("renders status: retired and round-trips it", () => {
+    const out = renderEntityNote({
+      id: "ent_1",
+      entityType: "person",
+      name: "Ada",
+      status: "retired",
+      observations: [],
+      relations: [],
+    });
+    expect(out).toContain("status: retired");
+    expect(parseEntityNote(out).status).toBe("retired");
   });
 
   it("sorts relations deterministically regardless of input order", () => {
@@ -77,6 +95,7 @@ describe("renderEntityNote", () => {
       id: "e",
       entityType: "t",
       name: "N",
+      status: "active",
       observations: [],
       relations: [
         { relationType: "r", targetName: "Z" },
@@ -87,6 +106,7 @@ describe("renderEntityNote", () => {
       id: "e",
       entityType: "t",
       name: "N",
+      status: "active",
       observations: [],
       relations: [
         { relationType: "r", targetName: "A" },
@@ -109,6 +129,7 @@ describe("materializeEntity", () => {
         id: "ent_1",
         entityType: "person",
         name: "Ada",
+        status: "active",
         observations: ["mathematician"],
         relations: [{ relationType: "knows", targetName: "Babbage" }],
       } as const;
@@ -139,6 +160,7 @@ describe("materializeEntity", () => {
         id: "ent_1",
         entityType: "person",
         name: "Ada",
+        status: "active",
         observations: ["mathematician"],
         relations: [{ relationType: "knows", targetName: "Babbage" }],
       });
@@ -172,6 +194,7 @@ describe("materializeEntity", () => {
           id: "ent_1",
           entityType: "person",
           name: "Ada",
+          status: "active",
           observations: [],
           relations: [],
         }),

@@ -1,6 +1,6 @@
 # Tool Reference
 
-**159 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
+**162 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
 
 Every tool carries four annotations enforced by the dispatch pipeline: **acl** (`read` / `write` / `delete` / `execute` / `admin`), **hitl** (`never` / `required` / conditional), **idem** (`pure` / `natural` / `keyed` / `non-idem`), and **ratelimit** (`read` / `write` / `bulk`). See **[[Security and ACL]]**.
 
@@ -77,7 +77,7 @@ Every error also carries a **`recovery`** string: bounded next-step guidance for
 _Auto-generated from the tool registry — the exhaustive, always-current list. Run `bun run docgen:render`; do not hand-edit between the markers._
 
 <!-- BEGIN GENERATED: tools -->
-_159 tools. Access is a coarse hint; the required scopes are authoritative._
+_162 tools. Access is a coarse hint; the required scopes are authoritative._
 
 | Tool | Access | Scopes | Description |
 |---|---|---|---|
@@ -103,6 +103,7 @@ _159 tools. Access is a coarse hint; the required scopes are authoritative._
 | `create_excalidraw` | write | `write:excalidraw` | Create a new Excalidraw note via the companion plugin. Overwriting an existing drawing requires confirmation. |
 | `create_periodic_note` | write | `write:periodic` | Create the periodic note for a period + date using the configured (or overridden) template. Fails if it already exists. Set expand_template=true to expand the template through Templater (requires write:templater; degrades to a verbatim copy when the companion/plugin is unavailable). |
 | `delete_attachment` | destructive | `delete:attachments` | Delete an attachment (to the vault's .trash mirror, or permanently). Destructive — requires confirmation. Reports notes that still reference it. |
+| `delete_entity` | destructive | `delete:memory` | Delete a memory entity outright — the escape hatch for 'created it by accident', NOT the primary retirement path (use rename_entity's status param to retire instead; that stays reversible, this doesn't). Destructive; requires confirmation. Dependency-aware like `forget`: refuses when the entity has any relation, incoming or outgoing, unless cascade is set — in which case those relations are removed too and every OTHER materialized entity that referenced this one has its note re-materialized so its [[links]] stop dangling. The entity's own note is trashed (recoverable) unless permanent is set. |
 | `delete_note` | destructive | `delete:notes` | Delete a note (to the vault's .trash mirror, or permanently). Destructive — requires confirmation. restore_note reads its undo from a snapshot, which is captured only when the server's snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so a deleted note has a restore_note path back unless snapshots have been explicitly disabled. |
 | `diagnose_retrieval` | read | `read:notes` | Explain why a specific note was or was not returned for a query. Re-runs the retrieval pipeline with per-stage tracing and reports, for that one note, where it was present, its score and rank where a stage produces them, and the first stage that dropped it. Read-only and non-mutating; reports nothing about paths the caller cannot read. |
 | `end_session` | write | `write:workspace` | Finalize a workspace session, appending a session_end record to its JSONL trace. |
@@ -123,7 +124,7 @@ _159 tools. Access is a coarse hint; the required scopes are authoritative._
 | `generate_uri` | read | — | Build an obsidian:// URI for a target (open/search/new/daily/command/hookmark/advanced). Pure string builder — touches no vault state, requires no scope. `vault_name` is the Obsidian DISPLAY NAME (not a vault id) and is used verbatim. |
 | `get_attachment` | read | `read:attachments` | Read an attachment's bytes (base64) plus MIME type and size. Fails with invalid_input when the file exceeds max_bytes. |
 | `get_backlinks` | read | `read:notes` | Find every note that links to the given note, with source line/column. |
-| `get_entity` | read | `read:memory` | Read a memory entity by id, by type+name, or by unique name, with its observations and relations. |
+| `get_entity` | read | `read:memory` | Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set (THE-833). |
 | `get_index_status` | read | — | Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, and chunks_upserted from the last index_vault call. Read-only — self-diagnose before spending on an expensive search. |
 | `get_link_strength` | read | `read:notes` | Score the connection strength (0-1) between two notes from the link graph: direct edge, co-citation (shared inbound sources), shared outbound neighbors, and undirected graph distance. |
 | `get_metrics` | write | `admin:metrics` | Snapshot Prometheus-style metrics as structured JSON: per-(vault,tool,status) invocation counters and rate-limit-hit counters aggregated from the local event_log + live limiter, plus uptime/registered-vault/registered-tool gauges. Optionally filter to one vault. |
@@ -186,7 +187,7 @@ _159 tools. Access is a coarse hint; the required scopes are authoritative._
 | `query_base` | read | `read:bases` | Execute a base view and return resolved rows. Filters/formulas may use obsidian-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset, THE-281); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter. |
 | `query_canvas` | read | `read:canvas` | Find nodes matching criteria across one or more .canvas files (defaults to all canvases under the vault root). |
 | `query_datacore` | read | `read:datacore` | Run a Datacore query using its own query language (e.g. `@page and #tag`, `@task and $completed = false`) and return matching pages/blocks with their path, name, tags, types, and frontmatter fields. Datacore is Dataview's successor; use search_dql for classic Dataview DQL. |
-| `query_entity_graph` | read | `read:memory` | Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). |
+| `query_entity_graph` | read | `read:memory` | Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set (THE-833) — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered. |
 | `read_base` | read | `read:bases` | Read a .base file's structure (source, views, formulas). |
 | `read_canvas` | read | `read:canvas` | Parse a .canvas file into its nodes and edges (JSONCanvas spec). |
 | `read_excalidraw` | read | `read:excalidraw` | Read an Excalidraw drawing's raw elements and/or extracted text. source=plugin (default) proxies the live companion plugin; source=filesystem parses the .excalidraw / .excalidraw.md file on disk (works headlessly, no plugin); source=auto tries the plugin and falls back to the filesystem when it is unavailable (THE-202). |
@@ -205,6 +206,7 @@ _159 tools. Access is a coarse hint; the required scopes are authoritative._
 | `remotely_save_trigger` | write | `write:remotely-save` | Kick off a Remotely Save sync run (fire-and-poll: check remotely_save_status afterwards), via the companion bridge. |
 | `remove_bookmark` | destructive | `delete:bookmarks` | Remove every bookmark matching the criteria (recursively, or within a named group). Returns the number removed. |
 | `remove_tag` | write | `write:notes` | Remove a tag from a note's frontmatter, its body, or both (exact, not hierarchical). |
+| `rename_entity` | write | `write:memory` | Rename a memory entity and/or change its lifecycle status (active/retired). At least one of new_name/status is required. THE-833: this is the reachable path for retiring an entity — get_entity and query_entity_graph filter status:retired out by default. Renaming moves the materialized note (preserving any frontmatter Obsidian or a person added directly to the file) and re-materializes every OTHER materialized entity that has a relation TO this one, so their [[links]] keep resolving under the new name. Does not rewrite free-text mentions of the old name elsewhere in the vault — only entities with a direct graph edge to this one are touched. |
 | `reset_vault_cache` | destructive | `admin:vault` | Drop the SQLite cache for a vault (chunks, embeddings, idempotency keys; optionally the event log). Destructive — requires confirmation. |
 | `resolve_daily_note` | read | `read:daily-notes` | Resolve the daily note for a date (default today) via the core Daily Notes plugin's configured folder + format. Returns whether it exists and its path — no path guessing. Read-only; does not create. |
 | `restore_note` | write | `write:notes` | Restore a note to a prior snapshot's content. Destructive — overwrites the current note (whose current state is itself snapshotted first when snapshots are enabled, so the restore is reversible) and requires confirmation. |
@@ -226,6 +228,7 @@ _159 tools. Access is a coarse hint; the required scopes are authoritative._
 | `suggest_links` | read | `read:notes` | Suggest notes to link a given note to, from the link graph (co-citation with the note's inbound sources + 2-hop outbound neighbors), excluding notes it already links to. Graph-based (no embeddings). |
 | `tasks_filter` | read | `read:tasks` | Run a Tasks-plugin filter expression (its DSL) via the companion bridge, with optional grouping/sorting. Requires the Tasks plugin; if it is unavailable, use list_tasks for native status/priority/tag/due filtering. |
 | `trigger_quickadd` | write | `execute:quickadd` | Fire a QuickAdd action by name. Always requires human confirmation (execute:quickadd is a HITL floor): actions can create or modify notes broadly and run macros. |
+| `unlink_entities` | write | `write:memory` | Remove a typed relation between two memory entities — the inverse of link_entities. Removes only the named (source, target, relation_type) edge and leaves every other relation intact; re-materializes the source's [[links]]. A no-op (removed: false) when the relation didn't exist. |
 | `update_base` | write | `write:bases` | Patch a .base file's source/filters/properties/views/formulas. Unknown keys are preserved. Changing `source` (deprecated alias) or the note-set-defining top-level `filters` requires confirmation. |
 | `update_canvas` | write | `write:canvas` | Patch a .canvas: add/remove/update nodes and edges by id. Unknown fields are preserved. Removing more than 10 nodes requires confirmation. |
 | `update_excalidraw` | write | `write:excalidraw` | Add, remove, or update elements in an existing Excalidraw note via the companion plugin. |
