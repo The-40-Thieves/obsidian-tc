@@ -229,7 +229,7 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "retention": 10
   },
   "plane": {
-    "enabled": true,
+    "enabled": false,
     "intervalMinutes": 240,
     "gatewayMaxAttempts": 6,
     "gatewayTimeoutMs": 300000,
@@ -410,7 +410,7 @@ returns `rate_limit` with `retry_after_ms`.
 | Field | Default | What it does |
 | --- | --- | --- |
 | `maintenance` | enabled, every 60 min | `cache.db` sweep: expired idempotency/elicit rows, event_log retention, `PRAGMA optimize`. |
-| `plane` | enabled, every 240 min | Ambient sleep-time consolidation (synthesis + audit jobs). Only does work when the [inference gateway](/configuration/inference-gateway/) is configured. |
+| `plane` | **disabled** (opt-in, THE-825), every 240 min | Ambient sleep-time consolidation (synthesis + audit jobs). Only does work when the [inference gateway](/configuration/inference-gateway/) is configured — set `plane.enabled: true` to run it. A gateway-configured deployment that never sets this key gets a boot-time notice explaining how to turn it on. |
 
 ## `plur` *(optional)*
 

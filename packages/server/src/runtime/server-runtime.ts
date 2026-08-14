@@ -55,6 +55,7 @@ import {
   wireIndexResources,
 } from "./indexing-wiring";
 import { createObservability } from "./observability";
+import { formatPlaneOptInNotice } from "./plane-opt-in-notice";
 import {
   createJobQueue,
   createOnIndexedHook,
@@ -263,6 +264,11 @@ export async function buildServerRuntime(
    *  `wireRuntimeCore` call below). Never invoked on the happy path, and never passed by production
    *  callers (cli.ts). */
   onCleanup?: (name: string) => void,
+  /** THE-825: whether the raw config file explicitly set `plane.enabled` (vs. absent and
+   *  defaulted). Governs `start()`'s boot-time opt-in notice (plane-opt-in-notice.ts). Defaults to
+   *  `true` ("assume explicit") so non-`run_serve` callers (rerun.ts, tests) never nag by accident
+   *  — cli.ts's `run_serve` is the one production caller and passes the real computed value. */
+  planeEnabledExplicit = true,
 ): Promise<ServerRuntime> {
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults must contain at least one vault");
@@ -390,6 +396,8 @@ export async function buildServerRuntime(
         jobRunner: Awaited<ReturnType<typeof wireJobHandlers>>["jobRunner"];
       }
     | undefined;
+  // THE-825: gateway resolved (roles !== null)? Read by start()'s plane opt-in boot notice.
+  let gatewayConfigured = false;
 
   try {
     // #14: durable contradiction jobs. Constructed here (ahead of its natural "plane" home) so
@@ -417,6 +425,7 @@ export async function buildServerRuntime(
       config.securityProfile,
       config.gateway,
     );
+    gatewayConfigured = roles !== null;
 
     // W-INGEST onIndexed hook -> contradiction-check enqueue.
     // THE-822: plane.enabled gates this alongside roles — a disabled plane must not enqueue
@@ -671,6 +680,11 @@ export async function buildServerRuntime(
         );
       }
     }
+
+    // THE-825: plane opt-in boot notice — silent by default is the failure mode this closes.
+    // See plane-opt-in-notice.ts.
+    const notice = formatPlaneOptInNotice({ gatewayConfigured, planeEnabledExplicit });
+    if (notice) process.stderr.write(notice);
 
     // THE-288: honor transports.stdio. Default (true) connects the stdio MCP transport; when
     // false the server serves HTTP-only (the listening socket keeps the process alive), and if

@@ -240,3 +240,29 @@ describe("scheduler config (THE-458 item 6)", () => {
     expect(ServerConfigSchema.safeParse({ vaults: [{ id: "m", path: "/v" }] }).success).toBe(true);
   });
 });
+
+// THE-825 / GH #786: `plane.enabled` flipped from defaulting `true` to defaulting `false` --
+// ambient sleep-time LLM work over the whole vault must be opt-in, not something a gateway
+// configured for an unrelated feature (e.g. reflect) silently implies consent to.
+describe("plane.enabled default (THE-825)", () => {
+  it("absent plane.enabled resolves to false", () => {
+    const c = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }] });
+    expect(c.plane.enabled).toBe(false);
+  });
+
+  it("explicit plane.enabled: true still resolves to true (no regression to the opt-in path)", () => {
+    const c = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      plane: { enabled: true },
+    });
+    expect(c.plane.enabled).toBe(true);
+  });
+
+  it("explicit plane.enabled: false resolves to false, same as the default", () => {
+    const c = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      plane: { enabled: false },
+    });
+    expect(c.plane.enabled).toBe(false);
+  });
+});

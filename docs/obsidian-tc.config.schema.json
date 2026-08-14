@@ -1669,8 +1669,8 @@
       "type": "object",
       "properties": {
         "enabled": {
-          "default": true,
-          "description": "Run ambient sleep-time consolidation (synthesis and audit jobs). Only meaningful when the inference gateway roles are configured.",
+          "default": false,
+          "description": "Run ambient sleep-time consolidation (synthesis and audit jobs). Only meaningful when the inference gateway roles are configured. Opt-in (THE-825): a deployment with a gateway configured and this key unset gets a boot-time notice explaining how to turn it on.",
           "type": "boolean"
         },
         "intervalMinutes": {

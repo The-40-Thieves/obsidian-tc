@@ -36,14 +36,16 @@ import { run_reflect } from "./cli/commands/reflect";
 import { run_rerun } from "./cli/commands/rerun";
 import { run_token_mint } from "./cli/commands/token-mint";
 import { run_version } from "./cli/commands/version";
-import { type Cmd, resolveOrUsageExit } from "./cli/shared";
+import { type Cmd, resolveOrUsageExitWithProvenance } from "./cli/shared";
 import { buildServerRuntime } from "./runtime/server-runtime";
 import { installShutdownSignals } from "./runtime/shutdown";
 
 async function run_serve(cmd: Cmd<"serve">): Promise<void> {
-  const config = resolveOrUsageExit(cmd.input);
+  // THE-825: planeEnabledExplicit gates the boot-time opt-in notice (server-runtime.ts's start()) —
+  // whether the raw config file stated `plane.enabled` at all, not merely its resolved value.
+  const { config, planeEnabledExplicit } = resolveOrUsageExitWithProvenance(cmd.input);
   const configPath = cmd.input ?? process.env.OBSIDIAN_TC_CONFIG;
-  const runtime = await buildServerRuntime(config, configPath);
+  const runtime = await buildServerRuntime(config, configPath, undefined, planeEnabledExplicit);
   installShutdownSignals(runtime);
   await runtime.start();
 }

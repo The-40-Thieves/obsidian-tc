@@ -108,10 +108,23 @@ obsidian-tc never changes:
 ## What wakes up
 
 With the gateway live: `reflect` synthesis and `mode: "challenge"`,
-`knowledge_challenge` (red-team against decision history), the 4-hour `plane`
-sleep-time consolidation, gateway-gated preference extraction, and
-citation-inference stage 2. The sleep-time half also runs offline via
-`obsidian-tc reflect` (CLI), which gates on the same env vars.
+`knowledge_challenge` (red-team against decision history), gateway-gated
+preference extraction, and citation-inference stage 2.
+
+**The 4-hour `plane` sleep-time consolidation is the one exception — it is
+opt-in (THE-825), separate from the gateway itself.** A gateway alone is not
+consent to unattended, whole-vault LLM calls, so `plane.enabled` also defaults
+to `false` and must be set explicitly:
+
+```json
+"plane": { "enabled": true }
+```
+
+A deployment that has a gateway configured and never set this key gets a
+one-line notice on the server's stderr at boot, naming exactly this fix. The
+sleep-time half also runs offline via `obsidian-tc reflect` (CLI), which gates
+on the same env vars but not on `plane.enabled` — that flag only gates the
+scheduled/ambient path.
 
 The **episode-eligibility evaluator is deliberately not on this list.** It used
 to consult the `judge` role, and no longer does: measurement showed the judge's

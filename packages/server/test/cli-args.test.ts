@@ -7,6 +7,7 @@ import {
   parseCliArgs,
   redactConfig,
   resolveServeConfig,
+  resolveServeConfigWithProvenance,
 } from "../src/cli/args";
 import { rmTemp } from "./tmp";
 
@@ -164,6 +165,51 @@ describe("resolveServeConfig / configFromVaultPath", () => {
     const cfg = configFromVaultPath(dir);
     expect(cfg.auth.mode).toBe("none");
     expect(cfg.governor.maxResponseBytes).toBeGreaterThan(0);
+  });
+});
+
+// THE-825: resolveServeConfigWithProvenance is the one substantive implementation --
+// resolveServeConfig above is a thin wrapper over it -- so its provenance flag needs its own
+// coverage of the same three resolution paths (directory / file-without-key / file-with-key).
+describe("resolveServeConfigWithProvenance (THE-825)", () => {
+  it("a directory (zero-config) is never explicit -- there is no file to have set it", () => {
+    const dir = tmpDir("otc-vault-prov-");
+    const { config, planeEnabledExplicit } = resolveServeConfigWithProvenance(dir);
+    expect(config.plane.enabled).toBe(false);
+    expect(planeEnabledExplicit).toBe(false);
+  });
+
+  it("a config file that never mentions plane is not explicit", () => {
+    const dir = tmpDir("otc-cfg-prov-absent-");
+    const file = join(dir, "c.json");
+    writeFileSync(file, JSON.stringify({ vaults: [{ id: "v1", path: dir }] }));
+    const { config, planeEnabledExplicit } = resolveServeConfigWithProvenance(file);
+    expect(config.plane.enabled).toBe(false);
+    expect(planeEnabledExplicit).toBe(false);
+  });
+
+  it("a config file that sets plane.enabled: false IS explicit", () => {
+    const dir = tmpDir("otc-cfg-prov-false-");
+    const file = join(dir, "c.json");
+    writeFileSync(
+      file,
+      JSON.stringify({ vaults: [{ id: "v1", path: dir }], plane: { enabled: false } }),
+    );
+    const { config, planeEnabledExplicit } = resolveServeConfigWithProvenance(file);
+    expect(config.plane.enabled).toBe(false);
+    expect(planeEnabledExplicit).toBe(true);
+  });
+
+  it("a config file that sets plane.enabled: true IS explicit, and resolves true", () => {
+    const dir = tmpDir("otc-cfg-prov-true-");
+    const file = join(dir, "c.json");
+    writeFileSync(
+      file,
+      JSON.stringify({ vaults: [{ id: "v1", path: dir }], plane: { enabled: true } }),
+    );
+    const { config, planeEnabledExplicit } = resolveServeConfigWithProvenance(file);
+    expect(config.plane.enabled).toBe(true);
+    expect(planeEnabledExplicit).toBe(true);
   });
 });
 

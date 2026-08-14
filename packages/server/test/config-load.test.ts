@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config/load";
+import { isPlaneEnabledExplicit, loadConfig } from "../src/config/load";
 import { rmTemp } from "./tmp";
 
 let dir: string;
@@ -50,5 +50,32 @@ describe("loadConfig", () => {
       "utf8",
     );
     expect(loadConfig(p).vaults[0]?.id).toBe("v1");
+  });
+});
+
+// THE-825: `isPlaneEnabledExplicit` is the signal that distinguishes "the raw config never
+// mentioned plane.enabled" (defaulted) from "the raw config set plane.enabled: false on purpose"
+// (deliberate opt-out) -- the two are indistinguishable once ServerConfigSchema.parse has run.
+describe("isPlaneEnabledExplicit (THE-825)", () => {
+  it("false when the raw config has no plane block at all", () => {
+    expect(isPlaneEnabledExplicit({ vaults: [] })).toBe(false);
+  });
+
+  it("false when plane is present but enabled is not", () => {
+    expect(isPlaneEnabledExplicit({ plane: { intervalMinutes: 120 } })).toBe(false);
+  });
+
+  it("true when the raw config explicitly set plane.enabled: false", () => {
+    expect(isPlaneEnabledExplicit({ plane: { enabled: false } })).toBe(true);
+  });
+
+  it("true when the raw config explicitly set plane.enabled: true", () => {
+    expect(isPlaneEnabledExplicit({ plane: { enabled: true } })).toBe(true);
+  });
+
+  it("false when plane is present but not an object (malformed, schema will reject it later)", () => {
+    expect(isPlaneEnabledExplicit({ plane: "nope" })).toBe(false);
+    expect(isPlaneEnabledExplicit({ plane: null })).toBe(false);
+    expect(isPlaneEnabledExplicit({ plane: ["enabled"] })).toBe(false);
   });
 });

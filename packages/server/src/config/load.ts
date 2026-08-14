@@ -42,6 +42,27 @@ export function applyEnvOverlays(
   return raw;
 }
 
+/**
+ * THE-825: whether `plane.enabled` was set explicitly in the RAW (pre-default, pre-validation)
+ * config object, as opposed to being absent and defaulted by Zod's `.default(false)`. The two are
+ * indistinguishable once `ServerConfigSchema.parse` has run -- an absent key and an explicit
+ * `false` both resolve to `plane.enabled === false` -- so this must read the object BEFORE that
+ * parse, the same raw object `finalizeConfig` is given. Neither the env overlay nor the security
+ * profile touches `plane` (see applyEnvOverlays / security-profile.ts's HARDENED_BASE), so the raw
+ * file object alone is the complete answer -- no precedence chain to resolve, unlike explain.ts.
+ */
+export function isPlaneEnabledExplicit(raw: Record<string, unknown>): boolean {
+  const plane = raw.plane;
+  return typeof plane === "object" && plane !== null && !Array.isArray(plane) && "enabled" in plane;
+}
+
+/** Parse a config file's raw JSON (BOM-stripped, THE-185), before any overlay or schema default
+ *  is applied. Exported so a caller can inspect what the file itself said -- e.g.
+ *  `isPlaneEnabledExplicit` -- without re-implementing this read. */
+export function readConfigFile(path: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as Record<string, unknown>;
+}
+
 export function finalizeConfig(
   raw: Record<string, unknown>,
   env: Record<string, string | undefined> = process.env,
@@ -65,10 +86,5 @@ export function finalizeConfig(
  * supplied via OBSIDIAN_TC_JWT_SECRET to keep it out of the file on disk.
  */
 export function loadConfig(path: string): ServerConfig {
-  // Strip a leading UTF-8 BOM (e.g. PowerShell `Set-Content -Encoding utf8`) before parse (THE-185).
-  const raw = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as Record<
-    string,
-    unknown
-  >;
-  return finalizeConfig(raw);
+  return finalizeConfig(readConfigFile(path));
 }

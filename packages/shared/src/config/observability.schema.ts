@@ -233,13 +233,22 @@ export const SchedulerConfigSchema = z
 // scheduled pass AND the per-index-write contradiction enqueue AND the contradiction/synthesis/
 // audit job handlers — every plane-scoped consumer of roles in plane-wiring.ts. It does NOT gate
 // `roles` itself, which stays live for other tools (e.g. reflect) regardless of this flag.
+//
+// THE-825 / GH #786: default flipped true -> false. With ANY inference gateway configured, a
+// fresh install ran ambient synthesis/audit/contradiction-judging LLM calls across the WHOLE vault
+// unless the operator already knew to turn this off -- and a gateway is commonly configured for an
+// unrelated feature (e.g. reflect), which is not consent to unattended whole-vault model calls over
+// private content. Ambient consolidation is now opt-in. Because the failure mode of this flip is
+// silent (the plane just stops), server-runtime.ts's boot path (plane-opt-in-notice.ts) emits a
+// loud, actionable stderr line whenever a gateway IS configured and `plane.enabled` was left
+// unset in the raw config -- but never when it was set explicitly, including an explicit `false`.
 export const PlaneConfigSchema = z
   .object({
     enabled: z
       .boolean()
-      .default(true)
+      .default(false)
       .describe(
-        "Run ambient sleep-time consolidation (synthesis and audit jobs). Only meaningful when the inference gateway roles are configured.",
+        "Run ambient sleep-time consolidation (synthesis and audit jobs). Only meaningful when the inference gateway roles are configured. Opt-in (THE-825): a deployment with a gateway configured and this key unset gets a boot-time notice explaining how to turn it on.",
       ),
     intervalMinutes: z
       .number()
