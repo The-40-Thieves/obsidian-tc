@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { finalizeConfig, loadConfig } from "../config/load";
+import { finalizeConfig, isPlaneEnabledExplicit, readConfigFile } from "../config/load";
 
 export type CliCommand =
   | { kind: "serve"; input?: string }
@@ -683,11 +683,20 @@ export function configFromVaultPath(dir: string): ServerConfig {
   return finalizeConfig({ vaults: [{ id: "main", path: resolve(dir) }] });
 }
 
+/** THE-825: a resolved serve config paired with whether `plane.enabled` was set explicitly in the
+ *  raw file (as opposed to being absent and defaulted) — see `resolveServeConfigWithProvenance`. */
+export interface ResolvedServeConfig {
+  config: ServerConfig;
+  planeEnabledExplicit: boolean;
+}
+
 /**
- * Resolve a serve target. A directory boots zero-config (a single vault "main");
- * a file is loaded as a config; absent falls back to OBSIDIAN_TC_CONFIG.
+ * Resolve a serve target, same rule as `resolveServeConfig` below, but also reports whether
+ * `plane.enabled` was explicit in the raw file. Zero-config (a vault directory) has no file, so is
+ * never explicit. The one substantive implementation — `resolveServeConfig` is a thin wrapper —
+ * so the directory-vs-file resolution rule exists in exactly one place.
  */
-export function resolveServeConfig(input?: string): ServerConfig {
+export function resolveServeConfigWithProvenance(input?: string): ResolvedServeConfig {
   const target = input ?? process.env.OBSIDIAN_TC_CONFIG;
   if (!target) {
     throw new CliError(
@@ -700,7 +709,19 @@ export function resolveServeConfig(input?: string): ServerConfig {
   } catch {
     throw new CliError(`no such vault folder or config file: ${target}`);
   }
-  return stat.isDirectory() ? configFromVaultPath(target) : loadConfig(target);
+  if (stat.isDirectory()) {
+    return { config: configFromVaultPath(target), planeEnabledExplicit: false };
+  }
+  const raw = readConfigFile(target);
+  return { config: finalizeConfig(raw), planeEnabledExplicit: isPlaneEnabledExplicit(raw) };
+}
+
+/**
+ * Resolve a serve target. A directory boots zero-config (a single vault "main");
+ * a file is loaded as a config; absent falls back to OBSIDIAN_TC_CONFIG.
+ */
+export function resolveServeConfig(input?: string): ServerConfig {
+  return resolveServeConfigWithProvenance(input).config;
 }
 
 // Field-name suffixes whose string values are masked in `config show`. A bare `key$` suffix

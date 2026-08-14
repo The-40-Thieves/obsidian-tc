@@ -6,6 +6,31 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### BREAKING
+
+- **`plane.enabled` now defaults to `false` (was `true`) — ambient sleep-time consolidation is
+  opt-in (THE-825, GH #786).** `plane.enabled` gates the scheduled synthesis/audit passes and the
+  per-index-write contradiction judging — every unattended LLM call this server makes over vault
+  content. It is inert without an inference gateway configured, so this only changes behaviour for
+  **deployments that have a gateway configured (`OBSIDIAN_TC_GATEWAY_URL` or `gateway.baseUrl`)
+  and never set `plane.enabled` explicitly.** That is exactly the population that must not be
+  switched off silently: a gateway is commonly wired up for an unrelated feature (`reflect`), and
+  configuring it is not consent to unattended, whole-vault model calls over what may be private
+  content. The reporting operator's vault held personal health and psychological material with no
+  ACL restricting it.
+
+  **Affected:** a gateway-configured deployment whose config never mentions `plane.enabled` now
+  runs with the plane off, where it previously ran with it on.
+  **Not affected:** any deployment that already set `plane.enabled` (`true` or `false`) explicitly,
+  and any deployment with no gateway configured (the setting was already inert there).
+  **Fix:** add `"plane": { "enabled": true }` to `obsidian-tc.config.json` to restore the previous
+  behaviour. A deployment in the affected population gets a one-line notice on the server's stderr
+  at boot naming this exact fix — the flip is loud by design, specifically so "why did
+  consolidation stop" does not become a silent support path.
+
+  `reflect` (both the tool and the `obsidian-tc reflect` CLI) and `knowledge_challenge` are
+  **unaffected** — they read the gateway directly and were never gated by `plane.enabled`.
+
 ### Fixed
 
 - **The MCP error `content[0].text` block now names the offending field, not just the error code

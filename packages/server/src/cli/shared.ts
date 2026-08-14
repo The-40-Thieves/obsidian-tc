@@ -1,7 +1,13 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../db/migration-manifest";
 import { embeddedSql } from "../db/migrations-embedded";
-import { type parseCliArgs, resolveServeConfig, USAGE } from "./args";
+import {
+  type parseCliArgs,
+  type ResolvedServeConfig,
+  resolveServeConfig,
+  resolveServeConfigWithProvenance,
+  USAGE,
+} from "./args";
 
 // The experiential.db chain, applied by every entry point that opens the store (serve +
 // activation-recompute) so they can never diverge on schema. See migration-manifest.ts for the
@@ -18,6 +24,17 @@ export type Cmd<K extends string> = Extract<ReturnType<typeof parseCliArgs>, { k
 export function resolveOrUsageExit(input?: string): ServerConfig {
   try {
     return resolveServeConfig(input);
+  } catch (e) {
+    process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
+    process.exit(2);
+  }
+}
+
+/** THE-825: same as `resolveOrUsageExit`, but also reports whether `plane.enabled` was explicit
+ *  in the raw config — `run_serve` (cli.ts) needs this to gate the boot opt-in notice. */
+export function resolveOrUsageExitWithProvenance(input?: string): ResolvedServeConfig {
+  try {
+    return resolveServeConfigWithProvenance(input);
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
     process.exit(2);

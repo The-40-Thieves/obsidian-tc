@@ -135,8 +135,13 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // THE-832: added the root `gateway` block (baseUrl/token) so the inference gateway can be set in
 // obsidian-tc.config.json instead of only OBSIDIAN_TC_GATEWAY_URL / _TOKEN — see
 // packages/shared/src/config/gateway.schema.ts.
+// THE-825 (BREAKING, GH #786): rebaselined deliberately. `plane.enabled`'s default moved
+// `true` -> `false` and its description now states the key is opt-in — ambient sleep-time LLM
+// work over the whole vault must not run just because a gateway was configured for an unrelated
+// feature (e.g. reflect). No key, type or constraint moved; only the default value and the
+// description text on plane.enabled.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "4ac335be5e44c6b1fa04a104fc21822b095fac1e7cfd35e1b8da785ef1cb15b1";
+  "f6cfcf0a407a8054b858b09568301924f67c0402a61164269a69610eb22582cc";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
