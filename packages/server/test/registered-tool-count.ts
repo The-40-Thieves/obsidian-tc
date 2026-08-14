@@ -12,4 +12,4 @@
 // one line: scripts/check-version-coherence.mjs reads it with a regex to derive the tool count it
 // holds the docs to. That gate hard-fails if it cannot find the declaration, so a rename or a
 // computed value breaks it loudly rather than silently reverting to an unchecked default.
-export const REGISTERED_TOOL_COUNT = 159;
+export const REGISTERED_TOOL_COUNT = 162;

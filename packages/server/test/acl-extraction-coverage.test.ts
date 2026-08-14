@@ -65,6 +65,14 @@ const EXEMPT_NO_PATH = new Set<string>([
   "create_entity", // materializes <memoryFolder>/<type>/<name>.md; handler-side grantedScopes
   "add_observation", // appends to a computed entity note / entity DB; handler-side grantedScopes
   "link_entities", // updates computed entity notes / entity DB; handler-side grantedScopes
+  // THE-833: same computed-path family as create_entity/add_observation/link_entities above —
+  // the note path is <memoryFolder>/<type>/<name>.md, derived from the resolved entity row, not
+  // from a caller-supplied vault-relative path. All three also touch OTHER entities' notes
+  // (rename_entity's incoming-neighbor rematerialize, delete_entity's same) at paths that are
+  // themselves computed the same way. handler-side grantedScopes carries the P1.4 rule-scope gate.
+  "rename_entity", // moves <memoryFolder>/<type>/<old name>.md -> <...>/<new name>.md
+  "unlink_entities", // re-materializes the source entity's computed note path
+  "delete_entity", // trashes/hard-deletes the entity's computed note path
   "start_session", // writes a session trace at <traceFolder>/<session>.jsonl (server-computed)
   "end_session", // finalizes the same computed trace path
   // --- Runtime-computed path SET (all notes matching a query): each affected note is enforced

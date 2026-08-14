@@ -17,7 +17,10 @@ import { contentHash, resolveVaultPath } from "../vault/paths";
 
 // Frontmatter keys the projection owns (regenerated from SQLite each time). Every
 // other key in an existing note is preserved verbatim so we never clobber Obsidian's.
-const OWNED_FM_KEYS = new Set(["obsidian_tc_id", "entity_type"]);
+// THE-833: "status" joined this set — a retired entity's note says so on its face, not just in
+// SQLite, so a human reading the vault directly (the reporter's whole reason for wanting
+// materialize:true) sees the same lifecycle state get_entity/query_entity_graph filter on.
+const OWNED_FM_KEYS = new Set(["obsidian_tc_id", "entity_type", "status"]);
 
 const OBSERVATIONS_HEADING = "Observations";
 const RELATED_HEADING = "Related";
@@ -48,6 +51,8 @@ export interface RenderEntityInput {
   id: string;
   entityType: string;
   name: string;
+  /** THE-833: 'active' | 'retired' — owned frontmatter, see OWNED_FM_KEYS above. */
+  status: string;
   observations: readonly string[];
   relations: readonly RelationLink[];
   preserved?: Frontmatter | null;
@@ -65,6 +70,7 @@ export function renderEntityNote(input: RenderEntityInput): string {
   const fm: Frontmatter = {
     obsidian_tc_id: input.id,
     entity_type: input.entityType,
+    status: input.status,
     ...stripOwned(input.preserved),
   };
   const lines: string[] = [`# ${input.name}`, "", `## ${OBSERVATIONS_HEADING}`, ""];
@@ -93,6 +99,8 @@ export interface MaterializeInput {
   id: string;
   entityType: string;
   name: string;
+  /** THE-833: see RenderEntityInput.status. */
+  status: string;
   observations: readonly string[];
   relations: readonly RelationLink[];
   // THE-567: the memory-note path is server-computed (folder + type + name), so it cannot be
@@ -126,6 +134,9 @@ export interface ParsedEntityNote {
   entityId: string | null;
   entityType: string | null;
   name: string | null;
+  /** THE-833: 'active' | 'retired' as read off the note's own frontmatter, or null when the note
+   *  predates this field (never materialized since, or hand-authored). */
+  status: string | null;
   observations: string[];
   relatedTargets: string[];
 }
@@ -157,6 +168,7 @@ export function parseEntityNote(raw: string): ParsedEntityNote {
   return {
     entityId: typeof fm.obsidian_tc_id === "string" ? fm.obsidian_tc_id : null,
     entityType: typeof fm.entity_type === "string" ? fm.entity_type : null,
+    status: typeof fm.status === "string" ? fm.status : null,
     name: h1 ? h1.replace(/^#\s+/, "").trim() : null,
     observations: sectionBullets(parsed.body, OBSERVATIONS_HEADING),
     relatedTargets: extractLinks(parsed.body)
