@@ -34,6 +34,13 @@ export const CACHE_MIGRATION_FILES = [
   // store a row's `trace_path` is relative to, so the legacy (vault) and new (cache)
   // generations resolve differently without sniffing the path string.
   "20260805_003_session_trace_store.sql",
+  // THE-833: memory_entities.status ('active' | 'retired'). Belongs in the CACHE chain because
+  // memory_entities is created by 20260519_001_initial.sql, in cache.db (the memory-entity graph
+  // is authored/materialized state, not the experiential tier's observed/derived one). The
+  // primary path of the memory-entity lifecycle — get_entity / query_entity_graph filter retired
+  // nodes by default, and rename_entity's shape is how a caller flips it (see that tool's
+  // handler for why retiring is folded into rename rather than a fifth tool).
+  "20260814_001_memory_entity_status.sql",
 ] as const;
 
 /**
