@@ -59,7 +59,7 @@ function buildBundle(
   let total = 0;
   let truncated = opts.preTruncated;
   for (const e of entries) {
-    const body = opts.includeFrontmatter ? e.content : parseNote(e.content).body;
+    const body = opts.includeFrontmatter ? e.content : parseNote(e.content, e.rel).body;
     const text = block(e.rel, body, opts.format);
     const bytes = Buffer.byteLength(text, "utf8");
     if (total + bytes > opts.maxBytes) {

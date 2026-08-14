@@ -124,7 +124,7 @@ export function materializeEntity(input: MaterializeInput): {
   enforcePathAcl(input.acl, "write", rel, input.root, input.grantedScopes);
   let preserved: Frontmatter | null = null;
   const ex = noteExists(abs);
-  if (ex.exists && ex.type === "file") preserved = parseNote(readNote(abs).raw).frontmatter;
+  if (ex.exists && ex.type === "file") preserved = parseNote(readNote(abs).raw, rel).frontmatter;
   const content = renderEntityNote({ ...input, preserved });
   writeNoteAtomic(abs, content, true);
   return { vaultPath: rel, contentHash: contentHash(content) };
@@ -160,6 +160,11 @@ function sectionBullets(body: string, heading: string): string[] {
  * Parse a materialized note back into its entity facts: owned frontmatter, the H1
  * name, the Observations bullets, and every [[link]] target in the body. Used for
  * graph-integrity verification; dangling links are returned as-is (the caller decides).
+ *
+ * THE-823: deliberately NOT threading a path parameter here. This is exported for graph-integrity
+ * verification (today exercised only from tests, on a rendered buffer or an in-memory fixture) —
+ * not a call site that reads a specific vault-relative file off disk, so there is no note path to
+ * give it. The one legitimate no-path exception among parseNote's callers, not a gap.
  */
 export function parseEntityNote(raw: string): ParsedEntityNote {
   const parsed = parseNote(raw);

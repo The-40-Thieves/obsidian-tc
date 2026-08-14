@@ -114,6 +114,52 @@ for d in ~/src/*-sdk; do
 done
 ```
 
+### Known client-side hazard: `structuredContent` on an error result (THE-827)
+
+This server attaches the structured error object as `structuredContent` alongside `isError: true`
+(the SEP-1303 row above). That is deliberate, documented, and asserted by
+`tool-surface-2025.test.ts`. **A strict client may nonetheless replace our error with its own.**
+
+The TypeScript SDK this server depends on — `@modelcontextprotocol/sdk` **1.29.0**, the version
+resolved in this repo — implements the `isError` exemption on only one of the two paths in
+`dist/esm/client/index.js`:
+
+```js
+// :499  comment states the rule
+// If tool has outputSchema, it MUST return structuredContent (unless it's an error)
+// :500  presence check — correctly exempts errors
+if (!result.structuredContent && !result.isError) { ... }
+// :504  validation — the exemption is MISSING here
+if (result.structuredContent) {
+    const validationResult = validator(result.structuredContent);   // :507
+    // throws McpError(InvalidParams) when the error object does not match the SUCCESS outputSchema
+}
+```
+
+An error object never matches a tool's success `outputSchema`, so on a client that validates,
+the caller receives `-32602 Structured content does not match the tool's output schema` **instead
+of** the server's actual error. The error is not merely unreadable; it is replaced. Every one of
+this server's registered tools declares an `outputSchema`, so no tool is exempt by construction.
+
+The same SDK's *server* half (`dist/esm/server/mcp.js`, `validateToolOutput`) does short-circuit on
+`result.isError`, so this is a half-implemented exemption rather than a deliberate design.
+Upstream fix: [typescript-sdk#1945](https://github.com/modelcontextprotocol/typescript-sdk/pull/1945) —
+open and unreleased when this was written (2026-08-14).
+
+**Why the server does not work around it.** Dropping `structuredContent` from error results would
+make this a client-side non-issue, and it was considered and rejected: it retracts a documented
+SEP-1303 capability, deletes the conformance test that proves it, and there is **no spec text**
+granting error results an exemption from "clients SHOULD validate structured results against this
+schema" — so a validating client is arguably correct and the server is arguably the one at fault.
+Trading a real capability for a workaround to someone else's half-applied exemption is the worse
+of the two. Recorded here so that a downstream caller who sees `-32602` where they expected a
+typed error can identify it in one read.
+
+Scope, in this page's usual terms: verified by reading the 1.29.0 files vendored into this repo's
+own `node_modules`, and by reading the upstream PR. **Not** verified against a live client, and
+**not** confirmed either way for the 2.x SDK line — that checkout has a different layout and the
+check was inconclusive, which is reported rather than guessed.
+
 ## What this page does not claim
 
 - **No live client was probed for this page.** A live obsidian-tc instance is reachable on an

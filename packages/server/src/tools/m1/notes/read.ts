@@ -30,7 +30,7 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
       if (!ex.exists || ex.type === "folder")
         throw err.noteNotFound("note not found", { vault: v.id, path: rel });
       const { raw, hash } = readNote(abs);
-      const parsed = parseNote(raw);
+      const parsed = parseNote(raw, rel);
       return {
         vault: v.id,
         path: rel,
@@ -67,7 +67,7 @@ export function createReadNotesTool(deps: M1Deps): ToolDefinition {
           if (!ex.exists || ex.type === "folder")
             throw err.noteNotFound("note not found", { path: rel });
           const { raw, hash } = readNote(abs);
-          const parsed = parseNote(raw);
+          const parsed = parseNote(raw, rel);
           notes.push({
             path: rel,
             content: raw,

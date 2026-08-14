@@ -302,11 +302,13 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stat: { mtime: number; size: number } | null,
   ): Promise<void> => {
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
-    noteLinks.set(rel, extractLinks(parseNote(raw).body));
+    // THE-823: `rel` is already in scope here — the whole reason the boot reconcile's "frontmatter
+    // is not valid YAML" degrade message used to name no file even though this call site knew one.
+    noteLinks.set(rel, extractLinks(parseNote(raw, rel).body));
     // THE-486: capture this pass's tags straight from the raw content (no DB round-trip) so the
     // tag-cooccurrence delta can diff against oldNotesTagsSnapshot below — a note's frontmatter tags
     // can change with NO chunk content change, so this must NOT be gated on `plan` existing.
-    if (densifyTagsRequested) newNotesTagsWalked.set(rel, noteTags(raw).all);
+    if (densifyTagsRequested) newNotesTagsWalked.set(rel, noteTags(raw, rel).all);
     const { plan, unchanged, secretsSkipped, flagged, dedupSkipped } = computeNotePlan(
       args.db,
       args.vaultId,

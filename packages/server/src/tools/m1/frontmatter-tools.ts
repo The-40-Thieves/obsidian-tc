@@ -205,7 +205,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
         const { raw, hash } = readNote(abs);
-        const parsed = parseNote(raw);
+        const parsed = parseNote(raw, rel);
         return {
           vault: v.id,
           path: rel,
@@ -240,7 +240,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
-        const fm = parseNote(readNote(abs).raw).frontmatter ?? {};
+        const fm = parseNote(readNote(abs).raw, rel).frontmatter ?? {};
         const g = input.nested
           ? getByPath(fm, input.key.split("."))
           : { found: Object.hasOwn(fm, input.key), value: fm[input.key] };
@@ -292,7 +292,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
               expected: input.prev_hash,
               actual: cur.hash,
             });
-          const parsed = parseNote(cur.raw);
+          const parsed = parseNote(cur.raw, rel);
           fm = { ...(parsed.frontmatter ?? {}) };
           body = parsed.body;
           rawFm = parsed.rawFrontmatter;
@@ -413,7 +413,9 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           for (const e of entries) {
             if (scanned >= input.max_notes) break;
             scanned++;
-            tally(parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw).frontmatter);
+            tally(
+              parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath).frontmatter,
+            );
           }
         }
         const properties = [...stats.entries()]
@@ -469,7 +471,10 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             readableRel(ctx.acl, e.relPath),
           );
           for (const e of entries) {
-            const fm = parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw).frontmatter;
+            const fm = parseNote(
+              readNote(resolveVaultPath(v.root, e.relPath)).raw,
+              e.relPath,
+            ).frontmatter;
             if (!consider(e.relPath, fm)) break;
           }
         }

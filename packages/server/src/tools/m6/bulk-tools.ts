@@ -315,7 +315,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const ex = noteExists(abs);
             if (!ex.exists || ex.type === "folder")
               throw err.noteNotFound("note not found", { path: rel });
-            const parsed = parseNote(readNote(abs).raw);
+            const parsed = parseNote(readNote(abs).raw, rel);
             const fm = { ...(parsed.frontmatter ?? {}) };
             const prev = Object.hasOwn(fm, input.key) ? fm[input.key] : null;
             // Store an explicitly-supplied null as null; only a truly-absent value

@@ -247,6 +247,60 @@ describe("parseCliArgs — token mint (THE-658)", () => {
   });
 });
 
+describe("parseCliArgs — elicit (THE-826)", () => {
+  const parse = (args: string[]) => parseCliArgs(["elicit", ...args]);
+
+  it("keeps a flag's VALUE from being mistaken for the config path", () => {
+    const cmd = parse(["--hash", "abc123", "--tool", "move_note", "/etc/cfg.json"]);
+    expect(cmd).toMatchObject({
+      kind: "elicit-mint",
+      hash: "abc123",
+      tool: "move_note",
+      configPath: "/etc/cfg.json",
+    });
+  });
+
+  it("treats a missing --hash as a USAGE error, so it exits 2 like other parse failures", () => {
+    expect(parse(["--tool", "move_note"]).kind).toBe("error");
+  });
+
+  it("treats a missing --tool as a USAGE error", () => {
+    expect(parse(["--hash", "abc123"]).kind).toBe("error");
+  });
+
+  it("has no --ttl flag at all — this command can never mint past elicitTtlSeconds", () => {
+    const cmd = parse(["--hash", "abc123", "--tool", "move_note", "--ttl", "999999"]);
+    // --ttl is not a recognized flag on `elicit`, so it is read as the config path positional
+    // (the same "unfiltered value" trap every other command's parser guards against) rather than
+    // silently accepted as a duration override.
+    expect(cmd).toMatchObject({ kind: "elicit-mint" });
+    expect(cmd).not.toHaveProperty("ttl");
+  });
+
+  it("carries --vault, --caller and --json through", () => {
+    expect(
+      parse([
+        "--hash",
+        "h1",
+        "--tool",
+        "delete_note",
+        "--vault",
+        "main",
+        "--caller",
+        "alice",
+        "--json",
+      ]),
+    ).toMatchObject({ vault: "main", caller: "alice", json: true });
+  });
+
+  it("defaults json to false and omits vault/caller when not given", () => {
+    const cmd = parse(["--hash", "h1", "--tool", "delete_note"]);
+    expect(cmd).toMatchObject({ json: false });
+    expect(cmd).not.toHaveProperty("vault");
+    expect(cmd).not.toHaveProperty("caller");
+  });
+});
+
 describe("parseCliArgs — reflect no longer takes --max-judged (THE-747)", () => {
   // THE-701 removed the episode-eligibility judge; the flag that capped it outlived it by four
   // days, parsed and validated and passed to nothing. These pin the removal.

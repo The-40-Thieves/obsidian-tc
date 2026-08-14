@@ -174,7 +174,8 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           for (const e of entries) {
             if (scanned >= input.max_notes) break;
             scanned++;
-            for (const t of noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw).all)
+            for (const t of noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath)
+              .all)
               counts.set(t, (counts.get(t) ?? 0) + 1);
           }
         }
@@ -201,7 +202,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
-        const t = noteTags(readNote(abs).raw);
+        const t = noteTags(readNote(abs).raw, rel);
         return { vault: v.id, path: rel, ...t };
       },
     }),
@@ -235,7 +236,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             actual: hash,
           });
 
-        const parsed = parseNote(raw);
+        const parsed = parseNote(raw, rel);
         let fm: Frontmatter | null = parsed.frontmatter;
         let body = parsed.body;
         let added = false;
@@ -299,7 +300,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             actual: hash,
           });
 
-        const parsed = parseNote(raw);
+        const parsed = parseNote(raw, rel);
         let fm: Frontmatter = { ...(parsed.frontmatter ?? {}) };
         let body = parsed.body;
         let removed = 0;
@@ -380,7 +381,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             readableRel(ctx.acl, e.relPath),
           );
           for (const e of entries) {
-            const all = noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw).all;
+            const all = noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath).all;
             const hit = all.filter((t) => tagMatches(input.tag, t));
             if (hit.length === 0) continue;
             if (matches.length >= input.limit) {

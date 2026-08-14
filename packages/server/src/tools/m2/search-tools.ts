@@ -171,7 +171,7 @@ function jsonlogicMatches(
   for (const rel of walkVault(root, { sub, extensions: [".md"] })
     .map((e) => e.relPath)
     .filter(readable)) {
-    const { frontmatter, body } = parseNote(readNote(resolveVaultPath(root, rel)).raw);
+    const { frontmatter, body } = parseNote(readNote(resolveVaultPath(root, rel)).raw, rel);
     const data = { ...(frontmatter ?? {}), path: rel, content: body };
     if (evaluatesTruthy(logic, data)) out.push(rel);
   }

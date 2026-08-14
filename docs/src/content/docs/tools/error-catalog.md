@@ -33,7 +33,7 @@ Every failure obsidian-tc returns carries one of these **35** canonical codes, *
 | `conflict` | conflict | Re-read the current state, re-apply the change on top of it, and retry. |
 | `dql_error` | Dataview DQL error | Dataview rejected the query. Check it with validate_dql, which reports the syntax error without running it. |
 | `elicit_invalid` | elicit token invalid or expired | The token was rejected or expired. Re-issue the original call with no token to trigger a fresh confirmation prompt. |
-| `elicit_required` | human confirmation required | A human must approve this call. Re-send it with the token from the confirmation prompt; request a fresh prompt rather than reusing an old token. |
+| `elicit_required` | human confirmation required | A human must approve this call. A client with MCP elicitation gets an inputRequired prompt; otherwise mint one with `obsidian-tc elicit --hash <args_hash> --tool <name>` and resend. Never reuse an old token. |
 | `embedding_provider_error` | embedding provider failed | The embedding backend failed. Retryable; if it persists, confirm the provider is reachable and the configured model is present (server_health reports the provider). |
 | `execute_command_disabled` | command execution is disabled for this vault | Command execution is off for this vault. It must be enabled in configuration; this is a policy decision, not a transient failure. |
 | `forbidden` | scope or ACL denied | Missing a required scope (details.required lists it). Re-authenticate with a credential that grants it, or call inspect_acl to see what this caller may reach. |
