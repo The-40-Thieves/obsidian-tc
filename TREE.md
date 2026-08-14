@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,114 tracked code files · 173,134 lines.
+**Scale:** 1,115 tracked code files · 173,483 lines.
 
-TypeScript 159,708 · JavaScript 9,141 · Python 1,640 · SQL 1,543 · Rust 742 · Shell 360.
+TypeScript 160,057 · JavaScript 9,141 · Python 1,640 · SQL 1,543 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,10 +86,10 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 83 | 16,358 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 83 | 16,487 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 55 | 10,777 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 20 | 4,533 | work-memory tier: activation, retrieval log, forget, citations |
-| `mcp/` | 17 | 4,425 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `mcp/` | 17 | 4,456 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 14 | 3,317 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `cli/` | 24 | 3,103 | arg parsing + subcommands |
 | `vault/` | 17 | 1,991 | filesystem primitives — paths, links, ACL, snapshots, prune |
@@ -142,15 +142,15 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 748 | `packages/server/src/cli/commands/doctor.ts` |
 | 745 | `packages/server/src/runtime/server-runtime.ts` |
 | 732 | `packages/server/src/cli/args.ts` |
-| 714 | `packages/server/src/mcp/server.ts` |
+| 717 | `packages/server/src/mcp/server.ts` |
 | 696 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
 | 620 | `packages/server/src/metrics/registry.ts` |
 | 603 | `packages/server/src/mcp/registry/dispatch.ts` |
+| 599 | `packages/server/src/tools/m3/base-tools.ts` |
 | 597 | `packages/server/src/experiential/citation.ts` |
-| 586 | `packages/server/src/tools/m3/base-tools.ts` |
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
 | 565 | `packages/server/src/search/graph_search.ts` |
 | 564 | `packages/server/src/search/query_cache.ts` |

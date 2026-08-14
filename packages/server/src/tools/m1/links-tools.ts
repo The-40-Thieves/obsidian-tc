@@ -5,7 +5,7 @@
 // invisible to the graph. rewrite_link and prune_hub_links default to dry_run
 // (preview, no write, no confirmation); a real run (dry_run:false) enforces write
 // ACL and gates on requireConfirmation.
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
@@ -157,6 +157,10 @@ const RewriteInput = z
     folder: VaultPath.optional(),
     include_embeds: z.boolean().default(true),
     dry_run: z.boolean().default(true),
+    // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+    // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema ever
+    // validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -168,6 +172,8 @@ const PruneInput = z
     remove_duplicates: z.boolean().default(true),
     dry_run: z.boolean().default(true),
     prev_hash: z.string().optional(),
+    // THE-824: see RewriteInput's elicit_token above.
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -370,6 +376,10 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       inputSchema: RewriteInput,
       outputSchema: RewriteLinkOutput,
       requiredScopes: ["write:notes"],
+      // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
+      // the requireConfirmation call below (any non-dry_run); this only stops the wire annotation
+      // from advertising destructive: false for a tool that CAN demand confirmation.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
@@ -433,6 +443,8 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       inputSchema: PruneInput,
       outputSchema: PruneHubLinksOutput,
       requiredScopes: ["write:notes"],
+      // THE-824: see rewrite_link above.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);

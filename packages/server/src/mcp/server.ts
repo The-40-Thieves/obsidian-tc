@@ -30,6 +30,7 @@ import {
   domainTools,
   type FacadeMode,
   findCapability,
+  isAdvertisedDestructive,
   isDomainTool,
   isFacadeTool,
   toJson,
@@ -207,14 +208,16 @@ function titleize(name: string): string {
  * Derive MCP tool annotations from the registry's OWN ground truth, so the client-visible safety
  * contract cannot drift from server-side enforcement. `readOnlyHint` mirrors the exact `mutating`
  * predicate the dispatch read-only kill-switch uses (registry.runDispatch); `destructiveHint`
- * mirrors `def.destructive`; every vault operation is closed-world (no external side effects).
- * Annotations are advisory hints, never a trust boundary — dispatch still authorizes every call.
+ * mirrors `isAdvertisedDestructive` (THE-824: `def.destructive` OR the display-only
+ * `conditionallyDestructive`, never a dispatch-authorizing field on its own — see its doc comment);
+ * every vault operation is closed-world (no external side effects). Annotations are advisory
+ * hints, never a trust boundary — dispatch still authorizes every call.
  */
 function toolAnnotations(def: ToolDefinition): NonNullable<Tool["annotations"]> {
   const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
   return {
     readOnlyHint: !mutating,
-    destructiveHint: def.destructive === true,
+    destructiveHint: isAdvertisedDestructive(def),
     openWorldHint: false,
     // THE-743: the fourth annotation. Emitted ONLY for mutating tools, because the spec defines it
     // as meaningful only when `readOnlyHint == false` — sending it alongside `readOnlyHint: true`

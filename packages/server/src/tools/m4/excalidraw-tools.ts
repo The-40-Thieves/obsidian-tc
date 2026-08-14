@@ -4,7 +4,13 @@
 // degrade to plugin_missing/plugin_unreachable when Excalidraw or the companion is
 // absent). Reads take read:excalidraw; create/update take write:excalidraw (write
 // family, conditional HITL on overwrite — not the always-elicit execute floor).
-import { err, ObsidianTcError, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  ElicitToken,
+  err,
+  ObsidianTcError,
+  VaultId,
+  VaultPath,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -220,10 +226,18 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
           template: z.enum(["blank", "compressed-json", "custom"]).optional(),
           elements: ElementArray.optional(),
           overwrite: z.boolean().default(false),
+          // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+          // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema
+          // ever validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+          elicit_token: ElicitToken.optional(),
         })
         .strict(),
       outputSchema: CreateExcalidrawOutput,
       requiredScopes: ["write:excalidraw"],
+      // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
+      // the requireConfirmation call below (input.overwrite === true); this only stops the wire
+      // annotation from advertising destructive: false for a tool that CAN demand confirmation.
+      conditionallyDestructive: true,
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);

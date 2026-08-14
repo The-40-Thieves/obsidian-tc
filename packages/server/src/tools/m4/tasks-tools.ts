@@ -3,7 +3,7 @@
 // proxies the Tasks plugin's own DSL filter through the companion bridge. Reopening
 // a long-closed task (done -> open, completed >7d ago) is the one conditional-HITL
 // path; ordinary edits are not gated.
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { paginate } from "../../util/paginate";
@@ -171,6 +171,10 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
             })
             .strict()
             .optional(),
+          // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+          // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema
+          // ever validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+          elicit_token: ElicitToken.optional(),
         })
         .strict(),
       // Note: no `vault` field — update_task's return omits it (unlike every other M4 tool here).
@@ -183,6 +187,10 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         content_hash: z.string(),
       }),
       requiredScopes: ["write:tasks"],
+      // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
+      // the requireConfirmation call below (reopeningStale); this only stops the wire annotation
+      // from advertising destructive: false for a tool that CAN demand confirmation.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);

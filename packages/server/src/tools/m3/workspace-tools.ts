@@ -7,7 +7,7 @@
 // only the modeled keys, re-serialize with the file's indentation), so other
 // workspaces and unknown top-level keys survive. Overwriting a saved workspace
 // requires HITL confirmation; listing/opening never do.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
@@ -143,10 +143,18 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
           set_active: z.boolean().default(false),
           overwrite: z.boolean().default(false),
           prev_hash: z.string().optional(),
+          // THE-824: advertised so a caller can discover the HITL confirmation parameter via
+          // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema
+          // ever validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
+          elicit_token: ElicitToken.optional(),
         })
         .strict(),
       outputSchema: SaveWorkspaceOutput,
       requiredScopes: ["write:workspaces"],
+      // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
+      // the requireConfirmation call below (exists && input.overwrite); this only stops the wire
+      // annotation from advertising destructive: false for a tool that CAN demand confirmation.
+      conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         enforcePathAcl(ctx.acl, "write", WORKSPACES_PATH, v.root);
