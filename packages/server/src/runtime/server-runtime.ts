@@ -415,6 +415,7 @@ export async function buildServerRuntime(
       config.reranker,
       configDir,
       config.securityProfile,
+      config.gateway,
     );
 
     // W-INGEST onIndexed hook -> contradiction-check enqueue.

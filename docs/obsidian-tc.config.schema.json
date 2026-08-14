@@ -668,6 +668,22 @@
         "provider"
       ]
     },
+    "gateway": {
+      "description": "Inference gateway connection. ABSENT falls through to OBSIDIAN_TC_GATEWAY_URL / OBSIDIAN_TC_GATEWAY_TOKEN, preserving today's behaviour exactly.",
+      "type": "object",
+      "properties": {
+        "baseUrl": {
+          "description": "Inference gateway base URL. Takes precedence over the OBSIDIAN_TC_GATEWAY_URL environment variable when both are set — set this when a host application rewrites its own env block on restart, which would otherwise silently drop the env var and degrade every generative seam with no error. Absent falls through to the env var, then to graceful degradation.",
+          "type": "string",
+          "format": "uri"
+        },
+        "token": {
+          "description": "Bearer token (LiteLLM master/virtual key) for the gateway. Secret — never logged, and takes precedence over the OBSIDIAN_TC_GATEWAY_TOKEN environment variable when both are set.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "indexing": {
       "description": "Index-on-write concurrency and backpressure.",
       "default": {},

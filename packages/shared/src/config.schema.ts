@@ -1,4 +1,5 @@
 import { AclConfigSchema, AclRuleSchema, AuthConfigSchema } from "./config/auth-acl.schema";
+import { type GatewayConfig, GatewayConfigSchema } from "./config/gateway.schema";
 import {
   EmbeddingsConfigSchema,
   type IndexingConfig,
@@ -57,6 +58,7 @@ import {
 
 export type {
   BootstrapConfig,
+  GatewayConfig,
   IndexingConfig,
   RerankerConfig,
   ServerConfig,
@@ -90,6 +92,7 @@ export {
   DEFAULT_MEMORY_FOLDER,
   EmbeddingsConfigSchema,
   ExperientialConfigSchema,
+  GatewayConfigSchema,
   GovernorConfigSchema,
   HttpConfigSchema,
   IndexingConfigSchema,

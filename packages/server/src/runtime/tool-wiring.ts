@@ -160,8 +160,14 @@ async function resolveDeclaredReranker(
 
 /**
  * THE-233 integration — the optional inference gateway (W-GATEWAY-CLIENT). Unconfigured (no
- * OBSIDIAN_TC_GATEWAY_URL) -> null; every generative seam degrades gracefully rather than failing
- * boot (createGatewayClient throws without a base URL, so guarded with try).
+ * OBSIDIAN_TC_GATEWAY_URL, no gatewayCfg.baseUrl) -> null; every generative seam degrades
+ * gracefully rather than failing boot (createGatewayClient throws without a base URL, so guarded
+ * with try).
+ *
+ * THE-832: gatewayCfg.baseUrl/token, when set, win over OBSIDIAN_TC_GATEWAY_URL/_TOKEN —
+ * createGatewayClient already implements that precedence (resolveGatewayUrl prefers opts.baseUrl;
+ * opts.token ?? the env var), so passing them through is additive and a no-op when gatewayCfg is
+ * absent.
  */
 export async function wireGatewaySeams(
   embeddings: ServerConfig["embeddings"],
@@ -169,10 +175,11 @@ export async function wireGatewaySeams(
   /** Trust root for reranker.modulePath (the module hatch) — see providers/module-loader.ts. */
   configDir?: string,
   securityProfile?: "hardened" | "trusted-local",
+  gatewayCfg?: ServerConfig["gateway"],
 ): Promise<GatewaySeams> {
   let gateway: GatewayClient | null = null;
   try {
-    gateway = createGatewayClient({});
+    gateway = createGatewayClient({ baseUrl: gatewayCfg?.baseUrl, token: gatewayCfg?.token });
   } catch {
     gateway = null;
   }

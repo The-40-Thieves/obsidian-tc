@@ -132,8 +132,11 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // the value already in force, and threaded to its consumer in the same change rather than declared
 // and left dark. No existing key, type, default or constraint moved — `retrieval.gatedRerank` stays
 // a plain boolean, so no existing config file changes meaning.
+// THE-832: added the root `gateway` block (baseUrl/token) so the inference gateway can be set in
+// obsidian-tc.config.json instead of only OBSIDIAN_TC_GATEWAY_URL / _TOKEN — see
+// packages/shared/src/config/gateway.schema.ts.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "24330dc14093267a4dd99f3e7c23b994ef7240ca7fc07a586ce0c0eaf0d78fa4";
+  "4ac335be5e44c6b1fa04a104fc21822b095fac1e7cfd35e1b8da785ef1cb15b1";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
