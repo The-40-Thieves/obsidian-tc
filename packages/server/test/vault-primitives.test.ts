@@ -257,6 +257,11 @@ describe("frontmatter: parse + serialize", () => {
     expect(reparsed.frontmatter).toEqual({ title: "A", added: 1 });
     expect(reparsed.body).toBe("BODY\n");
   });
+  // THE-823: parseNote's bare `catch` used to discard the YAML parser's own error — including the
+  // line/column it already computed — before anything could use it. The message must now carry it.
+  it("carries the YAML parser's line/column into the thrown error, not just a generic message", () => {
+    expect(() => parseNote("---\na: [1, 2\nb: bad\n---\nbody\n")).toThrow(/line 2, column 1/);
+  });
 });
 
 describe("links: extract + resolve", () => {
