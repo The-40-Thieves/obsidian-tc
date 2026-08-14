@@ -52,13 +52,23 @@ function titleize(name: string): string {
  * SHALLOW (a query string; a name; a name + passthrough args object). Strict per-tool validation
  * still happens inside registry.dispatch (Layer 6) when call_capability routes to the target, so
  * the per-domain schemas are never hand-merged back into the advertised surface.
+ *
+ * THE-823: `z.strictObject`, not `z.object` — the envelope itself is now validated at dispatch
+ * (mcp/server.ts's tools/call handler) before the ad hoc `args.name` / `args.args` extraction runs.
+ * Previously CALL_CAPABILITY_SCHEMA's `args: z.record(...).default({})` was the trap: a caller that
+ * wrote "arguments" instead of "args" got that key silently stripped (z.object drops unknown keys),
+ * `args` fell back to its `.default({})`, and the TARGET tool was dispatched with an EMPTY object —
+ * so the error the caller saw named the target's missing required fields, never its own typo.
+ * `z.strictObject` turns an unrecognized envelope key into one `unrecognized_keys` issue instead.
+ * Compatibility note: a caller currently sending extra top-level keys on find/describe/call_capability
+ * (previously dropped silently) now gets rejected — see CHANGELOG.
  */
-const FIND_CAPABILITY_SCHEMA = z.object({
+export const FIND_CAPABILITY_SCHEMA = z.strictObject({
   query: z.string().min(1),
   limit: z.number().int().min(1).max(50).default(10),
 });
-const DESCRIBE_CAPABILITY_SCHEMA = z.object({ name: z.string().min(1) });
-const CALL_CAPABILITY_SCHEMA = z.object({
+export const DESCRIBE_CAPABILITY_SCHEMA = z.strictObject({ name: z.string().min(1) });
+export const CALL_CAPABILITY_SCHEMA = z.strictObject({
   name: z.string().min(1),
   args: z.record(z.string(), z.unknown()).default({}),
 });

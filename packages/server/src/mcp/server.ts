@@ -12,7 +12,8 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
 } from "@modelcontextprotocol/server";
-import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorJSON, err, isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
+import { z } from "zod";
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
@@ -26,9 +27,12 @@ import {
 } from "./client-features";
 import { extractClientInfo } from "./client-info";
 import {
+  CALL_CAPABILITY_SCHEMA,
+  DESCRIBE_CAPABILITY_SCHEMA,
   describeCapability,
   domainTools,
   type FacadeMode,
+  FIND_CAPABILITY_SCHEMA,
   findCapability,
   isDomainTool,
   isFacadeTool,
@@ -192,6 +196,33 @@ function asResourceProtocolError(e: unknown, uri: string): Error {
 function asStructured(data: unknown): Record<string, unknown> | undefined {
   return data !== null && typeof data === "object" && !Array.isArray(data)
     ? (data as Record<string, unknown>)
+    : undefined;
+}
+
+// THE-823: real MCP clients drop `structuredContent` on an isError result and render the text block
+// alone, so `details.issues` (the Zod issue array `err.validation` / parseInput attach — see
+// registry/input-binding.ts) has to reach the caller through TEXT, not just structuredContent, or a
+// caller sees "input validation failed" with nothing to act on. Capped at MAX_RENDERED_ISSUES so a
+// schema with a large issue list (e.g. many missing required fields) cannot produce an unbounded
+// text block; the rest are counted, not dropped silently.
+const MAX_RENDERED_ISSUES = 5;
+
+/** Render a capped slice of Zod issues into a human-readable, field-naming string.
+ *  `z.prettifyError` is the one zod4 formatter that renders `unrecognized_keys`
+ *  (whose `path` is always `[]`) usefully — it reads `issue.keys` instead. */
+function renderIssues(issues: readonly z.core.$ZodIssue[]): string {
+  const capped = issues.slice(0, MAX_RENDERED_ISSUES);
+  const rendered = z.prettifyError(new z.ZodError(capped as z.core.$ZodIssue[]));
+  const omitted = issues.length - capped.length;
+  return omitted > 0 ? `${rendered}\n…and ${omitted} more` : rendered;
+}
+
+/** The offending-field detail to append after an error's headline sentence, or undefined when
+ *  `details` carries nothing this can render (e.g. no `issues` array). */
+function formatErrorDetail(error: ErrorJSON): string | undefined {
+  const issues = error.details?.issues;
+  return Array.isArray(issues) && issues.length > 0
+    ? renderIssues(issues as z.core.$ZodIssue[])
     : undefined;
 }
 
@@ -413,21 +444,23 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // A dispatch failure is a Tool Execution Error, not a JSON-RPC protocol error (MCP 2025-11-25 /
   // SEP-1303): return isError:true with a human-readable sentence AND the full error object as
   // structuredContent, so a model can read what went wrong (e.g. the Zod issues) and self-correct
-  // rather than seeing an opaque JSON blob.
-  const errorToResult = (error: {
-    code: string;
-    message: string;
-    retryable?: boolean;
-  }): CallToolResult => ({
-    content: [
-      {
-        type: "text",
-        text: `Error [${error.code}]: ${error.message}${error.retryable ? " (retryable)" : ""}`,
-      },
-    ],
-    structuredContent: error as unknown as Record<string, unknown>,
-    isError: true,
-  });
+  // rather than seeing an opaque JSON blob. THE-823: the sentence alone used to carry only code +
+  // message + retryable — real clients discard structuredContent on isError and render the text
+  // block alone, so that sentence was the caller's ENTIRE diagnostic surface and never named the
+  // offending field. formatErrorDetail appends it (capped) to the text itself.
+  const errorToResult = (error: ErrorJSON): CallToolResult => {
+    const detail = formatErrorDetail(error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error [${error.code}]: ${error.message}${error.retryable ? " (retryable)" : ""}${detail ? `\n${detail}` : ""}`,
+        },
+      ],
+      structuredContent: error as unknown as Record<string, unknown>,
+      isError: true,
+    };
+  };
   const dispatchToResult = async (
     name: string,
     args: Record<string, unknown>,
@@ -588,17 +621,37 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // every gate (scope/ACL/HITL/idempotency/throttle) and the target's own Layer-6 Zod validation
     // fire unchanged. Any other name (incl. a directly-named tool) takes the normal path below.
     if (facadeMode !== "flat" && isFacadeTool(req.params.name)) {
-      const visible = opts.registry.listVisible({
-        grantedScopes: ctx.grantedScopes,
-        readOnly: ctx.acl?.readOnly,
-      });
+      // THE-823: validate the caller's envelope BEFORE the ad hoc extraction below ever ran a
+      // schema over it. `args: z.record(...).default({})` on CALL_CAPABILITY_SCHEMA meant a caller
+      // writing "arguments" instead of "args" silently fell through to the default empty object —
+      // the target tool was then dispatched with no arguments and reported ITS OWN missing required
+      // fields, not the caller's actual mistake. facade.ts's schemas are now `z.strictObject`, so an
+      // unrecognized envelope key surfaces as one `unrecognized_keys` issue naming it.
       if (req.params.name === "find_capability") {
-        const query = typeof args.query === "string" ? args.query : "";
-        const limit = typeof args.limit === "number" ? args.limit : 10;
-        return formatData({ matches: findCapability(visible, query, limit) });
+        const parsed = FIND_CAPABILITY_SCHEMA.safeParse(args);
+        if (!parsed.success)
+          return errorToResult(
+            err.validation("input validation failed", { issues: parsed.error.issues }).toJSON(),
+          );
+        const visible = opts.registry.listVisible({
+          grantedScopes: ctx.grantedScopes,
+          readOnly: ctx.acl?.readOnly,
+        });
+        return formatData({
+          matches: findCapability(visible, parsed.data.query, parsed.data.limit),
+        });
       }
       if (req.params.name === "describe_capability") {
-        const target = visible.find((d) => d.name === args.name);
+        const parsed = DESCRIBE_CAPABILITY_SCHEMA.safeParse(args);
+        if (!parsed.success)
+          return errorToResult(
+            err.validation("input validation failed", { issues: parsed.error.issues }).toJSON(),
+          );
+        const visible = opts.registry.listVisible({
+          grantedScopes: ctx.grantedScopes,
+          readOnly: ctx.acl?.readOnly,
+        });
+        const target = visible.find((d) => d.name === parsed.data.name);
         if (!target)
           return {
             content: [
@@ -606,7 +659,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
                 type: "text",
                 text: JSON.stringify({
                   code: "not_found",
-                  message: `unknown capability: ${String(args.name)}`,
+                  message: `unknown capability: ${parsed.data.name}`,
                 }),
               },
             ],
@@ -614,9 +667,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
           };
         return formatData(describeCapability(target));
       }
-      const target = typeof args.name === "string" ? args.name : "";
-      const targetArgs = (args.args ?? {}) as Record<string, unknown>;
-      return dispatchToResult(target, targetArgs, ctx, canElicit, log);
+      const parsed = CALL_CAPABILITY_SCHEMA.safeParse(args);
+      if (!parsed.success)
+        return errorToResult(
+          err.validation("input validation failed", { issues: parsed.error.issues }).toJSON(),
+        );
+      return dispatchToResult(parsed.data.name, parsed.data.args, ctx, canElicit, log);
     }
     return dispatchToResult(req.params.name, args, ctx, canElicit, log);
   });

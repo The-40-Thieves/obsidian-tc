@@ -6,6 +6,34 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **The MCP error `content[0].text` block now names the offending field, not just the error code
+  (#784, THE-823).** Real MCP clients discard `structuredContent` on an `isError` result and render
+  the text line alone, so `Error [validation_error]: input validation failed` — with the Zod issues
+  that name the offending field living only in the dropped `structuredContent` — was a caller's
+  entire diagnostic surface, with nothing to act on. The text now appends the issues (capped at the
+  first 5, "…and N more" beyond that) via `z.prettifyError`, which is also the one zod4 formatter
+  that renders `unrecognized_keys` usefully (its `path` is always `[]`; prettify reads `issue.keys`
+  instead). `structuredContent` is unchanged — still emitted, still carries the full error object.
+  Separately, `vault/frontmatter.ts`'s bare `catch` was discarding the YAML parser's own error —
+  including the line/column it already computed — before `parseNote` ever threw; it now carries
+  that detail into the message. (Threading the note's *path* into the same message was scoped out:
+  `parseNote(raw)` has ~19 non-test call sites and none pass a path in today.)
+
+### Changed
+
+- **The three facade triad schemas (`find_capability`, `describe_capability`, `call_capability`) now
+  reject an unrecognized envelope key instead of silently dropping it (#784, THE-823).**
+  `CALL_CAPABILITY_SCHEMA`'s `args: z.record(...).default({})` was the trap this closes: a caller
+  that wrote `arguments` instead of `args` had that key silently stripped (plain `z.object` drops
+  unknown keys), `args` fell back to its `.default({})`, and the TARGET tool was dispatched with an
+  EMPTY object — so the error the caller saw named the target's own missing required fields, never
+  its actual typo. All three schemas are now `z.strictObject`, validated at the top of the `tools/call`
+  handler before the old ad hoc `args.name` / `args.args` extraction runs.
+  **Compatibility:** a caller currently sending extra top-level keys to any of the three triad tools
+  — previously dropped silently — now gets a `validation_error` naming the key instead.
+
 ## [1.21.0] - 2026-08-07
 
 ### Changed
