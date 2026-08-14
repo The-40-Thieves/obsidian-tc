@@ -229,7 +229,10 @@ export const SchedulerConfigSchema = z
   .prefault({});
 
 // THE-296 — ambient sleep-time consolidation (synthesis + audit jobs). Fully defaulted; only
-// meaningful when the inference gateway (roles) is configured — cli gates on both.
+// meaningful when the inference gateway (roles) is configured. THE-822: `enabled: false` gates the
+// scheduled pass AND the per-index-write contradiction enqueue AND the contradiction/synthesis/
+// audit job handlers — every plane-scoped consumer of roles in plane-wiring.ts. It does NOT gate
+// `roles` itself, which stays live for other tools (e.g. reflect) regardless of this flag.
 export const PlaneConfigSchema = z
   .object({
     enabled: z
