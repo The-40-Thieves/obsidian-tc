@@ -12,7 +12,7 @@
 // so per-key SOURCE slicing (not doc.toString) is what guarantees fidelity.
 import { isDeepStrictEqual } from "node:util";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import YAML, { isMap, isNode, isScalar } from "yaml";
+import YAML, { isMap, isNode, isScalar, YAMLParseError } from "yaml";
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(\r?\n|$)/;
 
@@ -36,8 +36,17 @@ export function parseNote(raw: string): ParsedNote {
     const parsed = YAML.parse(m[1] ?? "") as unknown;
     fm =
       parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Frontmatter) : {};
-  } catch {
-    throw err.invalidInput("frontmatter is not valid YAML");
+  } catch (e) {
+    // THE-823: a bare `catch` discarded the YAML parser's own error — including the line/column it
+    // already computed (YAMLParseError.message always ends its first line with "at line N, column
+    // M:") — before anything downstream could read it, leaving "frontmatter is not valid YAML" as
+    // the caller's entire diagnostic. NOTE path-threading deferred (see THE-823 writeup): parseNote
+    // has ~19 non-test call sites and none pass a note path in today, so naming the FILE is out of
+    // scope here — only the parser's own line/column detail is restored.
+    const detail = e instanceof YAMLParseError ? e.message.split("\n")[0] : undefined;
+    throw err.invalidInput(
+      detail ? `frontmatter is not valid YAML: ${detail}` : "frontmatter is not valid YAML",
+    );
   }
   return {
     frontmatter: fm,
