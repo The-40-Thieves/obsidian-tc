@@ -24,6 +24,10 @@ function handlersWith(over: Record<string, unknown>): Set<string> {
     acl: stub(),
     jobQueue: stub(),
     roles: null,
+    // THE-822: plane.enabled is now a required, separate gate from roles — this file is about the
+    // citation handler's own conditions, so default it on and leave it untouched by every case
+    // here (plane-enabled-gates-ingest-and-jobs.test.ts covers the plane.enabled dimension).
+    plane: { enabled: true },
     embeddingProvider: stub(),
     experientialOpen: false,
     experientialDb: stub(),

@@ -418,7 +418,9 @@ export async function buildServerRuntime(
     );
 
     // W-INGEST onIndexed hook -> contradiction-check enqueue.
-    const makeOnIndexed = createOnIndexedHook({ jobQueue, roles });
+    // THE-822: plane.enabled gates this alongside roles — a disabled plane must not enqueue
+    // per-chunk contradiction jobs on every index write.
+    const makeOnIndexed = createOnIndexedHook({ jobQueue, roles, plane: config.plane });
 
     const { jobRunner } = wireJobHandlers({
       registry,
@@ -426,6 +428,7 @@ export async function buildServerRuntime(
       acl,
       jobQueue,
       roles,
+      plane: config.plane,
       embeddingProvider,
       experientialOpen,
       experientialDb,
