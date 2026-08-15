@@ -1,10 +1,7 @@
 // THE-679 + THE-681. Two doctor gaps that shared a cause: doctor answered from provider NAMES.
 import { describe, expect, it } from "vitest";
-import {
-  type RetrievalHeadsView,
-  rerankerBuildableCheck,
-  retrievalHeadsCheck,
-} from "../src/doctor/checks";
+import { rerankerBuildableCheck } from "../src/doctor/checks";
+import { type RetrievalHeadsView, retrievalHeadsCheck } from "../src/doctor/retrieval-heads";
 import type { DoctorContext } from "../src/doctor/types";
 
 const ctx = {} as DoctorContext;

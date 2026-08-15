@@ -40,7 +40,22 @@ function adapterOpts(cfg: EmbeddingsConfigLike, ctx: ResolveContext) {
 // separate model/bge.ts client used by model-tier. The first draft had this wrong, which would have
 // made the duplicate-segment guard silently useless for bge-m3.
 const EMBEDDINGS: Record<string, EmbeddingsEntry> = {
-  ollama: { appendsPath: "/api/embed", build: (c, x) => ollamaProvider(adapterOpts(c, x)) },
+  // THE-837: DEPRECATED, and deliberately still fully functional. obsidian-tc is provider-agnostic
+  // — this entry is a built-in for one vendor whose wire format the generic `openai-compatible`
+  // adapter can already serve, since Ollama exposes /v1/embeddings (OpenAI-shaped, middleware over
+  // the same handler as /api/embed). What it CANNOT do is change `provider.id`, which this repo
+  // stores in chunk_embeddings.model and uses as the vec-index fingerprint. Retiring `ollama:` is
+  // therefore a whole-vault re-embed for every existing user, so the deletion is a major-version
+  // change with a migration note and gets its own ticket. The notice ships first so operators hear
+  // it before the release, not with it.
+  ollama: {
+    appendsPath: "/api/embed",
+    deprecated:
+      "the `ollama` built-in is deprecated; `openai-compatible` against http://<host>:11434/v1 " +
+      "serves the same endpoint. Do NOT switch yet without planning a re-index: provider.id is " +
+      "the vec-index fingerprint, so changing it re-embeds the whole vault.",
+    build: (c, x) => ollamaProvider(adapterOpts(c, x)),
+  },
   openai: { appendsPath: "/embeddings", build: (c, x) => openaiProvider(adapterOpts(c, x)) },
   voyage: { appendsPath: "/embeddings", build: (c, x) => voyageProvider(adapterOpts(c, x)) },
   cohere: { appendsPath: "/embed", build: (c, x) => cohereProvider(adapterOpts(c, x)) },
@@ -89,6 +104,18 @@ const EMBEDDINGS: Record<string, EmbeddingsEntry> = {
 /** Sorted so the unknown-name error message is stable and diffable. */
 export function embeddingsProviderNames(): string[] {
   return Object.keys(EMBEDDINGS).sort();
+}
+
+/** THE-837: the deprecation notice for a provider name, or undefined.
+ *
+ *  A pure map read, and that is the requirement rather than an implementation detail: doctor is
+ *  offline by construction (THE-688 fix 2 — diagnosing must not acquire a side effect just because
+ *  someone ran it), so reading this metadata must not go anywhere near `build`. An unknown name
+ *  returns undefined rather than throwing; whether the name is valid at all is
+ *  `embeddingsEntryOrThrow`'s job, and a doctor run must not die on a bad config value it is
+ *  supposed to be reporting. */
+export function embeddingsDeprecation(name: string): string | undefined {
+  return EMBEDDINGS[name]?.deprecated;
 }
 
 /**

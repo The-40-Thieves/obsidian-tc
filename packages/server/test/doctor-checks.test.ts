@@ -15,11 +15,10 @@ import {
   notesFtsIntegrityCheck,
   obsidianCheck,
   providerRegistrationCheck,
-  type RetrievalHeadsView,
-  retrievalHeadsCheck,
   runtimeCheck,
   snapshotsCheck,
 } from "../src/doctor/checks";
+import { type RetrievalHeadsView, retrievalHeadsCheck } from "../src/doctor/retrieval-heads";
 
 const ctx = { serverVersion: "1.10.0" };
 

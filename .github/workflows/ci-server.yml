@@ -111,6 +111,15 @@ jobs:
       - name: write-only tables (source scan)
         run: bun run check:table-readers
 
+      # THE-837. embeddings/http.ts is shared by every embedding adapter, both reranker adapters
+      # and both model-tier clients, so a provider name used as a VALUE there privileges one vendor
+      # over the other nine in providers/registry.ts. That branch had already grown back once (see
+      # providerHint's docblock), which is what makes this a standing gate rather than a point fix.
+      # The provider set is DERIVED from the registry, so a provider added later is covered without
+      # editing the gate. Comments naming a vendor are ignored — they are documentation, not code.
+      - name: embedding transport names no vendor (source scan)
+        run: bun run check:embedding-transport
+
       # The gate's own unit tests — the view/word-boundary/quoting cases that decide whether it
       # reports the truth or quietly reports nothing.
       - name: gate unit tests

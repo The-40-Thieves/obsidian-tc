@@ -34,9 +34,16 @@ export function ollamaProvider(o: AdapterOpts): EmbeddingProvider {
         fetchFn: o.fetchFn,
         timeoutMs: o.timeoutMs,
         provider: "ollama",
-        // Ollama is sent no authorization header. Its provider-specific hint lives inside the
-        // "none" branch of providerHint, so this slot is what selects it.
         credentialSlot: "none",
+        // THE-837: this advice used to live in providerHint's "none" branch behind a
+        // `provider === "ollama"` test, which made the SHARED transport name one vendor out of the
+        // eight in providers/registry.ts. It travels with the adapter now, which is the only place
+        // that knows what this endpoint actually needs. Ollama is sent no authorization header, so
+        // the generic "a 401/403 means a proxy in front of it" advice would be actively misleading
+        // on a first run — the real failure is that nothing is listening, or the model is unpulled.
+        // The model name is interpolated rather than hardcoded: naming a specific default model
+        // here would re-privilege one checkpoint the same way the branch privileged one vendor.
+        credentialLessHint: `is Ollama running at ${base}? Start it, then pull the embedding model (\`ollama pull ${o.model}\`).`,
       });
       return assertVectors(r.embeddings ?? [], o.dimensions, texts.length, {
         truncate: o.truncate,

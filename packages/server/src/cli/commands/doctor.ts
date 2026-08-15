@@ -21,6 +21,7 @@ import { experientialColumnSpec } from "../../doctor/column-spec";
 import { experientialTableSpec } from "../../doctor/table-spec";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
+import { embeddingsDeprecation } from "../../providers/registry";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { type Cmd, resolveOrUsageExit } from "../shared";
@@ -678,6 +679,12 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         // A provider name no longer implies a capability set: a generic provider may well point at
         // a bge-m3 endpoint. Report what is CONFIGURED rather than inferring from the name.
         rerankerConfigured: config.reranker?.provider,
+        // THE-837: read straight off the registry entry rather than restated here, so the notice
+        // cannot drift from the entry that owns it. Assigned unconditionally (undefined when the
+        // provider carries no notice) rather than conditionally spread — THE-732: TypeScript
+        // exempts spreads from excess-property checking, so a misspelled key in a spread is
+        // silently dropped and the field just never arrives.
+        denseDeprecated: embeddingsDeprecation(config.embeddings.provider),
         sparseEnabled: config.retrieval.sparse,
         colbertEnabled: config.retrieval.colbert,
         // THE-688 fix 2: attached ONLY under --probe, so the default run stays offline.

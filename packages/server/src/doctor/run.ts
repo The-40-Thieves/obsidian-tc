@@ -10,7 +10,6 @@ import type {
   NotesFtsView,
   ProviderRegistrationView,
   RerankerBuildableView,
-  RetrievalHeadsView,
   TokenClaims,
 } from "./checks";
 import {
@@ -26,12 +25,13 @@ import {
   obsidianCheck,
   providerRegistrationCheck,
   rerankerBuildableCheck,
-  retrievalHeadsCheck,
   runtimeCheck,
   snapshotsCheck,
 } from "./checks";
 import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
 import { runDoctor } from "./report";
+import type { RetrievalHeadsView } from "./retrieval-heads";
+import { retrievalHeadsCheck } from "./retrieval-heads";
 import type { Check, DoctorReport } from "./types";
 
 /**

@@ -2,7 +2,7 @@
   "name": "obsidian-tc-monorepo",
   "version": "1.21.0",
   "private": true,
-  "description": "Obsidian Turbocharged \u2014 comprehensive, model-agnostic, agent-ready Obsidian MCP server",
+  "description": "Obsidian Turbocharged — comprehensive, model-agnostic, agent-ready Obsidian MCP server",
   "license": "AGPL-3.0-only",
   "author": "The 40 Thieves",
   "repository": {
@@ -30,6 +30,7 @@
     "check:dev-dep-imports": "node scripts/check-dev-dep-imports.mjs",
     "check:duplicate-exports": "node scripts/check-duplicate-exports.mjs",
     "check:duplication": "jscpd --config .jscpd.json",
+    "check:embedding-transport": "node scripts/check-embedding-transport-vendor-neutral.mjs",
     "check:export-surface": "node scripts/check-export-surface.mjs",
     "check:facade-parity": "node scripts/check-facade-parity.mjs",
     "check:ingest-telemetry-wiring": "node scripts/check-ingest-telemetry-wiring.mjs",

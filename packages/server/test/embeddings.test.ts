@@ -7,6 +7,7 @@ import {
   resolveApiKey,
 } from "../src/embeddings";
 import { postJson } from "../src/embeddings/http";
+import { ollamaProvider } from "../src/embeddings/providers";
 import { jsCosineSimilarity } from "../src/search/native";
 
 // A fetch stub returning a fixed JSON body — no network, fully deterministic.
@@ -188,7 +189,16 @@ describe("postJson failure hints name the right config block", () => {
   const failingFetch: typeof fetch = async () =>
     new Response("nope", { status: 401, statusText: "Unauthorized" });
 
-  async function hintFor(o: Omit<Parameters<typeof postJson>[0], "url" | "body" | "fetchFn">) {
+  // THE-837: PostJsonOptions became a discriminated union (credentialLessHint is reachable only on
+  // the `none` slot). A bare `Omit` over a union is NOT distributive — it collapses the members
+  // into one object whose credentialSlot is the full union, which then satisfies no branch. The
+  // conditional type below distributes over the members so each keeps its own discriminant, which
+  // is what lets this helper still parameterise over all four slots.
+  type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+  async function hintFor(
+    o: DistributiveOmit<Parameters<typeof postJson>[0], "url" | "body" | "fetchFn">,
+  ) {
     try {
       await postJson({
         url: "http://127.0.0.1:9/x",
@@ -232,10 +242,49 @@ describe("postJson failure hints name the right config block", () => {
     expect(hint).not.toContain("authToken");
   });
 
-  it("keeps the Ollama-specific hint, which names no key at all", async () => {
+  // THE-837. This block replaces a test that asserted the OPPOSITE — that postJson kept an
+  // Ollama-specific hint of its own. It did, via `provider === "ollama"` inside the `none` slot,
+  // which made the transport shared by every adapter privilege one vendor. The advice did not go
+  // away; it moved to the adapter that owns it. All three cases below are needed: the first two
+  // prove the transport is neutral and the mechanism works, and WITHOUT the third they would both
+  // pass with the hint deleted outright rather than relocated.
+  it("gives a vendor-specific provider NO special hint when none is supplied", async () => {
     const hint = await hintFor({ provider: "ollama", credentialSlot: "none" });
-    expect(hint).toContain("ollama pull");
-    expect(hint).not.toContain("apiKey");
+    expect(hint).toMatch(/no credential/);
+    expect(hint).not.toContain("ollama pull");
+  });
+
+  it("lets an adapter's own credential-less hint win", async () => {
+    const hint = await hintFor({
+      provider: "anything",
+      credentialSlot: "none",
+      credentialLessHint: "is the widget service up?",
+    });
+    expect(hint).toBe("is the widget service up?");
+  });
+
+  it("still reaches the operator from the ollama adapter, end to end", async () => {
+    // The acceptance criterion, and the only one of the three that would catch the hint being
+    // dropped instead of moved. Drives the real adapter, not postJson directly.
+    const dead: typeof fetch = async () => new Response("nope", { status: 503 });
+    const provider = ollamaProvider({
+      model: "bge-m3",
+      dimensions: 8,
+      baseUrl: "http://127.0.0.1:9",
+      fetchFn: dead,
+    });
+    try {
+      await provider.embed(["hello"]);
+      throw new Error("expected the adapter to throw");
+    } catch (e) {
+      const hint = String((e as ObsidianTcError).details?.hint ?? "");
+      expect(hint).toContain("ollama pull bge-m3");
+      expect(hint).toContain("http://127.0.0.1:9");
+      // The model name is interpolated, never a hardcoded default — a fixed model name here would
+      // re-privilege one checkpoint the same way the branch privileged one vendor.
+      expect(hint).not.toContain("nomic-embed-text");
+      expect(hint).not.toContain("apiKey");
+    }
   });
 
   // All three throw sites carry the hint, not just the wire-failure one. The malformed-JSON path is
