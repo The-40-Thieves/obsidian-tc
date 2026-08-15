@@ -162,7 +162,7 @@ obsidian-tc /path/to/your/vault    # boots local-only, no config file
 
 The optional inference gateway (`OBSIDIAN_TC_GATEWAY_URL`) powers rerank and the
 `knowledge_challenge` red-team; leave it unset and those degrade gracefully while
-everything else keeps working. Cloud embedding providers (OpenAI, Voyage, Cohere) are
+everything else keeps working. Cloud embedding providers (OpenAI, Voyage, Cohere, or any OpenAI-shaped endpoint via `openai-compatible`) are
 opt-in via a config file.
 
 > **Security posture in zero-config mode.** `obsidian-tc /path/to/vault` boots with **auth off

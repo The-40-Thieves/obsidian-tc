@@ -305,7 +305,7 @@ server never binds a routable address.
 
 | Field | Type / default | What it does |
 | --- | --- | --- |
-| `provider` | `ollama \| openai \| voyage \| cohere \| bge-m3 \| model-tier`, `ollama` | `bge-m3` targets a vLLM pooling server (dense + learned-sparse + ColBERT heads); `model-tier` splits dense and multi-vector embedding across two separate services. |
+| `provider` | `ollama \| openai \| voyage \| cohere \| bge-m3 \| openai-compatible \| model-tier \| module`, `ollama` | `bge-m3` targets a vLLM pooling server (dense + learned-sparse + ColBERT heads); `model-tier` splits dense and multi-vector embedding across two separate services. |
 | `model` | string, `nomic-embed-text` | |
 | `dimensions` | int, 768 | The vec0 table is dimension-locked; changing it requires a fresh `cacheDir` (see [migration](/configuration/embedding-model-migration/)). |
 | `baseUrl` | url *(optional)* | Provider endpoint (e.g. `http://127.0.0.1:11434` for Ollama). |

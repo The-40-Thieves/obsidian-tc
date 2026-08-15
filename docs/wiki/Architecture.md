@@ -17,7 +17,7 @@ obsidian-tc is a **polyglot monorepo**. The server is a single Bun/Node process;
 
 ## Components
 
-Server-side (one process, soft TS-module boundaries): **Transport** (JSON-RPC over STDIO / Streamable HTTP), **Auth** (JWT / none), **ACL** (scope vs path/op), **Policy** (idempotency, rate limit, HITL), **Router**, **Tool impls**, **Plugin bridges** (HTTP to the companion plugin), **Embedding providers** (Ollama / OpenAI / Voyage / Cohere), **Native module**, **SQLite caches** (authored `cache.db` + quarantined `experiential.db` per vault), **Observability emitters**.
+Server-side (one process, soft TS-module boundaries): **Transport** (JSON-RPC over STDIO / Streamable HTTP), **Auth** (JWT / none), **ACL** (scope vs path/op), **Policy** (idempotency, rate limit, HITL), **Router**, **Tool impls**, **Plugin bridges** (HTTP to the companion plugin), **Embedding providers** (eight registered: ollama / openai / voyage / cohere / bge-m3 / openai-compatible / model-tier / module — none privileged in code), **Native module**, **SQLite caches** (authored `cache.db` + quarantined `experiential.db` per vault), **Observability emitters**.
 
 Obsidian-side (separate process): **Companion plugin** and the third-party **Local REST API plugin**.
 
