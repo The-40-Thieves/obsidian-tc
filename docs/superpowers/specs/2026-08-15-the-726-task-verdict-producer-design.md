@@ -1,6 +1,36 @@
 # THE-726 — the task-verdict producer
 
-**Status:** design agreed, not built. **Date:** 2026-08-15.
+> # SUPERSEDED 2026-08-16 — REJECTED by cross-vendor review. Do not implement from this file.
+>
+> **Replacement: [`2026-08-16-the-726-task-verdict-producer-design-v2.md`](./2026-08-16-the-726-task-verdict-producer-design-v2.md).**
+>
+> A Codex refutation pass returned **reject**: seven blocking findings and five internal
+> contradictions. Three were independently re-verified against the code before being accepted.
+> This file is kept rather than deleted because the refutation is the most useful thing the design
+> produced, and it is only legible next to what it refuted.
+>
+> The two owner decisions — the session is the task, and a stamp closes the open window — **survive
+> unchanged in v2**. What broke was everything underneath them:
+>
+> * **§4.3's `tool NOT LIKE '%/%'` is wrong twice.** It is lexical inference where `episode_type`
+>   is the structural home, and its premise is false: **SEP-986 explicitly permits `/` in tool
+>   names** (`user-profile/update` is a documented valid example), so the filter would silently
+>   exclude spec-conforming tools from judgment forever. The v1 claim that the spec forbids `/`
+>   came from reading one page of the spec and reporting it as the whole answer.
+> * **§4.4's queue is not a closure detector.** `closeStaleImplicitSessions` is **age**-based
+>   (`started_at < cutoff`), and its own docblock says "A WINDOW, not an idle timeout" three lines
+>   above the SQL v1 quoted. Session-level `MAX(ts)` idleness lets repeated protocol chatter hide
+>   old unstamped rows indefinitely.
+> * **§3's "partitions the session exactly" is false** under concurrent dispatch.
+> * **The stamping verb strands its own row**, because dispatch captures the episode *after* the
+>   handler returns — so the window reopens on every stamp and the queue can never drain.
+> * **§4.2 breaks `reflect.ts:136`.** A `-1` arriving after promotion never fires the hold, because
+>   nothing re-inspects a promoted row. "Both readers keep working unchanged" was false.
+> * **§6 requires a `workspace_sessions.task_result` column §4.1 explicitly does not add** — an
+>   acceptance query that could never have succeeded.
+> * **`work_result(note?)`** accepts a parameter with nowhere to store it.
+
+**Status:** ~~design agreed~~ **REJECTED**, not built. **Date:** 2026-08-15.
 **Ticket:** THE-726 (EPIC: client lifecycle coordinator).
 **Supersedes nothing.** Extends the 2026-08-10 decision `task_result is stamped by the acting agent, with the session-close sweep making the debt visible` — that named the *emitter*; this names the *unit* it writes to, which the epic left open.
 
