@@ -62,11 +62,15 @@ Two facts the ticket still does not carry: **client adoption already happened** 
 | **D6** | A `-1` stamp **demotes** the rows it stamps back to `pending`, so the hold rule is order-independent. | new, v2 |
 | **D7** | `(session_id, verdict_at)` is the **window identity**, and every consumer must dedupe on it. | new, v2 |
 
-## 3. Scope change, flagged
+## 3. Scope change — split out as THE-839
 
-**v2 fixes the producer's `episode_type`.** v1 scoped that out and tried to work around it with a string filter; findings #1 and #6 are both consequences of that choice, and every workaround is a variant of the refuted filter. This widens THE-726 by a producer change, a one-time backfill, and a registry read.
+**The producer's `episode_type` must be fixed first.** v1 scoped that out and tried to work around it with a string filter; findings #1 and #6 are both consequences of that choice, and every workaround is a variant of the refuted filter.
 
-That is a real scope increase and the owner may split it. If split, **v2 does not ship without it** — the projection has no correct exclusion predicate until `episode_type` is true.
+**Split into THE-839 on 2026-08-16, at the owner's call**, with a `blocks` edge onto THE-726 so the dependency is a real graph edge rather than a sentence in a design doc. THE-839 owns the `DispatchEpisode.kind` field, the `episodes.ts` write, the one-time backfill, and the `channel` decision.
+
+It is split because it is **independently valuable**: 30.5% of live rows are mislabelled today, and that is wrong whether or not the verdict producer is ever built. It is a blocker because **v2 has no correct exclusion predicate until `episode_type` is true** — §4.3 is a one-line filter precisely because THE-839 does the work.
+
+The `verdict` tag ships in THE-839 with **no consumer yet**; this design is its consumer. That is deliberate, so the producer changes once rather than twice.
 
 ## 4. Design
 
@@ -254,6 +258,21 @@ Larger than v1, and the increase is the scope change in §3.
 
 ## 9. Open
 
-1. **§3's scope increase** — the producer fix. Owner may split it; v2 does not ship without it.
-2. **NULL-principal sessions** (THE-838) — whether NULL means "anyone may close" or "only an unauthenticated transport may". Affects `work_result`'s ownership check too.
-3. **`as_of` ergonomics** — a caller with no clock discipline passing a skewed value stamps the wrong set. Server-side clamping to `[session.started_at, now]` is the obvious guard and is not yet specified.
+1. ~~§3's scope increase~~ — **resolved: split as THE-839**, which now `blocks` THE-726. Not an open question; a sequencing constraint.
+2. **NULL-principal sessions** (THE-838) — whether NULL means "anyone may close" or "only an unauthenticated transport may". Affects `work_result`'s ownership check too, so it must be decided on THE-838 before either verb ships, not discovered twice.
+3. **`as_of` ergonomics** — a caller with no clock discipline passing a skewed value stamps the wrong set. Server-side clamping to `[session.started_at, now]` is the obvious guard and is not yet specified. Note `session.started_at` lives in **cache.db** (§4.1), so the clamp cannot read it from the projection's own transaction — clamp to `[MIN(ts) of the session's episodes, now]` instead, or accept the unclamped value and say so.
+
+## 10. Sequencing
+
+```
+THE-839  episode_type becomes true          ──blocks──┐
+THE-838  end_session ownership              ──blocks──┤
+                                                      ▼
+                                        THE-726  this design
+                                                      │
+                                                      ▼
+                                        THE-673  counters, grouping on
+                                                 (session_id, verdict_at)
+```
+
+THE-838 blocks only D3's `end_session` passthrough. **`work_result` can ship without it** — it resolves its session through `activeSessionFor`, which is keyed on the server-observed principal and therefore already carries the property `end_session` is missing.
