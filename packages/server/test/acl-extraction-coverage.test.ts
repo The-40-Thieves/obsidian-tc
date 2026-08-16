@@ -88,6 +88,13 @@ const EXEMPT_NO_PATH = new Set<string>([
   "enqueue_capture", // enqueues to the capture_queue table; no vault write until commit_capture
   "work_forget", // deletion propagation within the experiential store (not authored vault notes)
   "record_retrieval_feedback", // stamps feedback on an experiential retrieval-log row
+  // THE-726: work_result stamps a verdict onto the caller's OWN already-recorded episodes in the
+  // experiential store. Its entire input is a -1|0|+1 and an optional timestamp — there is no
+  // vault-relative path to extract, the same reason work_forget and record_retrieval_feedback sit
+  // here. It takes no `vault` either: the session it stamps determines the vault, and the session
+  // is resolved from the server-observed principal (activeSessionFor), never from caller input, so
+  // there is no caller-named target of any kind for a path extractor to reach.
+  "work_result",
   // THE-633: a goal is free text plus a terminal state in the experiential store. There is no
   // vault-relative path anywhere in the input, so there is nothing for pathAcl to extract —
   // the same reason work_forget and record_retrieval_feedback sit here. Both are still

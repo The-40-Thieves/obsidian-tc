@@ -168,6 +168,11 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // HERE (once, over an inspected closed set) and refused at runtime, because SEP-986 permits `/`
   // in tool names — the header carries the full argument.
   "20260816_001_episode_type_structural.sql",
+  // THE-726: 20260816_002 adds `verdict_at`, the timestamp half of a task verdict. Paired with
+  // `session_id` it is the WINDOW IDENTITY — which rows share one judgement — without which the
+  // preference extractor reads N projected rows as N independent observations (measured: 4.82
+  // dispatches per session, so one 18-dispatch task would take 18 of its 40 evidence slots).
+  "20260816_002_episode_verdict_at.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

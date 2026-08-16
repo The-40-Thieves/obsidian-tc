@@ -71,14 +71,20 @@ describe("THE-513 Part 2: vaultArg declaration coverage", () => {
     ).toEqual([]);
   });
 
-  it("re-derives the known mutating+vault-shaped surface (51 of 53 mutating tools, THE-513 Part 2)", () => {
-    // work_forget and record_retrieval_feedback are the two mutating tools with NO vault field at
-    // all (they operate on the experiential SQLite store, not a caller-named vault) — named
-    // explicitly here rather than just asserting a count, same reasoning as REGISTERED_TOOL_COUNT.
+  it("re-derives the known mutating+vault-shaped surface (51 of 54 mutating tools, THE-513 Part 2)", () => {
+    // Three mutating tools have NO vault field at all — they operate on the experiential SQLite
+    // store, not a caller-named vault — named explicitly here rather than just asserting a count,
+    // same reasoning as REGISTERED_TOOL_COUNT.
+    //
+    // THE-726: work_result is the third, and it takes no vault for a stronger reason than the
+    // other two. Its target is the caller's own open session, resolved from the server-observed
+    // principal via activeSessionFor — never from caller input. Accepting a `vault` would invite
+    // exactly the caller-named-target shape THE-838 had to close on end_session, so its absence is
+    // a security property rather than an omission.
     const withoutVaultField = mutating
       .filter((d) => vaultShapedField(d.inputSchema) === undefined)
       .map((d) => d.name)
       .sort();
-    expect(withoutVaultField).toEqual(["record_retrieval_feedback", "work_forget"]);
+    expect(withoutVaultField).toEqual(["record_retrieval_feedback", "work_forget", "work_result"]);
   });
 });

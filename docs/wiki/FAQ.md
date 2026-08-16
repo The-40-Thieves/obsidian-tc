@@ -4,7 +4,7 @@
 
 **Is my vault data sent anywhere?** No, unless you configure a cloud embedding provider (OpenAI / Voyage / Cohere) or the optional inference gateway — only then do chunks leave your machine, and only to that provider. With the default Ollama provider everything stays local. All tools are `openWorldHint: false`.
 
-**Why do I only see three tools?** That's the default **triad facade**: `find_capability` / `describe_capability` / `call_capability` keep agent context lean while all 162 tools stay reachable (and directly callable by name). Set `toolFacade.mode` to `domain` or `flat` for other shapes. See **[[Tool Reference]]**.
+**Why do I only see three tools?** That's the default **triad facade**: `find_capability` / `describe_capability` / `call_capability` keep agent context lean while all 163 tools stay reachable (and directly callable by name). Set `toolFacade.mode` to `domain` or `flat` for other shapes. See **[[Tool Reference]]**.
 
 **Does it do GraphRAG / hybrid retrieval?** Yes — shipped and **measured**: `vault_graph_search` (vector seeds + wikilink expansion fused with RRF), FTS5 BM25, and vec0 dense search, gated by an n=250 golden set with a statistical ship rule (contextual chunk enrichment measured +0.223 nDCG and defaults on). Mechanisms that lost their A/B (rerankers, learned sparse, query decomposition) ship dark behind flags with their numbers. See **[[Architecture]]**.
 

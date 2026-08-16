@@ -44,6 +44,13 @@ function edb0(): Database {
       version: "20260806_006",
       sql: sql("20260806_006_episode_eligibility_reason.sql"),
     },
+    // THE-726: verdict_at. extractPreferences now SELECTs it — it is half the window identity
+    // (session_id, verdict_at) that tells the extractor which rows carry one judgement rather than
+    // N. agent_episodes-only, so it composes onto this prefix like the two above.
+    {
+      version: "20260816_002",
+      sql: sql("20260816_002_episode_verdict_at.sql"),
+    },
     { version: "20260712_001", sql: sql("20260712_001_preference_profile.sql") },
     // THE-710: the vault partition. Included here rather than in a separate fixture so every
     // existing assertion below runs against the PARTITIONED schema, not the pre-migration one.

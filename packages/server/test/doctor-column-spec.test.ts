@@ -42,7 +42,9 @@ describe("derived.column-liveness spec", () => {
   it("classifies columns with no producer as `none`, not `disabled`", () => {
     const spec = experientialColumnSpec({ experiential: true });
     const byName = (n: string) => spec.find((s) => `${s.table}.${s.column}` === n);
-    expect(byName("agent_episodes.task_result")?.writer).toBe("none");
+    // THE-726: task_result HAS a producer now (work_result). `summary` still does not — the two
+    // were listed together for years and it matters that they have now separated.
+    expect(byName("agent_episodes.task_result")?.writer).toBe("enabled");
     expect(byName("agent_episodes.summary")?.writer).toBe("none");
   });
 

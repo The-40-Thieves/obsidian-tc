@@ -165,10 +165,23 @@ export async function evaluateEpisodes(
   const { candidates, held, holds } = partitionPending(pending);
   stats.held = held;
 
+  // THE-726: the WHERE re-checks `task_result` as well as `eligibility`, and that second clause is
+  // load-bearing rather than defensive. This pass reads, classifies in memory, then writes — it
+  // is not wrapped in a transaction — so a verdict can land in the gap:
+  //
+  //   1. this pass selects R (pending, task_result NULL) and classifies it for promotion
+  //   2. a verdict transaction stamps R = -1; its own demotion matches nothing, because R is
+  //      still `pending` and demotion only moves rows OUT of `eligible`
+  //   3. this UPDATE promotes R anyway, and R is now eligible carrying a -1
+  //
+  // R would then never be re-inspected, because the next pass selects only `pending`. Re-checking
+  // here means step 3 promotes nothing and the following pass holds R with its reason recorded.
+  // Without this clause the demotion in verdict.ts closes only the case where the verdict arrives
+  // AFTER promotion, and the claim that the hold is order-independent is simply false.
   const promote = edb.prepare(
     `UPDATE agent_episodes
         SET eligibility = 'eligible', eligibility_reason = ?, eligibility_policy = ?
-      WHERE id = ? AND eligibility = 'pending'`,
+      WHERE id = ? AND eligibility = 'pending' AND (task_result IS NULL OR task_result <> -1)`,
   );
   // THE-746: a HELD row keeps `eligibility = 'pending'` — being held is not a state change, it is
   // the absence of one — but it still records WHY it was passed over. Without this the two reasons
@@ -349,7 +362,7 @@ export async function extractPreferences(
   // a decision rather than as an accident of SQL three-valued logic.
   const episodes = edb
     .prepare(
-      `SELECT tool, status, task_result, summary FROM agent_episodes
+      `SELECT tool, status, task_result, summary, session_id, verdict_at FROM agent_episodes
        WHERE vault_id = ? AND vault_id IS NOT NULL
          AND blocked = 0 AND eligibility = 'eligible' AND task_result IS NOT NULL
        ORDER BY ts DESC LIMIT ?`,
@@ -359,6 +372,8 @@ export async function extractPreferences(
     status: string;
     task_result: number;
     summary: string | null;
+    session_id: string | null;
+    verdict_at: number | null;
   }>;
   // THE-718: the second evidence source here was `chunk_retrievals.outcome`, retired in
   // 20260806_001. It is REMOVED rather than repointed at `chunk_retrievals.feedback`, because the
@@ -369,12 +384,52 @@ export async function extractPreferences(
   // could not be vault-scoped (chunk vaults live in cache.db, across the membrane); it goes with the
   // query, and comes back with it if THE-641 lands.
   if (episodes.length === 0) return { skipped: true, aborted: false, applied: 0, version: 0 };
-  const lines = [
-    ...episodes.map(
-      (e) =>
-        `episode task_result=${e.task_result > 0 ? "+1" : e.task_result < 0 ? "-1" : "0"} tool=${e.tool ?? "?"} status=${e.status}${e.summary ? ` summary=${e.summary.slice(0, 120)}` : ""}`,
-    ),
-  ].join("\n");
+  // THE-726: ONE line per JUDGEMENT, not per row.
+  //
+  // A task verdict is rendered at session grain and PROJECTED onto every judgeable dispatch in its
+  // window, so N rows here can carry one opinion. `(session_id, verdict_at)` is the window
+  // identity — the pair that recovers which rows those are. Without collapsing on it the judge sees
+  // N perfectly-correlated lines and cannot tell they are one observation: measured on the live
+  // corpus at 4.82 dispatches per session (range 1-18), a single 18-dispatch task would take 18 of
+  // the 40 evidence slots and an 8-judgement budget would read as 40. That is a LENGTH bias toward
+  // tool-heavy workflows, not a quality signal.
+  //
+  // The member count is carried as CONTEXT rather than as repetition, so scale is still visible to
+  // the judge without being counted as independent support. It is labelled `sampled_calls`, not
+  // `spanning`, because the grouping happens after the row LIMIT: for a window larger than the
+  // remaining budget it is the number of members SAMPLED, not the window's true size, and a label
+  // that claimed otherwise would be wrong in exactly the case that matters. THE-673's counters carry the same
+  // requirement — recorded on that ticket too, because a requirement stated only in a design doc is
+  // one nobody reads.
+  //
+  // Rows predating the producer have `verdict_at` NULL; they group under their own id so a
+  // pre-projection row is never merged with an unrelated one.
+  //
+  // KNOWN LIMIT, stated rather than left to be rediscovered: the grouping happens AFTER the
+  // `ORDER BY ts DESC LIMIT ?` above, so a large window still consumes ROW slots even though it
+  // contributes one LINE. At the measured 4.82 dispatches per window the default budget of 40 rows
+  // yields roughly 8 judgements, not 40. That is under-SAMPLING, and it is a strictly smaller
+  // problem than the bias this dedup removes: before it, those same ~8 judgements were presented to
+  // the judge as 40 independent observations, weighted by how many tool calls each happened to take.
+  // Fixing the budget too means selecting a row allowance and taking N windows from it, which needs
+  // a bound nothing here can derive honestly — the largest window measured is 18 rows, but that is
+  // an observation about one corpus, not a limit.
+  const windows = new Map<string, { e: (typeof episodes)[number]; n: number }>();
+  for (const e of episodes) {
+    const key =
+      e.verdict_at !== null && e.session_id !== null
+        ? `${e.session_id}:${e.verdict_at}`
+        : `row:${e.tool ?? "?"}:${e.verdict_at ?? "none"}:${windows.size}`;
+    const seen = windows.get(key);
+    if (seen) seen.n += 1;
+    else windows.set(key, { e, n: 1 });
+  }
+  const lines = [...windows.values()]
+    .map(
+      ({ e, n }) =>
+        `episode task_result=${e.task_result > 0 ? "+1" : e.task_result < 0 ? "-1" : "0"} tool=${e.tool ?? "?"} status=${e.status}${n > 1 ? ` sampled_calls=${n}` : ""}${e.summary ? ` summary=${e.summary.slice(0, 120)}` : ""}`,
+    )
+    .join("\n");
   try {
     const res = await opts.judge({
       ...prompt(
