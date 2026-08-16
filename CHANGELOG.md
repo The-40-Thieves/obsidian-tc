@@ -6,6 +6,38 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Security
+
+- **`end_session` now refuses to end a session belonging to another principal (THE-838).** It
+  validated only that the session existed and matched the requested vault — it never compared
+  `workspace_sessions.principal` to the calling principal. So any caller holding `write:workspace`
+  on a vault could end any session in that vault, and because the handler appends a `session_end`
+  record carrying the caller's unconstrained `end_metadata`, could write attacker-controlled JSON
+  into **another principal's JSONL trace** — a file that feeds `inferCitations` and session replay.
+  Closing someone's session also silently detaches their subsequent retrievals and episodes from
+  it, degrading the correlation without erroring.
+
+  The rule is not new; it was applied one verb over and not here. `activeSessionFor` (PR #691)
+  resolves a session only on the server-observed `principal`, never the caller-declared `caller`,
+  precisely because "a session id is the correlation key for that principal's retrieval history".
+  `end_session` never called it and so inherited none of that protection.
+
+  **Affected:** a multi-principal deployment where one caller passes another caller's `session_id`.
+  Obtaining the id was a cost rather than a control — ids surface in traces, in error details, and
+  in any `admin:workspace` read. **Not affected:** a single-principal deployment, and any caller
+  ending its own session.
+  **Behaviour change:** such a call now returns `forbidden` instead of succeeding. A client that
+  relied on ending another principal's session must stop; there was no legitimate path to it.
+
+  A **NULL** `principal` means *unowned* and stays closable by anyone. That is deliberate: an
+  unauthenticated transport writes NULL rather than fabricating a value, and
+  `closeStaleImplicitSessions` skips those rows (`principal IS NOT NULL`), so strict equality would
+  have left them open forever with no way to close them.
+
+  Reads are unchanged and remain a deliberately different posture: `get_session_traces` is
+  `read:workspace`-scoped and does not filter by principal, mitigating the content axis instead by
+  stripping captured arguments. See SECURITY.md's store-scope table.
+
 ### Deprecated
 
 - **The `ollama` embeddings built-in is deprecated (THE-837), and still fully functional.**

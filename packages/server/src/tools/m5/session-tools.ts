@@ -200,6 +200,31 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         const s = getSession(ctx.db, input.session_id);
         if (!s || s.vault_id !== v.id)
           throw err.invalidInput("session not found", { session_id: input.session_id });
+        // THE-838: a session belongs to the principal that opened it. Compared against the
+        // server-OBSERVED `principal`, never the caller-DECLARED `caller` column — the same
+        // distinction `activeSessionFor` is built on, and for the same reason its docblock gives:
+        // resolving on a declared value lets any client holding `write:workspace` claim another
+        // principal's session id, and a session id is the correlation key for that principal's
+        // retrieval history. This handler never calls `activeSessionFor`, so it inherited none of
+        // that protection and validated only the VAULT.
+        //
+        // Without this, a foreign caller could not merely close someone's session: `appendTrace`
+        // below writes their unconstrained `end_metadata` into the target's JSONL trace, which is
+        // an input to inferCitations and to replay.
+        //
+        // A NULL principal means UNOWNED, and anyone may close it. That is a decision, not a
+        // fall-out of the comparison: `principal` is `ctx.caller` (`string | null`), so an
+        // unauthenticated transport writes NULL rather than fabricating a value. Strict equality
+        // would leave such a row unclosable by any authenticated caller AND unsweepable —
+        // `closeStaleImplicitSessions` requires `principal IS NOT NULL` — so it would leak open
+        // forever. There is no principal to protect, so there is nothing to refuse.
+        //
+        // Ordered BEFORE the already-ended check on purpose: reporting "already ended" first would
+        // let a foreign caller distinguish a closed session from a nonexistent one.
+        if (s.principal !== null && s.principal !== ctx.caller)
+          throw err.forbidden("session belongs to another principal", {
+            session_id: input.session_id,
+          });
         if (s.ended_at !== null)
           throw err.invalidInput("session already ended", { session_id: input.session_id });
         const now = (ctx.now ?? Date.now)();
@@ -211,7 +236,11 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           ...(input.end_metadata ? { metadata: input.end_metadata } : {}),
         });
         endSession(ctx.db, s.id, now);
-        deps.activeSessions?.clear(ctx.caller, s.id);
+        // THE-838: clear the tracker entry under the session's OWNER, not the caller. The two are
+        // now equal for an owned session (the guard above enforces it), but they diverge on an
+        // UNOWNED one — principal NULL, caller authenticated — where `clear(ctx.caller, …)` would
+        // miss the entry keyed under NULL and leave a closed session resolving as active.
+        deps.activeSessions?.clear(s.principal, s.id);
         return {
           session_id: s.id,
           ended_at: now,
