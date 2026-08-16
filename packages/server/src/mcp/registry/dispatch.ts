@@ -40,7 +40,8 @@ import {
   overflowError,
 } from "./result-governance";
 import type { ToolStore } from "./tool-store";
-import type { CallerContext, RegistryOptions, Status, VerifyElicit } from "./types";
+import type { CallerContext, EpisodeKind, RegistryOptions, Status, VerifyElicit } from "./types";
+import { VERDICT_TOOL_TAG } from "./types";
 
 // WP4.3: the dispatch orchestrator — runDispatch's full pipeline body, moved here UNCHANGED from
 // registry.ts. Every gate's own logic already lives in a sibling leaf (input-binding.ts,
@@ -123,10 +124,23 @@ export async function runDispatch(
   // THIS dispatch installed.
   let installedMarker: { markEffectCommitted?: () => void } | undefined;
 
+  // THE-839: everything reaching here came through tools/call, so it is a real tool call — the
+  // protocol surfaces (resources/*, prompts/*) go through dispatchResource instead and declare
+  // `protocol` there. The one exception is a tool tagged `verdict`, whose job is to record a
+  // judgement ABOUT other episodes; classifying it as ordinary work would let it become its own
+  // evidence. Resolved from the tool's own tags rather than a name list, and resolved INSIDE the
+  // closure because the definition is not looked up until further down this function.
+  //
+  // An unrecognised name falls through to `tool_call`. That is the honest answer: dispatch rejects
+  // it moments later, and the audit row for a rejected tools/call is still a tool call.
+  const episodeKind = (): EpisodeKind =>
+    deps.toolStore.get(name)?.tags?.includes(VERDICT_TOOL_TAG) ? "verdict" : "tool_call";
+
   const audit = (status: Status, durationMs: number, resultSize: number, code?: string) =>
     deps.observability.recordOutcome(
       ctx,
       name,
+      episodeKind(),
       hash,
       rawInput,
       status,

@@ -170,7 +170,13 @@ export class ToolRegistry {
     this.observability.emitCompletion(name, ctx, result);
   }
 
-  /** THE-415: record ONE governed outcome — see DispatchObservability.recordOutcome. */
+  /** THE-415: record ONE governed outcome — see DispatchObservability.recordOutcome.
+   *
+   *  THE-839: this wrapper has exactly ONE caller, `dispatchResource`, so every outcome it records
+   *  is an MCP protocol method (resources/*, prompts/*) and the kind is fixed here rather than
+   *  threaded through as a parameter nobody would ever vary. If a second caller ever appears, it
+   *  must not inherit this classification silently — take `kind` as an argument at that point
+   *  rather than letting a tool call be recorded as protocol traffic. */
   private recordOutcome(
     ctx: CallerContext,
     name: string,
@@ -184,6 +190,7 @@ export class ToolRegistry {
     this.observability.recordOutcome(
       ctx,
       name,
+      "protocol",
       hash,
       rawInput,
       status,

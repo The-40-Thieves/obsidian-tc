@@ -72,6 +72,8 @@ It is split because it is **independently valuable**: 30.5% of live rows are mis
 
 The `verdict` tag ships in THE-839 with **no consumer yet**; this design is its consumer. That is deliberate, so the producer changes once rather than twice.
 
+> **Corrected 2026-08-16 during THE-839's implementation:** this document originally spelled the judgeable kind `"tool"`. It ships as **`"tool_call"`** — the value `episode_type` already held for real tool calls. Renaming it would have churned 438 correct rows and ten test fixtures for no reader's benefit, and the defect was never the spelling; it was protocol methods borrowing the value. Every predicate below reads `episode_type = 'tool_call'`.
+
 ## 4. Design
 
 ### 4.1 Data model
@@ -93,7 +95,7 @@ ALTER TABLE agent_episodes ADD COLUMN verdict_at INTEGER;   -- ms epoch of the s
 `DispatchEpisode` (`registry/types.ts:265`) carries no operation-kind field, and `episodes.ts:94` hardcodes `channel='dispatch', episode_type='tool_call'` for **every** captured operation. That is why 192 protocol methods are labelled `tool_call`.
 
 ```
-DispatchEpisode gains:  kind: "tool" | "protocol" | "verdict"
+DispatchEpisode gains:  kind: "tool_call" | "protocol" | "verdict"
 episodes.ts writes it to episode_type instead of the literal.
 ```
 
@@ -101,7 +103,7 @@ The registry knows which it is — it dispatched it. `kind` is derived at the di
 
 - `"protocol"` — an MCP method (`tools/list`, `prompts/list`, `resources/list`), not a registered tool.
 - `"verdict"` — a registered tool carrying the `verdict` tag. Today: `work_result`, `end_session`. Derived from the registry's existing `tags` array, so adding a third verdict verb needs no edit here — the same registry-derived closed-set pattern THE-837 established.
-- `"tool"` — everything else. **This is the judgeable set.**
+- `"tool_call"` — everything else. **This is the judgeable set.** The existing spelling is kept: it was always correct for a real tool call, and renaming would rewrite 438 correct rows and ten test fixtures to say the same thing differently. The defect was protocol methods borrowing the value, not the value.
 
 **Historical rows.** 192 existing rows are mislabelled. One backfill, in the migration:
 
@@ -114,12 +116,12 @@ The `/` heuristic is legitimate **here** and illegitimate as a runtime predicate
 ### 4.3 The exclusion (fixes #1, #6)
 
 ```sql
-AND episode_type = 'tool'
+AND episode_type = 'tool_call'
 ```
 
 That is the whole filter. No name matching anywhere.
 
-It fixes #1 by construction: `work_result`'s own dispatch row is `episode_type='verdict'`, so it is never a judgment target and cannot strand itself or contaminate the next window. It fixes #6 by construction: a tool named `user-profile/update` is `kind: "tool"` and is judged, because kind comes from the dispatcher rather than from spelling.
+It fixes #1 by construction: `work_result`'s own dispatch row is `episode_type='verdict'`, so it is never a judgment target and cannot strand itself or contaminate the next window. It fixes #6 by construction: a tool named `user-profile/update` is `kind: "tool_call"` and is judged, because kind comes from the dispatcher rather than from spelling.
 
 **Gate:** no SQL or TypeScript on the verdict path may match a provider- or tool-*name* pattern to decide judgeability. Source-scan, floored on finding the projection statement at all — a gate that scans nothing reports success.
 
@@ -130,7 +132,7 @@ UPDATE agent_episodes
    SET task_result = :result, verdict_at = :now
  WHERE session_id    = :session
    AND task_result IS NULL
-   AND episode_type  = 'tool'
+   AND episode_type  = 'tool_call'
    AND ts           <= :as_of;
 ```
 
@@ -172,7 +174,7 @@ So the queue stops pretending to detect closure and measures what it can actuall
 ```sql
 SELECT * FROM agent_episodes
  WHERE task_result IS NULL
-   AND episode_type = 'tool'
+   AND episode_type = 'tool_call'
    AND ts < :now - :windowSeconds * 1000;
 ```
 
@@ -220,7 +222,7 @@ Errors: no open session → `invalid_input` naming `start_session`, never a sile
 
 - **Self-capture** — `work_result` twice with no intervening work: the second reports `stamped: 0`. Under v1 it reported 1, stamping the first call's own bookkeeping row. This is the regression test for #1 and it **fails on v1's design**.
 - **Verdict-verb exclusion** — after a stamp, no `episode_type='verdict'` row carries a `task_result`.
-- **Slash-named tool is judged** — a tool named `a/b` (SEP-986-valid) is `kind: "tool"` and receives the verdict. Fails on v1's filter.
+- **Slash-named tool is judged** — a tool named `a/b` (SEP-986-valid) is `kind: "tool_call"` and receives the verdict. Fails on v1's filter.
 - **Late `-1` demotes** — promote to `eligible`, then stamp `-1`, then run the evaluator: the row is held with `eligibility_reason='held_bad_task_result'`. Fails without §4.5.
 - **Chatter cannot hide debt** — an old unstamped tool row plus fresh `resources/list` traffic in the same session still appears in `unstamped_debt`. Fails under v1's `MAX(ts)`.
 - **Window partition** — stamp, dispatch, stamp differently: two groups, two verdicts, distinct `verdict_at`.

@@ -161,6 +161,13 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // policy VERSION that produced it. THE-672's measurement had to diff two hand-made database
   // copies to learn which rule fired; versioning separates a later policy change from a data one.
   "20260806_006_episode_eligibility_reason.sql",
+  // THE-839: 20260816_001 corrects `episode_type`, which had been the literal 'tool_call' for every
+  // captured operation since 20260711_002 — 630 rows, one distinct value, no information. 192 of
+  // them (30.5%) are MCP protocol methods arriving through dispatchResource, not tool calls. The
+  // producer now carries the kind; this backfills the history. Classifying by name is legitimate
+  // HERE (once, over an inspected closed set) and refused at runtime, because SEP-986 permits `/`
+  // in tool names — the header carries the full argument.
+  "20260816_001_episode_type_structural.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

@@ -262,6 +262,38 @@ export interface OperationPolicy {
 export type VerifyElicit = (token: string, expectedHash: string, ctx: CallerContext) => boolean;
 export type Status = "ok" | "error" | "skipped";
 
+/** THE-839: what KIND of operation produced an episode, decided by the registry at the dispatch
+ *  site and never re-inferred downstream.
+ *
+ *  This exists because `episode_type` was a literal. `episodes.ts` hardcoded `'tool_call'` for
+ *  every captured operation, so 192 of 630 live rows (30.5%) were MCP protocol methods labelled as
+ *  tool calls, and the column carried no information at all. A consumer asking "was this real
+ *  work?" had nothing structural to ask, and the only available proxy — the shape of the tool's
+ *  NAME — is not a contract: SEP-986 permits `/` in tool names precisely so they can be
+ *  hierarchical (`user-profile/update` is a documented valid example), so a name test would
+ *  misclassify a spec-conforming tool and keep doing it silently.
+ *
+ *  The registry already knows which is which, because the two kinds arrive through two different
+ *  entry points: `dispatch()` (tools/call) and `dispatchResource()` (the resources/* and prompts/*
+ *  surfaces, THE-415). This type just stops throwing that knowledge away.
+ *
+ *  - `tool_call`  a registered tool, through `dispatch()`. UNCHANGED spelling: this was already
+ *                 the right value for a real tool call, and renaming it would churn 438 live rows
+ *                 and ten test fixtures for no gain. The defect was protocol methods borrowing
+ *                 this value, not the value itself.
+ *  - `protocol`   an MCP protocol method, through `dispatchResource()`. Governed and audited like
+ *                 a tool, but it is not work anyone can render a verdict on.
+ *  - `verdict`    a registered tool tagged `verdict` — one whose whole job is to record a judgement
+ *                 about other episodes. Has NO producer in this codebase yet; it is defined here so
+ *                 THE-726 does not have to change the producer a second time, and so a verdict verb
+ *                 cannot become its own evidence. */
+export type EpisodeKind = "tool_call" | "protocol" | "verdict";
+
+/** The registry tag marking a tool as a verdict verb (see EpisodeKind). Derived from the tool's own
+ *  `tags` array rather than a hardcoded name list, so a second verdict verb needs no edit here —
+ *  the registry-derived closed-set pattern THE-837 established for provider names. */
+export const VERDICT_TOOL_TAG = "verdict";
+
 /** THE-228: one dispatch outcome, as handed to the experiential episode bus. Carries the
  *  audit-row fields plus the raw parsed input; content policy (redact / cap / drop) belongs
  *  to the sink, never to the registry. */
@@ -269,6 +301,8 @@ export interface DispatchEpisode {
   ts: number;
   vaultId: string;
   tool: string;
+  /** THE-839: set by the dispatch site. The sink writes it to `agent_episodes.episode_type`. */
+  kind: EpisodeKind;
   caller: string | null;
   sessionId: string | null;
   status: Status;
