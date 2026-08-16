@@ -10,7 +10,7 @@
 
 **What is the "work-memory tier"?** A quarantined second store (`experiential.db`) for agent work episodes and retrieval telemetry — physically separate from your authored notes, readable only through eligibility-gated tools (`work_search`, `work_episodes`), with a poison scanner on ingest and a hash-chain-audited `forget`. Content capture is **off by default**. See **[[Architecture]]**.
 
-**Local or cloud embeddings?** Either, per vault. Default is local Ollama (`nomic-embed-text`, 768-dim, with title+breadcrumb chunk context). OpenAI, Voyage, or Cohere are opt-in. A local-Ollama vault and a cloud-Voyage vault coexist in one server. See **[[Configuration]]**.
+**Local or cloud embeddings?** Either, per vault. The schema default is local Ollama (`nomic-embed-text`, 768-dim, with title+breadcrumb chunk context) — a config default only, and now deprecated. Seven others are one config line away: openai, voyage, cohere, bge-m3, openai-compatible (anything OpenAI-shaped), model-tier, module. A local-Ollama vault and a cloud-Voyage vault coexist in one server. See **[[Configuration]]**.
 
 **Can I serve multiple vaults?** Yes — multi-vault is native. Each vault is **logically** isolated: its rows in the shared SQLite cache are scoped by `vault_id` (not a per-vault DB file; the embedding provider is server-global), under its own ACL slice (per-vault ACL overrides supported). Adding/removing a vault needs a restart; editing an existing vault's config can be applied live with `reload_vault`. See **[[Architecture]]**.
 

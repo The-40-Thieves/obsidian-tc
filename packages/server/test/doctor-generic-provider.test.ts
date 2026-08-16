@@ -2,7 +2,7 @@
 // drop-in provider reports multiVector:false and "reranking depends on the inference gateway"
 // even with a reranker block configured. Both must key on what is CONFIGURED, not on a name.
 import { describe, expect, it } from "vitest";
-import { type RetrievalHeadsView, retrievalHeadsCheck } from "../src/doctor/checks";
+import { type RetrievalHeadsView, retrievalHeadsCheck } from "../src/doctor/retrieval-heads";
 
 // NOTE: retrievalHeadsCheck(...) returns { id, category, run } — the computed detail strings only
 // exist in run()'s return value. JSON.stringify on the un-run Check drops `run` (a function) and

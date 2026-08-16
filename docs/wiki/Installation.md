@@ -10,7 +10,7 @@ obsidian-tc ships as an npm package, a container image, a one-click `.mcpb` bund
 | **Obsidian** | Any recent version | The vault host. Required for plugin-bridge tools; pure filesystem/search tools work headless. |
 | **Local REST API plugin** | `coddingtonbear/obsidian-local-rest-api` | HTTP entry point into the live app. Required for the companion plugin and live-mode bridges. |
 | **Companion plugin** | `obsidian-tc` (this project) | Required for the command palette and **any** plugin-bridge tool. See **[[Plugin Bridges]]**. |
-| **Ollama** (default embeddings) | `ollama pull nomic-embed-text` | Local 768-dim embeddings; cloud providers (OpenAI / Voyage / Cohere) are opt-in. |
+| **Ollama** (the schema default, deprecated) | `ollama pull nomic-embed-text` | Local 768-dim embeddings, and only a config default — seven other providers (openai, voyage, cohere, bge-m3, openai-compatible, model-tier, module) need one config line, not a code change. |
 
 The Rust toolchain is **only** needed if you build the native module yourself. Every native export has a numerically identical pure-JS fallback, so a missing prebuild never blocks you.
 

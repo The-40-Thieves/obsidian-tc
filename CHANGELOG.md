@@ -6,6 +6,45 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Deprecated
+
+- **The `ollama` embeddings built-in is deprecated (THE-837), and still fully functional.**
+  obsidian-tc is provider-agnostic: `providers/registry.ts` registers eight embedding entries and
+  the schema resolves `embeddings.provider` against that registry at startup. This built-in is a
+  vendor-specific adapter whose wire format the generic `openai-compatible` entry can already
+  serve, since Ollama exposes `/v1/embeddings` (OpenAI-shaped, middleware over the same handler as
+  `/api/embed`). `doctor` now reports the notice as a **note**, not a warning — a deprecated
+  provider is working correctly, and raising the check's status would make a healthy install read
+  as faulty.
+
+  **Nothing changes for you yet, and do NOT switch on the strength of this notice alone.**
+  `chunk_embeddings.model` stores `provider.id`, which is the vec-index fingerprint, so moving from
+  `ollama:<model>` to `openai-compatible:<model>` re-embeds the whole vault. Removal will be a
+  major with a migration note; the notice ships first so the decision is not sprung with the
+  release.
+
+  `embeddings.provider` still **defaults** to `ollama` (with `nomic-embed-text`, 768) — that is
+  unchanged, and it is a config default rather than special-casing.
+
+### Changed
+
+- **The shared embedding transport no longer names any vendor (THE-837).** `embeddings/http.ts` is
+  used by every embedding adapter, both reranker adapters and both model-tier service clients, and
+  its `providerHint` carried a `provider === "ollama"` branch inside the credential-less slot — so
+  one provider of ten got first-run advice ("is it running, is the model pulled") the other nine
+  did not. That branch had grown back once already: an earlier revision short-circuited on the same
+  name *above* the credential-slot check, reintroducing the wrong-config-block bug the function
+  exists to prevent.
+
+  An adapter now supplies its own advice via `credentialLessHint`, and `PostJsonOptions` is a
+  discriminated union so that field is reachable only on the `none` slot and typed `never` on the
+  other three — the invariant is enforced by the typechecker rather than restated in a comment.
+  **Operator-visible behaviour is unchanged**: the Ollama hint still reaches you on a
+  credential-less failure, now with the configured model name interpolated rather than a hardcoded
+  `nomic-embed-text`. A new standing gate (`check:embedding-transport`) derives its provider set
+  from the registry — so a provider added later is covered without editing the gate — and ignores
+  comments, which may name a vendor freely.
+
 ### BREAKING
 
 - **`plane.enabled` now defaults to `false` (was `true`) — ambient sleep-time consolidation is

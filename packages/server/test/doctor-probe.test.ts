@@ -10,7 +10,7 @@
 // The invariant these tests exist to hold: `ready` appears ONLY on the probed path. Everywhere
 // else the wording must stay `configured`.
 import { describe, expect, it } from "vitest";
-import { type RetrievalHeadsView, retrievalHeadsCheck } from "../src/doctor/checks";
+import { type RetrievalHeadsView, retrievalHeadsCheck } from "../src/doctor/retrieval-heads";
 import type { DoctorContext } from "../src/doctor/types";
 
 const ctx: DoctorContext = { serverVersion: "test" };

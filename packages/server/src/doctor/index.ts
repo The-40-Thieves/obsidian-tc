@@ -6,12 +6,7 @@
 // — doctor exists to answer "is this install healthy right now?" in one artifact.
 // THE-688 fix 2: the opt-in probe's result type, so the CLI can build a probe without importing
 // through the checks module directly.
-export type {
-  DenseProbeResult,
-  DerivedColumnState,
-  DerivedTableState,
-  KbHealthProbe,
-} from "./checks";
+export type { DerivedColumnState, DerivedTableState, KbHealthProbe } from "./checks";
 // entrypoints.liveness — the verb-side companion to derived.liveness. Same probe-injection
 // contract, so the CLI builds its probe without importing through the checks module.
 export type {
@@ -22,6 +17,10 @@ export type {
 } from "./entrypoints";
 export { entryPointsCheck } from "./entrypoints";
 export { renderText, runDoctor } from "./report";
+// THE-837: DenseProbeResult moved to ./retrieval-heads when retrievalHeadsCheck was extracted
+// (checks.ts had crossed biome's 700-line ceiling). Re-exported from this barrel exactly as before,
+// so every consumer outside doctor/ is unaffected by where the symbol now lives.
+export type { DenseProbeResult } from "./retrieval-heads";
 export type { AssembleOptions, DoctorConfigView } from "./run";
 export { assembleDoctorReport, decodeTokenClaims } from "./run";
 export type {

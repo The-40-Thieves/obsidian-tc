@@ -93,6 +93,13 @@ export interface EmbeddingsEntry {
   /** True when the entry can only be built asynchronously (the module hatch). The sync
    *  createEmbeddingProvider refuses these with an actionable error. */
   readonly asyncOnly?: boolean;
+  /** THE-837: why this built-in is on its way out, and what to move to. Advisory ONLY — a
+   *  deprecated entry keeps working unchanged, because the alternative is not free: this repo
+   *  stores `provider.id` in `chunk_embeddings.model` (search/vec.ts), so it IS the vec-index
+   *  fingerprint (THE-460/THE-678). Switching a user off a built-in re-embeds their whole vault,
+   *  which is a major-version migration, not something a deprecation notice may trigger by itself.
+   *  Surfaced by doctor so the notice reaches an operator before that release, not with it. */
+  readonly deprecated?: string;
   build(cfg: EmbeddingsConfigLike, ctx: ResolveContext): EmbeddingProvider;
   buildAsync?(cfg: EmbeddingsConfigLike, ctx: ResolveContext): Promise<EmbeddingProvider>;
 }
