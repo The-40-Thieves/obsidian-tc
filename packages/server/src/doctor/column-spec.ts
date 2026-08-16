@@ -66,6 +66,9 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
       writer: on ? "on-demand" : "disabled",
       lever: "running `obsidian-tc citation-infer` against a session transcript (THE-717)",
     },
+    // THE-726: task_result now HAS a producer and `summary` still does not, so the two entries
+    // below no longer share a story. The paragraph that follows describes `summary`.
+    //
     // "none", not "disabled", and verified rather than assumed: episodes.ts's INSERT names 20
     // columns and neither of these is among them; the only UPDATE statements set
     // blocked/eligibility, and forget.ts NULLs summary rather than filling it. No configuration turns these on, so
@@ -74,8 +77,13 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
     {
       table: "agent_episodes",
       column: "task_result",
-      writer: "none",
-      lever: "no producer exists — renamed from `outcome` in 20260806_002; still needs a writer",
+      // THE-726: projected from a SESSION-grain verdict, not stamped per row. That distinction is
+      // stated here rather than left to a reader's assumption, because a consumer treating these as
+      // independent per-dispatch judgements double-counts: `(session_id, verdict_at)` is what
+      // identifies the rows sharing one opinion.
+      writer: on ? "enabled" : "disabled",
+      lever:
+        "an agent calling work_result after finishing a task (THE-726). The verdict is rendered at SESSION grain and PROJECTED onto the window's judgeable rows, so these are not independent per-dispatch judgements: (session_id, verdict_at) identifies the rows sharing one opinion, and a consumer that ignores it double-counts.",
     },
     {
       table: "agent_episodes",

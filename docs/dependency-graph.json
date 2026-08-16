@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 403,
-    "dependencies": 1790,
+    "modules": 405,
+    "dependencies": 1799,
     "subsystemPairs": 119,
-    "crossSubsystemImports": 802
+    "crossSubsystemImports": 808
   },
   "subsystems": {
     "auth": 3,
@@ -17,7 +17,7 @@
     "db": 15,
     "doctor": 11,
     "embeddings": 6,
-    "experiential": 20,
+    "experiential": 21,
     "formats": 6,
     "gateway": 2,
     "graph": 1,
@@ -35,7 +35,7 @@
     "scheduler": 4,
     "schemas": 1,
     "search": 55,
-    "tools": 85,
+    "tools": 86,
     "transports": 3,
     "util": 4,
     "vault": 17,
@@ -50,7 +50,7 @@
     {
       "from": "tools",
       "to": "mcp",
-      "weight": 75
+      "weight": 76
     },
     {
       "from": "tools",
@@ -73,14 +73,14 @@
       "weight": 26
     },
     {
-      "from": "runtime",
+      "from": "experiential",
       "to": "db",
       "weight": 19
     },
     {
-      "from": "experiential",
+      "from": "runtime",
       "to": "db",
-      "weight": 17
+      "weight": 19
     },
     {
       "from": "tools",
@@ -98,6 +98,11 @@
       "weight": 12
     },
     {
+      "from": "tools",
+      "to": "experiential",
+      "weight": 12
+    },
+    {
       "from": "cli",
       "to": "experiential",
       "weight": 11
@@ -109,11 +114,6 @@
     },
     {
       "from": "runtime",
-      "to": "experiential",
-      "weight": 10
-    },
-    {
-      "from": "tools",
       "to": "experiential",
       "weight": 10
     },
@@ -303,6 +303,11 @@
       "weight": 3
     },
     {
+      "from": "tools",
+      "to": "workspace",
+      "weight": 3
+    },
+    {
       "from": "transports",
       "to": "auth",
       "weight": 3
@@ -400,11 +405,6 @@
     {
       "from": "tools",
       "to": "plur",
-      "weight": 2
-    },
-    {
-      "from": "tools",
-      "to": "workspace",
       "weight": 2
     },
     {

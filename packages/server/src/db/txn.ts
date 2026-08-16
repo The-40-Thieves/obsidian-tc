@@ -159,7 +159,12 @@ export type WriteTxnLabel =
   | "index_notes_flush"
   | "index_generation"
   | "job_claim"
-  | "memory_observation";
+  | "memory_observation"
+  // THE-726: the task-verdict projection. One label for the stamp AND the -1 demotion, because
+  // they are one transaction by requirement: a crash between them would leave a session's episodes
+  // condemned but still promoted, which is exactly the hold-rule bypass the demotion exists to
+  // close.
+  | "task_verdict";
 
 /** Busy-class outcomes, split because they mean different things operationally: `busy` is
  *  contention that outlived `busy_timeout` (tune the timeout, or reduce writer overlap), while

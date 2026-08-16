@@ -1,0 +1,37 @@
+-- 20260816_002_episode_verdict_at.sql
+-- THE-726: the timestamp half of a task verdict. See
+-- docs/superpowers/specs/2026-08-16-the-726-task-verdict-producer-design-v2.md.
+--
+-- `agent_episodes.task_result` has had READERS AND NO WRITER since 20260806_003 renamed it:
+-- reflect.ts holds a bad-result episode out of promotion, and gates the preference-extraction
+-- evidence set on it. Both are inert at 0 of 630 live rows. This column is what lets a producer
+-- exist.
+--
+-- ----------------------------------------------------------------------------
+-- Why a SECOND column and not just the verdict
+-- ----------------------------------------------------------------------------
+-- `task_result IS NULL` already separates "unjudged" from "judged neutral" (0), so `verdict_at` is
+-- not needed to answer whether a row was stamped. It exists for two things neither the verdict nor
+-- the timestamp alone can do:
+--
+--   1. WINDOW IDENTITY. A verdict is rendered at SESSION grain and projected onto every judgeable
+--      dispatch in the window it closes. `(session_id, verdict_at)` is what identifies the rows
+--      that share ONE judgement. Without it those rows are indistinguishable from N independent
+--      observations — and reflect.ts's preference extractor treats each row as exactly that, one
+--      evidence line apiece, capped at 40. Measured on the live corpus (4.82 dispatches per
+--      session, range 1-18) a single 18-dispatch task would take 18 of those 40 slots for one
+--      judgement, and an 8-slot budget of distinct judgements would read as 40. That is a LENGTH
+--      bias, not a quality signal, and it lands hardest on THE-673, whose whole premise is counters
+--      over this evidence. The grouping requirement is recorded on that ticket too, because a
+--      requirement stated only in a design doc is one nobody reads.
+--   2. STAMP LATENCY, which is what the epic's pre-registered kill condition is measured in.
+--
+-- NULLABLE, with no default: a row stamped before this migration cannot have a verdict time, and
+-- 0 or the migration's own clock would both assert one that never happened. NULL means "not
+-- stamped", which is true, and is exactly what `task_result IS NULL` already says beside it.
+--
+-- No index. The projection filters on `session_id` (covered by idx_agent_episodes_session) and the
+-- debt query on `ts`; neither reads `verdict_at` as a predicate, only as a grouping key on rows
+-- already selected. An index here would cost every insert to serve nothing.
+
+ALTER TABLE agent_episodes ADD COLUMN verdict_at INTEGER;

@@ -29,10 +29,10 @@ import {
   readLatestGapReport,
 } from "../../experiential/gaps";
 import { readNoteQuality } from "../../experiential/note-quality";
+import { UNSTAMPED_DEBT_CLAUSES } from "../../experiential/verdict";
 import type { ToolDefinition } from "../../mcp/registry";
 import { readableRel } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
-import { stampRetrievalFeedback } from "./feedback-scope";
 import { buildGoalTools } from "./goal-tools";
 import {
   availableWith,
@@ -41,6 +41,7 @@ import {
   type M8Deps,
   UNAVAILABLE,
 } from "./shared";
+import { buildVerdictTools } from "./verdict-tools";
 
 // Re-exported so m8's existing consumers keep importing M8Deps from here; the definition moved to
 // shared.ts only to break the experiential-tools <-> goal-tools cycle.
@@ -158,6 +159,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
   return [
     // THE-633: composed from goal-tools.ts — same m8 domain, separate file for the line ceiling.
     ...buildGoalTools(deps),
+    ...buildVerdictTools(deps),
     defineTool({
       name: "work_search",
       domain: "knowledge",
@@ -244,7 +246,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "work_episodes",
       domain: "knowledge",
       description:
-        "List/inspect the raw experiential episode log (management surface, the first-party list/inspect verb). Shows pending and ineligible state for review; tombstoned rows stay hidden unless include_blocked. Partitioned to the calling principal unless any_caller, which requires the admin:workspace scope (P1.7).",
+        "List/inspect the raw experiential episode log (management surface, the first-party list/inspect verb). Shows pending and ineligible state for review; tombstoned rows stay hidden unless include_blocked. Partitioned to the calling principal unless any_caller, which requires the admin:workspace scope (P1.7). Set unstamped_debt to see YOUR judgeable work that still carries no verdict — pair it with `until` to mean 'older than' — then clear it with work_result. Protocol traffic and the verdict verbs themselves never appear there; they are not work anyone can judge.",
       inputSchema: z
         .object({
           session_id: z.string().optional(),
@@ -253,6 +255,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           ...TimeFilters,
           include_blocked: z.boolean().default(false),
           any_caller: z.boolean().default(false),
+          unstamped_debt: z.boolean().default(false),
           k: z.number().int().positive().max(500).default(50),
         })
         .strict(),
@@ -264,6 +267,12 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         const clauses = ["1=1"];
         const params: unknown[] = [];
         if (!input.include_blocked) clauses.push("blocked = 0");
+        // THE-726: the debt view. Deliberately expressed as CLAUSES on this tool's own query rather
+        // than as a separate read, so it inherits the P1.7 caller partition below — a standalone
+        // debt query would have shown every principal's unjudged work to anyone with
+        // read:workspace. The predicate itself lives in experiential/verdict.ts beside the writer,
+        // so "what counts as debt" has one definition rather than two that can drift.
+        if (input.unstamped_debt) clauses.push(...UNSTAMPED_DEBT_CLAUSES);
         // P1.7: any_caller crosses the agent partition — an authorization boundary, not a free
         // filter. Without the elevated scope it is a forbidden request, not a silent self-scope.
         if (input.any_caller && !canCrossPrincipal(ctx))
@@ -487,45 +496,6 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         }
         return { available: true, episode_id: input.episode_id, forgotten: changes > 0 };
       },
-    }),
-
-    defineTool({
-      name: "record_retrieval_feedback",
-      domain: "knowledge",
-      // THE-718: the description leads with WHEN to call this, because the emitter decision landed
-      // on "the acting agent stamps it" and a tool description is the only affordance an MCP
-      // client sees. The previous text opened on storage mechanics and spent most of its length on
-      // an authorization model the caller cannot act on, so it told an agent what the tool DOES
-      // and never that it was expected to use it. Adoption is this signal's only failure mode —
-      // it sat at 0 stamps across 97 retrieval events — so the trigger comes first and the ACL
-      // detail is compressed to the part a caller can actually respond to.
-      description:
-        "Report which retrieved chunks actually helped. CALL THIS after you act on a search result: feedback (-1|0|+1) = was this the right chunk to return for that query. Stamp the chunks you genuinely used, not every hit, and stamp -1 when a confidently-returned chunk was wrong — a negative is worth more than silence. This is the only signal separating a chunk that gets RETRIEVED from one that gets USED: it feeds the ACT-R activation recompute, so stamping is what makes later retrieval better, and not stamping leaves ranking blind. Judge the RETRIEVAL, not your task: whether the task went well is a different question this tool deliberately no longer accepts (THE-718). Targets your most recent retrieval event(s) for that chunk (last_n, default 1). Returns `updated`; when that is 0 it also returns `reason` — `session_scope` (you own retrievals for this chunk, none in the current scope) or `no_owned_retrievals` (nothing of yours matches), so a no-op is never silent. You may only stamp retrievals your own caller produced (THE-568); an unidentified caller cannot stamp, and admin:workspace crosses both that and the session scope.",
-      // THE-718: `outcome` is gone, not deprecated. It asked a TASK-level question ("did acting on
-      // this lead somewhere good") of a RESPONSE-level row, so one task's verdict was attributed to
-      // every chunk the search happened to return — an estimand with no denominator. `feedback` is
-      // now required rather than one-of-two, which is what the old `.refine` was working around.
-      // Under `.strict()` a caller still passing `outcome` gets a hard rejection instead of a
-      // silent drop; that is deliberate, and safe — the column recorded 0 stamps in its lifetime.
-      inputSchema: z
-        .object({
-          chunk_id: z.string().min(1),
-          feedback: z.number().int().min(-1).max(1),
-          session_id: z.string().optional(),
-          last_n: z.number().int().positive().max(50).default(1),
-        })
-        .strict(),
-      outputSchema: availableWith({
-        chunk_id: z.string(),
-        updated: z.number().int(),
-        // THE-718: `updated: 0` is otherwise indistinguishable from a successful stamp, and in
-        // production it was 100% of calls. Present only when nothing was written.
-        reason: z.enum(["session_scope", "no_owned_retrievals"]).optional(),
-      }),
-      requiredScopes: ["write:workspace"],
-      tags: ["experiential"],
-      handler: (input, ctx) =>
-        deps.edb ? stampRetrievalFeedback(deps.edb, input, ctx) : UNAVAILABLE,
     }),
 
     // THE-537: the read surface the quality signals never had. READ-ONLY and NOT the ranker —

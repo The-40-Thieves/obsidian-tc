@@ -349,7 +349,7 @@ export async function extractPreferences(
   // a decision rather than as an accident of SQL three-valued logic.
   const episodes = edb
     .prepare(
-      `SELECT tool, status, task_result, summary FROM agent_episodes
+      `SELECT tool, status, task_result, summary, session_id, verdict_at FROM agent_episodes
        WHERE vault_id = ? AND vault_id IS NOT NULL
          AND blocked = 0 AND eligibility = 'eligible' AND task_result IS NOT NULL
        ORDER BY ts DESC LIMIT ?`,
@@ -359,6 +359,8 @@ export async function extractPreferences(
     status: string;
     task_result: number;
     summary: string | null;
+    session_id: string | null;
+    verdict_at: number | null;
   }>;
   // THE-718: the second evidence source here was `chunk_retrievals.outcome`, retired in
   // 20260806_001. It is REMOVED rather than repointed at `chunk_retrievals.feedback`, because the
@@ -369,12 +371,39 @@ export async function extractPreferences(
   // could not be vault-scoped (chunk vaults live in cache.db, across the membrane); it goes with the
   // query, and comes back with it if THE-641 lands.
   if (episodes.length === 0) return { skipped: true, aborted: false, applied: 0, version: 0 };
-  const lines = [
-    ...episodes.map(
-      (e) =>
-        `episode task_result=${e.task_result > 0 ? "+1" : e.task_result < 0 ? "-1" : "0"} tool=${e.tool ?? "?"} status=${e.status}${e.summary ? ` summary=${e.summary.slice(0, 120)}` : ""}`,
-    ),
-  ].join("\n");
+  // THE-726: ONE line per JUDGEMENT, not per row.
+  //
+  // A task verdict is rendered at session grain and PROJECTED onto every judgeable dispatch in its
+  // window, so N rows here can carry one opinion. `(session_id, verdict_at)` is the window
+  // identity — the pair that recovers which rows those are. Without collapsing on it the judge sees
+  // N perfectly-correlated lines and cannot tell they are one observation: measured on the live
+  // corpus at 4.82 dispatches per session (range 1-18), a single 18-dispatch task would take 18 of
+  // the 40 evidence slots and an 8-judgement budget would read as 40. That is a LENGTH bias toward
+  // tool-heavy workflows, not a quality signal.
+  //
+  // The member count is carried as CONTEXT rather than as repetition, so scale is still visible to
+  // the judge without being counted as independent support. THE-673's counters carry the same
+  // requirement — recorded on that ticket too, because a requirement stated only in a design doc is
+  // one nobody reads.
+  //
+  // Rows predating the producer have `verdict_at` NULL; they group under their own id so a
+  // pre-projection row is never merged with an unrelated one.
+  const windows = new Map<string, { e: (typeof episodes)[number]; n: number }>();
+  for (const e of episodes) {
+    const key =
+      e.verdict_at !== null && e.session_id !== null
+        ? `${e.session_id}:${e.verdict_at}`
+        : `row:${e.tool ?? "?"}:${e.verdict_at ?? "none"}:${windows.size}`;
+    const seen = windows.get(key);
+    if (seen) seen.n += 1;
+    else windows.set(key, { e, n: 1 });
+  }
+  const lines = [...windows.values()]
+    .map(
+      ({ e, n }) =>
+        `episode task_result=${e.task_result > 0 ? "+1" : e.task_result < 0 ? "-1" : "0"} tool=${e.tool ?? "?"} status=${e.status}${n > 1 ? ` spanning=${n} calls` : ""}${e.summary ? ` summary=${e.summary.slice(0, 120)}` : ""}`,
+    )
+    .join("\n");
   try {
     const res = await opts.judge({
       ...prompt(
