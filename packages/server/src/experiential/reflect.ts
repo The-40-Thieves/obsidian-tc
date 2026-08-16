@@ -166,7 +166,7 @@ export async function evaluateEpisodes(
   stats.held = held;
 
   // THE-726: the WHERE re-checks `task_result` as well as `eligibility`, and that second clause is
-  // load-bearing rather than defensive. This pass SELECTs, classifies in memory, then UPDATEs — it
+  // load-bearing rather than defensive. This pass reads, classifies in memory, then writes — it
   // is not wrapped in a transaction — so a verdict can land in the gap:
   //
   //   1. this pass selects R (pending, task_result NULL) and classifies it for promotion

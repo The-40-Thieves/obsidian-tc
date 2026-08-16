@@ -255,7 +255,7 @@ describe("THE-726: (session_id, verdict_at) is a REAL key", () => {
 
 describe("THE-726: findings from the cross-vendor pass", () => {
   it("the evaluator cannot promote a row that a verdict condemned mid-pass", () => {
-    // The read-then-write gap. evaluateEpisodes SELECTs, classifies in memory, then UPDATEs, and is
+    // The read-then-write gap. evaluateEpisodes reads, classifies in memory, then writes, and is
     // not wrapped in a transaction — so a -1 can land between the classify and the promote, at which
     // point the demotion matches nothing (the row is still `pending`) and the promote would raise it
     // to eligible carrying a -1. The promote's WHERE now re-checks task_result, so it does not.
