@@ -211,6 +211,8 @@ function ev(args: unknown, over: Partial<DispatchEpisode> = {}): DispatchEpisode
     ts: NOW,
     vaultId: "main",
     tool: "overwrite_note",
+    // THE-839: episode_type is now bound from the producer instead of the literal 'tool_call'.
+    kind: "tool_call",
     caller: "tester",
     sessionId: null,
     status: "ok",

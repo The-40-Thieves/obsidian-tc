@@ -1,0 +1,61 @@
+-- 20260816_001_episode_type_structural.sql
+-- THE-839: agent_episodes.episode_type stops being a literal, and the historical rows are corrected.
+--
+-- `episodes.ts` hardcoded `'tool_call'` for every captured operation, and `DispatchEpisode` carried
+-- no operation-kind field for it to write instead. So the column has been a constant since
+-- 20260711_002: 630 rows, ONE distinct value, zero information. Measured 2026-08-16 on the
+-- production store, 192 of those 630 (30.5%) are MCP protocol methods -- `prompts/list` (106) and
+-- `resources/list` (86) -- labelled as tool calls.
+--
+-- That is not cosmetic. Any consumer needing "was this real work?" had nothing structural to ask,
+-- and the only available proxy is the shape of the tool's NAME, which is not a contract: SEP-986
+-- ("Specify Format for Tool Names") permits `/` in tool names precisely so they can be hierarchical
+-- and namespaced, with `user-profile/update` as a documented valid example. A name test would
+-- misclassify a spec-conforming tool, and would keep doing it silently.
+--
+-- The registry always knew which was which. The two kinds arrive through two DIFFERENT entry
+-- points: `dispatch()` for tools/call, and `dispatchResource()` for the resources/* and prompts/*
+-- surfaces (THE-415). The producer now carries that distinction through to the column.
+--
+-- ----------------------------------------------------------------------------
+-- Why 'tool_call' is NOT renamed
+-- ----------------------------------------------------------------------------
+-- The new vocabulary is `tool_call` | `protocol` | `verdict`, keeping the existing spelling for the
+-- existing meaning. `tool_call` was always the right value for a real tool call; the defect was
+-- protocol methods BORROWING it. Renaming to `tool` would rewrite 438 correct rows and ten test
+-- fixtures to say the same thing differently, for no reader's benefit.
+--
+-- (`verdict` marks a tool whose job is to record a judgement about other episodes. It has no
+-- producer yet -- THE-726 is its consumer -- and ships now so the producer changes once.)
+--
+-- ----------------------------------------------------------------------------
+-- Why the `/` heuristic is sound HERE and refused at runtime
+-- ----------------------------------------------------------------------------
+-- The backfill below classifies by name, which is exactly what the runtime predicate must never do.
+-- The difference is not stylistic:
+--
+--   * This runs ONCE, over a CLOSED set of 630 rows that were inspected before it was written.
+--   * On that corpus the only two slash-bearing names are `prompts/list` and `resources/list`, both
+--     MCP protocol methods. Verified against the registry the same day: 30 registered tool names,
+--     none containing `/`.
+--   * A runtime predicate makes the same guess about names that DO NOT EXIST YET -- including the
+--     hierarchical names SEP-986 blesses.
+--
+-- Bounded retrodiction over an inspected set is a different operation from unbounded prediction
+-- over an open one. This migration is the first; the code does the second, and must not.
+--
+-- ----------------------------------------------------------------------------
+-- `channel` stays a literal, deliberately (THE-839 item 4)
+-- ----------------------------------------------------------------------------
+-- `channel` is ALSO a constant (`'dispatch'`, 630/630) and is NOT changed here. 20260711_002
+-- reserved it for `'ambient'`/`'import'`, and neither producer exists: nothing in this codebase
+-- writes an episode from any source but registry dispatch. Giving it invented values now would
+-- replace one uninformative column with one that lies, which is the defect this migration exists to
+-- remove. It stays reserved, and the reservation is now written down where the next reader will
+-- find it rather than inferred from a comment three files away.
+--
+-- No CHECK constraint is added on `episode_type`. SQLite cannot add one without rebuilding the
+-- table, and a rebuild of the experiential log is a far larger operation than this correction
+-- warrants. The producer is typed (`EpisodeKind`), which is where the constraint actually binds.
+
+UPDATE agent_episodes SET episode_type = 'protocol' WHERE tool LIKE '%/%';

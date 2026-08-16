@@ -10,7 +10,7 @@ import type { MetricsRecorder, ToolCallStatus } from "../../metrics/registry";
 import { SPAN_ATTR } from "../../otel/attrs";
 import { callerHash } from "../../throttle";
 import type { ToolStore } from "./tool-store";
-import type { CallerContext, RegistryOptions, Status } from "./types";
+import type { CallerContext, EpisodeKind, RegistryOptions, Status } from "./types";
 
 // WP4.2: the observability sinks pulled out of ToolRegistry, with IDENTICAL inputs and error
 // redaction to what registry.ts had. Every one of these is best-effort by contract — a metrics,
@@ -238,6 +238,11 @@ export class DispatchObservability {
   recordOutcome(
     ctx: CallerContext,
     name: string,
+    /** THE-839: which KIND of operation this was, decided by the caller. REQUIRED and positional
+     *  rather than defaulted, for the same reason `CredentialSlot` is required on PostJsonOptions:
+     *  a default would let a future third entry point silently inherit `tool_call`, which is
+     *  exactly the bug this parameter exists to close. Both call sites must say what they are. */
+    kind: EpisodeKind,
     hash: string,
     rawInput: unknown,
     status: Status,
@@ -305,6 +310,7 @@ export class DispatchObservability {
           ts: Date.now(),
           vaultId: ctx.vaultId,
           tool: name,
+          kind,
           caller: ctx.caller,
           sessionId: ctx.sessionId ?? null,
           status,

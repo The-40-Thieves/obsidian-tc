@@ -87,7 +87,18 @@ export type EpisodeSink = (e: DispatchEpisode) => void;
 
 /**
  * Build the append-only episode sink over an open experiential.db handle. One insert per
- * dispatch outcome; never throws. Maintains a process-local per-caller chain (prev_id) so
+ * dispatch outcome; never throws.
+ *
+ * THE-839: `episode_type` is now BOUND from `e.kind` rather than written as the literal
+ * `'tool_call'`. The literal made the column carry no information — every operation the registry
+ * dispatched was recorded as a tool call, including the MCP protocol methods that arrive through
+ * `dispatchResource`, so 192 of 630 live rows (30.5%) were mislabelled and no consumer could ask
+ * "was this real work?" without guessing from the shape of the tool's NAME. That guess is not
+ * available: SEP-986 permits `/` in tool names so they can be hierarchical, so a name test
+ * misclassifies a spec-conforming tool and keeps doing it silently.
+ *
+ * `channel` is STILL a literal, and deliberately so — see the migration header for why it stays
+ * reserved rather than being given values it does not yet have. Maintains a process-local per-caller chain (prev_id) so
  * consolidation can walk a caller's episodes in order without sorting the whole table.
  */
 export function createEpisodeCapture(edb: Database, opts: EpisodeCaptureOptions = {}): EpisodeSink {
@@ -96,7 +107,7 @@ export function createEpisodeCapture(edb: Database, opts: EpisodeCaptureOptions 
        id, ts, vault_id, session_id, caller, channel, episode_type, tool, status, error_code,
        duration_ms, result_size, args_hash, args_json, secret_scan, tags, trust, eligibility,
        valid_from, prev_id
-     ) VALUES (?, ?, ?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, 'dispatch', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const maxArgsBytes = opts.maxArgsBytes ?? 4096;
   // THE-654: prevByCaller is a process-local CACHE over the durable chain, not the chain itself.
@@ -150,6 +161,7 @@ export function createEpisodeCapture(edb: Database, opts: EpisodeCaptureOptions 
         e.vaultId,
         e.sessionId,
         e.caller,
+        e.kind,
         e.tool,
         e.status,
         e.errorCode,
