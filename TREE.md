@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,139 tracked code files · 177,682 lines.
+**Scale:** 1,139 tracked code files · 177,828 lines.
 
-TypeScript 163,902 · JavaScript 9,380 · SQL 1,658 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 164,048 · JavaScript 9,380 · SQL 1,658 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,9 +86,9 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 86 | 17,001 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 86 | 17,015 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 55 | 10,782 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `experiential/` | 21 | 4,705 | work-memory tier: activation, retrieval log, forget, citations |
+| `experiential/` | 21 | 4,756 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 17 | 4,583 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 25 | 3,415 | arg parsing + subcommands |
 | `runtime/` | 15 | 3,370 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
@@ -142,8 +142,8 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 773 | `packages/server/src/mcp/server.ts` |
 | 760 | `packages/server/src/runtime/server-runtime.ts` |
 | 755 | `packages/server/src/cli/commands/doctor.ts` |
+| 677 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
-| 666 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 649 | `packages/server/src/doctor/checks.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
@@ -154,9 +154,9 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
 | 565 | `packages/server/src/search/graph_search.ts` |
 | 564 | `packages/server/src/search/query_cache.ts` |
+| 551 | `packages/server/src/experiential/reflect.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 526 | `packages/server/src/transports/http.ts` |
-| 525 | `packages/server/src/experiential/reflect.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
 | 519 | `packages/shared/src/config/retrieval.schema.ts` |
 | 512 | `packages/server/src/runtime/plane-wiring.ts` |
@@ -281,7 +281,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**405 modules · 1799 dependencies · 119 distinct subsystem pairs · 808 cross-subsystem imports.**
+**405 modules · 1800 dependencies · 119 distinct subsystem pairs · 808 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it

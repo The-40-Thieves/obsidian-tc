@@ -12,6 +12,7 @@
 // They judge DIFFERENT things and the descriptions say so, because conflating them is what
 // THE-718 had to undo: `record_retrieval_feedback` judges a RETRIEVAL ("was this the right chunk
 // for that query"), `work_result` judges the TASK ("did the work go well").
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { stampOpenWindow } from "../../experiential/verdict";
 import type { ToolDefinition } from "../../mcp/registry";
@@ -103,26 +104,28 @@ export function buildVerdictTools(deps: M8Deps): ToolDefinition[] {
         // not own because it cannot name one at all.
         const active = activeSessionFor(ctx.db, ctx.caller);
         if (!active) {
-          // Never a silent no-op. This epic exists because writers that were registered and correct
-          // sat behind nothing calling them; a verb that quietly did nothing would be one more.
-          return {
-            available: false as const,
-            message:
-              "no open session for this principal — call start_session first, or let the server open one implicitly on your next vault call",
-          };
+          // THROWS rather than returning the degraded `available: false` envelope. Those are
+          // different conditions and conflating them costs the caller the one thing it needs: the
+          // envelope means "this server cannot do this at all" (the experiential store is closed),
+          // and there is nothing to retry. This is "you have no open session", which the caller can
+          // fix in one call. Never a silent no-op either way — this epic exists because writers that
+          // were registered and correct sat behind nothing calling them.
+          throw err.invalidInput("no open session for this principal", {
+            hint: "call start_session first, or let the server open one implicitly on your next vault call",
+          });
         }
 
         const now = (ctx.now ?? Date.now)();
-        // Clamp `as_of` into the session's own span. An unclamped caller value is a foot-gun in both
-        // directions: a future timestamp sweeps in work that has not happened from this verdict's
-        // point of view, and a stale one silently stamps nothing. The lower bound is the session's
-        // OWN earliest episode rather than `workspace_sessions.started_at`, which lives in cache.db
-        // across a file boundary this store never joins.
-        const floorRow = deps.edb
-          .prepare("SELECT MIN(ts) AS min_ts FROM agent_episodes WHERE session_id = ?")
-          .get(active.sessionId) as { min_ts: number | null } | undefined;
-        const floor = floorRow?.min_ts ?? 0;
-        const asOf = Math.min(Math.max(input.as_of ?? now, floor), now);
+        // Clamp only the UPPER bound. An `as_of` in the future would sweep in work that, from this
+        // verdict's point of view, has not happened.
+        //
+        // There is deliberately NO lower clamp. An earlier version raised `as_of` to the session's
+        // earliest episode, which silently rewrote the caller's stated boundary into a different
+        // one: asking for `as_of=500` when the first episode is at 1000 means "judge nothing", and
+        // answering it by stamping that first episode is a worse failure than stamping zero rows.
+        // An empty window is already a legitimate, reportable outcome (`stamped: 0`), so the honest
+        // response to a boundary below all the work is exactly that.
+        const asOf = Math.min(input.as_of ?? now, now);
 
         const out = stampOpenWindow(deps.edb, {
           sessionId: active.sessionId,

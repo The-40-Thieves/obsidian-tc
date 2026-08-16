@@ -74,6 +74,31 @@ export interface StampOutcome {
 export function stampOpenWindow(edb: Database, opts: StampOptions): StampOutcome {
   const asOf = opts.asOf ?? opts.now;
   return inWriteTransaction(edb, "task_verdict", () => {
+    // `(session_id, verdict_at)` is this design's WINDOW IDENTITY — the pair every consumer uses to
+    // tell which rows carry one judgement. So it has to actually BE unique, and a wall-clock
+    // millisecond is not: two stamps in the same session within the same millisecond collide.
+    //
+    // That is not theoretical. Measured before this guard existed: stamping +1 and then -1 at the
+    // same `now` reported `demoted: 2` and moved the +1 window's rows to `pending` — a GOOD
+    // verdict's episodes held out of promotion by an unrelated later verdict. The dedup in
+    // extractPreferences fails the same way, merging two distinct judgements into one line and
+    // taking whichever it saw first.
+    //
+    // Advancing to the next free millisecond makes the identity real rather than patching each
+    // consumer to tolerate a key that is not a key. Bounded by construction: it only advances past
+    // values this session has actually used, and it never moves backwards, so `verdict_at` stays
+    // monotonic per session and orderable.
+    const taken = edb
+      .prepare("SELECT 1 FROM agent_episodes WHERE session_id = ? AND verdict_at = ? LIMIT 1")
+      .get(opts.sessionId, opts.now);
+    let verdictAt = opts.now;
+    if (taken !== undefined && taken !== null) {
+      const maxRow = edb
+        .prepare("SELECT MAX(verdict_at) AS m FROM agent_episodes WHERE session_id = ?")
+        .get(opts.sessionId) as { m: number | null } | undefined;
+      verdictAt = (maxRow?.m ?? opts.now) + 1;
+    }
+
     const stamped = edb
       .prepare(
         `UPDATE agent_episodes
@@ -83,7 +108,7 @@ export function stampOpenWindow(edb: Database, opts: StampOptions): StampOutcome
             AND episode_type = 'tool_call'
             AND ts <= ?`,
       )
-      .run(opts.result, opts.now, opts.sessionId, asOf).changes as number;
+      .run(opts.result, verdictAt, opts.sessionId, asOf).changes as number;
 
     // THE-726 review finding: `reflect.ts`'s hold rule is ORDER-DEPENDENT, and close-time stamping
     // is exactly the order that defeats it. `evaluateEpisodes` selects `eligibility = 'pending'`
@@ -106,10 +131,10 @@ export function stampOpenWindow(edb: Database, opts: StampOptions): StampOutcome
                   SET eligibility = 'pending', eligibility_reason = NULL, eligibility_policy = NULL
                 WHERE session_id = ? AND verdict_at = ? AND eligibility = 'eligible'`,
             )
-            .run(opts.sessionId, opts.now).changes as number)
+            .run(opts.sessionId, verdictAt).changes as number)
         : 0;
 
-    return { stamped, demoted, verdictAt: opts.now };
+    return { stamped, demoted, verdictAt };
   });
 }
 

@@ -59,6 +59,13 @@ const EpisodeProjection = z.object({
   caller: z.string().nullable(),
   channel: z.string(),
   episode_type: z.string(),
+  // THE-726: the verdict and the other half of its window identity. Exposed because the design
+  // REQUIRES every consumer to group on `(session_id, verdict_at)` — a verdict is rendered once per
+  // session window and projected onto N rows, so a reader that treats these as N independent
+  // judgements double-counts. Requiring that and then hiding both fields would leave an MCP client
+  // with no way to comply, and no way to see its own debt clear.
+  task_result: z.number().nullable(),
+  verdict_at: z.number().nullable(),
   tool: z.string().nullable(),
   status: z.string(),
   error_code: z.string().nullable(),
@@ -83,6 +90,8 @@ interface EpisodeRow {
   caller: string | null;
   channel: string;
   episode_type: string;
+  task_result: number | null;
+  verdict_at: number | null;
   tool: string | null;
   status: string;
   error_code: string | null;
@@ -133,6 +142,8 @@ function projectEpisode(r: EpisodeRow, visiblePrev: Set<string>) {
     caller: r.caller,
     channel: r.channel,
     episode_type: r.episode_type,
+    task_result: r.task_result,
+    verdict_at: r.verdict_at,
     tool: r.tool,
     status: r.status,
     error_code: r.error_code,
@@ -228,7 +239,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           .prepare(
             `SELECT id, ts, vault_id, session_id, caller, channel, episode_type, tool, status,
                     error_code, duration_ms, result_size, summary, tags, trust, eligibility,
-                    blocked, prev_id
+                    blocked, prev_id, task_result, verdict_at
              FROM agent_episodes WHERE ${clauses.join(" AND ")}
              ORDER BY ts DESC LIMIT ?`,
           )
@@ -246,7 +257,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "work_episodes",
       domain: "knowledge",
       description:
-        "List/inspect the raw experiential episode log (management surface, the first-party list/inspect verb). Shows pending and ineligible state for review; tombstoned rows stay hidden unless include_blocked. Partitioned to the calling principal unless any_caller, which requires the admin:workspace scope (P1.7). Set unstamped_debt to see YOUR judgeable work that still carries no verdict — pair it with `until` to mean 'older than' — then clear it with work_result. Protocol traffic and the verdict verbs themselves never appear there; they are not work anyone can judge.",
+        "List/inspect the raw experiential episode log (management surface, the first-party list/inspect verb). Shows pending and ineligible state for review; tombstoned rows stay hidden unless include_blocked. Partitioned to the calling principal unless any_caller, which requires the admin:workspace scope (P1.7). Set unstamped_debt to see judgeable work that still carries no verdict — yours, or every principal's when combined with any_caller — pair it with `until` to mean 'older than' — then clear it with work_result. Protocol traffic and the verdict verbs themselves never appear there; they are not work anyone can judge.",
       inputSchema: z
         .object({
           session_id: z.string().optional(),
@@ -305,7 +316,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           .prepare(
             `SELECT id, ts, vault_id, session_id, caller, channel, episode_type, tool, status,
                     error_code, duration_ms, result_size, summary, tags, trust, eligibility,
-                    blocked, prev_id
+                    blocked, prev_id, task_result, verdict_at
              FROM agent_episodes WHERE ${clauses.join(" AND ")}
              ORDER BY ts DESC LIMIT ?`,
           )
@@ -347,7 +358,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         const stmt = deps.edb.prepare(
           `SELECT id, ts, vault_id, session_id, caller, channel, episode_type, tool, status,
                   error_code, duration_ms, result_size, summary, tags, trust, eligibility,
-                  blocked, prev_id
+                  blocked, prev_id, task_result, verdict_at
            FROM agent_episodes WHERE ${clauses.join(" AND ")}`,
         );
         const fetch = (id: string): EpisodeRow | undefined => {

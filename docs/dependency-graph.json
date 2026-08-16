@@ -3,7 +3,7 @@
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
     "modules": 405,
-    "dependencies": 1799,
+    "dependencies": 1800,
     "subsystemPairs": 119,
     "crossSubsystemImports": 808
   },

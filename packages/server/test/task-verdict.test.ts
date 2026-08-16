@@ -204,3 +204,84 @@ describe("THE-726: the debt predicate", () => {
     expect(UNSTAMPED_DEBT_CLAUSES).toContain("episode_type = 'tool_call'");
   });
 });
+
+describe("THE-726: (session_id, verdict_at) is a REAL key", () => {
+  it("a second stamp in the same millisecond gets its own verdict_at", () => {
+    // Found by probe, not by review. Before this guard: stamping +1 then -1 at the same `now`
+    // reported demoted:2 and moved the +1 window's rows to `pending` — a good verdict's episodes
+    // held out of promotion by an unrelated later verdict, because the demote correlates on
+    // verdict_at and a wall-clock millisecond is not unique.
+    const d = db();
+    const a = seed(d, { ts: 1000, eligibility: "eligible" });
+    const first = stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000 });
+    const b = seed(d, { ts: 2000, eligibility: "eligible" });
+    const second = stampOpenWindow(d, { sessionId: "sess_a", result: -1, now: 5000 });
+
+    expect(second.verdictAt).not.toBe(first.verdictAt);
+    expect(second.demoted).toBe(1); // only its OWN row
+    const by = Object.fromEntries(results(d).map((r) => [r.id, r]));
+    expect(by[a]?.task_result).toBe(1);
+    expect(by[a]?.eligibility).toBe("eligible"); // the +1 window is untouched
+    expect(by[b]?.task_result).toBe(-1);
+    expect(by[b]?.eligibility).toBe("pending");
+    d.close?.();
+  });
+
+  it("verdict_at stays monotonic per session", () => {
+    const d = db();
+    seed(d, { ts: 1000 });
+    const first = stampOpenWindow(d, { sessionId: "sess_a", result: 0, now: 5000 });
+    seed(d, { ts: 2000 });
+    const second = stampOpenWindow(d, { sessionId: "sess_a", result: 0, now: 5000 });
+    seed(d, { ts: 3000 });
+    const third = stampOpenWindow(d, { sessionId: "sess_a", result: 0, now: 5000 });
+    expect(second.verdictAt).toBeGreaterThan(first.verdictAt);
+    expect(third.verdictAt).toBeGreaterThan(second.verdictAt);
+    d.close?.();
+  });
+
+  it("a collision in ANOTHER session does not push this one forward", () => {
+    // The guard scopes to the session, so two sessions stamping in the same ms both keep `now`.
+    const d = db();
+    seed(d, { session: "sess_a", ts: 1000 });
+    seed(d, { session: "sess_b", ts: 1000 });
+    const a = stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000 });
+    const b = stampOpenWindow(d, { sessionId: "sess_b", result: 1, now: 5000 });
+    expect(a.verdictAt).toBe(5000);
+    expect(b.verdictAt).toBe(5000);
+    d.close?.();
+  });
+});
+
+describe("THE-726: findings from the cross-vendor pass", () => {
+  it("the evaluator cannot promote a row that a verdict condemned mid-pass", () => {
+    // The read-then-write gap. evaluateEpisodes SELECTs, classifies in memory, then UPDATEs, and is
+    // not wrapped in a transaction — so a -1 can land between the classify and the promote, at which
+    // point the demotion matches nothing (the row is still `pending`) and the promote would raise it
+    // to eligible carrying a -1. The promote's WHERE now re-checks task_result, so it does not.
+    const d = db();
+    const id = seed(d, { eligibility: "pending" });
+    // Simulate the verdict landing after the classify but before the promote.
+    stampOpenWindow(d, { sessionId: "sess_a", result: -1, now: 5000 });
+    const promoted = d
+      .prepare(
+        `UPDATE agent_episodes SET eligibility = 'eligible'
+          WHERE id = ? AND eligibility = 'pending' AND (task_result IS NULL OR task_result <> -1)`,
+      )
+      .run(id).changes;
+    expect(promoted).toBe(0);
+    expect(results(d).find((r) => r.id === id)?.eligibility).toBe("pending");
+    d.close?.();
+  });
+
+  it("an as_of below all the work stamps NOTHING rather than being raised to the earliest row", () => {
+    // The clamp used to raise as_of to the session's earliest episode, silently answering a
+    // different question than the caller asked. "Judge nothing" is a legitimate request.
+    const d = db();
+    seed(d, { ts: 1000 });
+    const out = stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, asOf: 500 });
+    expect(out.stamped).toBe(0);
+    expect(results(d)[0]?.task_result).toBeNull();
+    d.close?.();
+  });
+});
