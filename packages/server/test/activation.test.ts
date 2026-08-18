@@ -129,6 +129,49 @@ describe("ACT-R activation recompute (THE-227)", () => {
     expect(byId.get("winner") ?? 0).toBeGreaterThan(byId.get("deadend") ?? 0);
   });
 
+  // THE-634: the proactive-advisory sweep inserts a chunk_retrievals row with
+  // surface_type = 'advisory' so record_retrieval_feedback has something to stamp a dismissal
+  // against — a note the system PUSHED, not one a caller searched for and got back. Correctness
+  // risk found while wiring that sweep: this recompute's two `SELECT ... FROM chunk_retrievals`
+  // queries were bare, with no surface_type filter, so an advisory-only chunk would gain ACT-R
+  // activation as though it had been genuinely retrieved. This proves the fix holds, not just that
+  // it was added.
+  it("THE-634: an advisory-only row does NOT move activation — pushed is not retrieved", () => {
+    const db = edb0();
+    // A chunk with ONLY an advisory push and no real retrieval must stay cold (no vault_object_state
+    // row at all), exactly like a chunk with zero events.
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, feedback, surface_type) VALUES ('a1', 'pushed-only', ?, NULL, 'advisory')",
+    ).run(NOW - DAY / 2);
+    const stats = recomputeActivation(db, NOW);
+    expect(stats.chunks).toBe(0);
+    expect(
+      db.prepare("SELECT 1 FROM vault_object_state WHERE object_id = 'pushed-only'").get(),
+    ).toBeUndefined();
+
+    // A chunk with a REAL retrieval plus a LATER advisory push must score identically to the same
+    // chunk with the advisory row absent — the advisory event contributes nothing to the ACT-R sum.
+    addRetrieval(db, "mixed", NOW - DAY);
+    const withoutAdvisory = recomputeActivation(db, NOW);
+    const scoreWithout = (
+      db
+        .prepare("SELECT cached_activation_score AS s FROM vault_object_state WHERE object_id = ?")
+        .get("mixed") as { s: number }
+    ).s;
+
+    db.prepare(
+      "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, feedback, surface_type) VALUES ('a2', 'mixed', ?, NULL, 'advisory')",
+    ).run(NOW - DAY / 4); // more recent than the real retrieval — would raise activation if counted
+    const withAdvisory = recomputeActivation(db, NOW);
+    const scoreWith = (
+      db
+        .prepare("SELECT cached_activation_score AS s FROM vault_object_state WHERE object_id = ?")
+        .get("mixed") as { s: number }
+    ).s;
+    expect(scoreWith).toBe(scoreWithout);
+    expect(withAdvisory.chunks).toBe(withoutAdvisory.chunks);
+  });
+
   it("recomputeActivation writes cached_activation_score per retrieved chunk", () => {
     const db = edb0();
     addRetrieval(db, "hot", NOW - DAY);

@@ -30,8 +30,15 @@ const CHAIN = EXPERIENTIAL_MIGRATION_FILES.map((f) => ({ version: versionOf(f), 
 // THE-718: 20260806_001 must come out too — it DROPs and re-CREATEs the same view, so leaving it
 // in both fails outright (no such view to drop) and, with a tolerant drop, would silently hand the
 // view back and make this fixture identical to the full chain.
+// THE-634 (adversarial review): 20260818_002 is the same shape as 20260806_001 — it also DROPs and
+// re-CREATEs chunk_access_stats (to exclude surface_type = 'advisory' rows) — so it comes out for
+// the identical reason: applied to a chain with no prior CREATE, its own DROP VIEW throws "no such
+// view: chunk_access_stats" rather than simulating a pre-view database.
 const CHAIN_NO_ACCESS_VIEWS = EXPERIENTIAL_MIGRATION_FILES.filter(
-  (f) => f !== "20260712_002_access_views.sql" && f !== "20260806_001_retire_retrieval_outcome.sql",
+  (f) =>
+    f !== "20260712_002_access_views.sql" &&
+    f !== "20260806_001_retire_retrieval_outcome.sql" &&
+    f !== "20260818_002_chunk_access_stats_excludes_advisory.sql",
 ).map((f) => ({ version: versionOf(f), sql: read(f) }));
 
 const NOW = 1_800_000_000_000;
@@ -176,6 +183,31 @@ describe("THE-537 note_quality rollup", () => {
     expect(flags.get("clean.md")).toEqual(["stale_access"]);
     // ...and ancient.md is the reverse: stale by edit, never read, so no stale_access.
     expect(flags.get("ancient.md")).toEqual(["stale_edit"]);
+  });
+
+  // THE-634 (adversarial review): a pushed-but-never-retrieved advisory row must not clear
+  // stale_access. Without the chunk_access_stats view's surface_type exclusion (20260818_002),
+  // the RECENT advisory push below would win the view's MAX(retrieved_at) over the genuinely old
+  // real retrieval, silently telling an operator "someone looked at this yesterday" when nobody
+  // did — the note was merely surfaced, never read.
+  it("THE-634: an advisory push does NOT clear stale_access — pushed is not read", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    // The genuine, old retrieval that earns stale_access on its own.
+    edb
+      .prepare(
+        "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, surface_type, query_text, rank_in_results) VALUES ('r1', 'c-clean.md', ?, 's', 'q', 1)",
+      )
+      .run(NOW - 60 * DAY);
+    // A RECENT advisory push for the SAME chunk. If the view counted it, MAX(retrieved_at) would
+    // move to `NOW` and stale_access would silently clear.
+    edb
+      .prepare(
+        "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, surface_type, query_text, rank_in_results) VALUES ('r2', 'c-clean.md', ?, 'advisory', 'goal text', 1)",
+      )
+      .run(NOW);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    expect(flagsOf(edb).get("clean.md")).toEqual(["stale_access"]);
   });
 
   it("is idempotent — a re-run at the same clock reproduces the rows exactly", () => {

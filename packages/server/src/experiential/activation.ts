@@ -138,16 +138,23 @@ export function recomputeActivation(
 
   // Full pass reads the whole log; incremental reads only the events of chunks that have ANY event
   // past the watermark (their full history — every reference is needed for the exact ACT-R sum).
+  // THE-634: excludes surface_type = 'advisory' rows. Those are pushed, not retrieved — the
+  // proactive-advisory sweep (runtime/advisory-sweep.ts) inserts one to give
+  // record_retrieval_feedback something to stamp a dismissal against, and a note the system
+  // SURFACED must not gain ACT-R activation as though the user had SEARCHED for and found it. A
+  // real retrieval logged by createRetrievalLogger (experiential/log.ts) always has a caller-tool
+  // surface_type ("graph_search", "semantic_search", ...), never NULL and never 'advisory', so
+  // this filter changes nothing for any pre-existing row.
   const rows = (
     incremental
       ? edb
           .prepare(
-            "SELECT chunk_id, retrieved_at, feedback FROM chunk_retrievals WHERE chunk_id IN (SELECT DISTINCT chunk_id FROM chunk_retrievals WHERE rowid > ?) ORDER BY chunk_id",
+            "SELECT chunk_id, retrieved_at, feedback FROM chunk_retrievals WHERE (surface_type IS NULL OR surface_type <> 'advisory') AND chunk_id IN (SELECT DISTINCT chunk_id FROM chunk_retrievals WHERE rowid > ?) ORDER BY chunk_id",
           )
           .all(watermark)
       : edb
           .prepare(
-            "SELECT chunk_id, retrieved_at, feedback FROM chunk_retrievals ORDER BY chunk_id",
+            "SELECT chunk_id, retrieved_at, feedback FROM chunk_retrievals WHERE surface_type IS NULL OR surface_type <> 'advisory' ORDER BY chunk_id",
           )
           .all()
   ) as Array<{

@@ -125,6 +125,13 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
       "enabled": false,
       "intervalHours": 168,
       "maxQueries": 50
+    },
+    "proactive": {
+      "enabled": false,
+      "minScore": 0.6,
+      "topK": 2,
+      "maxPerSession": 5,
+      "dismissalPenalty": 1
     }
   },
   "transports": {

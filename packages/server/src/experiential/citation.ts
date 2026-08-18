@@ -328,11 +328,16 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     startedAt: Date.now(),
   });
 
+  // THE-634 (adversarial review): excludes surface_type = 'advisory' rows. Those are pushed, not
+  // retrieved for a query the assistant answered — scoring "was this chunk cited in the response"
+  // for one wastes a judge call on a question with no response to check, and a stray match would
+  // stamp cited_in_response onto a row nothing ever asked for.
   const chunkIds = (
     opts.edb
       .prepare(
         `SELECT DISTINCT chunk_id AS id FROM chunk_retrievals
-         WHERE cited_in_response IS NULL AND ${scopeClause}`,
+         WHERE cited_in_response IS NULL AND (surface_type IS NULL OR surface_type <> 'advisory')
+           AND ${scopeClause}`,
       )
       .all(...scopeParams) as Array<{ id: string }>
   ).map((r) => r.id);

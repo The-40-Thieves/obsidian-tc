@@ -82,6 +82,30 @@ describe("contribution report (THE-249)", () => {
     expect(report.notes[0]?.path).toBe("notes/a.md");
   });
 
+  // THE-634 (adversarial review): the proactive-advisory sweep inserts a chunk_retrievals row
+  // (surface_type = 'advisory') so record_retrieval_feedback has something to stamp — a note the
+  // system PUSHED into a session, never cited because there is no response to check it against.
+  // Counting it here would inflate `retrievals` and wrongly mark the note as dead-retrieved
+  // (retrieved but never useful) when nobody actually retrieved it.
+  it("THE-634: an advisory row does not count toward retrievals or deadRetrievedPaths", () => {
+    const edb = edb0();
+    const cache = cacheDb0();
+    cache.prepare("INSERT INTO chunks (id, path) VALUES ('a1', 'notes/a.md')").run();
+    edb
+      .prepare(
+        "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, cited_in_response, surface_type, query_text, rank_in_results) VALUES ('r1', 'a1', ?, 's1', NULL, 'advisory', 'goal text', 1)",
+      )
+      .run(NOW);
+
+    const report = contributionReport(edb, cache);
+    expect(report.totals).toEqual({
+      retrievedPaths: 0,
+      contributingPaths: 0,
+      deadRetrievedPaths: 0,
+    });
+    expect(report.notes).toEqual([]);
+  });
+
   it("window filtering scopes the report", () => {
     const edb = edb0();
     const cache = cacheDb0();

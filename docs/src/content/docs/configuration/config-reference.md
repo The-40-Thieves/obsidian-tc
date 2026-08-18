@@ -121,6 +121,11 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `experiential.gapSweep.intervalHours` | `number` | `168` |  | Hours between sweeps when enabled. Defaults to weekly — a coverage gap is a slow-moving property of the corpus, not something worth re-measuring hourly. |
 | `experiential.gapSweep.maxQueries` | `number` | `50` |  | Upper bound on queries per sweep. The sweep draws the most recent DISTINCT logged queries from chunk_retrievals, so this caps both gateway cost and how far back a single pass reaches. |
 | `experiential.logRetrievals` | `boolean` | `true` |  | Append serve-path retrieval events (chunk id, rank, score, query text, surface) to experiential.db. Local-only telemetry feeding activation recompute and usage stats; eval runs never log. |
+| `experiential.proactive.dismissalPenalty` | `number` | `1` |  | Budget removed per dismissal (a -1 stamped through record_retrieval_feedback on an advisory row). At 1, five dismissals exhaust a maxPerSession of five. |
+| `experiential.proactive.enabled` | `boolean` | `false` |  | Run the scheduled proactive-advisory sweep: score recent vault activity (changed notes, open contradictions, recent syntheses) against open goals and surface the top candidates to connected sessions. Off by default — see the block-level comment for why this is a precision decision, not only a cost one. |
+| `experiential.proactive.maxPerSession` | `number` | `5` |  | Hard cap on advisories a single session may receive in total before dismissal decay reduces it further. |
+| `experiential.proactive.minScore` | `number` | `0.6` |  | Below this goal-similarity score, a candidate is not worth interrupting for. Precision over recall — the ticket's phrase, not a paraphrase. |
+| `experiential.proactive.topK` | `number` | `2` |  | Hard cap on advisories surfaced per sweep, per session. The ticket: "Surface the top 1-2 items, never a digest." |
 
 ### `gateway`
 

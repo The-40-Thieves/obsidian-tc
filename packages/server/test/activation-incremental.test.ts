@@ -33,6 +33,12 @@ function logRetrieval(db: Database, chunkId: string, retrievedAt: number): void 
   );
 }
 
+function logAdvisoryPush(db: Database, chunkId: string, retrievedAt: number): void {
+  db.prepare(
+    "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, surface_type) VALUES (?, ?, ?, 'advisory')",
+  ).run(`ev_${seq++}`, chunkId, retrievedAt);
+}
+
 function computedAt(db: Database, chunkId: string): number | null {
   const r = db
     .prepare("SELECT last_computed_at FROM vault_object_state WHERE object_id = ?")
@@ -108,6 +114,51 @@ describe("THE-461 incremental activation", () => {
       .prepare("SELECT frequency f FROM vault_object_state WHERE object_id = ?")
       .get("a") as { f: number };
     expect(after.f).toBe(3); // full history, not just the 1 new event
+  });
+
+  // THE-634 (adversarial review): the incremental branch's OWN query is two-layered — an inner
+  // subquery finds chunks with ANY event past the watermark, an outer query reads their FULL
+  // history — and only the earlier (non-incremental) branch had a test proving the surface_type
+  // exclusion. An advisory-only "new event" can still trigger the inner subquery's watermark test
+  // (it is a real row with a real rowid); this proves the outer query still excludes it from what
+  // actually gets scored, so a chunk with ONLY a new advisory push past the watermark stays
+  // untouched — not silently recomputed off a fake retrieval.
+  it("THE-634: an advisory push past the watermark triggers the inner subquery but scores nothing new", () => {
+    const db = edb();
+    logRetrieval(db, "a", 1000);
+    recomputeActivation(db, 10_000); // full seed
+    const seed = db
+      .prepare(
+        "SELECT cached_activation_score s, frequency f, last_computed_at c FROM vault_object_state WHERE object_id = ?",
+      )
+      .get("a") as { s: number; f: number; c: number };
+
+    // A RECENT advisory push for "a" — past the watermark, so the inner subquery picks "a" up.
+    logAdvisoryPush(db, "a", 11_000);
+    const stats = recomputeActivation(db, 20_000, { incremental: true });
+
+    // "a" IS in byChunk (it has a real event in its history) so it IS recomputed — but off the
+    // SAME history as the seed pass, since the advisory row is excluded from the outer read.
+    expect(stats.chunks).toBe(1);
+    const after = db
+      .prepare(
+        "SELECT cached_activation_score s, frequency f FROM vault_object_state WHERE object_id = ?",
+      )
+      .get("a") as { s: number; f: number };
+    expect(after.f).toBe(seed.f); // still 1 — the advisory push added no real event
+    // Same events, same `now` window relationship as they would be from a fresh full pass at the
+    // seed's `now` — frequency is the sharpest signal since the advisory push, if counted, would
+    // add a strictly more RECENT event and raise the score above the seed's.
+    expect(after.s).toBeLessThanOrEqual(seed.s + 1e-9);
+
+    // A chunk with ONLY an advisory event and no real history must never even reach the score
+    // table — the same "pushed is not retrieved" invariant activation.test.ts pins for the
+    // non-incremental branch.
+    logAdvisoryPush(db, "pushed-only", 12_000);
+    recomputeActivation(db, 21_000, { incremental: true });
+    expect(
+      db.prepare("SELECT 1 FROM vault_object_state WHERE object_id = 'pushed-only'").get(),
+    ).toBeUndefined();
   });
 
   it("falls back to a full pass when the watermark table is absent (pre-migration db)", () => {

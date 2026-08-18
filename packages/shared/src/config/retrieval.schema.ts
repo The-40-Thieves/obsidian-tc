@@ -516,4 +516,64 @@ export const ExperientialConfigSchema = z.object({
     .describe(
       "THE-719: scheduled coverage-gap sweep over recently logged queries. Advisory only — nothing auto-tunes retrieval config from its own gap measurements.",
     ),
+  /** THE-634: the scheduled proactive-advisory sweep — the caller `scoreAgainstGoals` +
+   *  `selectAdvisories` (PR #779, `experiential/advisory.ts` + `experiential/advisory-policy.ts`)
+   *  never had. Same shape as citationInfer/gapSweep above and the same lesson: correct code,
+   *  complete tests, no scheduled caller means `chunk_retrievals` never gets an advisory row and
+   *  nothing is ever surfaced. PR #779 itself deferred this block for exactly that reason — a first
+   *  draft declared it and `check-config-threading` refused it as unread.
+   *
+   *  OFF BY DEFAULT, and unlike gapSweep/citationInfer this is not (only) a cost decision — it is a
+   *  precision one. The ticket's own words: "A proactive system that is wrong 30% of the time is
+   *  worse than no proactive system, because users learn to dismiss it and then miss the 70%." This
+   *  repo has already measured two plausible retrieval ideas to null (THE-532) and negative
+   *  (THE-448, -0.047 nDCG@10); a proactivity heuristic with no eval has a SOFTER evidentiary basis
+   *  than either. Ship dark, measure, then decide. */
+  proactive: z
+    .object({
+      enabled: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Run the scheduled proactive-advisory sweep: score recent vault activity (changed notes, open contradictions, recent syntheses) against open goals and surface the top candidates to connected sessions. Off by default — see the block-level comment for why this is a precision decision, not only a cost one.",
+        ),
+      minScore: z
+        .number()
+        .min(0)
+        .max(1)
+        .default(0.6)
+        .describe(
+          "Below this goal-similarity score, a candidate is not worth interrupting for. Precision over recall — the ticket's phrase, not a paraphrase.",
+        ),
+      topK: z
+        .number()
+        .int()
+        .positive()
+        .max(10)
+        .default(2)
+        .describe(
+          'Hard cap on advisories surfaced per sweep, per session. The ticket: "Surface the top 1-2 items, never a digest."',
+        ),
+      maxPerSession: z
+        .number()
+        .int()
+        .positive()
+        .max(100)
+        .default(5)
+        .describe(
+          "Hard cap on advisories a single session may receive in total before dismissal decay reduces it further.",
+        ),
+      dismissalPenalty: z
+        .number()
+        .min(0)
+        .max(100)
+        .default(1)
+        .describe(
+          "Budget removed per dismissal (a -1 stamped through record_retrieval_feedback on an advisory row). At 1, five dismissals exhaust a maxPerSession of five.",
+        ),
+    })
+    .prefault({})
+    .describe(
+      "THE-634: scheduled proactive-advisory sweep over goal-anchored candidates (vault-watcher note changes, open contradictions, recent syntheses). Publishes into subscriptions/listen for modern-era (2026-07-28) sessions only; legacy-era sessions — the LiteLLM-fronted production majority — receive no delivery attempt, by design. See docs/MCP-COMPATIBILITY.md.",
+    ),
 });

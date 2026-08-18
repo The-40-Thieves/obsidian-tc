@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 418,
-    "dependencies": 1855,
+    "modules": 420,
+    "dependencies": 1869,
     "subsystemPairs": 119,
-    "crossSubsystemImports": 822
+    "crossSubsystemImports": 834
   },
   "subsystems": {
     "auth": 4,
@@ -21,7 +21,7 @@
     "formats": 6,
     "gateway": 2,
     "graph": 1,
-    "mcp": 17,
+    "mcp": 18,
     "memory": 2,
     "metrics": 4,
     "model": 7,
@@ -31,7 +31,7 @@
     "plugin": 19,
     "plur": 2,
     "providers": 6,
-    "runtime": 16,
+    "runtime": 17,
     "scheduler": 4,
     "schemas": 1,
     "search": 56,
@@ -70,7 +70,7 @@
     {
       "from": "runtime",
       "to": "search",
-      "weight": 26
+      "weight": 27
     },
     {
       "from": "experiential",
@@ -80,7 +80,7 @@
     {
       "from": "runtime",
       "to": "db",
-      "weight": 19
+      "weight": 20
     },
     {
       "from": "tools",
@@ -99,7 +99,17 @@
     },
     {
       "from": "runtime",
+      "to": "experiential",
+      "weight": 13
+    },
+    {
+      "from": "runtime",
       "to": "scheduler",
+      "weight": 13
+    },
+    {
+      "from": "runtime",
+      "to": "mcp",
       "weight": 12
     },
     {
@@ -113,18 +123,8 @@
       "weight": 11
     },
     {
-      "from": "runtime",
-      "to": "experiential",
-      "weight": 10
-    },
-    {
       "from": "mcp",
       "to": "vault",
-      "weight": 9
-    },
-    {
-      "from": "runtime",
-      "to": "mcp",
       "weight": 9
     },
     {
@@ -159,6 +159,11 @@
     },
     {
       "from": "runtime",
+      "to": "embeddings",
+      "weight": 7
+    },
+    {
+      "from": "runtime",
       "to": "plane",
       "weight": 7
     },
@@ -174,7 +179,7 @@
     },
     {
       "from": "runtime",
-      "to": "embeddings",
+      "to": "util",
       "weight": 6
     },
     {
@@ -209,17 +214,17 @@
     },
     {
       "from": "runtime",
-      "to": "util",
-      "weight": 5
-    },
-    {
-      "from": "runtime",
       "to": "morgiana",
       "weight": 5
     },
     {
       "from": "search",
       "to": "embeddings",
+      "weight": 5
+    },
+    {
+      "from": "transports",
+      "to": "mcp",
       "weight": 5
     },
     {
@@ -245,11 +250,6 @@
     {
       "from": "transports",
       "to": "auth",
-      "weight": 4
-    },
-    {
-      "from": "transports",
-      "to": "mcp",
       "weight": 4
     },
     {

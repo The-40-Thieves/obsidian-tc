@@ -51,7 +51,12 @@ export function contributionReport(
   cacheDb: Database,
   opts: { since?: number; until?: number } = {},
 ): ContributionReport {
-  const clauses = ["1=1"];
+  // THE-634 (adversarial review): excludes surface_type = 'advisory' rows. The proactive-advisory
+  // sweep pushes those; they are never cited (cited_in_response stays NULL by construction — no
+  // response to check), so counting them here would inflate `retrievals` and misreport every
+  // pushed-but-ignored note as a `deadRetrievedPaths` entry — a note the system surfaced, not one
+  // a caller searched for and got no value from.
+  const clauses = ["(surface_type IS NULL OR surface_type <> 'advisory')"];
   const params: unknown[] = [];
   if (opts.since !== undefined) {
     clauses.push("retrieved_at >= ?");

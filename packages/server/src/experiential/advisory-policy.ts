@@ -104,13 +104,27 @@ export function selectAdvisories(
  * `feedback` is the raw -1/0/+1 from `chunk_retrievals.feedback`. Only -1 counts against the
  * budget: 0 is "seen, no opinion" and +1 is the channel working. Treating 0 as a dismissal would
  * make silence expensive, and silence is the common case.
+ *
+ * NOT CALLED BY runtime/advisory-sweep.ts, and that is a design choice recorded here rather than
+ * left to read as abandoned (flagged and checked in THE-634's adversarial review — this comment is
+ * the resolution, not a TODO). This function and recordEmission below are the IN-MEMORY-FOLD half
+ * of session-state bookkeeping: a caller holds one `AdvisorySessionState` and threads it forward,
+ * feedback event by feedback event. The sweep instead DERIVES state fresh from the chunk_retrievals
+ * log on every tick (advisory-sweep.ts's `sessionAdvisoryState`) — no in-process cache to go stale
+ * or to lose on a restart, which is what the fold-forward shape would need. Kept, not removed: this
+ * pair is the tested implementation of two of the ticket's own named requirements ("dismissals are
+ * a signal, recorded and fed back"; "a hard rate limit... that decays if dismissed" — see
+ * advisory-threshold.test.ts's "a full session round trip converges to silence"), and a future
+ * in-process caller (a live session cache in front of the DB, rather than a per-tick re-read) is
+ * exactly the shape they were built for.
  */
 export function applyFeedback(state: AdvisorySessionState, feedback: number): AdvisorySessionState {
   if (feedback >= 0) return state;
   return { ...state, dismissed: state.dismissed + 1 };
 }
 
-/** Record an emission so the budget and the repeat-guard both move. */
+/** Record an emission so the budget and the repeat-guard both move. See applyFeedback's doc
+ *  comment just above for why the sweep does not call this either. */
 export function recordEmission(
   state: AdvisorySessionState,
   emitted: readonly ScoredAdvisory[],

@@ -76,6 +76,12 @@ export function makeGapBatchSearch(deps: {
  * newest-first and the walk stops as soon as `limit` distinct queries are found; distinctness is
  * therefore "most recent occurrence IN THIS VAULT", which is what the GROUP BY meant before the
  * scope existed.
+ *
+ * THE-634 (adversarial review): also excludes surface_type = 'advisory' rows. The proactive-
+ * advisory sweep (runtime/advisory-sweep.ts) stamps the GOAL TEXT it scored against into
+ * `query_text` on the chunk_retrievals row it pushes, so this reader would otherwise harvest a
+ * goal as though a caller had actually asked it — a fake logged query persisted verbatim into
+ * `gap_reports.items` by a pass that is supposed to measure what was ACTUALLY asked.
  */
 export function recentQueries(
   edb: Database,
@@ -89,6 +95,7 @@ export function recentQueries(
     .prepare(
       `SELECT query_text, chunk_id FROM chunk_retrievals
        WHERE query_text IS NOT NULL AND query_text <> ''
+         AND (surface_type IS NULL OR surface_type <> 'advisory')
        ORDER BY retrieved_at DESC`,
     )
     .all() as Array<{ query_text: string; chunk_id: string }>;
