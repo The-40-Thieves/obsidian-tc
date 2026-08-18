@@ -6,7 +6,7 @@
 // REGISTRATION (the M1-M8 `register*Tools` calls) stays in cli.ts for WP5.2.
 import type { Tracer } from "@opentelemetry/api";
 import type { VaultConfigInput } from "@the-40-thieves/obsidian-tc-shared";
-import { FolderAcl } from "../acl";
+import type { FolderAcl } from "../acl";
 import type { Database } from "../db/types";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "../elicit";
 import { ToolRegistry } from "../mcp/registry";
@@ -21,6 +21,7 @@ import {
   getSession,
   resolveTraceAbs,
 } from "../workspace/sessions";
+import { buildAcls } from "./acl-build";
 
 export interface GovernanceDeps {
   db: Database;
@@ -80,12 +81,9 @@ export interface Governance {
  * constructed earlier in this same function — no forward reference needed there.
  */
 export function wireGovernance(deps: GovernanceDeps): Governance {
-  const acl = new FolderAcl(deps.acl);
-  const aclByVault = new Map(
-    deps.vaults
-      .filter((v) => v.acl !== undefined)
-      .map((v) => [v.id, new FolderAcl(v.acl as ConstructorParameters<typeof FolderAcl>[0])]),
-  );
+  // Root + per-vault ACLs come from the shared buildAcls — the ONE construction site, shared with
+  // wireDomainTools (THE-630); see acl-build.ts for why the construction must never fork again.
+  const { acl, aclByVault } = buildAcls(deps.acl, deps.vaults);
   const vaultRegistry = new VaultRegistry(deps.vaults, deps.defaultVaultId);
   const activeSessions = new ActiveSessionTracker();
   // THE-302: the configured elicit-token TTL governs every HITL token mint (issueElicitToken falls
