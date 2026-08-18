@@ -78,6 +78,16 @@ export interface IndexHealthState {
   /** THE-491: chunks_upserted from the most recent index_vault tool call; null until the first one
    *  this process (get_index_status surfaces it verbatim). */
   lastChunksUpserted: number | null;
+  /** THE-645: set while an index_vault call is in flight, updated once per completed flush()
+   *  batch; cleared back to null in the tool's onIndexVaultComplete (success) and
+   *  onIndexVaultError (failure) hooks. Plain in-memory — never written to SQLite. */
+  inFlight: {
+    vault: string;
+    notesSeen: number;
+    notesProcessed: number;
+    chunksUpserted: number;
+    startedAt: number;
+  } | null;
 }
 
 export interface IndexResources {
@@ -141,6 +151,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     auditWriteFailures: 0,
     indexQueueBackpressures: 0,
     lastChunksUpserted: null,
+    inFlight: null,
   };
   const recordIngestStatsFor = (vaultId: string, s: IndexStats): IndexStats => {
     recordIngestStats(deps.db, deps.metrics, vaultId, s);

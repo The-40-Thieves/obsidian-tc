@@ -59,23 +59,34 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
-        const stats = await indexVault({
-          db: ctx.db,
-          provider: deps.embeddingProvider,
-          chunkContext: deps.chunkContext,
-          representation: deps.representation,
-          densify: deps.densify,
-          vaultId: v.id,
-          root: v.root,
-          sub,
-          isReadable: (rel) => readableRel(ctx.acl, rel),
-          now: ctx.now,
-          // THE-490/THE-591: indexing.streamingWalk. Off/absent -> byte-identical to before.
-          walk: { streaming: deps.streamingWalk },
-        });
-        // THE-491: surfaced verbatim by get_index_status (last index_vault call this process).
-        deps.onIndexVaultComplete?.(v.id, stats);
-        return { vault: v.id, ...stats };
+        // THE-645: a try/catch around the call so a rejection still clears any in-flight state a
+        // caller is tracking (deps.onIndexVaultError) before the error propagates to the
+        // dispatcher — previously a bare `await` here, so a failed run left a stale "still
+        // running" entry forever visible to the next get_index_status caller.
+        try {
+          const stats = await indexVault({
+            db: ctx.db,
+            provider: deps.embeddingProvider,
+            chunkContext: deps.chunkContext,
+            representation: deps.representation,
+            densify: deps.densify,
+            vaultId: v.id,
+            root: v.root,
+            sub,
+            isReadable: (rel) => readableRel(ctx.acl, rel),
+            now: ctx.now,
+            // THE-490/THE-591: indexing.streamingWalk. Off/absent -> byte-identical to before.
+            walk: { streaming: deps.streamingWalk },
+            // THE-645: in-flight progress, fired once per completed flush() batch.
+            onProgress: (p) => deps.onProgress?.(v.id, p),
+          });
+          // THE-491: surfaced verbatim by get_index_status (last index_vault call this process).
+          deps.onIndexVaultComplete?.(v.id, stats);
+          return { vault: v.id, ...stats };
+        } catch (e) {
+          deps.onIndexVaultError?.(v.id);
+          throw e;
+        }
       },
     }),
   ];

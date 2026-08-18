@@ -69,6 +69,19 @@ export interface HealthInfo {
  *  process lifetime). No `detail`: that sub-object is authenticated-only on server_health because
  *  its messages may name paths; this tool stays scope-free like server_health itself, so it
  *  carries only the non-identifying fields already exposed unauthenticated there. */
+/** THE-645: in-flight progress for a currently-running index_vault call, updated once per
+ *  completed flush() batch (never per-chunk — see IndexVaultArgs.onProgress's perf-gate note). */
+export interface IndexInFlightInfo {
+  vault: string;
+  /** Walk total, known up front, or -1 when the run used the streaming walk (total unknown until
+   *  the walk finishes). */
+  notesSeen: number;
+  notesProcessed: number;
+  chunksUpserted: number;
+  /** epoch ms the run started, for an elapsed/ETA computation by the reader. */
+  startedAt: number;
+}
+
 export interface IndexStatusInfo {
   reconcile: "pending" | "ok" | "degraded";
   reconcile_at: number | null;
@@ -78,12 +91,23 @@ export interface IndexStatusInfo {
   fts_enabled: boolean;
   /** chunks_upserted from the last index_vault tool call this process, or null if none yet. */
   chunks_upserted: number | null;
+  /** THE-645: progress of an index_vault call currently in flight for this process, or absent
+   *  when none is running. */
+  in_flight?: IndexInFlightInfo;
 }
 
 // THE-417: mirrors this file's own IndexStatusInfo/HealthInfo/IndexHealthSnapshot interfaces
 // verbatim — both tools already had a hand-written return type at the factory boundary, so the
 // schema is a direct transcription rather than something derived from a handler's return
 // statements.
+const IndexInFlightOutput = z.object({
+  vault: z.string(),
+  notesSeen: z.number(),
+  notesProcessed: z.number(),
+  chunksUpserted: z.number(),
+  startedAt: z.number(),
+});
+
 const IndexStatusOutput = z.object({
   reconcile: z.enum(["pending", "ok", "degraded"]),
   reconcile_at: z.number().nullable(),
@@ -92,6 +116,7 @@ const IndexStatusOutput = z.object({
   vec_enabled: z.boolean(),
   fts_enabled: z.boolean(),
   chunks_upserted: z.number().nullable(),
+  in_flight: IndexInFlightOutput.optional(),
 });
 
 const IndexHealthSnapshotOutput = z.object({
@@ -140,17 +165,21 @@ export function createIndexStatusTool(opts: {
   ftsEnabled: boolean;
   getIndexHealth: () => Omit<IndexHealthSnapshot, "detail">;
   getLastChunksUpserted: () => number | null;
+  /** THE-645: progress of an index_vault call in flight right now, or null/absent when none is
+   *  running. Optional so a caller predating this ticket keeps compiling. */
+  getInFlightProgress?: () => IndexInFlightInfo | null;
 }): ToolDefinition<Record<string, never>, IndexStatusInfo> {
   return {
     name: "get_index_status",
     domain: "admin",
     description:
-      "Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, and chunks_upserted from the last index_vault call. Read-only — self-diagnose before spending on an expensive search.",
+      "Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, chunks_upserted from the last index_vault call, and in-flight progress while one is currently running. Read-only — self-diagnose before spending on an expensive search.",
     inputSchema: z.object({}).strict(),
     outputSchema: IndexStatusOutput,
     requiredScopes: [],
     handler: () => {
       const snap = opts.getIndexHealth();
+      const inFlight = opts.getInFlightProgress?.() ?? null;
       return {
         reconcile: snap.reconcile,
         reconcile_at: snap.reconcile_at,
@@ -159,6 +188,7 @@ export function createIndexStatusTool(opts: {
         vec_enabled: opts.vecEnabled,
         fts_enabled: opts.ftsEnabled,
         chunks_upserted: opts.getLastChunksUpserted(),
+        ...(inFlight ? { in_flight: inFlight } : {}),
       };
     },
   };

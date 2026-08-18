@@ -117,6 +117,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
         notes_ready: deps.indexHealth.notesReady,
       }),
       getLastChunksUpserted: () => deps.indexHealth.lastChunksUpserted,
+      getInFlightProgress: () => deps.indexHealth.inFlight,
     }),
   );
 }
@@ -407,7 +408,17 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // THE-491: get_index_status reports chunks_upserted from the last index_vault call.
     onIndexVaultComplete: (vaultId, stats) => {
       deps.indexHealth.lastChunksUpserted = stats.chunks_upserted;
+      deps.indexHealth.inFlight = null; // THE-645: clear on completion
       deps.recordIngestStatsFor(vaultId, stats);
+    },
+    // THE-645: a failed index_vault call must not leave a stale "still running" entry — see
+    // tools/m2/index-tools.ts's try/catch.
+    onIndexVaultError: () => {
+      deps.indexHealth.inFlight = null;
+    },
+    // THE-645: get_index_status's in-flight progress, updated once per completed flush() batch.
+    onProgress: (vaultId, p) => {
+      deps.indexHealth.inFlight = { vault: vaultId, ...p };
     },
   });
   registerM3Tools(registry, {

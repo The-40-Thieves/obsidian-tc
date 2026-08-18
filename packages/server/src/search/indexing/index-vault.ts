@@ -62,6 +62,9 @@ const DEFAULT_BATCH_MAX_BYTES = 8 * 1024 * 1024;
 
 export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const now = args.now ?? Date.now;
+  // THE-645: captured once, up front, so onProgress reports a stable start time for the whole pass
+  // rather than the time of whichever flush happens to fire.
+  const startedAt = now();
   // THE-683: the caller passes the manifest it already built; this no longer re-derives one.
   // The old hand-built copy carried a comment warning that if it drifted from
   // runtime/indexing-wiring.ts, "boot and index_vault each DROP and rebuild the table the other
@@ -270,6 +273,16 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // reusing the SAME plan data fireIndexHook already reports rather than threading a new seam.
     for (const plan of toApply) changedChunkPaths.add(plan.path);
     for (const plan of toApply) fireIndexHook(args.onIndexed, plan);
+    // THE-645: once per completed batch (never per-chunk, per the perf-gate note on IndexVaultArgs)
+    // — a straight projection of the running `stats` accumulator, no new counters. `notesSeen` is
+    // the streaming path's honest "unknown" (-1): the eager total isn't known until the walk
+    // finishes (see THE-490's comment above), so a fabricated total would render a false percentage.
+    args.onProgress?.({
+      notesSeen: streamWalk ? -1 : notes.length,
+      notesProcessed: stats.notes_indexed,
+      chunksUpserted: stats.chunks_upserted,
+      startedAt,
+    });
   };
   // The two-transaction split (notes vs chunks) is a deliberate atomicity gap; it is safe ONLY because
   // the next index_vault self-heals either side (an absent chunk set re-embeds; a missing notes row is
