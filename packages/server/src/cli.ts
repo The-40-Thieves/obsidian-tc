@@ -19,6 +19,8 @@ import { run_citation_infer } from "./cli/commands/citation-infer";
 import { run_cluster } from "./cli/commands/cluster";
 import { run_config_explain } from "./cli/commands/config-explain";
 import { run_config_show } from "./cli/commands/config-show";
+import { run_context_export } from "./cli/commands/context-export";
+import { run_context_import } from "./cli/commands/context-import";
 import { run_contribution_report } from "./cli/commands/contribution-report";
 import { run_densify_llm } from "./cli/commands/densify-llm";
 import { run_doctor } from "./cli/commands/doctor";
@@ -57,14 +59,17 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 // note-quality, gaps, metrics, reflect) — real writes, but of RECOMPUTABLE state: a re-run
 // reproduces it, so an audit row would be noise (a rewritten cluster assignment is not a loss
 // event). `prefetch` dispatches properly through `registry.dispatch` and gets an audit row for
-// free. `forget` and `elicit` (THE-826) are the two commands that write `audit_events` directly
-// rather than through `runDispatch` — `forget` for true vault-destructive writes
-// (cli/commands/forget.ts, `auditForgetEvent`), `elicit` because minting a HITL confirmation
-// token is itself the security-relevant event worth a record, independent of whether the token
-// is ever redeemed (cli/commands/elicit-mint.ts, `mintElicitAudited`) — see those files for the
-// writers and the "why not runDispatch" reasoning. This is a DECISION, not an oversight: do not
-// add audit rows to the recompute commands above without re-litigating the "recomputable state is
-// not a loss event" premise this classification rests on.
+// free. `forget`, `elicit` (THE-826) and `context-export`/`context-import` (THE-636) are the
+// commands that write `audit_events` directly rather than through `runDispatch` — `forget` for
+// true vault-destructive writes (cli/commands/forget.ts, `auditForgetEvent`), `elicit` because
+// minting a HITL confirmation token is itself the security-relevant event worth a record,
+// independent of whether the token is ever redeemed (cli/commands/elicit-mint.ts,
+// `mintElicitAudited`), and `context-export`/`context-import` because they are the exfiltration
+// and untrusted-input surfaces THE-636's design note names (cli/commands/context-export.ts /
+// context-import.ts, `auditContextExportEvent` / `auditContextImportEvent`) — see those files for
+// the writers and the "why not runDispatch" reasoning. This is a DECISION, not an oversight: do
+// not add audit rows to the recompute commands above without re-litigating the "recomputable
+// state is not a loss event" premise this classification rests on.
 async function main(): Promise<void> {
   const cmd = parseCliArgs(process.argv.slice(2));
   switch (cmd.kind) {
@@ -101,6 +106,10 @@ async function main(): Promise<void> {
       return run_note_quality(cmd);
     case "forget":
       return run_forget(cmd);
+    case "context-export":
+      return run_context_export(cmd);
+    case "context-import":
+      return run_context_import(cmd);
     case "gaps":
       return run_gaps(cmd);
     case "index":

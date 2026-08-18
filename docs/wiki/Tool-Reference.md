@@ -64,7 +64,7 @@ What `tools/list` advertises is controlled by `toolFacade.mode`: **`triad`** (de
 - **Domain 30: Obsidian Git bridge** — `git_status`, `git_diff`, `git_log`, `git_stage`, `git_commit` (execute-family HITL floor — commits always require human confirmation).
 - **Domain 31: Remotely Save bridge** — `remotely_save_status`, `remotely_save_trigger` (independent backup verification).
 - **Additions to existing domains** — snapshots/restore, vault health, `add_vault`, markdown tables, kanban, filesystem Excalidraw read.
-- **Offline CLI family** (not MCP tools — run against the same config + caches): `cluster`, `activation-recompute`, `citation-infer`, `contribution-report`, `prefetch`, `reflect`, `metrics`, `gaps`, `forget`. See the [server README](https://github.com/The-40-Thieves/obsidian-tc/blob/main/packages/server/README.md).
+- **Offline CLI family** (not MCP tools — run against the same config + caches): `cluster`, `activation-recompute`, `citation-infer`, `contribution-report`, `prefetch`, `reflect`, `metrics`, `gaps`, `forget`, `context-export`, `context-import`. See the [server README](https://github.com/The-40-Thieves/obsidian-tc/blob/main/packages/server/README.md).
 
 ## Degradation & errors
 

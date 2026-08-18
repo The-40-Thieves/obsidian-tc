@@ -636,3 +636,113 @@ describe("THE-645 item 3 — parseCliArgs rerun", () => {
     });
   });
 });
+
+describe("THE-636 — parseCliArgs context-export", () => {
+  it("bare context-export carries no --out (run_context_export enforces it, like forget's flags)", () => {
+    expect(parseCliArgs(["context-export"])).toStrictEqual({ kind: "context-export" });
+  });
+
+  it("--out is captured", () => {
+    expect(parseCliArgs(["context-export", "--out", "/tmp/bundle.json"])).toStrictEqual({
+      kind: "context-export",
+      out: "/tmp/bundle.json",
+    });
+  });
+
+  it("--vault narrows the export", () => {
+    expect(
+      parseCliArgs(["context-export", "--out", "/tmp/bundle.json", "--vault", "main"]),
+    ).toStrictEqual({
+      kind: "context-export",
+      out: "/tmp/bundle.json",
+      vault: "main",
+    });
+  });
+
+  it("accepts a positional config path alongside --out", () => {
+    expect(
+      parseCliArgs(["context-export", "/etc/otc.json", "--out", "/tmp/bundle.json"]),
+    ).toStrictEqual({
+      kind: "context-export",
+      input: "/etc/otc.json",
+      out: "/tmp/bundle.json",
+    });
+  });
+
+  it("does not mistake --out's or --vault's value for the config positional", () => {
+    expect(
+      parseCliArgs(["context-export", "--out", "/tmp/bundle.json", "--vault", "main"]),
+    ).toStrictEqual({
+      kind: "context-export",
+      out: "/tmp/bundle.json",
+      vault: "main",
+    });
+  });
+});
+
+describe("THE-636 — parseCliArgs context-import", () => {
+  it("bare context-import carries no bundlePath (run_context_import enforces it)", () => {
+    expect(parseCliArgs(["context-import"])).toStrictEqual({ kind: "context-import" });
+  });
+
+  it("captures the bundle path as the first non-flag positional", () => {
+    expect(parseCliArgs(["context-import", "/tmp/bundle.json"])).toStrictEqual({
+      kind: "context-import",
+      bundlePath: "/tmp/bundle.json",
+    });
+  });
+
+  it("a second positional after the bundle path becomes the config path — same shape as rerun", () => {
+    expect(parseCliArgs(["context-import", "/tmp/bundle.json", "/etc/otc.json"])).toStrictEqual({
+      kind: "context-import",
+      bundlePath: "/tmp/bundle.json",
+      input: "/etc/otc.json",
+    });
+  });
+
+  it("--config is honoured the same as a positional config path", () => {
+    expect(
+      parseCliArgs(["context-import", "/tmp/bundle.json", "--config", "/etc/otc.json"]),
+    ).toStrictEqual({
+      kind: "context-import",
+      bundlePath: "/tmp/bundle.json",
+      input: "/etc/otc.json",
+    });
+  });
+
+  it("does not mistake --vault's value for the config positional", () => {
+    expect(parseCliArgs(["context-import", "/tmp/bundle.json", "--vault", "main"])).toStrictEqual({
+      kind: "context-import",
+      bundlePath: "/tmp/bundle.json",
+      vault: "main",
+    });
+  });
+
+  it("carries --dry-run through as a boolean, omitted when absent", () => {
+    expect(parseCliArgs(["context-import", "/tmp/bundle.json", "--dry-run"])).toStrictEqual({
+      kind: "context-import",
+      bundlePath: "/tmp/bundle.json",
+      dryRun: true,
+    });
+    expect(parseCliArgs(["context-import", "/tmp/bundle.json"])).not.toHaveProperty("dryRun");
+  });
+
+  it("parses bundle path, config path, --vault and --dry-run together", () => {
+    expect(
+      parseCliArgs([
+        "context-import",
+        "/tmp/bundle.json",
+        "/etc/otc.json",
+        "--vault",
+        "main",
+        "--dry-run",
+      ]),
+    ).toStrictEqual({
+      kind: "context-import",
+      bundlePath: "/tmp/bundle.json",
+      input: "/etc/otc.json",
+      vault: "main",
+      dryRun: true,
+    });
+  });
+});

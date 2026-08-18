@@ -201,7 +201,16 @@ describe("goals — constraint 3: no inference path can write a goal", () => {
       .split("\n")
       .filter(Boolean)
       // The store itself is allowed to mention itself.
-      .filter((f) => !f.endsWith("/goals.ts"));
+      .filter((f) => !f.endsWith("/goals.ts"))
+      // THE-636: the derived-plane export/restore bundle reads and writes goals for backup and
+      // migration — it is NOT an inference path. Two structural guarantees keep the membrane intact
+      // regardless of this proxy: (1) the bundle writes goals only via `INSERT INTO goals` with the
+      // row's own `source` value carried verbatim, and (2) the goals table's `source CHECK
+      // (source IN ('stated'))` (20260803_002) rejects any non-stated write at the DB layer — so an
+      // imported goal cannot acquire inferred provenance even if a crafted bundle tried. The
+      // constraint this gate protects — reflect.ts (the judge-driven inference path) never writing a
+      // goal — is unaffected; the "goals store imports no gateway/judge" test below is its companion.
+      .filter((f) => !f.endsWith("/context-bundle.ts") && !f.endsWith("/context-bundle-schema.ts"));
     // Non-vacuity floor: an empty scan must not pass. `git ls-files` sees TRACKED files only, so a
     // brand-new untracked inference module would escape this gate until it is added — the same
     // limitation the precedent carries, stated so it is not mistaken for coverage it lacks.
