@@ -24,6 +24,8 @@ import { createTokenVerifier, type TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
 import { getDefaultElicitTtlSeconds } from "../elicit";
 import { createElicitCodec } from "../elicit-request-state";
+import type { AdvisoryBus } from "../mcp/advisories";
+import { serveAdvisorySubscription, subscribesToAdvisories } from "../mcp/advisories";
 import type { FacadeMode } from "../mcp/facade";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
@@ -99,6 +101,11 @@ export interface HttpAppOptions {
    *  Only caller-OWNED jobs are ever visible through it — everything this process enqueues for
    *  itself has a NULL owner and stays invisible (see mcp/tasks.ts). */
   jobQueue?: JobQueue;
+  /** THE-634: publish side of the advisory push extension; when absent, advisory subscriptions are
+   *  not served (the caller falls through to the SDK handler, which acks with an empty filter and
+   *  delivers nothing — see mcp/advisories.ts). Absent whenever `experiential.proactive.enabled`
+   *  is false, so the wire surface itself — not just the scheduler tick — is unchanged by the flag. */
+  advisoryBus?: AdvisoryBus;
   /** Tool-surface facade mode (THE-219), threaded to createMcpServer. */
   facadeMode?: FacadeMode;
   /** DNS-rebinding / cross-origin guard (THE-271). Defaults on when undefined. */
@@ -507,6 +514,22 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
           c.req.raw.signal,
         );
       }
+    }
+    // THE-634: the advisory push extension, same seam and same reason as the Tasks extension just
+    // above — its subscription key and event are not expressible through the SDK's own
+    // SubscriptionFilter/ServerEvent union either. Only intercepted when a bus is wired (i.e.
+    // experiential.proactive.enabled) AND the client actually asked for advisory notifications.
+    if (
+      opts.advisoryBus &&
+      c.req.header("mcp-protocol-version") === MODERN_PROTOCOL_VERSION &&
+      subscribesToAdvisories(body)
+    ) {
+      return serveAdvisorySubscription(
+        body,
+        opts.advisoryBus,
+        { vaultId: authz.vault ?? opts.vaultId, caller: authz.caller },
+        c.req.raw.signal,
+      );
     }
     // Web-standard fetch in, Response out. `authInfo` is how this request's verified identity
     // reaches the factory — strictly pass-through, so the handler never re-derives or re-checks it.

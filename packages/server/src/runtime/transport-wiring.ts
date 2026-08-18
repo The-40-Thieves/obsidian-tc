@@ -11,6 +11,7 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
 import type { Database } from "../db/types";
+import { type AdvisoryBus, createAdvisoryBus } from "../mcp/advisories";
 import type { ToolRegistry } from "../mcp/registry";
 import { type MetricsHandle, startMetricsEndpoint } from "../metrics/endpoint";
 import type { MetricsRecorder } from "../metrics/registry";
@@ -34,6 +35,11 @@ export interface TransportWiringDeps {
 export interface TransportsWiring {
   /** THE-585 (#11): null until (and unless) the HTTP transport is constructed. */
   httpConstructSeconds: number | null;
+  /** THE-634: publish side of the advisory push extension, constructed here (from
+   *  `config.experiential.proactive.enabled`) so the ONE instance backing both the HTTP
+   *  subscription endpoint and wireScheduler's sweep is built in one place. Absent when the flag
+   *  is off — a caller threading this into wireScheduler must treat absence as "do not register". */
+  advisoryBus?: AdvisoryBus;
   /** Idempotent: closes whichever of HTTP/metrics were actually opened; a no-op transport
    *  contributes nothing. Safe to call more than once (each handle's own close() is awaited only
    *  the first time — see server-runtime.ts's close(), which guards the whole shutdown sequence). */
@@ -49,6 +55,9 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   let httpConstructSeconds: number | null = null;
   let httpHandle: HttpHandle | undefined;
   let metricsHandle: MetricsHandle | undefined;
+  // THE-634: gated on the flag alone (not experientialOpen too) — a bus with no scheduler feeding
+  // it is inert, not wrong; wireScheduler's own registration is what actually needs both.
+  const advisoryBus = config.experiential.proactive.enabled ? createAdvisoryBus() : undefined;
 
   if (config.transports.http.enabled) {
     // THE-585 (#11): time the transport's construction + bind.
@@ -66,6 +75,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       port: config.transports.http.port,
       facadeMode: config.toolFacade.mode,
       jobQueue: deps.jobQueue,
+      ...(advisoryBus ? { advisoryBus } : {}),
       enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
       allowedHosts: config.transports.http.allowedHosts,
       allowedOrigins: config.transports.http.allowedOrigins,
@@ -104,6 +114,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
 
   return {
     httpConstructSeconds,
+    ...(advisoryBus ? { advisoryBus } : {}),
     close: async () => {
       if (httpHandle) await httpHandle.close();
       if (metricsHandle) await metricsHandle.close();

@@ -1,0 +1,507 @@
+// THE-634 — the scheduled proactive-advisory sweep. advisory-threshold.test.ts pins the ENGINE
+// (scoreAgainstGoals / selectAdvisories) and states its own coverage boundary: "nothing here
+// exercises DELIVERY." This file is what closes that boundary — the CALLER those functions never
+// had, mirroring gap-sweep.test.ts's role for detectGaps.
+//
+// Three things this file proves that no other test does:
+//
+//   1. Scoring is per-vault, selection is per-session, and a sweep with nobody connected (or no
+//      open goal) never touches the gateway — the same "empty pass costs nothing" discipline
+//      gap-sweep.test.ts pins for its own sweep.
+//   2. An emitted advisory becomes a REAL chunk_retrievals row that the REAL record_retrieval_
+//      feedback tool (dispatched through the registry, not called as a bare function) can stamp a
+//      dismissal onto — acceptance criterion 3 of the verified brief, exercised end to end.
+//   3. Publish is best-effort: a session with no open stream still gets its emission recorded, and
+//      calling publish never throws.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { runMigrations } from "../src/db/migrate";
+import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
+import { provisionCacheDb } from "../src/db/provision";
+import type { Database } from "../src/db/types";
+import type { AdvisoryPolicy } from "../src/experiential/advisory-policy";
+import { remainingBudget } from "../src/experiential/advisory-policy";
+import { setGoal } from "../src/experiential/goals";
+import { createAdvisoryBus } from "../src/mcp/advisories";
+import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import {
+  buildSimilarityFn,
+  openContradictions,
+  openSessions,
+  recentNoteChanges,
+  recentSyntheses,
+  registerAdvisorySweep,
+  sessionAdvisoryState,
+} from "../src/runtime/advisory-sweep";
+import { registerM8Tools } from "../src/tools/m8";
+import { openMemoryDb } from "./helpers";
+
+const read = (name: string) =>
+  readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
+const EXP_CHAIN = EXPERIENTIAL_MIGRATION_FILES.map((file) => ({
+  version: versionOf(file),
+  sql: read(file),
+}));
+const NOW = 1_700_000_000_000;
+const V = "vault-one";
+
+function edb0(): Database {
+  const db = openMemoryDb();
+  runMigrations(db, EXP_CHAIN);
+  return db;
+}
+
+function cdb0(): Database {
+  const db = openMemoryDb();
+  provisionCacheDb(db);
+  return db;
+}
+
+function addChunk(
+  cdb: Database,
+  opts: { id: string; vaultId: string; path: string; content: string; updatedAt: number },
+): void {
+  cdb
+    .prepare(
+      `INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at)
+       VALUES (?, ?, ?, '0', '[]', ?, 'h', 1, ?, ?)`,
+    )
+    .run(opts.id, opts.vaultId, opts.path, opts.content, opts.updatedAt, opts.updatedAt);
+}
+
+function addContradiction(
+  cdb: Database,
+  opts: {
+    id: string;
+    vaultId: string;
+    status?: string;
+    rationale?: string;
+    detectedAt: number;
+  },
+): void {
+  cdb
+    .prepare(
+      `INSERT INTO contradictions
+         (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path,
+          source_content_sha, conflict_content_sha, judge_verdict, judge_rationale, status, detected_at)
+       VALUES (?, ?, 'c1', 'a.md', 'c2', 'b.md', ?, ?, 'contradiction', ?, ?, ?)`,
+    )
+    .run(
+      opts.id,
+      opts.vaultId,
+      `${opts.id}-a`,
+      `${opts.id}-b`,
+      opts.rationale ?? "they disagree",
+      opts.status ?? "open",
+      opts.detectedAt,
+    );
+}
+
+function addSynthesis(
+  cdb: Database,
+  opts: { vaultId: string; isoYear: number; isoWeek: number; generatedAt: number },
+): void {
+  cdb
+    .prepare(
+      `INSERT INTO syntheses
+         (vault_id, iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns)
+       VALUES (?, ?, ?, ?, 1, 1, '[]', '{"note":"weekly pattern"}')`,
+    )
+    .run(opts.vaultId, opts.isoYear, opts.isoWeek, opts.generatedAt);
+}
+
+function addSession(
+  cdb: Database,
+  opts: { id: string; vaultId: string; principal: string | null; endedAt?: number | null },
+): void {
+  cdb
+    .prepare(
+      `INSERT INTO workspace_sessions
+         (id, vault_id, caller, started_at, ended_at, trace_path, principal)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      opts.id,
+      opts.vaultId,
+      opts.principal,
+      NOW,
+      opts.endedAt ?? null,
+      `traces/${opts.id}`,
+      opts.principal,
+    );
+}
+
+/** Deterministic stub: exact-text lookup, so cosine similarity is hand-checkable rather than
+ *  approximated. Separate query/document maps mirror the real asymmetry buildSimilarityFn relies
+ *  on — a text present only under the "wrong" role returns the zero vector (norm 0), which
+ *  cosineSimilarity treats as similarity 0 rather than throwing. */
+function stubProvider(vectors: {
+  query?: Record<string, number[]>;
+  document?: Record<string, number[]>;
+}): {
+  id: string;
+  provider: string;
+  model: string;
+  dimensions: number;
+  embed: (texts: string[], opts?: { input?: "query" | "document" }) => Promise<number[][]>;
+  calls: Array<{ texts: string[]; input?: string }>;
+} {
+  const calls: Array<{ texts: string[]; input?: string }> = [];
+  return {
+    id: "stub",
+    provider: "stub",
+    model: "stub",
+    dimensions: 2,
+    calls,
+    embed: async (texts, opts) => {
+      calls.push({ texts, input: opts?.input });
+      const table = opts?.input === "query" ? (vectors.query ?? {}) : (vectors.document ?? {});
+      return texts.map((t) => table[t] ?? [0, 0]);
+    },
+  };
+}
+
+const POLICY: AdvisoryPolicy = { minScore: 0.6, topK: 2, maxPerSession: 3, dismissalPenalty: 1 };
+
+describe("openSessions", () => {
+  it("returns only OPEN sessions for the given vault", () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addSession(cdb, { id: "s2", vaultId: V, principal: "bob", endedAt: NOW }); // closed
+    addSession(cdb, { id: "s3", vaultId: "other-vault", principal: "carol" }); // other vault
+    expect(openSessions(cdb, V)).toEqual([{ id: "s1", vaultId: V, principal: "alice" }]);
+  });
+});
+
+describe("candidate sources", () => {
+  it("recentNoteChanges: vault-scoped, newest first, capped", () => {
+    const cdb = cdb0();
+    addChunk(cdb, { id: "c1", vaultId: V, path: "a.md", content: "old", updatedAt: NOW - 300 });
+    addChunk(cdb, { id: "c2", vaultId: V, path: "b.md", content: "new", updatedAt: NOW });
+    addChunk(cdb, {
+      id: "c3",
+      vaultId: "other",
+      path: "z.md",
+      content: "elsewhere",
+      updatedAt: NOW,
+    });
+    const out = recentNoteChanges(cdb, V, 10);
+    expect(out.map((c) => c.ref)).toEqual(["c2", "c1"]);
+    expect(out[0]).toMatchObject({ kind: "note_changed", text: "b.md\nnew", at: NOW });
+    expect(recentNoteChanges(cdb, V, 1)).toHaveLength(1);
+  });
+
+  it("openContradictions: open-status and vault-scoped only", () => {
+    const cdb = cdb0();
+    addContradiction(cdb, { id: "k1", vaultId: V, detectedAt: NOW });
+    addContradiction(cdb, { id: "k2", vaultId: V, status: "resolved", detectedAt: NOW });
+    addContradiction(cdb, { id: "k3", vaultId: "other", detectedAt: NOW });
+    const out = openContradictions(cdb, V, 10);
+    expect(out.map((c) => c.ref)).toEqual(["k1"]);
+    expect(out[0]?.kind).toBe("contradiction");
+  });
+
+  it("recentSyntheses: vault-scoped, newest first", () => {
+    const cdb = cdb0();
+    addSynthesis(cdb, { vaultId: V, isoYear: 2026, isoWeek: 1, generatedAt: NOW - 10 });
+    addSynthesis(cdb, { vaultId: V, isoYear: 2026, isoWeek: 2, generatedAt: NOW });
+    addSynthesis(cdb, { vaultId: "other", isoYear: 2026, isoWeek: 3, generatedAt: NOW });
+    const out = recentSyntheses(cdb, V, 10);
+    expect(out.map((c) => c.ref)).toEqual(["synthesis-2026-2", "synthesis-2026-1"]);
+  });
+});
+
+describe("sessionAdvisoryState", () => {
+  it("derives emitted/dismissed/seenRefs from surface_type='advisory' rows only", () => {
+    const edb = edb0();
+    edb
+      .prepare(
+        "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, surface_type, feedback) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run("r1", "cand-a", NOW, "s1", "advisory", null);
+    edb
+      .prepare(
+        "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, surface_type, feedback) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run("r2", "cand-b", NOW, "s1", "advisory", -1);
+    // A REAL retrieval in the same session must not count toward the advisory budget.
+    edb
+      .prepare(
+        "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, surface_type, feedback) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run("r3", "cand-c", NOW, "s1", "graph_search", null);
+
+    const state = sessionAdvisoryState(edb, "s1");
+    expect(state.emitted).toBe(2);
+    expect(state.dismissed).toBe(1);
+    expect([...state.seenRefs].sort()).toEqual(["cand-a", "cand-b"]);
+  });
+
+  it("an unknown session has empty state, not an error", () => {
+    expect(sessionAdvisoryState(edb0(), "nobody")).toEqual({
+      emitted: 0,
+      dismissed: 0,
+      seenRefs: new Set(),
+    });
+  });
+});
+
+describe("buildSimilarityFn", () => {
+  it("embeds goals with input:query and candidates with input:document, in two calls", async () => {
+    const provider = stubProvider({
+      query: { "ship the parser": [1, 0] },
+      document: { "parser notes": [1, 0] },
+    });
+    const fn = await buildSimilarityFn(
+      provider,
+      [{ id: "g1", text: "ship the parser", status: "open" }],
+      [{ kind: "note_changed", ref: "c1", text: "parser notes", at: NOW }],
+    );
+    expect(fn("ship the parser", "parser notes")).toBeCloseTo(1, 5);
+    expect(provider.calls).toEqual([
+      { texts: ["ship the parser"], input: "query" },
+      { texts: ["parser notes"], input: "document" },
+    ]);
+  });
+
+  it("returns a constant-zero function without any embed call when either side is empty", async () => {
+    const provider = stubProvider({});
+    const fn = await buildSimilarityFn(
+      provider,
+      [],
+      [{ kind: "note_changed", ref: "c1", text: "x", at: 0 }],
+    );
+    expect(fn("anything", "anything")).toBe(0);
+    expect(provider.calls).toEqual([]);
+  });
+
+  it("an unknown text pair scores 0 rather than throwing", async () => {
+    const provider = stubProvider({ query: { g: [1, 0] }, document: { c: [1, 0] } });
+    const fn = await buildSimilarityFn(
+      provider,
+      [{ id: "g1", text: "g", status: "open" }],
+      [{ kind: "note_changed", ref: "c1", text: "c", at: 0 }],
+    );
+    expect(fn("never seen", "c")).toBe(0);
+  });
+});
+
+describe("registerAdvisorySweep", () => {
+  function capture(): { task: { name: string; intervalMs: number; run: () => unknown } | null } {
+    return { task: null };
+  }
+  const fakeScheduler = (box: ReturnType<typeof capture>) =>
+    ({
+      register: (t: { name: string; intervalMs: number; run: () => unknown }) => {
+        box.task = t;
+      },
+    }) as never;
+
+  it("registers under the name advisory-sweep, at the configured interval", () => {
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb0(),
+      experientialDb: edb0(),
+      provider: stubProvider({}) as never,
+      vaultIds: [V],
+      intervalMs: 3_600_000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+    });
+    expect(box.task?.name).toBe("advisory-sweep");
+    expect(box.task?.intervalMs).toBe(3_600_000);
+  });
+
+  it("no open sessions: no embed call, nothing inserted, publish never called", async () => {
+    const cdb = cdb0();
+    addChunk(cdb, { id: "c1", vaultId: V, path: "a.md", content: "x", updatedAt: NOW });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "ship the parser", createdAt: NOW });
+    const provider = stubProvider({});
+    const published: unknown[] = [];
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: (e) => published.push(e),
+      now: () => NOW,
+    });
+    await box.task?.run();
+    expect(provider.calls).toEqual([]);
+    expect(published).toEqual([]);
+    expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({ n: 0 });
+  });
+
+  it("open session but no open goal: no embed call — relevance to nothing is not proactivity", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addChunk(cdb, { id: "c1", vaultId: V, path: "a.md", content: "x", updatedAt: NOW });
+    const provider = stubProvider({});
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb0(),
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+    });
+    await box.task?.run();
+    expect(provider.calls).toEqual([]);
+  });
+
+  it("end to end: a relevant candidate is selected, inserted as an advisory row, and published", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addChunk(cdb, { id: "hit", vaultId: V, path: "a.md", content: "relevant", updatedAt: NOW });
+    addChunk(cdb, {
+      id: "miss",
+      vaultId: V,
+      path: "b.md",
+      content: "unrelated",
+      updatedAt: NOW - 1,
+    });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({
+      query: { "goal text": [1, 0] },
+      document: { "a.md\nrelevant": [1, 0], "b.md\nunrelated": [0, 1] },
+    });
+    const published: Array<{
+      vaultId: string;
+      caller: string | null;
+      sessionId: string;
+      advisories: ReadonlyArray<{ chunkId: string }>;
+    }> = [];
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: (e) => published.push(e),
+      now: () => NOW,
+    });
+    await box.task?.run();
+
+    const rows = edb
+      .prepare(
+        "SELECT chunk_id, session_id, caller, surface_type, query_text, rerank_score FROM chunk_retrievals",
+      )
+      .all() as Array<{
+      chunk_id: string;
+      session_id: string;
+      caller: string | null;
+      surface_type: string;
+      query_text: string;
+      rerank_score: number;
+    }>;
+    expect(rows).toHaveLength(1); // "unrelated" scored 0 < minScore 0.6 — never inserted
+    expect(rows[0]).toMatchObject({
+      chunk_id: "hit",
+      session_id: "s1",
+      caller: "alice",
+      surface_type: "advisory",
+      query_text: "goal text",
+    });
+    expect(rows[0]?.rerank_score).toBeCloseTo(1, 5);
+
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({ vaultId: V, caller: "alice", sessionId: "s1" });
+    expect(published[0]?.advisories.map((a) => a.chunkId)).toEqual(["hit"]);
+  });
+
+  it("a session's own seenRefs are not re-surfaced on the next tick", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addChunk(cdb, { id: "hit", vaultId: V, path: "a.md", content: "relevant", updatedAt: NOW });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({
+      query: { "goal text": [1, 0] },
+      document: { "a.md\nrelevant": [1, 0] },
+    });
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+    });
+    await box.task?.run();
+    await box.task?.run();
+    expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({ n: 1 });
+  });
+
+  it("publish is best-effort: calling it with no listeners never throws (createAdvisoryBus)", () => {
+    const bus = createAdvisoryBus();
+    expect(() =>
+      bus.publish({ vaultId: V, caller: "alice", sessionId: "s1", advisories: [] }),
+    ).not.toThrow();
+  });
+
+  // Acceptance criterion 3 (verified brief §8): the EXISTING record_retrieval_feedback tool,
+  // dispatched through the registry exactly as a real client would call it, stamps a dismissal
+  // onto an advisory-emitted row and the session's remaining budget reflects it on the next tick.
+  it("THE-634 acceptance #3: record_retrieval_feedback stamps an advisory row; budget decays", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addChunk(cdb, { id: "hit", vaultId: V, path: "a.md", content: "relevant", updatedAt: NOW });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({
+      query: { "goal text": [1, 0] },
+      document: { "a.md\nrelevant": [1, 0] },
+    });
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+    });
+    await box.task?.run();
+
+    const before = sessionAdvisoryState(edb, "s1");
+    expect(remainingBudget(POLICY, before)).toBe(POLICY.maxPerSession - 1); // 1 emitted, 0 dismissed
+
+    const registry = new ToolRegistry({});
+    registerM8Tools(registry, { edb, now: () => NOW });
+    const ctx: CallerContext = {
+      caller: "alice",
+      authenticated: true,
+      grantedScopes: new Set(["write:workspace"]),
+      vaultId: V,
+      db: cdb,
+      sessionId: "s1",
+    };
+    const result = (await registry.dispatch(
+      "record_retrieval_feedback",
+      { chunk_id: "hit", feedback: -1 },
+      ctx,
+    )) as { data: { updated: number } };
+    expect(result.data.updated).toBe(1);
+
+    const after = sessionAdvisoryState(edb, "s1");
+    expect(after.dismissed).toBe(1);
+    expect(remainingBudget(POLICY, after)).toBe(POLICY.maxPerSession - POLICY.dismissalPenalty - 1);
+  });
+});

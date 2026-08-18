@@ -151,8 +151,12 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // THE-647 item 2: rebaselined deliberately. Adds the root `personas` block (name -> {vaults,
 // scopes, toolVisibility?}) — see packages/shared/src/config/personas.schema.ts. Additive and
 // optional; a config predating this key validates unchanged (personas: undefined).
+// THE-634: rebaselined deliberately. Added `experiential.proactive` (enabled/minScore/topK/
+// maxPerSession/dismissalPenalty) — the config surface PR #779 deliberately deferred until a
+// reader existed (check-config-threading refused it as 3 declared-but-unread keys). This PR is
+// that reader (runtime/advisory-sweep.ts), so the block lands now. No existing key moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "fcc7f56e099b1ed9b8248b9361ccf25f406fc63344f9a94016a9bc17fb9c8ed1";
+  "bf260507d07ea08c9e83230814a4ad7ca9e9a479e03328943ec703c1b2af74ec";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

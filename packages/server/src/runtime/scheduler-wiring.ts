@@ -9,6 +9,7 @@
 import type { ServerConfig, VaultConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
+import type { AdvisoryBus } from "../mcp/advisories";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import type { GatewayRoles } from "../plane/gateway";
 import type { JobQueue } from "../scheduler/job-queue";
@@ -16,6 +17,7 @@ import type { makeJobRunner } from "../scheduler/job-runner";
 import { Scheduler } from "../scheduler/scheduler";
 import { DEFAULT_TRACE_FOLDER } from "../tools/m5";
 import { schedulerPersistErrorSink } from "../util/errors";
+import { registerAdvisorySweep } from "./advisory-sweep";
 import { registerGapSweep } from "./gap-sweep";
 import { configureMaintenance } from "./maintenance-wiring";
 import type { Observability } from "./observability";
@@ -40,8 +42,12 @@ export interface SchedulerWiringDeps {
   jobQueue: JobQueue;
   jobRunner: ReturnType<typeof makeJobRunner>;
   runReconcile: () => Promise<void>;
-  /** THE-719: the gap sweep embeds each query it sweeps, so it needs the live provider. */
+  /** THE-719: the gap sweep embeds each query it sweeps, so it needs the live provider. Also THE-634:
+   *  the advisory sweep's goal/candidate similarity uses the same live provider. */
   embeddingProvider: EmbeddingProvider;
+  /** THE-634: publish side of the advisory push extension (mcp/advisories.ts). Present only when
+   *  `experiential.proactive.enabled` — see server-runtime.ts's construction site. */
+  advisoryBus?: AdvisoryBus;
 }
 
 /**
@@ -128,6 +134,34 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       intervalMs: config.experiential.gapSweep.intervalHours * 3_600_000,
       maxQueries: config.experiential.gapSweep.maxQueries,
       ...(config.retrieval?.rrfK !== undefined ? { rrfK: config.retrieval.rrfK } : {}),
+    });
+  }
+
+  // THE-634: the scheduled proactive-advisory sweep. Registered ONLY when explicitly enabled AND
+  // the advisory push bus was constructed — mirrors registerGapSweep's conditional exactly, and
+  // for the same first reason: each tick's scoring costs an embedding call per vault with at least
+  // one open session and one open goal, and no deployment should pay that without asking. The
+  // second condition (`deps.advisoryBus`) cannot diverge from the first in practice — server-runtime
+  // constructs the bus iff the flag is on — but the job takes `publish` as a required dependency, so
+  // this guards the type rather than duplicating the config read.
+  if (deps.experientialOpen && config.experiential.proactive.enabled && deps.advisoryBus) {
+    registerAdvisorySweep(scheduler, {
+      cacheDb: deps.db,
+      experientialDb: deps.experientialDb,
+      provider: deps.embeddingProvider,
+      vaultIds: deps.vaults.map((v) => v.id),
+      // THE-719's gapSweep names its own interval field; proactive has none in its config surface
+      // (§5 of the verified brief lists exactly enabled/minScore/topK/maxPerSession/
+      // dismissalPenalty) — it rides the existing maintenance cadence instead, the same interval
+      // note-quality's enqueue loop uses just above.
+      intervalMs: maintMs,
+      policy: {
+        minScore: config.experiential.proactive.minScore,
+        topK: config.experiential.proactive.topK,
+        maxPerSession: config.experiential.proactive.maxPerSession,
+        dismissalPenalty: config.experiential.proactive.dismissalPenalty,
+      },
+      publish: deps.advisoryBus.publish.bind(deps.advisoryBus),
     });
   }
 

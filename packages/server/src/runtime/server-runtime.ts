@@ -474,8 +474,7 @@ export async function buildServerRuntime(
       });
     // THE-466 slice 2: hand the live coordinator to the observability module's lazy gauge sources.
     indexCoordinatorRef = indexCoordinator;
-    // THE-649: the watcher is the first layer THIS function itself opens after wireRuntimeCore —
-    // pushed as soon as it exists, so a later throw (e.g. wireTransports below) stops it too.
+    // THE-649: the watcher is the first layer opened after wireRuntimeCore, pushed immediately so a later throw (e.g. wireTransports below) stops it too.
     postCoreLayers.push({ name: "watcher", close: () => stopVaultWatch() });
 
     wireM1Tools({
@@ -618,6 +617,7 @@ export async function buildServerRuntime(
       jobRunner,
       runReconcile,
       embeddingProvider,
+      ...(transports.advisoryBus ? { advisoryBus: transports.advisoryBus } : {}), // THE-634
     });
     // THE-466 slice 2: hand the live scheduler to the observability module's lazy gauge sources.
     schedulerRef = scheduler;
