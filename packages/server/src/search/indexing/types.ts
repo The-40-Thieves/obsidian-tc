@@ -195,4 +195,19 @@ export interface IndexVaultArgs {
    *  the composition root — the only place that knows a MetricsRecorder exists. */
   sql?: WriteTxnHooks;
   onVecRebuild?: (e: VecRebuildEvent) => void;
+  /** THE-645: fired once per completed flush() batch (never per-chunk — see index-vault.ts's
+   *  perf-gate note; `index.chunks_per_s` is a gated metric this must not cost anything on the
+   *  common absent-callback path), so a poller can observe progress on a long-running pass without
+   *  the per-chunk cost. Absent -> no in-flight tracking. */
+  onProgress?: (progress: {
+    /** Walk total, known up front (default eager walk) or -1 when `walk.streaming` is true (the
+     *  eager total isn't known ahead of time on that path — see THE-490's comment above). */
+    notesSeen: number;
+    /** Cumulative notes indexed (had an actual chunk write) across flushes so far this pass. */
+    notesProcessed: number;
+    /** Cumulative chunks upserted across flushes so far this pass. */
+    chunksUpserted: number;
+    /** epoch ms this indexVault call started, for an elapsed/ETA computation by the reader. */
+    startedAt: number;
+  }) => void;
 }

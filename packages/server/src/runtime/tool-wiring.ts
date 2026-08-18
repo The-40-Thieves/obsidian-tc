@@ -117,6 +117,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
         notes_ready: deps.indexHealth.notesReady,
       }),
       getLastChunksUpserted: () => deps.indexHealth.lastChunksUpserted,
+      getInFlightProgress: () => deps.indexHealth.inFlight,
     }),
   );
 }
@@ -407,7 +408,33 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // THE-491: get_index_status reports chunks_upserted from the last index_vault call.
     onIndexVaultComplete: (vaultId, stats) => {
       deps.indexHealth.lastChunksUpserted = stats.chunks_upserted;
+      // THE-645: `inFlight` is a SINGLE slot, and dispatch has no cross-call serialization, so two
+      // index_vault calls on DIFFERENT vaults can genuinely overlap. Only clear the slot when this
+      // completion actually owns it — an unconditional clear here would let vault B finishing null
+      // out vault A's still-running entry, and get_index_status would falsely report nothing
+      // in-flight until A's next flush() self-heals it. One consequence of the single slot: while
+      // two runs overlap, `in_flight` reports "an" in-flight run, not "all" of them — the slot
+      // holds whichever vault's onProgress fired last (last-progress-wins), never a set. The
+      // output schema already carries `vault` on the entry, so a caller CAN tell which one it's
+      // looking at; it just can't see a second concurrent run through this single-slot field.
+      if (deps.indexHealth.inFlight?.vault === vaultId) {
+        deps.indexHealth.inFlight = null;
+      }
       deps.recordIngestStatsFor(vaultId, stats);
+    },
+    // THE-645: a failed index_vault call must not leave a stale "still running" entry — see
+    // tools/m2/index-tools.ts's try/catch. Same ownership guard as onIndexVaultComplete above: a
+    // DIFFERENT vault's still-running entry must survive this vault's rejection.
+    onIndexVaultError: (vaultId) => {
+      if (deps.indexHealth.inFlight?.vault === vaultId) {
+        deps.indexHealth.inFlight = null;
+      }
+    },
+    // THE-645: get_index_status's in-flight progress, updated once per completed flush() batch.
+    // Overwrites the single slot regardless of which vault previously held it — see the
+    // last-progress-wins note on onIndexVaultComplete above.
+    onProgress: (vaultId, p) => {
+      deps.indexHealth.inFlight = { vault: vaultId, ...p };
     },
   });
   registerM3Tools(registry, {

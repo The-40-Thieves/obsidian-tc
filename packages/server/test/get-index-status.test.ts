@@ -72,6 +72,69 @@ describe("get_index_status (THE-491)", () => {
     expect(out.notes_ready).toBe(false);
   });
 
+  it("THE-645: omits in_flight when no index_vault call is currently running", () => {
+    const tool = createIndexStatusTool({
+      vecEnabled: true,
+      ftsEnabled: true,
+      getIndexHealth: () => ({
+        reconcile: "ok",
+        reconcile_at: 123,
+        write_failures: 0,
+        notes_ready: true,
+      }),
+      getLastChunksUpserted: () => 42,
+      getInFlightProgress: () => null,
+    });
+    const out = tool.handler({}, base as CallerContext) as IndexStatusInfo;
+    expect(out.in_flight).toBeUndefined();
+    expect("in_flight" in out).toBe(false);
+  });
+
+  it("THE-645: reports in_flight progress verbatim while an index_vault call is running", () => {
+    const tool = createIndexStatusTool({
+      vecEnabled: true,
+      ftsEnabled: true,
+      getIndexHealth: () => ({
+        reconcile: "ok",
+        reconcile_at: 123,
+        write_failures: 0,
+        notes_ready: true,
+      }),
+      getLastChunksUpserted: () => 42,
+      getInFlightProgress: () => ({
+        vault: "v1",
+        notesSeen: 100,
+        notesProcessed: 30,
+        chunksUpserted: 120,
+        startedAt: 1_700_000_000_000,
+      }),
+    });
+    const out = tool.handler({}, base as CallerContext) as IndexStatusInfo;
+    expect(out.in_flight).toEqual({
+      vault: "v1",
+      notesSeen: 100,
+      notesProcessed: 30,
+      chunksUpserted: 120,
+      startedAt: 1_700_000_000_000,
+    });
+  });
+
+  it("THE-645: omits in_flight when getInFlightProgress is not wired at all (back-compat)", () => {
+    const tool = createIndexStatusTool({
+      vecEnabled: true,
+      ftsEnabled: true,
+      getIndexHealth: () => ({
+        reconcile: "ok",
+        reconcile_at: 123,
+        write_failures: 0,
+        notes_ready: true,
+      }),
+      getLastChunksUpserted: () => 42,
+    });
+    const out = tool.handler({}, base as CallerContext) as IndexStatusInfo;
+    expect(out.in_flight).toBeUndefined();
+  });
+
   it("never includes a `detail` sub-object (unlike server_health's authenticated payload)", () => {
     const tool = createIndexStatusTool({
       vecEnabled: false,

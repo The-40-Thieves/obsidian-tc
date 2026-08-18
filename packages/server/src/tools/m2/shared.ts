@@ -57,6 +57,24 @@ export interface M2Deps {
    *  also thread the pass through recordIngestStats (metrics/ingest-stats.ts) — the MCP
    *  index_vault path was the one caller that never fed the Prometheus counters / event_log. */
   onIndexVaultComplete?: (vaultId: string, stats: IndexStats) => void;
+  /** THE-645: fired when an index_vault call throws, BEFORE the rejection propagates — the
+   *  handler has no other completion hook on the error path (onIndexVaultComplete only fires on
+   *  success), so a caller tracking in-flight state (e.g. clearing indexHealth.inFlight) needs this
+   *  to avoid a stale "still running" entry surviving a failed run forever. */
+  onIndexVaultError?: (vaultId: string) => void;
+  /** THE-645: fired once per completed flush() batch during an in-flight index_vault call (see
+   *  indexVault's onProgress doc for the per-chunk-cost constraint), vault-id-first so a future
+   *  multi-vault caller is never ambiguous about which vault a progress event belongs to. Absent ->
+   *  no in-flight tracking (indexVault's onProgress simply isn't threaded). */
+  onProgress?: (
+    vaultId: string,
+    progress: {
+      notesSeen: number;
+      notesProcessed: number;
+      chunksUpserted: number;
+      startedAt: number;
+    },
+  ) => void;
   /** THE-490/THE-591: config.indexing.streamingWalk. Off/absent -> index_vault's walk is
    *  byte-identical to before this flag existed (indexVault's default eager walkVault). */
   streamingWalk?: boolean;

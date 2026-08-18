@@ -31,6 +31,19 @@ export interface M2VaultOptions {
   /** THE-590: passthrough so a test can wire this the same way cli.ts's run_serve does (e.g. to
    *  recordIngestStats) and observe it fire from a real registry dispatch of index_vault. */
   onIndexVaultComplete?: (vaultId: string, stats: IndexStats) => void;
+  /** THE-645: passthrough, same shape as onIndexVaultComplete, for tests observing in-flight
+   *  progress from a real registry dispatch of index_vault. */
+  onProgress?: (
+    vaultId: string,
+    progress: {
+      notesSeen: number;
+      notesProcessed: number;
+      chunksUpserted: number;
+      startedAt: number;
+    },
+  ) => void;
+  /** THE-645: passthrough for tests observing the failure-path cleanup hook. */
+  onIndexVaultError?: (vaultId: string) => void;
 }
 
 export interface M2Vault {
@@ -74,6 +87,8 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
     chunkContext: opts.chunkContext,
     streamingWalk: opts.streamingWalk,
     onIndexVaultComplete: opts.onIndexVaultComplete,
+    onProgress: opts.onProgress,
+    onIndexVaultError: opts.onIndexVaultError,
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
