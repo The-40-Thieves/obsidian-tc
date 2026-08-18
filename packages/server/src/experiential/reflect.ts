@@ -433,7 +433,8 @@ interface EvidenceRow extends VerdictWindowable {
  *  enforces the same shape structurally: its primary key is `(vault_id, key)`, so
  *  `preferred.search_mode` can only ever hold ONE current value, never a per-tool tally. So when a
  *  window dispatched more than one distinct search-family tool, the MAJORITY tool within that
- *  window (ties broken toward whichever was dispatched first) is the window's one observation —
+ *  window (ties broken toward the most recently dispatched — evidence rows arrive ts-DESC, so the
+ *  first-seen tool in the count map is the latest) is the window's one observation —
  *  not a delta per tool, which would let a single judgement bump the weight multiple times and
  *  violate the one-window-one-observation requirement.
  *
@@ -474,7 +475,7 @@ function buildSearchModeDeltas(windows: Array<{ episodes: EvidenceRow[] }>): Pre
       key: "preferred.search_mode",
       op: taskResult > 0 ? "add" : "weaken",
       value: majorityTool,
-      evidence: `tool=${majorityTool} sampled_calls=${majorityCount}`,
+      evidence: `tool=${majorityTool} sampled_calls=${w.episodes.length} tool_calls=${majorityCount}`,
     });
   }
   return deltas;
@@ -484,7 +485,9 @@ function buildSearchModeDeltas(windows: Array<{ episodes: EvidenceRow[] }>): Pre
  *  `applyPreferenceDeltas` — an unregistered key must never become a write, even from a future
  *  extractor sharing this filter, not just from the one counter this file builds today. Exported
  *  so the registry's enforcement is directly testable at the boundary, not just inferred from
- *  `PREFERENCE_KEYS`'s membership. */
+ *  `PREFERENCE_KEYS`'s membership. Drops are SILENT, and that is only safe while this file's one
+ *  producer emits only registered keys — a future second producer must surface its dropped count
+ *  rather than lean on this filter's silence. */
 export function filterRegisteredDeltas(deltas: PreferenceDelta[]): PreferenceDelta[] {
   return deltas.filter((d) => PREFERENCE_KEYS.has(d.key));
 }

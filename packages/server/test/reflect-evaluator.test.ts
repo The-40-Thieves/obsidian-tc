@@ -512,6 +512,12 @@ describe("preference profile (ACE typed deltas)", () => {
     expect(preferenceProfile(db, V1).entries).toEqual([
       expect.objectContaining({ key: "preferred.search_mode", value: "search_text", weight: 1 }),
     ]);
+    const ev = db.prepare("SELECT evidence FROM preference_deltas WHERE vault_id = ?").get(V1) as {
+      evidence: string;
+    };
+    // The 2-vs-1 split stays auditable: sampled_calls is the window's true size, tool_calls the
+    // winner's count — an auditor can see the window was won 2-to-1, not 2-to-0.
+    expect(ev.evidence).toBe("tool=search_text sampled_calls=3 tool_calls=2");
   });
 
   it("extractPreferences: a mixed-verdict fixture — +1 strengthens, -1 weakens an existing key, 0 and NULL yield no delta", async () => {
@@ -567,13 +573,13 @@ describe("preference profile (ACE typed deltas)", () => {
         key: "preferred.search_mode",
         op: "add",
         value: "search_text",
-        evidence: "tool=search_text sampled_calls=2", // derived from the real 2-row window, not a placeholder
+        evidence: "tool=search_text sampled_calls=2 tool_calls=2", // derived from the real 2-row window, not a placeholder
       },
       {
         key: "preferred.search_mode",
         op: "add",
         value: "vault_graph_search",
-        evidence: "tool=vault_graph_search sampled_calls=1",
+        evidence: "tool=vault_graph_search sampled_calls=1 tool_calls=1",
       },
     ]);
   });

@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,139 tracked code files · 178,106 lines.
+**Scale:** 1,139 tracked code files · 178,115 lines.
 
-TypeScript 164,326 · JavaScript 9,380 · SQL 1,658 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 164,335 · JavaScript 9,380 · SQL 1,658 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -88,7 +88,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 |---|---:|---:|---|
 | `tools/` | 86 | 17,015 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 55 | 10,782 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `experiential/` | 21 | 4,836 | work-memory tier: activation, retrieval log, forget, citations |
+| `experiential/` | 21 | 4,839 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 17 | 4,583 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 25 | 3,406 | arg parsing + subcommands |
 | `runtime/` | 15 | 3,370 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
@@ -146,7 +146,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 649 | `packages/server/src/doctor/checks.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
-| 631 | `packages/server/src/experiential/reflect.ts` |
+| 634 | `packages/server/src/experiential/reflect.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
 | 620 | `packages/server/src/metrics/registry.ts` |
 | 617 | `packages/server/src/mcp/registry/dispatch.ts` |
