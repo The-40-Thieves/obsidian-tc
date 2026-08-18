@@ -42,6 +42,7 @@ import { registerM7Tools } from "../tools/m7";
 import { registerM8Tools } from "../tools/m8";
 import type { VaultRegistry } from "../vault/registry";
 import type { ActiveSessionTracker } from "../workspace/sessions";
+import { buildAcls } from "./acl-build";
 import type { IndexHealthState } from "./indexing-wiring";
 
 export interface HealthToolsDeps {
@@ -374,6 +375,14 @@ export interface DomainToolsDeps {
  *  bridge clients / capability snapshots bridge-wiring.ts builds. */
 export function wireDomainTools(deps: DomainToolsDeps): void {
   const { config, registry } = deps;
+  // THE-630: federated multi-vault search's per-vault ACL source — the same shared buildAcls
+  // wireGovernance uses (see acl-build.ts for why it must be the ONE construction site), from
+  // `config` (already a DomainToolsDeps field) rather than threading governance's own already-built
+  // objects through server-runtime.ts's wireDomainTools call, which sits at biome's 700-line file
+  // ceiling (CLAUDE.md's documented gotcha). FolderAcl construction is a pure function of config,
+  // so this is behaviorally identical to reusing governance's objects, at the one-time boot cost
+  // of compiling the same glob rules twice.
+  const { acl, aclByVault } = buildAcls(config.acl, config.vaults);
   const memoryFolder = (vaultId: string): string =>
     deps.memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER;
   const traceFolder = (vaultId: string): string =>
@@ -521,6 +530,10 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // THE-497: the query-product cache (dark unless retrieval.cache.enabled). Built ONCE per
     // process and shared across every dispatch.
     ...(config.retrieval.cache.enabled ? { retrievalCaches: deps.retrievalCaches } : {}),
+    // THE-630: federated multi-vault search's per-vault ACL source — see this function's
+    // acl/aclByVault construction above and graph-search.ts's aclForVault.
+    acl,
+    aclByVault,
   });
 
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over

@@ -105,21 +105,23 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "vault_graph_search",
     description:
-      "Cross-domain / multi-hop semantic search with wikilink graph expansion (GraphRAG). Seeds by vector similarity, expands through the links_to graph (vault_edges), and fuses by RRF. Run index_vault first so the edge graph is populated. Returns chunks tagged seed|expansion with hop + via_edge.",
+      "Cross-domain / multi-hop semantic search with wikilink graph expansion (GraphRAG). Seeds by vector similarity, expands through the links_to graph (vault_edges), and fuses by RRF. Run index_vault first so the edge graph is populated. Returns chunks tagged seed|expansion with hop + via_edge. Optional `vaults[]` federates the same query across additional vaults (max 8), fusing per-vault ranked lists by RRF; each result is tagged with its source vault.",
     domain: "knowledge",
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search"],
     hasPathAcl: false,
-    inputKeys: ["final_top_k", "hypothetical_answer", "queries", "query", "vault"],
+    inputKeys: ["final_top_k", "hypothetical_answer", "queries", "query", "vault", "vaults"],
     outputKeys: [
       "coverage",
       "hyde",
       "mode_used",
+      "per_vault",
       "query",
       "results",
       "route",
       "variants_used",
       "vault",
+      "vaults_used",
     ],
   },
   {
