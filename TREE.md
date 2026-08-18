@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,168 tracked code files · 184,492 lines.
+**Scale:** 1,168 tracked code files · 184,676 lines.
 
-TypeScript 170,553 · JavaScript 9,514 · SQL 1,683 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 170,732 · JavaScript 9,514 · SQL 1,688 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,7 +86,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 87 | 17,419 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 87 | 17,463 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 56 | 10,963 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 23 | 5,758 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 17 | 4,644 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
@@ -94,7 +94,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `runtime/` | 16 | 3,465 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `vault/` | 17 | 2,013 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `doctor/` | 11 | 1,894 | `obsidian-tc doctor` — checks, report rendering, runner |
-| `migrations/` | 46 | 1,683 | hand-registered SQL. **Two chains** — see below |
+| `migrations/` | 46 | 1,688 | hand-registered SQL. **Two chains** — see below |
 | `db/` | 15 | 1,405 | provisioning, migrate runner, experiential store |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
