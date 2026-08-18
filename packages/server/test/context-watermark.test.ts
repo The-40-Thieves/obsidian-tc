@@ -1,7 +1,9 @@
 // THE-647 item 1: the per-(caller, vault) watermark backing differential vault_context. Borrows
 // THE-461's discipline (capture the new watermark BEFORE the diff read, persist it only AFTER the
 // response is composed) rather than re-deriving it — see context-watermark.ts's module doc for
-// the invariant this closes.
+// the two invariants this closes: the capture-before-read/advance-after ordering, and the FLOOR
+// that catches a row the client's OWN `since` would have skipped (a clock running ahead, or a
+// stale cached cutoff).
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -35,10 +37,16 @@ function insertChunk(db: Database, id: string, vaultId: string, updatedAt: numbe
   ).run(id, vaultId, updatedAt, updatedAt);
 }
 
+/** Mirrors vault-context.ts's floor computation: `since` is a lower-bound HINT, floored against
+ *  the stored watermark when one exists; absent a stored row, `since` is used as-is. */
+function floor(clientSinceMs: number, storedMs: number | undefined): number {
+  return storedMs !== undefined ? Math.min(clientSinceMs, storedMs) : clientSinceMs;
+}
+
 describe("THE-647 item 1 — context-watermark", () => {
-  it("a caller with no prior watermark reads 0 (first diff call sees everything)", () => {
+  it("a caller with no prior watermark reads undefined — distinct from a stored 0", () => {
     const db = cacheDb();
-    expect(readContextWatermark(db, "agent-1", "v1")).toBe(0);
+    expect(readContextWatermark(db, "agent-1", "v1")).toBeUndefined();
   });
 
   it("advance persists the watermark for exactly that (caller, vault) pair", () => {
@@ -46,8 +54,8 @@ describe("THE-647 item 1 — context-watermark", () => {
     advanceContextWatermark(db, "agent-1", "v1", 5000);
     expect(readContextWatermark(db, "agent-1", "v1")).toBe(5000);
     // A different caller, and a different vault for the SAME caller, are untouched.
-    expect(readContextWatermark(db, "agent-2", "v1")).toBe(0);
-    expect(readContextWatermark(db, "agent-1", "v2")).toBe(0);
+    expect(readContextWatermark(db, "agent-2", "v1")).toBeUndefined();
+    expect(readContextWatermark(db, "agent-1", "v2")).toBeUndefined();
   });
 
   it("advance never regresses an existing watermark", () => {
@@ -75,7 +83,7 @@ describe("THE-647 item 1 — context-watermark", () => {
 
     // Call #1 starts: capture the watermark to (eventually) persist BEFORE running its diff read.
     const capturedAt = 1000;
-    const oldWatermark = readContextWatermark(db, caller, vaultId); // 0 — first call
+    const oldWatermark = readContextWatermark(db, caller, vaultId) ?? 0; // no row yet — first call
 
     // A write lands concurrently with call #1's processing window — AFTER the watermark was
     // captured, but this is exactly the row a naive "re-read MAX after the query" implementation
@@ -99,7 +107,7 @@ describe("THE-647 item 1 — context-watermark", () => {
     expect(nextSince).toBe(1000);
     const rowsCall2 = db
       .prepare("SELECT id FROM chunks WHERE vault_id = ? AND updated_at > ?")
-      .all(vaultId, nextSince) as Array<{ id: string }>;
+      .all(vaultId, nextSince ?? 0) as Array<{ id: string }>;
     expect(rowsCall2.map((r) => r.id)).toContain("c1"); // NOT skipped
   });
 
@@ -115,10 +123,71 @@ describe("THE-647 item 1 — context-watermark", () => {
     const capturedAfterWrite = 1600;
     advanceContextWatermark(db, caller, vaultId, capturedAfterWrite);
 
-    const nextSince = readContextWatermark(db, caller, vaultId);
+    const nextSince = readContextWatermark(db, caller, vaultId) ?? 0;
     const rows = db
       .prepare("SELECT id FROM chunks WHERE vault_id = ? AND updated_at > ?")
       .all(vaultId, nextSince) as Array<{ id: string }>;
     expect(rows.map((r) => r.id)).not.toContain("c1"); // silently dropped — the bug this ticket closes
+  });
+
+  // The fix this file exists to cover: `since` alone is not the filter of record. A client-supplied
+  // cutoff is floored against the STORED watermark, so a client whose own clock ran ahead of the
+  // server's (or replayed a stale `since`) cannot cause a row to be silently and permanently lost.
+  describe("the floor — since is a lower-bound HINT, not the filter of record", () => {
+    it("the floor catches a row the client's own since would have skipped (client clock ahead)", () => {
+      const db = cacheDb();
+      const caller = "agent-1";
+      const vaultId = "v1";
+
+      // A prior diff call captured its watermark at T=1000 (before its own read ran) and advanced
+      // the stored row to exactly that.
+      advanceContextWatermark(db, caller, vaultId, 1000);
+
+      // A row lands AFTER that capture, at T=1005 — concurrent with (or shortly after) the prior
+      // call, same as the capture-before-read/advance-after tests above.
+      insertChunk(db, "late", vaultId, 1005);
+
+      // The client's clock is ahead: it sends since=1010, which is PAST the row's timestamp
+      // (1005). A naive `WHERE updated_at > clientSince` would skip "late" forever — there is no
+      // future call whose since would ever be smaller again once the client is drifted ahead.
+      const clientSinceMs = 1010;
+      const stored = readContextWatermark(db, caller, vaultId);
+      expect(stored).toBe(1000);
+      const effectiveSinceMs = floor(clientSinceMs, stored);
+      expect(effectiveSinceMs).toBe(1000); // floored DOWN to the stored watermark, not the client's later value
+
+      const rows = db
+        .prepare("SELECT id FROM chunks WHERE vault_id = ? AND updated_at > ?")
+        .all(vaultId, effectiveSinceMs) as Array<{ id: string }>;
+      expect(rows.map((r) => r.id)).toContain("late"); // caught by the floor, not skipped
+    });
+
+    it("with no stored watermark, effective since is exactly the client's since — no floor to apply", () => {
+      const db = cacheDb();
+      const caller = "brand-new-caller";
+      const vaultId = "v1";
+
+      expect(readContextWatermark(db, caller, vaultId)).toBeUndefined();
+
+      const clientSinceMs = 500;
+      const stored = readContextWatermark(db, caller, vaultId);
+      const effectiveSinceMs = floor(clientSinceMs, stored);
+      expect(effectiveSinceMs).toBe(clientSinceMs); // unchanged — nothing to floor against
+    });
+
+    it("a client since OLDER than the stored watermark is used as-is (the floor only pulls DOWN)", () => {
+      const db = cacheDb();
+      const caller = "agent-1";
+      const vaultId = "v1";
+      advanceContextWatermark(db, caller, vaultId, 9000);
+
+      const clientSinceMs = 100; // deliberately much older — asking to catch up further back
+      const stored = readContextWatermark(db, caller, vaultId);
+      const effectiveSinceMs = floor(clientSinceMs, stored);
+      // min(100, 9000) = 100 — the floor never makes the window NARROWER than what the client
+      // asked for, only ever WIDER (more inclusive) when the client's own value would have missed
+      // something the server knows about.
+      expect(effectiveSinceMs).toBe(100);
+    });
   });
 });

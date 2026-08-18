@@ -23,7 +23,7 @@ import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { resolveVaultPath } from "../../../vault/paths";
 import { defineTool } from "../../m1/define";
-import { advanceContextWatermark } from "./context-watermark";
+import { advanceContextWatermark, readContextWatermark } from "./context-watermark";
 import type { M7Deps } from "./deps";
 import {
   buildGraphSearchOptions,
@@ -55,9 +55,19 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
         include_lessons: z.boolean().default(true),
         // THE-647 item 1: differential mode. When present, notes/syntheses/contradictions and
         // (if include_work) episodes are filtered to rows newer than this cutoff instead of
-        // top-K by relevance — see context-watermark.ts for the concurrent-write safety
-        // discipline behind the echoed `diff_since` in the response.
-        since: z.string().datetime().optional(),
+        // top-K by relevance. This is a LOWER-BOUND HINT, not the filter of record: the server
+        // floors it against the caller's own stored watermark (when one exists) before filtering,
+        // so a client clock running ahead — or a stale cached `since` — cannot silently skip a
+        // row; the response's `diff_since` always echoes the value that was actually applied plus
+        // the safe next cutoff. See context-watermark.ts for the full floor + capture-before-read/
+        // advance-after discipline.
+        since: z
+          .string()
+          .datetime()
+          .optional()
+          .describe(
+            "ISO-8601. A LOWER-BOUND HINT for differential mode: the server floors it against this caller's own stored watermark (if any), so a client clock running ahead can never cause a row to be silently skipped — it can only ever see a row again, not lose one. Filters notes/syntheses/contradictions (and episodes, with include_work) to rows newer than the effective cutoff. Omit for the full snapshot (unchanged default behavior).",
+          ),
       })
       .strict(),
     outputSchema: VaultContextOutput,
@@ -180,6 +190,18 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       // without ever being returned to any caller.
       const sinceMs = input.since !== undefined ? Date.parse(input.since) : undefined;
       const capturedWatermarkMs = sinceMs !== undefined ? (ctx.now ?? Date.now)() : undefined;
+      // `since` is a LOWER-BOUND HINT, not the filter of record: floor it against this caller's
+      // stored watermark (when one exists) so a client whose clock has drifted ahead of the
+      // server's — or that replays a stale cached `since` — cannot silently lose a row. Absent a
+      // stored row (this caller's first-ever diff call for this vault), the client's `since` is
+      // used exactly as given. See context-watermark.ts's module doc for the full reasoning; this
+      // makes over-delivery (a row reappearing on a later call) the failure mode instead of loss.
+      const storedWatermarkMs =
+        sinceMs !== undefined ? readContextWatermark(ctx.db, ctx.caller ?? null, v.id) : undefined;
+      const effectiveSinceMs =
+        sinceMs !== undefined && storedWatermarkMs !== undefined
+          ? Math.min(sinceMs, storedWatermarkMs)
+          : sinceMs;
 
       // Token costs from the authored store (token_count), length/4 fallback. 15% of the
       // budget is reserved for the synthesis + contradiction legs; chunks pack the rest.
@@ -198,11 +220,13 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           updatedAtByChunk.set(r.id, r.updated_at);
         }
       }
-      // THE-647 item 1: in diff mode, the notes leg is filtered to chunks newer than `since`
-      // instead of being top-K-by-relevance packed — a strict subset of the same response shape.
+      // THE-647 item 1: in diff mode, the notes leg is filtered to chunks newer than the FLOORED
+      // cutoff instead of being top-K-by-relevance packed — a strict subset of the same response
+      // shape. Uses `effectiveSinceMs` (client `since` floored against the stored watermark), not
+      // the raw client value — see the floor computation above.
       const diffResults =
-        sinceMs !== undefined
-          ? results.filter((r) => (updatedAtByChunk.get(r.chunk_id) ?? 0) > sinceMs)
+        effectiveSinceMs !== undefined
+          ? results.filter((r) => (updatedAtByChunk.get(r.chunk_id) ?? 0) > effectiveSinceMs)
           : results;
       const chunkBudget = Math.floor(input.token_budget * 0.85);
       const { packed, tokens: chunkTokens } = packBudget(
@@ -235,14 +259,14 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       }
 
       // Open contradictions on the packed notes (reuses the challenge plumbing), capped.
-      // THE-647 item 1: in diff mode, filtered to contradictions detected after `since` — the
-      // caller's own diff cutoff, not the same watermark this tool later persists.
+      // THE-647 item 1: in diff mode, filtered to contradictions detected after the FLOORED
+      // cutoff (effectiveSinceMs), not the raw client `since`.
       const contradictions = openContradictionsForPaths(
         ctx.db,
         v.id,
         notes.map((n) => n.path),
         (rel) => readableRel(ctx.acl, rel),
-        sinceMs,
+        effectiveSinceMs,
       ).slice(0, 5);
 
       // Recent synthesis patterns touching the query (weekly rows; LIKE over the JSON text
@@ -275,13 +299,13 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
         generated_at: number;
         patterns: unknown;
       }> = [];
-      if (sinceMs !== undefined && tableExists(ctx.db, "syntheses")) {
+      if (effectiveSinceMs !== undefined && tableExists(ctx.db, "syntheses")) {
         const rows = ctx.db
           .prepare(
             `SELECT iso_year, iso_week, generated_at, patterns FROM syntheses
              WHERE vault_id = ? AND generated_at > ? ORDER BY generated_at DESC LIMIT 2`,
           )
-          .all(v.id, sinceMs) as Array<{
+          .all(v.id, effectiveSinceMs) as Array<{
           iso_year: number;
           iso_week: number;
           generated_at: number;
@@ -366,8 +390,8 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
         if (!deps.edb) {
           episodes = { work_unavailable: true };
         } else {
-          // THE-647 item 1: in diff mode, also requires ts > since — the episodes leg
-          // participates in the diff like every other opt-in leg.
+          // THE-647 item 1: in diff mode, also requires ts > the FLOORED cutoff — the episodes
+          // leg participates in the diff like every other opt-in leg.
           episodes = deps.edb
             .prepare(
               `SELECT id, ts, tool, status, summary FROM agent_episodes
@@ -375,13 +399,13 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
                  AND (valid_until IS NULL OR valid_until > ?)
                  AND (trust IS NULL OR trust >= 0.3)
                  AND caller IS ?
-                 ${sinceMs !== undefined ? "AND ts > ?" : ""}
+                 ${effectiveSinceMs !== undefined ? "AND ts > ?" : ""}
                ORDER BY ts DESC LIMIT 5`,
             )
             .all(
               Date.now(),
               ctx.caller ?? null,
-              ...(sinceMs !== undefined ? [sinceMs] : []),
+              ...(effectiveSinceMs !== undefined ? [effectiveSinceMs] : []),
             ) as Array<{
             id: string;
             ts: number;

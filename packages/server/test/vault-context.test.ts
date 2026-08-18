@@ -519,6 +519,82 @@ describe("vault_context (THE-132)", () => {
       expect(second.syntheses.map((s) => s.iso_year)).toContain(2026);
       expect(second.syntheses.some((s) => s.iso_week === 28)).toBe(true);
     });
+
+    // THE-647 item 1 (post-review fix): `since` is a LOWER-BOUND HINT, not the filter of record —
+    // the server floors it against the caller's own stored watermark. Without the floor, a client
+    // whose own clock runs ahead of the server's (or that replays a stale cached `since`) would
+    // silently and PERMANENTLY lose any row written between the server's last capture and the
+    // client's too-late cutoff: no future call's `since` would ever be small enough again to catch
+    // it. This is the real failure mode a naive "trust the client's since" implementation has.
+    it("the floor catches a row a client clock running AHEAD would otherwise permanently skip", async () => {
+      const { registry, ctx } = harness();
+      const first = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          {
+            vault: "main",
+            query: "zylophrastic reconciler",
+            since: new Date(NOW - 1000).toISOString(),
+          },
+          ctx,
+        ),
+      );
+      const row = ctx.db
+        .prepare("SELECT watermark FROM vault_context_watermark WHERE caller = ? AND vault_id = ?")
+        .get("tester", "main") as { watermark: number };
+      expect(row.watermark).toBe(Date.parse(first.diff_since as string));
+
+      // A synthesis lands shortly AFTER the server's captured watermark — the same "concurrent
+      // write" case as the test above, just close enough in time that a client's drifted clock
+      // could plausibly claim to be past it.
+      const lateAt = row.watermark + 50;
+      ctx.db
+        .prepare(
+          "INSERT INTO syntheses (vault_id, iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns) VALUES ('main', 2026, 29, ?, 0, 1, '[]', ?)",
+        )
+        .run(lateAt, JSON.stringify(["caught only by the floor"]));
+
+      // The CLIENT's clock is ahead: it sends a `since` well past the row's timestamp, instead of
+      // faithfully echoing back the server's diff_since. A plain `WHERE generated_at > clientSince`
+      // would exclude lateAt (row.watermark + 50) forever — the client only ever sends LARGER
+      // values from here on, so there is no future call that would catch it without the floor.
+      const driftedClientSince = new Date(row.watermark + 10_000).toISOString();
+      const second = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          { vault: "main", query: "zylophrastic reconciler", since: driftedClientSince },
+          ctx,
+        ),
+      );
+      expect(second.syntheses.some((s) => s.iso_week === 29)).toBe(true); // caught by the floor
+    });
+
+    it("a caller with no stored watermark gets exactly client-since behavior — nothing to floor against", async () => {
+      const { registry, ctx } = harness();
+      // A fresh caller/vault pair: no vault_context_watermark row exists yet, so the floor has
+      // nothing to apply — the effective cutoff is exactly what the client asked for.
+      const before = ctx.db
+        .prepare("SELECT watermark FROM vault_context_watermark WHERE caller = ? AND vault_id = ?")
+        .get("tester", "main");
+      expect(before).toBeUndefined();
+
+      const res = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          {
+            vault: "main",
+            query: "zylophrastic reconciler",
+            since: new Date(NOW - 1000).toISOString(),
+          },
+          ctx,
+        ),
+      );
+      // Same assertions as the un-floored "is accepted... and filters" test above — proving the
+      // no-stored-watermark path is byte-identical to plain client-since filtering.
+      expect(res.notes.length).toBeGreaterThan(0);
+      expect(res.syntheses).toHaveLength(1);
+      expect(res.contradictions.map((c) => c.id)).toContain("cx1");
+    });
   });
 
   it("packBudget: greedy, budget-bound, always packs at least one item", () => {
