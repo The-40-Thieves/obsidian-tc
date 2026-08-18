@@ -9,7 +9,7 @@ import {
   rerankerBuildBlocker,
 } from "../providers/reranker-preflight";
 import type { NotesFtsIntegrity } from "../search/fts";
-import type { Check, CheckStatus } from "./types";
+import type { Check, CheckResult, CheckStatus } from "./types";
 
 /** #Final-review blocker 2: `embeddings.provider` and `reranker.provider` are open strings resolved
  *  against the provider registry at boot (embeddingsEntryOrThrow / resolveReranker); an unregistered
@@ -312,6 +312,19 @@ export function obsidianCheck(profile: CapabilityProfile): Check {
   };
 }
 
+/** THE-705 round 2: the outcome of actually TRYING to resolve the "local" reranker's optional
+ *  package — unlike model-tier/gateway, whether it resolves is a real filesystem/module-resolution
+ *  question, not something answerable from config alone (see registry.ts's
+ *  resolveLocalRerankerModule, which this shape mirrors). `attempts` is one human-readable line per
+ *  resolution route tried, success or failure, so doctor's remediation text and the boot-time
+ *  console.error log (providers/registry.ts's buildLocalReranker) never disagree about why. */
+export interface LocalRerankerProbeResult {
+  ok: boolean;
+  /** Which route resolved it, when `ok` is true. */
+  route?: string;
+  attempts: string[];
+}
+
 /** THE-679 view: enough to answer "would this declared reranker block build?" without executing
  *  anything. Absent `rerankerProvider` means no block is declared, which is always fine. */
 export interface RerankerBuildableView {
@@ -319,6 +332,16 @@ export interface RerankerBuildableView {
   rerankerBaseUrl?: string;
   embeddings?: RerankerPreflightEmbeddings;
   gatewayUrlEnv?: string;
+  /** THE-705 round 2. Only consulted when `rerankerProvider === "local"`. Injected (not imported
+   *  from providers/registry.ts here) for the same reason `registered` is injected elsewhere in
+   *  this file: this check must stay unit-testable with no live filesystem/module resolution. A
+   *  real caller (cli/commands/doctor.ts) always supplies it for `local`; every other provider is
+   *  unaffected (still answered from config alone, via `rerankerBuildBlocker`). NOT gated behind
+   *  `--probe` like the dense-embeddings probe below — resolving a small local JS module is fast
+   *  and has no network/DB cost, so running it by default does not violate doctor's
+   *  offline-by-default posture the way a live provider probe would; it never calls rerank() or
+   *  loads a model, so it cannot pay the first-inference cost either. */
+  probeLocalReranker?: () => Promise<LocalRerankerProbeResult>;
 }
 
 /**
@@ -330,18 +353,53 @@ export interface RerankerBuildableView {
  * perfectly valid names. Doctor was silent about the one configuration guaranteed not to start.
  *
  * Shares `rerankerBuildBlocker` with runtime/tool-wiring.ts so the pre-boot verdict and the
- * boot-time throw cannot drift. Offline by construction: a `module` provider is NEVER probed here,
- * because diagnosing must not execute operator-supplied code.
+ * boot-time throw cannot drift. Offline by construction for every OTHER provider: a `module`
+ * provider is NEVER probed here, because diagnosing must not execute operator-supplied code.
+ *
+ * THE-705 round 2: `local` is the one provider this check DOES probe by default (via the injected
+ * `probeLocalReranker`, never the operator's own code — see that field's comment) — because for
+ * `local`, "no known build blocker" would be a LIE. THE-688 already burned this repo once: doctor
+ * reported `dense: ready` as an unconditional literal for two days while the provider was actually
+ * down. Reporting "ok" for `local` without having tried would repeat exactly that mistake, on a
+ * provider that structurally CANNOT be validated any other way (no config field says whether the
+ * optional package happens to be installed).
  */
 export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
   return {
     id: "reranker.buildable",
     category: "retrieval",
-    run: () => {
+    // Explicit return type: without it, TS infers `run`'s return type by first unioning every
+    // `return` statement's object literal, then checks THAT union against `CheckResult` — which
+    // (with `details` typed as the index-signature `Record<string, string | string[]>`) produces a
+    // confusing, misattributed excess-property error instead of one pointing at the real branch.
+    // Annotating forces each `return` to be checked against `CheckResult` on its own.
+    run: async (): Promise<CheckResult> => {
       if (view.rerankerProvider === undefined) {
         return {
           status: "ok" as CheckStatus,
           summary: "reranker: no block declared (default precedence applies)",
+        };
+      }
+      if (view.rerankerProvider === "local" && view.probeLocalReranker) {
+        const probe = await view.probeLocalReranker();
+        if (probe.ok) {
+          return {
+            status: "ok" as CheckStatus,
+            summary: `reranker: "local" resolved via ${probe.route ?? "an unknown route"}`,
+            details: {
+              provider: "local",
+              route: probe.route ?? "unknown",
+              attempts: probe.attempts,
+            },
+          };
+        }
+        return {
+          status: "fail" as CheckStatus,
+          summary:
+            'reranker: "local" is configured but the optional @the-40-thieves/obsidian-tc-reranker-local package could not be resolved — retrieval degrades to RRF-only, it does NOT fail to boot',
+          details: { provider: "local", attempts: probe.attempts },
+          remediation:
+            'Either: (1) set reranker.localModulePath to an absolute path to the built package (its dist/index.js); (2) once published, run "bun add @the-40-thieves/obsidian-tc-reranker-local"; or (3) in a source checkout of this monorepo, run "bun run build" inside packages/reranker-local so the automatic relative-path fallback finds it. See that package\'s README for the model-weights download step (bun run fetch-model), needed separately before the first real rerank call succeeds.',
         };
       }
       const blocker = rerankerBuildBlocker(view.rerankerProvider, view.embeddings, {

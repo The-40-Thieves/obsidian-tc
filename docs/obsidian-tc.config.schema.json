@@ -631,7 +631,7 @@
         "provider": {
           "type": "string",
           "minLength": 1,
-          "description": "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), and the profile-gated module."
+          "description": "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), local (THE-705: a bundled, fully offline cross-encoder — no gateway or Python service required; requires the optional @the-40-thieves/obsidian-tc-reranker-local package), and the profile-gated module."
         },
         "model": {
           "description": "Rerank model name as the provider names it. Required by cohere-compatible (refused at boot if absent). Ignored — and refused at boot if set — by model-tier, which sources its model from embeddings.modelTier.full.model. Optional for gateway: omitting it silently falls back to the model literal \"rerank\".",
@@ -660,6 +660,16 @@
         },
         "modulePath": {
           "description": "Module exporting createReranker, for provider 'module'. Resolved against the config file's directory. Refused under the hardened security profile. The factory may be sync or async (an async factory is awaited). It must return a function: (query, documents, topN) => Promise<RerankHit[]>. Validated at load time, before first use.",
+          "type": "string",
+          "minLength": 1
+        },
+        "localModelPath": {
+          "description": "Absolute path to the local cross-encoder model directory for provider 'local' (containing <model-id>/config.json, tokenizer.json, onnx/model_int8.onnx — see @the-40-thieves/obsidian-tc-reranker-local's README). Defaults to that package's own models/ directory, populated by its `bun run fetch-model` script. Ignored — and refused at boot if set — by every other provider.",
+          "type": "string",
+          "minLength": 1
+        },
+        "localModulePath": {
+          "description": "Explicit path to @the-40-thieves/obsidian-tc-reranker-local's BUILT module entry (its dist/index.js), for provider 'local'. Absolute, or resolved against the config file's directory (same convention as modulePath). Tried FIRST, before the bare package specifier and the source-checkout default — see that package's README for when you need this. Ignored by every other provider.",
           "type": "string",
           "minLength": 1
         }

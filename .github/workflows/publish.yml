@@ -441,8 +441,17 @@ jobs:
         if: startsWith(matrix.target, 'bun-darwin')
         run: node scripts/gen-embedded-sqlite.mjs --target ${{ matrix.target }}
         shell: bash
+      # THE-705: --external the optional local-reranker package, the same reasoning as the npm dist
+      # build's script in packages/server/package.json — it is never installed here (not a
+      # dependency of packages/server; see packages/reranker-local/README.md), and its own
+      # dependency (@huggingface/transformers, via onnxruntime-node) dlopens a sidecar .node/.so
+      # that cannot survive being embedded in a single-file standalone binary regardless. Marking it
+      # external keeps the dynamic import() a genuine runtime lookup instead of a bundler resolution
+      # failure; the "local" reranker is unreachable from a compiled binary either way (documented,
+      # not fought — see the THE-705 research brief), and this only ensures that fact doesn't also
+      # break every OTHER provider's compile.
       - name: compile standalone binary
-        run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
+        run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --external @the-40-thieves/obsidian-tc-reranker-local --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
         shell: bash
       # THE-578: RUN the thing we are about to ship. Two assertions, because the first alone is not
       # enough: `version` proves the module graph loads (the old failure was at load time, in

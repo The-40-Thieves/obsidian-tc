@@ -18,7 +18,7 @@
     "packages/native": { "entry": ["index.js", "fallback.ts"], "project": ["*.{ts,js}"] },
     ".": { "entry": ["scripts/**/*.mjs"], "project": ["scripts/**/*.mjs"] }
   },
-  "ignore": ["docs/**", "**/dist/**", "**/target/**", "services/**"],
+  "ignore": ["docs/**", "**/dist/**", "**/target/**", "services/**", "packages/reranker-local/**"],
   "ignoreDependencies": ["@types/*"],
   "ignoreExportsUsedInFile": true,
   "includeEntryExports": false

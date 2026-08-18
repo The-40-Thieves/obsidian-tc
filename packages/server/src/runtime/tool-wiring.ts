@@ -130,19 +130,33 @@ export interface GatewaySeams {
 /**
  * A DECLARED `reranker` block must never resolve to a silent `null` — only an ABSENT block may
  * (the zero-config-migration guarantee `buildModelTierReranker(embeddings) ?? gatewayReranker`
- * relies on). `resolveReranker` itself legitimately returns `null` for two entries whose
- * prerequisite is missing (`model-tier` without `embeddings.modelTier.full`; `gateway` without a
- * base URL) — that is the right contract for a resolver primitive other callers may share. This
- * wrapper is the DECLARED-block-only enforcement point: it turns that null into a boot-time
- * failure naming the provider and what it needed, matching the actionable-hint idiom used
- * throughout providers/registry.ts.
+ * relies on). `resolveReranker` itself legitimately returns `null` for entries whose prerequisite
+ * is missing (`model-tier` without `embeddings.modelTier.full`; `gateway` without a base URL) —
+ * that is the right contract for a resolver primitive other callers may share. This wrapper is the
+ * DECLARED-block-only enforcement point: it turns that null into a boot-time failure naming the
+ * provider and what it needed, matching the actionable-hint idiom used throughout
+ * providers/registry.ts.
+ *
+ * `provider: "local"` is a DELIBERATE exception (THE-705 round 2, adversarial review confirmed
+ * finding 1). model-tier/gateway's null is a CONFIG-correctness defect — the operator declared a
+ * block that structurally cannot work given the REST of their config, and that is always fixable by
+ * editing the config. "local"'s null is an ENVIRONMENT-AVAILABILITY question: the optional
+ * @the-40-thieves/obsidian-tc-reranker-local package may simply not be resolvable on THIS exact
+ * deployment (not yet published to npm, not built in this checkout, no localModulePath override) —
+ * treating that identically to a config typo means an operator who opts into an optional capability
+ * that happens to be unavailable gets a hard boot crash, which is the opposite of "rerank reachable
+ * without a gateway". So "local" degrades exactly like an ABSENT block: this returns `null`,
+ * `rerankWithScores` reports `not_configured`, retrieval stays RRF-only. `doctor/checks.ts`'s
+ * `rerankerBuildableCheck` (wired with a real resolution probe in cli/commands/doctor.ts) is what
+ * keeps this LOUD instead of silently identical to "nothing configured".
  */
 async function resolveDeclaredReranker(
   cfg: NonNullable<ServerConfig["reranker"]>,
   ctx: Parameters<typeof resolveReranker>[1],
-): Promise<Reranker> {
+): Promise<Reranker | null> {
   const reranker = await resolveReranker(cfg, ctx);
   if (reranker) return reranker;
+  if (cfg.provider === "local") return null;
   // THE-679: the REASON comes from providers/reranker-preflight.ts, which doctor also reads, so a
   // pre-boot check and this boot-time throw can never disagree about why a block cannot build.
   const blocker = rerankerBuildBlocker(cfg.provider, ctx?.embeddings, {

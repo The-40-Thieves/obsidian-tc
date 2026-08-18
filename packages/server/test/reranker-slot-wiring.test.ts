@@ -1,8 +1,13 @@
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FetchFn } from "../src/embeddings/http";
-import { rerankerProviderNames, resolveReranker } from "../src/providers/registry";
+import {
+  buildLocalReranker,
+  rerankerProviderNames,
+  resolveReranker,
+} from "../src/providers/registry";
 import { wireGatewaySeams } from "../src/runtime/tool-wiring";
+import type { Reranker } from "../src/search/rerank";
 
 // A fetch stub that hangs until its AbortSignal fires, then rejects with an AbortError — mirrors
 // how the platform fetch reacts to AbortController.abort(). Same pattern as
@@ -45,6 +50,7 @@ describe("reranker slot", () => {
     expect(rerankerProviderNames()).toEqual([
       "cohere-compatible",
       "gateway",
+      "local",
       "model-tier",
       "module",
     ]);
@@ -198,6 +204,142 @@ describe("reranker slot", () => {
       { fetchFn: hangingFetch },
     );
     await expect(r?.("q", ["a", "b"], 1)).rejects.toMatchObject({ code: "operation_timeout" });
+  });
+});
+
+// THE-705 item 1 / round 2. The "local" provider's job at THIS layer is: refuse fields it does not
+// consume, resolve the optional package via its ladder, forward localModelPath, and — the point of
+// round 2's fix — NEVER throw on resolution failure. Everything here is injection-based (never a
+// real dynamic import), so this file needs no @huggingface/transformers, no real weights, and no
+// ambient filesystem state. The REAL resolution ladder (bare specifier, source-checkout, an
+// explicit localModulePath all genuinely resolving to the built package) is exercised end-to-end in
+// test/reranker-local-resolution.test.ts, which owns building packages/reranker-local's dist.
+describe("local reranker (THE-705)", () => {
+  it("registers 'local' as a genuine provider name, resolved through the same registry map as every other provider", () => {
+    expect(rerankerProviderNames()).toContain("local");
+  });
+
+  it("refuses fields it does not read, naming each one and the real source", async () => {
+    let message = "";
+    try {
+      await buildLocalReranker(
+        { provider: "local", model: "m", baseUrl: "http://x", timeoutMs: 5 },
+        {},
+        async () => ({ ok: true, mod: { createReranker: () => async () => [] }, attempts: [] }),
+      );
+    } catch (e) {
+      message = JSON.stringify(e);
+    }
+    expect(message).toContain("reranker.model");
+    expect(message).toContain("reranker.baseUrl");
+    expect(message).toContain("reranker.timeoutMs");
+    expect(message).not.toContain('reranker.apiKey"');
+  });
+
+  it("with no ignored fields set, forwards localModelPath into createReranker", async () => {
+    const opts: Array<{ localModelPath?: string }> = [];
+    const built = await buildLocalReranker(
+      { provider: "local", localModelPath: "/custom/models" },
+      {},
+      async () => ({
+        ok: true,
+        mod: {
+          createReranker: (o: { localModelPath?: string }) => {
+            opts.push(o);
+            return async () => [];
+          },
+        },
+        attempts: [{ route: "bare-specifier", target: "x", ok: true }],
+      }),
+    );
+    expect(typeof built).toBe("function");
+    expect(opts).toEqual([{ localModelPath: "/custom/models" }]);
+  });
+
+  it("with localModelPath absent, still builds (createReranker gets undefined, not a throw)", async () => {
+    const opts: Array<{ localModelPath?: string }> = [];
+    await buildLocalReranker({ provider: "local" }, {}, async () => ({
+      ok: true,
+      mod: {
+        createReranker: (o: { localModelPath?: string }) => {
+          opts.push(o);
+          return async () => [];
+        },
+      },
+      attempts: [],
+    }));
+    expect(opts).toEqual([{ localModelPath: undefined }]);
+  });
+
+  // THE-705 round 2, confirmed finding 1 — the actual fix. The first cut THREW an
+  // actionable-LOOKING "bun add ..." error on any resolution failure, and that hint is dead advice
+  // under every documented setup (the package is deliberately unpublished-by-default, not a
+  // workspace dependency); nothing caught it, so a declared "local" block hard-crashed boot. Now:
+  // resolution failure returns null — the SAME contract model-tier/gateway already have for their
+  // own "prerequisite missing" case — never a throw.
+  it("NEVER throws when every resolution route fails — returns null instead of crashing boot", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const built = await buildLocalReranker({ provider: "local" }, {}, async () => ({
+        ok: false,
+        attempts: [
+          {
+            route: "bare-specifier",
+            target: "@the-40-thieves/obsidian-tc-reranker-local",
+            ok: false,
+            error: "Cannot find module",
+          },
+          {
+            route: "source-checkout",
+            target: "/x/reranker-local/dist/index.js",
+            ok: false,
+            error: "not built",
+          },
+        ],
+      }));
+      expect(built).toBeNull();
+      // "each logged when it fails" (the fix's own requirement) — one console.error per failed
+      // attempt, so an operator who never runs `doctor` still sees WHY in the server log.
+      expect(consoleSpy).toHaveBeenCalledTimes(2);
+      expect(consoleSpy.mock.calls.some((c) => String(c[0]).includes("bare-specifier"))).toBe(true);
+      expect(consoleSpy.mock.calls.some((c) => String(c[0]).includes("source-checkout"))).toBe(
+        true,
+      );
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("the returned reranker is whatever the package's createReranker produced — no wrapping", async () => {
+    const marker: Reranker = async () => [{ index: 0, relevanceScore: 0.5 }];
+    const built = await buildLocalReranker({ provider: "local" }, {}, async () => ({
+      ok: true,
+      mod: { createReranker: () => marker },
+      attempts: [{ route: "bare-specifier", target: "x", ok: true }],
+    }));
+    expect(built).toBe(marker);
+  });
+});
+
+// THE-705 round 2, confirmed finding 1: the DECLARED-block invariant ("null is always a boot-time
+// throw") deliberately does NOT apply to "local" — see resolveDeclaredReranker's own comment for
+// why. Exercises the real (un-injected) resolution ladder through wireGatewaySeams, the actual boot
+// call site, proving the fix holds at the layer that crashed before: packages/server has no way to
+// resolve the optional package by default, so this is a real failure, asserted to degrade cleanly.
+describe("wireGatewaySeams — a declared 'local' block that cannot resolve degrades, never crashes boot", () => {
+  it("boots cleanly with reranker.provider: 'local' and the package unresolvable — reranker is null, not a throw", async () => {
+    const rerankerCfg = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      reranker: { provider: "local" },
+    }).reranker;
+    const embeddings = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/v" }],
+      embeddings: { provider: "ollama" },
+    }).embeddings;
+
+    await expect(wireGatewaySeams(embeddings, rerankerCfg)).resolves.toMatchObject({
+      reranker: null,
+    });
   });
 });
 

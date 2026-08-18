@@ -61,6 +61,12 @@ export interface ProviderDescriptor {
   apiKeyEnv?: string;
   timeoutMs?: number;
   modulePath?: string;
+  /** THE-705: reranker.localModelPath — only read by the "local" reranker entry. */
+  localModelPath?: string;
+  /** THE-705 round 2: reranker.localModulePath — explicit path to the "local" reranker package's
+   *  built module entry (route (i) of its resolution ladder — see registry.ts's
+   *  resolveLocalRerankerModule). Only read by the "local" reranker entry. */
+  localModulePath?: string;
 }
 
 export interface ResolveContext {

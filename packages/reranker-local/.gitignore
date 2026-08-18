@@ -1,0 +1,9 @@
+# Downloaded by `bun run fetch-model` (scripts/fetch-model.mjs), verified against src/model-info.ts.
+# Never committed — see README.md and scripts/fetch-model.mjs's header for why.
+models/
+
+# Standard, mirrors the root .gitignore (this package is not a root workspace member, so its own
+# install/build artifacts need their own ignore).
+node_modules/
+dist/
+*.tsbuildinfo

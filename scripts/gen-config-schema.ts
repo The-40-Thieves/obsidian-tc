@@ -140,8 +140,16 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // work over the whole vault must not run just because a gateway was configured for an unrelated
 // feature (e.g. reflect). No key, type or constraint moved; only the default value and the
 // description text on plane.enabled.
+// THE-705 item 1: additive. `reranker.provider`'s description now names the new "local" built-in
+// (a bundled, fully offline cross-encoder — see packages/reranker-local), and a new optional
+// `reranker.localModelPath` string key was added, read only by that provider. No existing key,
+// type, default or constraint moved.
+// THE-705 round 2 (adversarial review): additive. A second new optional key,
+// `reranker.localModulePath` — route (i) of provider "local"'s resolution ladder (an explicit path
+// to the optional package's built module entry). No existing key, type, default or constraint
+// moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "f6cfcf0a407a8054b858b09568301924f67c0402a61164269a69610eb22582cc";
+  "a0e733c747ec3e220936ac2d8ac0c95fbfe121c2a7ceea88984fa105281f473f";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
