@@ -38,3 +38,5 @@ config + caches (no server needed):
 | `metrics [--since ms] [--until ms] [--json f]` | Knowledge-health scorecard from the derive layer |
 | `gaps --queries <f> / --calibrate <golden.yaml>` | Knowledge-gap detector / threshold calibration |
 | `forget (--episode <id> \| --note <rel>) [--erase] / --verify` | Dependency-aware deletion + hash-chained audit |
+| `context-export --out <f> [--vault id]` | Export the derived plane (preferences, episodes, note_quality, retrieval feedback, forget_log) as a versioned, vendor-neutral JSON bundle |
+| `context-import <bundle> [--vault id] [--dry-run]` | Import a context-export bundle. `--vault` remaps the bundle's vault-scoped rows to the target vault (refuses a multi-source-vault bundle); forget always wins over import |

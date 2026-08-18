@@ -12,9 +12,19 @@
 //       `blocked = 0` (see context-bundle-schema.ts's row schema, which hard-pins `blocked:
 //       z.literal(0)`) — a tombstoned episode never leaves the source install in the first place.
 //       The harder case is the RECEIVING install: it may have forgotten an episode the bundle
-//       still carries as live, because the forget happened on the target AFTER the bundle was
-//       exported. `importContextBundle` reconciles against the TARGET's own forget_log before
-//       inserting any `agent_episodes` row — never against the bundle's.
+//       still carries as live, because a DIFFERENT install forgot it independently — at ANY time,
+//       before or after the bundle's `exported_at`. `importContextBundle` reconciles against the
+//       TARGET's own forget_log before inserting any `agent_episodes` row — never against the
+//       bundle's — and the check is EXISTENCE ONLY, with no timestamp comparison: an earlier
+//       version gated on `forget_log.ts >= bundle.exported_at`, reasoning "only a forget that
+//       happened after this bundle was made can be resurrecting something new". That reasoning is
+//       wrong across machines with independent clocks and independent forget histories — the
+//       primary migration case is a bundle exported NOW from install A, carrying an episode that
+//       install B (the target) forgot LONG AGO (ts < exported_at). Under the timestamp-gated
+//       check that forget is invisible (its ts is always < exported_at) and the episode gets
+//       re-written, unblocked, resurrecting exactly what B tombstoned. Wall-clock comparison
+//       across machines is not a safety primitive here: if the target's forget_log names a target
+//       id AT ALL, that id is never resurrected by import — full stop, regardless of when.
 //   (b) IMPORTED forget_log ENTRIES APPLY TO TARGET CONTENT. A forget_log entry is audit history,
 //       not inert metadata — importing one must have the same real effect appending it locally
 //       would have. So forget_log rows import FIRST (before agent_episodes), and each new
@@ -26,6 +36,28 @@
 // IDEMPOTENCY: every table dedups on a NATURAL KEY before writing (never a bare "run it twice and
 // hope autoincrement doesn't collide") — see the header note on `importDeduped`. Re-importing the
 // same bundle a second time writes nothing new anywhere.
+//
+// CROSS-INSTALL VAULT IDENTITY (THE-636 review fix, BLOCKER 2): a vault id is a bare operator
+// label ("main" everywhere) with no cross-install identity, and `vault_object_state.object_id` /
+// `chunk_retrievals.chunk_id` are `chunkId(vaultId, path, index)` — a hash of that SAME label, not
+// of anything globally unique. Two unrelated installs each running a vault called "main" produce
+// IDENTICAL chunk ids for same-path notes. Importing verbatim would silently merge two unrelated
+// vaults' derived state under a shared label. Two mechanisms close this:
+//   - `remapBundleVault` makes `--vault` LOAD-BEARING: when the operator names a target vault, every
+//     vault-SCOPED row (the 6 tables that carry `vault_id`) is remapped from the bundle's actual
+//     source vault to that target, and a bundle whose vault-scoped rows name more than one source
+//     vault is refused outright — "the" source vault would be undefined. Omitting `--vault` keeps
+//     rows verbatim, which is the OTHER legitimate case this ticket names: migrating a whole
+//     deployment to a new machine, where source and target are the SAME logical vault under the
+//     SAME id, not two vaults merging.
+//   - `chunk_retrievals`/`vault_object_state` have NO `vault_id` column at all, so there is nothing
+//     to remap. Instead, `importContextBundle` verifies each row's chunk id GROUND-TRUTH against the
+//     TARGET's own `cache.db` `chunks` table: a row whose id the target has never indexed is not
+//     imported (`skipped_unmatched`), because there is no local evidence it belongs to a vault this
+//     install actually has. This is best-effort and index-dependent — importing before the target
+//     vault has been indexed matches nothing; re-running the import after `index_vault`/`obsidian-tc
+//     index` picks up what an earlier pass skipped (idempotent dedup means a re-run costs nothing).
+import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import {
   type AgentEpisodeRow,
@@ -201,11 +233,88 @@ export function validateContextBundle(
   return { ok: true, bundle: parsed.data };
 }
 
+const VAULT_SCOPED_TABLE_NAMES = [
+  "preference_profile",
+  "preference_deltas",
+  "gap_reports",
+  "goals",
+  "note_quality",
+] as const;
+
+/**
+ * THE-636 review fix (BLOCKER 2a) — see the module header's "CROSS-INSTALL VAULT IDENTITY" note.
+ *
+ * Called AFTER `validateContextBundle` and BEFORE `importContextBundle`, so a refusal here is
+ * still a hard error with nothing written — no store handle has been opened yet at this point in
+ * the CLI command.
+ *
+ * `targetVault` undefined -> no-op (rows keep the bundle's verbatim vault_id — the deployment-
+ * migration case). `targetVault` given -> derive the bundle's ACTUAL source vault from the rows
+ * themselves (never trust the envelope's `vault` label alone: it is exporter-supplied and a "*"
+ * deployment-wide export can legitimately span more than one vault), refuse if more than one
+ * distinct source vault is present, and otherwise remap every vault-scoped row's `vault_id` (plus
+ * `agent_episodes`' nullable one, left null when absent — a null vault_id means "not vault-scoped
+ * at capture", not "belongs to the source vault") to `targetVault`.
+ */
+export function remapBundleVault(
+  bundle: ContextBundle,
+  targetVault: string | undefined,
+): { ok: true; bundle: ContextBundle } | { ok: false; error: string } {
+  if (targetVault === undefined) return { ok: true, bundle };
+
+  const sourceVaults = new Set<string>();
+  for (const name of VAULT_SCOPED_TABLE_NAMES) {
+    for (const row of bundle.tables[name]) sourceVaults.add(row.vault_id);
+  }
+  for (const row of bundle.tables.agent_episodes) {
+    if (row.vault_id !== null) sourceVaults.add(row.vault_id);
+  }
+
+  if (sourceVaults.size > 1) {
+    return {
+      ok: false,
+      error:
+        `--vault ${targetVault} requires a bundle that names a single source vault, but its ` +
+        `vault-scoped tables name ${sourceVaults.size} distinct source vaults ` +
+        `(${[...sourceVaults].sort().join(", ")}) — "the" source vault is undefined, so a single ` +
+        `target cannot honestly stand in for all of them. Re-export with --vault to narrow to one ` +
+        `source vault first.`,
+    };
+  }
+
+  return {
+    ok: true,
+    bundle: {
+      ...bundle,
+      tables: {
+        ...bundle.tables,
+        preference_profile: bundle.tables.preference_profile.map((r) => ({
+          ...r,
+          vault_id: targetVault,
+        })),
+        preference_deltas: bundle.tables.preference_deltas.map((r) => ({
+          ...r,
+          vault_id: targetVault,
+        })),
+        gap_reports: bundle.tables.gap_reports.map((r) => ({ ...r, vault_id: targetVault })),
+        goals: bundle.tables.goals.map((r) => ({ ...r, vault_id: targetVault })),
+        note_quality: bundle.tables.note_quality.map((r) => ({ ...r, vault_id: targetVault })),
+        agent_episodes: bundle.tables.agent_episodes.map((r) =>
+          r.vault_id === null ? r : { ...r, vault_id: targetVault },
+        ),
+      },
+    },
+  };
+}
+
 export interface TableImportStats {
   imported: number;
   skipped_duplicate: number;
   /** Only ever non-zero for agent_episodes — see the module header, direction (a). */
   skipped_forgotten: number;
+  /** Only ever non-zero for chunk_retrievals/vault_object_state — the ground-truth chunk-id
+   *  check the module header's "CROSS-INSTALL VAULT IDENTITY" note describes (BLOCKER 2b). */
+  skipped_unmatched: number;
 }
 export type ImportStatsByTable = Record<keyof ContextBundleTables, TableImportStats>;
 export interface ImportResult {
@@ -214,7 +323,7 @@ export interface ImportResult {
 }
 
 function zeroStats(): TableImportStats {
-  return { imported: 0, skipped_duplicate: 0, skipped_forgotten: 0 };
+  return { imported: 0, skipped_duplicate: 0, skipped_forgotten: 0, skipped_unmatched: 0 };
 }
 
 /**
@@ -243,15 +352,21 @@ function importDeduped(
 /**
  * Apply a validated bundle to `edb`. Whole-bundle transaction (BEGIN/COMMIT/ROLLBACK, mirroring
  * forgetEpisode/forgetNote's own discipline): callers MUST validate with `validateContextBundle`
- * first — this function assumes the bundle already matches the current row schemas, so a bad row
- * here is a caller bug, not an untrusted-input path (that check already happened, before any
- * write, in the CLI command).
+ * (and, if remapping, `remapBundleVault`) first — this function assumes the bundle already
+ * matches the current row schemas and has its final vault_id values, so a bad row here is a
+ * caller bug, not an untrusted-input path (those checks already happened, before any write, in
+ * the CLI command).
  *
- * `dryRun` runs every dedup check but skips every write — nothing in `edb` changes, and no
- * transaction is opened (there is nothing to roll back).
+ * `cacheDb` is the target's cache.db — read-only here, used ONLY for the `chunk_retrievals`/
+ * `vault_object_state` ground-truth chunk-id check (BLOCKER 2b, module header). It is never
+ * written by this function; `chunk_retrievals`/`vault_object_state` themselves live in `edb`.
+ *
+ * `dryRun` runs every dedup/ground-truth check but skips every write — nothing in `edb` changes,
+ * and no transaction is opened (there is nothing to roll back).
  */
 export function importContextBundle(
   edb: Database,
+  cacheDb: Database,
   bundle: ContextBundle,
   opts: { dryRun?: boolean } = {},
 ): ImportResult {
@@ -283,12 +398,26 @@ export function importContextBundle(
         continue;
       }
       if (!dryRun) {
+        // THE-636 review fix (item c, "minor gap"): mark this row as import-derived, in the
+        // EXISTING `details` JSON column — no migration authorized or needed. Without this, a
+        // native forget and an imported one are byte-for-byte indistinguishable once appended,
+        // which matters for an operator auditing which entries this install itself decided vs.
+        // which arrived from elsewhere. `imported_from`/`imported_at` piggyback on the same field
+        // `already_blocked`/`scrubbed`/etc. already use for this kind of free-form provenance.
+        const parsedDetails = row.details
+          ? (JSON.parse(row.details) as Record<string, unknown>)
+          : {};
         appendForgetLog(edb, {
           ts: row.ts,
           kind: row.kind,
           target: row.target,
           mode: row.mode,
-          details: row.details ? (JSON.parse(row.details) as Record<string, unknown>) : {},
+          details: {
+            ...parsedDetails,
+            imported: true,
+            imported_from: bundle.server_version,
+            imported_at: Date.now(),
+          },
         });
         if (row.kind === "episode") {
           edb
@@ -310,13 +439,12 @@ export function importContextBundle(
 
     // 2. agent_episodes — direction (a): reconcile against the TARGET's own forget_log (now
     //    up to date per step 1) before inserting anything. A row the bundle carries but the
-    //    target has since forgotten is skipped and reported, never written.
+    //    target's forget_log ALREADY NAMES — at any ts, no timestamp comparison — is skipped and
+    //    reported, never written. See the module header for why a `ts >=` gate was wrong.
     for (const row of bundle.tables.agent_episodes) {
       const forgotten = edb
-        .prepare(
-          "SELECT 1 FROM forget_log WHERE kind = 'episode' AND target = ? AND ts >= ? LIMIT 1",
-        )
-        .get(row.id, bundle.exported_at);
+        .prepare("SELECT 1 FROM forget_log WHERE kind = 'episode' AND target = ? LIMIT 1")
+        .get(row.id);
       if (forgotten) {
         stats.agent_episodes.skipped_forgotten++;
         continue;
@@ -460,8 +588,23 @@ export function importContextBundle(
       stats.goals[result]++;
     }
 
-    // 4. Global tables (no vault axis at all).
+    // 4. Global tables (no vault axis at all). Both are keyed by a chunk id that is a HASH of the
+    //    vault id string (chunkId(vaultId, path, index)) — two unrelated installs' same-named
+    //    vaults produce identical ids for same-path notes (BLOCKER 2b, module header). Ground-
+    //    truth each row against the TARGET's own `cache.db.chunks`: only a chunk id the target has
+    //    actually indexed is trusted to belong to a vault this install has. `chunks` may not exist
+    //    at all on a never-indexed target — `tableExists` guards that rather than throwing, and
+    //    every row is honestly `skipped_unmatched` in that case (there is nothing to match yet).
+    const chunksTableReady = tableExists(cacheDb, "chunks");
+    const chunkExists = (chunkId: string): boolean =>
+      chunksTableReady &&
+      cacheDb.prepare("SELECT 1 FROM chunks WHERE id = ? LIMIT 1").get(chunkId) !== undefined;
+
     for (const row of bundle.tables.chunk_retrievals) {
+      if (!chunkExists(row.chunk_id)) {
+        stats.chunk_retrievals.skipped_unmatched++;
+        continue;
+      }
       const result = importDeduped(
         edb,
         "SELECT 1 FROM chunk_retrievals WHERE id = ? LIMIT 1",
@@ -490,6 +633,10 @@ export function importContextBundle(
     }
 
     for (const row of bundle.tables.vault_object_state) {
+      if (!chunkExists(row.object_id)) {
+        stats.vault_object_state.skipped_unmatched++;
+        continue;
+      }
       const result = importDeduped(
         edb,
         "SELECT 1 FROM vault_object_state WHERE object_id = ? LIMIT 1",

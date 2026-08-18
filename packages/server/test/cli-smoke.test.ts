@@ -252,6 +252,58 @@ describe.skipIf(!bunAvailable)(
         expect(r.code).not.toBe(0);
         expect(r.stderr).toMatch(/format_version mismatch/);
       });
+
+      // BLOCKER 2a (review fix): --vault is load-bearing — a bundle whose vault-scoped tables
+      // name more than one source vault is refused outright when --vault targets a remap, rather
+      // than being silently imported vault_id-verbatim into whichever vault happens to share a
+      // label with one of them.
+      it("context-import --vault refuses a bundle naming more than one source vault", () => {
+        const multiVaultPath = join(dir, "multi-vault-bundle.json");
+        writeFileSync(
+          multiVaultPath,
+          JSON.stringify({
+            format_version: 1,
+            exported_at: 0,
+            server_version: "0.0.0",
+            vault: "*",
+            score_version: 2,
+            tables: {
+              preference_profile: [
+                {
+                  vault_id: "vault-a",
+                  key: "k",
+                  value: "v",
+                  weight: 1,
+                  version: 1,
+                  updated_at: 0,
+                  provenance: null,
+                },
+                {
+                  vault_id: "vault-b",
+                  key: "k",
+                  value: "v",
+                  weight: 1,
+                  version: 1,
+                  updated_at: 0,
+                  provenance: null,
+                },
+              ],
+              preference_deltas: [],
+              agent_episodes: [],
+              note_quality: [],
+              chunk_retrievals: [],
+              vault_object_state: [],
+              gap_reports: [],
+              goals: [],
+              forget_log: [],
+            },
+          }),
+        );
+        const r = runCli(["context-import", multiVaultPath, configPath, "--vault", "main"]);
+        expect(r.code).not.toBe(0);
+        expect(r.stderr).toMatch(/vault-a/);
+        expect(r.stderr).toMatch(/vault-b/);
+      });
     });
   },
 );

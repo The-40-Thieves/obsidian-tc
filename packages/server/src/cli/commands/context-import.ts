@@ -7,6 +7,11 @@
 // context-bundle.ts) before this command opens the target store at all — there is no path from a
 // malformed bundle to a partial write. `forget wins over import` (item 3) is enforced inside
 // `importContextBundle` itself; see that module's header for both directions of the guarantee.
+//
+// --vault IS LOAD-BEARING (THE-636 review fix, BLOCKER 2a): `remapBundleVault` runs right after
+// schema validation and before any store opens — a refusal there (a bundle naming more than one
+// source vault under an explicit --vault target) is still a hard error with nothing written, the
+// same "no partial write" property the schema-validation gate has.
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
@@ -16,7 +21,11 @@ import { provisionExperientialDb } from "../../db/experiential";
 import { openDatabase } from "../../db/open";
 import type { Database } from "../../db/types";
 import type { ImportStatsByTable } from "../../experiential/context-bundle";
-import { importContextBundle, validateContextBundle } from "../../experiential/context-bundle";
+import {
+  importContextBundle,
+  remapBundleVault,
+  validateContextBundle,
+} from "../../experiential/context-bundle";
 import { argsHash } from "../../hash";
 import { USAGE } from "../args";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
@@ -54,19 +63,30 @@ function printSummary(stats: ImportStatsByTable, dryRun: boolean): void {
   let totalImported = 0;
   let totalDup = 0;
   let totalForgotten = 0;
+  let totalUnmatched = 0;
   for (const [table, s] of Object.entries(stats)) {
     totalImported += s.imported;
     totalDup += s.skipped_duplicate;
     totalForgotten += s.skipped_forgotten;
-    if (s.imported === 0 && s.skipped_duplicate === 0 && s.skipped_forgotten === 0) continue;
+    totalUnmatched += s.skipped_unmatched;
+    if (
+      s.imported === 0 &&
+      s.skipped_duplicate === 0 &&
+      s.skipped_forgotten === 0 &&
+      s.skipped_unmatched === 0
+    )
+      continue;
     const parts = [`${s.imported} ${label}`];
     if (s.skipped_duplicate > 0) parts.push(`${s.skipped_duplicate} already present`);
     if (s.skipped_forgotten > 0) parts.push(`${s.skipped_forgotten} forgotten on this install`);
+    if (s.skipped_unmatched > 0)
+      parts.push(`${s.skipped_unmatched} unmatched (no local chunk — index first, or re-run)`);
     process.stdout.write(`  ${table}: ${parts.join(", ")}\n`);
   }
   process.stdout.write(
     `context-import${dryRun ? " --dry-run" : ""}: ${totalImported} row(s) ${label} across ` +
-      `9 table(s); ${totalDup} already present; ${totalForgotten} skipped (forgotten on this install)\n`,
+      `9 table(s); ${totalDup} already present; ${totalForgotten} skipped (forgotten on this ` +
+      `install); ${totalUnmatched} skipped (unmatched — no local chunk)\n`,
   );
 }
 
@@ -99,7 +119,15 @@ export async function run_context_import(cmd: Cmd<"context-import">): Promise<vo
     );
     process.exit(1);
   }
-  const bundle = validated.bundle;
+
+  // BLOCKER 2a: still before any store opens. cmd.vault was already checked against cfg.vaults
+  // above, so a defined targetVault here is always a real, configured vault on this deployment.
+  const remapped = remapBundleVault(validated.bundle, cmd.vault);
+  if (!remapped.ok) {
+    process.stderr.write(`context-import: ${remapped.error}\n`);
+    process.exit(1);
+  }
+  const bundle = remapped.bundle;
 
   mkdirSync(cfg.cacheDir, { recursive: true });
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
@@ -108,7 +136,7 @@ export async function run_context_import(cmd: Cmd<"context-import">): Promise<vo
   const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
   const t0 = Date.now();
   try {
-    const result = importContextBundle(edb, bundle, { dryRun: !!cmd.dryRun });
+    const result = importContextBundle(edb, cacheDb, bundle, { dryRun: !!cmd.dryRun });
     printSummary(result.tables, result.dry_run);
     if (!result.dry_run) {
       const resultSize = Buffer.byteLength(JSON.stringify(result.tables), "utf8");
