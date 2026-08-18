@@ -122,6 +122,17 @@ export async function run_context_import(cmd: Cmd<"context-import">): Promise<vo
 
   // BLOCKER 2a: still before any store opens. cmd.vault was already checked against cfg.vaults
   // above, so a defined targetVault here is always a real, configured vault on this deployment.
+  if (!cmd.vault) {
+    // Residual from the THE-636 review: vault ids are conventional labels ("main" everywhere), so
+    // verbatim import of a bundle from a DIFFERENT install sharing a vault id silently merges the
+    // two installs' rows under one id. There is no cross-install fingerprint to detect that here —
+    // the warning is the guard.
+    process.stderr.write(
+      "context-import: no --vault given — importing verbatim; rows keep the bundle's vault ids. " +
+        "If this bundle comes from a DIFFERENT install that shares a vault id with this one, " +
+        "their rows will merge indistinguishably; pass --vault <id> to remap into one vault.\n",
+    );
+  }
   const remapped = remapBundleVault(validated.bundle, cmd.vault);
   if (!remapped.ok) {
     process.stderr.write(`context-import: ${remapped.error}\n`);
