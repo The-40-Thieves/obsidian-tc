@@ -20,7 +20,7 @@ region between the markers — add the error to the shared `err` map and regener
 :::
 
 <!-- BEGIN GENERATED: errors -->
-Every failure obsidian-tc returns carries one of these **35** canonical codes, **35** of which ship a recovery hint. The code is the stable contract — branch on it rather than on the message, which is a human-readable default that may be replaced with something more specific at the throw site.
+Every failure obsidian-tc returns carries one of these **36** canonical codes, **36** of which ship a recovery hint. The code is the stable contract — branch on it rather than on the message, which is a human-readable default that may be replaced with something more specific at the throw site.
 
 | Code | Default message | Recovery |
 |---|---|---|
@@ -31,6 +31,7 @@ Every failure obsidian-tc returns carries one of these **35** canonical codes, *
 | `compute_budget_exceeded` | operation exceeded its compute budget | The input exhausted its compute budget and will do so again identically — do not retry. Simplify the pattern or expression, or narrow what it runs over. |
 | `concurrent_modification` | note changed since it was read | The note changed after you read it. Re-read it, re-apply your edit to the new content, and retry with the fresh CAS token — do not retry the stale one. |
 | `conflict` | conflict | Re-read the current state, re-apply the change on top of it, and retry. |
+| `content_rejected` | content rejected by poison scan | The content tripped the poison scan (risk: high) and was not written. Revise it to remove instruction-override, persistence-directive, hidden-text, or exfiltration-like phrasing, or write it with provenance: "authored" if a human is vouching for it. |
 | `dql_error` | Dataview DQL error | Dataview rejected the query. Check it with validate_dql, which reports the syntax error without running it. |
 | `elicit_invalid` | elicit token invalid or expired | The token was rejected or expired. Re-issue the original call with no token to trigger a fresh confirmation prompt. |
 | `elicit_required` | human confirmation required | A human must approve this call. A client with MCP elicitation gets an inputRequired prompt; otherwise mint one with `obsidian-tc elicit --hash <args_hash> --tool <name>` and resend. Never reuse an old token. |
