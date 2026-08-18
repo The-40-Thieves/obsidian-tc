@@ -14,6 +14,10 @@ import {
   ELIGIBILITY_POLICY_VERSION,
   evaluateEpisodes,
   extractPreferences,
+  filterRegisteredDeltas,
+  groupEpisodesByVerdictWindow,
+  PREFERENCE_KEYS,
+  type PreferenceDelta,
   preferenceProfile,
 } from "../src/experiential/reflect";
 import { openMemoryDb } from "./helpers";
@@ -71,11 +75,16 @@ function seed(
     task_result: number | null;
     blocked: number;
     vault_id: string | null;
+    // THE-673: the window identity a mixed-verdict fixture needs to exercise
+    // groupEpisodesByVerdictWindow. Left undefined (-> NULL) by every pre-existing caller, which
+    // keeps each of those rows its own one-row window, same as before THE-726 added the columns.
+    session_id: string | null;
+    verdict_at: number | null;
   }> = {},
 ): void {
   db.prepare(
-    `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, task_result, eligibility, blocked, valid_from, vault_id)
-     VALUES (?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, task_result, eligibility, blocked, valid_from, vault_id, session_id, verdict_at)
+     VALUES (?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     NOW,
@@ -90,6 +99,8 @@ function seed(
     // THE-710: `vault_id` is nullable on agent_episodes, and extractPreferences EXCLUDES nulls
     // rather than attributing them. Pass `null` explicitly to exercise that exclusion.
     over.vault_id === undefined ? V1 : over.vault_id,
+    over.session_id ?? null,
+    over.verdict_at ?? null,
   );
 }
 
@@ -366,35 +377,40 @@ describe("preference profile (ACE typed deltas)", () => {
     // agent_episodes.vault_id is nullable. Attributing such an episode to a default vault would
     // invent exactly the attribution the migration purged old rows to avoid inventing.
     const db = edb0();
-    seed(db, "no-vault", { task_result: 1, eligibility: "eligible", vault_id: null });
-    let sawEvidence = false;
-    const judge = async () => {
-      sawEvidence = true;
-      return { text: JSON.stringify({ deltas: [] }), model: "mock" };
-    };
-    const r = await extractPreferences(db, V1, { judge, nowMs: NOW });
-    // No evidence reached the judge at all, so the pass reports skipped rather than applying zero.
-    expect(sawEvidence).toBe(false);
+    seed(db, "no-vault", {
+      task_result: 1,
+      eligibility: "eligible",
+      tool: "search_text",
+      vault_id: null,
+    });
+    // No evidence reached the counter at all, so the pass reports skipped rather than applying zero.
+    const r = await extractPreferences(db, V1, { nowMs: NOW });
     expect(r).toMatchObject({ skipped: true, applied: 0 });
+    expect(preferenceProfile(db, V1).entries).toHaveLength(0);
   });
 
   it("extractPreferences only sees ITS OWN vault's episodes", async () => {
     const db = edb0();
-    seed(db, "mine", { task_result: 1, eligibility: "eligible", tool: "read_note", vault_id: V1 });
+    seed(db, "mine", {
+      task_result: 1,
+      eligibility: "eligible",
+      tool: "search_text",
+      vault_id: V1,
+    });
     seed(db, "theirs", {
       task_result: 1,
       eligibility: "eligible",
-      tool: "write_note",
+      tool: "search_vault",
       vault_id: V2,
     });
-    let evidence = "";
-    const judge = async (req: { messages: Array<{ content: string }> }) => {
-      evidence = req.messages.map((m) => m.content).join("\n");
-      return { text: JSON.stringify({ deltas: [] }), model: "mock" };
-    };
-    await extractPreferences(db, V1, { judge, nowMs: NOW });
-    expect(evidence).toContain("read_note");
-    expect(evidence).not.toContain("write_note");
+    const r = await extractPreferences(db, V1, { nowMs: NOW });
+    expect(r.applied).toBe(1);
+    expect(preferenceProfile(db, V1).entries).toEqual([
+      expect.objectContaining({ key: "preferred.search_mode", value: "search_text" }),
+    ]);
+    // V2's episode never reached this call — a separate extractPreferences(db, V2, ...) call would
+    // need to run for it to produce anything, and this call didn't make one.
+    expect(preferenceProfile(db, V2).entries).toHaveLength(0);
   });
 
   it("does not log a phantom audit row for a delta on a non-existent key (C4)", () => {
@@ -413,39 +429,236 @@ describe("preference profile (ACE typed deltas)", () => {
     expect(n).toBe(0); // and no phantom audit rows
   });
 
-  it("extractPreferences: skipped without a judge; aborted on a parse failure applies nothing", async () => {
+  it("extractPreferences: skipped with no evidence; a neutral window applies nothing; a +1 window applies a delta", async () => {
     const db = edb0();
-    seed(db, "o1", { task_result: 1, eligibility: "eligible" });
-    expect(await extractPreferences(db, V1, { judge: null, nowMs: NOW })).toMatchObject({
+    expect(await extractPreferences(db, V1, { nowMs: NOW })).toMatchObject({
       skipped: true,
+      applied: 0,
     });
-    const bad = async () => ({ text: "{oops", model: "mock" });
-    const r = await extractPreferences(db, V1, { judge: bad, nowMs: NOW });
-    expect(r.aborted).toBe(true);
+
+    // Evidence exists but is neutral (task_result = 0): a recorded-but-neutral verdict is not
+    // evidence of preference either way, so this must NOT be reported skipped (evidence WAS found)
+    // and must NOT apply anything.
+    seed(db, "neutral", { task_result: 0, eligibility: "eligible", tool: "search_text" });
+    const neutral = await extractPreferences(db, V1, { nowMs: NOW });
+    expect(neutral).toMatchObject({ skipped: false, aborted: false, applied: 0 });
     expect(preferenceProfile(db, V1).entries).toHaveLength(0);
-    const good = async () => ({
-      text: JSON.stringify({
-        deltas: [{ key: "fast-reads", op: "add", value: "prefers read_note over search" }],
-      }),
-      model: "mock",
-    });
-    const ok = await extractPreferences(db, V1, { judge: good, nowMs: NOW });
+
+    seed(db, "good", { task_result: 1, eligibility: "eligible", tool: "search_text" });
+    const ok = await extractPreferences(db, V1, { nowMs: NOW });
     expect(ok).toMatchObject({ skipped: false, aborted: false, applied: 1 });
-    expect(preferenceProfile(db, V1).entries[0]?.key).toBe("fast-reads");
+    expect(preferenceProfile(db, V1).entries[0]?.key).toBe("preferred.search_mode");
+    expect(preferenceProfile(db, V1).entries[0]?.value).toBe("search_text");
   });
 
-  it("excludes ineligible episodes from the judge even when they carry a task_result (A3)", async () => {
+  it("excludes ineligible episodes from the deterministic counter even when they carry a task_result (A3)", async () => {
     const db = edb0();
-    // both carry a (test-seeded) non-null task_result; only the eligible one may reach the judge.
-    seed(db, "good", { eligibility: "eligible", task_result: 1, tool: "read_note" });
-    seed(db, "poison", { eligibility: "ineligible", task_result: 1, tool: "exfiltrate_secrets" });
-    let seenPrompt = "";
-    const judge = async (req: unknown) => {
-      seenPrompt = JSON.stringify(req);
-      return { text: JSON.stringify({ deltas: [] }), model: "mock" };
+    // both carry a (test-seeded) non-null task_result; only the eligible one may reach the counter.
+    seed(db, "good", { eligibility: "eligible", task_result: 1, tool: "search_text" });
+    seed(db, "poison", { eligibility: "ineligible", task_result: 1, tool: "search_vault" });
+    const r = await extractPreferences(db, V1, { nowMs: NOW });
+    // If the ineligible row had leaked in, this would be 2 applied deltas (two distinct tools).
+    expect(r.applied).toBe(1);
+    expect(preferenceProfile(db, V1).entries[0]?.value).toBe("search_text");
+  });
+
+  // ---- THE-673: deterministic counters over typed evidence ----
+
+  it("groupEpisodesByVerdictWindow collapses rows sharing (session_id, verdict_at) into one window", () => {
+    const rows = [
+      { session_id: "s1", verdict_at: 100, tag: "a" },
+      { session_id: "s1", verdict_at: 100, tag: "b" },
+      { session_id: "s2", verdict_at: 100, tag: "c" }, // different session -> different window
+      { session_id: "s1", verdict_at: 200, tag: "d" }, // different verdict_at -> different window
+      { session_id: null, verdict_at: null, tag: "e" }, // pre-producer row -> its own window
+      { session_id: null, verdict_at: null, tag: "f" }, // ditto -> its own window, not merged with e
+    ];
+    const windows = groupEpisodesByVerdictWindow(rows);
+    expect(windows).toHaveLength(5);
+    const bySize = windows.map((w) => w.sampledCalls).sort();
+    expect(bySize).toEqual([1, 1, 1, 1, 2]); // the (s1, 100) pair is the only window with 2 members
+    const merged = windows.find((w) => w.sampledCalls === 2);
+    expect(merged?.episodes.map((e) => e.tag).sort()).toEqual(["a", "b"]);
+  });
+
+  it("a window dispatching MULTIPLE distinct search tools still yields exactly ONE delta (binding: one window = one observation)", async () => {
+    const db = edb0();
+    // Same window (s1, 100): two rows for search_text, one for search_vault. If the counter
+    // proposed a delta per distinct tool, this single judgement would bump the weight twice —
+    // exactly the length bias THE-726's windowing exists to remove one level up.
+    seed(db, "w1", {
+      task_result: 1,
+      eligibility: "eligible",
+      tool: "search_text",
+      session_id: "s1",
+      verdict_at: 100,
+    });
+    seed(db, "w2", {
+      task_result: 1,
+      eligibility: "eligible",
+      tool: "search_text",
+      session_id: "s1",
+      verdict_at: 100,
+    });
+    seed(db, "w3", {
+      task_result: 1,
+      eligibility: "eligible",
+      tool: "search_vault",
+      session_id: "s1",
+      verdict_at: 100,
+    });
+    const r = await extractPreferences(db, V1, { nowMs: NOW });
+    expect(r.applied).toBe(1); // one window, one observation — not one per distinct tool
+    expect(preferenceProfile(db, V1).entries).toEqual([
+      expect.objectContaining({ key: "preferred.search_mode", value: "search_text", weight: 1 }),
+    ]);
+    const ev = db.prepare("SELECT evidence FROM preference_deltas WHERE vault_id = ?").get(V1) as {
+      evidence: string;
     };
-    await extractPreferences(db, V1, { judge, nowMs: NOW });
-    expect(seenPrompt).toContain("read_note"); // the eligible episode reached the judge…
-    expect(seenPrompt).not.toContain("exfiltrate_secrets"); // …the ineligible one did NOT.
+    // The 2-vs-1 split stays auditable: sampled_calls is the window's true size, tool_calls the
+    // winner's count — an auditor can see the window was won 2-to-1, not 2-to-0.
+    expect(ev.evidence).toBe("tool=search_text sampled_calls=3 tool_calls=2");
+  });
+
+  it("extractPreferences: a mixed-verdict fixture — +1 strengthens, -1 weakens an existing key, 0 and NULL yield no delta", async () => {
+    const db = edb0();
+    // Window A (session s1, verdict 100): +1, two rows both dispatching search_text -> ONE
+    // delta (one window = one observation), sampled_calls carries the real count.
+    seed(db, "a1", {
+      task_result: 1,
+      eligibility: "eligible",
+      tool: "search_text",
+      session_id: "s1",
+      verdict_at: 100,
+    });
+    seed(db, "a2", {
+      task_result: 1,
+      eligibility: "eligible",
+      tool: "search_text",
+      session_id: "s1",
+      verdict_at: 100,
+    });
+    // Window B (session s2, verdict 200): +1, dispatches vault_graph_search -> a second, distinct
+    // delta on the same key (different value).
+    seed(db, "b1", {
+      task_result: 1,
+      eligibility: "eligible",
+      tool: "vault_graph_search",
+      session_id: "s2",
+      verdict_at: 200,
+    });
+    // Window C (session s3, verdict 300): 0 (neutral) -> no delta at all, even though it dispatched
+    // a search tool.
+    seed(db, "c1", {
+      task_result: 0,
+      eligibility: "eligible",
+      tool: "search_regex",
+      session_id: "s3",
+      verdict_at: 300,
+    });
+    // A pre-producer row (verdict_at NULL): +1, but a non-search tool -> contributes no delta
+    // either, because preferred.search_mode only counts the search family.
+    seed(db, "d1", { task_result: 1, eligibility: "eligible", tool: "read_note" });
+
+    const r = await extractPreferences(db, V1, { nowMs: NOW });
+    expect(r).toMatchObject({ skipped: false, aborted: false, applied: 2 });
+
+    const deltas = db
+      .prepare(
+        "SELECT key, op, value, evidence FROM preference_deltas WHERE vault_id = ? ORDER BY value",
+      )
+      .all(V1) as Array<{ key: string; op: string; value: string; evidence: string }>;
+    expect(deltas).toEqual([
+      {
+        key: "preferred.search_mode",
+        op: "add",
+        value: "search_text",
+        evidence: "tool=search_text sampled_calls=2 tool_calls=2", // derived from the real 2-row window, not a placeholder
+      },
+      {
+        key: "preferred.search_mode",
+        op: "add",
+        value: "vault_graph_search",
+        evidence: "tool=vault_graph_search sampled_calls=1 tool_calls=1",
+      },
+    ]);
+  });
+
+  it("extractPreferences: a -1 window WEAKENS an existing preferred.search_mode key", async () => {
+    const db = edb0();
+    // Establish the key exactly the way a prior +1 extraction would (isolated from this test's own
+    // evidence, via applyPreferenceDeltas directly, so the -1 window below is the ONLY thing this
+    // call re-derives — extractPreferences has no "already processed" state, so a second call
+    // re-reads every eligible episode in scope, and mixing that re-read into the same DB as more
+    // +1 evidence would confound what this assertion is checking).
+    applyPreferenceDeltas(
+      db,
+      V1,
+      [{ key: "preferred.search_mode", op: "add", value: "search_text" }],
+      NOW,
+    );
+    const before = preferenceProfile(db, V1).entries[0]?.weight as number;
+
+    seed(db, "neg", {
+      task_result: -1,
+      eligibility: "eligible",
+      tool: "search_text",
+      session_id: "s9",
+      verdict_at: 900,
+    });
+    const r = await extractPreferences(db, V1, { nowMs: NOW + 1 });
+    expect(r.applied).toBe(1);
+    const after = preferenceProfile(db, V1).entries[0]?.weight as number;
+    expect(after).toBeLessThan(before);
+  });
+
+  it("extractPreferences: a -1 window is a no-op when preferred.search_mode has never been added (C4)", async () => {
+    const db = edb0();
+    seed(db, "neg", {
+      task_result: -1,
+      eligibility: "eligible",
+      tool: "search_omnisearch",
+      session_id: "s9",
+      verdict_at: 900,
+    });
+    const r = await extractPreferences(db, V1, { nowMs: NOW });
+    expect(r.applied).toBe(0);
+    expect(preferenceProfile(db, V1).entries).toHaveLength(0);
+    const n = (
+      db.prepare("SELECT COUNT(*) AS n FROM preference_deltas WHERE vault_id = ?").get(V1) as {
+        n: number;
+      }
+    ).n;
+    expect(n).toBe(0); // no phantom audit row
+  });
+});
+
+describe("PREFERENCE_KEYS registry (THE-673)", () => {
+  it("contains exactly the one key with a real, derivable producer today", () => {
+    expect([...PREFERENCE_KEYS]).toEqual(["preferred.search_mode"]);
+  });
+
+  it("rejects a delta for an unregistered key before it reaches applyPreferenceDeltas", () => {
+    const deltas: PreferenceDelta[] = [
+      { key: "preferred.search_mode", op: "add", value: "search_text" },
+      // None of these have a producer yet (captureContent off, THE-675 open, no HITL producer) —
+      // a deterministic extractor proposing one of them would be exactly the "impossible state"
+      // this registry exists to make unreachable.
+      { key: "preferred.output_format", op: "add", value: "table" },
+      { key: "response.detail", op: "add", value: "verbose" },
+    ];
+    const filtered = filterRegisteredDeltas(deltas);
+    expect(filtered).toEqual([{ key: "preferred.search_mode", op: "add", value: "search_text" }]);
+  });
+
+  it("applying a filtered batch never writes the rejected keys", () => {
+    const db = edb0();
+    const deltas: PreferenceDelta[] = [
+      { key: "preferred.search_mode", op: "add", value: "search_text" },
+      { key: "workflow.confirmation_level", op: "add", value: "always" },
+    ];
+    const { applied } = applyPreferenceDeltas(db, V1, filterRegisteredDeltas(deltas), NOW);
+    expect(applied).toBe(1);
+    expect(preferenceProfile(db, V1).entries.map((e) => e.key)).toEqual(["preferred.search_mode"]);
   });
 });
