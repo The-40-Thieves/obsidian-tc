@@ -43,7 +43,6 @@
 //     reflect-evaluator.test.ts:96 seeds `task_result: -1` directly and asserts the hold, so the gate
 //     is ready the moment a producer exists. Whether to build one is the open question on THE-721.
 import type { Database } from "../db/types";
-import { type GatewayRoles, prompt } from "../plane/gateway";
 import type { Scheduler } from "../scheduler/scheduler";
 
 export interface EvaluateStats {
@@ -343,17 +342,169 @@ export function preferenceProfile(
   };
 }
 
-/** Gateway-gated preference extraction: evidence = recent task_result-bearing episodes (THE-718
- *  removed the retrieval half — see the note at the query); the judge proposes typed deltas
- *  (strict JSON, capped); a parse failure aborts the
- *  batch — nothing half-applies. Without a judge the pass reports skipped (the deterministic
- *  evaluator above still ran). */
+/** THE-673: the closed set of preference keys a deterministic extractor may write. Enforced in
+ *  application code, NOT a DB `CHECK` — `key` is half of `preference_profile`'s primary key, and
+ *  SQLite cannot add a `CHECK` to an existing column without a full table rebuild (the same class
+ *  of migration `20260803_001` already had to do once for this table). A TypeScript allowlist
+ *  gives the same "impossible state" guarantee at zero migration cost.
+ *
+ *  Deliberately one member. `preferred.search_mode` is the only axis with a real producer today
+ *  (tool choice, 100%-populated). The other four keys once proposed for this registry
+ *  (`preferred.output_format`, `response.detail`, `citation.style`,
+ *  `workflow.confirmation_level`) each need an input this ticket does not build — `captureContent`
+ *  flipped on, THE-675's transcript question, or an elicitation/HITL producer respectively — and
+ *  shipping them unregistered-but-inert would be the ticket's own named anti-pattern ("four keys
+ *  nothing can ever write"). Widen this set only when a new axis has a real producer. */
+export const PREFERENCE_KEYS: ReadonlySet<string> = new Set(["preferred.search_mode"]);
+
+/** THE-673: the search-family tools `preferred.search_mode` counts over. Closed list rather than
+ *  "any tool that ran", because the point of this key is revealed *choice among alternatives* —
+ *  counting every dispatch would fold in tools with no comparable substitute and dilute the
+ *  signal this axis exists to carry. */
+const SEARCH_FAMILY_TOOLS: ReadonlySet<string> = new Set([
+  "search_text",
+  "search_regex",
+  "search_vault",
+  "vault_graph_search",
+  "search_omnisearch",
+]);
+
+/** THE-673/THE-726: an evidence row shaped enough to know which `(session_id, verdict_at)` window
+ *  it belongs to. `groupEpisodesByVerdictWindow` only needs these two fields — kept generic so it
+ *  stays reusable by whatever else reads windowed episode evidence, rather than tied to the exact
+ *  column set `extractPreferences` happens to select today. */
+export interface VerdictWindowable {
+  session_id: string | null;
+  verdict_at: number | null;
+}
+
+/**
+ * THE-726 / THE-673 — collapse episode rows onto their `(session_id, verdict_at)` WINDOW, so one
+ * rendered judgement becomes one observation rather than N correlated rows.
+ *
+ * A task verdict is rendered at session grain and PROJECTED onto every judgeable dispatch in its
+ * window, so N rows can carry one opinion. `(session_id, verdict_at)` is the window identity — the
+ * pair that recovers which rows those are. Without collapsing on it a reader sees N
+ * perfectly-correlated rows and cannot tell they are one observation: measured on the live corpus
+ * at 4.82 dispatches per session (range 1-18), a single 18-dispatch task would outweigh a careful
+ * one-call task 18:1 for the same single judgement. That is a LENGTH bias toward tool-heavy
+ * workflows, not a quality signal.
+ *
+ * Extracted as ONE shared helper (originally inline in the now-removed LLM evidence-line
+ * formatter) because this repo has an explicit standing rule against two copies of one predicate
+ * drifting apart (see `partitionPending`'s comment above making the same argument) — the
+ * deterministic counter built on this needs exactly the same collapse the LLM path needed, and a
+ * second copy is exactly the kind of drift that would be silent in the direction that matters.
+ *
+ * Rows predating THE-726's producer have `verdict_at` NULL; they group under their own key so a
+ * pre-projection row is never merged with an unrelated one.
+ *
+ * KNOWN LIMIT, stated rather than left to be rediscovered: grouping happens AFTER whatever row
+ * LIMIT the caller applied upstream, so a large window still consumes ROW slots even though it
+ * contributes one WINDOW. At the measured 4.82 dispatches per window a 40-row budget yields
+ * roughly 8 windows, not 40. That is under-sampling, and it is a strictly smaller problem than the
+ * length bias this collapse removes.
+ */
+export function groupEpisodesByVerdictWindow<T extends VerdictWindowable>(
+  episodes: readonly T[],
+): Array<{ episodes: T[]; sampledCalls: number }> {
+  const windows = new Map<string, T[]>();
+  for (const e of episodes) {
+    const key =
+      e.verdict_at !== null && e.session_id !== null
+        ? `${e.session_id}:${e.verdict_at}`
+        : `row:${windows.size}`;
+    const bucket = windows.get(key);
+    if (bucket) bucket.push(e);
+    else windows.set(key, [e]);
+  }
+  return [...windows.values()].map((es) => ({ episodes: es, sampledCalls: es.length }));
+}
+
+interface EvidenceRow extends VerdictWindowable {
+  tool: string | null;
+  status: string;
+  task_result: number;
+  summary: string | null;
+}
+
+/** THE-673: one window (one rendered judgement) yields AT MOST ONE delta — the BINDING
+ *  REQUIREMENT on this ticket is "one window contributes ONE observation", and `preference_profile`
+ *  enforces the same shape structurally: its primary key is `(vault_id, key)`, so
+ *  `preferred.search_mode` can only ever hold ONE current value, never a per-tool tally. So when a
+ *  window dispatched more than one distinct search-family tool, the MAJORITY tool within that
+ *  window (ties broken toward whichever was dispatched first) is the window's one observation —
+ *  not a delta per tool, which would let a single judgement bump the weight multiple times and
+ *  violate the one-window-one-observation requirement.
+ *
+ *  `task_result = 0` (recorded but neutral) produces no delta: a neutral or unjudged window is not
+ *  evidence of preference either way, and treating "used a tool" alone as revealed preference
+ *  would silently reintroduce the "count everything, judged or not" behaviour the eligibility
+ *  WHERE (`task_result IS NOT NULL`) already excludes upstream. A window with no search-family
+ *  tool at all (e.g. only `read_note`) also produces no delta — this axis counts choice among
+ *  search alternatives, not general activity.
+ *
+ *  `op` is always `add` on the positive branch rather than a looked-up `strengthen` —
+ *  `applyPreferenceDeltas`'s `add` already upserts (create-or-reinforce, refresh `value`), so it is
+ *  the create-or-strengthen behaviour the design calls for without a second DB read to pick a
+ *  label. `weaken` is left as a plain UPDATE-only op on purpose: weakening a key that was never
+ *  added must stay a no-op (the existing C4 guard in `applyPreferenceDeltas` — no phantom audit
+ *  row), never a way to sneak the key into existence from the negative side. */
+function buildSearchModeDeltas(windows: Array<{ episodes: EvidenceRow[] }>): PreferenceDelta[] {
+  const deltas: PreferenceDelta[] = [];
+  for (const w of windows) {
+    const taskResult = w.episodes[0]?.task_result ?? 0;
+    if (taskResult === 0) continue;
+    const toolCounts = new Map<string, number>();
+    for (const e of w.episodes) {
+      if (e.tool && SEARCH_FAMILY_TOOLS.has(e.tool)) {
+        toolCounts.set(e.tool, (toolCounts.get(e.tool) ?? 0) + 1);
+      }
+    }
+    if (toolCounts.size === 0) continue;
+    let majorityTool = "";
+    let majorityCount = 0;
+    for (const [tool, count] of toolCounts) {
+      if (count > majorityCount) {
+        majorityTool = tool;
+        majorityCount = count;
+      }
+    }
+    deltas.push({
+      key: "preferred.search_mode",
+      op: taskResult > 0 ? "add" : "weaken",
+      value: majorityTool,
+      evidence: `tool=${majorityTool} sampled_calls=${majorityCount}`,
+    });
+  }
+  return deltas;
+}
+
+/** THE-673: drop any delta whose key is not in `PREFERENCE_KEYS` before it reaches
+ *  `applyPreferenceDeltas` — an unregistered key must never become a write, even from a future
+ *  extractor sharing this filter, not just from the one counter this file builds today. Exported
+ *  so the registry's enforcement is directly testable at the boundary, not just inferred from
+ *  `PREFERENCE_KEYS`'s membership. */
+export function filterRegisteredDeltas(deltas: PreferenceDelta[]): PreferenceDelta[] {
+  return deltas.filter((d) => PREFERENCE_KEYS.has(d.key));
+}
+
+/** Deterministic preference extraction (THE-673): evidence = recent task_result-bearing episodes
+ *  (THE-718 removed the retrieval half — see the note at the query), collapsed onto their
+ *  `(session_id, verdict_at)` window and counted, never inferred from prose. THE-701 set the
+ *  precedent for this file: the analogous judge layer left `evaluateEpisodes` "not on principle,
+ *  on measurement" — this removes the second and last judge in this file for the same reason: a
+ *  free-form LLM proposal over a store designed for auditable counters is strictly worse at equal
+ *  accuracy, because it carries no derivation. `skipped` now means only "no evidence reached the
+ *  window pass" (no gateway concept exists anymore); a run that finds evidence but derives no
+ *  delta from it — e.g. every window is neutral — is NOT reported skipped, distinct from finding
+ *  nothing to look at. `aborted` is retained in the return shape for call-site compatibility but a
+ *  deterministic counter has no parse-failure mode, so it is always `false`. */
 export async function extractPreferences(
   edb: Database,
   vaultId: string,
-  opts: { judge: GatewayRoles["judge"] | null; nowMs: number; maxEvidence?: number },
+  opts: { nowMs: number; maxEvidence?: number },
 ): Promise<{ skipped: boolean; aborted: boolean; applied: number; version: number }> {
-  if (!opts.judge) return { skipped: true, aborted: false, applied: 0, version: 0 };
   const maxEvidence = opts.maxEvidence ?? 40;
   // THE-710: episode evidence is scoped to this vault. `agent_episodes.vault_id` is NULLABLE, and a
   // NULL-vault episode is deliberately EXCLUDED rather than attributed anywhere — assigning it to a
@@ -367,14 +518,7 @@ export async function extractPreferences(
          AND blocked = 0 AND eligibility = 'eligible' AND task_result IS NOT NULL
        ORDER BY ts DESC LIMIT ?`,
     )
-    .all(vaultId, maxEvidence) as Array<{
-    tool: string | null;
-    status: string;
-    task_result: number;
-    summary: string | null;
-    session_id: string | null;
-    verdict_at: number | null;
-  }>;
+    .all(vaultId, maxEvidence) as EvidenceRow[];
   // THE-718: the second evidence source here was `chunk_retrievals.outcome`, retired in
   // 20260806_001. It is REMOVED rather than repointed at `chunk_retrievals.feedback`, because the
   // comment this replaces said so explicitly — wiring the real `feedback` column into extraction
@@ -384,75 +528,11 @@ export async function extractPreferences(
   // could not be vault-scoped (chunk vaults live in cache.db, across the membrane); it goes with the
   // query, and comes back with it if THE-641 lands.
   if (episodes.length === 0) return { skipped: true, aborted: false, applied: 0, version: 0 };
-  // THE-726: ONE line per JUDGEMENT, not per row.
-  //
-  // A task verdict is rendered at session grain and PROJECTED onto every judgeable dispatch in its
-  // window, so N rows here can carry one opinion. `(session_id, verdict_at)` is the window
-  // identity — the pair that recovers which rows those are. Without collapsing on it the judge sees
-  // N perfectly-correlated lines and cannot tell they are one observation: measured on the live
-  // corpus at 4.82 dispatches per session (range 1-18), a single 18-dispatch task would take 18 of
-  // the 40 evidence slots and an 8-judgement budget would read as 40. That is a LENGTH bias toward
-  // tool-heavy workflows, not a quality signal.
-  //
-  // The member count is carried as CONTEXT rather than as repetition, so scale is still visible to
-  // the judge without being counted as independent support. It is labelled `sampled_calls`, not
-  // `spanning`, because the grouping happens after the row LIMIT: for a window larger than the
-  // remaining budget it is the number of members SAMPLED, not the window's true size, and a label
-  // that claimed otherwise would be wrong in exactly the case that matters. THE-673's counters carry the same
-  // requirement — recorded on that ticket too, because a requirement stated only in a design doc is
-  // one nobody reads.
-  //
-  // Rows predating the producer have `verdict_at` NULL; they group under their own id so a
-  // pre-projection row is never merged with an unrelated one.
-  //
-  // KNOWN LIMIT, stated rather than left to be rediscovered: the grouping happens AFTER the
-  // `ORDER BY ts DESC LIMIT ?` above, so a large window still consumes ROW slots even though it
-  // contributes one LINE. At the measured 4.82 dispatches per window the default budget of 40 rows
-  // yields roughly 8 judgements, not 40. That is under-SAMPLING, and it is a strictly smaller
-  // problem than the bias this dedup removes: before it, those same ~8 judgements were presented to
-  // the judge as 40 independent observations, weighted by how many tool calls each happened to take.
-  // Fixing the budget too means selecting a row allowance and taking N windows from it, which needs
-  // a bound nothing here can derive honestly — the largest window measured is 18 rows, but that is
-  // an observation about one corpus, not a limit.
-  const windows = new Map<string, { e: (typeof episodes)[number]; n: number }>();
-  for (const e of episodes) {
-    const key =
-      e.verdict_at !== null && e.session_id !== null
-        ? `${e.session_id}:${e.verdict_at}`
-        : `row:${e.tool ?? "?"}:${e.verdict_at ?? "none"}:${windows.size}`;
-    const seen = windows.get(key);
-    if (seen) seen.n += 1;
-    else windows.set(key, { e, n: 1 });
-  }
-  const lines = [...windows.values()]
-    .map(
-      ({ e, n }) =>
-        `episode task_result=${e.task_result > 0 ? "+1" : e.task_result < 0 ? "-1" : "0"} tool=${e.tool ?? "?"} status=${e.status}${n > 1 ? ` sampled_calls=${n}` : ""}${e.summary ? ` summary=${e.summary.slice(0, 120)}` : ""}`,
-    )
-    .join("\n");
-  try {
-    const res = await opts.judge({
-      ...prompt(
-        "You maintain a small durable preference profile for this workspace's user, derived " +
-          "from work-outcome evidence. Propose AT MOST 10 typed deltas about stable preferences " +
-          "(tools, formats, workflows) the evidence supports. Ops: add (new preference), " +
-          "strengthen / weaken (existing key), retract (evidence contradicts it). Respond with " +
-          'strict JSON: {"deltas":[{"key":"kebab-case-key","op":"add|strengthen|weaken|retract",' +
-          '"value":"short statement","evidence":"one-line gist"}]}. No other text.',
-        lines,
-      ),
-      responseFormat: { type: "json_object" },
-    });
-    const parsed = JSON.parse(res.text) as { deltas?: PreferenceDelta[] };
-    if (!Array.isArray(parsed.deltas)) throw new Error("no deltas array");
-    const deltas = parsed.deltas
-      .filter((d) => d && typeof d.key === "string" && d.key.length > 0)
-      .slice(0, 10);
-    const { version, applied } = applyPreferenceDeltas(edb, vaultId, deltas, opts.nowMs);
-    return { skipped: false, aborted: false, applied, version };
-  } catch {
-    return { skipped: false, aborted: true, applied: 0, version: 0 };
-  }
+  const windows = groupEpisodesByVerdictWindow(episodes);
+  const deltas = filterRegisteredDeltas(buildSearchModeDeltas(windows));
+  if (deltas.length === 0) return { skipped: false, aborted: false, applied: 0, version: 0 };
+  const { version, applied } = applyPreferenceDeltas(edb, vaultId, deltas, opts.nowMs);
+  return { skipped: false, aborted: false, applied, version };
 }
 
 /** THE-698: deps for the periodic serve-path episode evaluation (registerEpisodeEvaluation).
