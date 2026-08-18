@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,148 tracked code files · 180,098 lines.
+**Scale:** 1,157 tracked code files · 182,323 lines.
 
-TypeScript 166,184 · JavaScript 9,514 · SQL 1,658 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 168,409 · JavaScript 9,514 · SQL 1,658 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -88,9 +88,9 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 |---|---:|---:|---|
 | `tools/` | 86 | 17,074 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 55 | 10,810 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `experiential/` | 21 | 4,839 | work-memory tier: activation, retrieval log, forget, citations |
+| `experiential/` | 23 | 5,758 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 17 | 4,583 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `cli/` | 25 | 3,433 | arg parsing + subcommands |
+| `cli/` | 31 | 3,824 | arg parsing + subcommands |
 | `runtime/` | 15 | 3,426 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `vault/` | 17 | 2,013 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `doctor/` | 11 | 1,894 | `obsidian-tc doctor` — checks, report rendering, runner |
@@ -118,7 +118,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 397 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 405 files across 31 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -138,11 +138,12 @@ Generated — see `scripts/gen-tree-map.mjs`.
 <!-- BEGIN GENERATED: tree-largest-files -->
 | lines | file |
 |---:|---|
-| 819 | `packages/server/src/cli/args.ts` |
 | 782 | `packages/server/src/cli/commands/doctor.ts` |
 | 773 | `packages/server/src/mcp/server.ts` |
 | 760 | `packages/server/src/runtime/server-runtime.ts` |
 | 707 | `packages/server/src/doctor/checks.ts` |
+| 683 | `packages/server/src/experiential/context-bundle.ts` |
+| 678 | `packages/server/src/cli/args.ts` |
 | 677 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
@@ -165,7 +166,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 508 | `packages/server/src/search/indexing/index-vault.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
 
-26 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
+27 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
 <!-- END GENERATED: tree-largest-files -->
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
@@ -284,7 +285,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**405 modules · 1802 dependencies · 119 distinct subsystem pairs · 807 cross-subsystem imports.**
+**413 modules · 1839 dependencies · 119 distinct subsystem pairs · 817 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -308,8 +309,8 @@ set is 119 pairs.
 flowchart LR
   tools[tools<br/>86 files]
   search[search<br/>55 files]
-  cli[cli<br/>25 files]
-  experiential[experiential<br/>21 files]
+  cli[cli<br/>31 files]
+  experiential[experiential<br/>23 files]
   mcp[mcp<br/>17 files]
   vault[vault<br/>17 files]
   db[(db<br/>15 files)]
@@ -331,15 +332,15 @@ flowchart LR
   tools -->|76| mcp
   tools -->|47| search
   search -->|43| db
-  cli -->|26| db
+  cli -->|32| db
   runtime -->|26| search
-  experiential -->|19| db
+  experiential -->|21| db
   runtime -->|19| db
   tools -->|16| db
   search -->|14| vault
+  cli -->|13| experiential
   runtime -->|12| scheduler
   tools -->|12| experiential
-  cli -->|11| experiential
   runtime -->|11| tools
   runtime -->|10| experiential
   mcp -->|9| vault
@@ -372,10 +373,10 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 232 | `tools` | 374 |
-| `db` | 145 | `runtime` | 142 |
-| `search` | 100 | `cli` | 70 |
+| `db` | 153 | `runtime` | 142 |
+| `search` | 100 | `cli` | 78 |
 | `mcp` | 95 | `search` | 67 |
-| `experiential` | 37 | `experiential` | 25 |
+| `experiential` | 39 | `experiential` | 27 |
 <!-- END GENERATED: tree-fan -->
 
 The shape is layered and largely acyclic at the subsystem level: the tool surface
