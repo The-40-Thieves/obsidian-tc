@@ -13,11 +13,14 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import {
   flagsFor,
+  noteQualityWarningFor,
   readNoteQuality,
   recomputeNoteQuality,
   recomputeNoteQualityAll,
+  STALE_ACCESS_DAYS,
   STALE_EDIT_DAYS,
   scoreNote,
+  suggestionsFor,
 } from "../src/experiential/note-quality";
 import { openMemoryDb } from "./helpers";
 
@@ -379,6 +382,120 @@ describe("THE-643 recomputeNoteQualityAll", () => {
     seed(cacheDb, edb);
     expect(recomputeNoteQualityAll(cacheDb, edb, [], NOW)).toEqual({});
     expect(readNoteQuality(edb, { vaultId: VAULT })).toEqual([]);
+  });
+});
+
+// THE-643 item 1: the write-time guardrail's point read. The load-bearing distinction is null
+// (rollup never ran) vs {flags: [], ...} (rollup ran, note is clean) — a caller that conflates
+// them reads "unmeasured" as a false all-clear.
+describe("THE-643 noteQualityWarningFor", () => {
+  it("is null when the rollup has never run for this (vault, path) — not a false all-clear", () => {
+    const { edb } = stores();
+    expect(noteQualityWarningFor(edb, VAULT, "never-computed.md")).toBeNull();
+  });
+
+  it("is {flags: [], computed_at} for a clean note the rollup HAS scored", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    expect(noteQualityWarningFor(edb, VAULT, "clean.md")).toEqual({ flags: [], computed_at: NOW });
+  });
+
+  it("carries the note's flags when it has been scored and flagged", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    expect(noteQualityWarningFor(edb, VAULT, "orphan.md")).toEqual({
+      flags: ["orphan"],
+      computed_at: NOW,
+    });
+  });
+
+  it("is null for a path that exists in the OTHER vault's rollup", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    expect(noteQualityWarningFor(edb, "other-vault", "clean.md")).toBeNull();
+  });
+});
+
+// THE-643 item 2: the `note-quality --suggest` remediation text — one line per flag, keyed off
+// the flag itself (not the note), so a flag appearing on the wrong note's suggestion would be a
+// failure rather than a coincidence, matching THE-537's own fixture discipline.
+describe("THE-643 suggestionsFor", () => {
+  it("duplicate: names the OTHER path(s) sharing body_sha, excluding self", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    const row = readNoteQuality(edb, { vaultId: VAULT, path: "dup.md" })[0];
+    if (row === undefined) throw new Error("fixture row missing");
+    const out = suggestionsFor(cacheDb, VAULT, row, ["duplicate"]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("other.md");
+    // Self must never appear in its own "merge with" list.
+    expect(out[0]).not.toContain("dup.md");
+  });
+
+  it("orphan: suggests linking from related content", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    const row = readNoteQuality(edb, { vaultId: VAULT, path: "orphan.md" })[0];
+    if (row === undefined) throw new Error("fixture row missing");
+    expect(suggestionsFor(cacheDb, VAULT, row, ["orphan"])[0]).toContain("linking");
+  });
+
+  it("stale_edit: names the age in days", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    const row = readNoteQuality(edb, { vaultId: VAULT, path: "ancient.md" })[0];
+    if (row === undefined) throw new Error("fixture row missing");
+    const out = suggestionsFor(cacheDb, VAULT, row, ["stale_edit"]);
+    // ancient.md's mtime is NOW - 400 * DAY (seed()) — the age computed from the fixture's
+    // actual clock, not the STALE_EDIT_DAYS threshold that merely gates the flag.
+    expect(out[0]).toContain("400");
+  });
+
+  it("stale_access: names the configured cutoff", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    const row = readNoteQuality(edb, { vaultId: VAULT, path: "clean.md" })[0];
+    if (row === undefined) throw new Error("fixture row missing");
+    expect(suggestionsFor(cacheDb, VAULT, row, ["stale_access"])[0]).toContain(
+      String(STALE_ACCESS_DAYS),
+    );
+  });
+
+  it("contradicted: names the open contradiction count", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    const row = readNoteQuality(edb, { vaultId: VAULT, path: "contradicted.md" })[0];
+    if (row === undefined) throw new Error("fixture row missing");
+    expect(suggestionsFor(cacheDb, VAULT, row, ["contradicted"])[0]).toContain("1 open");
+  });
+
+  it("tombstoned is skipped — nothing to suggest for an already-forgotten note", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    const row = readNoteQuality(edb, { vaultId: VAULT, path: "clean.md" })[0];
+    if (row === undefined) throw new Error("fixture row missing");
+    expect(suggestionsFor(cacheDb, VAULT, row, ["tombstoned"])).toEqual([]);
+  });
+
+  it("emits one line PER flag, in the given order, for a multiply-flagged note", () => {
+    const { cacheDb, edb } = stores();
+    seed(cacheDb, edb);
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    const row = readNoteQuality(edb, { vaultId: VAULT, path: "orphan.md" })[0];
+    if (row === undefined) throw new Error("fixture row missing");
+    const out = suggestionsFor(cacheDb, VAULT, row, ["orphan", "stale_access", "tombstoned"]);
+    expect(out).toHaveLength(2); // tombstoned contributes nothing
+    expect(out[0]).toContain("linking");
+    expect(out[1]).toContain(String(STALE_ACCESS_DAYS));
   });
 });
 

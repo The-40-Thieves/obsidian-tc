@@ -285,6 +285,10 @@ export interface M1WiringDeps {
   onVecRebuild: (event: VecRebuildEvent) => void;
   makeOnIndexed: (vaultId: string) => IndexHook | undefined;
   indexVaultRecorded: (opts: IndexVaultArgs) => Promise<IndexStats>;
+  /** THE-643 item 1: same two fields wireDomainTools already threads for M8/M7's edb use — the
+   *  write-time guardrail's point read into note_quality. */
+  experientialOpen: boolean;
+  experientialDb: Database;
 }
 
 /** Registry/metadata/frontmatter/tags/links/graph-analytics/graph-health/snapshot tools (THE-XXX
@@ -308,6 +312,9 @@ export function wireM1Tools(deps: M1WiringDeps): void {
     // indexNote/deindexNote).
     reindex: deps.reindex,
     deindex: deps.deindex,
+    // THE-643 item 1: write_note/append_note/patch_note's quality_warning point read, same gate
+    // as M7/M8's edb use below (wireDomainTools).
+    ...(deps.experientialOpen ? { edb: deps.experientialDb } : {}),
     // THE-376: runtime add_vault triggers a full index of the newly registered vault (mirrors the
     // boot reconcile).
     indexVault: async (vaultId) => {
@@ -540,5 +547,9 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   // agent_episodes / chunk_retrievals. With the store closed the tools report unavailable.
   registerM8Tools(registry, {
     ...(deps.experientialOpen ? { edb: deps.experientialDb } : {}),
+    // THE-643 item 3: note_quality_report's activation_conflict aggregate reuses the SAME bubble
+    // lookup M7 uses for rerank (dark unless experiential.activationRerank) rather than opening a
+    // second read path onto vault_object_state.
+    ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
   });
 }

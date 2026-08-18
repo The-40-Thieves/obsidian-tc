@@ -33,6 +33,7 @@ import { UNSTAMPED_DEBT_CLAUSES } from "../../experiential/verdict";
 import type { ToolDefinition } from "../../mcp/registry";
 import { readableRel } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
+import { activationConflict, maxActivationByPath } from "./activation-conflict";
 import { buildGoalTools } from "./goal-tools";
 import {
   availableWith,
@@ -563,42 +564,62 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
             out_degree: z.number(),
             contradictions_open: z.number(),
             tombstoned: z.boolean(),
+            // THE-643 item 3: read-only — surfaces a disagreement between stale_access and the
+            // note's aggregate chunk activation, never resolves it. false when there's no
+            // activation data for the note's chunks (nothing to disagree with).
+            activation_conflict: z.boolean(),
           }),
         ),
       }),
       requiredScopes: ["read:notes"],
       tags: ["experiential", "knowledge"],
-      handler: (input) => {
+      handler: (input, ctx) => {
         if (!deps.edb) return UNAVAILABLE;
         const rows = readNoteQuality(deps.edb, {
           vaultId: input.vault,
           ...(input.flags ? { flags: input.flags } : {}),
           limit: input.limit,
         });
+        // THE-643 item 3: one batched lookup for the whole page, not one per note.
+        const maxActivation = deps.activationFor
+          ? maxActivationByPath(
+              ctx.db,
+              input.vault,
+              rows.map((r) => r.path),
+              deps.activationFor,
+            )
+          : new Map<string, number | null>();
         return {
           available: true,
           vault: input.vault,
           count: rows.length,
           // Surfaced so a caller can tell a clean vault from a rollup that was never computed.
           computed_at: rows[0]?.computed_at ?? null,
-          notes: rows.map((r) => ({
-            path: r.path,
-            quality_score: r.quality_score,
-            score_version: r.score_version,
-            flags: JSON.parse(r.flags) as string[],
-            chunk_count: r.chunk_count,
-            dup_chunk_count: r.dup_chunk_count,
-            dup_ratio: r.dup_ratio,
-            age_days: r.age_days,
-            last_retrieved_at: r.last_retrieved_at,
-            retrievals: r.retrievals,
-            citations: r.citations,
-            observed_retrievals: r.observed_retrievals,
-            in_degree: r.in_degree,
-            out_degree: r.out_degree,
-            contradictions_open: r.contradictions_open,
-            tombstoned: r.tombstoned === 1,
-          })),
+          notes: rows.map((r) => {
+            const flags = JSON.parse(r.flags) as string[];
+            return {
+              path: r.path,
+              quality_score: r.quality_score,
+              score_version: r.score_version,
+              flags,
+              chunk_count: r.chunk_count,
+              dup_chunk_count: r.dup_chunk_count,
+              dup_ratio: r.dup_ratio,
+              age_days: r.age_days,
+              last_retrieved_at: r.last_retrieved_at,
+              retrievals: r.retrievals,
+              citations: r.citations,
+              observed_retrievals: r.observed_retrievals,
+              in_degree: r.in_degree,
+              out_degree: r.out_degree,
+              contradictions_open: r.contradictions_open,
+              tombstoned: r.tombstoned === 1,
+              activation_conflict: activationConflict(
+                maxActivation.get(r.path) ?? null,
+                flags.includes("stale_access"),
+              ),
+            };
+          }),
         };
       },
     }),

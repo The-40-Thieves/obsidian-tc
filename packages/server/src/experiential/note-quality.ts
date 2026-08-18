@@ -381,19 +381,27 @@ export function recomputeNoteQualityAll(
   return perVault;
 }
 
-/** Read side for the CLI and the MCP report tool. `flags` filters to rows carrying ALL of them. */
+/** Read side for the CLI and the MCP report tool. `flags` filters to rows carrying ALL of them.
+ *  `path` narrows to a single (vault_id, path) row — the THE-643 item 1 write-time point read,
+ *  an O(1) primary-key lookup rather than a scan of the whole vault's rows. */
 export function readNoteQuality(
   edb: Database,
-  opts: { vaultId: string; flags?: string[]; limit?: number },
+  opts: { vaultId: string; path?: string; flags?: string[]; limit?: number },
 ): NoteQualityRow[] {
   if (!hasNoteQuality(edb)) return [];
-  const rows = edb
-    .prepare(
-      // NULL scores last: an unmeasured note is not a good note, and it is not a bad one either —
-      // it must not head a list the reader will interpret as "worst first".
-      "SELECT * FROM note_quality WHERE vault_id = ? ORDER BY quality_score IS NULL, quality_score ASC, path ASC",
-    )
-    .all(opts.vaultId) as NoteQualityRow[];
+  const rows = (
+    opts.path === undefined
+      ? edb
+          .prepare(
+            // NULL scores last: an unmeasured note is not a good note, and it is not a bad one
+            // either — it must not head a list the reader will interpret as "worst first".
+            "SELECT * FROM note_quality WHERE vault_id = ? ORDER BY quality_score IS NULL, quality_score ASC, path ASC",
+          )
+          .all(opts.vaultId)
+      : edb
+          .prepare("SELECT * FROM note_quality WHERE vault_id = ? AND path = ?")
+          .all(opts.vaultId, opts.path)
+  ) as NoteQualityRow[];
   const wanted = opts.flags ?? [];
   const filtered =
     wanted.length === 0
@@ -403,6 +411,93 @@ export function readNoteQuality(
           return wanted.every((f) => have.has(f));
         });
   return opts.limit === undefined ? filtered : filtered.slice(0, opts.limit);
+}
+
+/**
+ * THE-643 item 1 — the write-time guardrail's point read. `null` means the rollup has never run
+ * for this (vault, path): a caller MUST NOT read that as a false all-clear. `{flags: [], ...}` is
+ * the genuine clean case. Never recomputes — reflects whatever the last offline/scheduled pass
+ * (recomputeNoteQuality / recomputeNoteQualityAll) last wrote; the write path takes on one indexed
+ * point read, not the citation/graph/usage joins the offline pass exists to keep out of the hot
+ * path.
+ */
+export function noteQualityWarningFor(
+  edb: Database,
+  vaultId: string,
+  path: string,
+): { flags: string[]; computed_at: number } | null {
+  const row = readNoteQuality(edb, { vaultId, path })[0];
+  if (row === undefined) return null;
+  return { flags: JSON.parse(row.flags) as string[], computed_at: row.computed_at };
+}
+
+/** THE-643 item 2 — the `note-quality --suggest` remediation text, one line per (non-tombstoned)
+ *  flag on a note already known to carry it. `flags` is passed in already-parsed (the CLI has
+ *  already done `JSON.parse(row.flags)` for its own summary line) rather than re-parsed here. */
+export function suggestionsFor(
+  cacheDb: Database,
+  vaultId: string,
+  row: NoteQualityRow,
+  flags: string[],
+): string[] {
+  const out: string[] = [];
+  for (const flag of flags) {
+    switch (flag) {
+      case "duplicate": {
+        const others = otherPathsSharingBody(cacheDb, vaultId, row.path);
+        out.push(
+          others.length > 0
+            ? `duplicate: shares its body with ${others.join(", ")} — consider merging into/with one of them`
+            : "duplicate: shares its body with another path — consider merging",
+        );
+        break;
+      }
+      case "orphan":
+        out.push(
+          "orphan: no inbound/outbound edges — consider linking this note from related content",
+        );
+        break;
+      case "stale_edit":
+        out.push(
+          `stale_edit: not edited in ${Math.round(row.age_days ?? STALE_EDIT_DAYS)} days — review for archival or re-validation`,
+        );
+        break;
+      case "stale_access":
+        out.push(
+          `stale_access: not read in over ${STALE_ACCESS_DAYS} days — review for archival or re-validation`,
+        );
+        break;
+      case "contradicted":
+        out.push(
+          `contradicted: ${row.contradictions_open} open contradiction(s) — resolve via the existing contradiction-audit surface before trusting this note's content`,
+        );
+        break;
+      // tombstoned: already forgotten — nothing to suggest.
+      default:
+        break;
+    }
+  }
+  return out;
+}
+
+/** The OTHER paths (excluding `path` itself) sharing a body_sha with it — the `duplicate`
+ *  suggestion's "merge into/with" target list. Mirrors recomputeNoteQuality's own duplicate-body
+ *  grouping, but as a single-note lookup rather than a whole-vault pass. */
+function otherPathsSharingBody(cacheDb: Database, vaultId: string, path: string): string[] {
+  const shas = cacheDb
+    .prepare(
+      "SELECT DISTINCT body_sha FROM chunks WHERE vault_id = ? AND path = ? AND body_sha IS NOT NULL",
+    )
+    .all(vaultId, path) as Array<{ body_sha: string }>;
+  const others = new Set<string>();
+  for (const { body_sha } of shas) {
+    for (const r of cacheDb
+      .prepare("SELECT DISTINCT path FROM chunks WHERE vault_id = ? AND body_sha = ? AND path <> ?")
+      .all(vaultId, body_sha, path) as Array<{ path: string }>) {
+      others.add(r.path);
+    }
+  }
+  return [...others].sort();
 }
 
 function columnExists(db: Database, table: string, column: string): boolean {

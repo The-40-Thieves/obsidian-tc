@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openDatabase } from "../../db/open";
-import { readNoteQuality, recomputeNoteQuality } from "../../experiential/note-quality";
+import {
+  readNoteQuality,
+  recomputeNoteQuality,
+  suggestionsFor,
+} from "../../experiential/note-quality";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
 
 // THE-537: recompute the note_quality rollup, then print the flagged notes. An OFFLINE pass — no
@@ -40,6 +44,13 @@ export async function run_note_quality(cmd: Cmd<"note-quality">): Promise<void> 
         if (flags.length === 0 && !cmd.flags) continue;
         const score = r.quality_score === null ? "  n/a" : r.quality_score.toFixed(3);
         process.stdout.write(`  ${score}  ${r.path}  [${flags.join(",")}]\n`);
+        // THE-643 item 2: suggestion-only — never writes to the vault. One line per (non-
+        // tombstoned) flag, keyed off the row already read above; no extra recompute.
+        if (cmd.suggest) {
+          for (const s of suggestionsFor(cacheDb, v.id, r, flags)) {
+            process.stdout.write(`      -> ${s}\n`);
+          }
+        }
       }
     }
   } finally {

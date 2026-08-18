@@ -91,9 +91,11 @@ Usage:
   obsidian-tc config explain [path] [--source env|file|profile|default|derived] [--json]
                                           Trace every resolved config value to WHERE it came from.
                                           Secrets report their SOURCE, never their value (THE-518)
-  obsidian-tc note-quality [path] [--vault id] [--flags a,b] [--limit N]
+  obsidian-tc note-quality [path] [--vault id] [--flags a,b] [--limit N] [--suggest]
                                           Recompute the note_quality rollup and list flagged notes:
                                           duplicate | orphan | stale_edit | stale_access | contradicted | tombstoned (THE-537)
+                                          --suggest additionally prints one remediation line per
+                                          flag (never writes to the vault) (THE-643)
   obsidian-tc gaps [path] --queries <file> [--vault id] [--threshold T] [--min-results N] [--json file]
   obsidian-tc gaps [path] --calibrate <golden.yaml> [--vault id]
                                           Knowledge-gap detector / threshold calibration (THE-48)
