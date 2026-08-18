@@ -6,10 +6,15 @@ import {
   validateHostHeader,
   validateOriginHeader,
 } from "@modelcontextprotocol/server";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type {
+  PersonasConfig,
+  ServerConfig,
+  ToolVisibilityConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { Hono } from "hono";
 import type { FolderAcl } from "../acl";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
+import { resolvePersona } from "../auth/persona";
 import {
   buildProtectedResourceMetadata,
   isPrmConfigured,
@@ -102,10 +107,24 @@ export interface HttpAppOptions {
   allowedHosts?: string[];
   /** Extra Origin header values accepted beyond the request's same origin. */
   allowedOrigins?: string[];
+  /** THE-647 item 2: named persona bundles a JWT `persona` claim resolves to (auth/persona.ts).
+   *  Absent (the default) means no persona claim can ever resolve — a token carrying one is
+   *  refused. */
+  personas?: PersonasConfig;
 }
 
 type AuthOutcome =
-  | { ok: true; caller: string | null; scopes: Set<string>; vault?: string }
+  | {
+      ok: true;
+      caller: string | null;
+      scopes: Set<string>;
+      vault?: string;
+      /** THE-647 item 2: set only when the token's `persona` claim resolved. `scopes`/`vault`
+       *  above are ALREADY the persona's resolved values by this point — never the token's raw
+       *  ones — so every downstream reader can keep using them unconditionally. */
+      persona?: string;
+      toolVisibility?: ToolVisibilityConfig;
+    }
   | {
       ok: false;
       status: 401 | 500;
@@ -126,6 +145,7 @@ async function resolveAuth(
   header: string | undefined,
   auth: AuthConfig,
   verifier: TokenVerifier | null,
+  personas: PersonasConfig | undefined,
 ): Promise<AuthOutcome> {
   if (auth.mode === "none") {
     // Unauthenticated mode is only reachable on a loopback bind: ServerConfigSchema
@@ -138,6 +158,29 @@ async function resolveAuth(
   if (!verifier) return { ok: false, status: 500, reason: "jwt mode misconfigured: no secret" };
   try {
     const id = await verifier.verify(token);
+    // THE-647 item 2: a `persona` claim resolves to an effective scope/vault/toolVisibility
+    // bundle that REPLACES the token's own — never a union with it. FAILS CLOSED: an unknown
+    // persona name, or a `vault` claim outside that persona's `vaults`, is refused entirely
+    // rather than falling through to the token's raw (wider) grant.
+    if (id.persona !== undefined) {
+      const resolved = resolvePersona(id.persona, id.vault, personas);
+      if (!resolved.ok) {
+        return {
+          ok: false,
+          status: 401,
+          reason: "invalid or expired token",
+          diagnosis: { reason: "persona_denied", caller: id.caller, expStillFuture: false },
+        };
+      }
+      return {
+        ok: true,
+        caller: id.caller,
+        scopes: resolved.resolution.scopes,
+        vault: resolved.resolution.vaultId,
+        persona: resolved.resolution.persona,
+        toolVisibility: resolved.resolution.toolVisibility,
+      };
+    }
     return { ok: true, caller: id.caller, scopes: id.scopes, vault: id.vault };
   } catch (e) {
     // The message stays identical for every failure mode: an unauthenticated caller must not be
@@ -173,11 +216,24 @@ function contextFromAuthInfo(
     if (authInfo === undefined) {
       throw new Error("unauthenticated request reached the MCP handler");
     }
-    const extra = authInfo.extra as { caller?: string | null; vault?: string } | undefined;
+    const extra = authInfo.extra as
+      | {
+          caller?: string | null;
+          vault?: string;
+          persona?: string;
+          toolVisibility?: ToolVisibilityConfig;
+        }
+      | undefined;
     return {
       caller: extra?.caller ?? null,
       authenticated: true,
       grantedScopes: new Set(authInfo.scopes ?? []),
+      // THE-647 item 2: `authInfo.scopes` above ALREADY carries the persona's resolved scopes —
+      // resolveAuth replaced them, never unioned — so this context needs no persona-specific
+      // scope handling. `persona`/`toolVisibility` ride along for tracing and the visibility
+      // composition (mcp/visibility.ts); both undefined for every non-persona caller.
+      ...(extra?.persona !== undefined ? { persona: extra.persona } : {}),
+      ...(extra?.toolVisibility !== undefined ? { toolVisibility: extra.toolVisibility } : {}),
       // Bind the caller to its token's vault (or the server default when the token carries no
       // `vault` claim). vaultBound makes dispatch reject a tool call naming a different vault
       // (THE-267), so an HTTP token cannot reach every configured vault via the `vault` argument.
@@ -390,7 +446,12 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
           );
       }
     }
-    const authz = await resolveAuth(c.req.header("authorization"), opts.auth, verifier);
+    const authz = await resolveAuth(
+      c.req.header("authorization"),
+      opts.auth,
+      verifier,
+      opts.personas,
+    );
     if (!authz.ok) {
       if (authz.diagnosis) reportAuthRejection(authz.diagnosis, opts);
       // RFC 9728 §5.1 challenge: on a 401, point a spec-compliant client at the PRM document so it
@@ -461,7 +522,12 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         token: bearer(c.req.header("authorization")) ?? "",
         clientId: authz.caller ?? "",
         scopes: [...authz.scopes],
-        extra: { caller: authz.caller, vault: authz.vault },
+        extra: {
+          caller: authz.caller,
+          vault: authz.vault,
+          persona: authz.persona,
+          toolVisibility: authz.toolVisibility,
+        },
       },
     });
   });

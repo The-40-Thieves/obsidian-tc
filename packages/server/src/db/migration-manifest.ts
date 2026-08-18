@@ -41,6 +41,15 @@ export const CACHE_MIGRATION_FILES = [
   // nodes by default, and rename_entity's shape is how a caller flips it (see that tool's
   // handler for why retiring is folded into rename rather than a fifth tool).
   "20260814_001_memory_entity_status.sql",
+  // THE-647 item 1: 20260818_001 adds the per-(caller, vault) watermark backing differential
+  // vault_context. Belongs in the CACHE chain because vault_context reads chunks/syntheses/
+  // contradictions exclusively off ctx.db (cache.db) — the optional include_work episodes leg is
+  // the only part of that tool touching experiential.db, and it is unaffected by this table.
+  // Borrows THE-461's activation_state discipline (capture the new watermark BEFORE the diff
+  // read, persist it only AFTER the response is composed, never regress) rather than re-deriving
+  // it — see the migration header and context-watermark.ts for the full reasoning. Not
+  // `workspace_sessions`: THE-714 found it stays empty in production.
+  "20260818_001_vault_context_watermark.sql",
 ] as const;
 
 /**

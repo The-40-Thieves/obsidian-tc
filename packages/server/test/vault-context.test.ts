@@ -168,10 +168,11 @@ interface ContextData {
   budget: { requested: number; chunk_budget: number; packed_tokens: number };
   stats: { chunks_considered: number; chunks_packed: number; notes: number };
   notes: Array<{ path: string; chunks: Array<{ chunk_id: string }> }>;
-  syntheses: Array<{ iso_year: number; patterns: unknown }>;
+  syntheses: Array<{ iso_year: number; iso_week: number; patterns: unknown }>;
   contradictions: Array<{ id: string }>;
   lessons: Array<{ chunk_id: string; path: string; via: string }>;
   episodes?: Array<{ id: string }> | { work_unavailable: true };
+  diff_since?: string;
 }
 
 describe("vault_context (THE-132)", () => {
@@ -396,6 +397,204 @@ describe("vault_context (THE-132)", () => {
     } finally {
       rmTemp(root3);
     }
+  });
+
+  // THE-647 item 1: differential vault_context.
+  describe("since (differential mode)", () => {
+    it("is accepted by the .strict() schema and filters legs to rows newer than the cutoff", async () => {
+      const { registry, ctx } = harness();
+      const since = new Date(NOW - 1000).toISOString();
+      const res = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          { vault: "main", query: "zylophrastic reconciler", since },
+          ctx,
+        ),
+      );
+      expect(res.diff_since).toBeDefined();
+      expect(res.notes.length).toBeGreaterThan(0);
+      expect(res.syntheses).toHaveLength(1);
+      expect(res.contradictions.map((c) => c.id)).toContain("cx1");
+    });
+
+    it("a since in the future returns an empty diff — no rejection, just nothing new", async () => {
+      const { registry, ctx } = harness();
+      const since = new Date(NOW + 1000).toISOString();
+      const res = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          { vault: "main", query: "zylophrastic reconciler", since },
+          ctx,
+        ),
+      );
+      expect(res.notes).toEqual([]);
+      expect(res.syntheses).toEqual([]);
+      expect(res.contradictions).toEqual([]);
+    });
+
+    it("include_work: since also filters the episodes leg", async () => {
+      const { registry, ctx } = harness(edb0());
+      const before = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          {
+            vault: "main",
+            query: "zylophrastic",
+            include_work: true,
+            since: new Date(NOW - 1000).toISOString(),
+          },
+          ctx,
+        ),
+      );
+      expect((before.episodes as Array<{ id: string }>).map((e) => e.id)).toEqual(["ep-ok"]);
+
+      const after = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          {
+            vault: "main",
+            query: "zylophrastic",
+            include_work: true,
+            since: new Date(NOW + 1000).toISOString(),
+          },
+          ctx,
+        ),
+      );
+      expect(after.episodes).toEqual([]);
+    });
+
+    it("omitting since is unchanged: no diff_since echo, no watermark persisted", async () => {
+      const { registry, ctx } = harness();
+      const res = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          { vault: "main", query: "zylophrastic reconciler" },
+          ctx,
+        ),
+      );
+      expect(res.diff_since).toBeUndefined();
+      const row = ctx.db
+        .prepare("SELECT watermark FROM vault_context_watermark WHERE caller = ? AND vault_id = ?")
+        .get("tester", "main");
+      expect(row).toBeUndefined();
+    });
+
+    it("persists a per-caller watermark, captured before the read, that a next call resumes from without dropping a concurrent write", async () => {
+      const { registry, ctx } = harness();
+      const first = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          {
+            vault: "main",
+            query: "zylophrastic reconciler",
+            since: new Date(NOW - 1000).toISOString(),
+          },
+          ctx,
+        ),
+      );
+      expect(first.diff_since).toBeDefined();
+      const row = ctx.db
+        .prepare("SELECT watermark FROM vault_context_watermark WHERE caller = ? AND vault_id = ?")
+        .get("tester", "main") as { watermark: number };
+      expect(row.watermark).toBe(Date.parse(first.diff_since as string));
+
+      // A synthesis generated AFTER the first call's watermark was captured — the case this
+      // ticket's own AC3 names: a row written concurrently with a diff call. The syntheses leg
+      // is queried independently of the packed notes (unlike contradictions, which is scoped to
+      // paths actually returned this call), so it isolates the watermark discipline itself.
+      ctx.db
+        .prepare(
+          "INSERT INTO syntheses (vault_id, iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns) VALUES ('main', 2026, 28, ?, 0, 1, '[]', ?)",
+        )
+        .run(row.watermark + 500, JSON.stringify(["a late-breaking pattern"]));
+
+      // The next call resumes from the ECHOED diff_since — not skipped.
+      const second = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          { vault: "main", query: "zylophrastic reconciler", since: first.diff_since },
+          ctx,
+        ),
+      );
+      expect(second.syntheses.map((s) => s.iso_year)).toContain(2026);
+      expect(second.syntheses.some((s) => s.iso_week === 28)).toBe(true);
+    });
+
+    // THE-647 item 1 (post-review fix): `since` is a LOWER-BOUND HINT, not the filter of record —
+    // the server floors it against the caller's own stored watermark. Without the floor, a client
+    // whose own clock runs ahead of the server's (or that replays a stale cached `since`) would
+    // silently and PERMANENTLY lose any row written between the server's last capture and the
+    // client's too-late cutoff: no future call's `since` would ever be small enough again to catch
+    // it. This is the real failure mode a naive "trust the client's since" implementation has.
+    it("the floor catches a row a client clock running AHEAD would otherwise permanently skip", async () => {
+      const { registry, ctx } = harness();
+      const first = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          {
+            vault: "main",
+            query: "zylophrastic reconciler",
+            since: new Date(NOW - 1000).toISOString(),
+          },
+          ctx,
+        ),
+      );
+      const row = ctx.db
+        .prepare("SELECT watermark FROM vault_context_watermark WHERE caller = ? AND vault_id = ?")
+        .get("tester", "main") as { watermark: number };
+      expect(row.watermark).toBe(Date.parse(first.diff_since as string));
+
+      // A synthesis lands shortly AFTER the server's captured watermark — the same "concurrent
+      // write" case as the test above, just close enough in time that a client's drifted clock
+      // could plausibly claim to be past it.
+      const lateAt = row.watermark + 50;
+      ctx.db
+        .prepare(
+          "INSERT INTO syntheses (vault_id, iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns) VALUES ('main', 2026, 29, ?, 0, 1, '[]', ?)",
+        )
+        .run(lateAt, JSON.stringify(["caught only by the floor"]));
+
+      // The CLIENT's clock is ahead: it sends a `since` well past the row's timestamp, instead of
+      // faithfully echoing back the server's diff_since. A plain `WHERE generated_at > clientSince`
+      // would exclude lateAt (row.watermark + 50) forever — the client only ever sends LARGER
+      // values from here on, so there is no future call that would catch it without the floor.
+      const driftedClientSince = new Date(row.watermark + 10_000).toISOString();
+      const second = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          { vault: "main", query: "zylophrastic reconciler", since: driftedClientSince },
+          ctx,
+        ),
+      );
+      expect(second.syntheses.some((s) => s.iso_week === 29)).toBe(true); // caught by the floor
+    });
+
+    it("a caller with no stored watermark gets exactly client-since behavior — nothing to floor against", async () => {
+      const { registry, ctx } = harness();
+      // A fresh caller/vault pair: no vault_context_watermark row exists yet, so the floor has
+      // nothing to apply — the effective cutoff is exactly what the client asked for.
+      const before = ctx.db
+        .prepare("SELECT watermark FROM vault_context_watermark WHERE caller = ? AND vault_id = ?")
+        .get("tester", "main");
+      expect(before).toBeUndefined();
+
+      const res = un<ContextData>(
+        await registry.dispatch(
+          "vault_context",
+          {
+            vault: "main",
+            query: "zylophrastic reconciler",
+            since: new Date(NOW - 1000).toISOString(),
+          },
+          ctx,
+        ),
+      );
+      // Same assertions as the un-floored "is accepted... and filters" test above — proving the
+      // no-stored-watermark path is byte-identical to plain client-since filtering.
+      expect(res.notes.length).toBeGreaterThan(0);
+      expect(res.syntheses).toHaveLength(1);
+      expect(res.contradictions.map((c) => c.id)).toContain("cx1");
+    });
   });
 
   it("packBudget: greedy, budget-bound, always packs at least one item", () => {

@@ -148,8 +148,11 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // `reranker.localModulePath` — route (i) of provider "local"'s resolution ladder (an explicit path
 // to the optional package's built module entry). No existing key, type, default or constraint
 // moved.
+// THE-647 item 2: rebaselined deliberately. Adds the root `personas` block (name -> {vaults,
+// scopes, toolVisibility?}) — see packages/shared/src/config/personas.schema.ts. Additive and
+// optional; a config predating this key validates unchanged (personas: undefined).
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "a0e733c747ec3e220936ac2d8ac0c95fbfe121c2a7ceea88984fa105281f473f";
+  "fcc7f56e099b1ed9b8248b9361ccf25f406fc63344f9a94016a9bc17fb9c8ed1";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

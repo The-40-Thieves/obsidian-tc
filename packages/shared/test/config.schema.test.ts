@@ -3,6 +3,8 @@ import {
   EmbeddingsConfigSchema,
   ExperientialConfigSchema,
   ObsidianTcError,
+  PersonaConfigSchema,
+  PersonasConfigSchema,
   ServerConfigSchema,
 } from "../src/index";
 
@@ -138,6 +140,44 @@ describe("ServerConfigSchema", () => {
       ...base,
       auth: { mode: "none" },
       transports: { http: { enabled: true, host: "[::1]" } },
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
+// THE-647 item 2.
+describe("PersonasConfigSchema", () => {
+  it("is absent by default (backward compatible — no personas configured)", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.personas).toBeUndefined();
+  });
+
+  it("accepts a config with two or more named personas", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      personas: {
+        researcher: { vaults: ["main"], scopes: ["read:notes"] },
+        author: { vaults: ["main"], scopes: ["read:notes", "write:notes"] },
+      },
+    });
+    expect(Object.keys(c.personas ?? {})).toEqual(["researcher", "author"]);
+    expect(c.personas?.researcher?.scopes).toEqual(["read:notes"]);
+  });
+
+  it("rejects a persona with an empty vaults or scopes list", () => {
+    expect(
+      PersonasConfigSchema.safeParse({ p: { vaults: [], scopes: ["read:notes"] } }).success,
+    ).toBe(false);
+    expect(PersonasConfigSchema.safeParse({ p: { vaults: ["main"], scopes: [] } }).success).toBe(
+      false,
+    );
+  });
+
+  it("accepts an optional per-persona toolVisibility override", () => {
+    const r = PersonaConfigSchema.safeParse({
+      vaults: ["main"],
+      scopes: ["read:notes"],
+      toolVisibility: { hidden: ["reflect"] },
     });
     expect(r.success).toBe(true);
   });

@@ -217,6 +217,69 @@ describe("visibilityOf per-caller scopes (THE-250)", () => {
   });
 });
 
+// THE-647 item 2: a persona's own toolVisibility mask composes with the static config at the
+// SAME chokepoint — it can only narrow what the static layer already allowed, never restore a
+// tool the static layer hid or disabled (THE-645 item 2's existence-oracle constraint).
+describe("visibilityOf persona toolVisibility composition (THE-647 item 2)", () => {
+  it("a persona mask hides a tool the static config would otherwise list", () => {
+    const t = target("knowledge_challenge");
+    const caller = { grantedScopes: new Set(["*"]), toolVisibility: cfg({ hidden: [t.name] }) };
+    expect(visibilityOf(t, ALLOW_ALL, caller)).toBe("hidden");
+  });
+
+  it("a persona mask disables a tool at dispatch too, not just tools/list", () => {
+    const t = target("dangerous_tool");
+    const caller = { grantedScopes: new Set(["*"]), toolVisibility: cfg({ disabled: [t.name] }) };
+    expect(visibilityOf(t, ALLOW_ALL, caller)).toBe("disabled");
+    expect(isDisabled(t, ALLOW_ALL, caller)).toBe(true);
+  });
+
+  it("cannot widen: a persona mask never restores a tool the STATIC config disabled", () => {
+    const t = target("killme");
+    const staticCfg = cfg({ disabled: [t.name] });
+    // The persona's own mask would list it — but the static layer already said disabled, and
+    // the persona layer is only consulted when the static verdict was `listed`.
+    const caller = { grantedScopes: new Set(["*"]), toolVisibility: cfg({ allowed: [t.name] }) };
+    expect(visibilityOf(t, staticCfg, caller)).toBe("disabled");
+  });
+
+  it("cannot widen: a persona mask never restores a tool the STATIC config hid", () => {
+    const t = target("hideme");
+    const staticCfg = cfg({ hidden: [t.name] });
+    const caller = { grantedScopes: new Set(["*"]), toolVisibility: cfg({ allowed: [t.name] }) };
+    expect(visibilityOf(t, staticCfg, caller)).toBe("hidden");
+  });
+
+  it("a caller with no toolVisibility (no persona) is unaffected — pure pass-through", () => {
+    const t = target("read_note");
+    const caller = { grantedScopes: new Set(["*"]) };
+    expect(visibilityOf(t, ALLOW_ALL, caller)).toBe("listed");
+  });
+
+  it("dispatch rejects a persona-disabled tool as not_found — indistinguishable from unregistered", async () => {
+    const reg = new ToolRegistry();
+    registerEcho(reg, "persona-killme");
+    const caller = ctx(freshDb(), {
+      toolVisibility: cfg({ disabled: ["persona-killme"] }),
+    });
+    const denied = await reg.dispatch("persona-killme", {}, caller);
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("not_found");
+  });
+
+  it("listVisible() omits a persona-hidden tool while a caller without the persona still sees it", () => {
+    const reg = new ToolRegistry();
+    registerEcho(reg, "persona-hideme");
+    const personaCaller = {
+      grantedScopes: new Set(["*"]),
+      toolVisibility: cfg({ hidden: ["persona-hideme"] }),
+    };
+    const plainCaller = { grantedScopes: new Set(["*"]) };
+    expect(reg.listVisible(personaCaller).map((d) => d.name)).toEqual([]);
+    expect(reg.listVisible(plainCaller).map((d) => d.name)).toEqual(["persona-hideme"]);
+  });
+});
+
 describe("registry listVisible per-caller (THE-250)", () => {
   const withScope = (reg: ToolRegistry, name: string, scope: string): void => {
     reg.register({

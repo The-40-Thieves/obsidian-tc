@@ -388,21 +388,27 @@ export function noteTagsByPath(
 /** Open contradictions whose source or conflict note is in `paths` (THE-309), scoped to `vaultId`
  *  (THE-563) and re-authorized against the caller ACL (THE-564): a row is returned only if BOTH
  *  contributing sources remain readable — the opposite side of a matched pair may be outside the
- *  caller's set. Empty when the plane table is absent. */
+ *  caller's set. Empty when the plane table is absent.
+ *
+ *  `sinceMs` (THE-647 item 1, additive/optional): when given, also requires `detected_at >
+ *  sinceMs` — vault_context's diff mode. Every other caller (reflect, knowledge_challenge,
+ *  list_contradictions) omits it and is unaffected. */
 export function openContradictionsForPaths(
   db: Database,
   vaultId: string,
   paths: string[],
   isReadable: (rel: string) => boolean,
+  sinceMs?: number,
 ): ContradictionContext[] {
   if (paths.length === 0 || !tableExists(db, "contradictions")) return [];
   const placeholders = paths.map(() => "?").join(",");
+  const sinceClause = sinceMs !== undefined ? " AND detected_at > ?" : "";
   const rows = db
     .prepare(
       `SELECT id, source_path, conflict_path, judge_verdict, judge_rationale FROM contradictions
-       WHERE status = 'open' AND vault_id = ? AND (source_path IN (${placeholders}) OR conflict_path IN (${placeholders}))`,
+       WHERE status = 'open' AND vault_id = ? AND (source_path IN (${placeholders}) OR conflict_path IN (${placeholders}))${sinceClause}`,
     )
-    .all(vaultId, ...paths, ...paths) as Array<{
+    .all(vaultId, ...paths, ...paths, ...(sinceMs !== undefined ? [sinceMs] : [])) as Array<{
     id: string;
     source_path: string;
     conflict_path: string;

@@ -97,3 +97,28 @@ describe("verifyJwt audience/issuer binding (THE-456)", () => {
     expect(id.caller).toBe("alice");
   });
 });
+
+// THE-647 item 2: this module extracts the RAW `persona` claim only — resolving it against the
+// server's `personas` config (and failing closed on an unrecognised name) is auth/persona.ts's
+// job, one layer up, since this module has no config to resolve against.
+describe("verifyJwt persona claim (THE-647 item 2)", () => {
+  it("extracts a string persona claim", async () => {
+    const token = await mint({ sub: "alice", persona: "researcher" }, (s) =>
+      s.setExpirationTime("5m"),
+    );
+    const id = await verifyJwt(token, secret);
+    expect(id.persona).toBe("researcher");
+  });
+
+  it("is undefined when the token carries no persona claim", async () => {
+    const token = await mint({ sub: "alice" }, (s) => s.setExpirationTime("5m"));
+    const id = await verifyJwt(token, secret);
+    expect(id.persona).toBeUndefined();
+  });
+
+  it("ignores a non-string persona claim rather than propagating a malformed value", async () => {
+    const token = await mint({ sub: "alice", persona: 42 }, (s) => s.setExpirationTime("5m"));
+    const id = await verifyJwt(token, secret);
+    expect(id.persona).toBeUndefined();
+  });
+});

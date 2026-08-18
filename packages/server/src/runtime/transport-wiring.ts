@@ -77,6 +77,10 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       sessions: config.sessions,
       traceFolderFor: (vaultId) =>
         config.vaults.find((v) => v.id === vaultId)?.workspace?.traceFolder ?? DEFAULT_TRACE_FOLDER,
+      // THE-647 item 2: named persona bundles a JWT `persona` claim resolves to. Absent (the
+      // default) means no persona claim can ever resolve — unchanged behaviour for every
+      // deployment that does not configure this block.
+      personas: config.personas,
     });
     httpConstructSeconds = (performance.now() - httpT0) / 1000;
     httpHandle = http;
