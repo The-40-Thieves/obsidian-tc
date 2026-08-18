@@ -411,6 +411,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
       const dvisible = opts.registry.listVisible({
         grantedScopes: dctx.grantedScopes,
         readOnly: dctx.acl?.readOnly,
+        toolVisibility: dctx.toolVisibility,
       });
       return { tools: domainTools(dvisible) };
     }
@@ -422,6 +423,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const visible = opts.registry.listVisible({
       grantedScopes: ctx.grantedScopes,
       readOnly: ctx.acl?.readOnly,
+      // THE-647 item 2: a persona's own tool-visibility mask, composed at explainVisibility's
+      // chokepoint. Undefined for every non-persona caller — unchanged behaviour.
+      toolVisibility: ctx.toolVisibility,
     });
     const pageSize = opts.toolsPageSize ?? TOOLS_PAGE_SIZE;
     const start = req.params?.cursor ? Math.max(0, Number.parseInt(req.params.cursor, 10) || 0) : 0;
@@ -639,6 +643,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         const visible = opts.registry.listVisible({
           grantedScopes: ctx.grantedScopes,
           readOnly: ctx.acl?.readOnly,
+          toolVisibility: ctx.toolVisibility,
         });
         return formatData({
           matches: findCapability(visible, parsed.data.query, parsed.data.limit),
@@ -653,6 +658,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         const visible = opts.registry.listVisible({
           grantedScopes: ctx.grantedScopes,
           readOnly: ctx.acl?.readOnly,
+          toolVisibility: ctx.toolVisibility,
         });
         const target = visible.find((d) => d.name === parsed.data.name);
         if (!target)

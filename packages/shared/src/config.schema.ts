@@ -14,6 +14,12 @@ import {
   SnapshotsConfigSchema,
   WatchConfigSchema,
 } from "./config/observability.schema";
+import {
+  type PersonaConfig,
+  PersonaConfigSchema,
+  type PersonasConfig,
+  PersonasConfigSchema,
+} from "./config/personas.schema";
 import { type RerankerConfig, RerankerConfigSchema } from "./config/reranker.schema";
 import {
   ExperientialConfigSchema,
@@ -60,6 +66,8 @@ export type {
   BootstrapConfig,
   GatewayConfig,
   IndexingConfig,
+  PersonaConfig,
+  PersonasConfig,
   RerankerConfig,
   ServerConfig,
   ThrottleConfig,
@@ -99,6 +107,8 @@ export {
   MaintenanceConfigSchema,
   MetadataPriorRuleSchema,
   ObservabilityConfigSchema,
+  PersonaConfigSchema,
+  PersonasConfigSchema,
   PlaneConfigSchema,
   PlurConfigSchema,
   RankingConfigSchema,

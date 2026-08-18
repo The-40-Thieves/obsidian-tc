@@ -1235,6 +1235,88 @@
         }
       }
     },
+    "personas": {
+      "description": "Named persona bundles ({vaults, scopes, toolVisibility?}) a JWT's `persona` claim resolves to. Absent means no personas are configured — any token carrying a `persona` claim is refused.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "vaults": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Vault ids this persona may be bound to. A token's own `vault` claim (when present) must name one of these; absent, the first entry is the default. Resolution FAILS CLOSED on a vault outside this set — never widened to 'any configured vault'."
+          },
+          "scopes": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The scopes a token carrying this persona is granted — REPLACES whatever scopes the token itself carries, never unioned with them, so a persona claim can only narrow or redirect a grant, never widen it beyond what the operator configured here."
+          },
+          "toolVisibility": {
+            "description": "Optional per-persona tool-visibility mask, composed with the server's static `toolVisibility` at the same disabled > hidden > scope_denied > listed chokepoint (THE-645 item 2's existence-oracle constraint still holds). Can only narrow what the static config already allows, never restore a tool the static config hid or disabled.",
+            "type": "object",
+            "properties": {
+              "allowed": {
+                "description": "Name allowlist: only these tools are listed. Absent lists all; an empty array lists none.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "hidden": {
+                "default": [],
+                "description": "Tool names dropped from tools/list but still callable by name. A leaner default surface, NOT a security boundary.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "disabled": {
+                "default": [],
+                "description": "Tool names dropped from tools/list AND rejected at dispatch, so they behave as if unregistered.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "hiddenTags": {
+                "default": [],
+                "description": "Tags whose tools are hidden from tools/list but remain callable.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "disabledTags": {
+                "default": [],
+                "description": "Tags whose tools are hidden and rejected at dispatch.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requireReadOnly": {
+                "default": false,
+                "description": "List only non-mutating tools. Mutation is derived from each tool's required scopes, so no per-tool annotation is needed. Hides rather than rejects.",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "required": [
+          "vaults",
+          "scopes"
+        ]
+      }
+    },
     "bootstrap": {
       "description": "session_bootstrap context routing table.",
       "default": {},

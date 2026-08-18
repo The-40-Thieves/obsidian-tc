@@ -14,7 +14,11 @@ export type AuthRejectionReason =
   | "issuer_mismatch" // THE-456
   | "unsupported_alg"
   | "malformed"
-  | "misconfigured"; // server-side: no secret / no JWKS for the token's alg
+  | "misconfigured" // server-side: no secret / no JWKS for the token's alg
+  | "persona_denied"; // THE-647 item 2: `persona` claim named an unconfigured persona, or a
+// vault outside that persona's `vaults` — resolved one layer up in auth/persona.ts, not by
+// jwtVerify itself, but the SAME external "invalid or expired token" message applies: an
+// unauthenticated caller must not learn which check failed.
 
 export class AuthRejection extends Error {
   readonly reason: AuthRejectionReason;
@@ -80,6 +84,11 @@ export interface JwtIdentity {
   /** Optional vault binding (`vault` claim). When present, the HTTP edge binds the caller to
    *  this vault and dispatch rejects any tool call naming a different vault (THE-267). */
   vault?: string;
+  /** THE-647 item 2: the raw `persona` claim, unresolved. This module verifies the token only —
+   *  it has no access to the server's `personas` config, so resolving this name to an effective
+   *  scope/vault/toolVisibility bundle (and failing closed on an unrecognised one) happens one
+   *  layer up, in auth/persona.ts, from the caller that DOES hold the config. */
+  persona?: string;
 }
 
 /**
@@ -170,6 +179,7 @@ function identityFrom(
     caller: typeof payload.sub === "string" ? payload.sub : null,
     scopes: extractScopes(payload),
     vault: typeof payload.vault === "string" ? payload.vault : undefined,
+    persona: typeof payload.persona === "string" ? payload.persona : undefined,
   };
 }
 

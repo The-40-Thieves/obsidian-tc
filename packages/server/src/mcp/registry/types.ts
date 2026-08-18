@@ -96,6 +96,17 @@ export interface CallerContext {
    *  for every caller that sends none — which is all of them under the current spec, so absent is
    *  the normal value. Consumed by start_session to stamp the session row. */
   clientInfo?: ClientInfo;
+  /** THE-647 item 2: the resolved persona name, when the token carried a `persona` claim that
+   *  resolved against the server's `personas` config (auth/persona.ts). Present for tracing/audit
+   *  only — dispatch never branches on the STRING; `grantedScopes`/`vaultId`/`toolVisibility`
+   *  already carry the persona's effective grant by the time a handler sees this context. */
+  persona?: string;
+  /** THE-647 item 2: a persona's own tool-visibility mask, composed with the server's static
+   *  `toolVisibility` at the same `disabled > hidden > scope_denied > listed` chokepoint
+   *  (mcp/visibility.ts's `explainVisibility`) rather than replacing it — a persona mask can only
+   *  narrow what the static config already allows, never restore a tool it hid or disabled.
+   *  Absent for every caller that carries no persona (unchanged behaviour). */
+  toolVisibility?: ToolVisibilityConfig;
 }
 
 /** MCP 2025-11-25 icon metadata (a structural subset of the SDK's Icon), surfaced in tools/list +

@@ -30,6 +30,10 @@ export interface VisibilityTarget {
 export interface VisibilityCaller {
   grantedScopes: Iterable<string>;
   readOnly?: boolean;
+  /** THE-647 item 2: a persona's own tool-visibility mask (ctx.toolVisibility), composed with
+   *  the static config below — see explainVisibility's doc comment for the precedence. Absent
+   *  for every caller that carries no persona (unchanged behaviour). */
+  toolVisibility?: ToolVisibilityConfig;
 }
 
 // The default config — every tool is listed. Used when no `toolVisibility` block is set,
@@ -83,13 +87,12 @@ export interface VisibilityExplanation {
   missingScopes: readonly string[];
 }
 
-/**
- * Classify one tool AND report which rule decided it. Precedence is unchanged and is asserted
- * here rather than restated: `disabled > hidden > scope_denied > listed`.
- */
-export function explainVisibility(
+// The single-config verdict `explainVisibility` used to BE — factored out so THE-647 item 2 can
+// compose a persona's own toolVisibility on top without duplicating this logic. Never exported:
+// callers always go through `explainVisibility`, which is where the composition rule lives.
+function explainAgainstConfig(
   target: VisibilityTarget,
-  config: ToolVisibilityConfig = ALLOW_ALL,
+  config: ToolVisibilityConfig,
   caller?: VisibilityCaller,
 ): VisibilityExplanation {
   const base = { matchedTag: null, missingScopes: [] as readonly string[] };
@@ -129,6 +132,29 @@ export function explainVisibility(
   return { ...base, visibility: "listed", reason: "listed" };
 }
 
+/**
+ * Classify one tool AND report which rule decided it. Precedence is unchanged and is asserted
+ * here rather than restated: `disabled > hidden > scope_denied > listed`.
+ *
+ * THE-647 item 2: `caller.toolVisibility` (a persona's own mask) composes with the static
+ * `config` at this SAME chokepoint rather than a separate gate. It is evaluated ONLY when the
+ * static config already says `listed` — a persona mask can narrow further (hide or disable a
+ * tool the static config would otherwise show) but can never WIDEN past what the static config
+ * decided, so a persona can never restore visibility to a tool the operator disabled or hid
+ * server-wide. This preserves THE-645 item 2's existence-oracle constraint: whichever layer
+ * denies, denial still reads identically to "never registered".
+ */
+export function explainVisibility(
+  target: VisibilityTarget,
+  config: ToolVisibilityConfig = ALLOW_ALL,
+  caller?: VisibilityCaller,
+): VisibilityExplanation {
+  const staticVerdict = explainAgainstConfig(target, config, caller);
+  if (staticVerdict.visibility !== "listed") return staticVerdict;
+  if (caller?.toolVisibility === undefined) return staticVerdict;
+  return explainAgainstConfig(target, caller.toolVisibility, caller);
+}
+
 // Classify one tool against the static config and (optionally) a caller. Precedence is
 // `disabled > hidden > scope_denied > listed`: an explicit disable wins, then any hide
 // rule, then a caller that cannot dispatch the tool, otherwise it is listed.
@@ -155,7 +181,16 @@ export function isListed(
   return visibilityOf(target, config, caller) === "listed";
 }
 
-// True when the tool is administratively disabled (rejected at dispatch). Caller-independent.
-export function isDisabled(target: VisibilityTarget, config?: ToolVisibilityConfig): boolean {
-  return visibilityOf(target, config) === "disabled";
+// True when the tool is administratively disabled (rejected at dispatch). Caller-independent at
+// the STATIC layer (disabled name/tag checks never read `caller`); `caller` is accepted so a
+// persona's own `toolVisibility.disabled` (THE-647 item 2) also blocks dispatch, not just
+// tools/list — the same disabled > hidden > scope_denied > listed precedence `explainVisibility`
+// composes. Every existing (non-persona) caller passes no `toolVisibility`, so this is a no-op
+// for them: byte-identical to the caller-independent check this replaces.
+export function isDisabled(
+  target: VisibilityTarget,
+  config?: ToolVisibilityConfig,
+  caller?: VisibilityCaller,
+): boolean {
+  return visibilityOf(target, config, caller) === "disabled";
 }

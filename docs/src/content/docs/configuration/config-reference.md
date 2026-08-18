@@ -185,6 +185,12 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `observability.retention.eventLogDays` | `number` | `30` |  | Days of event_log rows kept by the maintenance sweep. The morgiana event spool is still not pruned and grows without bound. |
 | `observability.retention.tracesDays` | `number` | `30` |  | Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (THE-572 writes the trace before the session row, so a failed attempt leaves a file with no row referencing it). |
 
+### `personas`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `personas` | `record` | — |  | Named persona bundles ({vaults, scopes, toolVisibility?}) a JWT's `persona` claim resolves to. Absent means no personas are configured — any token carrying a `persona` claim is refused. |
+
 ### `plane`
 
 | Key | Type | Default | Required | Description |

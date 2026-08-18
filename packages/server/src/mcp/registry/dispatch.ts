@@ -180,7 +180,16 @@ export async function runDispatch(
     // THE-219 dispatch guard: a disabled tool is removed from the surface entirely.
     // Reject before scope/validation with the same error an unregistered tool yields,
     // so a disabled tool is indistinguishable from one that was never registered.
-    if (isDisabled(def, deps.toolVisibility))
+    // THE-647 item 2: `ctx.toolVisibility` (a persona's own mask) rides along here too, so a
+    // persona-disabled tool is rejected at dispatch, not just delisted — every caller without a
+    // persona carries no `toolVisibility` and this check is unchanged for them.
+    if (
+      isDisabled(def, deps.toolVisibility, {
+        grantedScopes: ctx.grantedScopes,
+        readOnly: ctx.acl?.readOnly,
+        toolVisibility: ctx.toolVisibility,
+      })
+    )
       throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
     // THE-727: the STATIC class, set before the parse ON PURPOSE. `scopeClass` feeds the throttle
     // decision and the error-path metrics in the catch below, and a call that fails `parseInput`

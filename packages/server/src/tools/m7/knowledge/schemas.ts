@@ -199,6 +199,10 @@ export const VaultContextOutput = z.object({
     }),
   ),
   contradictions: z.array(ContradictionRow),
+  // THE-647 item 1: present only when `since` was given (diff mode). Captured BEFORE the diff
+  // read ran, so a caller that echoes this back as `since` on its NEXT call never has a
+  // concurrently-written row dropped — see context-watermark.ts's module doc.
+  diff_since: z.string().optional(),
   lessons: z.array(
     z.object({
       chunk_id: z.string(),

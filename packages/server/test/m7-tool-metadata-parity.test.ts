@@ -62,10 +62,11 @@ const EXPECTED: ToolSnapshot[] = [
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search"],
     hasPathAcl: false,
-    inputKeys: ["include_lessons", "include_work", "k", "query", "token_budget", "vault"],
+    inputKeys: ["include_lessons", "include_work", "k", "query", "since", "token_budget", "vault"],
     outputKeys: [
       "budget",
       "contradictions",
+      "diff_since",
       "episodes",
       "lessons",
       "notes",

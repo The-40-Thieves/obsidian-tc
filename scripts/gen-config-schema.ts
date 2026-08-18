@@ -140,6 +140,7 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // work over the whole vault must not run just because a gateway was configured for an unrelated
 // feature (e.g. reflect). No key, type or constraint moved; only the default value and the
 // description text on plane.enabled.
+<<<<<<< HEAD
 // THE-705 item 1: additive. `reranker.provider`'s description now names the new "local" built-in
 // (a bundled, fully offline cross-encoder — see packages/reranker-local), and a new optional
 // `reranker.localModelPath` string key was added, read only by that provider. No existing key,
@@ -148,8 +149,20 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // `reranker.localModulePath` — route (i) of provider "local"'s resolution ladder (an explicit path
 // to the optional package's built module entry). No existing key, type, default or constraint
 // moved.
+||||||| parent of eb99ccb5 (feat(session): THE-647 differential vault_context and persona scoping (items 1-2))
+=======
+// THE-647 item 2: rebaselined deliberately. Adds the root `personas` block (name -> {vaults,
+// scopes, toolVisibility?}) — see packages/shared/src/config/personas.schema.ts. Additive and
+// optional; a config predating this key validates unchanged (personas: undefined).
+>>>>>>> eb99ccb5 (feat(session): THE-647 differential vault_context and persona scoping (items 1-2))
 const CONFIG_SCHEMA_BASELINE_SHA256 =
+<<<<<<< HEAD
   "a0e733c747ec3e220936ac2d8ac0c95fbfe121c2a7ceea88984fa105281f473f";
+||||||| parent of eb99ccb5 (feat(session): THE-647 differential vault_context and persona scoping (items 1-2))
+  "f6cfcf0a407a8054b858b09568301924f67c0402a61164269a69610eb22582cc";
+=======
+  "e1fe7413faaa264371d781e2cf83c061102a4a191ff9755caa3c1af9c226bfa9";
+>>>>>>> eb99ccb5 (feat(session): THE-647 differential vault_context and persona scoping (items 1-2))
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

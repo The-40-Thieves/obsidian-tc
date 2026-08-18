@@ -19,6 +19,7 @@ import {
   SnapshotsConfigSchema,
   WatchConfigSchema,
 } from "./observability.schema";
+import { PersonasConfigSchema } from "./personas.schema";
 import { RerankerConfigSchema } from "./reranker.schema";
 import {
   ExperientialConfigSchema,
@@ -98,6 +99,12 @@ export const ServerConfigObject = z.object({
   ),
   toolFacade: ToolFacadeConfigSchema.prefault({}).describe(
     "Which tool surface tools/list advertises.",
+  ),
+  // THE-647 item 2: named scope+vault+visibility bundles a JWT `persona` claim resolves to.
+  // Absent (the default) means no persona claim can ever resolve — see auth/persona.ts, which
+  // fails closed rather than falling back to the token's own (wider) scopes.
+  personas: PersonasConfigSchema.optional().describe(
+    "Named persona bundles ({vaults, scopes, toolVisibility?}) a JWT's `persona` claim resolves to. Absent means no personas are configured — any token carrying a `persona` claim is refused.",
   ),
   bootstrap: BootstrapConfigSchema.describe("session_bootstrap context routing table."),
   throttle: ThrottleConfigSchema.describe("Per-scope-class rate limits and write concurrency."),

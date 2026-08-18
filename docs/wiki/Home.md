@@ -11,7 +11,13 @@
 |---|---|
 | **Version** | `1.21.0` |
 | **Tools** | 163 governed capabilities (advertised via the 3-tool facade) |
+<<<<<<< HEAD
 | **Config keys** | 206 |
+||||||| parent of eb99ccb5 (feat(session): THE-647 differential vault_context and persona scoping (items 1-2))
+| **Config keys** | 204 |
+=======
+| **Config keys** | 205 |
+>>>>>>> eb99ccb5 (feat(session): THE-647 differential vault_context and persona scoping (items 1-2))
 | **Golden set** | 250 queries, statistical ship rule on every ranking change |
 | **Retrieval** | contextual chunk enrichment +0.223 nDCG, defaults on |
 | **MCP spec** | [2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) |
