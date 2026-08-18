@@ -45,6 +45,19 @@ describe("reranker.buildable (THE-679)", () => {
     expect(r.summary).toMatch(/no known build blocker/);
   });
 
+  // THE-705: same reasoning as "module" above — whether the optional
+  // @the-40-thieves/obsidian-tc-reranker-local package is installed and whether the model weights
+  // are downloaded are both filesystem/import questions, and this file is DELIBERATELY pure and
+  // offline (no network, no filesystem, no dynamic import — see the header comment). So "local" has
+  // no KNOWN blocker from config alone; the real failure (package/weights absent) surfaces as an
+  // actionable boot-time throw from providers/registry.ts's buildLocalReranker, exactly like a
+  // declared model-tier/gateway block that resolves to null does via resolveDeclaredReranker.
+  it("reports no known build blocker for 'local' — the real check happens at build time, not here", async () => {
+    const r = await rerankerBuildableCheck({ rerankerProvider: "local" }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.summary).toMatch(/no known build blocker/);
+  });
+
   it("is a no-op when no reranker block is declared", async () => {
     expect((await rerankerBuildableCheck({}).run(ctx)).status).toBe("ok");
   });

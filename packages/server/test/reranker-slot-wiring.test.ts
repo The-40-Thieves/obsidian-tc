@@ -1,8 +1,13 @@
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FetchFn } from "../src/embeddings/http";
-import { rerankerProviderNames, resolveReranker } from "../src/providers/registry";
+import {
+  buildLocalReranker,
+  rerankerProviderNames,
+  resolveReranker,
+} from "../src/providers/registry";
 import { wireGatewaySeams } from "../src/runtime/tool-wiring";
+import type { Reranker } from "../src/search/rerank";
 
 // A fetch stub that hangs until its AbortSignal fires, then rejects with an AbortError — mirrors
 // how the platform fetch reacts to AbortController.abort(). Same pattern as
@@ -45,6 +50,7 @@ describe("reranker slot", () => {
     expect(rerankerProviderNames()).toEqual([
       "cohere-compatible",
       "gateway",
+      "local",
       "model-tier",
       "module",
     ]);
@@ -198,6 +204,98 @@ describe("reranker slot", () => {
       { fetchFn: hangingFetch },
     );
     await expect(r?.("q", ["a", "b"], 1)).rejects.toMatchObject({ code: "operation_timeout" });
+  });
+});
+
+// THE-705 item 1. The "local" provider's ONLY job at this layer is: refuse fields it does not
+// consume, dynamically import the optional package, and forward localModelPath — the model/runtime
+// itself is exercised in packages/reranker-local's own test suite, not here (this suite must not
+// need @huggingface/transformers or real weights to run).
+describe("local reranker (THE-705)", () => {
+  // Real (un-injected) resolveReranker — proves "local" is a genuinely registered name resolved
+  // through the same path as every other provider, AND exercises the real absence-degradation
+  // behaviour: packages/server deliberately does NOT depend on the optional package (see its
+  // README), so in this exact repository configuration the dynamic import really does fail, and
+  // this asserts the failure is the actionable message, not an unhandled rejection or a generic one.
+  it("resolveReranker builds it through the same registry path as every other provider", async () => {
+    let error: unknown;
+    try {
+      await resolveReranker({ provider: "local" }, {});
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeDefined();
+    const message = JSON.stringify(error);
+    expect(message).toContain('"provider":"local"');
+    expect(message).toContain("@the-40-thieves/obsidian-tc-reranker-local");
+    expect(message).toContain("bun add");
+    // Never the generic "unknown reranker provider" message — "local" IS registered; what fails is
+    // the optional package it depends on, and those two failure modes must stay distinguishable.
+    expect(message).not.toContain("unknown reranker provider");
+  });
+
+  it("refuses fields it does not read, naming each one and the real source", async () => {
+    let message = "";
+    try {
+      await buildLocalReranker(
+        { provider: "local", model: "m", baseUrl: "http://x", timeoutMs: 5 },
+        async () => ({ createReranker: () => async () => [] }),
+      );
+    } catch (e) {
+      message = JSON.stringify(e);
+    }
+    expect(message).toContain("reranker.model");
+    expect(message).toContain("reranker.baseUrl");
+    expect(message).toContain("reranker.timeoutMs");
+    expect(message).not.toContain('reranker.apiKey"');
+  });
+
+  it("with no ignored fields set, forwards localModelPath into createReranker", async () => {
+    const opts: Array<{ localModelPath?: string }> = [];
+    const built = await buildLocalReranker(
+      { provider: "local", localModelPath: "/custom/models" },
+      async () => ({
+        createReranker: (o) => {
+          opts.push(o);
+          return async () => [];
+        },
+      }),
+    );
+    expect(typeof built).toBe("function");
+    expect(opts).toEqual([{ localModelPath: "/custom/models" }]);
+  });
+
+  it("with localModelPath absent, still builds (createReranker gets undefined, not a throw)", async () => {
+    const opts: Array<{ localModelPath?: string }> = [];
+    await buildLocalReranker({ provider: "local" }, async () => ({
+      createReranker: (o) => {
+        opts.push(o);
+        return async () => [];
+      },
+    }));
+    expect(opts).toEqual([{ localModelPath: undefined }]);
+  });
+
+  it("absence degradation: a failed dynamic import throws an ACTIONABLE error naming the install command, not a generic failure", async () => {
+    let message = "";
+    try {
+      await buildLocalReranker({ provider: "local" }, async () => {
+        throw new Error("Cannot find module '@the-40-thieves/obsidian-tc-reranker-local'");
+      });
+    } catch (e) {
+      message = JSON.stringify(e);
+    }
+    expect(message).toContain("@the-40-thieves/obsidian-tc-reranker-local");
+    expect(message).toContain("bun add");
+    expect(message).toContain("requires the optional");
+  });
+
+  it("the returned reranker is whatever the package's createReranker produced — no wrapping", async () => {
+    const marker: Reranker = async () => [{ index: 0, relevanceScore: 0.5 }];
+    const built = await buildLocalReranker({ provider: "local" }, async () => ({
+      createReranker: () => marker,
+    }));
+    expect(built).toBe(marker);
   });
 });
 

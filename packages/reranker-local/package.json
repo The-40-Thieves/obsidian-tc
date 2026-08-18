@@ -1,0 +1,43 @@
+{
+  "name": "@the-40-thieves/obsidian-tc-reranker-local",
+  "version": "1.21.0",
+  "description": "THE-705: optional bundled cross-encoder reranker for obsidian-tc — runs fully offline, CPU-only, via @huggingface/transformers, no gateway or Python service required",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "fetch-model": "bun scripts/fetch-model.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-40-Thieves/obsidian-tc.git",
+    "directory": "packages/reranker-local"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

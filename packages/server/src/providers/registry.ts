@@ -273,7 +273,84 @@ const RERANKERS: Record<string, RerankerEntry> = {
         reservedProviderNames: rerankerProviderNames().filter((n) => n !== "module"),
       }),
   },
+  // THE-705 item 1: a bundled, fully offline cross-encoder — reachable with no
+  // OBSIDIAN_TC_GATEWAY_URL and no bge-m3-service. appendsPath "" for the same reason as
+  // model-tier: this entry reads none of the descriptor's model/baseUrl/apiKey/apiKeyEnv/timeoutMs,
+  // only reranker.localModelPath (see buildLocalReranker below).
+  local: {
+    appendsPath: "",
+    build: (c) => buildLocalReranker(c),
+  },
 };
+
+/** The npm package name of the optional local-reranker workspace package. A named CONSTANT, not a
+ *  string literal at the `import()` call site below: TypeScript only attempts to resolve a literal
+ *  specifier's module/type declarations for a dynamic import, so keeping it in a variable means
+ *  `packages/server` typechecks whether or not the optional package is installed — it is never a
+ *  dependency of packages/server (see the package's own README for why: this is what keeps it out
+ *  of every `bun install` at the repo root). */
+const LOCAL_RERANKER_PACKAGE = "@the-40-thieves/obsidian-tc-reranker-local";
+
+/** The shape `LOCAL_RERANKER_PACKAGE`'s default export surface must have. Declared here rather than
+ *  imported — importing the package's real types would require it to resolve at typecheck time,
+ *  defeating the point of the dynamic import above. */
+interface LocalRerankerModule {
+  createReranker(opts: { localModelPath?: string }): Reranker;
+}
+
+/** reranker.provider "local" — exported (rather than inlined into the RERANKERS.local.build above)
+ *  so it is directly unit-testable with an injected `loadModule`, without needing
+ *  @huggingface/transformers or the real model weights present in packages/server's own test run.
+ *
+ *  MANDATORY LAZY INIT: this function does exactly one thing at boot-resolution time — a dynamic
+ *  `import()` of the small, transformers-free adapter package. It does NOT import
+ *  @huggingface/transformers itself, and does NOT load the model. That happens inside the Reranker
+ *  closure `mod.createReranker` returns, on its first invocation (see the package's own index.ts).
+ *  So resolving `reranker.provider: "local"` at boot — even for a deployment that configures it but
+ *  whose gatedRerank hardness gate never actually fires — costs only this import, not a model load. */
+export async function buildLocalReranker(
+  c: ProviderDescriptor,
+  loadModule: () => Promise<LocalRerankerModule> = () =>
+    import(LOCAL_RERANKER_PACKAGE) as Promise<LocalRerankerModule>,
+): Promise<Reranker> {
+  const ignored = (
+    [
+      ["model", c.model],
+      ["baseUrl", c.baseUrl],
+      ["apiKey", c.apiKey],
+      ["apiKeyEnv", c.apiKeyEnv],
+      ["timeoutMs", c.timeoutMs],
+      ["modulePath", c.modulePath],
+    ] as const
+  )
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key);
+  if (ignored.length > 0) {
+    throw err.invalidInput(
+      `reranker.provider "local" does not read ${ignored.map((k) => `reranker.${k}`).join(", ")}`,
+      {
+        provider: "local",
+        ignored,
+        hint: "the local reranker sources its model from the bundled @the-40-thieves/obsidian-tc-reranker-local package, not these fields — remove them, or set reranker.localModelPath instead if you need a non-default model directory.",
+      },
+    );
+  }
+  let mod: LocalRerankerModule;
+  try {
+    mod = await loadModule();
+  } catch (cause) {
+    throw err.invalidInput(
+      `reranker.provider "local" requires the optional ${LOCAL_RERANKER_PACKAGE} package, which is not installed`,
+      {
+        provider: "local",
+        package: LOCAL_RERANKER_PACKAGE,
+        hint: `run "bun add ${LOCAL_RERANKER_PACKAGE}" (see that package's README for the model-weights download step), or remove the reranker block to use a different provider.`,
+        underlying: cause instanceof Error ? cause.message : String(cause),
+      },
+    );
+  }
+  return mod.createReranker({ localModelPath: c.localModelPath });
+}
 
 /** Sorted so the unknown-name error message is stable and diffable. */
 export function rerankerProviderNames(): string[] {
