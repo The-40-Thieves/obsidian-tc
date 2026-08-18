@@ -11,6 +11,7 @@
 // the notes domain calls them, so they are not promoted to a shared module.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { noteQualityWarningFor } from "../../../experiential/note-quality";
+import { assessPoison } from "../../../experiential/poison";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { parseNote, serializeNote } from "../../../vault/frontmatter";
@@ -177,7 +178,7 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
     acceptsIdempotencyKey: true,
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
-      "Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation.",
+      'Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation. Set provenance: "agent_synthesis" when the content is a derived/inferred conclusion an agent produced (not directly stated in any single source) rather than authored/copied text — this routes the content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention.',
     inputSchema: WriteInput,
     outputSchema: WriteNoteOutput,
     requiredScopes: ["write:notes"],
@@ -193,6 +194,20 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
       const ex = noteExists(abs);
       if (ex.exists && ex.type === "folder")
         throw err.invalidInput("path is a folder", { path: rel });
+
+      // THE-639: agent-synthesised content is a derived inference, not authored/copied text — it
+      // must clear the same poison scan as import-channel episodes before anything mutates. High
+      // risk mirrors poison.ts's "born ineligible, never auto-raised" contract: refused outright,
+      // no partial-write path. Runs before every mode/CAS/confirmation check below since none of
+      // those mutate either — nothing durable happens ahead of this.
+      const poisonAssessment =
+        input.provenance === "agent_synthesis" ? assessPoison(input.content) : null;
+      if (poisonAssessment?.risk === "high")
+        throw err.contentRejected(
+          "agent_synthesis content failed the poison scan (risk: high) and was not written",
+          { path: rel, signals: poisonAssessment.signals },
+        );
+
       if (input.mode === "create" && ex.exists)
         throw err.noteExists("note already exists; use overwrite or upsert", { path: rel });
       if (input.mode === "overwrite" && !ex.exists)
@@ -256,6 +271,9 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
         // THE-643 item 1: never recomputed here — a point read of whatever the offline/scheduled
         // note-quality pass last wrote. null (not deps.edb) means "rollup never ran for this note".
         quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
+        // THE-639: null when provenance !== "agent_synthesis" (assessPoison never ran) — not a
+        // false all-clear, same convention as quality_warning above.
+        poison_assessment: poisonAssessment,
       };
     },
   });
@@ -268,7 +286,8 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
     vaultArg: "vault",
     acceptsIdempotencyKey: true,
     pathAcl: (input) => [{ op: "write", path: input.path }],
-    description: "Append content to a note (optionally creating it), preserving existing bytes.",
+    description:
+      'Append content to a note (optionally creating it), preserving existing bytes. Set provenance: "agent_synthesis" when the appended content is a derived/inferred conclusion an agent produced rather than authored/copied text — this routes the appended content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention.',
     inputSchema: AppendInput,
     outputSchema: AppendNoteOutput,
     requiredScopes: ["write:notes"],
@@ -280,6 +299,16 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
       const ex = noteExists(abs);
       if (ex.exists && ex.type === "folder")
         throw err.invalidInput("path is a folder", { path: rel });
+
+      // THE-639: see write_note's identical comment above. Scans only the content being
+      // appended (input.content), not the resulting whole-file body.
+      const poisonAssessment =
+        input.provenance === "agent_synthesis" ? assessPoison(input.content) : null;
+      if (poisonAssessment?.risk === "high")
+        throw err.contentRejected(
+          "agent_synthesis content failed the poison scan (risk: high) and was not written",
+          { path: rel, signals: poisonAssessment.signals },
+        );
 
       let prevHash: string | null = null;
       let prevRaw: string | null = null;
@@ -330,6 +359,8 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
         bytes_written: Buffer.byteLength(next, "utf8"),
         // THE-643 item 1: see write_note's identical comment above.
         quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
+        // THE-639: see write_note's identical comment above.
+        poison_assessment: poisonAssessment,
       };
     },
   });

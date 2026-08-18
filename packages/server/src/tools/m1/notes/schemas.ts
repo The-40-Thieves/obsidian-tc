@@ -77,6 +77,13 @@ export const QualityWarningOut = z
   .object({ flags: z.array(z.string()), computed_at: z.number() })
   .nullable();
 
+/** THE-639: assessPoison's verdict, surfaced only when `provenance: "agent_synthesis"` ran the
+ *  scan; null on the (default) "authored" path where assessPoison never runs — same null-means-
+ *  not-computed convention as QualityWarningOut, not a false all-clear. */
+export const PoisonAssessmentOut = z
+  .object({ risk: z.enum(["none", "suspect", "high"]), signals: z.array(z.string()) })
+  .nullable();
+
 export const WriteNoteOutput = z.object({
   vault: z.string(),
   path: z.string(),
@@ -86,6 +93,7 @@ export const WriteNoteOutput = z.object({
   prev_hash: z.string().nullable(),
   bytes_written: z.number(),
   quality_warning: QualityWarningOut,
+  poison_assessment: PoisonAssessmentOut,
 });
 
 export const AppendNoteOutput = z.object({
@@ -96,6 +104,7 @@ export const AppendNoteOutput = z.object({
   prev_hash: z.string().nullable(),
   bytes_written: z.number(),
   quality_warning: QualityWarningOut,
+  poison_assessment: PoisonAssessmentOut,
 });
 
 /** Mirrors the PatchAnchor input union verbatim — patch_note echoes the resolved anchor back. */
@@ -158,6 +167,14 @@ export const CopyNoteOutput = z.object({
 
 export const WriteMode = z.enum(["create", "overwrite", "upsert"]);
 
+/** THE-639: who stands behind this content. "authored" (default) is a human/caller-vouched
+ *  write — unchanged, byte-identical behavior for every existing caller that omits the field.
+ *  "agent_synthesis" marks a derived/inferred conclusion an agent produced from retrieval; it
+ *  routes through assessPoison before the write lands (see write.ts) and is a documented
+ *  convention to also carry `source: agent-synthesis` in the note's own YAML frontmatter, so the
+ *  existing frontmatter-JSON query path can filter these notes later. */
+export const Provenance = z.enum(["authored", "agent_synthesis"]);
+
 export const WriteInput = z
   .object({
     vault: VaultId,
@@ -170,6 +187,7 @@ export const WriteInput = z
     // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema ever
     // validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
     elicit_token: ElicitToken.optional(),
+    provenance: Provenance.default("authored"),
   })
   .strict();
 
@@ -182,6 +200,7 @@ export const AppendInput = z
     ensure_newline: z.boolean().default(true),
     prev_hash: z.string().optional(),
     options: WriteOptions.prefault({}),
+    provenance: Provenance.default("authored"),
   })
   .strict();
 
