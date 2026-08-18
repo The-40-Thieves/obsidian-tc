@@ -9,8 +9,9 @@
 // this CLI produces the REAL numbers once an embedding backend (e.g. BGE-M3 via Ollama @ 1024d)
 // and a real index exist. No secrets in the tree.
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { parse as parseYaml } from "yaml";
 import { FolderAcl, makeIndexReadable } from "../src/acl";
 import { loadConfig } from "../src/config/load";
@@ -18,7 +19,9 @@ import { openDatabase } from "../src/db/open";
 import type { Database } from "../src/db/types";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { pairSparse } from "../src/embeddings/bge-m3";
-import { graphSearch, seedZMargin } from "../src/search/graph_search";
+import { resolveReranker } from "../src/providers/registry";
+import { type GraphSearchOptions, graphSearch, seedZMargin } from "../src/search/graph_search";
+import { gatedRerankOptionsFromConfig } from "../src/search/graph_search_stages/rerank_stage";
 import { multiQueryGraphSearch } from "../src/search/multi_query";
 import type { Reranker } from "../src/search/rerank";
 import { lexicalRouteResults, routeQuery } from "../src/search/router";
@@ -159,8 +162,12 @@ export interface EvalQueryResult {
   id: string;
   baseline: QueryMetrics;
   graph: QueryMetrics;
-  /** THE-394: hard query = top-1 dense cosine below the gate threshold (0.55). The acceptance
-   *  for the gated reranker is a win on THIS subset. */
+  /** THE-394/THE-400: hard query = top-1 z-margin over the dense top-30 pool below 1.0 (see `z1`
+   *  below). Stale until THE-806: this used to read "top-1 dense cosine below 0.55" — the
+   *  acceptance-slice's ACTUAL condition since THE-400 switched it to z-margin, hardcoded
+   *  independently of whichever hardness rule `--gated-rerank` itself gates on (see
+   *  `resolveGatedRerankOptions`). The acceptance for the gated reranker is a win on THIS
+   *  subset. */
   hard: boolean;
   /** THE-400: top-1 z-margin over the dense top-30 pool — the model-agnostic confidence signal;
    *  logged per query so thresholds are picked from a calibration table, never guessed. */
@@ -558,6 +565,81 @@ function readGoldenOrExplain(goldenPath: string): string {
   }
 }
 
+/**
+ * THE-806 step 2: build the reranker `--gated-rerank` will use. Before this, the eval harness had
+ * exactly ONE route — `RERANK_URL`, a Cohere/Jina-shaped `/rerank` HTTP probe (THE-394) — while
+ * production selects a reranker from `config.reranker` via the provider registry
+ * (cohere-compatible / model-tier / gateway / local / module). That is the same class of defect
+ * THE-806 step 1 fixed for the hardness gate, one seam over: a golden-set `--gated-rerank` result
+ * could only ever describe an HTTP backend this deployment does not run.
+ *
+ * RERANK_URL wins when set (matches the env-overlay-wins precedence `config/load.ts`'s
+ * `applyEnvOverlays` uses everywhere else — an explicit env var is the harder-to-forget override,
+ * and it keeps the THE-394 TEI/vLLM path working unchanged). Otherwise, when `config.reranker`
+ * names a provider, this resolves it through `resolveReranker` — the SAME factory
+ * `runtime/tool-wiring.ts` calls at boot — so `{ "reranker": { "provider": "local" } }` in the eval
+ * config JSON reaches THE-705's bundled cross-encoder exactly as a real deployment would.
+ *
+ * `resolveRerankerFn` is injectable for the test, so it never has to import the real provider
+ * registry (and, transitively, never needs `@huggingface/transformers` or the local reranker's
+ * model weights) to prove the wiring.
+ */
+export async function buildEvalReranker(
+  config: Pick<ServerConfig, "reranker" | "embeddings">,
+  opts: {
+    configDir: string;
+    rerankUrl?: string;
+    fetchFn?: typeof fetch;
+    resolveRerankerFn?: typeof resolveReranker;
+  },
+): Promise<Reranker | null> {
+  if (opts.rerankUrl) {
+    const rerankUrl = opts.rerankUrl;
+    const fetchImpl = opts.fetchFn ?? fetch;
+    return async (query, documents, topN) => {
+      const res = await fetchImpl(`${rerankUrl.replace(/\/$/, "")}/rerank`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query, documents, texts: documents, top_n: topN }),
+      });
+      if (!res.ok) throw new Error(`rerank HTTP ${res.status}`);
+      const body = (await res.json()) as
+        | { results?: Array<{ index: number; relevance_score?: number; score?: number }> }
+        | Array<{ index: number; score?: number; relevance_score?: number }>;
+      const rows = Array.isArray(body) ? body : (body.results ?? []);
+      return rows.map((r) => ({
+        index: r.index,
+        relevanceScore: r.relevance_score ?? r.score ?? 0,
+      }));
+    };
+  }
+  if (!config.reranker) return null;
+  const resolve = opts.resolveRerankerFn ?? resolveReranker;
+  return resolve(config.reranker, { configDir: opts.configDir, embeddings: config.embeddings });
+}
+
+/**
+ * THE-806 step 2: `--gated-rerank` used to build its OWN hardZ-only literal
+ * (`{ enabled: true, hardZ: hardZ ?? 1.0 }`), never reading `retrieval.gatedRerankHardness` — the
+ * config surface step 1 built precisely so "production and the eval harness can construct the
+ * SAME object" (see `gatedRerankOptionsFromConfig`'s own doc comment). That promise was never kept
+ * on the harness side, which is the same defect class as the original ticket one seam over: a
+ * golden-set `--gated-rerank` result still measured a hardness rule a deployment reading that same
+ * config file could not reproduce.
+ *
+ * Always routes through `gatedRerankOptionsFromConfig` — the SAME function `retrieval-runtime.ts`
+ * calls at boot. `GATED_HARD_Z` keeps working as a threshold-sweep convenience, but ONLY in
+ * zMargin mode: `gatedRerankOptionsFromConfig`'s contract is to emit EXACTLY one knob, so applying
+ * it in cosine mode would silently smuggle a second, unreachable knob back in.
+ */
+export function resolveGatedRerankOptions(
+  hardness: Parameters<typeof gatedRerankOptionsFromConfig>[0],
+  hardZOverride: number | undefined,
+): NonNullable<GraphSearchOptions["gatedRerank"]> {
+  const opts = gatedRerankOptionsFromConfig(hardness);
+  return hardZOverride !== undefined && "hardZ" in opts ? { ...opts, hardZ: hardZOverride } : opts;
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const adaptive = argv.includes("--adaptive-rrf");
@@ -829,27 +911,10 @@ async function main(): Promise<void> {
     activationRows = map.size;
     activationLookup = (chunkId) => map.get(chunkId) ?? null;
   }
-  // THE-394: a Cohere/Jina-shaped /rerank backend for the eval (TEI or vLLM), injected via
-  // RERANK_URL. Production routes through the gateway seam; this keeps the A/B self-contained.
-  const rerankUrl = process.env.RERANK_URL;
-  const reranker: Reranker | null = rerankUrl
-    ? async (query, documents, topN) => {
-        const res = await fetch(`${rerankUrl.replace(/\/$/, "")}/rerank`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ query, documents, texts: documents, top_n: topN }),
-        });
-        if (!res.ok) throw new Error(`rerank HTTP ${res.status}`);
-        const body = (await res.json()) as
-          | { results?: Array<{ index: number; relevance_score?: number; score?: number }> }
-          | Array<{ index: number; score?: number; relevance_score?: number }>;
-        const rows = Array.isArray(body) ? body : (body.results ?? []);
-        return rows.map((r) => ({
-          index: r.index,
-          relevanceScore: r.relevance_score ?? r.score ?? 0,
-        }));
-      }
-    : null;
+  const reranker = await buildEvalReranker(config, {
+    configDir: dirname(configPath),
+    rerankUrl: process.env.RERANK_URL,
+  });
   // THE-448: load the phrasing variants. Keyed by EXACT query text (that is what the golden set
   // and the tool both carry); a query absent from the file simply does not fan out. Coverage is
   // reported because a typo'd or stale variants file otherwise runs a silent no-op fan-out and
@@ -1013,6 +1078,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // THE-806 step 2: computed once, ahead of the run, so the summary line below (which names the
+  // resolved mode/threshold) and the options passed to runEval can never disagree.
+  const gatedRerankOptions = gatedRerank
+    ? resolveGatedRerankOptions(config.retrieval.gatedRerankHardness, hardZ)
+    : undefined;
+
   const report = await runEval({
     db,
     provider,
@@ -1031,11 +1102,7 @@ async function main(): Promise<void> {
     ...(mmr ? { diversify: { maxPerNote: 2, mmr: { enabled: true } } } : {}),
     ...(noLexical ? { lexical: { enabled: false } } : {}),
     ...(sparseFlag ? { sparse: true } : {}),
-    ...(gatedRerank
-      ? // Default the hardness gate to the model-agnostic z-margin (GATED_HARD_Z overrides); the
-        // absolute-cosine default (0.55) never fires on nomic, so the reranker A/B was degenerate.
-        { gatedRerank: { enabled: true, hardZ: hardZ ?? 1.0 } }
-      : {}),
+    ...(gatedRerankOptions ? { gatedRerank: gatedRerankOptions } : {}),
     ...(zRouterArg !== undefined && !Number.isNaN(zRouterArg) ? { zRouter: zRouterArg } : {}),
     ...(maxPerCluster !== undefined && !Number.isNaN(maxPerCluster) ? { maxPerCluster } : {}),
     ...(metadataPrior
@@ -1075,7 +1142,13 @@ async function main(): Promise<void> {
     mmr ? "note-collapse+MMR" : null,
     noLexical ? "lexical OFF" : null,
     sparseFlag ? "sparse stream" : null,
-    gatedRerank ? `gated rerank${hardZ !== undefined ? ` z<${hardZ}` : ""}` : null,
+    gatedRerankOptions
+      ? `gated rerank ${
+          "hardZ" in gatedRerankOptions
+            ? `z<${gatedRerankOptions.hardZ}`
+            : `cos<${gatedRerankOptions.hardTop1}`
+        }`
+      : null,
     fusionArg === "convex" ? `convex fusion a=${convexAlpha ?? 0.7}` : null,
     zRouterArg !== undefined ? `z-router@${zRouterArg}` : null,
     maxPerCluster !== undefined ? `max-per-cluster=${maxPerCluster}` : null,

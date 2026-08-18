@@ -7,10 +7,20 @@ bun eval/run.ts <config.json> [golden-set.yaml] [flags] [--json out.json]
 ```
 
 Flags A/B one mechanism each: `--adaptive-rrf`, `--graph-stream`, `--mmr`, `--no-lexical`,
-`--sparse`, `--gated-rerank` (with `RERANK_URL`), plus `RRF_K`-style env overrides where noted in
-`run.ts`. Every run reports recall@10 / nDCG@10 / MRR@10 / bridge recall for the semantic baseline
-and the graph side, a hard-subset slice, and (THE-399) a **paired permutation p-value + bootstrap
-95% CI** for graph-vs-baseline ΔnDCG@10 and Δrecall@10 on the same queries.
+`--sparse`, `--gated-rerank`, plus `RRF_K`-style env overrides where noted in `run.ts`. Every run
+reports recall@10 / nDCG@10 / MRR@10 / bridge recall for the semantic baseline and the graph side, a
+hard-subset slice, and (THE-399) a **paired permutation p-value + bootstrap 95% CI** for
+graph-vs-baseline ΔnDCG@10 and Δrecall@10 on the same queries.
+
+**`--gated-rerank`'s reranker** comes from `RERANK_URL` (a Cohere/Jina-shaped `/rerank` HTTP
+backend — TEI or vLLM) when set, else from the config JSON's `reranker` block, resolved through the
+SAME provider registry production uses (THE-806 step 2) — `{ "reranker": { "provider": "local" } }`
+reaches THE-705's bundled offline cross-encoder with no separate server to stand up. **Its hardness
+rule** (cosine top-1 vs z-margin, and the threshold) comes from the config's
+`retrieval.gatedRerankHardness` block, via the SAME `gatedRerankOptionsFromConfig` function
+`retrieval-runtime.ts` calls at boot — so a golden-set `--gated-rerank` result now measures exactly
+the gate a deployment reading that config file would run. `GATED_HARD_Z` still overrides the
+z-margin threshold for a quick sweep, but only takes effect in `zMargin` mode.
 
 Compare two configs (paired by query id):
 
@@ -101,6 +111,83 @@ improvements are smaller than that. Until the golden set reaches **n ≈ 126** (
    count toward gates only after Suavecito approves them (THE-171 convention). That expansion also
    adds the lexical/exact-term query class the multi-hop set lacks, which is required before any
    verdict on the BM25-stream default.
+
+## gatedRerank hardness — calibration and the mode decision (THE-806, 2026-08-18)
+
+THE-806 step 1 (PR #778) gave `gatedRerank`'s hardness rule a config surface
+(`retrieval.gatedRerankHardness`) so production and the eval harness could construct the SAME
+gate object — but the harness's own `--gated-rerank` flag never actually read it, so a golden-set
+result still measured a rule production couldn't reproduce. This section is step 2/3: the harness
+fix (see "`--gated-rerank`'s reranker" above), the calibration this repo owed THE-400 since
+2026-07-11, and the resulting default decision. Measured against a **reachable, live-probed
+reranker** for the first time — THE-705's bundled offline cross-encoder
+(`{ "reranker": { "provider": "local" } }`), confirmed serving via `obsidian-tc doctor`
+(`reranker.buildable` — resolved via source-checkout) and via `assertFlagDependencies`'s real probe
+call (THE-807): both arms below stamp `gated-rerank` in their `--json` artifact, which only happens
+when that preflight passed.
+
+**Corpus:** the private multi-hop golden set (n=250) against the live BAAI/bge-m3 / 1024d
+representation (`cache-the748-fresh`, 13,746 chunks) — the deployment's actual backbone; the
+schema's shipped default (`nomic-embed-text`) does not describe it and the 0/32-fired figure in
+`graph_search_stages/types.ts` was measured on nomic, not this corpus.
+
+### Z1 calibration table
+
+The z-margin distribution over the golden set's dense top-30 seed pool (`seedZMargin`, printed by
+every run — no reranker required):
+
+| min | p25 | median | p75 | max |
+| --: | --: | --: | --: | --: |
+| 1.57 | 2.27 | 2.66 | 3.26 | 4.69 |
+
+**The floor is 1.57 — above the harness's own `hardZ` default of 1.0.** That default was never
+calibrated against this backbone; it is the z-margin threshold `--gated-rerank` has hardcoded since
+THE-400 (2026-07-11), carried forward unchanged. On bge-m3, `zMargin < 1.0` cannot fire on ANY of
+these 250 queries — the exact same structural-zero shape as `top1 < 0.55` firing 0/32 on nomic
+(the defect THE-400 was filed to replace). The two thresholds "currently in play" were both
+miscalibrated for the backbone that measures them; this ticket's premise (one construction, so the
+arms are comparable) was necessary but not sufficient — the *values* still needed calibrating, and
+still do, for anyone revisiting `hardZ`'s default.
+
+### The A/B: cosine@0.55 vs zMargin@1.0 vs off
+
+Three arms, same config (`reranker.provider: "local"`) except for `retrieval.gatedRerankHardness`,
+same golden set, paired by query id:
+
+| comparison | ΔnDCG@10 | Δrecall@10 | ΔMRR@10 | Δbridge | permutation p (nDCG) | MDE@n=250 (nDCG) |
+| --- | --: | --: | --: | --: | --: | --: |
+| off → cosine@0.55 (production's shipped default) | +0.002 | +0.000 | +0.002 | +0.000 | 0.6270 | 0.009 |
+| off → zMargin@1.0 (harness's long-standing default) | +0.000 | +0.000 | +0.000 | +0.000 | 1.0000 | 0.000 |
+| cosine@0.55 → zMargin@1.0 | −0.002 | +0.000 | −0.002 | +0.000 | 0.6270 | 0.009 |
+
+**zMargin@1.0 vs off is not a small effect — it is byte-identical on every metric, for every one of
+the 250 paired queries** (σ_d = 0.000, MDE = 0.000). That is the calibration table's floor of 1.57
+made concrete: the gate never fires, so the arm scores its control against itself by construction.
+`cosine@0.55` does reach a nonzero (if tiny) fraction of queries — nDCG/MRR move a hair while
+recall/bridge stay exactly 0.000, consistent with reranking reordering ranks inside an
+already-identical retrieved set rather than changing which chunks are retrieved — but the movement
+is far inside a **0.009 MDE**, one of the tightest this harness has measured (contrast: the
+generic graph-vs-baseline MDE is 0.030–0.035 on this same corpus/metric, `docs/EVALUATION.md`).
+This is a well-powered null, not an underpowered one.
+
+### Step 3 decision: no default change
+
+Neither candidate hardness rule clears `retrieval.gatedRerank`'s own claim bar (80%, its schema
+comment) — one is a structural no-op, the other an unmeasurable-at-this-n null. Per this repo's ship
+rule, a null result inside the MDE is a legitimate outcome, not license to pick a side:
+
+- `retrieval.gatedRerankHardness.mode` stays `cosine` (the schema default, unchanged) — not because
+  it measurably wins, but because it is the only one of the two thresholds that reaches any query in
+  this corpus at all, and its effect is at least non-negative and non-inferior.
+- `retrieval.gatedRerank` stays `false` (dark) — unchanged; this result does not meet the bar to
+  flip it on.
+- No config schema change. THE-806 step 1 already collapsed the "three thresholds" (0.55 / 1.0 /
+  the audit's rejected 1.5) to a `mode`-switched surface that emits exactly one at a time; there is
+  no ranking evidence here to justify moving the value either switch reads.
+- What *should* change, as a follow-up rather than blocking this PR: `hardZ`'s default (1.0) is
+  demonstrably miscalibrated for bge-m3 (floor 1.57) the same way `hardTop1`'s default (0.55) was
+  for nomic. A future recalibration attempt should pick a threshold from this corpus's own quantiles
+  (e.g. a quartile of z1) rather than carry either legacy constant forward unexamined.
 
 ## Publishing the golden-set size to the docs
 

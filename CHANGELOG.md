@@ -121,6 +121,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **The eval harness's `--gated-rerank` flag now builds the SAME reranker and hardness gate
+  production would (THE-806 step 2).** Before this it had exactly one route to a reranker —
+  `RERANK_URL`, a Cohere/Jina-shaped `/rerank` HTTP probe — while production selects one from
+  `config.reranker` via the provider registry (`cohere-compatible` / `model-tier` / `gateway` /
+  `local` / `module`); a golden-set `--gated-rerank` result could only ever describe an HTTP backend
+  nothing in a real deployment runs. It also built its hardness gate from a hardcoded
+  `{ hardZ: 1.0 }` literal, ignoring `retrieval.gatedRerankHardness` — the config surface THE-806
+  step 1 (PR #778) built specifically so the two could construct the same object, a promise that was
+  never kept on the harness side. `buildEvalReranker` and `resolveGatedRerankOptions` (both
+  `eval/run.ts`) fix both seams: `RERANK_URL` still wins when set (unchanged behaviour for existing
+  TEI/vLLM setups), and otherwise the harness resolves `config.reranker` and
+  `retrieval.gatedRerankHardness` through the exact functions `runtime/tool-wiring.ts` and
+  `retrieval-runtime.ts` call at boot. Measured against THE-705's bundled local reranker for the
+  first time: `zMargin@1.0` (the harness's long-standing default) is a **structural no-op** on the
+  live bge-m3 corpus — its z1 floor is 1.57, above the threshold — and `cosine@0.55` (production's
+  default) shows no significant effect either, well inside a 0.009 nDCG MDE at n=250. No default
+  changes; `retrieval.gatedRerank` stays dark. See `packages/server/eval/README.md`'s "gatedRerank
+  hardness — calibration and the mode decision" section for the full calibration table and A/B.
+
 - **The MCP error `content[0].text` block now names the offending field, not just the error code
   (#784, THE-823).** Real MCP clients discard `structuredContent` on an `isError` result and render
   the text line alone, so `Error [validation_error]: input validation failed` — with the Zod issues
