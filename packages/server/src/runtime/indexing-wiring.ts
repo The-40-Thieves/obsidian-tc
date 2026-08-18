@@ -80,7 +80,11 @@ export interface IndexHealthState {
   lastChunksUpserted: number | null;
   /** THE-645: set while an index_vault call is in flight, updated once per completed flush()
    *  batch; cleared back to null in the tool's onIndexVaultComplete (success) and
-   *  onIndexVaultError (failure) hooks. Plain in-memory — never written to SQLite. */
+   *  onIndexVaultError (failure) hooks — both guarded on `inFlight?.vault === vaultId`, since
+   *  dispatch has no cross-call serialization and two index_vault calls on different vaults can
+   *  genuinely overlap. This is a SINGLE slot, not a per-vault map: while two runs overlap, it
+   *  reports "an" in-flight run (last onProgress wins), not "all" of them — see tool-wiring.ts's
+   *  wireDomainTools for the ownership-guard reasoning. Plain in-memory — never written to SQLite. */
   inFlight: {
     vault: string;
     notesSeen: number;

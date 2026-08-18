@@ -17,6 +17,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   surfaces it as an additive, optional `in_flight` field — absent when no `index_vault` call is
   running for this process, present with the vault id and progress while one is. Cleared on both
   normal completion and a rejected run, so a failed pass never leaves a stale "still running" entry.
+  `in_flight` is a single shared slot, not a per-vault map, and both clear sites are guarded on
+  `inFlight.vault === vaultId`: dispatch has no cross-call serialization, so two `index_vault` calls
+  on different vaults can genuinely overlap, and an unguarded clear let one vault's completion null
+  out a different, still-running vault's entry (caught in review before merge). The slot reports
+  "an" in-flight run, not "all" of them, when two overlap.
 
 ### Security
 

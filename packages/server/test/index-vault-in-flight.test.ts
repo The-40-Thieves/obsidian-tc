@@ -3,10 +3,25 @@
 // in-flight entry; onIndexVaultComplete/onIndexVaultError both clear it) so a real registry dispatch
 // of index_vault, observed concurrently through a real registry dispatch of get_index_status,
 // exercises the exact wiring production uses rather than a hand-fed value.
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
-import { deterministicVector, fakeEmbeddingProvider } from "../src/embeddings";
+import { provisionCacheDb } from "../src/db/provision";
+import {
+  deterministicVector,
+  type EmbeddingProvider,
+  fakeEmbeddingProvider,
+} from "../src/embeddings";
+import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { buildRepresentationManifest } from "../src/search/representation";
 import { createIndexStatusTool, type IndexInFlightInfo } from "../src/tools/admin/health";
+import { registerM2Tools } from "../src/tools/m2";
+import { VaultRegistry } from "../src/vault/registry";
+import { openMemoryDb } from "./helpers";
 import { makeM2Vault } from "./m2-helpers";
+import { rmTemp } from "./tmp";
 
 /** A deferred promise the test releases by hand, to hold a provider call mid-flight (mirrors
  *  test/index-coordinator.test.ts's helper). */
@@ -29,6 +44,69 @@ async function pollUntil(predicate: () => boolean, maxIters = 5000): Promise<voi
     await Promise.resolve();
   }
   throw new Error(`pollUntil: condition not met within ${maxIters} microtask ticks`);
+}
+
+/** Two REAL vaults sharing one registry/db/provider (mirrors production: `M2Deps.embeddingProvider`
+ *  is one instance shared across every vault dispatch goes through — the overlap bug lives exactly
+ *  here, since `IndexHealthState.inFlight` is likewise one shared slot). Deliberately NOT
+ *  `makeM2Vault` (single-vault only) — the overlap scenario needs two independent roots dispatched
+ *  through the SAME `ToolRegistry`. */
+function makeTwoVaultHarness(
+  files: { a: Record<string, string>; b: Record<string, string> },
+  provider: EmbeddingProvider,
+  hooks: {
+    onProgress: (
+      vaultId: string,
+      p: { notesSeen: number; notesProcessed: number; chunksUpserted: number; startedAt: number },
+    ) => void;
+    onIndexVaultComplete: (vaultId: string) => void;
+    onIndexVaultError: (vaultId: string) => void;
+  },
+): {
+  call(name: string, input: Record<string, unknown>): Promise<ToolResult>;
+  cleanup(): void;
+} {
+  const writeAll = (root: string, entries: Record<string, string>): void => {
+    for (const [rel, content] of Object.entries(entries)) {
+      const abs = join(root, rel);
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, content);
+    }
+  };
+  const rootA = mkdtempSync(join(tmpdir(), "obtc-inflight-a-"));
+  const rootB = mkdtempSync(join(tmpdir(), "obtc-inflight-b-"));
+  writeAll(rootA, files.a);
+  writeAll(rootB, files.b);
+
+  const db = openMemoryDb();
+  provisionCacheDb(db);
+  const vaultRegistry = new VaultRegistry([
+    { id: "va", path: rootA },
+    { id: "vb", path: rootB },
+  ]);
+  const registry = new ToolRegistry();
+  registerM2Tools(registry, {
+    vaultRegistry,
+    embeddingProvider: provider,
+    representation: buildRepresentationManifest(provider, {}),
+    onProgress: hooks.onProgress,
+    onIndexVaultComplete: (vaultId) => hooks.onIndexVaultComplete(vaultId),
+    onIndexVaultError: hooks.onIndexVaultError,
+  });
+  const ctx: CallerContext = {
+    caller: "test",
+    authenticated: true,
+    grantedScopes: new Set(["*"]),
+    vaultId: "va",
+    db,
+  };
+  return {
+    call: (name, input) => registry.dispatch(name, input, ctx),
+    cleanup: () => {
+      rmTemp(rootA);
+      rmTemp(rootB);
+    },
+  };
 }
 
 describe("index_vault in-flight progress -> get_index_status (THE-645)", () => {
@@ -57,11 +135,15 @@ describe("index_vault in-flight progress -> get_index_status (THE-645)", () => {
       onProgress: (vaultId, p) => {
         inFlight = { vault: vaultId, ...p };
       },
-      onIndexVaultComplete: () => {
-        inFlight = null;
+      // THE-645 (adversarial review fix): guarded on ownership, mirroring
+      // runtime/tool-wiring.ts's wireDomainTools exactly — a single-vault test never exercises the
+      // guard's branch, but keeping the SAME shape here is what makes this file's "mirrors
+      // production wiring" claim true. See the overlap tests below for the guard itself.
+      onIndexVaultComplete: (vaultId) => {
+        if (inFlight?.vault === vaultId) inFlight = null;
       },
-      onIndexVaultError: () => {
-        inFlight = null;
+      onIndexVaultError: (vaultId) => {
+        if (inFlight?.vault === vaultId) inFlight = null;
       },
     });
     v.registry.register(
@@ -117,11 +199,15 @@ describe("index_vault in-flight progress -> get_index_status (THE-645)", () => {
       onProgress: (vaultId, p) => {
         inFlight = { vault: vaultId, ...p };
       },
-      onIndexVaultComplete: () => {
-        inFlight = null;
+      // THE-645 (adversarial review fix): guarded on ownership, mirroring
+      // runtime/tool-wiring.ts's wireDomainTools exactly — a single-vault test never exercises the
+      // guard's branch, but keeping the SAME shape here is what makes this file's "mirrors
+      // production wiring" claim true. See the overlap tests below for the guard itself.
+      onIndexVaultComplete: (vaultId) => {
+        if (inFlight?.vault === vaultId) inFlight = null;
       },
-      onIndexVaultError: () => {
-        inFlight = null;
+      onIndexVaultError: (vaultId) => {
+        if (inFlight?.vault === vaultId) inFlight = null;
       },
     });
     v.registry.register(
@@ -146,5 +232,136 @@ describe("index_vault in-flight progress -> get_index_status (THE-645)", () => {
     } finally {
       v.cleanup();
     }
+  });
+
+  // Adversarial review CONFIRMED bug: `inFlight` is a single shared slot, and dispatch has no
+  // cross-call serialization, so two index_vault calls on DIFFERENT vaults can genuinely overlap.
+  // The original wiring cleared the slot unconditionally in both onIndexVaultComplete and
+  // onIndexVaultError, so vault B finishing WHILE vault A was still mid-run nulled A's still-valid
+  // entry out from under it. The fix guards both clear sites on `inFlight?.vault === vaultId`. Both
+  // cases below construct vault B so it settles (completes or rejects) WITHOUT ever calling
+  // onProgress for "vb" — an empty vault never reaches flush()'s non-empty-batch onProgress call,
+  // and a rejecting embed() throws inside flush() before it reaches that same call — isolating the
+  // assertion to the clear-site guard itself, not to onProgress's ordinary last-writer-wins
+  // overwrite (which is the OTHER, intentional, documented consequence of one shared slot).
+  describe("two vaults can genuinely overlap — the single in_flight slot is guarded by ownership", () => {
+    it("vault B completing does not clear vault A's still-running entry", async () => {
+      const filesA: Record<string, string> = {};
+      for (let i = 0; i < 120; i++) filesA[`n${i}.md`] = `note ${i} VAULTA_MARKER unique body`;
+
+      let aEmbedCalls = 0;
+      const gateA2 = deferred();
+      const provider: EmbeddingProvider = {
+        ...fakeEmbeddingProvider({ dimensions: 8 }),
+        embed: async (texts: string[]): Promise<number[][]> => {
+          if (texts.some((t) => t.includes("VAULTA_MARKER"))) {
+            aEmbedCalls += 1;
+            if (aEmbedCalls === 2) await gateA2.promise; // pause A's SECOND (final) batch
+          }
+          return texts.map((t) => deterministicVector(t, 8));
+        },
+      };
+
+      // A boxed ref, not a bare `let` — TS's closure-narrowing otherwise infers a
+      // too-specific type for a `let` reassigned only inside callbacks stored (not called
+      // synchronously) by makeTwoVaultHarness, which surfaced as a false `never` on read.
+      const state: { inFlight: IndexInFlightInfo | null } = { inFlight: null };
+      const h = makeTwoVaultHarness(
+        { a: filesA, b: {} }, // b: an EMPTY vault — flush()'s trailing call sees an empty batch
+        // and returns before ever calling onProgress, so "vb" never touches the slot on its own.
+        provider,
+        {
+          onProgress: (vaultId, p) => {
+            state.inFlight = { vault: vaultId, ...p };
+          },
+          onIndexVaultComplete: (vaultId) => {
+            if (state.inFlight?.vault === vaultId) state.inFlight = null;
+          },
+          onIndexVaultError: (vaultId) => {
+            if (state.inFlight?.vault === vaultId) state.inFlight = null;
+          },
+        },
+      );
+
+      try {
+        const runA = h.call("index_vault", { vault: "va" });
+        // A's first batch (100 notes) has committed and reported progress (slot = "va"); its
+        // second batch's embed() is parked on gateA2, so A is genuinely still in flight.
+        await pollUntil(() => aEmbedCalls >= 2);
+        expect(state.inFlight?.vault).toBe("va");
+        const aProgressBeforeB = state.inFlight?.notesProcessed;
+
+        // Vault B runs to completion WHILE A is still mid-run. Pre-fix, B's completion cleared
+        // the slot unconditionally; post-fix, the guard sees inFlight.vault ("va") !== "vb" and
+        // leaves it alone.
+        const resB = await h.call("index_vault", { vault: "vb" });
+        expect(resB.ok).toBe(true);
+        expect(state.inFlight?.vault).toBe("va");
+        expect(state.inFlight?.notesProcessed).toBe(aProgressBeforeB);
+
+        gateA2.resolve();
+        const resA = await runA;
+        expect(resA.ok).toBe(true);
+        // A's OWN completion owns the slot and clears it correctly.
+        expect(state.inFlight).toBeNull();
+      } finally {
+        h.cleanup();
+      }
+    });
+
+    it("vault B rejecting does not clear vault A's still-running entry", async () => {
+      const filesA: Record<string, string> = {};
+      for (let i = 0; i < 120; i++) filesA[`n${i}.md`] = `note ${i} VAULTA_MARKER unique body`;
+      const filesB = { "b.md": "VAULTB_REJECT_MARKER reject me" };
+
+      let aEmbedCalls = 0;
+      const gateA2 = deferred();
+      const provider: EmbeddingProvider = {
+        ...fakeEmbeddingProvider({ dimensions: 8 }),
+        embed: async (texts: string[]): Promise<number[][]> => {
+          if (texts.some((t) => t.includes("VAULTB_REJECT_MARKER"))) {
+            // Throws INSIDE flush()'s embedPlans() await, before flush() ever reaches its
+            // onProgress call — "vb" never touches the slot on its own, same as the empty-vault
+            // case above, just via the error path instead of the empty-batch path.
+            throw new Error("boom — provider outage (vault B)");
+          }
+          if (texts.some((t) => t.includes("VAULTA_MARKER"))) {
+            aEmbedCalls += 1;
+            if (aEmbedCalls === 2) await gateA2.promise;
+          }
+          return texts.map((t) => deterministicVector(t, 8));
+        },
+      };
+
+      const state: { inFlight: IndexInFlightInfo | null } = { inFlight: null };
+      const h = makeTwoVaultHarness({ a: filesA, b: filesB }, provider, {
+        onProgress: (vaultId, p) => {
+          state.inFlight = { vault: vaultId, ...p };
+        },
+        onIndexVaultComplete: (vaultId) => {
+          if (state.inFlight?.vault === vaultId) state.inFlight = null;
+        },
+        onIndexVaultError: (vaultId) => {
+          if (state.inFlight?.vault === vaultId) state.inFlight = null;
+        },
+      });
+
+      try {
+        const runA = h.call("index_vault", { vault: "va" });
+        await pollUntil(() => aEmbedCalls >= 2);
+        expect(state.inFlight?.vault).toBe("va");
+
+        const resB = await h.call("index_vault", { vault: "vb" });
+        expect(resB.ok).toBe(false); // the provider always rejects for vault B
+        expect(state.inFlight?.vault).toBe("va"); // A's entry survives B's rejection
+
+        gateA2.resolve();
+        const resA = await runA;
+        expect(resA.ok).toBe(true);
+        expect(state.inFlight).toBeNull();
+      } finally {
+        h.cleanup();
+      }
+    });
   });
 });
