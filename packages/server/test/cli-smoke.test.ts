@@ -12,7 +12,7 @@
 // extraction can actually introduce (a branch that stops returning, a wrong exit code, a lost guard).
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,7 +92,16 @@ describe.skipIf(!bunAvailable)(
       const r = runCli(["--help"]);
       expect(r.code).toBe(0);
       const out = r.stdout + r.stderr;
-      for (const cmd of ["densify-llm", "forget", "gaps", "metrics", "reflect", "prefetch"]) {
+      for (const cmd of [
+        "densify-llm",
+        "forget",
+        "gaps",
+        "metrics",
+        "reflect",
+        "prefetch",
+        "context-export",
+        "context-import",
+      ]) {
         expect(out).toContain(cmd);
       }
     });
@@ -148,6 +157,101 @@ describe.skipIf(!bunAvailable)(
       const r = runCli(["densify-llm", configPath]);
       expect(r.code).toBe(2);
       expect(r.stderr).toMatch(/llmEdges|disabled/i);
+    });
+
+    // THE-636: context-export/context-import, end to end through the real subprocess.
+    describe("context-export / context-import (THE-636)", () => {
+      it("context-export requires --out — missing it exits 2 with usage", () => {
+        const r = runCli(["context-export", configPath]);
+        expect(r.code).toBe(2);
+        expect(r.stderr).toMatch(/--out/);
+      });
+
+      it("context-export refuses an --out path inside the vault root (exit non-zero, no file written)", () => {
+        const inside = join(vaultPath, "leak.json");
+        const r = runCli(["context-export", configPath, "--out", inside]);
+        expect(r.code).not.toBe(0);
+        expect(r.stderr).toMatch(/vault/i);
+        expect(existsSync(inside)).toBe(false);
+      });
+
+      it("context-import requires a bundle path — missing it exits 2 with usage", () => {
+        // --config (rather than a bare positional) so the ONE positional consumed isn't mistaken
+        // for the bundle path — this isolates "bundle path absent" from "config path absent".
+        const r = runCli(["context-import", "--config", configPath]);
+        expect(r.code).toBe(2);
+        expect(r.stderr).toMatch(/bundle path/);
+      });
+
+      it(
+        "round-trip: export produces a versioned bundle with all 9 tables + a PII warning, " +
+          "and import --dry-run reports counts without writing (acceptance 1, 2, 4)",
+        () => {
+          const outPath = join(dir, "context-bundle.json");
+          const exportRun = runCli(["context-export", configPath, "--out", outPath]);
+          expect(exportRun.code).toBe(0);
+          expect(existsSync(outPath)).toBe(true);
+          // THE-636 item 2: the PII warning is unconditional, printed to stderr.
+          expect(exportRun.stderr).toMatch(/derived personal data/i);
+
+          const bundle = JSON.parse(readFileSync(outPath, "utf8"));
+          expect(bundle.format_version).toBe(1);
+          expect(Object.keys(bundle.tables).sort()).toEqual(
+            [
+              "agent_episodes",
+              "chunk_retrievals",
+              "forget_log",
+              "gap_reports",
+              "goals",
+              "note_quality",
+              "preference_deltas",
+              "preference_profile",
+              "vault_object_state",
+            ].sort(),
+          );
+
+          // Import into a SEPARATE, fresh install (own cacheDir) — --dry-run first.
+          const importDir = mkdtempSync(join(tmpdir(), "obtc-cli-import-"));
+          const importVault = join(importDir, "vault");
+          mkdirSync(importVault, { recursive: true });
+          const importConfigPath = join(importDir, "config.json");
+          writeFileSync(
+            importConfigPath,
+            JSON.stringify({
+              vaults: [{ id: "main", path: importVault }],
+              cacheDir: join(importDir, "cache"),
+            }),
+          );
+
+          // Bundle path first, config path second — obsidian-tc context-import <bundle> [path].
+          const dryRun = runCli(["context-import", outPath, importConfigPath, "--dry-run"]);
+          expect(dryRun.code).toBe(0);
+          expect(dryRun.stdout).toMatch(/dry-run/);
+
+          const realRun = runCli(["context-import", outPath, importConfigPath]);
+          expect(realRun.code).toBe(0);
+
+          rmTemp(importDir);
+        },
+      );
+
+      it("context-import rejects a bundle with the wrong format_version, exit non-zero", () => {
+        const badPath = join(dir, "bad-version-bundle.json");
+        writeFileSync(
+          badPath,
+          JSON.stringify({
+            format_version: 999,
+            exported_at: 0,
+            server_version: "0.0.0",
+            vault: "*",
+            score_version: 1,
+            tables: {},
+          }),
+        );
+        const r = runCli(["context-import", badPath, configPath]);
+        expect(r.code).not.toBe(0);
+        expect(r.stderr).toMatch(/format_version mismatch/);
+      });
     });
   },
 );

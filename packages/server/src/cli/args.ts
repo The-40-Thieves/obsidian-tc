@@ -1,7 +1,4 @@
-import { statSync } from "node:fs";
-import { resolve } from "node:path";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { finalizeConfig, isPlaneEnabledExplicit, readConfigFile } from "../config/load";
+import { CliError } from "./cli-error";
 
 export type CliCommand =
   | { kind: "serve"; input?: string }
@@ -93,140 +90,25 @@ export type CliCommand =
       erase?: boolean;
       verify?: boolean;
     }
+  // THE-636: vendor-neutral export/import of the derived plane (experiential.db), CLI-only —
+  // see experiential/context-bundle.ts for why this is a CLI command and not an MCP tool.
+  | { kind: "context-export"; input?: string; out?: string; vault?: string }
+  | {
+      kind: "context-import";
+      input?: string;
+      bundlePath?: string;
+      vault?: string;
+      dryRun?: boolean;
+    }
   | { kind: "error"; message: string };
 
-export const USAGE = `obsidian-tc — MCP server for Obsidian
-
-Usage:
-  obsidian-tc <vault-dir | config.json>   Start the server (zero-config from a vault folder, or a config file)
-  obsidian-tc serve [path]                Same as above; path may be a vault folder or a config file
-  obsidian-tc config show [path]          Print the effective config with secrets redacted
-  obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
-  obsidian-tc doctor [path] [--json] [--token <jwt>] [--probe]
-                                          Probe runtime health: runtime, native module, auth policy,
-                                          token max-age vs expiry, detected Obsidian vaults/plugins.
-                                          --json emits the versioned report; --token checks a deployed
-                                          credential's age. Exits non-zero when a check fails.
-                                          --probe additionally EMBEDS a short string against the
-                                          configured embeddings provider, so the dense head is
-                                          reported as observed rather than as configured. Off by
-                                          default: every other check is offline, and a "module"
-                                          provider is never probed at all.
-  obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
-  obsidian-tc index [path] [--vault id] [--folder rel/path]
-                                          Chunk and embed the vault into the search index (THE-697).
-                                          Incremental: unchanged content hashes are skipped, removed
-                                          chunks pruned. The operator path for a reindex — the
-                                          index_vault tool cannot hold an HTTP request open long
-                                          enough for a large vault. --folder requires --vault.
-                                          Exits non-zero if any note failed to embed, since those
-                                          notes are indexed but NOT retrievable.
-  obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval (THE-73)
-  obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history (THE-227)
-  obsidian-tc prefetch [path] [--vault id] [--ttl-hours N]
-                                          Prewarm the session-bootstrap context cache (THE-136)
-  obsidian-tc densify-llm [path] [--vault id]
-                                          LLM Pass-3 semantic-edge densification via the local gateway (graph densification)
-  obsidian-tc reflect [path]
-                                          Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
-  obsidian-tc rerun <session-id> [path] [--vault <id>] [--sandbox] [--json]
-                                        Re-issue a recorded session's captured tool arguments
-                                        against current vault state and report which calls
-                                        diverged (THE-645 item 3). RE-EXECUTION, not stubbed
-                                        replay: results were never captured, so there is nothing
-                                        to substitute. Requires \`sessions.traceContent\` to have
-                                        been ON when the session was recorded; otherwise every
-                                        record is refused and the command exits 2.
-                                        Both modes are pinned to the session's OWN vault: a record
-                                        whose captured args name a different vault is refused.
-                                        Neither mode grants admin: scopes, so a recorded admin
-                                        call (e.g. add_vault) is always refused.
-                                        Default mode refuses every mutating call via a read-only
-                                        ACL. --sandbox copies THAT vault and the databases to a
-                                        temp dir and runs vault-filesystem calls for real against
-                                        the copy; ALL plugin-bridge tools are disabled under
-                                        --sandbox rather than run — the write ones (git, tasks,
-                                        excalidraw, remotely-save) because they act through the
-                                        live Obsidian app on the REAL vault and a copy cannot
-                                        contain that, and the read ones with them, because the
-                                        bridge transport is stripped wholesale rather than per
-                                        tool. So a sandboxed re-run reports bridge-backed reads
-                                        (list_tasks, git_status, eval_dataview_field, ...) as
-                                        diverged; that is rerun's own policy refusing them, not
-                                        vault state having moved.
-                                        Exit: 0 nothing moved, 1 divergence found, 2 nothing
-                                        was runnable.
-  obsidian-tc citation-infer [path] (--transcript <file> (--session <id> | --since <ms> [--until <ms>])
-                                             | --transcript-index <file.jsonl>)
-                            [--max-judged N] [--judge-concurrency N] [--min-judged-for-kill N] [--allow-uncertain]
-                                          Infer which retrieved chunks were actually USED in a response
-                                          and stamp cited_in_response / citation_score / citation_state
-                                          over the retrievals in scope (THE-170). Two stages: a cheap
-                                          ROUGE-L/cosine filter, then a gateway judge over the
-                                          survivors. The transcript is assistant-side text no MCP
-                                          surface supplies, so it is fed in rather than observed.
-                                          --transcript-index takes JSONL, one object per retrieval
-                                          ({vault, surface_type, query, retrieved_at, transcript}),
-                                          and runs ONE PASS PER ENTRY — a window spanning several
-                                          queries has several answers, and scoring chunks against
-                                          their concatenation attributes citations across queries
-                                          that never saw each other (THE-717). Ambiguous and empty
-                                          entries are SKIPPED and reported, never guessed at. The
-                                          transcript must already be filtered to text produced AFTER
-                                          retrieved_at.
-                                          --judge-concurrency bounds the judge fan-out (default 3);
-                                          --min-judged-for-kill floors the parse-failure kill switch
-                                          (default 10) so one bad reply cannot abort a small pass
-                                          (THE-621). --allow-uncertain lets the judge abstain — dark by
-                                          default, since it moves rows out of the citation count.
-  obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]
-                                          Knowledge-health scorecard from the derive layer (THE-44/46)
-  obsidian-tc config explain [path] [--source env|file|profile|default|derived] [--json]
-                                          Trace every resolved config value to WHERE it came from.
-                                          Secrets report their SOURCE, never their value (THE-518)
-  obsidian-tc note-quality [path] [--vault id] [--flags a,b] [--limit N]
-                                          Recompute the note_quality rollup and list flagged notes:
-                                          duplicate | orphan | stale_edit | stale_access | contradicted | tombstoned (THE-537)
-  obsidian-tc gaps [path] --queries <file> [--vault id] [--threshold T] [--min-results N] [--json file]
-  obsidian-tc gaps [path] --calibrate <golden.yaml> [--vault id]
-                                          Knowledge-gap detector / threshold calibration (THE-48)
-  obsidian-tc forget [path] (--episode <id> | --note <rel-path>) [--erase] [--vault id]
-  obsidian-tc forget [path] --verify      Dependency-aware deletion + hash-chained audit (THE-239)
-  obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--json]
-                                          Mint an HS256 bearer token from the config's auth block.
-                                          Refuses to mint without an aud when the config binds one,
-                                          or a --ttl above auth.tokenTtlSeconds (THE-658)
-  obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>] [--json]
-                                          Mint a single-use HITL confirmation token bound to the
-                                          args_hash an elicit_required error returned (THE-826) —
-                                          the route to a token for a client that does not implement
-                                          MCP elicitation (e.g. Claude Code). Authorization is
-                                          filesystem access to the SAME cache.db the live server
-                                          reads elicit_tokens from — the same trust boundary
-                                          'token mint' rests on for auth.jwtSecret. Bound to
-                                          exactly the vault, args_hash and --caller given: a token
-                                          minted for one call is refused for a different one.
-                                          Single-use (consumed atomically on redemption) and always
-                                          expires after the configured elicitTtlSeconds — there is
-                                          no --ttl flag, so this can never outlive what the live
-                                          server itself would issue. --caller defaults to "stdio",
-                                          the identity every locally-spawned MCP client presents
-                                          over the trusted stdio transport; pass --caller explicitly
-                                          to match a JWT 'sub' (the value given to
-                                          'token mint --sub') on an HTTP/jwt deployment. --vault is
-                                          required when the config lists more than one vault.
-  obsidian-tc version                     Print the version
-  obsidian-tc help                        Show this help
-
-If no path is given, OBSIDIAN_TC_CONFIG is used. A vault folder boots a single
-vault with id "main" and all defaults; pass a config file for multi-vault, auth,
-ACLs, transports, and embeddings.
-`;
-
-/** A user-facing CLI error: its message is meant to be printed without a stack trace. */
-export class CliError extends Error {
-  readonly cli = true;
-}
+// Re-exported so every existing `import { CliError } from "../args"` keeps working unchanged —
+// see cli-error.ts's header for why the class itself lives there now.
+export { CliError } from "./cli-error";
+// THE-636: USAGE moved to ./usage.ts (kept args.ts under biome's noExcessiveLinesPerFile floor —
+// see that file's header). Re-exported here so every existing `import { USAGE } from "../args"`
+// across cli/commands/* keeps working unchanged.
+export { USAGE } from "./usage";
 
 function positional(args: string[]): string | undefined {
   return args.find((a) => !a.startsWith("-"));
@@ -596,6 +478,45 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(rest.includes("--verify") ? { verify: true } : {}),
       };
     }
+    // THE-636: export the derived plane (experiential.db's 9 tables) as a vendor-neutral bundle.
+    if (first === "context-export") {
+      const scan = [...rest];
+      for (const f of ["--out", "--vault", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const out = flagValue(rest, "--out");
+      const vault = flagValue(rest, "--vault");
+      const input = flagValue(rest, "--config") ?? positional(scan);
+      return {
+        kind: "context-export",
+        ...(input !== undefined ? { input } : {}),
+        ...(out !== undefined ? { out } : {}),
+        ...(vault !== undefined ? { vault } : {}),
+      };
+    }
+    // THE-636: import a context-export bundle. Positional order is `<bundle-path> [config-path]`,
+    // the same shape `rerun`'s `<session-id> [path]` already establishes for this CLI — the
+    // bundle path is required and always comes first, so it is taken as the FIRST non-flag token
+    // rather than via flagValue/positional's usual "config is the only positional" assumption.
+    if (first === "context-import") {
+      const scan = [...rest].filter((a) => a !== "--dry-run");
+      for (const f of ["--vault", "--config"]) {
+        const i = scan.indexOf(f);
+        if (i >= 0) scan.splice(i, 2);
+      }
+      const bundlePath = scan.find((a) => !a.startsWith("-"));
+      if (bundlePath !== undefined) scan.splice(scan.indexOf(bundlePath), 1);
+      const vault = flagValue(rest, "--vault");
+      const input = flagValue(rest, "--config") ?? positional(scan);
+      return {
+        kind: "context-import",
+        ...(bundlePath !== undefined ? { bundlePath } : {}),
+        ...(input !== undefined ? { input } : {}),
+        ...(vault !== undefined ? { vault } : {}),
+        ...(rest.includes("--dry-run") ? { dryRun: true } : {}),
+      };
+    }
     // THE-48: knowledge-gap detector over a batch of queries, or golden-set calibration.
     if (first === "gaps") {
       const num = (flag: string): number | undefined => {
@@ -744,76 +665,14 @@ export function parseCliArgs(argv: string[]): CliCommand {
   }
 }
 
-/** Build a single-vault config from a vault directory, applying every schema default. */
-export function configFromVaultPath(dir: string): ServerConfig {
-  return finalizeConfig({ vaults: [{ id: "main", path: resolve(dir) }] });
-}
-
-/** THE-825: a resolved serve config paired with whether `plane.enabled` was set explicitly in the
- *  raw file (as opposed to being absent and defaulted) — see `resolveServeConfigWithProvenance`. */
-export interface ResolvedServeConfig {
-  config: ServerConfig;
-  planeEnabledExplicit: boolean;
-}
-
-/**
- * Resolve a serve target, same rule as `resolveServeConfig` below, but also reports whether
- * `plane.enabled` was explicit in the raw file. Zero-config (a vault directory) has no file, so is
- * never explicit. The one substantive implementation — `resolveServeConfig` is a thin wrapper —
- * so the directory-vs-file resolution rule exists in exactly one place.
- */
-export function resolveServeConfigWithProvenance(input?: string): ResolvedServeConfig {
-  const target = input ?? process.env.OBSIDIAN_TC_CONFIG;
-  if (!target) {
-    throw new CliError(
-      "no vault or config given: pass a vault folder or a config.json (or set OBSIDIAN_TC_CONFIG).",
-    );
-  }
-  let stat: ReturnType<typeof statSync>;
-  try {
-    stat = statSync(target);
-  } catch {
-    throw new CliError(`no such vault folder or config file: ${target}`);
-  }
-  if (stat.isDirectory()) {
-    return { config: configFromVaultPath(target), planeEnabledExplicit: false };
-  }
-  const raw = readConfigFile(target);
-  return { config: finalizeConfig(raw), planeEnabledExplicit: isPlaneEnabledExplicit(raw) };
-}
-
-/**
- * Resolve a serve target. A directory boots zero-config (a single vault "main");
- * a file is loaded as a config; absent falls back to OBSIDIAN_TC_CONFIG.
- */
-export function resolveServeConfig(input?: string): ServerConfig {
-  return resolveServeConfigWithProvenance(input).config;
-}
-
-// Field-name suffixes whose string values are masked in `config show`. A bare `key$` suffix
-// subsumes apiKey/api_key/restApiKey and also covers generic credential fields (signingKey,
-// privateKey, encryptionKey, …). Err toward over-redaction: masking a non-secret in a
-// display-only dump is harmless, leaking a secret is not.
-const SECRET_KEY = /(secret|token|password|key)$/i;
-// Credential-carrying HTTP header names (H-5): observability.otel.headers.Authorization and
-// morgiana.httpHeaders.Cookie hold bearer tokens / session cookies, but their KEYS don't match
-// SECRET_KEY, so `config show` printed their values verbatim. Mask by header name too.
-// Case-insensitive; over-redaction of a non-secret display value is harmless.
-const CREDENTIAL_HEADER =
-  /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token|api-key)$/i;
-
-/** Deep-clone a value with secret-looking string fields masked, for `config show`. */
-export function redactConfig(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactConfig);
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      out[k] =
-        typeof v === "string" && v.length > 0 && (SECRET_KEY.test(k) || CREDENTIAL_HEADER.test(k))
-          ? "<redacted>"
-          : redactConfig(v);
-    }
-    return out;
-  }
-  return value;
-}
+export { redactConfig } from "./redact-config";
+// THE-636: config-target resolution (configFromVaultPath, ResolvedServeConfig,
+// resolveServeConfigWithProvenance, resolveServeConfig) moved to ./resolve-config.ts, and
+// redactConfig to ./redact-config.ts — both kept args.ts under biome's noExcessiveLinesPerFile
+// floor. Re-exported so every existing `import { ... } from "../args"` keeps working unchanged.
+export {
+  configFromVaultPath,
+  type ResolvedServeConfig,
+  resolveServeConfig,
+  resolveServeConfigWithProvenance,
+} from "./resolve-config";
