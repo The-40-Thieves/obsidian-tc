@@ -117,7 +117,7 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "write_note",
     description:
-      "Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation.",
+      'Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation. Set provenance: "agent_synthesis" when the content is a derived/inferred conclusion an agent produced (not directly stated in any single source) rather than authored/copied text — this routes the content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention.',
     domain: "notes",
     requiredScopes: ["write:notes"],
     tags: [],
@@ -126,13 +126,23 @@ const EXPECTED: ToolSnapshot[] = [
     // THE-824: elicit_token is advertised for describe_capability discoverability but stripped
     // off rawArgs before this schema ever validates it (mcp/server.ts), so it changes nothing
     // about dispatch.
-    inputKeys: ["content", "elicit_token", "mode", "options", "path", "prev_hash", "vault"],
+    inputKeys: [
+      "content",
+      "elicit_token",
+      "mode",
+      "options",
+      "path",
+      "prev_hash",
+      "provenance",
+      "vault",
+    ],
     outputKeys: [
       "bytes_written",
       "content_hash",
       "created",
       "mode_used",
       "path",
+      "poison_assessment",
       "prev_hash",
       "quality_warning",
       "vault",
@@ -140,7 +150,8 @@ const EXPECTED: ToolSnapshot[] = [
   },
   {
     name: "append_note",
-    description: "Append content to a note (optionally creating it), preserving existing bytes.",
+    description:
+      'Append content to a note (optionally creating it), preserving existing bytes. Set provenance: "agent_synthesis" when the appended content is a derived/inferred conclusion an agent produced rather than authored/copied text — this routes the appended content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention.',
     domain: "notes",
     requiredScopes: ["write:notes"],
     tags: [],
@@ -153,6 +164,7 @@ const EXPECTED: ToolSnapshot[] = [
       "options",
       "path",
       "prev_hash",
+      "provenance",
       "vault",
     ],
     outputKeys: [
@@ -160,6 +172,7 @@ const EXPECTED: ToolSnapshot[] = [
       "content_hash",
       "created",
       "path",
+      "poison_assessment",
       "prev_hash",
       "quality_warning",
       "vault",

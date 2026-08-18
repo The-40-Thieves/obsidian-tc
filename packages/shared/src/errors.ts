@@ -53,7 +53,12 @@ export type ErrorCode =
   // THE-514 — the caller's AbortSignal fired before (or during) dispatch. Distinct from
   // `internal`/`operation_timeout`: nothing failed, the caller withdrew the request, so a
   // fresh call (not a blind retry of this exact attempt) is the expected recovery.
-  | "aborted";
+  | "aborted"
+  // THE-639 — write_note/append_note's `provenance: "agent_synthesis"` poison-scan gate
+  // (assessPoison). Distinct from `invalid_input`: the argument SHAPE was fine, the CONTENT was
+  // refused. Never retryable — the same content re-scans identically; the caller must revise it
+  // or write it as `provenance: "authored"` if a human is vouching for it.
+  | "content_rejected";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -179,6 +184,9 @@ const RECOVERY: Record<ErrorCode, string | null> = {
   // THE-514 — abort is cancellation, not failure.
   aborted:
     "The caller's AbortSignal fired before the operation finished. Re-issue the call fresh if the work is still wanted; this is not a transient failure of the operation itself.",
+  // THE-639 — poison-scan gate on agent_synthesis note writes.
+  content_rejected:
+    'The content tripped the poison scan (risk: high) and was not written. Revise it to remove instruction-override, persistence-directive, hidden-text, or exfiltration-like phrasing, or write it with provenance: "authored" if a human is vouching for it.',
 };
 
 /** THE-512: the recovery hint for a code, or undefined when none is useful. */
@@ -284,4 +292,6 @@ export const err = {
   ),
   // THE-514 — cooperative AbortSignal cancellation.
   aborted: mk("aborted", "operation aborted by caller"),
+  // THE-639 — assessPoison gate on write_note/append_note's provenance: "agent_synthesis" path.
+  contentRejected: mk("content_rejected", "content rejected by poison scan"),
 } as const;
