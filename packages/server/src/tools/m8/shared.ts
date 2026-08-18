@@ -22,6 +22,11 @@ export interface M8Deps {
   /** Open experiential.db handle; absent (all capture/config off) -> tools report unavailable. */
   edb?: Database;
   now?: () => number;
+  /** THE-643 item 3: the SAME serve-side activation bubble lookup M7 uses for rerank (THE-187/193,
+   *  present only when experiential.activationRerank) — reused by note_quality_report to compute
+   *  activation_conflict rather than opening a second read path onto vault_object_state. Absent ->
+   *  activation_conflict reports false everywhere (the documented "no activation data" case). */
+  activationFor?: (chunkId: string) => number | null;
 }
 
 // Annotated rather than inferred: a bare object literal widens `available` to `boolean`, which no

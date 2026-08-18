@@ -7,7 +7,6 @@
 // final activation step (fire the boot reconcile, start the scheduler ticking, connect stdio) and
 // whose `close(reason)` is the ordered, idempotent shutdown. cli.ts's `run_serve` is now three lines:
 // build, install signal handlers (./shutdown.ts), start.
-//
 // Why stores is a PARAMETER to wireRuntimeCore, not built there: `ToolRegistry` (governance) needs
 // the OTEL tracer and the Prometheus/MORGIANA observability module's `metrics`/`morgiana`, both of
 // which the observability module (runtime/observability.ts) derives from `stores.db`. Real boot
@@ -18,7 +17,6 @@
 // an input and folding its cleanup into THIS call's unwind stack gets the same reverse-order
 // guarantee without either problem: a failure in governance or index resources still closes stores,
 // in the right order, and the boot-failure test below (extended for WP5.2) exercises exactly that.
-//
 // One more resource shares this exact shape and was flagged, not fixed, at the time: `otel` (OTEL
 // SDK init) also sits textually between `stores` and this call in `buildServerRuntime`, for the same
 // reason `stores` does — real boot's construction order forbids reordering it inside. `otel` below is
@@ -498,6 +496,8 @@ export async function buildServerRuntime(
       onVecRebuild: observability.onVecRebuild,
       makeOnIndexed,
       indexVaultRecorded,
+      experientialOpen,
+      experientialDb,
     });
 
     // M4 plugin bridges (THE-180): per-vault client + probed capability snapshot. Built before M2 so

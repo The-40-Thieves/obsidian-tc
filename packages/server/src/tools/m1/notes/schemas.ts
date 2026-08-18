@@ -69,6 +69,14 @@ export const NoteExistsOutput = z.object({
   type: z.enum(["file", "folder"]).nullable(),
 });
 
+/** THE-643 item 1: the write-time guardrail. `null` means the note_quality rollup has never run
+ *  for this (vault, path) — NOT a false all-clear, just nothing measured yet. `{flags: [], ...}`
+ *  is the genuine clean case. Never recomputed on the write path — reflects whatever the last
+ *  offline/scheduled `note-quality` pass last wrote. */
+export const QualityWarningOut = z
+  .object({ flags: z.array(z.string()), computed_at: z.number() })
+  .nullable();
+
 export const WriteNoteOutput = z.object({
   vault: z.string(),
   path: z.string(),
@@ -77,6 +85,7 @@ export const WriteNoteOutput = z.object({
   content_hash: z.string(),
   prev_hash: z.string().nullable(),
   bytes_written: z.number(),
+  quality_warning: QualityWarningOut,
 });
 
 export const AppendNoteOutput = z.object({
@@ -86,6 +95,7 @@ export const AppendNoteOutput = z.object({
   content_hash: z.string(),
   prev_hash: z.string().nullable(),
   bytes_written: z.number(),
+  quality_warning: QualityWarningOut,
 });
 
 /** Mirrors the PatchAnchor input union verbatim — patch_note echoes the resolved anchor back. */
@@ -110,6 +120,7 @@ export const PatchNoteOutput = z.object({
   // catastrophic replace and a two-line replace used to return structurally identical payloads.
   lines_removed: z.number(),
   bytes_removed: z.number(),
+  quality_warning: QualityWarningOut,
 });
 
 export const DeleteNoteOutput = z.object({

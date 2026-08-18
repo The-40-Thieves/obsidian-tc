@@ -10,6 +10,7 @@
 // shared PatchResult/removedSpan/HEADING/escapeRegExp) are private to this file: nothing else in
 // the notes domain calls them, so they are not promoted to a shared module.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { noteQualityWarningFor } from "../../../experiential/note-quality";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { parseNote, serializeNote } from "../../../vault/frontmatter";
@@ -252,6 +253,9 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
         content_hash: contentHash(input.content),
         prev_hash: prevHash,
         bytes_written: Buffer.byteLength(input.content, "utf8"),
+        // THE-643 item 1: never recomputed here — a point read of whatever the offline/scheduled
+        // note-quality pass last wrote. null (not deps.edb) means "rollup never ran for this note".
+        quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
       };
     },
   });
@@ -324,6 +328,8 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
         content_hash: contentHash(next),
         prev_hash: prevHash,
         bytes_written: Buffer.byteLength(next, "utf8"),
+        // THE-643 item 1: see write_note's identical comment above.
+        quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
       };
     },
   });
@@ -415,6 +421,8 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         prev_hash: hash,
         lines_removed: patched.removedLines,
         bytes_removed: patched.removedBytes,
+        // THE-643 item 1: see write_note's identical comment above.
+        quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
       };
     },
   });

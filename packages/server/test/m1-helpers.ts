@@ -28,6 +28,9 @@ export interface TestVaultOptions {
   reindex?: (vaultId: string, path: string, content: string) => void;
   /** THE-603: legibility signal for a no-op snapshot capture. Unwired by default, like reindex. */
   onSnapshotSkipped?: (vaultId: string, path: string, op: string) => void;
+  /** THE-643 item 1: open experiential.db handle for write_note/append_note/patch_note's
+   *  quality_warning point read. Unwired by default -> quality_warning is always null. */
+  edb?: Database;
 }
 
 export interface EventRow {
@@ -82,6 +85,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     requireCas: opts.requireCas,
     ...(opts.reindex ? { reindex: opts.reindex } : {}),
     ...(opts.onSnapshotSkipped ? { onSnapshotSkipped: opts.onSnapshotSkipped } : {}),
+    ...(opts.edb ? { edb: opts.edb } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

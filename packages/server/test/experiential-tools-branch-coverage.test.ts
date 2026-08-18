@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM8Tools } from "../src/tools/m8";
@@ -80,11 +81,24 @@ function un<T>(r: unknown): T {
 
 // `withNow: false` omits the `now` dep entirely so the tool falls back to the real Date.now()
 // (line 145's `deps.now ?? Date.now`), rather than always installing a fixed clock.
-function harness(edb?: Database, opts: { withNow?: boolean } = {}) {
+// THE-643: `activationFor`/`cacheDb` are additive, both optional — every pre-existing call site
+// keeps getting the minimal event_log-only cacheDb0() it always got.
+function harness(
+  edb?: Database,
+  opts: {
+    withNow?: boolean;
+    activationFor?: (chunkId: string) => number | null;
+    cacheDb?: Database;
+  } = {},
+) {
   const registry = new ToolRegistry({});
   const withNow = opts.withNow ?? true;
-  registerM8Tools(registry, { ...(edb ? { edb } : {}), ...(withNow ? { now: () => NOW } : {}) });
-  const cache = cacheDb0();
+  registerM8Tools(registry, {
+    ...(edb ? { edb } : {}),
+    ...(withNow ? { now: () => NOW } : {}),
+    ...(opts.activationFor ? { activationFor: opts.activationFor } : {}),
+  });
+  const cache = opts.cacheDb ?? cacheDb0();
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
     caller: "tester",
     authenticated: true,
@@ -94,6 +108,20 @@ function harness(edb?: Database, opts: { withNow?: boolean } = {}) {
     ...over,
   });
   return { registry, ctx };
+}
+
+/** THE-643: a fully-provisioned cache.db (not the minimal event_log-only cacheDb0() above) —
+ *  note_quality_report's activation_conflict join needs the `chunks` table. */
+function chunksCacheDb(): Database {
+  const db = openMemoryDb();
+  provisionCacheDb(db);
+  return db;
+}
+
+function chunkRow(db: Database, id: string, vaultId: string, path: string) {
+  db.prepare(
+    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, 0, '[]', 'x', ?, 1, 0, 0)",
+  ).run(id, vaultId, path, `h-${id}`);
 }
 
 function noteQualityRow(
@@ -407,5 +435,63 @@ describe("THE-602 branch coverage: experiential-tools.ts", () => {
     );
     expect(empty.computed_at).toBeNull();
     expect(empty.count).toBe(0);
+  });
+});
+
+// THE-643 item 3: note_quality_report's activation_conflict, end to end through dispatch (see
+// test/activation-conflict.test.ts for the underlying rule/lookup in isolation).
+describe("THE-643 note_quality_report: activation_conflict", () => {
+  it("true when stale_access is set but a chunk's activation reads above the neutral floor", async () => {
+    const edb = edb0();
+    noteQualityRow(edb, { path: "note.md", flags: JSON.stringify(["stale_access"]) });
+    const cache = chunksCacheDb();
+    chunkRow(cache, "c1", "main", "note.md");
+    const { registry, ctx } = harness(edb, { cacheDb: cache, activationFor: () => 0.9 });
+    const res = un<{ notes: Array<{ path: string; activation_conflict: boolean }> }>(
+      await registry.dispatch("note_quality_report", { vault: "main" }, ctx()),
+    );
+    expect(res.notes.find((n) => n.path === "note.md")?.activation_conflict).toBe(true);
+  });
+
+  it("true the other direction: activation at/under the floor while stale_access is NOT set", async () => {
+    const edb = edb0();
+    noteQualityRow(edb, { path: "note.md", flags: "[]" });
+    const cache = chunksCacheDb();
+    chunkRow(cache, "c1", "main", "note.md");
+    const { registry, ctx } = harness(edb, { cacheDb: cache, activationFor: () => 0.3 });
+    const res = un<{ notes: Array<{ path: string; activation_conflict: boolean }> }>(
+      await registry.dispatch("note_quality_report", { vault: "main" }, ctx()),
+    );
+    expect(res.notes.find((n) => n.path === "note.md")?.activation_conflict).toBe(true);
+  });
+
+  it("false — no conflict — when the two signals agree", async () => {
+    const edb = edb0();
+    noteQualityRow(edb, { path: "live.md", flags: "[]" });
+    noteQualityRow(edb, { path: "quiet.md", flags: JSON.stringify(["stale_access"]) });
+    const cache = chunksCacheDb();
+    chunkRow(cache, "c-live", "main", "live.md");
+    chunkRow(cache, "c-quiet", "main", "quiet.md");
+    const { registry, ctx } = harness(edb, {
+      cacheDb: cache,
+      activationFor: (id) => (id === "c-live" ? 0.9 : 0.2),
+    });
+    const res = un<{ notes: Array<{ path: string; activation_conflict: boolean }> }>(
+      await registry.dispatch("note_quality_report", { vault: "main" }, ctx()),
+    );
+    expect(res.notes.find((n) => n.path === "live.md")?.activation_conflict).toBe(false);
+    expect(res.notes.find((n) => n.path === "quiet.md")?.activation_conflict).toBe(false);
+  });
+
+  it("false — no activation data — when activationFor is not wired at all (activationRerank dark)", async () => {
+    const edb = edb0();
+    noteQualityRow(edb, { path: "note.md", flags: JSON.stringify(["stale_access"]) });
+    const cache = chunksCacheDb();
+    chunkRow(cache, "c1", "main", "note.md");
+    const { registry, ctx } = harness(edb, { cacheDb: cache }); // no activationFor
+    const res = un<{ notes: Array<{ path: string; activation_conflict: boolean }> }>(
+      await registry.dispatch("note_quality_report", { vault: "main" }, ctx()),
+    );
+    expect(res.notes.find((n) => n.path === "note.md")?.activation_conflict).toBe(false);
   });
 });

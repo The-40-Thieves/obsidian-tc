@@ -50,7 +50,14 @@ export type CliCommand =
       allowUncertain?: boolean;
     }
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
-  | { kind: "note-quality"; input?: string; vault?: string; flags?: string[]; limit?: number }
+  | {
+      kind: "note-quality";
+      input?: string;
+      vault?: string;
+      flags?: string[];
+      limit?: number;
+      suggest?: boolean;
+    }
   | { kind: "prefetch"; input?: string; vault?: string; ttlHours?: number }
   | {
       kind: "rerun";
@@ -433,8 +440,11 @@ export function parseCliArgs(argv: string[]): CliCommand {
       };
     }
     // THE-537: recompute the note_quality rollup and print the flagged notes.
+    // THE-643 item 2: --suggest additionally prints a remediation line per flag. A boolean flag
+    // (no value token), so it is filtered out of `scan` by presence, not by the pair-splice loop
+    // below (mirrors --erase/--verify on `forget`).
     if (first === "note-quality") {
-      const scan = [...rest];
+      const scan = [...rest].filter((a) => a !== "--suggest");
       for (const f of ["--vault", "--flags", "--limit", "--config"]) {
         const i = scan.indexOf(f);
         if (i >= 0) scan.splice(i, 2);
@@ -450,12 +460,14 @@ export function parseCliArgs(argv: string[]): CliCommand {
         .map((f) => f.trim())
         .filter(Boolean);
       const vault = flagValue(rest, "--vault");
+      const suggest = rest.includes("--suggest");
       return {
         kind: "note-quality",
         input: flagValue(rest, "--config") ?? positional(scan),
         ...(vault !== undefined ? { vault } : {}),
         ...(flags && flags.length > 0 ? { flags } : {}),
         ...(limit !== undefined ? { limit } : {}),
+        ...(suggest ? { suggest } : {}),
       };
     }
     // THE-239: dependency-aware deletion — forget an episode or propagate a note deletion.

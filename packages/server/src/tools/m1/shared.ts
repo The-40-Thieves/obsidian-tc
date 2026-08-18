@@ -2,6 +2,7 @@
 // module so implementation files can import it without pulling in index.ts's barrel — which
 // imports every implementation file back, and previously made each of those a two-node
 // import cycle through ./index).
+import type { Database } from "../../db/types";
 import type { VaultRegistry } from "../../vault/registry";
 
 export interface M1Deps {
@@ -31,4 +32,9 @@ export interface M1Deps {
    *  safety net. Same plain-callback seam as onVecFallback:
    *  the tool layer never imports the audit/metrics modules directly. Absent (tests) -> no signal. */
   onSnapshotSkipped?: (vaultId: string, path: string, op: string) => void;
+  /** THE-643 item 1: open experiential.db handle, present only while experientialOpen (same gate
+   *  recomputeNoteQualityAll runs under in plane-wiring.ts) — the write-time guardrail's point
+   *  read into note_quality. Absent (store closed, or tests that don't need it) -> write_note/
+   *  append_note/patch_note report quality_warning: null, same as "rollup never ran". */
+  edb?: Database;
 }

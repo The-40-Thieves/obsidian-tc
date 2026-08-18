@@ -746,3 +746,39 @@ describe("THE-636 — parseCliArgs context-import", () => {
     });
   });
 });
+
+describe("parseCliArgs — note-quality --suggest (THE-643)", () => {
+  it("is omitted when absent, matching every other boolean flag's convention", () => {
+    expect(parseCliArgs(["note-quality"])).not.toHaveProperty("suggest");
+  });
+
+  it("carries --suggest through as a boolean", () => {
+    expect(parseCliArgs(["note-quality", "--suggest"])).toMatchObject({
+      kind: "note-quality",
+      suggest: true,
+    });
+  });
+
+  it("doesn't get swallowed by the config-path positional scan, and combines with other flags", () => {
+    expect(
+      parseCliArgs([
+        "note-quality",
+        "/vault/dir",
+        "--vault",
+        "main",
+        "--flags",
+        "duplicate,orphan",
+        "--limit",
+        "5",
+        "--suggest",
+      ]),
+    ).toMatchObject({
+      kind: "note-quality",
+      input: "/vault/dir",
+      vault: "main",
+      flags: ["duplicate", "orphan"],
+      limit: 5,
+      suggest: true,
+    });
+  });
+});
