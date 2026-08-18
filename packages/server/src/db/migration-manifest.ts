@@ -182,6 +182,11 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // preference extractor reads N projected rows as N independent observations (measured: 4.82
   // dispatches per session, so one 18-dispatch task would take 18 of its 40 evidence slots).
   "20260816_002_episode_verdict_at.sql",
+  // THE-634 (adversarial review): 20260818_002 recreates chunk_access_stats to exclude
+  // surface_type = 'advisory' rows — the proactive-advisory sweep's pushed-not-retrieved rows were
+  // silently bumping access_count/last_accessed_at, clearing note_quality's stale_access flag and
+  // inflating metrics.ts's knowledge-health scorecard. Fixed at the view, not at each reader.
+  "20260818_002_chunk_access_stats_excludes_advisory.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

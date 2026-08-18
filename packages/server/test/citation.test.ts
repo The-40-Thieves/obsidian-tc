@@ -220,6 +220,42 @@ describe("citation inference (THE-170)", () => {
     expect(r.find((x) => x.id === "r3")?.cited_in_response).toBeNull();
   });
 
+  // THE-634 (adversarial review): the proactive-advisory sweep inserts a chunk_retrievals row
+  // (surface_type = 'advisory') so record_retrieval_feedback has something to stamp — a note the
+  // system PUSHED into the session, not one retrieved for a query the assistant answered. It must
+  // not enter citation scoring: no judge call, no cited_in_response stamp.
+  it("THE-634: an advisory row in the same session is excluded from citation scoring", async () => {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cA", CHUNK_CITED);
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cB", CHUNK_UNCITED);
+    seedRetrieval(edb, "r1", "cA", "s1");
+    edb
+      .prepare(
+        "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, surface_type, query_text, rank_in_results) VALUES (?, ?, ?, ?, 'advisory', 'goal text', 1)",
+      )
+      .run("r2-advisory", "cB", NOW, "s1");
+
+    let judgeCalls = 0;
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      judge: async () => {
+        judgeCalls++;
+        return { text: '{"cited": true, "score": 0.9}', model: "fake" };
+      },
+    });
+    // Only r1 (the real retrieval) is in scope — the advisory row never reaches stage 1 at all.
+    expect(stats.scoped).toBe(1);
+    const r = rows(edb);
+    expect(r.find((x) => x.id === "r2-advisory")?.cited_in_response).toBeNull();
+    // cB (the advisory row's chunk) never entered stage-1 cosine/ROUGE either, so no judge call
+    // was spent on it — only cA (stage-1 pass) could have triggered one, and it did.
+    expect(judgeCalls).toBe(1);
+  });
+
   it("kill switch: garbage judge output aborts survivor stamping, negatives still stamp", async () => {
     const edb = edb0();
     const cacheDb = cacheDb0();

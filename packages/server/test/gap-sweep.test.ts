@@ -94,6 +94,21 @@ describe("recentQueries — the scheduled pass's query source", () => {
     expect(recentQueries(edb, cdb, V, 10)).toEqual(["real"]);
   });
 
+  // THE-634 (adversarial review): the proactive-advisory sweep stamps the GOAL TEXT it scored
+  // against into query_text on the chunk_retrievals row it pushes (surface_type = 'advisory'), so
+  // that text must never be harvested here as though a caller had actually asked it.
+  it("THE-634: excludes surface_type='advisory' rows — a goal is not a logged query", () => {
+    const { edb, cdb } = oneVault();
+    logQuery(edb, "a", "real query", NOW - 100);
+    edb
+      .prepare(
+        `INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, surface_type, query_text, rank_in_results, rerank_score)
+         VALUES ('b', 'c1', ?, 'advisory', 'ship the parser', 1, 0.9)`,
+      )
+      .run(NOW); // newer than the real query — would win the cap/ordering if counted
+    expect(recentQueries(edb, cdb, V, 10)).toEqual(["real query"]);
+  });
+
   it("returns nothing on an empty log rather than throwing", () => {
     expect(recentQueries(edb0(), cdb0(), V, 10)).toEqual([]);
   });

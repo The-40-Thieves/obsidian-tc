@@ -27,6 +27,12 @@ function edb0(): Database {
     // composes onto this prefix precisely because the note_quality half was split into _002 —
     // note_quality does not exist here and is not needed to exercise the view.
     { version: "20260806_001", sql: sql("20260806_001_retire_retrieval_outcome.sql") },
+    // THE-634 (adversarial review): _002 recreates the view again, excluding
+    // surface_type = 'advisory' rows — the proactive-advisory sweep's pushed-not-retrieved rows.
+    {
+      version: "20260818_002",
+      sql: sql("20260818_002_chunk_access_stats_excludes_advisory.sql"),
+    },
   ]);
   return db;
 }
@@ -81,6 +87,49 @@ describe("chunk_access_stats view (THE-44)", () => {
     // silently score the unjudged retrieval as a negative.
     expect(row.observed).toBe(2);
     expect(row.outcome_balance).toBeUndefined();
+  });
+
+  // THE-634 (adversarial review): runtime/advisory-sweep.ts inserts a chunk_retrievals row
+  // (surface_type = 'advisory') so record_retrieval_feedback has something to stamp — a note the
+  // system PUSHED, not one anyone RETRIEVED. Without this exclusion the row would count exactly
+  // like a real retrieval and move last_accessed_at forward.
+  it("THE-634: an advisory row (surface_type='advisory') does not move access_count or last_accessed_at", () => {
+    const edb = edb0();
+    logHit(edb, "r1", "a1", NOW - 5 * DAY);
+    logHit(edb, "r2", "a1", NOW - 2 * DAY, { cited: 1 });
+    const before = edb
+      .prepare(
+        "SELECT access_count, last_accessed_at FROM chunk_access_stats WHERE chunk_id = 'a1'",
+      )
+      .get() as { access_count: number; last_accessed_at: number };
+
+    // A more RECENT advisory push — if counted, it would move last_accessed_at to NOW and
+    // access_count to 3.
+    logHit(edb, "r3-advisory", "a1", NOW, { surface: "advisory" });
+    const after = edb
+      .prepare(
+        "SELECT access_count, last_accessed_at FROM chunk_access_stats WHERE chunk_id = 'a1'",
+      )
+      .get() as { access_count: number; last_accessed_at: number };
+
+    expect(after).toEqual(before);
+    expect(after.access_count).toBe(2);
+    expect(after.last_accessed_at).toBe(NOW - 2 * DAY);
+  });
+
+  // A row with a NULL surface_type is a legitimate historical value (pre-THE-230, or a hand-built
+  // fixture that omits the column) — not a synonym for advisory, and must still count.
+  it("a NULL surface_type row is NOT treated as advisory — it still counts", () => {
+    const edb = edb0();
+    edb
+      .prepare(
+        "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, query_text, rank_in_results) VALUES ('r1', 'a1', ?, 'q', 1)",
+      )
+      .run(NOW - DAY);
+    const row = edb
+      .prepare("SELECT access_count FROM chunk_access_stats WHERE chunk_id = 'a1'")
+      .get() as { access_count: number };
+    expect(row.access_count).toBe(1);
   });
 });
 

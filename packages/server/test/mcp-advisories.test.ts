@@ -114,6 +114,17 @@ async function tokenFor(sub: string): Promise<string> {
     .sign(new TextEncoder().encode(SECRET));
 }
 
+/** A validly-SIGNED token with no `sub` claim — auth/jwt.ts never requires one, so this verifies
+ *  fine and yields `caller: null`, `authenticated: true`. Two callers presenting tokens like this
+ *  are indistinguishable to `===` comparison, which is exactly the gap THE-634's adversarial
+ *  review found: `event.caller !== owner.caller` is `false` for two DIFFERENT null callers. */
+async function tokenWithoutSub(): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({ scopes: ["*"], aud: "http://test", iat: now, exp: now + 600 })
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .sign(new TextEncoder().encode(SECRET));
+}
+
 /** Open an advisory subscription (modern era, unless overridden), run `act` once the ack lands,
  *  collect frames until the deadline. Mirrors notifications-tasks.test.ts's `collect` exactly. */
 async function collect(
@@ -297,6 +308,73 @@ describe("notifications/advisory (THE-634)", () => {
       // The SDK's own listen handler still acks (per subscriptions-listen.test.ts), but with an
       // EMPTY filter for a key it does not recognise — never our ADVISORY_SUBSCRIPTION_KEY as true.
       expect(ack?.params?.notifications?.[ADVISORY_SUBSCRIPTION_KEY]).not.toBe(true);
+    } finally {
+      await handle.close();
+    }
+  }, 30_000);
+
+  /** POST a subscribe request and return its status/body WITHOUT waiting on an SSE stream — for
+   *  a refused request there is no stream to read frames from. */
+  async function subscribeRaw(port: number, jwt: string): Promise<{ status: number; body: any }> {
+    const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${jwt}`,
+        "mcp-protocol-version": MODERN,
+        "mcp-method": "subscriptions/listen",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 42,
+        method: "subscriptions/listen",
+        params: {
+          notifications: { [ADVISORY_SUBSCRIPTION_KEY]: true },
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": MODERN,
+            "io.modelcontextprotocol/clientInfo": { name: "t", version: "1" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    return { status: res.status, body };
+  }
+
+  it("THE-634 (adversarial review): an unidentified (null-caller) subscription is REFUSED, not opened", async () => {
+    const { handle } = await boot();
+    const jwt = await tokenWithoutSub();
+    try {
+      const { status, body } = await subscribeRaw(handle.port, jwt);
+      expect(status).toBe(403);
+      expect(body?.error?.code).toBe(-32001);
+      expect(body?.error?.message).toMatch(/identified caller/i);
+    } finally {
+      await handle.close();
+    }
+  }, 30_000);
+
+  it("THE-634 (adversarial review): two DIFFERENT unidentified callers cannot leak advisories to each other — both refused", async () => {
+    // The exact scenario the review demonstrated: null === null is true, so
+    // `event.caller !== owner.caller` would have let caller A see caller B's advisories. Refusing
+    // BOTH at subscribe time closes it — neither ever holds a live stream to leak into or out of.
+    const { handle, bus } = await boot();
+    const jwtA = await tokenWithoutSub();
+    const jwtB = await tokenWithoutSub();
+    try {
+      const [a, b] = await Promise.all([
+        subscribeRaw(handle.port, jwtA),
+        subscribeRaw(handle.port, jwtB),
+      ]);
+      expect(a.status).toBe(403);
+      expect(b.status).toBe(403);
+      // Publishing to the null caller reaches nobody — there is no stream, refused or otherwise,
+      // for it to leak into.
+      expect(() =>
+        bus.publish({ vaultId: "v1", caller: null, sessionId: "s-null", advisories: [] }),
+      ).not.toThrow();
     } finally {
       await handle.close();
     }

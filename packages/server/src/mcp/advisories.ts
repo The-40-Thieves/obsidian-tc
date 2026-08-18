@@ -37,9 +37,11 @@ export interface AdvisoryPushEvent {
   vaultId: string;
   /** The server-OBSERVED principal owning the session this was selected for (workspace_sessions
    *  .principal — see workspace/sessions.ts's own distinction from the caller-SUPPLIED `caller`
-   *  column). Never null-matches: a stream opened by an unidentified caller never receives an
-   *  event whose `caller` is also null, because `serveAdvisorySubscription`'s filter is `===`
-   *  identity, not `IS`. */
+   *  column). CAN be null (an authenticated-but-unidentified caller — a valid JWT with no `sub`
+   *  claim, which auth/jwt.ts never requires). That is exactly why `serveAdvisorySubscription`
+   *  REFUSES to open a stream for a null-caller owner rather than relying on the event filter:
+   *  `event.caller !== owner.caller` is `===` comparison, and in JavaScript `null === null` is
+   *  `true`, so two DIFFERENT unidentified callers would otherwise pass each other's frames. */
   caller: string | null;
   sessionId: string;
   advisories: readonly AdvisoryPushItem[];
@@ -101,6 +103,14 @@ export interface AdvisoryStreamOwner {
  * Serve the advisory push stream. Ack first (carrying the subscription id, exactly as the core
  * streams and the Tasks extension do), then one `notifications/advisory` frame per matching
  * publish for as long as the connection stays open.
+ *
+ * REFUSES rather than serves when `owner.caller` is not an identified, non-empty string.
+ * `tools/m8/feedback-scope.ts` already draws this exact line for `record_retrieval_feedback`
+ * ("stamping feedback requires an identified caller"), for the same underlying reason: `null` is
+ * not an identity, it is the ABSENCE of one, and `===` cannot tell two absences apart. Refusing at
+ * SUBSCRIBE time — rather than trying to filter it out of the per-frame ownership check below —
+ * means an unidentified caller never holds a live stream that could leak into, and never leaks out
+ * of, another unidentified caller's advisories.
  */
 export function serveAdvisorySubscription(
   body: unknown,
@@ -109,6 +119,21 @@ export function serveAdvisorySubscription(
   signal: AbortSignal,
 ): Response {
   const id = (body as { id?: string | number | null } | null)?.id ?? null;
+  const identified = typeof owner.caller === "string" && owner.caller.length > 0;
+  if (!identified) {
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32001,
+          message:
+            "advisory subscription requires an identified caller — this token authenticated without a usable identity (e.g. no `sub` claim), and two such callers cannot be told apart on this stream",
+        },
+        id,
+      }),
+      { status: 403, headers: { "content-type": "application/json" } },
+    );
+  }
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
