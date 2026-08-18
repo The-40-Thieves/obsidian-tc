@@ -1,5 +1,6 @@
 // WP2 slice 1: M7Deps, moved verbatim out of knowledge-tools.ts. Types only — no runtime code
 // belongs here, and nothing here may import knowledge-tools.ts (the facade) or retrieval-runtime.ts.
+import type { FolderAcl } from "../../../acl";
 import type { Database } from "../../../db/types";
 import type { EmbeddingProvider } from "../../../embeddings";
 import type { RetrievalLogger } from "../../../experiential/log";
@@ -98,4 +99,21 @@ export interface M7Deps {
   /** THE-497: the in-process query-product cache (retrieval.cache). Absent -> every retrieval
    *  surface below embeds and searches exactly as it did before, with no cache path taken. */
   retrievalCaches?: RetrievalCaches;
+  /** THE-630: federated multi-vault search's ACL source. `aclByVault` is the SAME map governance.ts
+   *  builds at boot (one entry per vault with its OWN `acl` config override); `acl` is the root ACL
+   *  every vault without an override inherits — the identical `aclByVault.get(id) ?? acl` fallback
+   *  `acl.ts`'s `makeIndexReadable` and governance.ts's own `aclResolver` already use, so a vault
+   *  with no per-vault override resolves to the SAME ACL under federation as it does today under
+   *  the single-vault path (never "no ACL at all", which would be MORE permissive than intended).
+   *
+   *  Both optional/additive: every M7 tool factory other than vault_graph_search's federated branch
+   *  ignores these, and a deployment that never wires them simply cannot reach federation with a
+   *  configured ACL (the federated branch resolves to `undefined` for every vault, which reads as
+   *  "no ACL" — the same "absent ACL -> unrestricted" convention `CallerContext.acl` already uses).
+   *
+   *  NEVER read through `ctx.acl` for a federated leg — `ctx.acl` is set once, by central dispatch's
+   *  THE-295 swap, for the SINGLE vault named in the tool's declared `vaultArg` field. A federated
+   *  call touches N vaults, so `ctx.acl` can describe at most one of them correctly. */
+  acl?: FolderAcl;
+  aclByVault?: Map<string, FolderAcl>;
 }

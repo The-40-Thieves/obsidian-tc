@@ -25,7 +25,12 @@ import { challengeOutputSchema } from "../../../plane/challenge";
 // ---------------------------------------------------------------------------------------------
 
 /** Mirrors search/graph_search_stages/types.ts's GraphSearchResult. `content` is genuinely
- *  optional (omitted when the projection did not hydrate it), not nullable. */
+ *  optional (omitted when the projection did not hydrate it), not nullable.
+ *
+ *  THE-630: `vault` is present ONLY on a federated vault_graph_search result (2+ target vaults) —
+ *  absent on every single-vault result, from this tool or any other consumer of this schema, which
+ *  is what keeps AC1's byte-identical-when-`vaults`-absent guarantee true at the per-result level
+ *  too, not just the top-level response shape. */
 export const GraphSearchResultSchema = z.object({
   chunk_id: z.string(),
   path: z.string(),
@@ -37,6 +42,7 @@ export const GraphSearchResultSchema = z.object({
     .nullable(),
   root_seed: z.string().nullable(),
   rerank_score: z.number(),
+  vault: z.string().optional(),
 });
 
 /** THE-631: mirrors search/graph_search_stages/types.ts's CoverageEstimate. Additive and
@@ -290,6 +296,22 @@ export const VaultGraphSearchOutput = z.object({
   variants_used: z.number().optional(),
   // THE-631: additive, reported-only — present on the graph arm, absent on lexical-route.
   coverage: CoverageEstimateSchema.optional(),
+  // THE-630: present ONLY when `vaults` federated across more than one distinct vault (an absent
+  // or single-vault-collapsing `vaults` input is a byte-identical no-op — AC1 — so these two fields
+  // are absent then too, exactly like `variants_used` above for the THE-448 fan-out). `vault` /
+  // `mode_used` / `route` / `coverage` above keep describing the PRIMARY vault only, unchanged in
+  // meaning from before this ticket; `per_vault` is the per-leg breakdown across every target vault
+  // (never a single fabricated cross-vault number — same principle THE-631 states for `coverage`).
+  vaults_used: z.number().optional(),
+  per_vault: z
+    .record(
+      z.string(),
+      z.object({
+        mode_used: z.enum(["lexical-route", "graph"]),
+        coverage: CoverageEstimateSchema.optional(),
+      }),
+    )
+    .optional(),
   results: z.array(GraphSearchResultSchema),
 });
 

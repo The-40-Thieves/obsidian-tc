@@ -51,19 +51,29 @@ export interface RetrievalRuntime {
  * which multi-vector streams are on, since those decide which heads `embed()` even produces).
  *
  * Returns undefined when the cache is off, which makes every call site an exact pass-through.
+ *
+ * THE-630: `acl` is an OPTIONAL override, defaulting to `ctx.acl` — every call site before this
+ * ticket gets the exact same binding it always has (default parameters evaluate at the call site,
+ * so `ctx.acl` here reads whatever THE-295's swap already set for the single vault this dispatch is
+ * scoped to). The federated branch of vault_graph_search is the one caller that passes a real
+ * override: for vault B's leg it MUST fingerprint vault B's own ACL, never `ctx.acl` (which THE-295
+ * set for the primary vault, not vault B) — passing the wrong ACL here would fingerprint a
+ * federated leg under the wrong caller identity, which is exactly the cross-principal leak class
+ * this cache's whole key design exists to prevent (see this file's header).
  */
 export function cacheContextFor(
   deps: M7Deps,
   ctx: CallerContext,
   vaultId: string,
   denseText: string,
+  acl: CallerContext["acl"] = ctx.acl,
 ): QueryCacheContext | undefined {
   if (!deps.retrievalCaches) return undefined;
   return {
     caches: deps.retrievalCaches,
     denseText,
     binding: {
-      aclFingerprint: callerAclFingerprint(ctx.acl, ctx.grantedScopes),
+      aclFingerprint: callerAclFingerprint(acl, ctx.grantedScopes),
       generation: readGeneration(ctx.db, vaultId),
       representation: {
         id: deps.embeddingProvider.id,

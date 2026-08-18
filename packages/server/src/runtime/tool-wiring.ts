@@ -11,6 +11,7 @@
 // composed M4Deps object bridge-wiring.ts returns.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { DEFAULT_MEMORY_FOLDER, err } from "@the-40-thieves/obsidian-tc-shared";
+import { FolderAcl } from "../acl";
 import type { CapabilityCache } from "../bridge";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
@@ -374,6 +375,20 @@ export interface DomainToolsDeps {
  *  bridge clients / capability snapshots bridge-wiring.ts builds. */
 export function wireDomainTools(deps: DomainToolsDeps): void {
   const { config, registry } = deps;
+  // THE-630: federated multi-vault search's per-vault ACL source, built the SAME way
+  // governance.ts's wireGovernance builds `acl`/`aclByVault` (root FolderAcl + one override per
+  // vault that declares its own `acl`) — from `config`, already a DomainToolsDeps field, rather
+  // than threading governance's own already-built objects through server-runtime.ts's
+  // wireDomainTools call, which sits at biome's 700-line file ceiling (CLAUDE.md's documented
+  // gotcha). FolderAcl construction is a pure function of config, so this is behaviorally
+  // identical to reusing governance's objects, at the one-time boot cost of compiling the same
+  // glob rules twice.
+  const acl = new FolderAcl(config.acl);
+  const aclByVault = new Map(
+    config.vaults
+      .filter((v) => v.acl !== undefined)
+      .map((v) => [v.id, new FolderAcl(v.acl as ConstructorParameters<typeof FolderAcl>[0])]),
+  );
   const memoryFolder = (vaultId: string): string =>
     deps.memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER;
   const traceFolder = (vaultId: string): string =>
@@ -521,6 +536,10 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // THE-497: the query-product cache (dark unless retrieval.cache.enabled). Built ONCE per
     // process and shared across every dispatch.
     ...(config.retrieval.cache.enabled ? { retrievalCaches: deps.retrievalCaches } : {}),
+    // THE-630: federated multi-vault search's per-vault ACL source — see this function's
+    // acl/aclByVault construction above and graph-search.ts's aclForVault.
+    acl,
+    aclByVault,
   });
 
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over
