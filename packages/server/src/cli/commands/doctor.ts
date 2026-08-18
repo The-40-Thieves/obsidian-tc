@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   bridgeState,
   buildVaultCapabilities,
@@ -21,7 +21,8 @@ import { experientialColumnSpec } from "../../doctor/column-spec";
 import { experientialTableSpec } from "../../doctor/table-spec";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
-import { embeddingsDeprecation } from "../../providers/registry";
+import { embeddingsDeprecation, resolveLocalRerankerModule } from "../../providers/registry";
+import type { ProviderDescriptor } from "../../providers/types";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { type Cmd, resolveOrUsageExit } from "../shared";
@@ -580,6 +581,10 @@ async function probeEntryPoints(cacheDir: string): Promise<EntryPointsProbe> {
 // non-zero when any check fails, so scripts and CI can gate on health — a warning does not fail.
 export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   const config = resolveOrUsageExit(cmd.configPath);
+  // THE-705 round 2: the same configDir convention server-runtime.ts uses for wireGatewaySeams —
+  // the trust root for reranker.localModulePath when it's given relative. Needed here so doctor's
+  // "local" probe resolves a relative override exactly the way boot would.
+  const configDir = cmd.configPath !== undefined ? dirname(cmd.configPath) : undefined;
   // Include the configured vault paths so they appear even when the desktop registry is absent
   // (headless/server boxes), which is exactly where doctor is most useful.
   const profile = await resolveCapabilityProfile({
@@ -729,7 +734,10 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
       // THE-679: names alone are not enough. A declared block naming a registered provider can
       // still be unbuildable (model-tier without embeddings.modelTier.full; gateway with no URL),
-      // which hard-fails boot while doctor reported ok. Offline: reads config + env only.
+      // which hard-fails boot while doctor reported ok. Offline: reads config + env only — except
+      // "local" (THE-705 round 2), which gets a real resolution probe below; see
+      // RerankerBuildableView.probeLocalReranker's comment for why that's not a "no filesystem,
+      // no dynamic import" violation of this check's usual posture.
       rerankerBuildable: {
         ...(config.reranker?.provider !== undefined
           ? { rerankerProvider: config.reranker.provider }
@@ -740,6 +748,25 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         embeddings: config.embeddings,
         ...(process.env.OBSIDIAN_TC_GATEWAY_URL !== undefined
           ? { gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL }
+          : {}),
+        ...(config.reranker?.provider === "local"
+          ? {
+              probeLocalReranker: async () => {
+                const r = await resolveLocalRerankerModule(config.reranker as ProviderDescriptor, {
+                  configDir,
+                  securityProfile: config.securityProfile,
+                });
+                return {
+                  ok: r.ok,
+                  route: r.attempts.find((a) => a.ok)?.route,
+                  attempts: r.attempts.map((a) =>
+                    a.ok
+                      ? `${a.route}: ${a.target} — resolved`
+                      : `${a.route}: ${a.target} — ${a.error}`,
+                  ),
+                };
+              },
+            }
           : {}),
       },
     },

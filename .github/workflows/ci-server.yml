@@ -290,6 +290,35 @@ jobs:
         run: bun test bun-smoke
         working-directory: packages/server
 
+  # THE-705 round 2 (adversarial review, confirmed finding 2): the optional local-reranker
+  # package's 16 tests ran in no CI workflow — this job closes that. Deliberately NOT folded into
+  # `lint`/`build-test`: this package is NOT a root workspace member (see its own README — its
+  # ~230 MB @huggingface/transformers dependency must never reach the repo-root `bun install`
+  # every other job does), so it needs its OWN checkout-scoped install, pointed at
+  # packages/reranker-local via setup-repo's `working-directory` input. Linux-only, matching every
+  # other bun/native-toolchain job here; @huggingface/transformers ships linux-x64/arm64 binaries.
+  # Its build (`tsc`, no model weights) is what packages/server/test/reranker-local-resolution.test.ts
+  # ALSO does in its own setup — this job is the fast, dedicated, always-run check for the package
+  # in isolation; that test is the proof the REST of the repo can actually resolve and use it once
+  # built. The weights-gated integration test inside `bun run test` SKIPS here (visibly, in the
+  # job log) exactly like it does locally without `bun run fetch-model` — this job does not
+  # download the 23 MB model.
+  reranker-local:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: ./.github/actions/setup-repo
+        with:
+          working-directory: packages/reranker-local
+          install-mode: frozen
+          cache-key-suffix: reranker-local
+      - name: build
+        run: bun run build
+        working-directory: packages/reranker-local
+      - name: test (pure-math + stubbed-inference; weights-gated integration test skips)
+        run: bun run test
+        working-directory: packages/reranker-local
+
   acl-audit:
     # THE-607: src/vault/acl-audit.ts (THE-414 follow-up, #280) already exists and already
     # verifies that a tool's declared `pathAcl` extractor mirrors the vault paths its handler

@@ -66,5 +66,17 @@ export const RerankerConfigSchema = z.object({
     .describe(
       "Absolute path to the local cross-encoder model directory for provider 'local' (containing <model-id>/config.json, tokenizer.json, onnx/model_int8.onnx — see @the-40-thieves/obsidian-tc-reranker-local's README). Defaults to that package's own models/ directory, populated by its `bun run fetch-model` script. Ignored — and refused at boot if set — by every other provider.",
     ),
+  // THE-705 round 2: route (i) of provider "local"'s resolution ladder (registry.ts's
+  // resolveLocalRerankerModule) — the escape hatch for every deployment shape the bare package
+  // specifier and the source-checkout default don't cover (an npm-installed server pointed at a
+  // reranker-local checkout elsewhere, a container image vendoring the built package at a fixed
+  // path, ...). Only read by provider "local".
+  localModulePath: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Explicit path to @the-40-thieves/obsidian-tc-reranker-local's BUILT module entry (its dist/index.js), for provider 'local'. Absolute, or resolved against the config file's directory (same convention as modulePath). Tried FIRST, before the bare package specifier and the source-checkout default — see that package's README for when you need this. Ignored by every other provider.",
+    ),
 });
 export type RerankerConfig = z.infer<typeof RerankerConfigSchema>;

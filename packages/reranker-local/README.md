@@ -20,28 +20,55 @@ binaries) is ~230 MB unpacked — if it were a root workspace member, every `bun
 whether or not anyone uses the `local` reranker. Keeping it a self-contained package with its own
 install step is what makes it genuinely optional rather than optional-in-name-only.
 
-`packages/server` never declares this package as a dependency either — it reaches it via a plain
-runtime `import()` of the package name (see `packages/server/src/providers/registry.ts`'s `local`
-reranker entry), and reports an actionable error naming the install command below when the import
-fails.
+`packages/server` never declares this package as a dependency either — it reaches it via a
+three-route resolution ladder of runtime `import()` calls (see "Resolution ladder" below and
+`packages/server/src/providers/registry.ts`'s `resolveLocalRerankerModule`), and reports an
+actionable remedy — via a server-log line at boot and via `obsidian-tc doctor` — when none of the
+three resolve. Resolution failure never crashes boot.
+
+## Publishing status
+
+**Not yet published to npm.** That's a deferred owner action, not a blocker for using this package —
+`packages/server`'s `local` reranker entry resolves it through a three-route ladder (below), and two
+of the three routes work today without npm. Until it IS published, an **npm-installed** obsidian-tc
+server (as opposed to a source checkout of this monorepo) can only reach it via
+`reranker.localModulePath`.
 
 ## Setup
 
 ```bash
-# 1. Install this package (from the repo root, or wherever obsidian-tc's server package lives):
-cd packages/reranker-local && bun install
+# 1. Install and build this package:
+cd packages/reranker-local && bun install && bun run build
 
 # 2. Download and checksum-verify the pinned model weights (~23 MB) into ./models/, gitignored:
 bun run fetch-model
 
-# 3. Point obsidian-tc at it:
-#    { "reranker": { "provider": "local" } }
-# or, if you downloaded the weights somewhere else:
-#    { "reranker": { "provider": "local", "localModelPath": "/absolute/path/to/models" } }
+# 3. Point obsidian-tc at it — see "Resolution ladder" below for which of these you need.
 ```
 
 `bun run fetch-model --check` verifies an existing download without touching the network; useful in
 CI to fail fast on a stale or corrupted cache. `--dir <path>` downloads elsewhere.
+
+## Resolution ladder
+
+`providers/registry.ts`'s `local` entry (`resolveLocalRerankerModule`) tries THREE routes, in order,
+and never throws — see that function's own doc comment for the full contract. Which one applies
+depends on how you're running obsidian-tc:
+
+| Route | Config | When it applies |
+|---|---|---|
+| (i) `reranker.localModulePath` | `{ "reranker": { "provider": "local", "localModulePath": "/abs/path/to/packages/reranker-local/dist/index.js" } }` | **Always works**, once (1) above has been run — an explicit pointer at the built entry file. The only route that works for an **npm-installed** obsidian-tc server before this package is published. |
+| (ii) bare specifier (`@the-40-thieves/obsidian-tc-reranker-local`) | `{ "reranker": { "provider": "local" } }` | Works once this package is published to npm and `bun add`ed (or `bun link`ed) into whatever installs obsidian-tc's server package. **Not yet possible** — see "Publishing status" above. |
+| (iii) automatic source-checkout fallback | `{ "reranker": { "provider": "local" } }` — no override needed | Works out of the box for a SOURCE CHECKOUT of the `obsidian-tc` monorepo (this repo, cloned), once step (1) above has run — `providers/registry.ts` resolves `packages/reranker-local/dist/index.js` relative to itself. |
+
+If `reranker.localModelPath` (the model weights directory, step 2 above) is on a non-default path,
+set it alongside whichever route above you're using — it is independent of the module-resolution
+route.
+
+Every failed attempt is logged (`console.error`, one line per route) and, when a `reranker.provider:
+"local"` block is declared, surfaced by `obsidian-tc doctor` with the exact remedy. Resolution
+failure **never crashes boot** — it degrades to RRF-only, exactly like every other reranker's
+"not configured"/"unreachable" case.
 
 ## Behavior
 
@@ -59,10 +86,15 @@ CI to fail fast on a stale or corrupted cache. `--dir <path>` downloads elsewher
   its pre-rerank order rather than failing the request.
 - **`bun --compile` is out of scope.** `onnxruntime-node` (a transitive dependency) dlopens a sidecar
   `.node`/`.so` file next to itself at runtime — that cannot survive being embedded in a single-file
-  Bun standalone binary. The `local` provider is unreachable from a compiled obsidian-tc binary; it
-  works from the npm-published server package and from source. A Rust-native fallback (via
-  `packages/native`) is the documented path to compiled-binary parity, out of scope for this ticket
-  (see the THE-705 research brief §1c).
+  Bun standalone binary. The `local` provider is unreachable from a compiled obsidian-tc binary
+  (`packages/server`'s `build` script and the release `--compile` step both mark this package
+  `--external` so that limitation fails gracefully instead of breaking the compile itself). It IS
+  reachable from a **source checkout** of this monorepo (route iii above, once built) and from an
+  npm-installed server pointed at it via `reranker.localModulePath` (route i) — see "Resolution
+  ladder" above; it is **not yet** reachable via a plain `bun add` from an npm-installed server,
+  since this package is not yet published (see "Publishing status" above). A Rust-native fallback
+  (via `packages/native`) is the documented path to compiled-binary parity, out of scope for this
+  ticket (see the THE-705 research brief §1c).
 
 ## Provenance
 

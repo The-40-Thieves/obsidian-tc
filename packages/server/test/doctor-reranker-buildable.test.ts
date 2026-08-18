@@ -45,14 +45,53 @@ describe("reranker.buildable (THE-679)", () => {
     expect(r.summary).toMatch(/no known build blocker/);
   });
 
-  // THE-705: same reasoning as "module" above — whether the optional
-  // @the-40-thieves/obsidian-tc-reranker-local package is installed and whether the model weights
-  // are downloaded are both filesystem/import questions, and this file is DELIBERATELY pure and
-  // offline (no network, no filesystem, no dynamic import — see the header comment). So "local" has
-  // no KNOWN blocker from config alone; the real failure (package/weights absent) surfaces as an
-  // actionable boot-time throw from providers/registry.ts's buildLocalReranker, exactly like a
-  // declared model-tier/gateway block that resolves to null does via resolveDeclaredReranker.
-  it("reports no known build blocker for 'local' — the real check happens at build time, not here", async () => {
+  // THE-705 round 2 (adversarial review, confirmed finding 2 / THE-688 lesson). Unlike model-tier
+  // and gateway, whether "local" resolves is NOT answerable from config alone — so this check must
+  // NOT claim "no known build blocker" (that would be exactly THE-688's "dense: ready" mistake: a
+  // literal that looks like it checked something but didn't). It probes via the INJECTED
+  // `probeLocalReranker` (never a real import here — see that field's own doctor/checks.ts
+  // comment for why this specific injection point exists).
+  it("FAILS 'local' when the injected probe reports it could not resolve, and names the remedy", async () => {
+    const r = await rerankerBuildableCheck({
+      rerankerProvider: "local",
+      probeLocalReranker: async () => ({
+        ok: false,
+        attempts: [
+          "bare-specifier: @the-40-thieves/obsidian-tc-reranker-local — Cannot find module",
+          "source-checkout: /x/reranker-local/dist/index.js — not built",
+        ],
+      }),
+    }).run(ctx);
+    expect(r.status).toBe("fail");
+    expect(r.summary).toMatch(/could not be resolved/);
+    expect(r.summary).toMatch(/does NOT fail to boot/);
+    expect(r.details?.attempts).toEqual([
+      "bare-specifier: @the-40-thieves/obsidian-tc-reranker-local — Cannot find module",
+      "source-checkout: /x/reranker-local/dist/index.js — not built",
+    ]);
+    expect(String(r.remediation)).toMatch(/localModulePath/);
+    expect(String(r.remediation)).toMatch(/bun add/);
+    expect(String(r.remediation)).toMatch(/bun run build/);
+  });
+
+  it("PASSES 'local' when the injected probe reports it resolved, naming the route", async () => {
+    const r = await rerankerBuildableCheck({
+      rerankerProvider: "local",
+      probeLocalReranker: async () => ({
+        ok: true,
+        route: "source-checkout",
+        attempts: ["bare-specifier: ... — Cannot find module", "source-checkout: ... — resolved"],
+      }),
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.summary).toContain("source-checkout");
+  });
+
+  // Real callers (cli/commands/doctor.ts) always inject `probeLocalReranker` for a declared
+  // "local" block. This proves the check does not SILENTLY claim health when nobody wired the
+  // probe (e.g. a future direct caller of rerankerBuildableCheck that forgets it) — it falls back
+  // to the same "no known build blocker" a `module` provider gets, never a false "ok, resolved".
+  it("falls back to the generic 'no known build blocker' for 'local' when no probe is injected — never claims resolved", async () => {
     const r = await rerankerBuildableCheck({ rerankerProvider: "local" }).run(ctx);
     expect(r.status).toBe("ok");
     expect(r.summary).toMatch(/no known build blocker/);
