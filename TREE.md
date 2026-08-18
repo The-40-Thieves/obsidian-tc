@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,146 tracked code files · 179,310 lines.
+**Scale:** 1,148 tracked code files · 180,098 lines.
 
-TypeScript 165,396 · JavaScript 9,514 · SQL 1,658 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 166,184 · JavaScript 9,514 · SQL 1,658 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,12 +86,12 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 86 | 17,015 | domains m1–m8 + admin. The MCP tool surface |
-| `search/` | 55 | 10,782 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `tools/` | 86 | 17,074 | domains m1–m8 + admin. The MCP tool surface |
+| `search/` | 55 | 10,810 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 21 | 4,839 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 17 | 4,583 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 25 | 3,433 | arg parsing + subcommands |
-| `runtime/` | 15 | 3,384 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 15 | 3,426 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `vault/` | 17 | 2,013 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `doctor/` | 11 | 1,894 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `migrations/` | 45 | 1,658 | hand-registered SQL. **Two chains** — see below |
@@ -156,15 +156,16 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 565 | `packages/server/src/search/graph_search.ts` |
 | 564 | `packages/server/src/search/query_cache.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
+| 531 | `packages/server/src/runtime/tool-wiring.ts` |
 | 526 | `packages/server/src/transports/http.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
 | 522 | `packages/server/src/providers/registry.ts` |
 | 519 | `packages/shared/src/config/retrieval.schema.ts` |
 | 512 | `packages/server/src/runtime/plane-wiring.ts` |
-| 504 | `packages/server/src/runtime/tool-wiring.ts` |
+| 508 | `packages/server/src/search/indexing/index-vault.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
 
-25 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
+26 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
 <!-- END GENERATED: tree-largest-files -->
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
