@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 426,
-    "dependencies": 1911,
-    "subsystemPairs": 119,
-    "crossSubsystemImports": 861
+    "modules": 429,
+    "dependencies": 1923,
+    "subsystemPairs": 120,
+    "crossSubsystemImports": 867
   },
   "subsystems": {
     "auth": 4,
@@ -17,7 +17,7 @@
     "db": 15,
     "doctor": 11,
     "embeddings": 6,
-    "experiential": 24,
+    "experiential": 25,
     "formats": 6,
     "gateway": 2,
     "graph": 1,
@@ -35,7 +35,7 @@
     "scheduler": 4,
     "schemas": 1,
     "search": 60,
-    "tools": 88,
+    "tools": 90,
     "transports": 3,
     "util": 4,
     "vault": 17,
@@ -50,7 +50,7 @@
     {
       "from": "tools",
       "to": "mcp",
-      "weight": 76
+      "weight": 77
     },
     {
       "from": "search",
@@ -95,7 +95,7 @@
     {
       "from": "tools",
       "to": "experiential",
-      "weight": 14
+      "weight": 15
     },
     {
       "from": "cli",
@@ -263,6 +263,11 @@
       "weight": 4
     },
     {
+      "from": "tools",
+      "to": "embeddings",
+      "weight": 4
+    },
+    {
       "from": "transports",
       "to": "auth",
       "weight": 4
@@ -288,6 +293,11 @@
       "weight": 3
     },
     {
+      "from": "experiential",
+      "to": "search",
+      "weight": 3
+    },
+    {
       "from": "mcp",
       "to": "metrics",
       "weight": 3
@@ -310,11 +320,6 @@
     {
       "from": "runtime",
       "to": "bridge",
-      "weight": 3
-    },
-    {
-      "from": "tools",
-      "to": "embeddings",
       "weight": 3
     },
     {
@@ -479,12 +484,12 @@
     },
     {
       "from": "experiential",
-      "to": "search",
+      "to": "util",
       "weight": 1
     },
     {
       "from": "experiential",
-      "to": "util",
+      "to": "embeddings",
       "weight": 1
     },
     {
