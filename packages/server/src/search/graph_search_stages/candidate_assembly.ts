@@ -4,6 +4,7 @@
 // graphSearchCore's steps 4/4b/4c/4d — same ACL filtering (isReadable checks inline per stream,
 // unreadable hits never consume a rank), same dedup-by-chunk_id-seeds-win order.
 import type { Database } from "../../db/types";
+import { allChunkPaths } from "../acl_path_set";
 import type { LexicalHit } from "../chunk_fts";
 import type { SemanticHit } from "../semantic";
 import type { SparseHit } from "../sparse";
@@ -122,14 +123,8 @@ export function assembleCandidates(input: CandidateAssemblyInput): CandidateAsse
     const range = parseTemporalIntent(opts.query, opts.temporal?.nowMs ?? Date.now());
     if (range) {
       const mid = (range.start + range.end) / 2;
-      const dated = (
-        db
-          .prepare("SELECT DISTINCT path FROM chunks WHERE vault_id = ?")
-          .all(opts.vaultId) as Array<{
-          path: string;
-        }>
-      )
-        .map((r) => ({ path: r.path, date: noteDateMs(r.path) }))
+      const dated = allChunkPaths(db, opts.vaultId)
+        .map((path) => ({ path, date: noteDateMs(path) }))
         .filter(
           (p): p is { path: string; date: number } =>
             p.date !== null && p.date >= range.start && p.date <= range.end,

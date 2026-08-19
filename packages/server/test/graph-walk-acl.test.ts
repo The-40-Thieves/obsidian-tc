@@ -91,3 +91,149 @@ describe("THE-695 graph walk bridges", () => {
     expect(walk(bridged(), { aclSetId: undefined })).toContain("public/b.md");
   });
 });
+
+// THE-852 — the rigorous two-world differential (research brief section 4.2). Membership-only
+// equality (what the tests above check) can pass even while a hidden node still shifts a readable
+// node's HOP or PREDECESSOR — this asserts full-field equality between:
+//   World A: the bridge present, but ACL-filtered (aclSetId joined).
+//   World B: the bridge PHYSICALLY REMOVED from vault_edges (the "as if it never existed" ground
+//            truth) — same walk, same seeds, no ACL filter needed because there is nothing to hide.
+// expandGraphLiteral has no scoring of its own (that only happens in graph_expansion.ts), so this
+// is a clean structural proof of the CTE join with no BM25/corpus-stat confound.
+describe("THE-852 two-world differential — full-field non-interference", () => {
+  const fullWalk = (db: Database, seeds: string[], opts: Record<string, unknown> = {}) =>
+    expandGraphLiteral(db, seeds, { vaultId: "main", hopLimit: 2, ...opts })
+      // Sort for a stable comparison — the walk's own GROUP BY order is not a contract this test
+      // needs to pin, only that the SET of full node records is identical between the two worlds.
+      .sort((a, b) => a.path.localeCompare(b.path));
+
+  it("World A (filtered, bridge present) === World B (bridge physically removed) — every field", () => {
+    const worldA = bridged(); // a -> s -> b, s NOT in acl_path_members
+    const nodesA = fullWalk(worldA, ["public/a.md"], { aclSetId: 1 });
+
+    const worldB = openMemoryDb();
+    worldB.exec(
+      "CREATE TABLE vault_edges (vault_id TEXT NOT NULL, source_path TEXT NOT NULL, target_path TEXT NOT NULL, edge_type TEXT NOT NULL, edge_kind TEXT, provenance TEXT)",
+    );
+    // No a->s or s->b edges at all: s does not exist in this world's graph. No ACL join needed —
+    // there is nothing unreadable left to filter.
+    const nodesB = fullWalk(worldB, ["public/a.md"]);
+
+    expect(nodesA).toStrictEqual(nodesB);
+    expect(nodesA).toStrictEqual([]); // ground truth: with s gone, a reaches nothing
+  });
+
+  it("holds with a readable direct link ALSO present — the filter prunes only the bridge-only path", () => {
+    const worldA = bridged();
+    worldA
+      .prepare(
+        "INSERT INTO vault_edges VALUES ('main','public/a.md','public/c.md','links_to','literal','body')",
+      )
+      .run();
+    worldA.prepare("INSERT INTO acl_path_members VALUES (1,'public/c.md')").run();
+    const nodesA = fullWalk(worldA, ["public/a.md"], { aclSetId: 1 });
+
+    const worldB = openMemoryDb();
+    worldB.exec(
+      "CREATE TABLE vault_edges (vault_id TEXT NOT NULL, source_path TEXT NOT NULL, target_path TEXT NOT NULL, edge_type TEXT NOT NULL, edge_kind TEXT, provenance TEXT)",
+    );
+    worldB
+      .prepare(
+        "INSERT INTO vault_edges VALUES ('main','public/a.md','public/c.md','links_to','literal','body')",
+      )
+      .run();
+    const nodesB = fullWalk(worldB, ["public/a.md"]);
+
+    expect(nodesA).toStrictEqual(nodesB);
+    expect(nodesA.map((n) => n.path)).toStrictEqual(["public/c.md"]);
+    // hop/predecessor/via_edge_* must match too, not just membership.
+    expect(nodesA[0]).toMatchObject({
+      hop: 1,
+      predecessor_path: "public/a.md",
+      root_seed: "public/a.md",
+      via_edge_type: "links_to",
+      edge_kind: "literal",
+    });
+  });
+
+  // Property/fuzz variant (brief section 4.2 item 3): a handful of random bridge topologies, each
+  // checked against its own physically-removed ground truth. Catches diamond/multi-bridge shapes a
+  // single hand-picked fixture misses.
+  it("holds over randomly generated bridge topologies", () => {
+    let seed = 42;
+    const rand = () => {
+      // xorshift32 — deterministic across CI runs, no external dependency.
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      return ((seed >>> 0) % 1000) / 1000;
+    };
+
+    for (let trial = 0; trial < 25; trial++) {
+      const nUnreadable = 1 + Math.floor(rand() * 3);
+      const nReadable = 2 + Math.floor(rand() * 4);
+      const readablePaths = Array.from({ length: nReadable }, (_, i) => `r/${trial}-${i}.md`);
+      const unreadablePaths = Array.from({ length: nUnreadable }, (_, i) => `u/${trial}-${i}.md`);
+      const allPaths = [...readablePaths, ...unreadablePaths];
+
+      // Random edges among all paths (readable and unreadable), undirected walk so direction of
+      // insertion does not matter to expandGraphLiteral's own UNION ALL.
+      const edges: Array<[string, string]> = [];
+      for (let i = 0; i < allPaths.length * 2; i++) {
+        const from = allPaths[Math.floor(rand() * allPaths.length)] as string;
+        const to = allPaths[Math.floor(rand() * allPaths.length)] as string;
+        if (from !== to) edges.push([from, to]);
+      }
+
+      const buildWorld = (includeUnreadable: boolean): Database => {
+        const db = openMemoryDb();
+        db.exec(
+          "CREATE TABLE vault_edges (vault_id TEXT NOT NULL, source_path TEXT NOT NULL, target_path TEXT NOT NULL, edge_type TEXT NOT NULL, edge_kind TEXT, provenance TEXT)",
+        );
+        const ins = db.prepare(
+          "INSERT INTO vault_edges VALUES ('main', ?, ?, 'links_to', 'literal', 'body')",
+        );
+        for (const [from, to] of edges) {
+          if (
+            !includeUnreadable &&
+            (unreadablePaths.includes(from) || unreadablePaths.includes(to))
+          )
+            continue;
+          ins.run(from, to);
+        }
+        return db;
+      };
+
+      // World A: every edge present, ACL-joined against the readable-only set.
+      const worldA = buildWorld(true);
+      setupAclFixture(worldA, readablePaths);
+      const nodesA = fullWalk(worldA, [readablePaths[0] as string], { aclSetId: 1 });
+
+      // World B: unreadable nodes and every edge touching them physically absent.
+      const worldB = buildWorld(false);
+      const nodesB = fullWalk(worldB, [readablePaths[0] as string]);
+
+      expect(nodesA).toStrictEqual(nodesB);
+      // Non-vacuous per-trial: no unreadable path ever appears, in either its own right or as a
+      // predecessor.
+      for (const n of nodesA) {
+        expect(unreadablePaths).not.toContain(n.path);
+        expect(unreadablePaths).not.toContain(n.predecessor_path);
+      }
+    }
+  });
+});
+
+/** Provisions acl_path_sets/acl_path_members (set_id=1) with exactly `readablePaths` as members —
+ *  the fuzz test's per-trial ACL fixture, factored out for readability. */
+function setupAclFixture(db: Database, readablePaths: string[]): void {
+  db.exec(
+    "CREATE TABLE acl_path_sets (set_id INTEGER PRIMARY KEY, acl_fingerprint TEXT NOT NULL, vault_id TEXT NOT NULL, generation INTEGER NOT NULL, built_at INTEGER NOT NULL, path_count INTEGER NOT NULL, UNIQUE (acl_fingerprint, vault_id))",
+  );
+  db.exec(
+    "CREATE TABLE acl_path_members (set_id INTEGER NOT NULL REFERENCES acl_path_sets(set_id) ON DELETE CASCADE, path TEXT NOT NULL, PRIMARY KEY (set_id, path)) WITHOUT ROWID",
+  );
+  db.prepare("INSERT INTO acl_path_sets VALUES (1,'fp','main',1,1,?)").run(readablePaths.length);
+  const m = db.prepare("INSERT INTO acl_path_members VALUES (1, ?)");
+  for (const p of readablePaths) m.run(p);
+}

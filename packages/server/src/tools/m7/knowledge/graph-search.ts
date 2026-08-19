@@ -125,6 +125,11 @@ async function searchOneVault(
     finalTopK: query.finalTopK,
     reranker: deps.reranker,
     isReadable: (rel) => readableRel(acl, rel),
+    // THE-852: this leg's OWN per-vault acl, never ctx.acl — same rule cacheContextFor already
+    // follows (see this file's header, invariant 1/2).
+    db: ctx.db,
+    acl,
+    grantedScopes: ctx.grantedScopes,
     onFusionWeights: policy.sink,
     onCoverage: coverage.sink,
   });

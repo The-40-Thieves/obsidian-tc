@@ -180,6 +180,9 @@ export function createDiagnoseRetrievalTool(
         finalTopK: input.final_top_k,
         reranker: deps.reranker,
         isReadable: (p) => readableRel(ctx.acl, p),
+        db: ctx.db,
+        acl: ctx.acl,
+        grantedScopes: ctx.grantedScopes,
         traceNotePath: rel,
         onRetrievalTrace: (r) => records.push(r),
       });

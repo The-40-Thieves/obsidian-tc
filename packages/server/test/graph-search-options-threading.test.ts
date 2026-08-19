@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildGraphSearchOptions, type M7Deps } from "../src/tools/m7/knowledge-tools";
+import { openMemoryDb } from "./helpers";
 
 /** The minimum M7Deps the builder actually reads, plus whatever the case under test adds. */
 function depsWith(extra: Partial<M7Deps>): M7Deps {
@@ -47,6 +48,12 @@ function siteArgs(finalTopK: number) {
     finalTopK,
     reranker: null,
     isReadable: () => true,
+    // THE-852: buildGraphSearchOptions now resolves the ACL walk filter unconditionally. An
+    // unmigrated db (no acl_path_sets table) plus an unrestricted (undefined) acl makes
+    // resolveAclWalkFilter a no-op — `{}` — so this stays irrelevant to every knob assertion below.
+    db: openMemoryDb(),
+    acl: undefined,
+    grantedScopes: new Set<string>(),
   };
 }
 

@@ -83,6 +83,9 @@ export function createKnowledgeSearchTool(
           // this stays a visible decision rather than looking like a dropped option.
           reranker: null,
           isReadable: (rel) => readableRel(ctx.acl, rel),
+          db: ctx.db,
+          acl: ctx.acl,
+          grantedScopes: ctx.grantedScopes,
           onFusionWeights: policy.sink,
           onCoverage: coverage.sink,
         }),
