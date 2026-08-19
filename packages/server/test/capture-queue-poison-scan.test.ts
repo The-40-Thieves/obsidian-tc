@@ -9,7 +9,6 @@
 // implementation; the wrapper only counts invocations, proving enqueue_capture actually calls it
 // (the regression this ticket closes: today it never does).
 import { describe, expect, it, vi } from "vitest";
-import { CHANNEL_TRUST } from "../src/experiential/poison";
 import { makeM5Vault } from "./m5-helpers";
 
 let assessPoisonCalls = 0;
@@ -30,7 +29,6 @@ const CLEAN = "Grabbed a coffee, then reviewed the THE-855 ticket before lunch."
 interface CaptureQueueItem {
   capture_id: string;
   poison_assessment: { risk: "none" | "suspect" | "high"; signals: string[] } | null;
-  trust: number | null;
 }
 
 describe("THE-855 capture_queue poison scan", () => {
@@ -73,30 +71,19 @@ describe("THE-855 capture_queue poison scan", () => {
     }
   });
 
-  it("a clean scan never raises trust above the channel's own base (risk only ever lowers it)", async () => {
+  it("a spoofable `source` does not change the content-derived verdict — high-risk stays high", async () => {
+    // The scan keys on CONTENT, not the caller-asserted `source`; this is why the numeric
+    // channel-trust score was dropped (source is spoofable). Verify the surfaced verdict is
+    // identical whether the caller claims a low- or high-trust channel.
     const v = makeM5Vault();
     try {
-      await v.call("enqueue_capture", { vault: "test", content: CLEAN, source: "ambient" });
-      const listed = await v.call("list_capture_queue", { vault: "test" });
-      if (!listed.ok) throw new Error("list failed");
-      const item = (listed.data as { items: CaptureQueueItem[] }).items[0];
-      expect(item?.poison_assessment?.risk).toBe("none");
-      // clean (risk 'none') multiplies the channel base by 1 — never above it.
-      expect(item?.trust).toBe(CHANNEL_TRUST.ambient);
-    } finally {
-      v.cleanup();
-    }
-  });
-
-  it("a high-risk scan lowers trust below the channel's own base", async () => {
-    const v = makeM5Vault();
-    try {
-      await v.call("enqueue_capture", { vault: "test", content: HIGH_RISK, source: "ambient" });
+      await v.call("enqueue_capture", { vault: "test", content: HIGH_RISK, source: "dispatch" });
       const listed = await v.call("list_capture_queue", { vault: "test" });
       if (!listed.ok) throw new Error("list failed");
       const item = (listed.data as { items: CaptureQueueItem[] }).items[0];
       expect(item?.poison_assessment?.risk).toBe("high");
-      expect(item?.trust).toBeLessThan(CHANNEL_TRUST.ambient as number);
+      // No `trust` field is surfaced at all — only the unspoofable poison verdict.
+      expect(item as unknown as Record<string, unknown>).not.toHaveProperty("trust");
     } finally {
       v.cleanup();
     }

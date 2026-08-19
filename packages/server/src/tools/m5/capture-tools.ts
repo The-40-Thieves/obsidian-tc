@@ -71,11 +71,10 @@ const CaptureQueueItem = z.object({
   target_path_hint: z.string().nullable(),
   committed_at: z.number().nullable(),
   committed_path: z.string().nullable(),
-  // THE-855: surfaced so a reviewer sees the risk before calling commit_capture. `trust` reuses
-  // THE-238's channel-trust table (episodeTrust) keyed on `source` — risk only ever lowers it
-  // below the channel's own base, never above (see queue.ts's enqueueCapture comment).
+  // THE-855: surfaced so a reviewer sees the (content-derived, unspoofable) poison verdict before
+  // calling commit_capture. A numeric channel-`trust` field was dropped on cross-vendor review —
+  // it was keyed on the caller-asserted `source`, so it would not be authoritative.
   poison_assessment: PoisonAssessmentOut,
-  trust: z.number().nullable(),
 });
 
 const ListCaptureQueueOutput = z.object({
@@ -199,7 +198,6 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
               r.poison_risk === null
                 ? null
                 : { risk: r.poison_risk, signals: parseSignals(r.poison_signals) },
-            trust: r.trust,
           })),
           next_cursor: next,
           total_returned: page.length,
