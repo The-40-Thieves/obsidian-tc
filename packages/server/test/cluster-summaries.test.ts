@@ -517,7 +517,7 @@ describe("graphSearch — the DARK guarantee (test a, at the top-level entry poi
       isReadable: () => true,
     });
     expect(results).toEqual([]);
-    expect(seenSql.some((sql) => sql.toLowerCase().includes("cluster_summar"))).toBe(false);
+    expect(seenSql.some((sql) => sql.toLowerCase().includes("cluster_summ"))).toBe(false);
   });
 
   it("flag on: the SAME cluster IS queried (proves the spy above is a real negative, not a dead probe)", async () => {
@@ -547,6 +547,6 @@ describe("graphSearch — the DARK guarantee (test a, at the top-level entry poi
       summaries: { clusters: { enabled: true } },
     });
     expect(results.some((r) => r.source === "cluster_summary")).toBe(true);
-    expect(seenSql.some((sql) => sql.toLowerCase().includes("cluster_summar"))).toBe(true);
+    expect(seenSql.some((sql) => sql.toLowerCase().includes("cluster_summ"))).toBe(true);
   });
 });
