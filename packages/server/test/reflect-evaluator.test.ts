@@ -298,6 +298,46 @@ describe("evaluateEpisodes (THE-222)", () => {
       expect(second).toBe(first); // byte-identical: the underlying columns did not change
     });
 
+    it("a held row in a MULTI-tool session regenerates a byte-identical summary — the tool tally is order-stable", async () => {
+      // Guards the tool-tally GROUP BY specifically: its key order feeds serializeEpisodeSummary's
+      // JSON, so without the explicit ORDER BY the byte-stability would rest on the SQLite
+      // optimizer's incidental sort. Seed one session whose tools are inserted in reverse-alpha
+      // order; the summary must still be identical across two passes.
+      const db = edb0();
+      seed(db, "m-z", {
+        status: "ok",
+        task_result: -1,
+        tool: "zzz_tool",
+        session_id: "multi",
+        verdict_at: NOW,
+      });
+      seed(db, "m-a", {
+        status: "ok",
+        task_result: -1,
+        tool: "aaa_tool",
+        session_id: "multi",
+        verdict_at: NOW,
+      });
+      seed(db, "m-m", {
+        status: "ok",
+        task_result: -1,
+        tool: "mmm_tool",
+        session_id: "multi",
+        verdict_at: NOW,
+      });
+      await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+      const read = (id: string) =>
+        (
+          db.prepare("SELECT summary AS s FROM agent_episodes WHERE id = ?").get(id) as {
+            s: string;
+          }
+        ).s;
+      const first = read("m-a");
+      expect(first).toContain("aaa_tool"); // the tally is present (not the single-tool fallback)
+      await evaluateEpisodes(db, { nowMs: NOW + 2000 });
+      expect(read("m-a")).toBe(first); // byte-identical across passes despite the multi-key GROUP BY
+    });
+
     it("a promoted row is never re-touched by a later pass — eligibility 'eligible' drops it from the WHERE", async () => {
       const db = edb0();
       seed(db, "e1", { status: "ok", task_result: 1, tool: "search_text" });

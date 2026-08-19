@@ -169,9 +169,12 @@ function toolTalliesBySession(
   const placeholders = sessionIds.map(() => "?").join(", ");
   const grouped = edb
     .prepare(
+      // ORDER BY is load-bearing (not the optimizer's incidental sort): the tally key order feeds
+      // serializeEpisodeSummary's JSON, and a held episode must regenerate a byte-identical summary.
       `SELECT session_id, tool, COUNT(*) AS n FROM agent_episodes
        WHERE session_id IN (${placeholders})
-       GROUP BY session_id, tool`,
+       GROUP BY session_id, tool
+       ORDER BY session_id, tool`,
     )
     .all(...sessionIds) as Array<{ session_id: string; tool: string | null; n: number }>;
   for (const g of grouped) {
