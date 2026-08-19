@@ -101,6 +101,15 @@ A `PreToolUse` hook blocks these; the message names the regeneration command.
 | `docs/obsidian-tc.config.schema.json` | `bun run config:schema` |
 | `packages/server/src/db/migrations-embedded.ts` | `bun run migrations:embed` |
 
+**Run `bun run map` AFTER `git add`, and make it the LAST thing before commit.**
+`gen-tree-map.mjs` derives its counts from `git ls-files`, which sees only *tracked* files — so
+regenerating before you stage a new `.ts`/`.sql`/etc. file leaves that file uncounted, and
+`drift-gate` (`bun run map:check`) then fails on CI with `TREE.md is STALE` even though you "ran
+map." Same trap the other way: any edit that changes a file's line count after the last `map` run
+re-stales it. This bit two PRs on 2026-08-19 (a new migration; a new source file plus a later
+`.mjs` edit), each map-generated before the final `git add`. Sequence: stage everything, `bun run
+map`, `bun run map:check`, then commit.
+
 **Twelve** doc files additionally carry docgen **marker regions** (`<!-- BEGIN GENERATED: ... -->`).
 Those are only partly generated — edit the prose around them freely, never inside them, and re-run
 `docgen:render -- --check`.
