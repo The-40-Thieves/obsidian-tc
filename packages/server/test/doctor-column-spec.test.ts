@@ -36,16 +36,15 @@ describe("derived.column-liveness spec", () => {
     expect(live.map((s) => `${s.table}.${s.column}`)).toContain("agent_episodes.status");
   });
 
-  // Verified against episodes.ts's INSERT column list: it writes neither `task_result` nor `summary`,
-  // and the only UPDATE statements touch blocked/eligibility (forget.ts NULLs summary rather
-  // than filling it). "none" is a different claim from "disabled" and must not be reported as one.
-  it("classifies columns with no producer as `none`, not `disabled`", () => {
+  // THE-752: `summary` gained a producer (the deterministic Tier 0 receipt writer in
+  // evaluateEpisodes) alongside `task_result`'s THE-726 producer — both now report "enabled" when
+  // the experiential store is on, "disabled" (not "none") when it is off, since a real writer
+  // exists and configuration is what gates it.
+  it("classifies columns with a real producer as `enabled`, gated on config, not `none`", () => {
     const spec = experientialColumnSpec({ experiential: true });
     const byName = (n: string) => spec.find((s) => `${s.table}.${s.column}` === n);
-    // THE-726: task_result HAS a producer now (work_result). `summary` still does not — the two
-    // were listed together for years and it matters that they have now separated.
     expect(byName("agent_episodes.task_result")?.writer).toBe("enabled");
-    expect(byName("agent_episodes.summary")?.writer).toBe("none");
+    expect(byName("agent_episodes.summary")?.writer).toBe("enabled");
   });
 
   // The emitter for feedback is a client action (THE-718: the acting agent stamps it), so

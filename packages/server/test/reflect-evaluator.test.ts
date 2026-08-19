@@ -207,6 +207,132 @@ describe("evaluateEpisodes (THE-222)", () => {
     expect(elig(db, "stable")).toBe("eligible");
   });
 
+  // THE-752 Tier 0: the deterministic no-LLM summary receipt. `evaluateEpisodes` is the pass the
+  // ticket names as the host — extending the UPDATE it already runs, not a new job.
+  describe("THE-752: deterministic summary receipt", () => {
+    it("writes a summary receipt on both a promoted and a held row", async () => {
+      const db = edb0();
+      seed(db, "promoted", { status: "ok", task_result: 1, tool: "search_text" });
+      seed(db, "held", { status: "ok", task_result: -1, tool: "read_note" });
+      await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+
+      const row = (id: string) =>
+        db.prepare("SELECT summary, eligibility FROM agent_episodes WHERE id = ?").get(id) as {
+          summary: string | null;
+          eligibility: string;
+        };
+
+      const p = row("promoted");
+      expect(p.eligibility).toBe("eligible");
+      expect(p.summary).not.toBeNull();
+      expect(JSON.parse(p.summary as string)).toMatchObject({
+        intent: "search_text by alice",
+        verdict: "pass",
+        status: "ok",
+        generated_by: "deterministic-v1",
+      });
+
+      const h = row("held");
+      expect(h.eligibility).toBe("pending"); // held, not promoted
+      expect(h.summary).not.toBeNull();
+      expect(JSON.parse(h.summary as string)).toMatchObject({
+        intent: "read_note by alice",
+        verdict: "fail", // THE-565's ground-truth anchor: task_result = -1
+        status: "ok",
+      });
+    });
+
+    it("a NULL task_result (never judged) still gets a well-formed 'unjudged' receipt", async () => {
+      const db = edb0();
+      seed(db, "unjudged", { status: "ok", task_result: null, tool: "list_notes" });
+      await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+      const summary = (
+        db.prepare("SELECT summary AS s FROM agent_episodes WHERE id = ?").get("unjudged") as {
+          s: string;
+        }
+      ).s;
+      expect(JSON.parse(summary)).toMatchObject({ verdict: "unjudged" });
+    });
+
+    it("tallies tool calls across a session window rather than counting only the row itself", async () => {
+      const db = edb0();
+      seed(db, "s1", { tool: "search_text", session_id: "sess-1", task_result: 1 });
+      seed(db, "s2", { tool: "search_text", session_id: "sess-1", task_result: 1 });
+      seed(db, "s3", { tool: "read_note", session_id: "sess-1", task_result: 1 });
+      await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+      const summary = (
+        db.prepare("SELECT summary AS s FROM agent_episodes WHERE id = ?").get("s1") as {
+          s: string;
+        }
+      ).s;
+      expect(JSON.parse(summary).tool_calls).toEqual({ search_text: 2, read_note: 1 });
+    });
+
+    it("a row with no session_id falls back to a single-entry tally of its own tool", async () => {
+      const db = edb0();
+      seed(db, "solo", { tool: "search_regex", task_result: 1 }); // session_id defaults to null
+      await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+      const summary = (
+        db.prepare("SELECT summary AS s FROM agent_episodes WHERE id = ?").get("solo") as {
+          s: string;
+        }
+      ).s;
+      expect(JSON.parse(summary).tool_calls).toEqual({ search_regex: 1 });
+    });
+
+    it("re-running the pass on an already-held (still-pending) row is a stable regeneration, not churn", async () => {
+      const db = edb0();
+      seed(db, "held", { status: "ok", task_result: -1, tool: "read_note" });
+      await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+      const first = (
+        db.prepare("SELECT summary AS s FROM agent_episodes WHERE id = ?").get("held") as {
+          s: string;
+        }
+      ).s;
+      await evaluateEpisodes(db, { nowMs: NOW + 2000 });
+      const second = (
+        db.prepare("SELECT summary AS s FROM agent_episodes WHERE id = ?").get("held") as {
+          s: string;
+        }
+      ).s;
+      expect(second).toBe(first); // byte-identical: the underlying columns did not change
+    });
+
+    it("a promoted row is never re-touched by a later pass — eligibility 'eligible' drops it from the WHERE", async () => {
+      const db = edb0();
+      seed(db, "e1", { status: "ok", task_result: 1, tool: "search_text" });
+      await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+      const first = (
+        db.prepare("SELECT summary AS s FROM agent_episodes WHERE id = ?").get("e1") as {
+          s: string;
+        }
+      ).s;
+      // A second episode lands in the same fixture; running the pass again must not perturb e1's
+      // already-written receipt even though the pass runs again.
+      seed(db, "e2", { status: "ok", task_result: 1, tool: "read_note" });
+      const stats = await evaluateEpisodes(db, { nowMs: NOW + 2000 });
+      expect(stats.scanned).toBe(1); // only e2 — e1 is 'eligible' now, outside the WHERE
+      const second = (
+        db.prepare("SELECT summary AS s FROM agent_episodes WHERE id = ?").get("e1") as {
+          s: string;
+        }
+      ).s;
+      expect(second).toBe(first);
+    });
+
+    // The existing reader contract: work_search's `summary LIKE ?` clause (experiential-tools.ts)
+    // now has something to match against instead of matching nothing on every row.
+    it("the populated column is findable by the existing LIKE-match reader contract", async () => {
+      const db = edb0();
+      seed(db, "e1", { status: "ok", task_result: 1, tool: "search_text" });
+      await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+      const hit = db
+        .prepare("SELECT id FROM agent_episodes WHERE summary LIKE '%' || ? || '%'")
+        .get("search_text") as { id: string } | undefined;
+      expect(hit?.id).toBe("e1");
+    });
+  });
+
   // THE-701. The test above pins that a born-ineligible row STAYS ineligible. This pins the
   // complement, which it does not: that no PENDING row is ever lowered INTO that state. Those are
   // different properties — the removed judge satisfied the first while violating the second on 35

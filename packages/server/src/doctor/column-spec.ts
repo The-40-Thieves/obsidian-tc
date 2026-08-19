@@ -66,14 +66,9 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
       writer: on ? "on-demand" : "disabled",
       lever: "running `obsidian-tc citation-infer` against a session transcript (THE-717)",
     },
-    // THE-726: task_result now HAS a producer and `summary` still does not, so the two entries
-    // below no longer share a story. The paragraph that follows describes `summary`.
-    //
-    // "none", not "disabled", and verified rather than assumed: episodes.ts's INSERT names 20
-    // columns and neither of these is among them; the only UPDATE statements set
-    // blocked/eligibility, and forget.ts NULLs summary rather than filling it. No configuration turns these on, so
-    // reporting them as switched-off would imply a switch exists. Both stay findings even when the
-    // experiential store is disabled — a column with no producer is structurally unwritten.
+    // THE-726: task_result HAS a producer. THE-752 gave `summary` one too — a deterministic,
+    // no-LLM receipt written by the same evaluator pass, never inferred or generated. See
+    // summarize-episode.ts for why that is safe to run unconditionally.
     {
       table: "agent_episodes",
       column: "task_result",
@@ -88,8 +83,13 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
     {
       table: "agent_episodes",
       column: "summary",
-      writer: "none",
-      lever: "no producer exists — the THE-222 consolidation pass is unwired (blocks THE-642)",
+      // THE-752 Tier 0: `evaluateEpisodes` (reflect.ts) now sets this on every row it evaluates,
+      // promoted or held — same cadence gate as task_result above (the maintenance scheduler,
+      // behind `experientialOpen`). Still `forget.ts`'s only OTHER writer, which NULLs it on erase;
+      // that does not change the classification here, same as it never has for `tags`.
+      writer: on ? "enabled" : "disabled",
+      lever:
+        "the episode-evaluation pass (THE-222/THE-752), on the maintenance cadence, deterministically templating already-captured fields — no LLM, no generation.",
     },
     // The healthy controls, and they are not filler. Without a column that IS reliably written, a
     // green run proves only that the scan found nothing. These are what make a passing result

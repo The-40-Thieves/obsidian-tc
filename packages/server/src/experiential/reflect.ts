@@ -44,6 +44,7 @@
 //     is ready the moment a producer exists. Whether to build one is the open question on THE-721.
 import type { Database } from "../db/types";
 import type { Scheduler } from "../scheduler/scheduler";
+import { serializeEpisodeSummary, type ToolTally } from "./summarize-episode";
 
 export interface EvaluateStats {
   scanned: number;
@@ -96,12 +97,18 @@ export type EligibilityReason =
   | "held_unstable_evidence"
   | "held_bad_task_result";
 
-export function partitionPending(pending: PendingRow[]): {
-  candidates: PendingRow[];
+// THE-752: generic over the row shape rather than fixed to `PendingRow`, so a caller that SELECTs
+// extra columns (evaluateEpisodes now selects `tags`/`session_id` for the summary receipt) gets
+// them back on `candidates`/`holds` instead of losing them to the base type. `readEpisodeBacklog`
+// still calls this with plain `PendingRow & { ts }` and is unaffected.
+export function partitionPending<T extends PendingRow>(
+  pending: T[],
+): {
+  candidates: T[];
   held: number;
   /** THE-746: the held rows WITH the rule that held each one. `held` above is retained as a plain
    *  count because EvaluateStats and the reflect CLI both read it. */
-  holds: Array<{ row: PendingRow; reason: EligibilityReason }>;
+  holds: Array<{ row: T; reason: EligibilityReason }>;
 } {
   const statusesByKey = new Map<string, Set<string>>();
   const keyOf = (r: PendingRow): string | null =>
@@ -122,8 +129,8 @@ export function partitionPending(pending: PendingRow[]): {
     const s = statusesByKey.get(k);
     return s?.has("ok") === true && s.has("error");
   };
-  const candidates: PendingRow[] = [];
-  const holds: Array<{ row: PendingRow; reason: EligibilityReason }> = [];
+  const candidates: T[] = [];
+  const holds: Array<{ row: T; reason: EligibilityReason }> = [];
   for (const r of pending) {
     // PRECEDENCE IS DELIBERATE AND MUST STAY STABLE: a row can be BOTH unstable and carry
     // task_result = -1, and an audit trail whose reason flips between runs on the same data is
@@ -138,21 +145,69 @@ export function partitionPending(pending: PendingRow[]): {
   return { candidates, held: holds.length, holds };
 }
 
+/** `PendingRow` plus the two columns THE-752's summary receipt needs beyond what
+ *  `partitionPending` reads. Kept local to this function rather than folded into `PendingRow`
+ *  itself — `readEpisodeBacklog` shares that interface for a read-only diagnostic query that has
+ *  no reason to grow two more columns it never uses. */
+interface PendingRowWithSummarySource extends PendingRow {
+  tags: string | null;
+  session_id: string | null;
+}
+
+/** THE-752 Tier 0: tool -> dispatch count, grouped by session, for every session represented in
+ *  `rows`. ONE grouped query rather than one per row — `evaluateEpisodes` runs over the whole
+ *  pending backlog, and an N+1 query per episode would scale with backlog size for no reason. Rows
+ *  with a NULL `session_id` are not queried (there is no window to tally) and fall back to a
+ *  single-entry tally of their own tool at the call site. */
+function toolTalliesBySession(
+  edb: Database,
+  rows: readonly PendingRowWithSummarySource[],
+): Map<string, ToolTally> {
+  const sessionIds = [...new Set(rows.map((r) => r.session_id).filter((s) => s !== null))];
+  const tallies = new Map<string, Record<string, number>>();
+  if (sessionIds.length === 0) return tallies;
+  const placeholders = sessionIds.map(() => "?").join(", ");
+  const grouped = edb
+    .prepare(
+      `SELECT session_id, tool, COUNT(*) AS n FROM agent_episodes
+       WHERE session_id IN (${placeholders})
+       GROUP BY session_id, tool`,
+    )
+    .all(...sessionIds) as Array<{ session_id: string; tool: string | null; n: number }>;
+  for (const g of grouped) {
+    let byTool = tallies.get(g.session_id);
+    if (!byTool) {
+      byTool = {};
+      tallies.set(g.session_id, byTool);
+    }
+    byTool[g.tool ?? "unknown"] = g.n;
+  }
+  return tallies;
+}
+
 /** Evaluator pass: pending -> eligible under the deterministic rules. Ineligible rows are
  *  untouchable by construction (the WHERE) — assessPoison stamps those at capture, before this
- *  pass exists. THE-701 removed the judge layer; see the file header for the measurement. */
+ *  pass exists. THE-701 removed the judge layer; see the file header for the measurement.
+ *
+ *  THE-752 Tier 0: every row this pass touches (promoted OR held) also gets a deterministic,
+ *  no-LLM `summary` receipt — see summarize-episode.ts for why that is safe to run unconditionally
+ *  at any corpus size. A promoted row leaves `eligibility = 'pending'` behind and is never
+ *  selected by this WHERE again, so its summary is written exactly once; a held row stays
+ *  `pending` and is re-evaluated on the next pass, regenerating the same summary from the same
+ *  columns (stable, not churn) unless the underlying data actually changed. */
 export async function evaluateEpisodes(
   edb: Database,
   opts: { nowMs: number },
 ): Promise<EvaluateStats> {
   const pending = edb
     .prepare(
-      `SELECT id, caller, tool, status, args_hash, summary, task_result FROM agent_episodes
+      `SELECT id, caller, tool, status, args_hash, summary, task_result, tags, session_id
+         FROM agent_episodes
        WHERE eligibility = 'pending' AND blocked = 0
          AND (valid_until IS NULL OR valid_until > ?)
        ORDER BY ts ASC`,
     )
-    .all(opts.nowMs) as PendingRow[];
+    .all(opts.nowMs) as PendingRowWithSummarySource[];
   const stats: EvaluateStats = {
     scanned: pending.length,
     promoted: 0,
@@ -163,6 +218,14 @@ export async function evaluateEpisodes(
 
   const { candidates, held, holds } = partitionPending(pending);
   stats.held = held;
+  const tallies = toolTalliesBySession(edb, pending);
+  const summaryFor = (r: PendingRowWithSummarySource): string =>
+    serializeEpisodeSummary(
+      r,
+      r.session_id !== null
+        ? (tallies.get(r.session_id) ?? { [r.tool ?? "unknown"]: 1 })
+        : { [r.tool ?? "unknown"]: 1 },
+    );
 
   // THE-726: the WHERE re-checks `task_result` as well as `eligibility`, and that second clause is
   // load-bearing rather than defensive. This pass reads, classifies in memory, then writes — it
@@ -179,7 +242,7 @@ export async function evaluateEpisodes(
   // AFTER promotion, and the claim that the hold is order-independent is simply false.
   const promote = edb.prepare(
     `UPDATE agent_episodes
-        SET eligibility = 'eligible', eligibility_reason = ?, eligibility_policy = ?
+        SET eligibility = 'eligible', eligibility_reason = ?, eligibility_policy = ?, summary = ?
       WHERE id = ? AND eligibility = 'pending' AND (task_result IS NULL OR task_result <> -1)`,
   );
   // THE-746: a HELD row keeps `eligibility = 'pending'` — being held is not a state change, it is
@@ -188,7 +251,7 @@ export async function evaluateEpisodes(
   // which is the same never-ran-vs-ran-and-did-nothing conflation THE-744 fixed one plane over.
   const hold = edb.prepare(
     `UPDATE agent_episodes
-        SET eligibility_reason = ?, eligibility_policy = ?
+        SET eligibility_reason = ?, eligibility_policy = ?, summary = ?
       WHERE id = ? AND eligibility = 'pending'`,
   );
   // `denied` is retained and stays 0 here. Nothing in this pass denies any more: the only source of
@@ -197,11 +260,11 @@ export async function evaluateEpisodes(
   // read it, and because a future deterministic deny rule belongs in this counter rather than a new
   // one.
   for (const r of candidates) {
-    promote.run("promoted_stable", ELIGIBILITY_POLICY_VERSION, r.id);
+    promote.run("promoted_stable", ELIGIBILITY_POLICY_VERSION, summaryFor(r), r.id);
     stats.promoted++;
   }
   for (const h of holds) {
-    hold.run(h.reason, ELIGIBILITY_POLICY_VERSION, h.row.id);
+    hold.run(h.reason, ELIGIBILITY_POLICY_VERSION, summaryFor(h.row), h.row.id);
   }
   return stats;
 }
