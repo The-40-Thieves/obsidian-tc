@@ -1,8 +1,12 @@
 -- 20260819_002_cluster_summaries.sql
 -- THE-628 (second PR): the cluster-level (tier-2) summary layer for global/thematic retrieval —
 -- RAPTOR-style, over the note-level (tier-1, 20260819_001) summary vectors. Ships DARK — behind
--- retrieval.summaries.enabled (default false), same flag as tier-1 — as the mechanism only. See
--- docs/plans (THE-628 research brief + cluster plan) for the full design.
+-- retrieval.summaries.clusters.enabled (default false) — as the mechanism only. This is a
+-- SEPARATE, independent flag from tier-1's retrieval.summaries.enabled, deliberately: a cluster
+-- summary spans MULTIPLE notes with potentially different ACL (see the mixed-ACL security design
+-- below), a strictly broader leak surface than a single-note summary, so an operator can enable
+-- tier-1 without automatically inheriting tier-2's exposure. See docs/plans (THE-628 research
+-- brief + cluster plan) for the full design.
 --
 -- `cluster_key` is a hash of the SORTED content_hashes of every member note's note_summaries row
 -- (search/cluster-summaries.ts's clusterKeyOf), NOT an arbitrary cluster index. That makes it
@@ -13,8 +17,8 @@
 -- exact same member set (same content_hashes) reproduces the exact same key, so the resume/skip
 -- check in the builder (existingClusterKeys) is a single set-membership test, mirroring tier-1's
 -- content_hash resume discipline. Superseded cluster_key rows are NOT garbage-collected by this
--- first PR (the research brief's "cadence recompute, allowed staleness" trade-off, §4) — a
--- follow-up.
+-- PR (the research brief's "cadence recompute, allowed staleness" trade-off, §4) — a tracked
+-- follow-up, filed separately.
 --
 -- member_count is DERIVED (COUNT of this cluster's rows in cluster_summary_members) but stored
 -- redundantly for cheap reporting/telemetry without a join; the members table is the SOURCE OF

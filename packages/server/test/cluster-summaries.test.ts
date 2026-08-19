@@ -550,3 +550,59 @@ describe("graphSearch — the DARK guarantee (test a, at the top-level entry poi
     expect(seenSql.some((sql) => sql.toLowerCase().includes("cluster_summ"))).toBe(true);
   });
 });
+
+describe("graphSearch — E2E SECURITY: mixed-ACL exclusion through the REAL wiring (security-review hardening)", () => {
+  // The store-level SECURITY tests above (searchClusterSummaries directly) prove the ACL filter
+  // works in isolation, but nothing in the permanent suite previously proved the exclusion
+  // survives the ACTUAL graphSearch -> assembleCandidates -> searchClusterSummaries wiring with a
+  // genuinely denied caller — a future refactor of that wiring could reintroduce the leak while
+  // the store-level test kept passing. This test goes through graphSearch() itself, end to end.
+  it("a caller denied ANY member note of a cluster never receives that cluster's summary; a caller who can read EVERY member DOES", async () => {
+    const db = makeDb();
+    // Cluster C = {A.md (universally readable), B.md (denied to caller X)}. The stored summary
+    // text is DERIVED from both notes, so surfacing it to X at all — even byte-identical — leaks
+    // B.md's contribution.
+    const clusterKey = "k-e2e-mixed";
+    upsertClusterSummary(db, "v1", {
+      clusterKey,
+      summary: "a summary spanning A.md and B.md",
+      model: "m",
+      memberPaths: ["A.md", "B.md"],
+      embedding: [1, 0, 0, 0],
+      embeddingModel: "e",
+      createdAt: 1,
+    });
+    const expectedChunkId = clusterSummaryId("v1", clusterKey);
+
+    const { graphSearch } = await import("../src/search/graph_search");
+
+    // Caller X: can read A.md, CANNOT read B.md — denied one of the cluster's two members.
+    const isReadableX = (p: string) => p !== "B.md";
+    const resultsX = await graphSearch(db, {
+      query: "q",
+      queryVec: [1, 0, 0, 0],
+      vaultId: "v1",
+      isReadable: isReadableX,
+      summaries: { clusters: { enabled: true } },
+    });
+    // Scan the FULL result set for the cluster's summary/key — not merely `source ===
+    // "cluster_summary"` — so a bug that relabels the source, or lets the content leak in via a
+    // different candidate stream, is still caught.
+    expect(resultsX.some((r) => r.chunk_id === expectedChunkId)).toBe(false);
+    expect(resultsX.some((r) => r.content?.includes("a summary spanning A.md and B.md"))).toBe(
+      false,
+    );
+
+    // Control: caller Y can read BOTH A.md and B.md — the whole member set — and DOES receive the
+    // cluster summary. Proves X's exclusion above is the ACL filter working, not e.g. a broken
+    // query that returns nothing to anyone.
+    const resultsY = await graphSearch(db, {
+      query: "q",
+      queryVec: [1, 0, 0, 0],
+      vaultId: "v1",
+      isReadable: () => true,
+      summaries: { clusters: { enabled: true } },
+    });
+    expect(resultsY.some((r) => r.chunk_id === expectedChunkId)).toBe(true);
+  });
+});
