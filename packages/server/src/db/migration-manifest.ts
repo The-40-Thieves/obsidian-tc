@@ -62,6 +62,10 @@ export const CACHE_MIGRATION_FILES = [
   // EXPERIENTIAL's observed/derived retrieval telemetry). Dark behind the SAME
   // retrieval.summaries.enabled flag as tier-1.
   "20260819_002_cluster_summaries.sql",
+  // THE-855: capture_queue.poison_risk/poison_signals/trust — assessPoison wired into
+  // enqueueCapture (THE-238's scanner, previously only reachable from write_note/append_note per
+  // THE-639). capture_queue is created in 20260519_001 above, so this stays in the CACHE chain.
+  "20260819_003_capture_queue_poison_scan.sql",
 ] as const;
 
 /**

@@ -1,0 +1,21 @@
+-- 20260819_003_capture_queue_poison_scan.sql
+-- THE-855: capture_queue enqueues were not poison-scanned. `enqueueCapture` is the STABLE write
+-- contract the ambient capture worker (THE-175) targets, and everything landing through it is
+-- untrusted captured content (screen text / audio transcripts) — exactly the shape THE-238's
+-- assessPoison already exists to catch, but nothing on this path called it.
+--
+-- Two columns, both NULLABLE: a row written before this migration has no recoverable assessment
+-- (NULL means "never scanned", not "scanned clean" — 0/‘none’ would assert a result that was never
+-- computed, same reasoning as 20260806_006's eligibility_reason).
+--
+--   poison_risk    'none' | 'suspect' | 'high' — assessPoison's verdict at enqueue time.
+--   poison_signals JSON array of the signal families that fired (e.g. '["override"]'); '[]' when
+--                  risk is 'none'. Mirrors write_note/append_note's poison_assessment.signals
+--                  (THE-639) — same shape, same reason (auditable, compact).
+--
+-- A numeric `trust` column (episodeTrust(source, risk)) was in the first cut of this migration and
+-- was DROPPED on cross-vendor review: `source` is a caller-asserted, spoofable field, so a trust
+-- score keyed on it would not be authoritative. Only the CONTENT-derived (unspoofable) poison
+-- verdict is persisted; that is what a reviewer keys on before commit_capture.
+ALTER TABLE capture_queue ADD COLUMN poison_risk TEXT;
+ALTER TABLE capture_queue ADD COLUMN poison_signals TEXT;
