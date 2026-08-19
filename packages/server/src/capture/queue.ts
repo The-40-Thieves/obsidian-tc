@@ -6,6 +6,7 @@
 // targets; its shape (and the committed_at/committed_path lifecycle) must stay stable.
 import { randomBytes } from "node:crypto";
 import type { Database } from "../db/types";
+import { assessPoison, episodeTrust, type PoisonRisk } from "../experiential/poison";
 
 export interface CaptureRow {
   id: string;
@@ -18,10 +19,16 @@ export interface CaptureRow {
   captured_at: number;
   committed_at: number | null;
   committed_path: string | null;
+  // THE-855: written once at enqueue, never recomputed on read. NULL on rows enqueued before
+  // this column existed — "never scanned", not "scanned clean" (same convention as
+  // agent_episodes.eligibility_reason, 20260806_006).
+  poison_risk: PoisonRisk | null;
+  poison_signals: string | null; // JSON array, e.g. '["override"]'; '[]' when risk is 'none'
+  trust: number | null;
 }
 
 const CAPTURE_COLS =
-  "id, vault_id, title, content, tags, source, target_path_hint, captured_at, committed_at, committed_path";
+  "id, vault_id, title, content, tags, source, target_path_hint, captured_at, committed_at, committed_path, poison_risk, poison_signals, trust";
 
 /** Stable capture id, e.g. "cap_9f2c…". 12 random bytes = 24 hex chars. */
 export function genCaptureId(): string {
@@ -38,14 +45,28 @@ export interface EnqueueCaptureInput {
   now: number;
 }
 
-/** Stage content for later commit. Returns the created row. (THE-175 contract.) */
+/** Stage content for later commit. Returns the created row. (THE-175 contract.)
+ *
+ * THE-855: `enqueueCapture` is the write contract the ambient capture worker (THE-175) targets,
+ * so every row lands here as untrusted captured content (screen text / audio transcripts) — the
+ * same shape THE-238's assessPoison already exists to catch. Scanned unconditionally, not gated
+ * on `source === "ambient"`: capture_queue is a staging area for arbitrary low-trust input
+ * regardless of which caller enqueued it, and nothing here writes to the vault (commit_capture
+ * is the gate a human pulls). `trust` reuses THE-238's own channel-trust table
+ * (`episodeTrust`) keyed on `source`, so the channel-trust contract — risk only ever LOWERS
+ * trust, never raises it above the channel's own base — holds by construction: a clean scan
+ * (risk 'none') multiplies by 1 and leaves trust unchanged, and neither value is ever
+ * recomputed after this insert.
+ */
 export function enqueueCapture(db: Database, input: EnqueueCaptureInput): CaptureRow {
   const id = genCaptureId();
   const tags = input.tags && input.tags.length > 0 ? input.tags.join(",") : null;
+  const assessment = assessPoison(input.content);
+  const trust = episodeTrust(input.source ?? "", assessment.risk);
   db.prepare(
     `INSERT INTO capture_queue
-       (id, vault_id, title, content, tags, source, target_path_hint, captured_at, committed_at, committed_path)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+       (id, vault_id, title, content, tags, source, target_path_hint, captured_at, committed_at, committed_path, poison_risk, poison_signals, trust)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
   ).run(
     id,
     input.vaultId,
@@ -55,6 +76,9 @@ export function enqueueCapture(db: Database, input: EnqueueCaptureInput): Captur
     input.source ?? null,
     input.targetPathHint ?? null,
     input.now,
+    assessment.risk,
+    JSON.stringify(assessment.signals),
+    trust,
   );
   return getCapture(db, id) as CaptureRow;
 }

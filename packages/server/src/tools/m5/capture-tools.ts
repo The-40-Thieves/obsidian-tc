@@ -35,6 +35,14 @@ function splitTags(tags: string | null): string[] {
     : [];
 }
 
+// THE-855: poison_signals is stored as a JSON array (queue.ts's enqueueCapture); a row written
+// before poison scanning existed has poison_risk NULL and this is never called for it.
+function parseSignals(signals: string | null): string[] {
+  if (!signals) return [];
+  const parsed: unknown = JSON.parse(signals);
+  return Array.isArray(parsed) ? (parsed as string[]) : [];
+}
+
 // THE-417: written from each handler's return statement, not from CaptureRow — enqueue_capture and
 // commit_capture project only a few of the row's fields, and list_capture_queue derives
 // content_preview/tags rather than exposing the raw row.
@@ -43,6 +51,15 @@ const EnqueueCaptureOutput = z.object({
   captured_at: z.number(),
   vault: z.string(),
 });
+
+// THE-855: assessPoison's verdict, stamped at enqueue time (queue.ts's enqueueCapture) on every
+// row regardless of source — not gated on provenance the way m1 notes' identically-shaped
+// PoisonAssessmentOut is. Nullable for the same reason as that one: a row enqueued before this
+// column existed has no recoverable assessment, and null means "never scanned", not "scanned
+// clean".
+const PoisonAssessmentOut = z
+  .object({ risk: z.enum(["none", "suspect", "high"]), signals: z.array(z.string()) })
+  .nullable();
 
 const CaptureQueueItem = z.object({
   capture_id: z.string(),
@@ -54,6 +71,11 @@ const CaptureQueueItem = z.object({
   target_path_hint: z.string().nullable(),
   committed_at: z.number().nullable(),
   committed_path: z.string().nullable(),
+  // THE-855: surfaced so a reviewer sees the risk before calling commit_capture. `trust` reuses
+  // THE-238's channel-trust table (episodeTrust) keyed on `source` — risk only ever lowers it
+  // below the channel's own base, never above (see queue.ts's enqueueCapture comment).
+  poison_assessment: PoisonAssessmentOut,
+  trust: z.number().nullable(),
 });
 
 const ListCaptureQueueOutput = z.object({
@@ -138,7 +160,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
       name: "list_capture_queue",
       domain: "knowledge",
       description:
-        "List captures in the queue (pending by default; committed:true lists committed), newest first.",
+        "List captures in the queue (pending by default; committed:true lists committed), newest first. Each item carries the poison-scan verdict assessed at enqueue time (THE-855) — review poison_assessment before calling commit_capture.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -173,6 +195,11 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
             target_path_hint: r.target_path_hint,
             committed_at: r.committed_at,
             committed_path: r.committed_path,
+            poison_assessment:
+              r.poison_risk === null
+                ? null
+                : { risk: r.poison_risk, signals: parseSignals(r.poison_signals) },
+            trust: r.trust,
           })),
           next_cursor: next,
           total_returned: page.length,
