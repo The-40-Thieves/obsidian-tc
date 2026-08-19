@@ -67,6 +67,16 @@ const UNREACHABLE_ALLOWLIST = new Map([
   // held an entry here until they existed. THE-852 wired it into buildGraphSearchOptions
   // (retrieval-runtime.ts's resolveAclWalkFilter), so it is reachable now — this comment is the
   // historical note the gate's own header asks for; the entry itself is gone.
+  //
+  // THE-635: point_in_time.ts is the NARROW v1 primitive — a deterministic filter + changed-since-D
+  // flag over `chunks.created_at`/`updated_at`, exactly the ticket's "Sketch", with unit tests
+  // proving the filter/flag contract directly (test/point_in_time.test.ts). Deliberately NOT wired
+  // into any retrieval tool yet: exposing it through an existing tool's input schema moves the
+  // tool-cascade checklist (m7 parity snapshot / facade parity, see CLAUDE.md "Adding a tool moves
+  // eight things") and is a separate, deliberate decision this ticket's scope does not make for it.
+  // Same acl_path_set.ts precedent — land the tested primitive dark, remove this entry once a
+  // consumer wires it in.
+  ["packages/server/src/search/point_in_time.ts", "THE-635"],
 ]);
 
 function run(cmd, args) {
