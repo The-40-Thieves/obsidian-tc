@@ -938,6 +938,29 @@
               "exclusiveMinimum": 0
             }
           }
+        },
+        "summaries": {
+          "description": "THE-628 note-level summary tier (first PR: mechanism only, dark by default). See the block comment for the eval gate this is built ahead of.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Generate + retrieve note-level summaries (THE-628). Off ships the mechanism dark: zero gateway calls at index time, no summary candidates at retrieval time. Gated on a pre-registered global-query eval, not built here.",
+              "type": "boolean"
+            },
+            "model": {
+              "description": "Gateway model alias override for the extract-role summarization call. Omitted -> the gateway's configured extract-role model (see gateway.models.extract).",
+              "type": "string"
+            },
+            "maxConcurrency": {
+              "default": 12,
+              "description": "In-flight extract() calls during a summarization pass, so a large first index does not fan out one request per note unbounded. 8-16 is the recommended range (research brief).",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
         }
       }
     },

@@ -335,6 +335,10 @@ export function buildGraphSearchOptions(
     ...(deps.retrieval?.gatedRerank
       ? { gatedRerank: gatedRerankOptionsFromConfig(deps.retrieval.gatedRerankHardness) }
       : {}),
+    // THE-628 (first PR): the note-summary candidate stream. Threaded only when enabled, matching
+    // gatedRerank/graphStream above — an unset/false config never sets opts.summaries at all, so
+    // graphSearch's `opts.summaries?.enabled ?? false` reads false exactly as it does today.
+    ...(deps.retrieval?.summaries?.enabled ? { summaries: { enabled: true } } : {}),
     ...(deps.ranking?.metadataPrior?.enabled ? { metadataPrior: deps.ranking.metadataPrior } : {}),
     ...(site.querySparse ? { querySparse: site.querySparse } : {}),
     ...(site.queryColbert ? { queryColbert: site.queryColbert } : {}),

@@ -102,6 +102,10 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
       "enabled": false,
       "maxEntries": 64,
       "ttlSeconds": 60
+    },
+    "summaries": {
+      "enabled": false,
+      "maxConcurrency": 12
     }
   },
   "ranking": {

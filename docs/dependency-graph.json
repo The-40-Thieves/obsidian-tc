@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 421,
-    "dependencies": 1877,
+    "modules": 423,
+    "dependencies": 1892,
     "subsystemPairs": 119,
-    "crossSubsystemImports": 840
+    "crossSubsystemImports": 850
   },
   "subsystems": {
     "auth": 4,
@@ -34,7 +34,7 @@
     "runtime": 17,
     "scheduler": 4,
     "schemas": 1,
-    "search": 56,
+    "search": 58,
     "tools": 88,
     "transports": 3,
     "util": 4,
@@ -60,7 +60,7 @@
     {
       "from": "search",
       "to": "db",
-      "weight": 43
+      "weight": 47
     },
     {
       "from": "cli",
@@ -90,7 +90,7 @@
     {
       "from": "search",
       "to": "vault",
-      "weight": 14
+      "weight": 15
     },
     {
       "from": "tools",
@@ -153,6 +153,11 @@
       "weight": 8
     },
     {
+      "from": "cli",
+      "to": "search",
+      "weight": 7
+    },
+    {
       "from": "providers",
       "to": "embeddings",
       "weight": 7
@@ -173,13 +178,13 @@
       "weight": 7
     },
     {
-      "from": "cli",
-      "to": "search",
+      "from": "runtime",
+      "to": "util",
       "weight": 6
     },
     {
-      "from": "runtime",
-      "to": "util",
+      "from": "search",
+      "to": "embeddings",
       "weight": 6
     },
     {
@@ -218,11 +223,6 @@
       "weight": 5
     },
     {
-      "from": "search",
-      "to": "embeddings",
-      "weight": 5
-    },
-    {
       "from": "transports",
       "to": "mcp",
       "weight": 5
@@ -255,6 +255,11 @@
     {
       "from": "cli",
       "to": "config",
+      "weight": 3
+    },
+    {
+      "from": "cli",
+      "to": "gateway",
       "weight": 3
     },
     {
@@ -298,6 +303,16 @@
       "weight": 3
     },
     {
+      "from": "search",
+      "to": "gateway",
+      "weight": 3
+    },
+    {
+      "from": "search",
+      "to": "util",
+      "weight": 3
+    },
+    {
       "from": "tools",
       "to": "embeddings",
       "weight": 3
@@ -311,11 +326,6 @@
       "from": "workspace",
       "to": "db",
       "weight": 3
-    },
-    {
-      "from": "cli",
-      "to": "gateway",
-      "weight": 2
     },
     {
       "from": "cli",
@@ -389,17 +399,7 @@
     },
     {
       "from": "search",
-      "to": "gateway",
-      "weight": 2
-    },
-    {
-      "from": "search",
       "to": "experiential",
-      "weight": 2
-    },
-    {
-      "from": "search",
-      "to": "util",
       "weight": 2
     },
     {

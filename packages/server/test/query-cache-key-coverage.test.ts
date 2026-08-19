@@ -100,6 +100,7 @@ const BASE: Omit<GraphSearchOptions, "queryVec"> = {
   convex: { alpha: 0.7 },
   temporal: { enabled: true, count: 30, nowMs: 1_000_000 },
   bubbleSafe: { enabled: true, k: 0.2 },
+  summaries: { enabled: true },
 };
 
 /** One mutation per keyed field. Each must change the cache key. */
@@ -141,6 +142,9 @@ const MUTATIONS: Array<[string, Partial<Omit<GraphSearchOptions, "queryVec">>]> 
   ["convex", { convex: { alpha: 0.6 } }],
   ["temporal", { temporal: { enabled: true, count: 31 } }],
   ["bubbleSafe", { bubbleSafe: { enabled: true, k: 0.3 } }],
+  // THE-628 (first PR): enabling the summary stream changes which candidates enter the pool, so
+  // it must be keyed — two calls differing only here are different retrievals.
+  ["summaries", { summaries: { enabled: false } }],
 ];
 
 describe("THE-497 graph-search cache key covers every option", () => {

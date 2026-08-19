@@ -18,7 +18,8 @@ export interface GraphSearchResult {
   chunk_id: string;
   path: string;
   content?: string;
-  source: "seed" | "expansion" | "lexical" | "sparse" | "temporal";
+  // THE-628 (first PR): "summary" mirrors Candidate["source"] below — see that field's comment.
+  source: "seed" | "expansion" | "lexical" | "sparse" | "temporal" | "summary";
   hop: number;
   via_edge: { type: string; source_path: string; provenance: string | null } | null;
   root_seed: string | null;
@@ -128,6 +129,13 @@ export interface GraphSearchOptions {
    *  ColBERT matrix is supplied AND chunk_colbert holds data; a no-op otherwise. */
   queryColbert?: ColbertMatrix;
   colbertPool?: number;
+  /** THE-628 (first PR): the note-level summary candidate stream (search/note-summaries.ts),
+   *  fused into RRF as the "summary" source. DARK by default (retrieval.summaries.enabled): when
+   *  unset/false, graph_search.ts never queries note_summaries at all — no candidates, no `source:
+   *  "summary"` results, byte-identical to today. ACL-filtered by the SAME `isReadable` every
+   *  other stream uses (candidate_assembly.ts), so a summary whose source note the caller cannot
+   *  read is excluded exactly as the chunk would be. */
+  summaries?: { enabled?: boolean };
   /** THE-73 Phase 2: cap how many chunks per cluster_id reach the final result (KMeans
    *  diversification). Off when unset/0; chunks with a NULL cluster_id (unclustered) are never
    *  capped. Populate cluster_id offline via `obsidian-tc cluster`. graph_rrf mode only. */
@@ -313,7 +321,12 @@ export interface Candidate {
   chunk_id: string;
   path: string;
   content: string;
-  source: "seed" | "expansion" | "lexical" | "sparse" | "temporal";
+  /** THE-628 (first PR): "summary" is a note-level summary row (search/note-summaries.ts), DARK
+   *  behind retrieval.summaries.enabled — never populated when the flag is off, so this arm never
+   *  appears in a default-config search. Deliberately NOT added to GraphSearchResult's coverage
+   *  taxonomy (graph_search.ts's ALL_SOURCES / CoverageEstimate.armsPossible) in this first PR —
+   *  see graph_search.ts's own comment on why that stays a 5-arm accounting for now. */
+  source: "seed" | "expansion" | "lexical" | "sparse" | "temporal" | "summary";
   hop: number;
   via_edge: { type: string; source_path: string; provenance: string | null } | null;
   root_seed: string | null;

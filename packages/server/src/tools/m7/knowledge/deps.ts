@@ -52,6 +52,14 @@ export interface M7Deps {
       hardZ: number;
       pool: number;
     };
+    /** THE-628 (first PR): the note-level summary candidate stream (retrieval.summaries). Dark by
+     *  default — absent/false means graphSearch never queries note_summaries, byte-identical to
+     *  today. `model`/`maxConcurrency` govern the INDEX-time summarizer (search/indexing/
+     *  summarize-notes.ts, wired at the `obsidian-tc index` CLI command in this first PR), not the
+     *  retrieval side — kept here anyway so the whole retrieval.summaries block threads through
+     *  one M7Deps field instead of splitting index-time and retrieval-time config across two
+     *  places. */
+    summaries?: { enabled?: boolean; model?: string; maxConcurrency?: number };
   };
   /** Config-driven POST-FUSION ranking overlays (config.ranking); absent -> graphSearch defaults
    *  (metadata prior OFF). */

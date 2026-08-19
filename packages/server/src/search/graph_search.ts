@@ -19,6 +19,7 @@ import {
   type GraphSearchOptions,
   type GraphSearchResult,
 } from "./graph_search_stages/types";
+import { hasNoteSummaries, type SummaryHit, searchNoteSummaries } from "./note-summaries";
 import { rerankWithScores } from "./rerank";
 
 // Public API is unchanged by THE-465: same graphSearch(db, opts) signature, same
@@ -30,6 +31,15 @@ export { clampMetadataBoost, seedZMargin };
 
 // THE-631: the full GraphSearchResult.source taxonomy — the denominator for
 // CoverageEstimate.armsPossible and the enumeration estimateCoverage() checks presence against.
+//
+// THE-628 (first PR) deliberately does NOT add "summary" here. GraphSearchResult.source and
+// Candidate.source both accept it (types.ts) so a summary candidate can flow through fusion and
+// projection, but folding it into the coverage taxonomy would move armsPossible from 5 to 6 for
+// EVERY search, on every config — including the default, flag-off one, where a summary candidate
+// can never appear. That is a visible behavior change this first PR's scope (dark mechanism only,
+// no retrieval-quality claim) does not license. Extending the taxonomy — and the matching
+// schemas.ts z.enum for CoverageEstimate.arms — is a follow-up once the summary stream is actually
+// enabled somewhere.
 const ALL_SOURCES = ["seed", "expansion", "lexical", "sparse", "temporal"] as const;
 
 /**
@@ -326,6 +336,19 @@ async function graphSearchCore(
     (r) => r.seeds.length + r.lexHits.length + r.sparseHits.length,
     onStageMetric,
   );
+  // THE-628 (first PR): note-summary stream, DARK behind opts.summaries?.enabled — undefined/false
+  // means note_summaries is never even queried (not merely queried-and-empty), so this is a true
+  // no-op on the default config, not just an empty result. Not wrapped in its own runStage: it is
+  // one query alongside seedGeneration's three, not a separate pipeline phase, and StageName's
+  // closed taxonomy stays untouched by this first PR (see this file's ALL_SOURCES comment below
+  // for the matching decision on the coverage taxonomy).
+  const summaryHits: SummaryHit[] =
+    (opts.summaries?.enabled ?? false) && hasNoteSummaries(db)
+      ? searchNoteSummaries(db, opts.vaultId, opts.queryVec, {
+          k: seedCount,
+          ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
+        })
+      : [];
   // THE-632: traced BEFORE the early return below, so the no-seed case produces a REAL record
   // instead of an empty trace. Cross-vendor review found the previous arrangement misdiagnosed it:
   // graphSearchCore returned early while graphSearch still traced projection, so summarize() saw a
@@ -341,7 +364,16 @@ async function graphSearchCore(
     undefined,
     "the retrieval arms: dense seeds, lexical (BM25) and sparse. Absent here means no arm matched the note directly — graph expansion may still reach it.",
   );
-  if (seeds.length === 0 && lexHits.length === 0 && sparseHits.length === 0)
+  // THE-628: summaryHits joins the early-return guard so a query that matches ONLY a note summary
+  // (the intended "global/thematic" case a chunk-only pipeline has no answer for) is not zeroed
+  // out here. summaryHits.length is always 0 when the flag is off, so this condition is unchanged
+  // on the default config.
+  if (
+    seeds.length === 0 &&
+    lexHits.length === 0 &&
+    sparseHits.length === 0 &&
+    summaryHits.length === 0
+  )
     return { results: [], finalTopK, routedToSeedsOnly: false, expansionTruncated: false };
 
   // Stage: classify (seed-strength router).
@@ -452,6 +484,7 @@ async function graphSearchCore(
         expansionChunks,
         lexHits,
         sparseHits,
+        summaryHits,
         onStage: opts.onStage,
       }),
     (r) => r.candidates.length,

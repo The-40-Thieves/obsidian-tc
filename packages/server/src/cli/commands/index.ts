@@ -3,8 +3,10 @@ import { dirname, join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { openDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
+import { createGatewayClient } from "../../gateway";
 import { MetricsRecorder } from "../../metrics/registry";
 import { wireIndexResources } from "../../runtime/indexing-wiring";
+import { maybeSummarizeVault } from "../../search/indexing/summarize-notes";
 import { normalizeVaultPath } from "../../vault/paths";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
@@ -100,6 +102,44 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
           `${stats.chunks_deleted} deleted, ${stats.secrets_skipped} secret-gated, ` +
           `${stats.notes_embed_failed} embed-failed\n`,
       );
+      // THE-628 (first PR): note-level summary pass, DARK behind retrieval.summaries.enabled
+      // (default false). Runs HERE — after the reindex has committed, not inside indexVault — and
+      // is the ONE call site wired in this PR: `obsidian-tc index` is the designated out-of-band
+      // path for exactly this shape of work (see this file's own header on why the MCP tool path
+      // cannot hold a socket open for it). `maybeSummarizeVault` returns null without constructing
+      // a gateway client when disabled, so the default config path here makes zero gateway calls.
+      // A misconfigured/unreachable gateway must not fail an otherwise-successful reindex — caught
+      // and reported, not thrown.
+      if (cfg.retrieval.summaries.enabled) {
+        try {
+          const summaryStats = await maybeSummarizeVault(
+            db,
+            v.id,
+            {
+              enabled: true,
+              maxConcurrency: cfg.retrieval.summaries.maxConcurrency,
+            },
+            () =>
+              createGatewayClient(
+                cfg.retrieval.summaries.model
+                  ? { models: { extract: cfg.retrieval.summaries.model } }
+                  : {},
+              ),
+            resources.embeddingProvider,
+          );
+          if (summaryStats) {
+            process.stdout.write(
+              `index: summaries[${v.id}]: ${summaryStats.summarized} written, ` +
+                `${summaryStats.skipped} unchanged/skipped, ${summaryStats.failed} failed ` +
+                `(of ${summaryStats.considered} note(s))\n`,
+            );
+          }
+        } catch (e) {
+          process.stderr.write(
+            `index: summaries[${v.id}] skipped — ${e instanceof Error ? e.message : String(e)}\n`,
+          );
+        }
+      }
     }
     // THE-697's guardrail, in the output itself: report the COMPLETION signal, not a row count.
     // The near-miss that produced the ticket was reading `count(*) FROM notes` going 1144 -> 1146

@@ -33,7 +33,10 @@ export interface RankedChunk {
   chunk_id: string;
   path: string;
   // Optional graph-aware metadata; populated by the graph adapter, undefined for baseline.
-  source?: "seed" | "expansion" | "lexical" | "sparse" | "temporal";
+  // THE-628 (first PR): "summary" added to mirror GraphSearchResult.source (search/
+  // graph_search_stages/types.ts) — dark behind retrieval.summaries.enabled, so this arm is never
+  // populated by the eval harness today.
+  source?: "seed" | "expansion" | "lexical" | "sparse" | "temporal" | "summary";
   hop?: number;
   via_edge?: { type: string; source_path: string; provenance: string | null } | null;
   root_seed?: string | null;
