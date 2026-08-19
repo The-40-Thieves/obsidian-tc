@@ -28,6 +28,16 @@ export default defineConfig({
     // This bounds ONE process. It cannot bound two agents each starting a capped run — that needs
     // the lock in scripts/with-host-budget.sh, which is what `bun run test:local` uses.
     maxWorkers: process.env.CI ? undefined : 2,
+    // Windows-only timeout floor. Vitest's 5s default is right for Linux/macOS, where it catches a
+    // genuinely slow test — but windows-latest GitHub runners intermittently stall the whole
+    // process under load, and a stall times out every in-flight test at once regardless of what it
+    // does. Measured 2026-08-19: SIX unrelated tests (citation, m8-experiential-tools,
+    // idempotency-intra-handler, …) all failed "Test timed out in 5000ms" in one run, 0 assertion
+    // failures — a runner-wide stall, not slow code. Per-test bumps (THE-856) are whack-a-mole
+    // against that; a Windows-scoped 15s floor absorbs the stall for the whole suite while keeping
+    // the tight budget that catches real slowness on the other two OSes. Correctness tests, so a
+    // higher ceiling weakens nothing — a hung test still fails, just 10s later.
+    testTimeout: process.platform === "win32" ? 15_000 : 5_000,
     coverage: {
       provider: "v8",
       reporter: ["text-summary"],
