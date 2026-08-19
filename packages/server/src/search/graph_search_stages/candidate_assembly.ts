@@ -6,6 +6,7 @@
 import type { Database } from "../../db/types";
 import { allChunkPaths } from "../acl_path_set";
 import type { LexicalHit } from "../chunk_fts";
+import type { SummaryHit } from "../note-summaries";
 import type { SemanticHit } from "../semantic";
 import type { SparseHit } from "../sparse";
 import { noteDateMs, parseTemporalIntent } from "../temporal";
@@ -19,6 +20,10 @@ export interface CandidateAssemblyInput {
   expansionChunks: Candidate[];
   lexHits: LexicalHit[];
   sparseHits: SparseHit[];
+  /** THE-628 (first PR): note-level summary hits, DARK — empty/undefined unless
+   *  opts.summaries?.enabled (the caller in graph_search.ts never queries note_summaries
+   *  otherwise, so this is genuinely absent, not merely empty, on the default config path). */
+  summaryHits?: SummaryHit[];
   /** THE-459 count-only callback — fired at exactly the same three points ("seed", "expand",
    *  "lexical") as before the THE-465 extraction, with the same cumulative candidate counts. */
   onStage: ((stage: string, count: number) => void) | undefined;
@@ -35,7 +40,8 @@ export interface CandidateAssemblyResult {
 }
 
 export function assembleCandidates(input: CandidateAssemblyInput): CandidateAssemblyResult {
-  const { db, opts, seedCount, seeds, expansionChunks, lexHits, sparseHits, onStage } = input;
+  const { db, opts, seedCount, seeds, expansionChunks, lexHits, sparseHits, summaryHits, onStage } =
+    input;
   const isReadable = opts.isReadable;
 
   // 4. Candidate set: seeds (hop 0) + expansion, deduped by chunk_id, seeds win.
@@ -114,7 +120,35 @@ export function assembleCandidates(input: CandidateAssemblyInput): CandidateAsse
     }
     sparseRank += 1;
   }
-  // 4d. Temporal stream (THE-221): conditional on explicit temporal intent in the query; empty
+  // 4d. Note-summary stream (THE-628, first PR): DARK — `summaryHits` is only ever non-empty when
+  // the caller (graph_search.ts) queried note_summaries under opts.summaries?.enabled, so this
+  // loop is a true no-op (0 iterations) on the default config, not merely an empty result.
+  // ACL-filtered by the SAME isReadable every other stream above uses: a summary whose source note
+  // the caller cannot read is dropped here, before it ever becomes a candidate — the identical
+  // discipline lexical/sparse apply to a chunk. Summary ids are synthetic (search/note-summaries.ts
+  // noteSummaryId) and structurally cannot collide with a real chunk_id, so `seen` dedup against
+  // the chunk streams above is safe by construction, not by luck.
+  let summaryRank = 0;
+  for (const h of summaryHits ?? []) {
+    if (isReadable && !isReadable(h.path)) {
+      continue;
+    }
+    if (!seen.has(h.chunk_id)) {
+      seen.add(h.chunk_id);
+      candidates.push({
+        chunk_id: h.chunk_id,
+        path: h.path,
+        content: h.content,
+        source: "summary",
+        hop: 0,
+        via_edge: null,
+        root_seed: null,
+        streamRank: summaryRank,
+      });
+    }
+    summaryRank += 1;
+  }
+  // 4e. Temporal stream (THE-221): conditional on explicit temporal intent in the query; empty
   //     otherwise, so non-temporal queries fuse exactly as before. Notes are matched by filename
   //     date inside the parsed range and ranked by proximity to the range midpoint; a chunk also
   //     found by another stream gets the additive RRF bonus below, like lexical/sparse.

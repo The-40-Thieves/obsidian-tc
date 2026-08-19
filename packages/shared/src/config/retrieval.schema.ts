@@ -298,6 +298,46 @@ export const RetrievalConfigSchema = z.object({
     .describe(
       "THE-497 in-process query-product cache. Off by default; a hit requires the same caller, query, vault generation and retrieval configuration.",
     ),
+  /** THE-628 (first PR): note-level (leaf) summary tier for global/thematic queries a chunk-only
+   *  index has no answer for ("what are the main themes in my vault"). A summary is generated per
+   *  note at index time (gateway `extract` role), embedded, and stored in `note_summaries` keyed on
+   *  the SAME content_hash that gates re-embedding — an unchanged note is never re-summarized.
+   *  Surfaced as a `source: "summary"` candidate stream in assembleCandidates, ACL-filtered exactly
+   *  like a chunk (a summary whose source note the caller cannot read is excluded).
+   *
+   *  DARK by default (`enabled: false`): this ships the MECHANISM only. The ticket's mandatory
+   *  pre-registered global-query eval (a new golden slice + comprehensiveness/diversity win-rate —
+   *  the canonical n=250 golden set has zero global queries and cannot detect this feature's
+   *  effect) is a separate, later deliverable that gates flipping this to true. Flag OFF means
+   *  index-time summarization makes ZERO gateway calls and the candidate stream is never populated
+   *  — byte-identical to today on both the index and retrieval paths. */
+  summaries: z
+    .object({
+      enabled: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Generate + retrieve note-level summaries (THE-628). Off ships the mechanism dark: zero gateway calls at index time, no summary candidates at retrieval time. Gated on a pre-registered global-query eval, not built here.",
+        ),
+      model: z
+        .string()
+        .optional()
+        .describe(
+          "Gateway model alias override for the extract-role summarization call. Omitted -> the gateway's configured extract-role model (see gateway.models.extract).",
+        ),
+      maxConcurrency: z
+        .number()
+        .int()
+        .positive()
+        .default(12)
+        .describe(
+          "In-flight extract() calls during a summarization pass, so a large first index does not fan out one request per note unbounded. 8-16 is the recommended range (research brief).",
+        ),
+    })
+    .prefault({})
+    .describe(
+      "THE-628 note-level summary tier (first PR: mechanism only, dark by default). See the block comment for the eval gate this is built ahead of.",
+    ),
 });
 
 /** Metadata-prior (authority-boost) rule: add `boost` to the fused score of a result whose note

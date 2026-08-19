@@ -155,8 +155,12 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // maxPerSession/dismissalPenalty) — the config surface PR #779 deliberately deferred until a
 // reader existed (check-config-threading refused it as 3 declared-but-unread keys). This PR is
 // that reader (runtime/advisory-sweep.ts), so the block lands now. No existing key moved.
+// THE-628 (first PR): rebaselined deliberately. Added `retrieval.summaries` (enabled/model/
+// maxConcurrency) — the note-level summary tier, dark behind `enabled: false`. Threaded through
+// search/indexing/summarize-notes.ts (index-time) and graph_search.ts/candidate_assembly.ts
+// (retrieval-time); see those files' THE-628 comments. No existing key moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "bf260507d07ea08c9e83230814a4ad7ca9e9a479e03328943ec703c1b2af74ec";
+  "902e0821fdaa3c27f660f7d175d9731b2b33c356db3c5aba3ea7851a9799ccbb";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

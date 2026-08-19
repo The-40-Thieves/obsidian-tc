@@ -94,6 +94,12 @@ export function fuseScores(input: FusionInput): FusionResult {
     // THE-221: the temporal stream sits outside the lexical-vs-semantic axis the adaptive tilt
     // reweights — date evidence is neither, so it fuses at neutral weight.
     temporal: 1,
+    // THE-628 (first PR): the note-summary stream is its own axis (corpus-level abstraction, not
+    // a chunk-grain semantic/lexical match) — neutral weight, same reasoning as temporal above,
+    // rather than borrowing denseW and letting the adaptive tilt reweight it as more seed-like
+    // evidence than it is. Only ever read for a candidate whose source is "summary", which cannot
+    // exist unless retrieval.summaries.enabled — dark by construction, not by this weight.
+    summary: 1,
   };
   // RRF fusion (THE-73): each candidate's base contribution is w/(k + its own stream rank), PLUS an
   // additive lexical contribution when it also appears in the BM25 stream — a chunk matched by two
@@ -183,6 +189,7 @@ export function fuseScores(input: FusionInput): FusionResult {
     sparse: 2,
     expansion: 3,
     temporal: 4,
+    summary: 5, // THE-628 (first PR): lowest tie-break priority among the (dark) sources
   };
   const fused = [...candidates].sort((a, b) => {
     const d = scoreOfWithPrior(b) - scoreOfWithPrior(a);

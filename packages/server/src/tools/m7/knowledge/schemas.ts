@@ -35,7 +35,9 @@ export const GraphSearchResultSchema = z.object({
   chunk_id: z.string(),
   path: z.string(),
   content: z.string().optional(),
-  source: z.enum(["seed", "expansion", "lexical", "sparse", "temporal"]),
+  // THE-628 (first PR): "summary" added — see graph_search.ts's ALL_SOURCES comment for why
+  // CoverageEstimateSchema.arms below stays the 5-value taxonomy while this one widens.
+  source: z.enum(["seed", "expansion", "lexical", "sparse", "temporal", "summary"]),
   hop: z.number(),
   via_edge: z
     .object({ type: z.string(), source_path: z.string(), provenance: z.string().nullable() })

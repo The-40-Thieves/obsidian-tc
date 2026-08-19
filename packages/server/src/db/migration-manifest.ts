@@ -50,6 +50,12 @@ export const CACHE_MIGRATION_FILES = [
   // it — see the migration header and context-watermark.ts for the full reasoning. Not
   // `workspace_sessions`: THE-714 found it stays empty in production.
   "20260818_001_vault_context_watermark.sql",
+  // THE-628 (first PR): note_summaries — the note-level (leaf) summary tier, dark behind
+  // retrieval.summaries.enabled. Belongs in the CACHE chain (not EXPERIENTIAL) for locality with
+  // chunk_embeddings/candidate assembly: a summary is AUTHORED index state derived from the
+  // vault's own content (like chunks/chunk_embeddings/notes), not observed/derived retrieval
+  // telemetry the EXPERIENTIAL admission test (THE-713, see this file's own comment above) governs.
+  "20260819_001_note_summaries.sql",
 ] as const;
 
 /**

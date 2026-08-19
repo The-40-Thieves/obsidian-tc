@@ -272,6 +272,9 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `retrieval.graphStream.perSeedCap` | `number` | `3` |  | Maximum expansion candidates any single seed may contribute. |
 | `retrieval.rrfK` | `number` | `10` |  | Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits. |
 | `retrieval.sparse` | `boolean` | `false` |  | Fuse a bge-m3 learned-sparse stream into RRF at serve time. A no-op unless the embeddings provider emits the multi-vector heads (bge-m3 or model-tier). |
+| `retrieval.summaries.enabled` | `boolean` | `false` |  | Generate + retrieve note-level summaries (THE-628). Off ships the mechanism dark: zero gateway calls at index time, no summary candidates at retrieval time. Gated on a pre-registered global-query eval, not built here. |
+| `retrieval.summaries.maxConcurrency` | `number` | `12` |  | In-flight extract() calls during a summarization pass, so a large first index does not fan out one request per note unbounded. 8-16 is the recommended range (research brief). |
+| `retrieval.summaries.model` | `string` | — |  | Gateway model alias override for the extract-role summarization call. Omitted -> the gateway's configured extract-role model (see gateway.models.extract). |
 
 ### `scheduler`
 
