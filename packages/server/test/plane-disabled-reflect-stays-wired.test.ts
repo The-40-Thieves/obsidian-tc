@@ -137,5 +137,9 @@ describe("THE-822 follow-up: plane disabled + gateway configured -> reflect stay
     } finally {
       await runtime.close("test cleanup");
     }
-  });
+    // THE-856: this asserts a wiring invariant (reflect stays available when plane.enabled=false),
+    // not a latency budget — the default 5s flakes only on windows-latest, where the ~24s
+    // perf-isolate test immediately preceding it leaves the runner saturated. A generous 15s
+    // absorbs that contention without weakening the assertion.
+  }, 15000);
 });
