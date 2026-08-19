@@ -10,6 +10,16 @@
 // computeNotePlan's chunk-level content_hash gate (note-plan.ts) — so an unchanged note is never
 // re-summarized and a crashed/interrupted pass resumes for free: the next run re-reads `notes`,
 // finds the same unsummarized paths, and picks up where it left off.
+//
+// TWO PHASES, deliberately. Phase 1 generates summaries (gateway.extract, per note, bounded
+// concurrency). Phase 2 embeds them — in BATCHES (embedProvider.embed(texts, ...) over a variable
+// array of accumulated summary texts), never one embed() call per note. This is the same shape
+// the chunk indexer uses (embed-batches.ts's provider.embed(batch)) and it is not merely a style
+// preference: test/query-encoder.test.ts's source-scan gate reserves a single-element LITERAL
+// `.embed([...])` call for query-encoder.ts's single-query dense encode and asserts it appears
+// NOWHERE else in the tree — an earlier version of this file that embedded one summary at a time
+// via `.embed([summaryText], ...)` tripped that gate. Batching is also strictly better here: one
+// round trip for N summaries instead of N.
 import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
@@ -19,6 +29,11 @@ import { existingSummaryHash, upsertNoteSummary } from "../note-summaries";
 
 const DEFAULT_MAX_CONCURRENCY = 12; // research brief: 8-16 in-flight extract() calls
 const DEFAULT_MAX_CONTENT_CHARS = 8000;
+// Phase 2's batch size — short summary texts, so a generous batch still stays well inside any
+// provider's per-request budget. Sequential across batches (not concurrent): each request already
+// carries many summaries, so fanning out several such requests at once multiplies provider load
+// for little wall-clock gain, unlike phase 1's per-note gateway calls.
+const SUMMARY_EMBED_BATCH = 64;
 
 const SUMMARY_SYSTEM_PROMPT =
   "Summarize the following note in 2-4 sentences, capturing its main topic and key points. Return only the summary text — no preamble, no markdown formatting.";
@@ -43,13 +58,24 @@ export interface SummarizeNotesStats {
   failed: number;
 }
 
+/** A phase-1 output: a note that was successfully summarized (gateway call succeeded, non-empty
+ *  text) and is now waiting for phase 2's batch embed. */
+interface PendingSummary {
+  path: string;
+  contentHash: string;
+  summaryText: string;
+  model: string;
+}
+
 /** Summarize every note in `vaultId` whose content_hash has no matching note_summaries row.
  *  Content comes from the ALREADY-INDEXED chunks table (GROUP_CONCAT by path, same shape
  *  densify-runner uses), so this never re-reads vault files and never runs ahead of indexing.
  *
- *  Best-effort per note: a gateway failure or an embed-provider failure on one note is counted and
- *  skipped, never thrown — a slow/unreachable provider degrades the PASS (fewer notes summarized
- *  this run, retried next run via the same content_hash gate), not the caller's whole reindex. */
+ *  Best-effort throughout, never throws: a gateway failure on one note (phase 1) is counted as
+ *  `failed` and that note is retried next pass via the content_hash gate; an embed-provider
+ *  failure on one BATCH (phase 2) leaves that batch's summaries written but unembedded (still
+ *  counted in `summarized` — the text was genuinely produced) rather than losing them. A slow or
+ *  unreachable provider degrades the PASS, not the caller's whole reindex. */
 export async function summarizeNotes(
   db: Database,
   vaultId: string,
@@ -71,9 +97,11 @@ export async function summarizeNotes(
     (n) => existingSummaryHash(db, vaultId, n.path) !== n.contentHash,
   );
   let skipped = notes.length - toSummarize.length;
-  let summarized = 0;
   let failed = 0;
 
+  // Phase 1: generate summaries. Gateway calls stay per-note, under bounded concurrency — this
+  // half is unchanged from the original design; only the embed half (phase 2, below) moved.
+  const pending: PendingSummary[] = [];
   await runWithConcurrency(
     toSummarize,
     Math.max(1, opts.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY),
@@ -105,32 +133,49 @@ export async function summarizeNotes(
           failed += 1;
           return;
         }
-        let embedding: number[] | undefined;
-        let embeddingModel: string | undefined;
-        try {
-          const vectors = await embedProvider.embed([summaryText], { input: "document" });
-          embedding = vectors[0];
-          embeddingModel = embedProvider.id;
-        } catch {
-          // The summary is still written and still gates re-summarization next pass even when
-          // embedding fails — see the migration header. It stays invisible to the retrieval
-          // candidate stream (searchNoteSummaries only reads rows WITH an embedding) until a later
-          // pass fills the vector in.
-        }
-        upsertNoteSummary(db, vaultId, {
+        pending.push({
           path: note.path,
           contentHash: note.contentHash,
-          summary: summaryText,
+          summaryText,
           model: completion.model,
-          ...(embedding ? { embedding, embeddingModel } : {}),
-          createdAt: now(),
         });
-        summarized += 1;
       } catch {
         failed += 1;
       }
     },
   );
+
+  // Phase 2: batch-embed every generated summary, then persist. `texts` below is a variable
+  // (`pending.slice(...).map(...)`), never a literal array — see this file's header comment for
+  // why that distinction is load-bearing. A summary row is written (and counted in `summarized`)
+  // whether or not its batch's embed succeeded: the content_hash gate must advance either way (a
+  // note whose summary text was generated is NOT regenerated next pass just because embedding
+  // failed), and an unembedded row simply stays invisible to searchNoteSummaries (which only
+  // reads rows WITH an embedding) until a later pass fills the vector in — same contract as
+  // before, now applied per BATCH instead of per note.
+  let summarized = 0;
+  for (let i = 0; i < pending.length; i += SUMMARY_EMBED_BATCH) {
+    const batch = pending.slice(i, i + SUMMARY_EMBED_BATCH);
+    const texts = batch.map((p) => p.summaryText);
+    let vectors: number[][] | null = null;
+    try {
+      vectors = await embedProvider.embed(texts, { input: "document" });
+    } catch {
+      vectors = null; // whole-batch failure -> this batch's summaries land without embeddings
+    }
+    batch.forEach((p, j) => {
+      const embedding = vectors?.[j];
+      upsertNoteSummary(db, vaultId, {
+        path: p.path,
+        contentHash: p.contentHash,
+        summary: p.summaryText,
+        model: p.model,
+        ...(embedding ? { embedding, embeddingModel: embedProvider.id } : {}),
+        createdAt: now(),
+      });
+      summarized += 1;
+    });
+  }
 
   return { considered: notes.length, summarized, skipped, failed };
 }
