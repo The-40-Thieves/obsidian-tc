@@ -28,6 +28,7 @@
 // so this stays one bounded-size round trip regardless of corpus size.
 import type { EmbeddingProvider } from "../embeddings/provider";
 import { cosineSimilarity } from "../search/native";
+import { createQueryEncoder } from "../search/query-encoder";
 
 export interface EpisodeSemanticCandidate {
   id: string;
@@ -60,15 +61,16 @@ export async function semanticRankEpisodes(
   let docVecs: number[][];
   try {
     // Two provider round trips total (one query, one batched document call) regardless of pool
-    // size — never one call per candidate.
-    const [queryVecs, docs] = await Promise.all([
-      provider.embed([query], { input: "query" }),
+    // size — never one call per candidate. The query goes through the canonical query-encoder (the
+    // ONE sanctioned single-query dense encode in the tree — query-encoder.test.ts enforces it),
+    // not a raw provider.embed([query]).
+    const [qv, docs] = await Promise.all([
+      createQueryEncoder(provider).dense(query),
       provider.embed(
         embeddable.map((c) => c.summary),
         { input: "document" },
       ),
     ]);
-    const qv = queryVecs[0];
     if (!qv || qv.length === 0) return [];
     queryVec = qv;
     docVecs = docs;
