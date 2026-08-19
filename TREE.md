@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,179 tracked code files · 187,905 lines.
+**Scale:** 1,179 tracked code files · 188,162 lines.
 
-TypeScript 173,936 · JavaScript 9,498 · SQL 1,729 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 174,195 · JavaScript 9,496 · SQL 1,729 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,8 +86,8 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 88 | 17,638 | domains m1–m8 + admin. The MCP tool surface |
-| `search/` | 56 | 10,963 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `tools/` | 88 | 17,713 | domains m1–m8 + admin. The MCP tool surface |
+| `search/` | 56 | 10,994 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 23 | 5,884 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 18 | 4,829 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 17 | 3,875 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
@@ -286,7 +286,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**421 modules · 1874 dependencies · 119 distinct subsystem pairs · 838 cross-subsystem imports.**
+**421 modules · 1877 dependencies · 119 distinct subsystem pairs · 840 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -330,9 +330,9 @@ flowchart LR
   memory[memory<br/>2 files]
   morgiana[morgiana<br/>1 files]
 
-  tools -->|183| vault
+  tools -->|184| vault
   tools -->|76| mcp
-  tools -->|49| search
+  tools -->|50| search
   search -->|43| db
   cli -->|32| db
   runtime -->|27| search
@@ -375,9 +375,9 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 232 | `tools` | 381 |
+| `vault` | 233 | `tools` | 383 |
 | `db` | 157 | `runtime` | 153 |
-| `search` | 103 | `cli` | 78 |
+| `search` | 104 | `cli` | 78 |
 | `mcp` | 99 | `search` | 68 |
 | `experiential` | 44 | `experiential` | 27 |
 <!-- END GENERATED: tree-fan -->

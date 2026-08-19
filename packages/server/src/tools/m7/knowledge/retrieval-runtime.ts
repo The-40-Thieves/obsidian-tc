@@ -11,6 +11,7 @@ import { readLatestCalibration } from "../../../experiential/calibration";
 import type { RetrievalPolicyRecord } from "../../../experiential/log";
 import type { CallerContext } from "../../../mcp/registry";
 import { type ContradictionContext, EVIDENCE_TRUNCATE } from "../../../plane/challenge";
+import { allChunkPaths, ensureAclPathSet } from "../../../search/acl_path_set";
 import type { ColbertMatrix } from "../../../search/colbert";
 import type { EvidenceBudget } from "../../../search/evidence";
 import { readGeneration } from "../../../search/generation";
@@ -25,6 +26,7 @@ import { callerAclFingerprint } from "../../../search/prefetch";
 import type { QueryCacheContext, QueryVectors } from "../../../search/query_cache";
 import type { RerankOutcome } from "../../../search/rerank";
 import type { SparseVec } from "../../../search/sparse";
+import { readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import type { M7Deps } from "./deps";
 
 /**
@@ -220,6 +222,52 @@ export function prewarmBundlePaths(bundle: Record<string, unknown>): string[] {
   return paths;
 }
 
+/**
+ * THE-852: resolve the graph-walk ACL filter for one call — wires THE-695's `ensureAclPathSet`
+ * mechanism (previously dark: zero non-test callers anywhere in the server) into the shared
+ * options builder, so every M7 surface gets it by construction rather than by a knob remembered
+ * at each call site (see buildGraphSearchOptions's own header on why that generator produced
+ * THE-545's partial-reachability defect).
+ *
+ * DEFAULT ON: called unconditionally, no config gate. When a `set_id` resolves, it is always
+ * requested. For an unrestricted caller the join is a structural no-op (their permitted set is
+ * the whole universe), so this changes nothing for them; for a restricted caller it is the fix.
+ *
+ * FAIL-CLOSED, not fail-open: `ensureAclPathSet` returns null both when the caller is genuinely
+ * unrestricted (nothing to filter) and when the substrate cannot serve the request (pre-migration
+ * db, read-only handle, empty readable set) — those two null causes must not be treated alike.
+ * `readEnumerationUnrestricted` disambiguates them:
+ *   - unrestricted + null  -> `{}` (byte-identical to before this ticket — nothing to filter).
+ *   - restricted   + null  -> `{ aclWalkFilter: { enabled: true, blocked: true } }`. There is no
+ *     aclSetId to attach, so `enabled` alone would mean "run the walk unfiltered" and reopen both
+ *     THE-852 defects; `blocked` is the distinct signal graph_expansion.ts's expandGraph reads to
+ *     skip the walk entirely instead (seeds/lexical/sparse arms are unaffected).
+ *   - any caller + resolved set -> `{ aclWalkFilter: { enabled: true }, aclSetId }`, the normal fix.
+ */
+export function resolveAclWalkFilter(
+  db: Database,
+  vaultId: string,
+  acl: CallerContext["acl"],
+  grantedScopes: CallerContext["grantedScopes"],
+  isReadable: ((path: string) => boolean) | undefined,
+): Pick<GraphSearchOptions, "aclWalkFilter" | "aclSetId"> {
+  // Absent isReadable is this codebase's existing "no filter, trust the caller" convention (e.g.
+  // graph_expansion.ts's own `isReadable && !isReadable(...)` guard) — matched here rather than
+  // treated as restricted, since there is genuinely nothing to build a permitted set FROM.
+  if (!isReadable) return {};
+  const aclSetId = ensureAclPathSet(db, {
+    vaultId,
+    aclFingerprint: callerAclFingerprint(acl, grantedScopes),
+    generation: readGeneration(db, vaultId),
+    allPaths: () => allChunkPaths(db, vaultId),
+    isReadable,
+    nowMs: Date.now(),
+  });
+  if (aclSetId != null) return { aclWalkFilter: { enabled: true }, aclSetId };
+  if (readEnumerationUnrestricted(acl)) return {};
+  return { aclWalkFilter: { enabled: true, blocked: true } };
+}
+
 /** THE-545: every CONFIG-DERIVED graphSearch option, assembled in exactly one place.
  *
  *  The four graphSearch call sites in this module each hand-assembled this object, and the copies
@@ -250,6 +298,12 @@ export function buildGraphSearchOptions(
     finalTopK: number;
     reranker: GraphSearchOptions["reranker"];
     isReadable: GraphSearchOptions["isReadable"];
+    /** THE-852: required, not optional — see this function's header and `resolveAclWalkFilter`.
+     *  Every call site already has `ctx.db`; graph-search.ts's federated legs pass their OWN
+     *  per-vault `acl` here too (never `ctx.acl`), the same rule cacheContextFor already follows. */
+    db: Database;
+    acl: CallerContext["acl"];
+    grantedScopes: CallerContext["grantedScopes"];
     /** THE-538: per-query fusion-weight sink for retrieval-policy provenance. */
     onFusionWeights?: GraphSearchOptions["onFusionWeights"];
     /** THE-631: per-query coverage-estimate sink, mirrors onFusionWeights above. */
@@ -286,6 +340,10 @@ export function buildGraphSearchOptions(
     ...(site.queryColbert ? { queryColbert: site.queryColbert } : {}),
     reranker: site.reranker,
     isReadable: site.isReadable,
+    // THE-852: default-on graph-walk ACL filter — see resolveAclWalkFilter's own header for the
+    // fail-closed contract. Unconditional (not gated by deps.retrieval), same as the rest of this
+    // function's "every M7 surface gets it by construction" rule.
+    ...resolveAclWalkFilter(site.db, site.vaultId, site.acl, site.grantedScopes, site.isReadable),
     ...(site.onFusionWeights ? { onFusionWeights: site.onFusionWeights } : {}),
     ...(site.onCoverage ? { onCoverage: site.onCoverage } : {}),
     // THE-733: the vault's persisted score calibration, read ONLY when a caller asked for

@@ -63,12 +63,10 @@ const ROOTS = [
 // zero second implementations. Deleting the exemption along with the class is the point: this list
 // stays empty until a genuinely new case earns its own entry.
 const UNREACHABLE_ALLOWLIST = new Map([
-  // THE-694/695: the permitted-path set substrate, landed AHEAD of its consumers on purpose. The
-  // graph-walk filter it feeds is a recall change (measured 583 -> 57 nodes on a harsh test ACL)
-  // that the three-arm eval decides, so the module ships dark and is reachable only from
-  // acl-path-set.test.ts until the consumers are wired. The staleAllowlist check below is what
-  // forces this entry out again the moment that happens — it cannot rot into decoration.
-  ["packages/server/src/search/acl_path_set.ts", "THE-694/695: dark until the consumers are wired"],
+  // THE-694/695 landed packages/server/src/search/acl_path_set.ts dark, ahead of its consumers, and
+  // held an entry here until they existed. THE-852 wired it into buildGraphSearchOptions
+  // (retrieval-runtime.ts's resolveAclWalkFilter), so it is reachable now — this comment is the
+  // historical note the gate's own header asks for; the entry itself is gone.
 ]);
 
 function run(cmd, args) {

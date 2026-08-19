@@ -59,10 +59,23 @@ export function expandGraph(input: GraphExpansionInput): GraphExpansionResult {
   const expandFrom = gsEnabled
     ? seedPaths.slice(0, opts.graphStream?.expansionSeeds ?? 8)
     : seedPaths;
-  // THE-695: dark by default. Both the flag AND a resolved set id are required — a flag with no
-  // substrate must not silently do nothing different, and a set id with the flag off must not
-  // silently change recall.
+  // THE-695: both the flag AND a resolved set id are required — a flag with no substrate must not
+  // silently do nothing different, and a set id with the flag off must not silently change recall.
   const aclSetId = opts.aclWalkFilter?.enabled === true ? opts.aclSetId : undefined;
+  // THE-852 FAIL-CLOSED: `resolveAclWalkFilter` (retrieval-runtime.ts) sets `blocked: true` only
+  // for a RESTRICTED caller whose permitted-path set could not be resolved — there is no aclSetId
+  // to join on, so running the walk here would be unfiltered and reopen both THE-852 defects (the
+  // via_edge.source_path leak and the bridge membership/rank oracle). Skip the walk entirely
+  // instead of serving it unfiltered; seeds/lexical/sparse streams are untouched. Loud rather than
+  // silent, per providers/registry.ts's precedent for a degraded-but-must-not-throw condition.
+  if (opts.aclWalkFilter?.blocked === true) {
+    console.warn(
+      `graph_expansion: THE-852 fail-closed — ACL permitted-path set unresolved for a ` +
+        `restricted caller on vault "${opts.vaultId}"; skipping graph expansion rather than ` +
+        `running the walk unfiltered.`,
+    );
+    return { expansionChunks: [], expSimById: new Map(), truncated: false };
+  }
   const nodes = expandGraphLiteral(db, expandFrom, {
     vaultId: opts.vaultId,
     hopLimit,

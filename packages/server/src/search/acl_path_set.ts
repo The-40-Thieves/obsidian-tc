@@ -22,6 +22,17 @@ import { tableExists } from "../db/introspect";
 import { inWriteTransaction } from "../db/txn";
 import type { Database } from "../db/types";
 
+/** THE-852: the path universe enumerator, factored out of candidate_assembly.ts's temporal stage
+ *  (the only other caller) so `ensureAclPathSet`'s `allPaths` and the temporal stage read the same
+ *  definition of "every path in this vault" rather than two copies that can drift. */
+export function allChunkPaths(db: Database, vaultId: string): string[] {
+  return (
+    db.prepare("SELECT DISTINCT path FROM chunks WHERE vault_id = ?").all(vaultId) as Array<{
+      path: string;
+    }>
+  ).map((r) => r.path);
+}
+
 /** Cap on stored sets. Growth is bounded by distinct ACL fingerprints — not by generations, since a
  *  regenerated set replaces its predecessor in place — so on a single-principal deployment this
  *  never binds. The bound is still real, and eviction is where the rowid-reuse hazard lives. */

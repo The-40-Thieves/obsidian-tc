@@ -154,14 +154,26 @@ export interface GraphSearchOptions {
    *  Composes with graphStream (frontier + per-seed caps still apply) but REPLACES its hard
    *  degree drop. Composes multiplicatively with Ebbinghaus decay. Off by default. */
   smoothExpansion?: { enabled?: boolean; lambda?: number; hubMu?: number; hubGamma?: number };
-  /** THE-695: filter the graph WALK by the caller's permitted-path set, so an unreadable note
-   *  cannot serve as a bridge between two readable ones. OFF by default and shipped dark: pruning
-   *  bridges is a RECALL change (measured 583 -> 57 nodes on a deliberately harsh test ACL), so it
-   *  is decided by the eval, not by assertion. Evaluated jointly with THE-693's hubDegreeCap
-   *  because both land in graph_expansion.ts and `nodeDegrees` is itself computed with NO ACL — so
-   *  switching the hub defence on would prune using degrees counted over nodes the caller may not
-   *  be able to read. */
-  aclWalkFilter?: { enabled?: boolean };
+  /** THE-695/THE-852: filter the graph WALK by the caller's permitted-path set, so an unreadable
+   *  note cannot serve as a bridge between two readable ones. Wired into every M7 surface and
+   *  defaulted ON by `buildGraphSearchOptions` (retrieval-runtime.ts's `resolveAclWalkFilter`) —
+   *  no longer a config-gated knob; pruning bridges IS the fix, not an evaluated tradeoff.
+   *  Evaluated jointly with THE-693's hubDegreeCap because both land in graph_expansion.ts and
+   *  `nodeDegrees` is itself computed with NO ACL — so the hub defence prunes using degrees
+   *  counted over nodes the caller may not be able to read. */
+  aclWalkFilter?: {
+    enabled?: boolean;
+    /** THE-852 fail-closed signal: true when the caller is RESTRICTED (readEnumerationUnrestricted
+     *  is false) and `ensureAclPathSet` could not resolve a permitted-path set (pre-migration db,
+     *  read-only handle, empty readable set). `aclSetId` is absent in this case — there is nothing
+     *  to join on — so `enabled: true` alone would mean "run the walk unfiltered", reopening both
+     *  THE-852 defects. `blocked: true` tells graph_expansion.ts's expandGraph to skip the walk
+     *  entirely instead (seeds/lexical/sparse arms are unaffected), rather than silently serving
+     *  the leaky unfiltered path. Never set for an unrestricted caller: for them a null resolution
+     *  is harmless (there is nothing to filter), so the walk proceeds unfiltered exactly as it did
+     *  before this ticket. */
+    blocked?: boolean;
+  };
   /** THE-695: the resolved `acl_path_members` set_id for THIS caller, from ensureAclPathSet.
    *  Absent means the substrate was unavailable (pre-migration db, read-only handle, empty set) and
    *  the existing hydrated-row filter remains the only ACL applied — i.e. today's behaviour. */
