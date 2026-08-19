@@ -959,6 +959,25 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
+            },
+            "clusters": {
+              "description": "THE-628 cluster-level (tier-2) summary tier (second PR: mechanism only, dark by default). Independent enable flag from the note-level tier above — see this block's comment.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "default": false,
+                  "description": "Generate + retrieve cluster-level (tier-2/RAPTOR) summaries (THE-628, second PR). Off ships the mechanism dark: zero gateway/embed calls at the offline cluster pass, no cluster_summary candidates at retrieval time. Gated on the SAME pre-registered global-query eval as the note-level tier.",
+                  "type": "boolean"
+                },
+                "maxConcurrency": {
+                  "default": 12,
+                  "description": "In-flight extract() calls across clusters during a cluster-summary pass. Same 8-16 recommended range as the note-level tier.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
             }
           }
         }

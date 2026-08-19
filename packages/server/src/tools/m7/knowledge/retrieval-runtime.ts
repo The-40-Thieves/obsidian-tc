@@ -338,7 +338,20 @@ export function buildGraphSearchOptions(
     // THE-628 (first PR): the note-summary candidate stream. Threaded only when enabled, matching
     // gatedRerank/graphStream above — an unset/false config never sets opts.summaries at all, so
     // graphSearch's `opts.summaries?.enabled ?? false` reads false exactly as it does today.
-    ...(deps.retrieval?.summaries?.enabled ? { summaries: { enabled: true } } : {}),
+    // THE-628 (second PR): `clusters.enabled` is a SEPARATE flag (see GraphSearchOptions.summaries'
+    // comment) threaded the same way — either sub-flag alone is enough to set `summaries`, but each
+    // half only appears in the object when its own config flag is true, so a note-only config still
+    // produces exactly `{ enabled: true }` (no stray `clusters` key) as it did before this PR.
+    ...(deps.retrieval?.summaries?.enabled || deps.retrieval?.summaries?.clusters?.enabled
+      ? {
+          summaries: {
+            ...(deps.retrieval?.summaries?.enabled ? { enabled: true } : {}),
+            ...(deps.retrieval?.summaries?.clusters?.enabled
+              ? { clusters: { enabled: true } }
+              : {}),
+          },
+        }
+      : {}),
     ...(deps.ranking?.metadataPrior?.enabled ? { metadataPrior: deps.ranking.metadataPrior } : {}),
     ...(site.querySparse ? { querySparse: site.querySparse } : {}),
     ...(site.queryColbert ? { queryColbert: site.queryColbert } : {}),

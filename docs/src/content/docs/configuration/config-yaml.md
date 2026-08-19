@@ -105,7 +105,11 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     },
     "summaries": {
       "enabled": false,
-      "maxConcurrency": 12
+      "maxConcurrency": 12,
+      "clusters": {
+        "enabled": false,
+        "maxConcurrency": 12
+      }
     }
   },
   "ranking": {

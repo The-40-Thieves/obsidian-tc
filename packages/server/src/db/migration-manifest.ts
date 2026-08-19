@@ -56,6 +56,12 @@ export const CACHE_MIGRATION_FILES = [
   // vault's own content (like chunks/chunk_embeddings/notes), not observed/derived retrieval
   // telemetry the EXPERIENTIAL admission test (THE-713, see this file's own comment above) governs.
   "20260819_001_note_summaries.sql",
+  // THE-628 (second PR): cluster_summaries + cluster_summary_members — the cluster-level (tier-2)
+  // summary layer over tier-1's note_summaries embeddings. Same CACHE-chain locality rationale as
+  // 20260819_001 (derived index state alongside chunk_embeddings/candidate assembly, not
+  // EXPERIENTIAL's observed/derived retrieval telemetry). Dark behind the SAME
+  // retrieval.summaries.enabled flag as tier-1.
+  "20260819_002_cluster_summaries.sql",
 ] as const;
 
 /**
