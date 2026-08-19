@@ -159,8 +159,14 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // maxConcurrency) — the note-level summary tier, dark behind `enabled: false`. Threaded through
 // search/indexing/summarize-notes.ts (index-time) and graph_search.ts/candidate_assembly.ts
 // (retrieval-time); see those files' THE-628 comments. No existing key moved.
+// THE-628 (second PR): rebaselined deliberately again. Added `retrieval.summaries.clusters`
+// (enabled/maxConcurrency) — the cluster-level (tier-2, RAPTOR) summary tier, dark behind its OWN
+// `enabled: false` (a separate flag from the note-level one, both default off). Threaded through
+// search/indexing/summarize-clusters.ts (the offline `obsidian-tc cluster` cadence) and
+// graph_search.ts/candidate_assembly.ts (retrieval-time, `source: "cluster_summary"`); see those
+// files' THE-628 comments. No existing key moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "902e0821fdaa3c27f660f7d175d9731b2b33c356db3c5aba3ea7851a9799ccbb";
+  "040c359f2af12e2557bcab43c11d7e41f1f15450cd1ad44d3b056c177d827b2c";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

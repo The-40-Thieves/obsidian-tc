@@ -6,6 +6,7 @@
 import type { Database } from "../../db/types";
 import { allChunkPaths } from "../acl_path_set";
 import type { LexicalHit } from "../chunk_fts";
+import type { ClusterSummaryHit } from "../cluster-summaries";
 import type { SummaryHit } from "../note-summaries";
 import type { SemanticHit } from "../semantic";
 import type { SparseHit } from "../sparse";
@@ -24,6 +25,12 @@ export interface CandidateAssemblyInput {
    *  opts.summaries?.enabled (the caller in graph_search.ts never queries note_summaries
    *  otherwise, so this is genuinely absent, not merely empty, on the default config path). */
   summaryHits?: SummaryHit[];
+  /** THE-628 (second PR): cluster-level (tier-2) summary hits, DARK — empty/undefined unless
+   *  opts.summaries?.clusters?.enabled (the caller in graph_search.ts never queries
+   *  cluster_summaries otherwise). Already ACL-filtered (searchClusterSummaries checks every
+   *  MEMBER note's path) — see this file's merge block below for why that means no second,
+   *  per-candidate isReadable(h.path) check here, unlike summaryHits above. */
+  clusterSummaryHits?: ClusterSummaryHit[];
   /** THE-459 count-only callback — fired at exactly the same three points ("seed", "expand",
    *  "lexical") as before the THE-465 extraction, with the same cumulative candidate counts. */
   onStage: ((stage: string, count: number) => void) | undefined;
@@ -40,8 +47,18 @@ export interface CandidateAssemblyResult {
 }
 
 export function assembleCandidates(input: CandidateAssemblyInput): CandidateAssemblyResult {
-  const { db, opts, seedCount, seeds, expansionChunks, lexHits, sparseHits, summaryHits, onStage } =
-    input;
+  const {
+    db,
+    opts,
+    seedCount,
+    seeds,
+    expansionChunks,
+    lexHits,
+    sparseHits,
+    summaryHits,
+    clusterSummaryHits,
+    onStage,
+  } = input;
   const isReadable = opts.isReadable;
 
   // 4. Candidate set: seeds (hop 0) + expansion, deduped by chunk_id, seeds win.
@@ -147,6 +164,39 @@ export function assembleCandidates(input: CandidateAssemblyInput): CandidateAsse
       });
     }
     summaryRank += 1;
+  }
+  // 4d-2. Cluster-summary stream (THE-628, second PR): DARK — `clusterSummaryHits` is only ever
+  // non-empty when the caller (graph_search.ts) queried cluster_summaries under
+  // opts.summaries?.clusters?.enabled, so this loop is a true no-op (0 iterations) on the default
+  // config, exactly like 4d above.
+  //
+  // NO per-candidate `isReadable(h.path)` check here — deliberately, unlike every other stream in
+  // this function. `h.path` on a cluster-summary hit is the cluster_key (searchClusterSummaries'
+  // ClusterSummaryHit.path), NOT a real vault path; calling isReadable() on it would either throw
+  // or (more likely, depending on the isReadable implementation) simply return false for every
+  // cluster, which would silently disable this entire candidate stream rather than filter it
+  // correctly. The mixed-ACL security filter for cluster summaries is NOT "can the caller read this
+  // one path" — it is "can the caller read EVERY member note's path", which only
+  // searchClusterSummaries has the member-path list to check (search/cluster-summaries.ts). By the
+  // time a ClusterSummaryHit reaches this function, that check has ALREADY run; see
+  // test/cluster-summaries.test.ts's SECURITY test for the mutation-tested proof that removing
+  // THAT filter (not this one) is what reopens the leak.
+  let clusterSummaryRank = 0;
+  for (const h of clusterSummaryHits ?? []) {
+    if (!seen.has(h.chunk_id)) {
+      seen.add(h.chunk_id);
+      candidates.push({
+        chunk_id: h.chunk_id,
+        path: h.path,
+        content: h.content,
+        source: "cluster_summary",
+        hop: 0,
+        via_edge: null,
+        root_seed: null,
+        streamRank: clusterSummaryRank,
+      });
+    }
+    clusterSummaryRank += 1;
   }
   // 4e. Temporal stream (THE-221): conditional on explicit temporal intent in the query; empty
   //     otherwise, so non-temporal queries fuse exactly as before. Notes are matched by filename

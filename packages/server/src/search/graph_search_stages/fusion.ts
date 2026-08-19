@@ -100,6 +100,11 @@ export function fuseScores(input: FusionInput): FusionResult {
     // evidence than it is. Only ever read for a candidate whose source is "summary", which cannot
     // exist unless retrieval.summaries.enabled — dark by construction, not by this weight.
     summary: 1,
+    // THE-628 (second PR): the cluster-summary stream is an even coarser corpus-level abstraction
+    // than a note summary — same neutral-weight reasoning as summary/temporal above. Only ever
+    // read for a candidate whose source is "cluster_summary", which cannot exist unless
+    // retrieval.summaries.clusters.enabled.
+    cluster_summary: 1,
   };
   // RRF fusion (THE-73): each candidate's base contribution is w/(k + its own stream rank), PLUS an
   // additive lexical contribution when it also appears in the BM25 stream — a chunk matched by two
@@ -190,6 +195,7 @@ export function fuseScores(input: FusionInput): FusionResult {
     expansion: 3,
     temporal: 4,
     summary: 5, // THE-628 (first PR): lowest tie-break priority among the (dark) sources
+    cluster_summary: 6, // THE-628 (second PR): lower still — coarser than a single-note summary
   };
   const fused = [...candidates].sort((a, b) => {
     const d = scoreOfWithPrior(b) - scoreOfWithPrior(a);

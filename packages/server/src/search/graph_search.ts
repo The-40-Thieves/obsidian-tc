@@ -1,6 +1,11 @@
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import { confidenceFor, type RetrievalConfidence } from "../experiential/calibration";
+import {
+  type ClusterSummaryHit,
+  hasClusterSummaries,
+  searchClusterSummaries,
+} from "./cluster-summaries";
 import { mtimesByPath, noteFreshness, STALE_THRESHOLD_DAYS } from "./freshness";
 import { assembleCandidates } from "./graph_search_stages/candidate_assembly";
 import { classify, seedZMargin } from "./graph_search_stages/classify";
@@ -39,7 +44,8 @@ export { clampMetadataBoost, seedZMargin };
 // can never appear. That is a visible behavior change this first PR's scope (dark mechanism only,
 // no retrieval-quality claim) does not license. Extending the taxonomy — and the matching
 // schemas.ts z.enum for CoverageEstimate.arms — is a follow-up once the summary stream is actually
-// enabled somewhere.
+// enabled somewhere. THE-628 (second PR) extends this same deliberate omission to
+// "cluster_summary" — same rationale, same follow-up.
 const ALL_SOURCES = ["seed", "expansion", "lexical", "sparse", "temporal"] as const;
 
 /**
@@ -349,6 +355,18 @@ async function graphSearchCore(
           ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
         })
       : [];
+  // THE-628 (second PR): cluster-summary stream, DARK behind opts.summaries?.clusters?.enabled —
+  // a SEPARATE flag from the note-level one above (see GraphSearchOptions.summaries's comment for
+  // why). Undefined/false means cluster_summaries is never queried either, same true-no-op
+  // contract as summaryHits. searchClusterSummaries applies its OWN (stricter, multi-note)
+  // isReadable filter internally — see that function's doc comment.
+  const clusterSummaryHits: ClusterSummaryHit[] =
+    (opts.summaries?.clusters?.enabled ?? false) && hasClusterSummaries(db)
+      ? searchClusterSummaries(db, opts.vaultId, opts.queryVec, {
+          k: seedCount,
+          ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
+        })
+      : [];
   // THE-632: traced BEFORE the early return below, so the no-seed case produces a REAL record
   // instead of an empty trace. Cross-vendor review found the previous arrangement misdiagnosed it:
   // graphSearchCore returned early while graphSearch still traced projection, so summarize() saw a
@@ -364,15 +382,16 @@ async function graphSearchCore(
     undefined,
     "the retrieval arms: dense seeds, lexical (BM25) and sparse. Absent here means no arm matched the note directly — graph expansion may still reach it.",
   );
-  // THE-628: summaryHits joins the early-return guard so a query that matches ONLY a note summary
-  // (the intended "global/thematic" case a chunk-only pipeline has no answer for) is not zeroed
-  // out here. summaryHits.length is always 0 when the flag is off, so this condition is unchanged
-  // on the default config.
+  // THE-628: summaryHits (and, second PR, clusterSummaryHits) join the early-return guard so a
+  // query that matches ONLY a note or cluster summary (the intended "global/thematic" case a
+  // chunk-only pipeline has no answer for) is not zeroed out here. Both are always 0-length when
+  // their flag is off, so this condition is unchanged on the default config.
   if (
     seeds.length === 0 &&
     lexHits.length === 0 &&
     sparseHits.length === 0 &&
-    summaryHits.length === 0
+    summaryHits.length === 0 &&
+    clusterSummaryHits.length === 0
   )
     return { results: [], finalTopK, routedToSeedsOnly: false, expansionTruncated: false };
 
@@ -485,6 +504,7 @@ async function graphSearchCore(
         lexHits,
         sparseHits,
         summaryHits,
+        clusterSummaryHits,
         onStage: opts.onStage,
       }),
     (r) => r.candidates.length,

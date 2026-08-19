@@ -37,7 +37,17 @@ export const GraphSearchResultSchema = z.object({
   content: z.string().optional(),
   // THE-628 (first PR): "summary" added — see graph_search.ts's ALL_SOURCES comment for why
   // CoverageEstimateSchema.arms below stays the 5-value taxonomy while this one widens.
-  source: z.enum(["seed", "expansion", "lexical", "sparse", "temporal", "summary"]),
+  // THE-628 (second PR): "cluster_summary" added the same way — omitting it here would silently
+  // strip a real (if dark-by-default) result value once retrieval.summaries.clusters.enabled.
+  source: z.enum([
+    "seed",
+    "expansion",
+    "lexical",
+    "sparse",
+    "temporal",
+    "summary",
+    "cluster_summary",
+  ]),
   hop: z.number(),
   via_edge: z
     .object({ type: z.string(), source_path: z.string(), provenance: z.string().nullable() })

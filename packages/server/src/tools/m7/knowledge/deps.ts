@@ -58,8 +58,19 @@ export interface M7Deps {
      *  summarize-notes.ts, wired at the `obsidian-tc index` CLI command in this first PR), not the
      *  retrieval side — kept here anyway so the whole retrieval.summaries block threads through
      *  one M7Deps field instead of splitting index-time and retrieval-time config across two
-     *  places. */
-    summaries?: { enabled?: boolean; model?: string; maxConcurrency?: number };
+     *  places.
+     *
+     *  THE-628 (second PR): `clusters` is the cluster-level (tier-2) candidate stream
+     *  (retrieval.summaries.clusters) — a SEPARATE enable flag from `enabled` above, see
+     *  GraphSearchOptions.summaries' comment for why. `clusters.maxConcurrency` governs the
+     *  OFFLINE cluster-summary pass (search/indexing/summarize-clusters.ts, wired at the
+     *  `obsidian-tc cluster` CLI command), the tier-2 analogue of `maxConcurrency` above. */
+    summaries?: {
+      enabled?: boolean;
+      model?: string;
+      maxConcurrency?: number;
+      clusters?: { enabled?: boolean; maxConcurrency?: number };
+    };
   };
   /** Config-driven POST-FUSION ranking overlays (config.ranking); absent -> graphSearch defaults
    *  (metadata prior OFF). */

@@ -35,8 +35,9 @@ export interface RankedChunk {
   // Optional graph-aware metadata; populated by the graph adapter, undefined for baseline.
   // THE-628 (first PR): "summary" added to mirror GraphSearchResult.source (search/
   // graph_search_stages/types.ts) — dark behind retrieval.summaries.enabled, so this arm is never
-  // populated by the eval harness today.
-  source?: "seed" | "expansion" | "lexical" | "sparse" | "temporal" | "summary";
+  // populated by the eval harness today. THE-628 (second PR): "cluster_summary" added the same
+  // way, dark behind retrieval.summaries.clusters.enabled.
+  source?: "seed" | "expansion" | "lexical" | "sparse" | "temporal" | "summary" | "cluster_summary";
   hop?: number;
   via_edge?: { type: string; source_path: string; provenance: string | null } | null;
   root_seed?: string | null;

@@ -19,7 +19,9 @@ export interface GraphSearchResult {
   path: string;
   content?: string;
   // THE-628 (first PR): "summary" mirrors Candidate["source"] below — see that field's comment.
-  source: "seed" | "expansion" | "lexical" | "sparse" | "temporal" | "summary";
+  // THE-628 (second PR): "cluster_summary" is the tier-2 (RAPTOR cluster) analogue — see
+  // Candidate["source"]'s comment for why it is a DISTINCT source from "summary".
+  source: "seed" | "expansion" | "lexical" | "sparse" | "temporal" | "summary" | "cluster_summary";
   hop: number;
   via_edge: { type: string; source_path: string; provenance: string | null } | null;
   root_seed: string | null;
@@ -135,7 +137,15 @@ export interface GraphSearchOptions {
    *  "summary"` results, byte-identical to today. ACL-filtered by the SAME `isReadable` every
    *  other stream uses (candidate_assembly.ts), so a summary whose source note the caller cannot
    *  read is excluded exactly as the chunk would be. */
-  summaries?: { enabled?: boolean };
+  /** THE-628 (second PR): `clusters.enabled` additionally activates the tier-2 (RAPTOR cluster)
+   *  candidate stream (search/cluster-summaries.ts), fused as the "cluster_summary" source. DARK
+   *  by the SAME contract as note-level `enabled` above — unset/false means graph_search.ts never
+   *  queries cluster_summaries. Deliberately a NESTED, independent flag rather than reusing
+   *  `enabled`: a cluster summary's ACL check spans MULTIPLE notes (see search/cluster-summaries.ts
+   *  searchClusterSummaries), a materially different — and more restrictive — leak surface than a
+   *  single-note summary, so an operator can turn on tier-1 without automatically inheriting
+   *  tier-2's broader mixed-ACL exposure. */
+  summaries?: { enabled?: boolean; clusters?: { enabled?: boolean } };
   /** THE-73 Phase 2: cap how many chunks per cluster_id reach the final result (KMeans
    *  diversification). Off when unset/0; chunks with a NULL cluster_id (unclustered) are never
    *  capped. Populate cluster_id offline via `obsidian-tc cluster`. graph_rrf mode only. */
@@ -325,8 +335,14 @@ export interface Candidate {
    *  behind retrieval.summaries.enabled — never populated when the flag is off, so this arm never
    *  appears in a default-config search. Deliberately NOT added to GraphSearchResult's coverage
    *  taxonomy (graph_search.ts's ALL_SOURCES / CoverageEstimate.armsPossible) in this first PR —
-   *  see graph_search.ts's own comment on why that stays a 5-arm accounting for now. */
-  source: "seed" | "expansion" | "lexical" | "sparse" | "temporal" | "summary";
+   *  see graph_search.ts's own comment on why that stays a 5-arm accounting for now.
+   *  THE-628 (second PR): "cluster_summary" is a cluster-level (tier-2) summary row
+   *  (search/cluster-summaries.ts), DARK behind retrieval.summaries.clusters.enabled — a SEPARATE
+   *  flag from "summary" above. `path` on a cluster_summary candidate is the cluster_key, NOT a
+   *  real vault path — see candidate_assembly.ts's cluster-summary merge block for why it is
+   *  therefore NOT re-checked against `isReadable` there (the ACL check already ran, over every
+   *  MEMBER path, inside searchClusterSummaries). */
+  source: "seed" | "expansion" | "lexical" | "sparse" | "temporal" | "summary" | "cluster_summary";
   hop: number;
   via_edge: { type: string; source_path: string; provenance: string | null } | null;
   root_seed: string | null;
