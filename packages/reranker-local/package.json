@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "fetch-model": "bun scripts/fetch-model.mjs"
