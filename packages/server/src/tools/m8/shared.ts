@@ -7,6 +7,7 @@
 import { grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
+import type { EmbeddingProvider } from "../../embeddings/provider";
 import type { CallerContext } from "../../mcp/registry";
 
 // P1.7 (audit THE-562): the experiential per-principal partition is an AUTHORIZATION boundary, not
@@ -27,6 +28,12 @@ export interface M8Deps {
    *  activation_conflict rather than opening a second read path onto vault_object_state. Absent ->
    *  activation_conflict reports false everywhere (the documented "no activation data" case). */
   activationFor?: (chunkId: string) => number | null;
+  /** THE-642 item 1: the SAME embedding provider M7 knowledge search uses (runtime/tool-wiring.ts
+   *  passes the identical `deps.embeddingProvider` to both), reused so work_search's semantic
+   *  channel embeds episode summaries with the same provider indexing already uses rather than
+   *  standing up a second one. Absent -> `semantic: true` degrades to lexical-only (the documented
+   *  "no provider configured" fallback), never an error. */
+  embeddingProvider?: EmbeddingProvider;
 }
 
 // Annotated rather than inferred: a bare object literal widens `available` to `boolean`, which no

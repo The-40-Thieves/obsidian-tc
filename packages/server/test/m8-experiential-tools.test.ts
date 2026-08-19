@@ -11,6 +11,7 @@ import { FolderAcl } from "../src/acl";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
+import type { EmbeddingProvider } from "../src/embeddings/provider";
 import { verifyForgetLog } from "../src/experiential/forget";
 import { detectGaps, persistGapReport, singleQuerySearch } from "../src/experiential/gaps";
 import { createRetrievalLogger } from "../src/experiential/log";
@@ -104,9 +105,16 @@ function un<T>(r: unknown): T {
   return (r as { data: T }).data;
 }
 
-function harness(edb?: Database) {
+// THE-642: `embeddingProvider` is additive and optional, same shape as branch-coverage's
+// `opts.activationFor` — every pre-existing call site keeps getting the provider-less harness it
+// always got, and only the hybrid-search tests below opt in.
+function harness(edb?: Database, opts: { embeddingProvider?: EmbeddingProvider } = {}) {
   const registry = new ToolRegistry({});
-  registerM8Tools(registry, { ...(edb ? { edb } : {}), now: () => NOW });
+  registerM8Tools(registry, {
+    ...(edb ? { edb } : {}),
+    now: () => NOW,
+    ...(opts.embeddingProvider ? { embeddingProvider: opts.embeddingProvider } : {}),
+  });
   const cache = cacheDb0();
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
     caller: "tester",
@@ -645,6 +653,114 @@ describe("M8 experiential tools (THE-229)", () => {
     );
     expect(res.updated).toBe(1);
     expect(res.reason).toBeUndefined();
+  });
+});
+
+// THE-642 — work_search's semantic channel (opt-in `semantic: true`), fused with the existing
+// lexical LIKE match by RRF. The stub provider below is deliberately dumb: texts in `same` embed
+// to an identical vector (cosine 1), everything else to an orthogonal one (cosine 0) — enough to
+// prove the fusion and the reader-contract boundary without a real model.
+describe("work_search hybrid semantic search (THE-642)", () => {
+  function stubProvider(same: string[]): EmbeddingProvider {
+    const A = [1, 0];
+    const B = [0, 1];
+    return {
+      id: "stub:test",
+      provider: "stub",
+      model: "test",
+      dimensions: 2,
+      embed: async (texts: string[]) => texts.map((t) => (same.includes(t) ? A : B)),
+    };
+  }
+
+  it("semantic finds a paraphrase-only match lexical misses; lexical still catches the exact id/name", async () => {
+    const db = edb0();
+    const QUERY = "impenetrable-query-marker-zzz";
+    const PARA_SUMMARY = "the sync worker kept crashing intermittently under load";
+    seed(db, { id: "e-para", tool: "unrelated_tool", summary: PARA_SUMMARY });
+    seed(db, { id: "e-exact", tool: QUERY });
+    const provider = stubProvider([QUERY, PARA_SUMMARY]);
+    const { registry, ctx } = harness(db, { embeddingProvider: provider });
+
+    // Baseline: lexical-only (semantic omitted) finds ONLY the exact substring match — the
+    // paraphrase shares no tokens with the query, so LIKE cannot find it.
+    const lexicalOnly = un<{ results: Array<{ id: string }> }>(
+      await registry.dispatch("work_search", { query: QUERY }, ctx()),
+    );
+    expect(lexicalOnly.results.map((r) => r.id)).toEqual(["e-exact"]);
+
+    // Hybrid: the semantic channel recovers the paraphrase; lexical still contributes the exact
+    // hit — RRF fuses both into one result set.
+    const hybrid = un<{ results: Array<{ id: string }>; floor: { semantic_used: boolean } }>(
+      await registry.dispatch("work_search", { query: QUERY, semantic: true }, ctx()),
+    );
+    expect(hybrid.floor.semantic_used).toBe(true);
+    expect(hybrid.results.map((r) => r.id).sort()).toEqual(["e-exact", "e-para"]);
+  });
+
+  it("a NULL-summary row is skipped by the semantic channel gracefully, not an error", async () => {
+    const db = edb0();
+    const QUERY = "another-marker-abc";
+    seed(db, { id: "e-nosummary", tool: "irrelevant" }); // summary defaults to NULL
+    const provider = stubProvider([QUERY]);
+    const { registry, ctx } = harness(db, { embeddingProvider: provider });
+    const res = un<{ results: Array<{ id: string }>; floor: { semantic_used: boolean } }>(
+      await registry.dispatch("work_search", { query: QUERY, semantic: true }, ctx()),
+    );
+    expect(res.floor.semantic_used).toBe(true);
+    // Nothing embeddable (no summary) and no lexical match either -> honest empty, no throw.
+    expect(res.results).toEqual([]);
+  });
+
+  it("SECURITY: caller A cannot see caller B's episodes through the semantic channel (THE-568 caller partition)", async () => {
+    const db = edb0();
+    const QUERY = "cross-caller-marker-999";
+    const SUMMARY = "identical juicy summary text";
+    // Both rows score IDENTICALLY on the semantic channel (same summary -> same vector) if the
+    // partition were bypassed — this is exactly the case that would catch a KNN that skips the
+    // THE-238 reader contract instead of scoring only an already-filtered pool.
+    seed(db, { id: "e-mine", caller: "tester", summary: SUMMARY });
+    seed(db, { id: "e-theirs", caller: "someone-else", summary: SUMMARY });
+    const provider = stubProvider([QUERY, SUMMARY]);
+    const { registry, ctx } = harness(db, { embeddingProvider: provider });
+
+    // Default (own-caller) partition, no admin:workspace required — this IS the non-admin,
+    // caller-scoped read the ticket asks for.
+    const own = un<{ results: Array<{ id: string }> }>(
+      await registry.dispatch("work_search", { query: QUERY, semantic: true }, ctx()),
+    );
+    expect(own.results.map((r) => r.id)).toEqual(["e-mine"]);
+
+    // any_caller without admin:workspace is forbidden — same P1.7 boundary the lexical path
+    // enforces, unchanged by `semantic`.
+    const denied = await registry.dispatch(
+      "work_search",
+      { query: QUERY, semantic: true, any_caller: true },
+      ctx(),
+    );
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("forbidden");
+
+    // WITH admin:workspace, any_caller legitimately crosses the partition and sees both.
+    const cross = un<{ results: Array<{ id: string }> }>(
+      await registry.dispatch(
+        "work_search",
+        { query: QUERY, semantic: true, any_caller: true },
+        ctx({ grantedScopes: new Set(["read:workspace", "admin:workspace"]) }),
+      ),
+    );
+    expect(cross.results.map((r) => r.id).sort()).toEqual(["e-mine", "e-theirs"]);
+  });
+
+  it("semantic without a configured provider degrades to lexical-only, never an error", async () => {
+    const db = edb0();
+    seed(db, { id: "e-lex", tool: "findme-marker" });
+    const { registry, ctx } = harness(db); // no embeddingProvider
+    const res = un<{ results: Array<{ id: string }>; floor: { semantic_used: boolean } }>(
+      await registry.dispatch("work_search", { query: "findme-marker", semantic: true }, ctx()),
+    );
+    expect(res.floor.semantic_used).toBe(false);
+    expect(res.results.map((r) => r.id)).toEqual(["e-lex"]);
   });
 });
 

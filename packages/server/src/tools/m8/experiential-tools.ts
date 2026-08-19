@@ -21,7 +21,6 @@
 // retired that axis as a task-level question asked of a response-level row.
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import type { Database } from "../../db/types";
 import { appendForgetLog } from "../../experiential/forget";
 import {
   DEFAULT_GAP_MIN_RESULTS,
@@ -34,6 +33,13 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { readableRel } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
 import { activationConflict, maxActivationByPath } from "./activation-conflict";
+import {
+  EpisodeProjection,
+  type EpisodeRow,
+  projectEpisode,
+  TimeFilters,
+  visiblePrevIds,
+} from "./episode-projection";
 import { buildGoalTools } from "./goal-tools";
 import {
   availableWith,
@@ -43,127 +49,11 @@ import {
   UNAVAILABLE,
 } from "./shared";
 import { buildVerdictTools } from "./verdict-tools";
+import { buildWorkSearchTool } from "./work-search-tool";
 
 // Re-exported so m8's existing consumers keep importing M8Deps from here; the definition moved to
 // shared.ts only to break the experiential-tools <-> goal-tools cycle.
 export type { M8Deps } from "./shared";
-
-/** Mirrors `projectEpisode()` field for field. Written from the PROJECTION, not from EpisodeRow —
- *  the projection renames (`vault_id` -> `vault`), derives (`tags` parsed from JSON, `blocked`
- *  narrowed to a boolean, `prev_id` filtered through the caller's own visible set), so a schema
- *  built from the row type would be wrong in four places. */
-const EpisodeProjection = z.object({
-  id: z.string(),
-  ts: z.number(),
-  vault: z.string().nullable(),
-  session_id: z.string().nullable(),
-  caller: z.string().nullable(),
-  channel: z.string(),
-  episode_type: z.string(),
-  // THE-726: the verdict and the other half of its window identity. Exposed because the design
-  // REQUIRES every consumer to group on `(session_id, verdict_at)` — a verdict is rendered once per
-  // session window and projected onto N rows, so a reader that treats these as N independent
-  // judgements double-counts. Requiring that and then hiding both fields would leave an MCP client
-  // with no way to comply, and no way to see its own debt clear.
-  task_result: z.number().nullable(),
-  verdict_at: z.number().nullable(),
-  tool: z.string().nullable(),
-  status: z.string(),
-  error_code: z.string().nullable(),
-  duration_ms: z.number().nullable(),
-  result_size: z.number().nullable(),
-  summary: z.string().nullable(),
-  tags: z.array(z.string()),
-  trust: z.number().nullable(),
-  eligibility: z.string(),
-  blocked: z.boolean(),
-  // THE-655: the amendment chain link (episodes/createEpisodeCapture builds it per-caller, so it
-  // never crosses the caller partition on its own). NULL when there is no predecessor OR when the
-  // predecessor is tombstoned — see visiblePrevIds() below.
-  prev_id: z.string().nullable(),
-});
-
-interface EpisodeRow {
-  id: string;
-  ts: number;
-  vault_id: string | null;
-  session_id: string | null;
-  caller: string | null;
-  channel: string;
-  episode_type: string;
-  task_result: number | null;
-  verdict_at: number | null;
-  tool: string | null;
-  status: string;
-  error_code: string | null;
-  duration_ms: number | null;
-  result_size: number | null;
-  summary: string | null;
-  tags: string | null;
-  trust: number | null;
-  eligibility: string;
-  blocked: number;
-  prev_id: string | null;
-}
-
-function parseTags(tags: string | null): string[] {
-  if (!tags) return [];
-  try {
-    const parsed = JSON.parse(tags);
-    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-/** THE-655: an amendment chain can point at a tombstoned predecessor — work_search's control 1
- *  ("blocked rows NEVER surface") is documented absolute, and a raw `prev_id` pointing at a
- *  blocked row would leak that row's id (and its existence in the chain) even though the row
- *  itself never surfaces. The chain is built per-CALLER (episodes.ts's `prevByCaller`/
- *  `selectLastByCaller` both key on `caller IS ?`), so it can never cross the caller partition on
- *  its own — the only thing left to filter is the tombstone. One batched follow-up query per
- *  handler call (not per row) resolves which referenced predecessors are still visible. */
-function visiblePrevIds(edb: Database, rows: EpisodeRow[]): Set<string> {
-  const ids = [...new Set(rows.map((r) => r.prev_id).filter((id): id is string => id !== null))];
-  if (ids.length === 0) return new Set();
-  const rs = edb
-    .prepare(
-      `SELECT id FROM agent_episodes WHERE blocked = 0 AND id IN (${ids.map(() => "?").join(",")})`,
-    )
-    .all(...ids) as { id: string }[];
-  return new Set(rs.map((r) => r.id));
-}
-
-function projectEpisode(r: EpisodeRow, visiblePrev: Set<string>) {
-  return {
-    id: r.id,
-    ts: r.ts,
-    vault: r.vault_id,
-    session_id: r.session_id,
-    caller: r.caller,
-    channel: r.channel,
-    episode_type: r.episode_type,
-    task_result: r.task_result,
-    verdict_at: r.verdict_at,
-    tool: r.tool,
-    status: r.status,
-    error_code: r.error_code,
-    duration_ms: r.duration_ms,
-    result_size: r.result_size,
-    summary: r.summary,
-    tags: parseTags(r.tags),
-    // provenance the THE-229 spec requires on every result
-    trust: r.trust,
-    eligibility: r.eligibility,
-    blocked: r.blocked === 1,
-    prev_id: r.prev_id !== null && visiblePrev.has(r.prev_id) ? r.prev_id : null,
-  };
-}
-
-const TimeFilters = {
-  since: z.number().int().positive().optional(),
-  until: z.number().int().positive().optional(),
-};
 
 export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
   const now = () => (deps.now ?? Date.now)();
@@ -172,87 +62,8 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
     // THE-633: composed from goal-tools.ts — same m8 domain, separate file for the line ceiling.
     ...buildGoalTools(deps),
     ...buildVerdictTools(deps),
-    defineTool({
-      name: "work_search",
-      domain: "knowledge",
-      description:
-        "Search the experiential work-memory (agent_episodes) — what the agent actually did. MEMORY semantics with the THE-238 reader contract enforced: only evaluator-approved (eligible) episodes by default, tombstoned/expired rows never surface, results are partitioned to the calling principal, and a trust floor (default 0.3) excludes high-risk content. include_pending opts into not-yet-evaluated episodes (still trust-floored); any_caller crosses the agent partition and requires the admin:workspace scope (P1.7: the partition is an authorization boundary, not a free filter).",
-      inputSchema: z
-        .object({
-          query: z.string().min(1).optional(),
-          tool: z.string().optional(),
-          session_id: z.string().optional(),
-          ...TimeFilters,
-          k: z.number().int().positive().max(200).default(20),
-          min_trust: z.number().min(0).max(1).default(0.3),
-          include_pending: z.boolean().default(false),
-          any_caller: z.boolean().default(false),
-        })
-        .strict(),
-      outputSchema: availableWith({
-        floor: z.object({ min_trust: z.number(), include_pending: z.boolean() }),
-        results: z.array(EpisodeProjection),
-      }),
-      requiredScopes: ["read:workspace"],
-      tags: ["experiential", "search"],
-      handler: (input, ctx) => {
-        if (!deps.edb) return UNAVAILABLE;
-        const clauses = ["blocked = 0", "(valid_until IS NULL OR valid_until > ?)"];
-        const params: unknown[] = [now()];
-        if (input.include_pending) {
-          clauses.push("eligibility IN ('eligible', 'pending')");
-        } else {
-          clauses.push("eligibility = 'eligible'");
-        }
-        clauses.push("(trust IS NULL OR trust >= ?)");
-        params.push(input.min_trust);
-        // P1.7: any_caller crosses the agent partition — an authorization boundary, not a free
-        // filter. Without the elevated scope it is a forbidden request, not a silent self-scope.
-        if (input.any_caller && !canCrossPrincipal(ctx))
-          throw err.forbidden(`any_caller requires the ${CROSS_PRINCIPAL_SCOPE} scope`);
-        if (!input.any_caller) {
-          clauses.push("caller IS ?");
-          params.push(ctx.caller ?? null);
-        }
-        if (input.tool) {
-          clauses.push("tool = ?");
-          params.push(input.tool);
-        }
-        if (input.session_id) {
-          clauses.push("session_id = ?");
-          params.push(input.session_id);
-        }
-        if (input.since !== undefined) {
-          clauses.push("ts >= ?");
-          params.push(input.since);
-        }
-        if (input.until !== undefined) {
-          clauses.push("ts <= ?");
-          params.push(input.until);
-        }
-        if (input.query) {
-          clauses.push(
-            "(tool LIKE '%' || ? || '%' OR summary LIKE '%' || ? || '%' OR tags LIKE '%' || ? || '%' OR args_json LIKE '%' || ? || '%')",
-          );
-          params.push(input.query, input.query, input.query, input.query);
-        }
-        const rows = deps.edb
-          .prepare(
-            `SELECT id, ts, vault_id, session_id, caller, channel, episode_type, tool, status,
-                    error_code, duration_ms, result_size, summary, tags, trust, eligibility,
-                    blocked, prev_id, task_result, verdict_at
-             FROM agent_episodes WHERE ${clauses.join(" AND ")}
-             ORDER BY ts DESC LIMIT ?`,
-          )
-          .all(...params, input.k) as EpisodeRow[];
-        const visiblePrev = visiblePrevIds(deps.edb, rows);
-        return {
-          available: true,
-          floor: { min_trust: input.min_trust, include_pending: input.include_pending },
-          results: rows.map((r) => projectEpisode(r, visiblePrev)),
-        };
-      },
-    }),
+    // THE-642: work_search moved to its own file for the same line-ceiling reason.
+    ...buildWorkSearchTool(deps),
 
     defineTool({
       name: "work_episodes",

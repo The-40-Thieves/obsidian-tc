@@ -551,5 +551,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // lookup M7 uses for rerank (dark unless experiential.activationRerank) rather than opening a
     // second read path onto vault_object_state.
     ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
+    // THE-642 item 1: work_search's semantic channel reuses the SAME embedding provider M7
+    // knowledge search gets above, rather than standing up a second one.
+    embeddingProvider: deps.embeddingProvider,
   });
 }
