@@ -144,6 +144,11 @@ interface DispatchLike {
    *  gates throw `forbidden`, and folding them together is what turned real regressions into
    *  expected skips. */
   error?: { code?: string; message?: string; details?: { required?: unknown } };
+  /** THE-741: dispatch's idempotency gate stamps this on every replay path (ok, terminal-overflow,
+   *  indeterminate) — the handler did NOT run. Read here so a cache hit reports
+   *  `served_from_cache` instead of `runnable`, which would otherwise claim this re-run
+   *  re-verified a call it never executed. */
+  meta?: { idempotent_replay?: boolean };
 }
 
 /** True when a required scope falls outside what THIS RUNNER grants — i.e. the refusal is rerun's
@@ -294,6 +299,24 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
           code === "plugin_unreachable"
             ? "the sandbox stripped the plugin bridge, so this tool could not reach the Obsidian app — rerun's own refusal, not a vault change"
             : "this runner does not grant the scope this tool requires (RERUN_SCOPES omits admin) — rerun's own refusal, not a vault change",
+        replayed: null,
+        divergence: "none",
+      });
+      continue;
+    }
+
+    // THE-741: dispatch served this call from the idempotency cache instead of re-running the
+    // handler — checked BEFORE the divergence comparison below, since that comparison assumes the
+    // handler actually executed. Without this, a cached replay's `ok`/`error`/`error_code` (an
+    // exact copy of the ORIGINAL call's outcome) always matches `recorded`, so `divergence` comes
+    // back "none" and the record reports `runnable` — "ran, re-verified, nothing moved" — for a
+    // call that ran nothing.
+    if (res.meta?.idempotent_replay) {
+      records.push({
+        ...common,
+        verdict: "served_from_cache",
+        reason:
+          "dispatch served this call from the idempotency cache — the handler did not run, so this is not a re-verification",
         replayed: null,
         divergence: "none",
       });

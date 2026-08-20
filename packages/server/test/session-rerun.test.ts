@@ -212,6 +212,53 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
     expect(seen).toEqual([]);
   });
 
+  it("THE-741: a cache-served replay reports served_from_cache — not runnable — and re-verifies nothing", async () => {
+    // dispatch's idempotency gate stamps `meta.idempotent_replay` when it serves a cached result
+    // instead of running the handler (registry/dispatch.ts). Stubbed here rather than actually
+    // claiming a real idempotency key: this isolates rerun.ts's CLASSIFICATION of that marker from
+    // dispatch.ts's STAMPING of it, which idempotency.test.ts covers directly against the real
+    // gate. Before THE-741 this record read `verdict: "runnable"` / `divergence: "none"` — the
+    // exact silent-pass the ticket exists to close.
+    v = readOnlyVault({ "a.md": "original" });
+    const id = seedSession(v, [
+      {
+        ts: 1100,
+        type: "tool_invocation",
+        tool: "read_note",
+        caller: "alice",
+        status: "ok",
+        result_size: 5,
+        args: JSON.stringify({ vault: v.id, path: "a.md" }),
+        args_scan: "clean",
+      },
+    ]);
+    const cachedDispatch = {
+      dispatch: async () => ({
+        ok: true,
+        data: { cached: true },
+        meta: { duration_ms: 1, result_size: 9, idempotent_replay: true },
+      }),
+    } as unknown as TestVault["registry"];
+
+    const out = await rerunSession({
+      db: v.db,
+      registry: cachedDispatch,
+      sessionId: id,
+      cacheDir: cacheDir as string,
+      vaultRootFor: () => (v as TestVault).root,
+    });
+
+    expect(out.records[0]?.verdict).toBe("served_from_cache");
+    expect(out.records[0]?.replayed).toBeNull();
+    expect(out.records[0]?.divergence).toBe("none");
+    expect(out.summary.runnable).toBe(0);
+    expect(out.summary.diverged).toBe(0);
+    expect(out.summary.byVerdict.served_from_cache).toBe(1);
+    // Honest, not a pass: served-from-cache re-verified nothing, so it must not count toward
+    // "runnable" — exit 2 ("nothing was runnable") over exit 0 ("ran, nothing moved").
+    expect(exitCodeFor(out.summary)).toBe(2);
+  });
+
   it("an unknown session id is an error, not an empty successful run", async () => {
     v = readOnlyVault({});
     await expect(
