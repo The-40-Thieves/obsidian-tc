@@ -49,6 +49,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   consulted on this stateless transport, so it is harmless) rather than pre-filtering the method
   under legacy too, and fixed the two comments plus a cross-reference note in the matrix doc/test so
   code, comments and matrix all agree.
+- **`/makemd/spaces` no longer silently degrades to an empty list (#TBD, THE-860).** make.md's
+  published `IAPI` has had neither a `spaces()` nor a `query()` method since at least v1.0.1
+  (2024-12-27) through the current v1.3.5 — a THE-749 contract fixture caught `/makemd/spaces`
+  answering `ok:true, { spaces: [] }` when handed the real, current API (its sibling `/makemd/query`
+  already failed loud). Both bridge routes are dead against every make.md version this bridge could
+  plausibly target, so `/makemd/spaces` now checks `typeof api.spaces === "function"` and returns a
+  typed `plugin_unreachable` when absent, matching `/makemd/query`'s existing guard, instead of a
+  silent wrong-value result. The routes stay in place (dropping them is a product decision, not a
+  correctness fix) with a comment documenting the finding.
 
 ## [1.22.0] - 2026-08-20
 
