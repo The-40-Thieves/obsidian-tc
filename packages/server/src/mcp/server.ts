@@ -557,9 +557,18 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // Absent for every caller that sends none, in which case the span is a root exactly as before.
     const traceCarrier = extractTraceCarrier(req.params._meta);
     if (traceCarrier !== undefined) ctx = { ...ctx, traceCarrier };
-    // THE-627: same `_meta` bag, second reader — which client software is calling. Absent for every
-    // caller that sends none, in which case the session row records NULL rather than a placeholder.
-    const clientInfo = extractClientInfo(req.params._meta);
+    // THE-627: which client software is calling.
+    // THE-861: the SDK reserves `io.modelcontextprotocol/clientInfo` as per-request envelope
+    // material and LIFTS it out of `params._meta` before any registered handler runs — on every
+    // message, in both spec eras (`liftWireOnlyMaterial`, the SHARED `Protocol._onrequest` base
+    // both legacy and modern serving go through) — surfacing it instead at `extra.mcpReq.envelope`.
+    // So `req.params._meta` never carries this key by the time this handler runs; read the lifted
+    // location first. `envelope` is keyed by the same reserved meta-key strings `_meta` used to
+    // carry, so `extractClientInfo` (unchanged) parses either bag identically. The `_meta` read is
+    // kept as a fallback, belt-and-suspenders, for any path that still legitimately delivers it
+    // there directly rather than through this lift.
+    const clientInfo =
+      extractClientInfo(extra.mcpReq.envelope) ?? extractClientInfo(req.params._meta);
     if (clientInfo !== undefined) ctx = { ...ctx, clientInfo };
     // The SDK consumes the SEP-2575 envelope keys before a handler sees `params._meta`, so client
     // capabilities are read from its own accessor rather than re-parsed off the wire.

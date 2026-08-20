@@ -16,6 +16,15 @@
 // protocol session to latch a per-connection value onto (`transports/http.ts` runs
 // `sessionIdGenerator: undefined`), so "once per connection" was never a shape we actually had.
 //
+// THE-861: point 2 above is true of `extractClientInfo` in isolation, but the pinned SDK v2
+// (`@modelcontextprotocol/server@2.0.0`) reserves this key as per-request ENVELOPE material and
+// LIFTS it out of inbound `_meta` before any handler runs — on every message, both spec eras
+// (`liftWireOnlyMaterial`, the shared `Protocol._onrequest` base) — surfacing it instead at
+// `extra.mcpReq.envelope`. So the CALL SITE (`server.ts`'s `tools/call` handler) reads
+// `extra.mcpReq.envelope` first, falling back to `req.params._meta` for any path that still
+// legitimately delivers it there directly. This function's own shape is unchanged: `envelope` is
+// keyed by the same reserved meta-key strings `_meta` used to carry, so it parses either bag.
+//
 // Untrusted input, and treated as such — same discipline as `otel/propagation.ts`: strings only,
 // bounded, dropped rather than truncated, absent is normal. These values reach a DB column, so an
 // unbounded one is a storage problem, and a truncated version string is a WRONG version string.
