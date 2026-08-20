@@ -512,6 +512,26 @@ export const ExperientialConfigSchema = z.object({
     .describe(
       "Apply the ACT-R cached-activation-score signal to graph search ranking: builds the lookup, threads it to every M7 graphSearch call, and enables the bounded bubble pass that composes it into the fused order (each item moves at most one position). Ships off; the A/B that would justify turning it on is THE-424 Part B.",
     ),
+  /** THE-644: fold the RETRIEVAL-level citation verdict (`chunk_retrievals.citation_state` /
+   *  `cited_in_response`) into the deterministic `preferred.search_mode` counter alongside the
+   *  existing episode-level `task_result` evidence — so a search-family tool whose results are
+   *  actually CITED strengthens the same key an episode-level success already strengthens, and one
+   *  whose results are retrieved but REJECTED weakens it. `feedback` (the ticket's original target)
+   *  has zero producers; `citation_state` does not — THE-717's citation-inference pass stamps it on
+   *  a live minority of rows once `citationInfer.enabled` is on.
+   *
+   *  RANKING-ADJACENT, so OFF BY DEFAULT like `activationRerank` above: `preferred.search_mode`
+   *  values feed back into how future searches are chosen, so widening what writes it changes a
+   *  learned signal without a pre-registered eval showing the new evidence source helps. Flipping
+   *  this on with `citationInfer` never enabled is a legal but inert combination — no row ever
+   *  carries a citation verdict, so the extra evidence source finds nothing and behaviour stays
+   *  byte-identical to off. */
+  citationPreferences: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Fold chunk_retrievals citation verdicts (citation_state / cited_in_response) into the deterministic preferred.search_mode preference counter, alongside episode task_result evidence: a search-family tool whose retrievals are CONFIRMED cited strengthens the key, one whose retrievals are REJECTED weakens it. Off by default — ranking-adjacent, needs a pre-registered eval before defaulting on. Needs citationInfer.enabled (or another citation_state producer) to have any effect.",
+    ),
   /** THE-717: the scheduled citation pass. `inferCitations` had exactly one caller — the offline
    *  `obsidian-tc citation-infer` CLI — so every citation column was NULL on 105 of 105 live rows:
    *  correct code, complete tests, no scheduled caller. Same shape as gapSweep below, and named

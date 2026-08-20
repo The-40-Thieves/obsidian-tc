@@ -42,6 +42,7 @@
 //     than designed, not less, and there is no known-bad set to leak because nothing marks one.
 //     reflect-evaluator.test.ts:96 seeds `task_result: -1` directly and asserts the hold, so the gate
 //     is ready the moment a producer exists. Whether to build one is the open question on THE-721.
+import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import type { Scheduler } from "../scheduler/scheduler";
 import { serializeEpisodeSummary, type ToolTally } from "./summarize-episode";
@@ -547,6 +548,124 @@ function buildSearchModeDeltas(windows: Array<{ episodes: EvidenceRow[] }>): Pre
   return deltas;
 }
 
+/** THE-644: one `chunk_retrievals` row shaped enough to build the citation-evidence delta —
+ *  `surface_type` is the retrieving tool (log.ts's own doc comment: "which serve surface
+ *  retrieved it (tool name) — chunk_retrievals.surface_type"), `event_group` is the one-id-per-
+ *  search-CALL correlator (20260725_001), and `citation_state` is THE-717's judge verdict. */
+export interface CitationEvidenceRow {
+  chunk_id: string;
+  surface_type: string | null;
+  event_group: string | null;
+  citation_state: string | null;
+}
+
+/** THE-644: batch size for the cross-store chunk_id -> vault_id ground-truth join below. Same
+ *  constant, same reason, as note-quality.ts's `BATCH` and metrics.ts's own copy. */
+const CITATION_EVIDENCE_BATCH = 200;
+
+/**
+ * THE-644: `chunk_retrievals` carries NO `vault_id` column at all (chunks live in cache.db,
+ * across the experiential/cache membrane — see context-bundle.ts's header on the same absence).
+ * So vault scoping here is a GROUND-TRUTH join against the TARGET vault's own cache.db `chunks`
+ * table, batched, exactly the cross-store pattern note-quality.ts and metrics.ts already use for
+ * the identical reason: a chunk id this vault's `chunks` table does not contain is a deleted or
+ * foreign-vault chunk, and is dropped rather than attributed (never a default vault, matching the
+ * NULL-vault-episode exclusion two comments above).
+ *
+ * `cacheDb` is undefined whenever `experiential.citationPreferences` is off — the caller never
+ * opens cache.db at all in that case, so this function is simply never reached and the query cost
+ * is zero, not merely its result discarded.
+ *
+ * Rows are restricted to `citation_state IS NOT NULL`: a row the citation pass never covered
+ * (THE-717's `citationInfer.enabled`, or the kill-switch leaving survivors NULL for a clean rerun)
+ * is unmeasured, not negative evidence — the same "unmeasured != bad" contract note-quality.ts's
+ * `scoreNote` documents for the same column.
+ */
+function citationEvidence(
+  edb: Database,
+  cacheDb: Database,
+  vaultId: string,
+  maxEvidence: number,
+): CitationEvidenceRow[] {
+  if (!tableExists(edb, "chunk_retrievals")) return [];
+  const rows = edb
+    .prepare(
+      `SELECT chunk_id, surface_type, event_group, citation_state FROM chunk_retrievals
+       WHERE citation_state IS NOT NULL
+       ORDER BY retrieved_at DESC LIMIT ?`,
+    )
+    .all(maxEvidence) as CitationEvidenceRow[];
+  if (rows.length === 0) return [];
+  const chunkIds = [...new Set(rows.map((r) => r.chunk_id))];
+  const inVault = new Set<string>();
+  for (let i = 0; i < chunkIds.length; i += CITATION_EVIDENCE_BATCH) {
+    const batch = chunkIds.slice(i, i + CITATION_EVIDENCE_BATCH);
+    for (const r of cacheDb
+      .prepare(
+        `SELECT id FROM chunks WHERE vault_id = ? AND id IN (${batch.map(() => "?").join(",")})`,
+      )
+      .all(vaultId, ...batch) as Array<{ id: string }>) {
+      inVault.add(r.id);
+    }
+  }
+  return rows.filter((r) => inVault.has(r.chunk_id));
+}
+
+/** THE-644: group vault-scoped citation evidence onto its `event_group` — the one-id-per-search-
+ *  CALL correlator, so a call returning K chunks contributes ONE observation rather than K
+ *  perfectly-correlated ones (the exact length-bias argument `groupEpisodesByVerdictWindow`'s
+ *  header makes for episode windows, applied to the retrieval-log analogue of a session window).
+ *  A row with no `event_group` — a surface that predates THE-538 or never describes its policy —
+ *  gets its own singleton window rather than merging with an unrelated row, mirroring that same
+ *  helper's `row:${windows.size}` fallback. */
+export function groupCitationEvidenceByEventGroup(
+  rows: readonly CitationEvidenceRow[],
+): Array<{ rows: CitationEvidenceRow[] }> {
+  const windows = new Map<string, CitationEvidenceRow[]>();
+  for (const r of rows) {
+    const key = r.event_group !== null ? `eg:${r.event_group}` : `row:${windows.size}`;
+    const bucket = windows.get(key);
+    if (bucket) bucket.push(r);
+    else windows.set(key, [r]);
+  }
+  return [...windows.values()].map((rows) => ({ rows }));
+}
+
+/** THE-644: the citation-evidence producer for `preferred.search_mode` — a second EVIDENCE SOURCE
+ *  for the same key `buildSearchModeDeltas` already writes, not a new axis. One `event_group`
+ *  window is one search call by construction, so every row in it shares one `surface_type`
+ *  (tool); that tool's window verdict is CONFIRMED if any chunk in the call was confirmed cited
+ *  (strengthen — `add` upserts, same create-or-reinforce reasoning `buildSearchModeDeltas`
+ *  documents), else REJECTED if any chunk was rejected and none confirmed (weaken), else the
+ *  window carries no verdict at all (skip — unmeasured, not negative). A window whose tool is not
+ *  in `SEARCH_FAMILY_TOOLS` — `knowledge_search`, `vault_context`, `reflect`'s own
+ *  self-instrumentation, `advisory` rows — is skipped for the same reason the episode producer
+ *  restricts to that closed tool list: this axis counts revealed choice AMONG search
+ *  alternatives, not citation for tools with no comparable substitute. */
+function buildCitationSearchModeDeltas(
+  windows: Array<{ rows: CitationEvidenceRow[] }>,
+): PreferenceDelta[] {
+  const deltas: PreferenceDelta[] = [];
+  for (const w of windows) {
+    const tool = w.rows[0]?.surface_type;
+    if (!tool || !SEARCH_FAMILY_TOOLS.has(tool)) continue;
+    let confirmed = 0;
+    let rejected = 0;
+    for (const r of w.rows) {
+      if (r.citation_state === "confirmed") confirmed++;
+      else if (r.citation_state === "rejected") rejected++;
+    }
+    if (confirmed === 0 && rejected === 0) continue;
+    deltas.push({
+      key: "preferred.search_mode",
+      op: confirmed > 0 ? "add" : "weaken",
+      value: tool,
+      evidence: `citation tool=${tool} confirmed=${confirmed} rejected=${rejected}`,
+    });
+  }
+  return deltas;
+}
+
 /** THE-673: drop any delta whose key is not in `PREFERENCE_KEYS` before it reaches
  *  `applyPreferenceDeltas` — an unregistered key must never become a write, even from a future
  *  extractor sharing this filter, not just from the one counter this file builds today. Exported
@@ -568,11 +687,18 @@ export function filterRegisteredDeltas(deltas: PreferenceDelta[]): PreferenceDel
  *  window pass" (no gateway concept exists anymore); a run that finds evidence but derives no
  *  delta from it — e.g. every window is neutral — is NOT reported skipped, distinct from finding
  *  nothing to look at. `aborted` is retained in the return shape for call-site compatibility but a
- *  deterministic counter has no parse-failure mode, so it is always `false`. */
+ *  deterministic counter has no parse-failure mode, so it is always `false`.
+ *
+ *  THE-644 reopens the retrieval half THE-718 removed, repointed at the axis that actually has a
+ *  producer: `citation_state`, not the still-dead `feedback` this comment used to name as the
+ *  repoint target. `opts.cacheDb` is that gate, and it is a CALLER decision, not a flag read in
+ *  here — the caller only supplies it when `experiential.citationPreferences` is on, so leaving it
+ *  undefined (the default) skips `citationEvidence` entirely and this function is byte-identical
+ *  to the THE-673 version: same query, same windowing, same one evidence source. */
 export async function extractPreferences(
   edb: Database,
   vaultId: string,
-  opts: { nowMs: number; maxEvidence?: number },
+  opts: { nowMs: number; maxEvidence?: number; cacheDb?: Database },
 ): Promise<{ skipped: boolean; aborted: boolean; applied: number; version: number }> {
   const maxEvidence = opts.maxEvidence ?? 40;
   // THE-710: episode evidence is scoped to this vault. `agent_episodes.vault_id` is NULLABLE, and a
@@ -588,17 +714,21 @@ export async function extractPreferences(
        ORDER BY ts DESC LIMIT ?`,
     )
     .all(vaultId, maxEvidence) as EvidenceRow[];
-  // THE-718: the second evidence source here was `chunk_retrievals.outcome`, retired in
-  // 20260806_001. It is REMOVED rather than repointed at `chunk_retrievals.feedback`, because the
-  // comment this replaces said so explicitly — wiring the real `feedback` column into extraction
-  // "is a ranking-adjacent change needing THE-641's eval gate — do not add it here without one",
-  // and deleting the column it was reading is not that gate. Preference extraction now runs on
-  // episode evidence alone. The THE-710 scope note that lived here described why retrieval feedback
-  // could not be vault-scoped (chunk vaults live in cache.db, across the membrane); it goes with the
-  // query, and comes back with it if THE-641 lands.
-  if (episodes.length === 0) return { skipped: true, aborted: false, applied: 0, version: 0 };
+  // THE-644 (was THE-718): citation rows are the second evidence source, gated behind
+  // `opts.cacheDb` — see `citationEvidence`'s own header for the ground-truth join this needs and
+  // why chunk_retrievals cannot be scoped by a plain WHERE the way agent_episodes is above.
+  const citationRows = opts.cacheDb
+    ? citationEvidence(edb, opts.cacheDb, vaultId, maxEvidence)
+    : [];
+  if (episodes.length === 0 && citationRows.length === 0) {
+    return { skipped: true, aborted: false, applied: 0, version: 0 };
+  }
   const windows = groupEpisodesByVerdictWindow(episodes);
-  const deltas = filterRegisteredDeltas(buildSearchModeDeltas(windows));
+  const citationWindows = groupCitationEvidenceByEventGroup(citationRows);
+  const deltas = filterRegisteredDeltas([
+    ...buildSearchModeDeltas(windows),
+    ...buildCitationSearchModeDeltas(citationWindows),
+  ]);
   if (deltas.length === 0) return { skipped: false, aborted: false, applied: 0, version: 0 };
   const { version, applied } = applyPreferenceDeltas(edb, vaultId, deltas, opts.nowMs);
   return { skipped: false, aborted: false, applied, version };

@@ -6,6 +6,26 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`experiential.citationPreferences` folds retrieval-level citation outcomes into learned
+  preferences (#836, THE-644).** `extractPreferences`'s deterministic `preferred.search_mode` counter
+  previously learned only from `agent_episodes.task_result` — the episode-level verdict. The
+  retrieval-level signal (which CHUNKS actually got cited) lives on `chunk_retrievals.citation_state`
+  / `cited_in_response` and was never wired in: the ticket's original target, `feedback`, has zero
+  producers, but `citation_state` does (THE-717's citation-inference pass). A search-family tool
+  (`search_text`/`search_regex`/`search_vault`/`vault_graph_search`/`search_omnisearch`) whose
+  retrievals are CONFIRMED cited now strengthens the same key an episode-level success already
+  strengthens; one whose retrievals are REJECTED weakens it — one delta per `event_group` (one
+  search call), not one per returned chunk, mirroring the episode-side one-window-one-observation
+  rule. `chunk_retrievals` carries no `vault_id`, so scoping is a ground-truth join against the
+  target vault's own `cache.db` `chunks` table (the same cross-store pattern `note-quality.ts` and
+  `metrics.ts` already use). Ranking-adjacent, so **off by default** like `activationRerank` — the
+  golden-set eval (`~/obsidian-tc-eval/`) has no citation-labeled preference corpus to exercise this
+  mechanism against today, so this ships dark with unit tests proving the deterministic
+  citation-to-delta mapping rather than a golden-set result; a future run once such a corpus exists
+  would check for a detectable, non-inferior effect before defaulting on.
+
 ### Fixed
 
 - **Client identity now reaches `tools/call` handlers (#834, THE-861).** The pinned SDK

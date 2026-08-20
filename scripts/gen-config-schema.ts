@@ -166,7 +166,8 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // graph_search.ts/candidate_assembly.ts (retrieval-time, `source: "cluster_summary"`); see those
 // files' THE-628 comments. No existing key moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  "040c359f2af12e2557bcab43c11d7e41f1f15450cd1ad44d3b056c177d827b2c";
+  // THE-644: adds the `experiential.citationPreferences` boolean flag (default false).
+  "dd0cc621e9503891b1f86276723e249c0b4da73c6e2c27bb0be4d1354eaf0e54";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
