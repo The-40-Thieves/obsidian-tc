@@ -16,6 +16,7 @@ import {
   captureCoverage,
   capturePolicy,
   type RetrievalRuntime,
+  resolveAclWalkFilter,
   retrievalHits,
 } from "./retrieval-runtime";
 import { KnowledgeSearchOutput } from "./schemas";
@@ -58,8 +59,20 @@ export function createKnowledgeSearchTool(
       const policy = capturePolicy(deps, v.id, route.class);
       const coverage = captureCoverage();
       if (route.class === "lexical") {
-        const results = lexicalRouteResults(ctx.db, v.id, input.query, input.final_top_k, (rel) =>
+        // THE-853: resolve the caller's ACL partition so the lexical-route bm25Chunks call takes
+        // the exact JOIN path (or fails closed) instead of the leaky over-fetch fallback — same
+        // resolution the "standard" route gets for free inside buildGraphSearchOptions below.
+        const walkFilter = resolveAclWalkFilter(ctx.db, v.id, ctx.acl, ctx.grantedScopes, (rel) =>
           readableRel(ctx.acl, rel),
+        );
+        const results = lexicalRouteResults(
+          ctx.db,
+          v.id,
+          input.query,
+          input.final_top_k,
+          (rel) => readableRel(ctx.acl, rel),
+          walkFilter.aclSetId,
+          walkFilter.aclWalkFilter?.blocked,
         );
         deps.retrievalLog?.({
           queryText: input.query,

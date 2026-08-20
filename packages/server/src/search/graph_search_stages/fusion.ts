@@ -63,7 +63,18 @@ export function fuseScores(input: FusionInput): FusionResult {
     // gain clamped to [0,1] so weights stay within [0,2] — an over-unity gain would drive a
     // stream weight NEGATIVE and actively invert its ranking, never just reweight it.
     const gain = Math.min(1, Math.max(0, opts.adaptiveRrf?.gain ?? 0.5));
-    const spec = querySpecificity(db, opts.vaultId, opts.query);
+    // THE-853 (security): thread the caller's ACL partition into the whole-corpus IDF stat — see
+    // querySpecificity's own header. `opts.aclSetId` / `opts.aclWalkFilter?.blocked` are the SAME
+    // fail-closed pair resolveAclWalkFilter already produces for the graph-walk filter (THE-852);
+    // reusing them here rather than re-resolving keeps the two ACL-partition decisions from one
+    // call in sync instead of drifting.
+    const spec = querySpecificity(
+      db,
+      opts.vaultId,
+      opts.query,
+      opts.aclSetId,
+      opts.aclWalkFilter?.blocked,
+    );
     if (spec !== null) {
       const tilt = gain * (2 * spec - 1);
       denseW = 1 - tilt;

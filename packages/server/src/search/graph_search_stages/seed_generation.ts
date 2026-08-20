@@ -44,16 +44,30 @@ export function generateSeeds(input: SeedGenerationInput): SeedGenerationResult 
   // move, learn it appears in a note you cannot read. It also lets unreadable chunks crowd out
   // readable ones inside each arm's own top-k. The dense arm above has had this since THE-287;
   // these two never did.
+  //
+  // THE-853: `bm25Chunks` has carried an `aclSetId` param (THE-695) that turns the ACL check into
+  // an exact SQL join + LIMIT instead of the over-fetch-then-JS-filter fallback below — this call
+  // site never passed it, so a restricted caller always took the fallback and its residual
+  // length-interference channel (see chunk_fts.ts's header comment on bm25Chunks). Threading
+  // `opts.aclSetId` closes that for a caller whose set resolved. But an undefined `aclSetId` is
+  // NOT uniformly safe: it means "no join" — correct for an unrestricted caller (nothing to hide),
+  // a LEAK for a restricted caller whose set could not be resolved (`aclWalkFilter.blocked`), since
+  // the fallback is the exact over-fetch channel this ticket closes. So fail that caller CLOSED to
+  // `[]` rather than letting it reach the fallback — matching the blocked guard on the lexical
+  // route and the lesson backfill.
   const lexicalEnabled = opts.lexical?.enabled ?? true;
-  const lexHits: LexicalHit[] = lexicalEnabled
-    ? bm25Chunks(
-        db,
-        opts.vaultId,
-        opts.query,
-        opts.lexical?.count ?? seedCount,
-        ...(isReadable ? ([isReadable] as const) : ([] as const)),
-      )
-    : [];
+  const lexBlocked = opts.aclWalkFilter?.blocked === true;
+  const lexHits: LexicalHit[] =
+    lexicalEnabled && !lexBlocked
+      ? bm25Chunks(
+          db,
+          opts.vaultId,
+          opts.query,
+          opts.lexical?.count ?? seedCount,
+          isReadable,
+          opts.aclSetId,
+        )
+      : [];
   const sparseHits: SparseHit[] = opts.querySparse
     ? sparseSearch(
         db,
