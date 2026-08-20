@@ -15,9 +15,16 @@
 // STATELESSNESS. Under Streamable HTTP this server is built per request, so anything a client
 // negotiates lives exactly as long as one call. That is fine for emitting — a notification belongs
 // to the request that produced it — and it is why the verbosity floor is fixed rather than settable:
-// `logging/setLevel` is not a routable method in SDK v2 (absent from both wire registries; a handler
-// registered for it answers -32601, measured), and it could not persist between calls even if it
-// were.
+// `logging/setLevel` is unroutable under the MODERN (2026-07-28) era — SEP-2575 removed the method,
+// and the modern route refuses it by name (-32601) before any `Server` handler runs, measured by
+// protocol-2026-conformance.test.ts. It is NOT refused under LEGACY (2025-11-25) on this SDK
+// version: declaring the `logging: {}` capability (server.ts) makes the SDK's own `Server`
+// constructor auto-register a built-in `logging/setLevel` handler, reachable under legacy because
+// nothing pre-filters the method the way the modern route does — it SUCCEEDS, returning `{}`. That
+// success is harmless: the level it stores is keyed by `transportSessionId` and never consulted,
+// because this transport is stateless and that session key never comes back. See
+// docs/MCP-CLIENT-COMPAT-MATRIX.md (Finding 2, THE-725/THE-862) and
+// mcp-client-compat-matrix.test.ts for both eras asserted from code.
 import type { Server } from "@modelcontextprotocol/server";
 
 /** The RFC 5424 levels the spec defines, ordered least to most severe. */

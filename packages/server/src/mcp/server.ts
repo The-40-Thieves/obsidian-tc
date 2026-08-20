@@ -362,11 +362,15 @@ export function createMcpServer(opts: McpServerOptions): Server {
 
   // THE-583: the verbosity floor for server->client log notifications.
   //
-  // FIXED at `info`, and deliberately not settable. `logging/setLevel` is NOT a routable method in
-  // SDK v2 — it is absent from both the 2025 and 2026 wire registries, and a handler registered for
-  // it answers -32601 (measured). The SDK owns that method internally when the capability is
-  // declared. Registering our own was dead code that read as a feature, so it is gone rather than
-  // left in place looking implemented.
+  // FIXED at `info`, and deliberately not settable. `logging/setLevel` is unroutable under MODERN
+  // (2026-07-28) — SEP-2575 removed it, and the modern route refuses it by name (-32601) before any
+  // `Server` handler runs. Under LEGACY (2025-11-25) it is reachable: declaring the `logging: {}`
+  // capability below makes the SDK's own `Server` constructor auto-register a built-in
+  // `logging/setLevel` handler, which succeeds (`{}`) rather than answering -32601 — see
+  // client-features.ts and docs/MCP-CLIENT-COMPAT-MATRIX.md (Finding 2, THE-725/THE-862). Either
+  // way, the SDK owns the method internally once the capability is declared. Registering our own
+  // was dead code that read as a feature, so it is gone rather than left in place looking
+  // implemented.
   //
   // SEP-2575 made verbosity a PER-REQUEST `_meta` field, so there is no server-side floor to set:
   // the threshold is the client's, carried on the request, and the SDK's `mcpReq.log` applies it.

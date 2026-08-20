@@ -69,8 +69,9 @@ cells below now assert the client's declared name/version arrive on `ctx.clientI
 
 ### 2. `logging/setLevel` succeeds under legacy, contrary to `client-features.ts`'s own comment
 
-`client-features.ts` states the method "is not a routable method in SDK v2 (absent from both wire
-registries; a handler registered for it answers -32601, measured)." True under **2026-07-28**
+`client-features.ts` stated the method "is not a routable method in SDK v2 (absent from both wire
+registries; a handler registered for it answers -32601, measured)" (fixed by THE-862 — see the
+update note below). True under **2026-07-28**
 (`protocol-2026-conformance.test.ts` proves it — the method is removed by SEP-2575 and refused by
 name before any `Server` handler runs). **Not** true under **2025-11-25** on this SDK version:
 because `server.ts` declares the `logging: {}` capability, the SDK's `Server` constructor
@@ -80,6 +81,13 @@ modern route's spec-registry check does, so that built-in handler is reachable, 
 keyed by `transportSessionId`, and returns `{}` — a success, not a `-32601`. The stored level is
 inert (this transport is stateless — the same session key never comes back), but "succeeds and is
 silently ignored" and "answers -32601" are a materially different contract for a legacy caller.
+
+**THE-862 update:** this row and the write-up above already stated the true per-era behavior — only
+`client-features.ts`'s and `server.ts`'s own comments still told the pre-THE-725 (-32601-under-both-
+eras) story. Resolution was option (a): the SDK's built-in legacy handler is accepted as harmless
+(the level it stores is never consulted on this stateless transport), so the fix was correcting
+those two stale comments to match this page and the test below, not pre-filtering the method under
+legacy too.
 
 ## The matrix
 
