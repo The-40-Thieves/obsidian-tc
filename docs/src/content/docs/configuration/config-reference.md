@@ -228,6 +228,12 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `ranking.metadataPrior.rules[].field` | `string` | — | **yes** | Frontmatter field name to test on a candidate note. |
 | `ranking.metadataPrior.rules[].value` | `string` | — | **yes** | Value that frontmatter[field] must equal for the boost to apply. |
 
+### `readwise`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `readwise.token` | `string` | — |  | Readwise access token (readwise.io/access_token), used as `Authorization: Token <token>` against the classic v2 export API. Secret — never logged or placed in an error/audit payload. Absent means `import-highlights` no-ops with NO network call. |
+
 ### `reranker`
 
 | Key | Type | Default | Required | Description |

@@ -1,4 +1,5 @@
 import { CliError } from "./cli-error";
+import { type ImportHighlightsCommand, parseImportHighlights } from "./parse-import-highlights";
 
 export type CliCommand =
   | { kind: "serve"; input?: string }
@@ -107,6 +108,10 @@ export type CliCommand =
       vault?: string;
       dryRun?: boolean;
     }
+  // THE-650: pull highlights from a configured read-later source (Readwise first) and stage them
+  // in capture_queue (source: "import") for commit_capture review. Parser lives in
+  // ./parse-import-highlights.ts — see that file's header for why.
+  | ImportHighlightsCommand
   | { kind: "error"; message: string };
 
 // Re-exported so every existing `import { CliError } from "../args"` keeps working unchanged —
@@ -529,6 +534,9 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(rest.includes("--dry-run") ? { dryRun: true } : {}),
       };
     }
+    // THE-650: import-highlights. Parse branch delegates to ./parse-import-highlights.ts —
+    // see args.ts's top-of-file import comment for why it lives there rather than inline here.
+    if (first === "import-highlights") return parseImportHighlights(rest);
     // THE-48: knowledge-gap detector over a batch of queries, or golden-set calibration.
     if (first === "gaps") {
       const num = (flag: string): number | undefined => {

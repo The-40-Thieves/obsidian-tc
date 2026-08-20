@@ -21,6 +21,26 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `eval/run.ts`'s golden set) while mislabeling it as experiential-tier performance. Verdict:
   genuinely poor fit — documented in `packages/server/eval/THE-707-experiential-benchmark-applicability.md`
   rather than forced into a misleading adapter.
+- **Source-agnostic highlight-import format + Readwise adapter, staged via `capture_queue`
+  (THE-650).** Read-later highlights (Readwise Reader, the live canonical source now that
+  Omnivore's API and data are shut down) never reached the vault before this, so nothing about
+  them was retrievable. `import-highlights` (a new CLI command) fetches from Readwise's classic
+  v2 export endpoint (`GET /api/v2/export/`, `Authorization: Token <token>`, cursor-paginated via
+  `pageCursor`/`updatedAfter`), maps the nested book→highlights response onto a source-agnostic
+  canonical shape (`packages/server/src/capture/highlight-import.ts`), and lands each highlight in
+  `capture_queue` via the existing `enqueueCapture` contract with `source: "import"` — inheriting
+  THE-855's poison scan and the human `commit_capture` gate the same as every other capture
+  producer; nothing here writes to the vault directly. Deduplicates on a per-highlight hash of
+  `(source, source_id, text, location, highlighted_at)`, carried as an `import-dedupe:<hash>` tag
+  and checked against every prior `source: "import"` row (pending AND committed) before
+  enqueueing, so re-running a sync never re-enqueues an already-staged highlight — the dedupe tag
+  itself is filtered out of `list_capture_queue` and a committed note's frontmatter (both now go
+  through `tools/m5/capture-tools.ts`'s new `visibleTags`), so this machine identity never reaches
+  a reviewer or the vault. Ships INERT: the
+  new `readwise.token` config key is absent by default, and with no token the command no-ops with
+  NO network call — the same degradation contract `plur`'s optional endpoint already establishes.
+  Readwise is the first adapter of a format designed for others (Instapaper/Matter, which Readwise
+  itself already aggregates) to reuse without a new canonical shape.
 
 - **`experiential.citationPreferences` folds retrieval-level citation outcomes into learned
   preferences (#836, THE-644).** `extractPreferences`'s deterministic `preferred.search_mode` counter

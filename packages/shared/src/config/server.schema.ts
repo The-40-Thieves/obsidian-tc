@@ -15,6 +15,7 @@ import {
   ObservabilityConfigSchema,
   PlaneConfigSchema,
   PlurConfigSchema,
+  ReadwiseConfigSchema,
   SchedulerConfigSchema,
   SnapshotsConfigSchema,
   WatchConfigSchema,
@@ -64,6 +65,12 @@ export const ServerConfigObject = z.object({
     .describe("Vaults this server serves. At least one is required."),
   plur: PlurConfigSchema.optional().describe(
     "plur engram-store read proxy. Global rather than per-vault, since the plur store is global.",
+  ),
+  // THE-650: Readwise adapter config for `obsidian-tc import-highlights`. Global rather than
+  // per-vault, matching `plur` just above — the Readwise account is one external source, and
+  // which vault its highlights land in is chosen per invocation (--vault), not per config block.
+  readwise: ReadwiseConfigSchema.optional().describe(
+    "Readwise highlight-import adapter. ABSENT (no token) means `import-highlights` no-ops with NO network call.",
   ),
   auth: AuthConfigSchema.prefault({ mode: "none" }).describe(
     "Authentication and token verification.",

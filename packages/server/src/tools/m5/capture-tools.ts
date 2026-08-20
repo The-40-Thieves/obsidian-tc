@@ -8,6 +8,7 @@
 // resolveVaultPath + enforcePathAcl and refuses to clobber an existing note.
 import { err, Pagination, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { IMPORT_DEDUPE_TAG_PREFIX } from "../../capture/highlight-import";
 import {
   type CaptureRow,
   captureCursor,
@@ -34,6 +35,15 @@ function splitTags(tags: string | null): string[] {
         .map((t) => t.trim())
         .filter((t) => t.length > 0)
     : [];
+}
+
+// THE-650: `import-dedupe:<hash>` is a machine identity highlight-import.ts stamps onto every
+// imported capture's tags for its OWN re-sync lookup (queue.ts's listCaptureTags reads the raw
+// column directly) — it is not a tag any human or committed note has a reason to see. Applied
+// wherever tags reach a reviewer or the vault (list_capture_queue, commitFrontmatter); NOT applied
+// to metadataScanText, which scans for poison rather than displaying anything.
+function visibleTags(tags: string[]): string[] {
+  return tags.filter((t) => !t.startsWith(IMPORT_DEDUPE_TAG_PREFIX));
 }
 
 // THE-855: poison_signals is stored as a JSON array (queue.ts's enqueueCapture); a row written
@@ -101,7 +111,7 @@ function commitFrontmatter(
 ): Frontmatter | null {
   const fm: Frontmatter = {};
   if (cap.title) fm.title = cap.title;
-  const tags = splitTags(cap.tags);
+  const tags = visibleTags(splitTags(cap.tags));
   if (tags.length > 0) fm.tags = tags;
   if (overrides) for (const [k, v] of Object.entries(overrides)) fm[k] = v;
   return Object.keys(fm).length > 0 ? fm : null;
@@ -214,7 +224,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
             capture_id: r.id,
             title: r.title,
             content_preview: r.content.slice(0, 200),
-            tags: splitTags(r.tags),
+            tags: visibleTags(splitTags(r.tags)),
             source: r.source,
             captured_at: r.captured_at,
             target_path_hint: r.target_path_hint,

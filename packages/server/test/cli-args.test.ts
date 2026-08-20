@@ -747,6 +747,59 @@ describe("THE-636 — parseCliArgs context-import", () => {
   });
 });
 
+describe("THE-650 — parseCliArgs import-highlights", () => {
+  it("bare import-highlights carries no vault (run_import_highlights enforces it)", () => {
+    expect(parseCliArgs(["import-highlights"])).toStrictEqual({ kind: "import-highlights" });
+  });
+
+  it("--vault is captured", () => {
+    expect(parseCliArgs(["import-highlights", "--vault", "main"])).toStrictEqual({
+      kind: "import-highlights",
+      vault: "main",
+    });
+  });
+
+  it("a positional becomes the config path, same as every other command", () => {
+    expect(parseCliArgs(["import-highlights", "/etc/otc.json", "--vault", "main"])).toStrictEqual({
+      kind: "import-highlights",
+      configPath: "/etc/otc.json",
+      vault: "main",
+    });
+  });
+
+  it("--config is honoured the same as a positional config path", () => {
+    expect(
+      parseCliArgs(["import-highlights", "--config", "/etc/otc.json", "--vault", "main"]),
+    ).toStrictEqual({ kind: "import-highlights", configPath: "/etc/otc.json", vault: "main" });
+  });
+
+  it("--since is captured and does not consume the config positional", () => {
+    expect(
+      parseCliArgs(["import-highlights", "--vault", "main", "--since", "2026-08-01T00:00:00Z"]),
+    ).toStrictEqual({
+      kind: "import-highlights",
+      vault: "main",
+      since: "2026-08-01T00:00:00Z",
+    });
+  });
+
+  it("carries --dry-run through as a boolean, omitted when absent", () => {
+    expect(parseCliArgs(["import-highlights", "--vault", "main", "--dry-run"])).toStrictEqual({
+      kind: "import-highlights",
+      vault: "main",
+      dryRun: true,
+    });
+    expect(parseCliArgs(["import-highlights", "--vault", "main"])).not.toHaveProperty("dryRun");
+  });
+
+  it("--vault with no value is a usage error", () => {
+    expect(parseCliArgs(["import-highlights", "--vault"])).toStrictEqual({
+      kind: "error",
+      message: "--vault requires a value",
+    });
+  });
+});
+
 describe("parseCliArgs — note-quality --suggest (THE-643)", () => {
   it("is omitted when absent, matching every other boolean flag's convention", () => {
     expect(parseCliArgs(["note-quality"])).not.toHaveProperty("suggest");
