@@ -125,6 +125,7 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "captureContent": true,
     "activationDecay": 0.5,
     "activationRerank": false,
+    "citationPreferences": false,
     "citationInfer": {
       "enabled": false,
       "intervalHours": 6
