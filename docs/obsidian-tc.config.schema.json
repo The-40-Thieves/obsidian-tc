@@ -283,6 +283,16 @@
         }
       }
     },
+    "readwise": {
+      "description": "Readwise highlight-import adapter. ABSENT (no token) means `import-highlights` no-ops with NO network call.",
+      "type": "object",
+      "properties": {
+        "token": {
+          "description": "Readwise access token (readwise.io/access_token), used as `Authorization: Token <token>` against the classic v2 export API. Secret — never logged or placed in an error/audit payload. Absent means `import-highlights` no-ops with NO network call.",
+          "type": "string"
+        }
+      }
+    },
     "auth": {
       "description": "Authentication and token verification.",
       "default": {

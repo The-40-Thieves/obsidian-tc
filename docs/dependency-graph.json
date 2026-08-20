@@ -2,17 +2,17 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 430,
-    "dependencies": 1931,
-    "subsystemPairs": 121,
-    "crossSubsystemImports": 873
+    "modules": 434,
+    "dependencies": 1950,
+    "subsystemPairs": 122,
+    "crossSubsystemImports": 880
   },
   "subsystems": {
     "auth": 4,
     "bridge": 8,
     "capability": 6,
-    "capture": 1,
-    "cli": 31,
+    "capture": 3,
+    "cli": 33,
     "config": 14,
     "db": 15,
     "doctor": 11,
@@ -65,7 +65,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 34
+      "weight": 37
     },
     {
       "from": "runtime",
@@ -333,8 +333,18 @@
       "weight": 3
     },
     {
+      "from": "capture",
+      "to": "db",
+      "weight": 2
+    },
+    {
       "from": "cli",
       "to": "providers",
+      "weight": 2
+    },
+    {
+      "from": "cli",
+      "to": "capture",
       "weight": 2
     },
     {
@@ -418,6 +428,11 @@
       "weight": 2
     },
     {
+      "from": "tools",
+      "to": "capture",
+      "weight": 2
+    },
+    {
       "from": "vault",
       "to": "db",
       "weight": 2
@@ -425,11 +440,6 @@
     {
       "from": "capability",
       "to": "search",
-      "weight": 1
-    },
-    {
-      "from": "capture",
-      "to": "db",
       "weight": 1
     },
     {
@@ -600,11 +610,6 @@
     {
       "from": "tools",
       "to": "config",
-      "weight": 1
-    },
-    {
-      "from": "tools",
-      "to": "capture",
       "weight": 1
     },
     {

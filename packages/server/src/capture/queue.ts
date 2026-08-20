@@ -85,6 +85,20 @@ export function getCapture(db: Database, id: string): CaptureRow | undefined {
     | undefined;
 }
 
+/**
+ * THE-650: every row's `tags`, already split, for one vault+source pair — PENDING and COMMITTED
+ * both. Deliberately bypasses `listCaptures`' cursor pagination: a caller building a dedup set
+ * (highlight-import.ts) needs the full source-scoped id space, not one page of it, and a
+ * committed row must still count — a highlight a human already reviewed and committed must not
+ * resurface just because it fell out of the pending queue.
+ */
+export function listCaptureTags(db: Database, vaultId: string, source: string): string[][] {
+  const rows = db
+    .prepare("SELECT tags FROM capture_queue WHERE vault_id = ? AND source = ?")
+    .all(vaultId, source) as { tags: string | null }[];
+  return rows.map((r) => (r.tags ? r.tags.split(",").filter((t) => t.length > 0) : []));
+}
+
 export interface ListCapturesOptions {
   committed?: boolean;
   source?: string;

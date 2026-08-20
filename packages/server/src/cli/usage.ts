@@ -122,6 +122,21 @@ Usage:
                                           reported, never resurrected, and an imported forget_log
                                           entry retroactively forgets any matching content already
                                           here. --dry-run reports counts and writes nothing.
+  obsidian-tc import-highlights [path] --vault <id> [--since <iso-date>] [--dry-run]
+                                          Pull highlights from a configured read-later source
+                                          (Readwise's v2 export API, the only adapter so far) and
+                                          stage them in capture_queue as source: "import" for
+                                          commit_capture review (THE-650) — the same staged,
+                                          human-gated path every capture producer uses; nothing
+                                          here writes to the vault directly. INERT with no
+                                          readwise.token configured: exits 0 with NO network call.
+                                          --vault is required (highlights from one account have no
+                                          source-side vault to infer). --since scopes to highlights
+                                          Readwise has updated after that ISO 8601 instant.
+                                          Deduplicates on a per-highlight hash of (source,
+                                          source_id, text, location, highlighted_at), so re-running
+                                          a sync never re-enqueues an already-staged highlight.
+                                          --dry-run reports counts and enqueues nothing.
   obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--json]
                                           Mint an HS256 bearer token from the config's auth block.
                                           Refuses to mint without an aud when the config binds one,

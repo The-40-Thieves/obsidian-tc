@@ -324,3 +324,17 @@ export const PlurConfigSchema = z.object({
       'argv prefix for shelling out to a local plur CLI instead of the HTTP endpoint, e.g. ["plur"]. Takes precedence over `endpoint`.',
     ),
 });
+
+// THE-650: the Readwise adapter for `obsidian-tc import-highlights` — the first producer of the
+// source-agnostic highlight-import format (capture/highlight-import.ts). Same shape and same
+// degradation contract as PlurConfigSchema just above: a bare token, ABSENT by default, and its
+// absence is meaningful — `import-highlights` no-ops with NO network call rather than failing,
+// so a deployment that never configures Readwise never notices this feature exists.
+export const ReadwiseConfigSchema = z.object({
+  token: z
+    .string()
+    .optional()
+    .describe(
+      "Readwise access token (readwise.io/access_token), used as `Authorization: Token <token>` against the classic v2 export API. Secret — never logged or placed in an error/audit payload. Absent means `import-highlights` no-ops with NO network call.",
+    ),
+});

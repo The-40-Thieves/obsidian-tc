@@ -165,9 +165,15 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // search/indexing/summarize-clusters.ts (the offline `obsidian-tc cluster` cadence) and
 // graph_search.ts/candidate_assembly.ts (retrieval-time, `source: "cluster_summary"`); see those
 // files' THE-628 comments. No existing key moved.
+// THE-644: adds the `experiential.citationPreferences` boolean flag (default false).
 const CONFIG_SCHEMA_BASELINE_SHA256 =
-  // THE-644: adds the `experiential.citationPreferences` boolean flag (default false).
-  "dd0cc621e9503891b1f86276723e249c0b4da73c6e2c27bb0be4d1354eaf0e54";
+  // THE-650: rebaselined deliberately. Adds ONE new optional block, `readwise` (a single key,
+  // `token`, string, optional) — the Readwise adapter config for `obsidian-tc import-highlights`
+  // (packages/server/src/cli/commands/import-highlights.ts). Absent token means the command
+  // no-ops with no network call; see packages/shared/src/config/observability.schema.ts's
+  // ReadwiseConfigSchema for the full description text. No existing key, type, default or
+  // constraint moved.
+  "07bb375284617e1a4cbc551c6187a26411e25034ebd829af8387467711b10416";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
