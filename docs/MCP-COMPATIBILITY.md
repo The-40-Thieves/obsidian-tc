@@ -7,6 +7,12 @@ dispatches cleared the harness's own variance gate, six times out of six. This p
 B only: what obsidian-tc's MCP surface can be shown to support, and what cannot honestly be claimed
 yet.
 
+See also [`MCP-CLIENT-COMPAT-MATRIX.md`](./MCP-CLIENT-COMPAT-MATRIX.md) (THE-725) — a narrower,
+code-focused cut across the client-identity surface (`client-info.ts`) and the three
+deprecated-but-served server→client features (`client-features.ts`: Logging, Roots, Sampling,
+SEP-2577), which surfaced two gaps between this repo's own code comments and what the pinned SDK
+actually does on the wire.
+
 **Ground rule: nothing below is asserted without evidence.** Every row cites where that evidence
 comes from — a test in this repo's own conformance suite, a source-level check against a locally
 available SDK, or "not tested." obsidian-tc is a public repository; a compatibility matrix is a

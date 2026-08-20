@@ -9,6 +9,11 @@ inferred is worth less than no matrix, because a reader cannot tell which cells 
 
 Contributions welcome — the [reproduction steps](#reproducing-a-row) below are the whole method.
 
+See also [`MCP-CLIENT-COMPAT-MATRIX.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/MCP-CLIENT-COMPAT-MATRIX.md)
+(THE-725) for known MCP client versions' protocol-revision ceilings sourced from outside this repo
+(not measured against a running obsidian-tc), alongside this server's own per-revision behavior for
+client identity and the deprecated Logging/Roots/Sampling features.
+
 ## The matrix
 
 Measured against **obsidian-tc 1.19.0** on **Ubuntu 24.04 aarch64** (Ampere), which is also the
