@@ -8,7 +8,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
-- **Client identity now reaches `tools/call` handlers (THE-861).** The pinned SDK
+- **Client identity now reaches `tools/call` handlers (#834, THE-861).** The pinned SDK
   (`@modelcontextprotocol/server@2.0.0`) reserves `io.modelcontextprotocol/clientInfo` as
   per-request envelope material and lifts it out of `params._meta` before any handler runs — on
   every message, in both spec eras — surfacing it instead at `extra.mcpReq.envelope`. `server.ts`
