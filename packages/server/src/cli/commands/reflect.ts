@@ -1,6 +1,9 @@
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
+import { openDatabase } from "../../db/open";
+import type { Database } from "../../db/types";
 import { evaluateEpisodes, extractPreferences } from "../../experiential/reflect";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
 
@@ -10,6 +13,12 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });
+  // THE-644: `experiential.citationPreferences` is the ship-dark gate on the citation evidence
+  // source in extractPreferences — off by default. cache.db is only opened when the flag is on,
+  // so an off deployment pays no extra handle or query cost, not merely an unused one.
+  const cacheDb: Database | undefined = cfg.experiential.citationPreferences
+    ? await openDatabase(join(cfg.cacheDir, "cache.db"))
+    : undefined;
   try {
     const nowMs = Date.now();
     // THE-701 removed the eligibility pass's judge; THE-673 removed extractPreferences' judge too
@@ -22,7 +31,7 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
     // which is exactly the blend the partition exists to make visible.
     const lines: string[] = [];
     for (const v of cfg.vaults) {
-      const prefs = await extractPreferences(edb, v.id, { nowMs });
+      const prefs = await extractPreferences(edb, v.id, { nowMs, cacheDb });
       lines.push(
         `preferences[${v.id}]: ${
           prefs.skipped
@@ -37,6 +46,7 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
     );
   } finally {
     edb.close?.();
+    cacheDb?.close?.();
   }
   return;
 }

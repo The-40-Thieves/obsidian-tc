@@ -209,6 +209,21 @@ describe("ExperientialConfigSchema.activationRerank (THE-424 Part A)", () => {
   });
 });
 
+// THE-644: the citation-evidence half of preference extraction — same ship-dark shape as
+// activationRerank above (default false, ranking-adjacent, needs a pre-registered eval before
+// the default moves).
+describe("ExperientialConfigSchema.citationPreferences (THE-644)", () => {
+  it("defaults to false on a minimal config", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.experiential.citationPreferences).toBe(false);
+  });
+
+  it("is settable to true and round-trips through ServerConfigSchema", () => {
+    const c = ServerConfigSchema.parse({ ...base, experiential: { citationPreferences: true } });
+    expect(c.experiential.citationPreferences).toBe(true);
+  });
+});
+
 // THE-591: closes the same "built and dark" gap THE-535 (above) documents for
 // experiential.activationRerank — retrieval.gatedRerank and indexing.streamingWalk existed as
 // fully-implemented, fully-tested code paths with NO config key at all, reachable only from the

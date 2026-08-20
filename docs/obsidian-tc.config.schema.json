@@ -1069,6 +1069,11 @@
           "description": "Apply the ACT-R cached-activation-score signal to graph search ranking: builds the lookup, threads it to every M7 graphSearch call, and enables the bounded bubble pass that composes it into the fused order (each item moves at most one position). Ships off; the A/B that would justify turning it on is THE-424 Part B.",
           "type": "boolean"
         },
+        "citationPreferences": {
+          "default": false,
+          "description": "Fold chunk_retrievals citation verdicts (citation_state / cited_in_response) into the deterministic preferred.search_mode preference counter, alongside episode task_result evidence: a search-family tool whose retrievals are CONFIRMED cited strengthens the key, one whose retrievals are REJECTED weakens it. Off by default — ranking-adjacent, needs a pre-registered eval before defaulting on. Needs citationInfer.enabled (or another citation_state producer) to have any effect.",
+          "type": "boolean"
+        },
         "citationInfer": {
           "description": "THE-717: scheduled citation-inference pass over a transcript index. Needs an out-of-tree producer for transcriptIndex — no MCP surface gives a server the assistant's answer.",
           "default": {},
