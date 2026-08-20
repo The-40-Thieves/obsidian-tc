@@ -9,7 +9,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### Added
 
 - **`experiential.citationPreferences` folds retrieval-level citation outcomes into learned
-  preferences (THE-644).** `extractPreferences`'s deterministic `preferred.search_mode` counter
+  preferences (#836, THE-644).** `extractPreferences`'s deterministic `preferred.search_mode` counter
   previously learned only from `agent_episodes.task_result` — the episode-level verdict. The
   retrieval-level signal (which CHUNKS actually got cited) lives on `chunk_retrievals.citation_state`
   / `cited_in_response` and was never wired in: the ticket's original target, `feedback`, has zero
