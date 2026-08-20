@@ -206,7 +206,25 @@ export function lexicalRouteResults(
   query: string,
   k: number,
   isReadable?: (path: string) => boolean,
+  /** THE-853: the caller's resolved `acl_path_members` set_id (from `resolveAclWalkFilter`), so a
+   *  restricted caller's bm25Chunks call takes the exact SQL JOIN+LIMIT path instead of the
+   *  over-fetch-then-JS-filter fallback and its THE-695 residual length-interference channel.
+   *  Absent for an unrestricted caller (nothing to filter) — unchanged behaviour. */
+  aclSetId?: number,
+  /** THE-853/THE-852: true when the caller is RESTRICTED and no set could be resolved — the same
+   *  fail-closed signal graph_expansion.ts reads for the graph walk. There is no aclSetId to join
+   *  on here either, so serving this call would mean the leaky over-fetch fallback ran for a
+   *  caller known to be restricted; skip the lexical short-circuit entirely instead. */
+  blocked?: boolean,
 ): GraphSearchResult[] {
+  if (blocked) {
+    console.warn(
+      `lexicalRouteResults: THE-853 fail-closed — ACL permitted-path set unresolved for a ` +
+        `restricted caller on vault "${vaultId}"; returning no lexical-route results rather ` +
+        `than running bm25Chunks through the leaky over-fetch fallback.`,
+    );
+    return [];
+  }
   // THE-632: the ACL goes IN, so unreadable chunks never occupy slots inside the SQL limit and
   // crowd out readable ones. The post-filter below is kept because it is free.
   //
@@ -215,13 +233,7 @@ export function lexicalRouteResults(
   // neither — the loop's guard is `isReadable && !isReadable(...)`, which is skipped entirely when
   // the argument is absent. What actually keeps this correct is that every production caller passes
   // it (verified repo-wide, THE-632). The API shape provides nothing; call-site coverage does.
-  const hits = bm25Chunks(
-    db,
-    vaultId,
-    query,
-    Math.max(k * 2, k),
-    ...(isReadable ? ([isReadable] as const) : ([] as const)),
-  );
+  const hits = bm25Chunks(db, vaultId, query, Math.max(k * 2, k), isReadable, aclSetId);
   const out: GraphSearchResult[] = [];
   for (const h of hits) {
     if (isReadable && !isReadable(h.path)) continue;

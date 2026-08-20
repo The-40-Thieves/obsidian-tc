@@ -35,6 +35,7 @@ import {
   packBudget,
   prewarmBundlePaths,
   type RetrievalRuntime,
+  resolveAclWalkFilter,
   retrievalHits,
 } from "./retrieval-runtime";
 import { VaultContextOutput } from "./schemas";
@@ -143,6 +144,13 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           }
         }
       }
+      // THE-853: resolve the caller's ACL partition ONCE for this handler — reused by the
+      // lexical-route short-circuit below AND the lesson-leg BM25 backfill further down, both of
+      // which call bm25Chunks OUTSIDE the buildGraphSearchOptions pipeline (the "standard" route
+      // resolves its own copy of the same thing, via the same function, inside that builder).
+      const walkFilter = resolveAclWalkFilter(ctx.db, v.id, ctx.acl, ctx.grantedScopes, (rel) =>
+        readableRel(ctx.acl, rel),
+      );
       // Same front door as vault_graph_search: the class router when enabled, the measured
       // engine otherwise — vault_context adds composition, never a second retrieval path.
       const route = deps.classRouter
@@ -155,8 +163,14 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       const policy = capturePolicy(deps, v.id, route.class);
       let results: GraphSearchResult[];
       if (route.class === "lexical") {
-        results = lexicalRouteResults(ctx.db, v.id, query, input.k, (rel) =>
-          readableRel(ctx.acl, rel),
+        results = lexicalRouteResults(
+          ctx.db,
+          v.id,
+          query,
+          input.k,
+          (rel) => readableRel(ctx.acl, rel),
+          walkFilter.aclSetId,
+          walkFilter.aclWalkFilter?.blocked,
         );
       } else {
         results = await cachedGraphSearch(
@@ -359,10 +373,23 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
             via: "engine",
           });
         }
-        if (lessons.length < 5) {
+        // THE-853: a restricted caller whose set is unresolved (`blocked`) must not fall through
+        // to bm25Chunks' leaky over-fetch fallback — same fail-closed rule as the lexical-route
+        // short-circuit above. Skipping the backfill loses an optional recall boost, never
+        // correctness (the `results`-derived `via: "engine"` lessons above are unaffected).
+        if (lessons.length < 5 && !walkFilter.aclWalkFilter?.blocked) {
           // THE-632: ACL in, so unreadable chunks cannot consume slots of the 40 before the
           // lesson-path filter runs. The readableRel check below stays as defense-in-depth.
-          for (const h of bm25Chunks(ctx.db, v.id, query, 40, (p) => readableRel(ctx.acl, p))) {
+          // THE-853: aclSetId threaded so a restricted caller's set is joined exactly, closing the
+          // THE-695 residual length-interference channel this call used to carry.
+          for (const h of bm25Chunks(
+            ctx.db,
+            v.id,
+            query,
+            40,
+            (p) => readableRel(ctx.acl, p),
+            walkFilter.aclSetId,
+          )) {
             if (lessons.length >= 5) break;
             if (seen.has(h.chunk_id) || !LESSON_PATH_RE.test(h.path)) continue;
             if (!readableRel(ctx.acl, h.path)) continue;

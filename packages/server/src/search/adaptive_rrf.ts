@@ -26,7 +26,36 @@ import { queryTerms } from "./chunk_fts";
 // on an interactive search path.
 const MAX_TERMS = 16;
 
-export function querySpecificity(db: Database, vaultId: string, query: string): number | null {
+/**
+ * THE-853 (security): `n` and `df` are corpus-wide counts, `WHERE vault_id = ?` only, with no ACL
+ * partition — a restricted caller whose ranking is tilted by this signal is being handed a term's
+ * document frequency computed over notes they cannot read. A term that occurs only in unreadable
+ * notes reports `df` from those notes; the specificity value derived from it still reorders the
+ * caller's OWN results, so the tilt itself is a cross-ACL term-presence oracle: query a rare term,
+ * watch adaptive RRF pull the lexical/sparse streams up or down, learn the term's whole-vault
+ * frequency without ever seeing a hit for it. Same root shape as THE-287 (dense)/THE-632
+ * (lexical+sparse)/THE-852 (graph walk) — an aggregate computed over the whole corpus and exposed,
+ * via ranking rather than content, to a caller who sees only part of it.
+ *
+ * Fix mirrors `resolveAclWalkFilter`'s fail-closed disambiguation (retrieval-runtime.ts):
+ *   - `blocked` true (caller is RESTRICTED and no `acl_path_members` set could be resolved) ->
+ *     `null` unconditionally, before either count runs. There is no aclSetId to join on, so
+ *     computing anything here would mean the whole-corpus stat leaks exactly as before; `null`
+ *     disables adaptive RRF for the query and callers already fall back to neutral (1/1/1) weights
+ *     on `null`, same as "no signal" today.
+ *   - `aclSetId` present -> `n` and each term's `df` are joined to `acl_path_members` on that set,
+ *     so the signal is computed over exactly the notes this caller can read.
+ *   - neither (unrestricted caller, nothing to filter) -> unchanged whole-corpus counts, byte-
+ *     identical to before this ticket.
+ */
+export function querySpecificity(
+  db: Database,
+  vaultId: string,
+  query: string,
+  aclSetId?: number,
+  blocked?: boolean,
+): number | null {
+  if (blocked) return null;
   const terms = [...new Set(queryTerms(query))].slice(0, MAX_TERMS);
   if (terms.length === 0) return null;
   try {
@@ -35,23 +64,37 @@ export function querySpecificity(db: Database, vaultId: string, query: string): 
     // RRF rather than failing loudly. The corpus size comes from `chunks` instead: the two are
     // 1:1 by construction (ensureChunkFts rebuilds on any count divergence), and `chunks` has an
     // index on (vault_id, path) where the old FTS scan had none.
-    const { n } = db
-      .prepare("SELECT COUNT(*) AS n FROM chunks WHERE vault_id = ?")
-      .get(vaultId) as {
+    const nStmt =
+      aclSetId === undefined
+        ? db.prepare("SELECT COUNT(*) AS n FROM chunks WHERE vault_id = ?")
+        : db.prepare(
+            "SELECT COUNT(*) AS n FROM chunks JOIN acl_path_members a ON a.set_id = ? AND a.path = chunks.path WHERE chunks.vault_id = ?",
+          );
+    const { n } = (aclSetId === undefined ? nStmt.get(vaultId) : nStmt.get(aclSetId, vaultId)) as {
       n: number;
     };
     if (n === 0) return null;
-    // df still needs the FTS table for MATCH; the join resolves the vault. MATCH narrows first, so
-    // the join is over matched rows rather than the corpus.
-    const dfStmt = db.prepare(
-      "SELECT COUNT(*) AS df FROM chunk_fts JOIN chunks ON chunks.rowid = chunk_fts.rowid WHERE chunks.vault_id = ? AND chunk_fts MATCH ?",
-    );
+    // df still needs the FTS table for MATCH; the join resolves the vault (and, when aclSetId is
+    // present, the caller's permitted-path set — same JOIN shape bm25Chunks' aclSetId branch uses,
+    // MATCH narrows first so the join is over matched rows rather than the corpus).
+    const dfStmt =
+      aclSetId === undefined
+        ? db.prepare(
+            "SELECT COUNT(*) AS df FROM chunk_fts JOIN chunks ON chunks.rowid = chunk_fts.rowid WHERE chunks.vault_id = ? AND chunk_fts MATCH ?",
+          )
+        : db.prepare(
+            "SELECT COUNT(*) AS df FROM chunk_fts JOIN chunks ON chunks.rowid = chunk_fts.rowid JOIN acl_path_members a ON a.set_id = ? AND a.path = chunks.path WHERE chunks.vault_id = ? AND chunk_fts MATCH ?",
+          );
     // BM25 idf, normalized by its df->0 ceiling so a corpus-unique term sits near 1.
     const idfMax = Math.log(1 + (n + 0.5) / 0.5);
     let sum = 0;
     let present = 0;
     for (const t of terms) {
-      const { df } = dfStmt.get(vaultId, `"${t}"`) as { df: number };
+      const { df } = (
+        aclSetId === undefined
+          ? dfStmt.get(vaultId, `"${t}"`)
+          : dfStmt.get(aclSetId, vaultId, `"${t}"`)
+      ) as { df: number };
       if (df === 0) continue;
       sum += Math.log(1 + (n - df + 0.5) / (df + 0.5)) / idfMax;
       present += 1;

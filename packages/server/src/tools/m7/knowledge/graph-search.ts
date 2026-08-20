@@ -52,6 +52,7 @@ import {
   captureCoverage,
   capturePolicy,
   type RetrievalRuntime,
+  resolveAclWalkFilter,
   retrievalHits,
 } from "./retrieval-runtime";
 import { VaultGraphSearchOutput } from "./schemas";
@@ -105,8 +106,20 @@ async function searchOneVault(
   const policy = capturePolicy(deps, vaultId, route.class);
   const coverage = captureCoverage();
   if (route.class === "lexical") {
-    const results = lexicalRouteResults(ctx.db, vaultId, query.text, query.finalTopK, (rel) =>
+    // THE-853: resolve THIS LEG's own ACL partition (never ctx.acl — see this file's header,
+    // invariant 1) so the lexical-route bm25Chunks call takes the exact JOIN path (or fails
+    // closed) instead of the leaky over-fetch fallback.
+    const walkFilter = resolveAclWalkFilter(ctx.db, vaultId, acl, ctx.grantedScopes, (rel) =>
       readableRel(acl, rel),
+    );
+    const results = lexicalRouteResults(
+      ctx.db,
+      vaultId,
+      query.text,
+      query.finalTopK,
+      (rel) => readableRel(acl, rel),
+      walkFilter.aclSetId,
+      walkFilter.aclWalkFilter?.blocked,
     );
     deps.retrievalLog?.({
       queryText: query.text,
