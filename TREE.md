@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,198 tracked code files · 192,586 lines.
+**Scale:** 1,198 tracked code files · 192,823 lines.
 
-TypeScript 178,495 · JavaScript 9,506 · SQL 1,843 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 178,732 · JavaScript 9,506 · SQL 1,843 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,7 +86,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 90 | 17,905 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 90 | 17,956 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 12,152 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 25 | 6,158 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 18 | 4,836 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
@@ -287,7 +287,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**430 modules · 1926 dependencies · 121 distinct subsystem pairs · 869 cross-subsystem imports.**
+**430 modules · 1927 dependencies · 121 distinct subsystem pairs · 870 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -341,7 +341,7 @@ flowchart LR
   runtime -->|20| db
   tools -->|19| db
   search -->|16| vault
-  tools -->|15| experiential
+  tools -->|16| experiential
   cli -->|13| experiential
   runtime -->|13| experiential
   runtime -->|13| scheduler
@@ -377,11 +377,11 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 235 | `tools` | 386 |
+| `vault` | 235 | `tools` | 387 |
 | `db` | 166 | `runtime` | 153 |
 | `search` | 108 | `search` | 85 |
 | `mcp` | 100 | `cli` | 83 |
-| `experiential` | 46 | `experiential` | 30 |
+| `experiential` | 47 | `experiential` | 30 |
 <!-- END GENERATED: tree-fan -->
 
 The shape is layered and largely acyclic at the subsystem level: the tool surface

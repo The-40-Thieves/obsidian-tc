@@ -18,6 +18,7 @@ import {
   markCommitted,
 } from "../../capture/queue";
 import { inTransaction } from "../../db/txn";
+import { assessPoison } from "../../experiential/poison";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { type Frontmatter, serializeNote } from "../../vault/frontmatter";
@@ -104,6 +105,31 @@ function commitFrontmatter(
   if (tags.length > 0) fm.tags = tags;
   if (overrides) for (const [k, v] of Object.entries(overrides)) fm[k] = v;
   return Object.keys(fm).length > 0 ? fm : null;
+}
+
+// THE-858: enqueue-time assessPoison (queue.ts's enqueueCapture) scans only `content`. Everything
+// else that commit_capture writes to the vault — the title, tags, the frontmatter-override KEYS and
+// values, and the target PATH (whose basename is folded into BM25/embedding text and rendered into
+// model evidence) — never passed any scan. Assemble ONLY that metadata here, deliberately WITHOUT
+// `content`: assessPoison truncates at 64 KiB, so folding content in would let a long clean prefix
+// push real poison in the metadata past the scan window (or let clean metadata dilute high-risk
+// content). Content is handled separately by the caller via the stored enqueue verdict.
+function metadataScanText(
+  cap: CaptureRow,
+  overrides: Record<string, unknown> | undefined,
+  targetPath: string,
+): string {
+  const parts: string[] = [targetPath];
+  if (cap.title) parts.push(cap.title);
+  const tags = splitTags(cap.tags);
+  if (tags.length > 0) parts.push(tags.join(","));
+  if (overrides) {
+    for (const [k, v] of Object.entries(overrides)) {
+      parts.push(k);
+      parts.push(typeof v === "string" ? v : JSON.stringify(v));
+    }
+  }
+  return parts.join("\n");
 }
 
 export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
@@ -240,6 +266,31 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
           commitFrontmatter(cap, input.frontmatter_overrides),
           cap.content,
         );
+
+        // THE-858: close every channel that reaches the vault, in three separate scans so the
+        // 64 KiB assessPoison truncation can't let one channel hide another. Mirrors THE-639's
+        // risk==="high" -> err.contentRejected threshold.
+        const rejectPoison = (signals: string[]): never => {
+          throw err.contentRejected(
+            "capture failed the poison scan (risk: high) and was not committed",
+            { capture_id: cap.id, signals },
+          );
+        };
+        // 1. `content` was scanned at enqueue; honor the STORED verdict directly rather than
+        //    re-deriving it from a concatenated payload a long clean prefix could downgrade.
+        if (cap.poison_risk === "high") rejectPoison(parseSignals(cap.poison_signals));
+        // 2. Scan the metadata (title/tags/override keys+values/path) — never scanned at enqueue.
+        const metaAssessment = assessPoison(
+          metadataScanText(cap, input.frontmatter_overrides, rel),
+        );
+        if (metaAssessment.risk === "high") rejectPoison(metaAssessment.signals);
+        // 3. A legacy row (poison_risk NULL — enqueued before scanning existed, or via a path that
+        //    bypassed it) had its content scanned by nobody; scan it now.
+        if (cap.poison_risk === null) {
+          const contentAssessment = assessPoison(cap.content);
+          if (contentAssessment.risk === "high") rejectPoison(contentAssessment.signals);
+        }
+
         writeNoteAtomic(abs, content, true);
         deps.reindex?.(v.id, rel, content);
         const now = (ctx.now ?? Date.now)();
