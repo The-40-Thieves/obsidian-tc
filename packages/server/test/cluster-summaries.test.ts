@@ -19,6 +19,7 @@ import {
   clusterKeyOf,
   clusterSummaryId,
   existingClusterKeys,
+  gcSupersededClusterSummaries,
   hasClusterSummaries,
   searchClusterSummaries,
   upsertClusterSummary,
@@ -125,6 +126,67 @@ describe("cluster-summaries store", () => {
   it("hasClusterSummaries reflects table presence", () => {
     const db = makeDb();
     expect(hasClusterSummaries(db)).toBe(true);
+  });
+
+  describe("gcSupersededClusterSummaries", () => {
+    it("deletes a summary AND its members when its cluster_key is not in the current key set", () => {
+      const db = makeDb();
+      upsertClusterSummary(db, "v1", {
+        clusterKey: "stale",
+        summary: "s",
+        model: "m",
+        memberPaths: ["A.md"],
+        createdAt: 1,
+      });
+      const n = gcSupersededClusterSummaries(db, "v1", new Set(["fresh"]));
+      expect(n).toBe(1);
+      expect(existingClusterKeys(db, "v1").has("stale")).toBe(false);
+      const members = db
+        .prepare("SELECT * FROM cluster_summary_members WHERE vault_id = ? AND cluster_key = ?")
+        .all("v1", "stale");
+      expect(members).toEqual([]);
+    });
+
+    it("leaves a row whose cluster_key IS in the current key set untouched", () => {
+      const db = makeDb();
+      upsertClusterSummary(db, "v1", {
+        clusterKey: "keep",
+        summary: "s",
+        model: "m",
+        memberPaths: ["A.md"],
+        createdAt: 1,
+      });
+      const n = gcSupersededClusterSummaries(db, "v1", new Set(["keep"]));
+      expect(n).toBe(0);
+      expect(existingClusterKeys(db, "v1").has("keep")).toBe(true);
+    });
+
+    it("is vault-scoped: never deletes another vault's rows even with an empty current-key set", () => {
+      const db = makeDb();
+      upsertClusterSummary(db, "v1", {
+        clusterKey: "k1",
+        summary: "s",
+        model: "m",
+        memberPaths: ["A.md"],
+        createdAt: 1,
+      });
+      upsertClusterSummary(db, "v2", {
+        clusterKey: "k1",
+        summary: "s",
+        model: "m",
+        memberPaths: ["A.md"],
+        createdAt: 1,
+      });
+      const n = gcSupersededClusterSummaries(db, "v1", new Set());
+      expect(n).toBe(1);
+      expect(existingClusterKeys(db, "v1").has("k1")).toBe(false);
+      expect(existingClusterKeys(db, "v2").has("k1")).toBe(true); // untouched
+    });
+
+    it("no-ops (0, no throw) on a cache.db that predates the cluster_summaries migration", () => {
+      const bare = openMemoryDb() as unknown as Database;
+      expect(gcSupersededClusterSummaries(bare, "v1", new Set())).toBe(0);
+    });
   });
 });
 
@@ -301,7 +363,92 @@ describe("buildClusterSummaries (offline cluster-cadence pass)", () => {
     const second = await buildClusterSummaries(db, "v1", gateway, embed, { k: 1 });
     expect(second.summarized).toBe(1);
     expect(gateway.extract).toHaveBeenCalledTimes(2);
-    expect(existingClusterKeys(db, "v1").size).toBe(2); // old key untouched, new key added
+    // THE-854: the OLD key is superseded (this pass's only cluster is the new one) and is
+    // GARBAGE-COLLECTED by the same pass that wrote the new key — not left to accumulate.
+    expect(existingClusterKeys(db, "v1").size).toBe(1);
+    expect(existingClusterKeys(db, "v1").has("k1")).toBe(false);
+  });
+
+  it("THE-854: GC deletes the superseded row's member rows too, not just the summary row", async () => {
+    const db = makeDb();
+    seedNoteSummaries(db, "v1", [
+      ["A.md", "hA", "content A"],
+      ["B.md", "hB", "content B"],
+    ]);
+    const gateway = fakeGateway();
+    const embed = fakeEmbedProvider();
+    await buildClusterSummaries(db, "v1", gateway, embed, { k: 1 });
+    const oldKey = [...existingClusterKeys(db, "v1")][0] as string;
+
+    upsertNoteSummary(db, "v1", {
+      path: "A.md",
+      contentHash: "hA2",
+      summary: "content A, edited",
+      model: "note-model",
+      embedding: [1, 0, 0, 0],
+      embeddingModel: "e",
+      createdAt: 2,
+    });
+    await buildClusterSummaries(db, "v1", gateway, embed, { k: 1 });
+
+    const memberRows = db
+      .prepare("SELECT * FROM cluster_summary_members WHERE vault_id = ? AND cluster_key = ?")
+      .all("v1", oldKey);
+    expect(memberRows).toEqual([]);
+    const summaryRows = db
+      .prepare("SELECT * FROM cluster_summaries WHERE vault_id = ? AND cluster_key = ?")
+      .all("v1", oldKey);
+    expect(summaryRows).toEqual([]);
+  });
+
+  it("THE-854: GC is vault-scoped — another vault's rows are never touched", async () => {
+    const db = makeDb();
+    seedNoteSummaries(db, "v1", [
+      ["A.md", "hA", "content A"],
+      ["B.md", "hB", "content B"],
+    ]);
+    seedNoteSummaries(db, "v2", [
+      ["A.md", "hA", "content A"],
+      ["B.md", "hB", "content B"],
+    ]);
+    const gateway = fakeGateway();
+    const embed = fakeEmbedProvider();
+    await buildClusterSummaries(db, "v1", gateway, embed, { k: 1 });
+    await buildClusterSummaries(db, "v2", gateway, embed, { k: 1 });
+    const v2KeyBefore = [...existingClusterKeys(db, "v2")];
+
+    // Re-cluster v1 ONLY, with a membership change — must not touch v2's rows at all.
+    upsertNoteSummary(db, "v1", {
+      path: "A.md",
+      contentHash: "hA2",
+      summary: "content A, edited",
+      model: "note-model",
+      embedding: [1, 0, 0, 0],
+      embeddingModel: "e",
+      createdAt: 2,
+    });
+    await buildClusterSummaries(db, "v1", gateway, embed, { k: 1 });
+
+    expect(existingClusterKeys(db, "v1").size).toBe(1);
+    expect([...existingClusterKeys(db, "v2")]).toEqual(v2KeyBefore);
+    expect(existingClusterKeys(db, "v2").size).toBe(1);
+  });
+
+  it("THE-854: an unchanged re-run (same cluster_key set) deletes nothing", async () => {
+    const db = makeDb();
+    seedNoteSummaries(db, "v1", [
+      ["A.md", "hA", "content A"],
+      ["B.md", "hB", "content B"],
+    ]);
+    const gateway = fakeGateway();
+    const embed = fakeEmbedProvider();
+    await buildClusterSummaries(db, "v1", gateway, embed, { k: 1 });
+    const keysBefore = [...existingClusterKeys(db, "v1")];
+    expect(keysBefore.length).toBe(1);
+
+    const second = await buildClusterSummaries(db, "v1", gateway, embed, { k: 1 });
+    expect(second.skipped).toBe(1);
+    expect([...existingClusterKeys(db, "v1")]).toEqual(keysBefore);
   });
 
   it("batch-embeds cluster summaries via a VARIABLE array (query-encoder.test.ts's invariant)", async () => {
@@ -372,6 +519,7 @@ describe("buildClusterSummaries (offline cluster-cadence pass)", () => {
       summarized: 0,
       skipped: 0,
       failed: 0,
+      gced: 0,
     });
     expect(gateway.extract).not.toHaveBeenCalled();
   });
