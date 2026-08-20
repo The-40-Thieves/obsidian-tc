@@ -322,6 +322,11 @@ describe("make.md — /makemd/spaces, /makemd/query", () => {
   // would return if called — that needs a one-time live-vault capture (or confirmation this
   // bridge targets a pre-rewrite version of the plugin) before it can be pinned honestly. What
   // CAN be pinned is what the bridge does when handed the real, current API surface.
+  //
+  // THE-860: re-verified the same finding against the CURRENT published main (cb9ca90, v1.3.5,
+  // 2026-08-20) and confirmed IAPI has had neither method since at least v1.0.1 (2024-12-27) — the
+  // capability is genuinely gone, not renamed. Both routes below now fail loud
+  // (`plugin_unreachable`) instead of /spaces silently degrading to `[]`; see makemd.ts.
   const realCurrentApi = {
     frame: { update: () => {} },
     properties: { color: () => "", sticker: () => undefined, value: () => "" },
@@ -355,20 +360,18 @@ describe("make.md — /makemd/spaces, /makemd/query", () => {
     },
   };
 
-  it("spaces(): a real current api object silently answers an empty list, not an error", () => {
+  it("spaces(): a real current api object IS detected as plugin_unreachable (THE-860)", () => {
+    // Fixed by THE-860: makemd.ts now checks `typeof api.spaces === "function"` before calling and
+    // fails loud, mirroring /query's existing guard, instead of silently degrading to `[]`.
     const app = fakeApp({ "make-md": { api: realCurrentApi } });
     const { res, seen } = makeRes();
     findRoute(buildMakemdRoutes(app), "/makemd/spaces")(req({}), res);
-    // ok:true — plugin_unreachable never fires because requireApi only checks `.api` is present,
-    // not that it has a `spaces` method. `typeof api.spaces === "function"` (makemd.ts:13) is
-    // false, so this degrades to an empty array with no signal anything is wrong.
-    expect(seen.body).toMatchObject({ ok: true, result: { spaces: [] } });
+    expect(seen.body).toMatchObject({ ok: false, code: "plugin_unreachable" });
   });
 
   it("query(): a real current api object IS detected as plugin_unreachable", () => {
-    // Unlike /spaces, /query explicitly checks `if (!api.query)` (makemd.ts:26) before calling —
-    // so this path DOES surface a typed error today. Included as the contrasting case: within the
-    // same bridge, one method degrades silently and the sibling method fails loud.
+    // /query has always explicitly checked `if (!api.query)` (makemd.ts) before calling — so this
+    // path surfaces a typed error, same as /spaces now does post-THE-860.
     const app = fakeApp({ "make-md": { api: realCurrentApi } });
     const { res, seen } = makeRes();
     findRoute(buildMakemdRoutes(app), "/makemd/query")(req({ space_id: "s1" }), res);
