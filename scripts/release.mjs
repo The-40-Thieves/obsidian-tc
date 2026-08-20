@@ -99,6 +99,20 @@ const NOT_USER_VISIBLE = new Map([
   ["624", "docs tooling: TREE.md §3/§4 generation and a facts-check pattern"],
   ["635", "dev tooling: merge-driver registration path, not reachable from the product"],
   ["637", "dev tooling: brought bun-smoke into the typechecker as its own tsc project"],
+  ["764", "eval harness: --activation/--bubble-safe flag validation, eval-only"],
+  ["769", "eval harness: ACL overlay + per-principal expected sets for the corpus, eval-only"],
+  ["770", "eval harness: ACL leakage gate, eval-only"],
+  ["773", "perf baseline: warm the txn loop before timing; baseline recording, no shipped code"],
+  [
+    "774",
+    "perf baseline: guard that a baseline still matches its recording, no shipped-code effect",
+  ],
+  ["775", "perf baseline re-record on the CI runner"],
+  ["781", "eval harness: refuse a run whose flag cannot do its work, eval-only"],
+  ["782", "eval harness: typecheck eval/ + mispaired-golden-set guard; dev tsconfig/script only"],
+  ["783", "eval harness: ceiling + fusion-conversion probe result, eval-only"],
+  ["816", "release tooling: reranker-local prepack build guard, no shipped-code effect"],
+  ["822", "test-only: 15s timeout for plane-disabled-reflect-stays-wired"],
 ]);
 
 // Completeness gate. release.mjs only RENAMES [Unreleased] -> [next]; it does not generate notes.

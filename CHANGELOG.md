@@ -6,9 +6,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-08-20
+
 ### Added
 
-- **`get_index_status` reports in-flight `index_vault` progress (THE-645 item 4).** The tool call
+- **`get_index_status` reports in-flight `index_vault` progress (#807, THE-645 item 4).** The tool call
   itself carried no progress seam — `index_vault` returned once, at completion, and the longest
   recorded call on a live deployment ran 7m11s with no observable output in between. `indexVault`
   now fires an optional `onProgress` callback once per completed `flush()` batch (never per note,
@@ -23,9 +25,140 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   out a different, still-running vault's entry (caught in review before merge). The slot reports
   "an" in-flight run, not "all" of them, when two overlap.
 
+- **A bundled `local` cross-encoder reranker — `gatedRerank` with no gateway and no external service
+  (#806, THE-705).** A new `local` reranker provider runs the int8 ONNX export of
+  `cross-encoder/ms-marco-MiniLM-L6-v2` (~23 MB, Apache-2.0) via `@huggingface/transformers`,
+  lazy-loaded and memoized on the first `rerank()` call so resolving it at boot costs nothing beyond
+  a small dynamic import. It ships as a separate optional package
+  (`@the-40-thieves/obsidian-tc-reranker-local`, deliberately outside the root workspace so its
+  ~230 MB `onnxruntime-node` never reaches a root `bun install`); model weights are downloaded and
+  sha256-verified by `bun run fetch-model`, not committed. Absent the package, the registry surfaces
+  an actionable `bun add …` error and retrieval degrades to RRF-only. No default changes —
+  `retrieval.gatedRerank` stays dark.
+
+- **Federated multi-vault search with per-vault ACL (#809, THE-630).** `vault_graph_search` gains an
+  optional `vaults[]` field (max 8) that fans one query across multiple vaults and fuses the
+  per-vault ranked lists by rank-based RRF, keyed on `(vault, path)` so two vaults sharing a
+  relative path never collapse. ACL is enforced **per vault** — each leg resolves its own
+  `FolderAcl` and is fingerprinted under its own vault's ACL in the query cache, never once-for-all
+  — and a vault-bound (HTTP-token) caller is refused the moment it names any vault outside its
+  binding. Single-vault callers are unaffected.
+
+- **Note-level and cluster-level summary tiers, dark by default (#817, #818, THE-628).** An
+  index-time leaf summarizer writes one CURRENT summary per `(vault, path)` keyed on the existing
+  `content_hash` (`retrieval.summaries.enabled`, default false), and a RAPTOR-style tier-2 clusters
+  those note summaries and summarizes each cluster on the offline `obsidian-tc cluster` cadence
+  (`retrieval.summaries.clusters.enabled`, default false, independent of the note flag). A cluster
+  summary is derived from multiple notes, so a caller sees it only when **every** member note is
+  readable — the note tier's per-path check is insufficient there. Neither flag is flipped on and no
+  retrieval-quality result is claimed yet.
+
+- **Point-in-time `since`/`until` retrieval filter (#824, THE-635).** A deterministic filter over
+  `chunks.created_at`/`updated_at` reusing the existing temporal range shape: a chunk created after
+  the cutoff did not exist yet and is excluded, and every surviving chunk is flagged
+  `changedSinceD` so current content is never silently served as if it were the historical state.
+  This is the narrow v1 — full past-content reconstruction is explicitly out of scope.
+
+- **`work_search` gains an opt-in `semantic` mode (#820, THE-642).** A cosine channel over
+  `agent_episodes.summary` fused with the existing lexical match by RRF: lexical stays the
+  exact-match failsafe for names/dates/ids, semantic recovers paraphrase-only matches. It is a
+  query-time brute-force cosine over a bounded, already-filtered candidate pool (no persisted vector
+  index, no migration); episodes with no summary are simply absent from the semantic stream rather
+  than an error.
+
+- **A writer for `agent_episodes.summary` — Tier 0, deterministic (#819, THE-752).** The column had
+  readers and no writer since 2026-07-11 (0 of 510 rows populated). `evaluateEpisodes` now templates
+  a compact provenance receipt — intent, verdict (`task_result`), a tool-call tally over the
+  session window, and parsed tags — into `summary` on every row it evaluates. Zero-LLM by design:
+  every field is copied or tallied from columns already written at capture, so there is no
+  summarizing-of-summaries.
+
+- **The task-verdict producer for `agent_episodes.task_result` (#804, THE-726).** The column had had
+  readers (reflect's bad-result hold, the preference-evidence gate) and no writer since it was
+  renamed, inert at 0 of 630 live rows. New `work_result(result, as_of?)` takes **no** `session_id`
+  — it resolves the caller's own open session from the server-observed principal, so THE-838's
+  cross-principal hole cannot exist here by construction; `as_of` is clamped into the session's own
+  span. One stamp at close covers a session.
+
+- **Preference counters are now deterministic over typed evidence (#805, THE-673).**
+  `extractPreferences` replaces its LLM judge with a deterministic counter reusing THE-726's
+  window-grouping, deriving `preferred.search_mode` strengthen/weaken deltas from `task_result`
+  signs and the majority search-family tool per window — no free-form proposal, no parse-failure
+  mode. A TypeScript allowlist gates every delta; it ships with the one key that has a real producer
+  today, the other four staying unregistered until their inputs exist. `reflect` no longer
+  constructs a gateway client for this path.
+
+- **Proactive advisory surfacing, off by default (#779, #810, THE-634).** A scheduler job gathers
+  candidates (changed notes, open contradictions, recent syntheses), scores them against open goals
+  per vault, and selects per open session; each selected advisory writes a `chunk_retrievals` row
+  (`surface_type` `advisory`) so `record_retrieval_feedback` stamps dismissals unmodified, and
+  publishes over a new `subscriptions/listen` extension (silently no-op for legacy LiteLLM-fronted
+  clients). Activation's `chunk_retrievals` reads exclude `surface_type='advisory'`, so a
+  pushed-but-never-retrieved note cannot gain fake ACT-R activation. New
+  `experiential.proactive` block, `enabled` default false.
+
+- **A sanctioned, poison-scanned path for agent-synthesised notes (#814, THE-639).** `write_note`
+  and `append_note` gain an optional `provenance: "authored" | "agent_synthesis"` field (default
+  `"authored"`, byte-identical for callers that omit it). When `"agent_synthesis"`, the content runs
+  through `assessPoison` (THE-238) before any write: high risk is refused with a new
+  `content_rejected` code, lower risk writes and surfaces `{risk, signals}` as `poison_assessment`.
+  This closes a real gap — these tools previously ran no poison scan at all.
+
+- **Actionable quality data (#813, THE-643).** Three read-only additions over existing schemas:
+  `write_note`/`append_note`/`patch_note` return an optional `quality_warning` (a single indexed
+  point read after the write; `null` means the rollup never ran, never a false all-clear);
+  `obsidian-tc note-quality --suggest` prints one plain-text remediation line per flag without ever
+  writing to the vault; and the per-note report gains an `activation_conflict` flag when a note's
+  `stale_access` and its aggregate activation score disagree.
+
+- **Vendor-neutral export/import of the derived plane (#808, THE-636).** New CLI-only
+  `obsidian-tc context-export`/`context-import` over the nine `experiential.db` tables, producing a
+  versioned JSON bundle. Export refuses a destination inside any vault root and always excludes
+  blocked/tombstoned episodes; import validates every row against the current schema before any
+  write, refuses a `format_version` mismatch, is idempotent via natural-key dedup, and enforces
+  forget-wins-over-import in both directions. No new MCP tool and no new migration.
+
+- **Memory entities get a lifecycle — retire, rename, unlink, delete (#795, THE-833).** Entities
+  could be created but never removed or renamed. `memory_entities.status`
+  (`active`/`retired`, migration `20260814_001`) is the primary reversible path: `get_entity` and
+  `query_entity_graph` filter retired entities out by default with an explicit `include_retired`
+  opt-in. `rename_entity` moves the materialized note (preserving frontmatter) and re-materializes
+  every other entity with a relation to it so their `[[links]]` follow; free-text mentions of the
+  old name elsewhere are not rewritten. The append-only philosophy is preserved.
+
+- **`obsidian-tc elicit` — a way to satisfy the confirmation gate (#796, THE-826).** THE-824 made the
+  16 conditionally-gated tools advertise their `elicit_token` without giving anyone a way to
+  complete it, and MCP elicitation is unimplemented by several clients (Claude Code among them), so
+  those operations were unreachable. `obsidian-tc elicit --hash <args_hash> --tool <name>` mints a
+  single-use, TTL-bound token bound to the args_hash, vault and caller the gate checks. It is a CLI
+  subcommand and deliberately **not** an MCP tool — wiring it as a tool would hand the agent under
+  the gate a way to clear its own gate. Minting requires opening the same `cache.db` the server
+  reads, which already grants strictly more authority.
+
+- **A root `gateway` config block (`baseUrl`/`token`) (#792, THE-832).** The inference gateway was
+  reachable only via `OBSIDIAN_TC_GATEWAY_URL`/`_TOKEN`; a reporter's host app rewrote its MCP
+  config on restart and dropped env keys it did not author, silently reverting the URL and leaving
+  every generative seam unavailable with no error. `obsidian-tc.config.json` can now set
+  `gateway.baseUrl`/`token`, which take precedence over the env vars. An absent block behaves
+  exactly as before, and `token` is never threaded into `get_server_config`, so it cannot leak
+  there.
+
+- **Differential `vault_context` and persona scoping (#811, THE-647).** `vault_context` now floors
+  its `since` against a server-stored watermark rather than trusting the client-supplied cutoff, so
+  a client using its own clock (or replaying a stale `since`) can no longer silently and permanently
+  lose a changed row past its cutoff.
+
+- **`indexing.chunkTokens` gives the chunk-size budget a config handle (#765, THE-424).**
+  `chunkNote()` was always called with no options, pinning the budget at an inline 512 editable only
+  in source. It is now threaded from config through every supply point (CLI index, both
+  server-runtime and both tool-wiring sites), mirroring `chunkContext`. It also **joins the
+  representation fingerprint** and that is the load-bearing half: it is the first axis that changes
+  what a chunk *is* rather than what its vector means, so a mixed-budget index must compare unequal —
+  otherwise the vec-index refill would repopulate with vectors for chunks that no longer exist.
+
 ### Security
 
-- **`end_session` now refuses to end a session belonging to another principal (THE-838).** It
+- **`end_session` now refuses to end a session belonging to another principal (#803, THE-838).** It
   validated only that the session existed and matched the requested vault — it never compared
   `workspace_sessions.principal` to the calling principal. So any caller holding `write:workspace`
   on a vault could end any session in that vault, and because the handler appends a `session_end`
@@ -54,6 +187,47 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   Reads are unchanged and remain a deliberately different posture: `get_session_traces` is
   `read:workspace`-scoped and does not filter by principal, mitigating the content axis instead by
   stripping captured arguments. See SECURITY.md's store-scope table.
+
+- **The graph-walk ACL filter is now wired into every M7 surface and defaults on (#815, THE-852).**
+  THE-695 built and proved the recursive-CTE ACL join but shipped it with zero non-test callers —
+  `buildGraphSearchOptions` never set `aclWalkFilter`/`aclSetId`, so `vault_graph_search`,
+  `knowledge_search`, `vault_context`, `reflect` and `diagnose_retrieval` all ran the graph walk
+  **unfiltered**. That left two live issues: `via_edge.source_path` leaking an ACL-denied
+  predecessor path, and an unreadable bridge note acting as a membership/rank oracle. The filter is
+  now threaded through every call site by construction rather than by a knob remembered per site.
+  **Affected:** any multi-principal deployment using folder ACLs with graph expansion. **Not
+  affected:** single-principal or ACL-less deployments.
+
+- **The adaptive-RRF IDF path is ACL-partitioned, closing a cross-ACL term-presence oracle (#830,
+  THE-853).** `querySpecificity` computed corpus size and per-term document frequency over the whole
+  vault with no ACL partition, so a restricted caller's adaptive-RRF tilt was driven by term
+  statistics from notes they cannot read. Fusion now threads the resolved `aclSetId` (or the
+  fail-closed `blocked` signal) into it: blocked disables adaptive RRF to neutral weights, a
+  resolved set joins `acl_path_members` for the counts, and an unrestricted caller is unchanged. The
+  same threading closes two more `bm25Chunks` call sites that always took the over-fetch-then-filter
+  fallback and its residual length-interference channel.
+
+- **Captured content is poison-scanned at enqueue, and at commit (#823, #827, THE-855, THE-858).**
+  `capture_queue`'s `enqueueCapture` — the stable write contract the ambient capture worker targets
+  — ran no poison scan, so untrusted screen text and audio transcripts landed unscanned with no risk
+  surfaced to a reviewer. `assessPoison` now runs on every enqueue (the content-derived verdict
+  persisted and surfaced in `list_capture_queue` — a caller-spoofable channel-trust score was
+  dropped on review); there is no reject-on-high path there because
+  `commit_capture` is the gate a human pulls. `commit_capture` then re-scans, because it assembles
+  the note from title + tags + caller-supplied frontmatter overrides + content and previously wrote
+  those extra channels unscanned: it honours the stored `content` verdict, scans the metadata (title,
+  tags, override keys/values, and the target path) on its own, and does so in **separate** passes so
+  a single concatenated payload cannot hide one channel behind the 64 KiB scan truncation.
+
+- **`nanoid` floored to ≥3.3.17 (GHSA-2v37-7h3g-55p8, CVSS 8.2) (#766).** A newly published advisory,
+  not a regression. The override pins `nanoid` itself (resolving to 3.3.18), not the `postcss` that
+  pulls it in — pinning the dependent only hopes it keeps dragging a fixed transitive along. Applied
+  in **both** install roots, since a root `bun install` does not reach `docs/`'s separate lockfile.
+
+- **`datasets` floored past PYSEC-2026-3716 (5.0.0 → 5.0.1) (#821).** A newly disclosed Medium
+  advisory on the transitive `datasets` pin (via `flagembedding`) in the **optional** bge-m3 reranker
+  service. Only `datasets` moves; `requirements.in` is unchanged, since `datasets` is transitive and
+  must not be declared there.
 
 ### Deprecated
 
@@ -97,7 +271,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### BREAKING
 
 - **`plane.enabled` now defaults to `false` (was `true`) — ambient sleep-time consolidation is
-  opt-in (THE-825, GH #786).** `plane.enabled` gates the scheduled synthesis/audit passes and the
+  opt-in (#797, THE-825, GH #786).** `plane.enabled` gates the scheduled synthesis/audit passes and the
   per-index-write contradiction judging — every unattended LLM call this server makes over vault
   content. It is inert without an inference gateway configured, so this only changes behaviour for
   **deployments that have a gateway configured (`OBSIDIAN_TC_GATEWAY_URL` or `gateway.baseUrl`)
@@ -122,7 +296,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### Fixed
 
 - **The eval harness's `--gated-rerank` flag now builds the SAME reranker and hardness gate
-  production would (THE-806 step 2).** Before this it had exactly one route to a reranker —
+  production would (#812, THE-806 step 2).** Before this it had exactly one route to a reranker —
   `RERANK_URL`, a Cohere/Jina-shaped `/rerank` HTTP probe — while production selects one from
   `config.reranker` via the provider registry (`cohere-compatible` / `model-tier` / `gateway` /
   `local` / `module`); a golden-set `--gated-rerank` result could only ever describe an HTTP backend
@@ -141,7 +315,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   hardness — calibration and the mode decision" section for the full calibration table and A/B.
 
 - **The MCP error `content[0].text` block now names the offending field, not just the error code
-  (#784, THE-823).** Real MCP clients discard `structuredContent` on an `isError` result and render
+  (#784, #789, THE-823).** Real MCP clients discard `structuredContent` on an `isError` result and render
   the text line alone, so `Error [validation_error]: input validation failed` — with the Zod issues
   that name the offending field living only in the dropped `structuredContent` — was a caller's
   entire diagnostic surface, with nothing to act on. The text now appends the issues (capped at the
@@ -150,13 +324,59 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   instead). `structuredContent` is unchanged — still emitted, still carries the full error object.
   Separately, `vault/frontmatter.ts`'s bare `catch` was discarding the YAML parser's own error —
   including the line/column it already computed — before `parseNote` ever threw; it now carries
-  that detail into the message. (Threading the note's *path* into the same message was scoped out:
-  `parseNote(raw)` has ~19 non-test call sites and none pass a path in today.)
+  that detail into the message. Threading the note's *path* into that same malformed-frontmatter
+  error — scoped out of #784 because `parseNote(raw)` had ~19 non-test call sites and none passed a
+  path — now lands too (#794, THE-823): the offending note is named, not just the parser's
+  line/column.
+
+- **`plane.enabled: false` now also stops the per-index-write contradiction path (#788, THE-822).**
+  Disabling the plane already stopped the scheduled consolidation pass, but not the two other
+  roles-only consumers — the per-index-write contradiction enqueue and the
+  contradiction/synthesis/audit handler registration. So with any gateway configured, a *disabled*
+  plane still enqueued and ran unattended per-chunk LLM calls over the whole vault on every index
+  write. Both now route through a single `planeGatedRoles()` helper that mirrors the schedule's
+  existing gate. `task-call`, `note-quality` and the citation job keep their own separate
+  conditions, and `reflect` stays ungated as before.
+
+- **The 16 conditionally-gated tools now advertise their confirmation gate (#790, THE-824).** Tools
+  that conditionally demand an `elicit_token` (crossing a folder boundary, an overwrite, a bulk-cost
+  floor) advertised none of it: `describe_capability` showed no `elicit_token` input and reported
+  `destructive: false`, contradicting the MCP spec's own default of `true` for a mutating tool that
+  can demand confirmation. Each now declares `elicit_token` optional and a display-only
+  `conditionallyDestructive`. The gate itself is untouched — only what a caller is *told* about it
+  changed.
+
+- **`episode_type` is a structural value, not a rendered literal (#802, THE-839).** The dispatch path
+  now records `episode_type` structurally (migration `20260816_001`) so a predicate reading it —
+  including THE-726's task-verdict window — cannot disagree with the value the code writes; it aligns
+  the code with the THE-726 v2 spec's `episode_type = 'tool'`.
+
+- **`rerun` reports `served_from_cache` for an idempotent replay instead of spurious divergence
+  (#828, THE-741).** `rerunSession` re-issues each recorded call through the real dispatch, whose
+  idempotency gate serves a completed claim's cached result without running the handler — and carried
+  no marker, so a cache-served replay matched the recorded outcome and rerun reported it as
+  `runnable`, a call that executed nothing. Dispatch now stamps `meta.idempotent_replay` at every
+  replay path and rerun classifies such a call under a new `served_from_cache` verdict, excluded from
+  both `runnable` and `diverged`.
+
+- **Superseded `cluster_summary` rows are garbage-collected (#829, THE-854).** A pass that changes a
+  cluster's membership or a member note's content mints a new `cluster_key` and orphaned the old row
+  forever, accumulating garbage in a table that also feeds retrieval's candidate pool.
+  `buildClusterSummaries` now deletes this vault's `cluster_summaries`/`cluster_summary_members` rows
+  whose key is absent from the current pass — vault-scoped (never another vault's rows) and
+  transactional so a crash mid-GC cannot desync the two tables.
+
+- **The coverage-gap sweep scopes its query source per vault (#776, THE-804).** `recentQueries` took
+  no `vaultId` yet was called inside the sweep's per-vault loop, so every vault was swept with every
+  *other* vault's raw query text — and `GapItem.query` persists that text verbatim into one vault's
+  `gap_reports`, so on a multi-vault deployment one vault's queries were readable through another's
+  report. Latent rather than live: `gapSweep.enabled` defaults false and `gap_reports` is empty, so
+  no shipped report is affected, but the query source is now vault-scoped at the read.
 
 ### Changed
 
 - **The three facade triad schemas (`find_capability`, `describe_capability`, `call_capability`) now
-  reject an unrecognized envelope key instead of silently dropping it (#784, THE-823).**
+  reject an unrecognized envelope key instead of silently dropping it (#784, #789, THE-823).**
   `CALL_CAPABILITY_SCHEMA`'s `args: z.record(...).default({})` was the trap this closes: a caller
   that wrote `arguments` instead of `args` had that key silently stripped (plain `z.object` drops
   unknown keys), `args` fell back to its `.default({})`, and the TARGET tool was dispatched with an

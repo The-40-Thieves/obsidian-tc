@@ -7,8 +7,8 @@ older minors are not backported.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.21.x  | :white_check_mark: |
-| < 1.21  | :x:                |
+| 1.22.x  | :white_check_mark: |
+| < 1.22  | :x:                |
 
 ## Reporting a vulnerability
 
