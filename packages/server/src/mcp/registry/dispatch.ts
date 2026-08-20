@@ -167,7 +167,9 @@ export async function runDispatch(
     return {
       ok: false as const,
       error: e.toJSON(),
-      meta: { duration_ms: duration, result_size: 0 },
+      // THE-741: this is a replay of a prior attempt's terminal state, not a fresh execution —
+      // the handler did not run this time either.
+      meta: { duration_ms: duration, result_size: 0, idempotent_replay: true },
     };
   };
 
@@ -289,6 +291,8 @@ export async function runDispatch(
                 duration_ms: duration,
                 result_size: overSize,
                 overflow_bytes: overSize - deps.maxResponseBytes,
+                // THE-741: the original call's committed effect is being replayed, not re-run.
+                idempotent_replay: true,
               },
             };
           }
@@ -305,7 +309,10 @@ export async function runDispatch(
             return {
               ok: true,
               data: claim.data,
-              meta: { duration_ms: duration, result_size: resultSize },
+              // THE-741: the cached result is being served — the handler did NOT run. Without this
+              // marker a served-from-cache call is indistinguishable from a real execution to
+              // every caller that only reads ok/data/error, including `rerun`.
+              meta: { duration_ms: duration, result_size: resultSize, idempotent_replay: true },
             };
           }
       }

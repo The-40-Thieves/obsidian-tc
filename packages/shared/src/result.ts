@@ -5,6 +5,10 @@ export interface ToolMeta {
   result_size: number;
   overflow_bytes?: number;
   explain?: unknown;
+  /** THE-741: set when this result was served from the idempotency cache — the handler did NOT
+   *  run. Stamped at every replay path (ok, terminal-overflow, indeterminate), never on a call
+   *  that actually executed. Absent (not `false`) on every non-replay result. */
+  idempotent_replay?: boolean;
 }
 export interface ToolOk<T = unknown> {
   ok: true;

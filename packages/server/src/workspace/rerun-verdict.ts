@@ -20,7 +20,12 @@ export type RerunVerdict =
   // `diverged` must mean VAULT STATE MOVED, which is the only thing worth alerting on. Folding a
   // self-inflicted refusal into it made every read-only m4 bridge tool under --sandbox, and every
   // admin: call in observe mode, report as a divergence and flip the exit code to 1.
-  | "refused_by_policy";
+  | "refused_by_policy"
+  // THE-741: dispatch served this call from the idempotency cache — `meta.idempotent_replay` was
+  // set, meaning the handler never ran. Distinct from `runnable` on purpose: `runnable` is the
+  // claim "this call was re-verified", and a cache hit re-verified nothing. Also distinct from
+  // `diverged` — a cache hit is honest-but-inconclusive, not evidence the vault changed.
+  | "served_from_cache";
 
 export interface ClassifiedRecord {
   verdict: RerunVerdict;
@@ -111,6 +116,7 @@ const ZERO: Record<RerunVerdict, number> = {
   skipped_mutating: 0,
   unparseable: 0,
   refused_by_policy: 0,
+  served_from_cache: 0,
 };
 
 export function summarizeRerun(records: RerunRecord[]): RerunSummary {

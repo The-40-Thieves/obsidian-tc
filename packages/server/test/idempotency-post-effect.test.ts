@@ -51,6 +51,10 @@ describe("idempotency post-effect fault (THE-562 #13)", () => {
     expect(b.ok).toBe(false);
     if (!b.ok) expect(b.error.code).toBe("indeterminate_outcome");
     expect(eff.n).toBe(1); // effect did not double
+    // THE-741: an indeterminate replay is a REPLAY too — no handler ran on this call — and must
+    // carry the same marker as an ok/overflow replay so a caller like `rerun` cannot mistake it
+    // for a fresh (if inconclusive) execution.
+    expect(b.meta.idempotent_replay).toBe(true);
   });
 
   it("a JSON.stringify failure AFTER the effect records indeterminate", async () => {

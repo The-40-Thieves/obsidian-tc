@@ -84,6 +84,11 @@ describe("dispatch idempotency gate (D3)", () => {
     expect(a.ok && b.ok).toBe(true);
     expect(calls.n).toBe(1);
     if (a.ok && b.ok) expect(b.data).toEqual(a.data);
+    // THE-741: the replay must be DISTINGUISHABLE from a real execution by a caller that only
+    // reads ok/data/error — `rerun` is exactly that caller. The first call ran the handler and
+    // carries no marker; the second served the cache and must carry one.
+    expect(a.meta.idempotent_replay).toBeUndefined();
+    expect(b.meta.idempotent_replay).toBe(true);
   });
 
   it("rejects the same key with different args (mismatch)", async () => {
@@ -309,11 +314,15 @@ describe("dispatch idempotency metrics (THE-197)", () => {
     expect(first.ok).toBe(false);
     if (!first.ok) expect(first.error.code).toBe("overflow");
     expect(runs).toBe(1);
+    // THE-741: the FIRST overflow is a real execution (the handler ran) and must carry no marker.
+    expect(first.meta.idempotent_replay).toBeUndefined();
     // retry with the same key: the committed effect must NOT run again; replay the overflow error.
     const second = await reg.dispatch("big_keyed2", { idempotency_key: "K" }, ctx(db));
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.error.code).toBe("overflow");
     expect(runs).toBe(1);
+    // THE-741: the retry is a replay of the terminal overflow, not a re-execution.
+    expect(second.meta.idempotent_replay).toBe(true);
   });
 });
 
