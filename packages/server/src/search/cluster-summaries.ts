@@ -112,6 +112,63 @@ export function upsertClusterSummary(
   }
 }
 
+/**
+ * THE-854: garbage-collect superseded `cluster_summaries` rows for `vaultId` — the follow-up the
+ * 20260819_002 migration header names explicitly ("Superseded cluster_key rows are NOT
+ * garbage-collected by this PR"). `cluster_key` is a hash of the SORTED member content_hashes
+ * (clusterKeyOf), so a re-cluster that changes a cluster's membership OR a member's content mints a
+ * NEW key and orphans the OLD row — nothing ever deletes it otherwise, and the table is also a
+ * candidate pool for retrieval.
+ *
+ * `currentClusterKeys` is the builder's COMPLETE key set for this pass — every cluster_key produced
+ * by this run's clustering, whether newly summarized or skipped as unchanged (see
+ * summarize-clusters.ts's buildClusterSummaries). Any stored row whose cluster_key is NOT in that
+ * set no longer corresponds to any cluster this pass produced, so it is deleted.
+ *
+ * Vault-scoped: the SELECT and both DELETEs are all keyed on `vaultId`, so this can never touch
+ * another vault's rows (THE-563/564 partitioning).
+ *
+ * Deletes `cluster_summary_members` BEFORE `cluster_summaries` for each doomed key, and both moves
+ * happen inside ONE transaction — same BEGIN/COMMIT/ROLLBACK shape as upsertClusterSummary above,
+ * so a crash mid-GC can never leave a summary row deleted with its member rows still present (or
+ * the reverse leaving a summary row with no members, which the mixed-ACL filter above cannot then
+ * verify). Neither table declares a FOREIGN KEY (see the migration), so this ordering is not backed
+ * by a cascade — it is the whole safety mechanism, mirroring acl_path_set.ts's evictAclPathSets.
+ *
+ * Best-effort like the rest of this file: a cache.db that predates the cluster_summaries migration
+ * has nothing to GC and returns 0 rather than erroring.
+ */
+export function gcSupersededClusterSummaries(
+  db: Database,
+  vaultId: string,
+  currentClusterKeys: ReadonlySet<string>,
+): number {
+  if (!hasClusterSummaries(db)) return 0;
+  const rows = db
+    .prepare("SELECT cluster_key FROM cluster_summaries WHERE vault_id = ?")
+    .all(vaultId) as Array<{ cluster_key: string }>;
+  const doomed = rows.map((r) => r.cluster_key).filter((k) => !currentClusterKeys.has(k));
+  if (doomed.length === 0) return 0;
+  db.exec("BEGIN");
+  try {
+    const delMembers = db.prepare(
+      "DELETE FROM cluster_summary_members WHERE vault_id = ? AND cluster_key = ?",
+    );
+    const delSummary = db.prepare(
+      "DELETE FROM cluster_summaries WHERE vault_id = ? AND cluster_key = ?",
+    );
+    for (const key of doomed) {
+      delMembers.run(vaultId, key);
+      delSummary.run(vaultId, key);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return doomed.length;
+}
+
 export interface ClusterSummaryHit {
   /** Synthetic candidate id — see clusterSummaryId(). Never a real chunk_id, never a note-summary
    *  id. */

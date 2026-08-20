@@ -53,7 +53,8 @@ export async function run_cluster(cmd: Cmd<"cluster">): Promise<void> {
           if (clusterSummaryStats) {
             process.stdout.write(
               `cluster: summaries[${v.id}]: ${clusterSummaryStats.summarized} written, ` +
-                `${clusterSummaryStats.skipped} unchanged/skipped, ${clusterSummaryStats.failed} failed ` +
+                `${clusterSummaryStats.skipped} unchanged/skipped, ${clusterSummaryStats.failed} failed, ` +
+                `${clusterSummaryStats.gced} superseded GC'd ` +
                 `(${clusterSummaryStats.clusters} cluster(s) over ${clusterSummaryStats.consideredNotes} ${clusterSummaryStats.consideredNotes === 1 ? "note summary" : "note summaries"})\n`,
             );
           }

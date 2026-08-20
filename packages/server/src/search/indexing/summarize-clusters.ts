@@ -22,8 +22,15 @@
 // RESUME: a cluster's identity is its `cluster_key` — hash(sorted(member content_hashes)) — so a
 // re-cluster that reproduces the exact same member set (same notes, same content) reproduces the
 // exact same key, and existingClusterKeys() skips it without a gateway call. A re-cluster that
-// changes membership OR a member's content produces a NEW key, so it is (re)computed — see the
-// migration header for why superseded keys are not garbage-collected in this first PR.
+// changes membership OR a member's content produces a NEW key, so it is (re)computed.
+//
+// GC (THE-854): the migration's original PR left superseded cluster_key rows to accumulate
+// forever — this pass now closes that. `currentClusterKeys` (every cluster_key this run's
+// clustering produced, built vs skipped alike) is handed to
+// cluster-summaries.ts's gcSupersededClusterSummaries after phase 2 writes complete, which deletes
+// this vault's rows whose cluster_key is NOT in that set. Runs only when a build pass actually
+// happened (never on the empty/no-note-summaries early return below) — GC needs the current pass's
+// key set as its ground truth, and an early return never computed one.
 import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
@@ -33,6 +40,7 @@ import { defaultK, kmeans } from "../cluster";
 import {
   clusterKeyOf,
   existingClusterKeys,
+  gcSupersededClusterSummaries,
   hasClusterSummaries,
   upsertClusterSummary,
 } from "../cluster-summaries";
@@ -81,6 +89,9 @@ export interface BuildClusterSummariesStats {
   skipped: number;
   /** A gateway call was attempted and failed, or returned an unusable (empty) summary. */
   failed: number;
+  /** THE-854: superseded cluster_summaries rows (cluster_key not in this pass's key set) deleted
+   *  for this vault. 0 whenever no build pass ran (the empty/no-note-summaries early return). */
+  gced: number;
 }
 
 /** A phase-1 output: a cluster that was successfully summarized and is waiting for phase 2's
@@ -114,6 +125,7 @@ export async function buildClusterSummaries(
     summarized: 0,
     skipped: 0,
     failed: 0,
+    gced: 0,
   };
   if (!tableExists(db, "note_summaries") || !hasClusterSummaries(db)) return empty;
 
@@ -148,9 +160,14 @@ export async function buildClusterSummaries(
     memberSummaries: string[];
   }
   const toBuild: ClusterCandidate[] = [];
+  // THE-854: every cluster_key this pass's clustering produced — built or skipped-as-unchanged
+  // alike. This is the GC ground truth handed to gcSupersededClusterSummaries below: a stored row
+  // whose key is absent from this set belongs to no cluster this pass produced.
+  const currentClusterKeys = new Set<string>();
   let skipped = 0;
   for (const members of groups.values()) {
     const clusterKey = clusterKeyOf(members.map((m) => m.contentHash));
+    currentClusterKeys.add(clusterKey);
     if (existingKeys.has(clusterKey)) {
       skipped += 1;
       continue;
@@ -225,12 +242,19 @@ export async function buildClusterSummaries(
     });
   }
 
+  // THE-854: GC superseded rows for THIS vault now that the current pass's key set is known —
+  // after phase 2's writes, so a row is never GC'd out from under a write still in flight for the
+  // same key. gcSupersededClusterSummaries is itself transactional (see its own doc comment), so a
+  // crash mid-GC cannot leave a summary row and its member rows out of sync.
+  const gced = gcSupersededClusterSummaries(db, vaultId, currentClusterKeys);
+
   return {
     consideredNotes: noteRows.length,
     clusters: groups.size,
     summarized,
     skipped,
     failed,
+    gced,
   };
 }
 
