@@ -8,6 +8,20 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **THE-707 — experiential-tier benchmark applicability assessment (no adapter built).**
+  Researched the three public "experiential memory" benchmarks named in the ticket
+  (LongMemEval, LongMemEval-V2, BEAM) against what obsidian-tc's experiential tier
+  (`agent_episodes` + `preference_profile` + `work_search`) actually is: episodic memory of the
+  agent's own MCP tool-call history, plus one closed-vocabulary revealed-preference counter
+  (`preferred.search_mode`) — not a chat-conversation or web-browsing-trajectory memory. All
+  three benchmarks' "history" is either multi-turn chat dialogue (LongMemEval, BEAM) or
+  multimodal WebArena/ServiceNow web-agent trajectories (LongMemEval-V2); none maps onto
+  tool-call episodes without writing synthetic rows that bypass every real producer in the
+  system, which would measure the general retrieval plane's text search (already covered by
+  `eval/run.ts`'s golden set) while mislabeling it as experiential-tier performance. Verdict:
+  genuinely poor fit — documented in `packages/server/eval/THE-707-experiential-benchmark-applicability.md`
+  rather than forced into a misleading adapter.
+
 - **`experiential.citationPreferences` folds retrieval-level citation outcomes into learned
   preferences (#836, THE-644).** `extractPreferences`'s deterministic `preferred.search_mode` counter
   previously learned only from `agent_episodes.task_result` — the episode-level verdict. The
