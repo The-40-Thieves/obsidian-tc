@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,203 tracked code files · 194,167 lines.
+**Scale:** 1,203 tracked code files · 194,179 lines.
 
-TypeScript 180,062 · JavaScript 9,520 · SQL 1,843 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 180,074 · JavaScript 9,520 · SQL 1,843 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -89,7 +89,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `tools/` | 90 | 18,022 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 12,232 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 25 | 6,158 | work-memory tier: activation, retrieval log, forget, citations |
-| `mcp/` | 18 | 4,836 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `mcp/` | 18 | 4,854 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 31 | 3,933 | arg parsing + subcommands |
 | `runtime/` | 17 | 3,878 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `vault/` | 17 | 2,013 | filesystem primitives — paths, links, ACL, snapshots, prune |
@@ -138,8 +138,8 @@ Generated — see `scripts/gen-tree-map.mjs`.
 <!-- BEGIN GENERATED: tree-largest-files -->
 | lines | file |
 |---:|---|
+| 788 | `packages/server/src/mcp/server.ts` |
 | 782 | `packages/server/src/cli/commands/doctor.ts` |
-| 779 | `packages/server/src/mcp/server.ts` |
 | 760 | `packages/server/src/runtime/server-runtime.ts` |
 | 707 | `packages/server/src/doctor/checks.ts` |
 | 700 | `packages/server/src/experiential/reflect.ts` |

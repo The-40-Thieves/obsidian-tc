@@ -162,36 +162,32 @@ function serverWithCaps(caps: unknown): Server {
 const MATRIX: MatrixCell[] = [
   // --- client identity -----------------------------------------------------------------------
   //
-  // FINDING (this ticket): the header comment on client-info.ts claims client identity is read
+  // FINDING (THE-725): the header comment on client-info.ts claimed client identity is read
   // from per-request `_meta`, "same code path in both eras". That is true of `extractClientInfo`
-  // in ISOLATION (client-info.test.ts proves it against a hand-built `_meta` bag) — but it is NOT
-  // what happens on the real wire, in EITHER era, on the SDK version this repo pins (2.0.0).
+  // in ISOLATION (client-info.test.ts proves it against a hand-built `_meta` bag) — but it was NOT
+  // what happened on the real wire, in EITHER era, on the SDK version this repo pins (2.0.0).
   //
   // `io.modelcontextprotocol/clientInfo` is one of four keys `@modelcontextprotocol/server`
   // treats as RESERVED per-request envelope material (`RESERVED_ENVELOPE_META_KEYS` —
   // protocolVersion, clientInfo, clientCapabilities, logLevel; `dist/src-*.cjs`,
   // `liftWireOnlyMaterial`). The SDK LIFTS these out of inbound `_meta` before ANY registered
   // handler runs — "on every message", not just modern ones — and surfaces them instead at
-  // `ctx.mcpReq.envelope`. So `req.params._meta` never carries this key by the time server.ts's
-  // `tools/call` handler reads it: `extractClientInfo(req.params._meta)` calls a real, tested
-  // function on an argument that is now `undefined` in both eras, not a stale-in-one-era gap.
+  // `ctx.mcpReq.envelope`. `req.params._meta` therefore never carries this key by the time
+  // server.ts's `tools/call` handler reads it.
   //
-  // Caught by watching this exact cell FAIL first: an earlier draft asserted a captured name/
-  // version and got `null`/`null` back in both eras. `client-info.test.ts`'s round-trip tests
-  // never caught this because they call `insertSession`/`extractClientInfo` directly, never
-  // through a real `tools/call` request — this is the first test in the repo to drive THE-627
-  // client-identity capture end to end over HTTP. Recorded here rather than silently fixed:
-  // fixing it (reading `ctx.mcpReq.envelope` instead) is a behavior change to production code,
-  // outside a docs+tests ticket's scope.
+  // FIX (THE-861): server.ts now reads `extractClientInfo(extra.mcpReq.envelope)` first — the
+  // location the SDK actually lifts the key to, on every message in both eras — falling back to
+  // `extractClientInfo(req.params._meta)` for any path that still legitimately carries it there.
+  // `extractClientInfo` itself is unchanged: `envelope` is keyed by the same reserved meta-key
+  // strings `_meta` used to carry, so the same parser reads either bag correctly.
   {
     revision: LEGACY,
     feature: "client-identity",
     expectation:
-      "server.ts reads client identity from `req.params._meta` via `extractClientInfo` — but the " +
-      "SDK reserves `io.modelcontextprotocol/clientInfo` as envelope material and lifts it out of " +
-      "`params._meta` before the handler runs, on EVERY message regardless of era (see the FINDING " +
-      "comment above `MATRIX`). So a legacy client's declared identity NEVER reaches this code path " +
-      "today: `ctx.clientInfo` is always absent, even though the client sent the key correctly.",
+      "the SDK reserves `io.modelcontextprotocol/clientInfo` as envelope material and lifts it " +
+      "out of `params._meta` before the handler runs, on EVERY message regardless of era (see the " +
+      "FINDING comment above `MATRIX`), surfacing it at `extra.mcpReq.envelope` instead. server.ts " +
+      "reads THAT location (THE-861), so a legacy client's declared identity reaches `ctx.clientInfo`.",
     provenance: "asserted-from-code",
     assert: async () => {
       const h = await boot();
@@ -208,10 +204,8 @@ const MATRIX: MatrixCell[] = [
         });
         expect(r.status).toBe(200);
         const structured = r.json.result.structuredContent;
-        // Not "unrecognized" (that would read as a bug in extractClientInfo itself) — genuinely
-        // absent by the time the handler runs. See the FINDING comment above MATRIX.
-        expect(structured.client_name).toBeNull();
-        expect(structured.client_version).toBeNull();
+        expect(structured.client_name).toBe("litellm-sim");
+        expect(structured.client_version).toBe("9");
       } finally {
         await h.close();
       }
@@ -223,8 +217,8 @@ const MATRIX: MatrixCell[] = [
     expectation:
       "same reservation applies under 2026-07-28 — the SDK's own comment on the lift function " +
       "says 'reserved on every message', not 'reserved on modern messages'. A modern client's " +
-      "`_meta.io.modelcontextprotocol/clientInfo` is lifted to `ctx.mcpReq.envelope` before " +
-      "server.ts's handler runs, so `ctx.clientInfo` is absent here too, identically to legacy.",
+      "`_meta.io.modelcontextprotocol/clientInfo` is lifted to `ctx.mcpReq.envelope`, and server.ts " +
+      "reads it from there (THE-861), so `ctx.clientInfo` is populated here too, identically to legacy.",
     provenance: "asserted-from-code",
     assert: async () => {
       const h = await boot();
@@ -237,8 +231,8 @@ const MATRIX: MatrixCell[] = [
         );
         expect(r.status).toBe(200);
         const structured = r.json.result.structuredContent;
-        expect(structured.client_name).toBeNull();
-        expect(structured.client_version).toBeNull();
+        expect(structured.client_name).toBe("matrix-test");
+        expect(structured.client_version).toBe("1.0.0");
       } finally {
         await h.close();
       }

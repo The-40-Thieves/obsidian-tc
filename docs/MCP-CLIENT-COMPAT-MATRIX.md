@@ -35,15 +35,14 @@ unasserted rather than guessed at.
 Building the matrix meant watching each cell's test FAIL first against an initial (spec-derived)
 expectation, then reading why. Two of those failures turned out not to be test bugs — they are gaps
 between what this repo's own code comments claim and what `@modelcontextprotocol/server@2.0.0`
-(the pinned SDK) actually does on the wire. Recorded here rather than silently patched: fixing
-either is a behavior change to production code, outside a docs+tests ticket's scope.
+(the pinned SDK) actually does on the wire.
 
-### 1. Client identity (THE-627) never reaches a real request, in EITHER era
+### 1. Client identity (THE-627) never reached a real request, in EITHER era — fixed by THE-861
 
-`client-info.ts`'s header comment says client identity is read from per-request `_meta`, "same
+`client-info.ts`'s header comment said client identity is read from per-request `_meta`, "same
 [code path] under BOTH specs." That is true of `extractClientInfo` in isolation
 (`client-info.test.ts` proves it against a hand-built `_meta` object) — but `_meta` is not what the
-handler actually receives once a request has gone through the SDK.
+handler actually received once a request had gone through the SDK.
 
 `@modelcontextprotocol/server` treats `io.modelcontextprotocol/clientInfo` as one of four
 **reserved per-request envelope keys** (`RESERVED_ENVELOPE_META_KEYS` — protocolVersion,
@@ -51,18 +50,22 @@ clientInfo, clientCapabilities, logLevel; see `liftWireOnlyMaterial` in the SDK'
 Its own comment on that function is explicit: the reserved keys are lifted out of inbound `_meta`
 **"before handlers run,"** surfaced instead at `ctx.mcpReq.envelope` — and the comment says
 this is reserved **"on every message,"** not "on modern messages only." `server.ts`'s `tools/call`
-handler reads `req.params._meta` directly (`extractClientInfo(req.params._meta)`), which by the
-time the handler runs has had the `clientInfo` key stripped out from under it — in both
+handler used to read `req.params._meta` directly (`extractClientInfo(req.params._meta)`), which by
+the time the handler ran had had the `clientInfo` key stripped out from under it — in both
 2025-11-25 and 2026-07-28.
 
-Net effect: a real client that correctly sends its identity per THE-627's own design gets it
-silently discarded before `ctx.clientInfo` is ever set, in both eras, today. `client-info.test.ts`'s
-round-trip tests never caught this because they call `extractClientInfo`/`insertSession` directly —
-`mcp-client-compat-matrix.test.ts` is the first test in this repo to drive THE-627 identity capture
-through a real `tools/call` request.
+Net effect: a real client that correctly sent its identity per THE-627's own design got it silently
+discarded before `ctx.clientInfo` was ever set, in both eras. `client-info.test.ts`'s round-trip
+tests never caught this because they call `extractClientInfo`/`insertSession` directly —
+`mcp-client-compat-matrix.test.ts` was the first test in this repo to drive THE-627 identity
+capture through a real `tools/call` request, and it is what caught the gap.
 
-**This looks like a real defect and probably warrants its own ticket** (read `ctx.mcpReq.envelope`
-instead of `req.params._meta`, or equivalent) — filing/fixing it is out of scope here.
+**THE-861 fixes this**: `server.ts` now reads `extractClientInfo(extra.mcpReq.envelope)` first —
+the location the SDK actually lifts the reserved key to, on every message in both eras — falling
+back to `extractClientInfo(req.params._meta)` for any path that still legitimately carries it there
+directly. `extractClientInfo` itself is unchanged: `envelope` is keyed by the same reserved
+meta-key strings `_meta` used to carry, so the same parser reads either bag correctly. The matrix
+cells below now assert the client's declared name/version arrive on `ctx.clientInfo`, in both eras.
 
 ### 2. `logging/setLevel` succeeds under legacy, contrary to `client-features.ts`'s own comment
 
@@ -82,7 +85,7 @@ silently ignored" and "answers -32601" are a materially different contract for a
 
 | Feature | 2025-11-25 (legacy) | 2026-07-28 (modern) | Provenance |
 |---|---|---|---|
-| **Client identity** (`_meta.io.modelcontextprotocol/clientInfo`) — client-info.ts | Sent correctly by the client, but silently discarded before the handler runs (Finding 1 above) — `ctx.clientInfo` is always absent | Same discarding, same reason — the SDK's reservation is era-independent | asserted from code |
+| **Client identity** (`_meta.io.modelcontextprotocol/clientInfo`) — client-info.ts | Read from the SDK's lifted `ctx.mcpReq.envelope` (THE-861, Finding 1 above) — `ctx.clientInfo` carries the client's declared name/version | Same lifted read, same reason — the SDK's reservation is era-independent | asserted from code |
 | **`logging/setLevel`** | **Succeeds** with `{}` via the SDK's own built-in handler (Finding 2 above) — the declared level is stored but never consulted on this stateless transport | Refused (SEP-2575 removed the method; the modern route rejects it by name before any `Server` handler runs) | asserted from code |
 | **`roots`** (SEP-2577, deprecated-but-served) | `ctx.roots` is unconditionally exposed on every call, but resolves `undefined`: `createMcpServer` runs fresh per HTTP request (THE-583), and this server's stateless legacy route never backfills `getClientCapabilities()` from a prior `initialize` — there is no per-connection state to backfill FROM | `ctx.roots` exposed the same way; the CAPABILITY GATE is proven backfilled correctly per request (`seedClientIdentityFromEnvelope`, SDK-internal) by the `sampling` row below, which shares the identical gate/backfill mechanism through a boolean check that needs no live client. Whether the follow-on `listRoots()` round trip returns a REAL client's roots is a separate claim this harness cannot check — it has no live bidirectional MCP client to answer that request | legacy: asserted from code; modern round trip: **needs live-client verify** |
 | **`sampling`** (SEP-2577, deprecated-but-served) | `ctx.sample` is **absent** from the context entirely (not merely ungated) — same stateless-transport reason as `roots`: the capability never reaches `getClientCapabilities()` | `ctx.sample` is **attached** when the client declares `sampling` in `_meta.clientCapabilities` on that same call — the per-request backfill works, provable without a live client because this is a pure gate check (no RPC round trip needed to observe the boolean) | asserted from code |
