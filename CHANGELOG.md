@@ -22,7 +22,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   genuinely poor fit — documented in `packages/server/eval/THE-707-experiential-benchmark-applicability.md`
   rather than forced into a misleading adapter.
 - **Source-agnostic highlight-import format + Readwise adapter, staged via `capture_queue`
-  (THE-650).** Read-later highlights (Readwise Reader, the live canonical source now that
+  (#839, THE-650).** Read-later highlights (Readwise Reader, the live canonical source now that
   Omnivore's API and data are shut down) never reached the vault before this, so nothing about
   them was retrievable. `import-highlights` (a new CLI command) fetches from Readwise's classic
   v2 export endpoint (`GET /api/v2/export/`, `Authorization: Token <token>`, cursor-paginated via
