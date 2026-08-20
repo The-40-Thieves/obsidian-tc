@@ -241,9 +241,10 @@ const MATRIX: MatrixCell[] = [
 
   // --- logging/setLevel ------------------------------------------------------------------------
   //
-  // FINDING (this ticket): client-features.ts's header comment states `logging/setLevel` "is not
+  // FINDING (THE-725): client-features.ts's header comment stated `logging/setLevel` "is not
   // a routable method in SDK v2 (absent from both wire registries; a handler registered for it
-  // answers -32601, measured)". That is true under MODERN (protocol-2026-conformance.test.ts
+  // answers -32601, measured)" — fixed by THE-862 to describe the per-era behavior below instead.
+  // That is true under MODERN (protocol-2026-conformance.test.ts
   // proves it — the method is REMOVED by SEP-2575 and the modern route refuses it by name before
   // any Server handler runs). It does NOT hold under LEGACY on this SDK version: because
   // server.ts declares the `logging: {}` capability, `Server`'s constructor auto-registers ITS

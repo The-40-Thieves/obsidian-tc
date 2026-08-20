@@ -16,6 +16,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `ctx.clientInfo` and `workspace_sessions.client_name`/`client_version` were always NULL. The
   `tools/call` handler now reads `extra.mcpReq.envelope` first, falling back to `req.params._meta`
   for any path that still legitimately carries it there.
+- **`client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under
+  legacy (#835, THE-862).** The header comment (and a duplicate in `server.ts`) claimed the method
+  "is not a routable method in SDK v2 ... a handler registered for it answers -32601, measured." True
+  under 2026-07-28 (SEP-2575 removed the method; the modern route refuses it by name before any
+  `Server` handler runs), but not under 2025-11-25: declaring the `logging: {}` capability makes the
+  pinned `@modelcontextprotocol/server@2.0.0` SDK auto-register its own built-in `logging/setLevel`
+  handler, reachable under legacy because nothing pre-filters the method the way the modern route
+  does — it succeeds, returning `{}`. `docs/MCP-CLIENT-COMPAT-MATRIX.md` and
+  `mcp-client-compat-matrix.test.ts` (THE-725) already asserted this true behavior; only the source
+  comments were stale. Kept the SDK's built-in `{}` handler as-is (the level it stores is never
+  consulted on this stateless transport, so it is harmless) rather than pre-filtering the method
+  under legacy too, and fixed the two comments plus a cross-reference note in the matrix doc/test so
+  code, comments and matrix all agree.
 
 ## [1.22.0] - 2026-08-20
 
