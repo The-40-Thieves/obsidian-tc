@@ -6,6 +6,11 @@
 // — doctor exists to answer "is this install healthy right now?" in one artifact.
 // THE-688 fix 2: the opt-in probe's result type, so the CLI can build a probe without importing
 // through the checks module directly.
+
+// THE-891 item 3: experiential.capture-location's view type, so the CLI can build it without
+// importing through checks.ts — same barrel reasoning as every other doctor/*.ts submodule below.
+export type { CaptureLocationView } from "./capture-location";
+export { captureLocationCheck } from "./capture-location";
 export type { DerivedColumnState, DerivedTableState, KbHealthProbe } from "./checks";
 // entrypoints.liveness — the verb-side companion to derived.liveness. Same probe-injection
 // contract, so the CLI builds its probe without importing through the checks module.

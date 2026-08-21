@@ -32,6 +32,11 @@ export interface MaintenanceWiringDeps {
   };
   /** config.observability.retention */
   retention: { eventLogDays: number; tracesDays: number };
+  /** config.experiential — THE-891 item 1: content-axis retention, orthogonal to
+   *  maintenance.episodesRetentionDays above (that governs row deletion; this governs
+   *  args_json redaction). Absent leaves the redaction arm unarmed, same as every other
+   *  optional experiential-adjacent field here. */
+  experiential?: { captureRetentionDays: number };
   /** config.sessions — THE-726. Absent, or autoOpen false, leaves the session arm unarmed. */
   sessions?: { autoOpen: boolean; windowSeconds: number };
   /** config.vaults — trace dirs are per-vault and resolved with containment checking (THE-610). */
@@ -81,6 +86,12 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
           edb: deps.edb,
           episodesDays: deps.maintenance.episodesRetentionDays,
           retrievalsDays: deps.maintenance.retrievalsRetentionDays,
+          // THE-891 item 1: only armed when the caller supplied config.experiential — mirrors the
+          // sessions.autoOpen gating below, so a caller that omits the block gets no redaction arm
+          // rather than a crash on a missing field.
+          ...(deps.experiential !== undefined
+            ? { captureRetentionDays: deps.experiential.captureRetentionDays }
+            : {}),
         }
       : {}),
     // THE-726: only pass the window when autoOpen is on. Passing it unconditionally would arm a

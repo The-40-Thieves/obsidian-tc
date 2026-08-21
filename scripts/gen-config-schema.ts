@@ -166,6 +166,16 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // graph_search.ts/candidate_assembly.ts (retrieval-time, `source: "cluster_summary"`); see those
 // files' THE-628 comments. No existing key moved.
 // THE-644: adds the `experiential.citationPreferences` boolean flag (default false).
+// THE-891 item 1/4: rebaselined deliberately. Adds ONE new key, `experiential.captureRetentionDays`
+// (int, min 0, default 30) — bounded retention on the content axis `experiential.captureContent`
+// populates; the maintenance sweep redacts args_json to NULL (never deletes the row) on episodes
+// past the window, 0 disables the sweep (unlimited, an explicit power-user opt-out). Also rewrites
+// `experiential.captureContent`'s description: the old text justified the default on "the
+// deployment is single-principal" (an owner, not a control); the new text states the actual
+// evidence chain — on-by-default local persistence is an accepted precedent (VS Code/JetBrains
+// Local History, Go local-mode telemetry) precisely because it ships bounded retention, a visible
+// notice, and a location guard together, which THE-891 items 1-3 are. No existing key, type,
+// default or constraint moved.
 const CONFIG_SCHEMA_BASELINE_SHA256 =
   // THE-175: rebaselined deliberately. Adds ONE new optional block, `pensieve` (a single key,
   // `baseUrl`, string, optional) — the Pensieve ambient-capture adapter config for `obsidian-tc
@@ -186,7 +196,7 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // derivation: the char budget now targets the SAME ~14,554-token output reserve for every vault
   // shape (derived from the worst-case 2.5 chars/token density this job already documented),
   // instead of a budget anchored to one vault's own measured prose density.
-  "15e86873d83433ec6be1177b9209e87df554e9ec50605e2e9bfac36297749520";
+  "8e5c0f452bad88766a2e74326079aa7ecc803f06c5908b79f0552c68811a5260";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

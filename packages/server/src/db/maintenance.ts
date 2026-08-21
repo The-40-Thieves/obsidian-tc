@@ -26,6 +26,11 @@ export interface SweepCounts {
   /** THE-610: session trace files pruned. The sweep's first FILESYSTEM arm — every other count
    *  here is rows in cache.db. */
   trace_files: number;
+  /** THE-891 item 1: agent_episodes rows whose args_json was redacted to NULL for aging past
+   *  experiential.captureRetentionDays. The ROW is not touched, only the content column — see
+   *  redactAgedEpisodeContent's comment for why this is separate from `episodes` above (dead-row
+   *  deletion) rather than folded into it. */
+  episode_content_redacted: number;
   /** THE-726: server-OPENED sessions closed because their window elapsed. Never counts a session a
    *  client opened deliberately — only `end_session` closes those. */
   sessions_closed: number;
@@ -183,6 +188,40 @@ export function sweepExperiential(
   return { episodes, chunk_retrievals: retrievals };
 }
 
+/**
+ * THE-891 item 1 — bounded retention on the CONTENT axis of agent_episodes, independent of
+ * sweepExperiential's row-deletion arm above.
+ *
+ * REDACTS, never deletes: sets `args_json = NULL` on every episode (live or dead, eligible or
+ * not) whose capture time (`ts`) is older than `retentionDays`, leaving the row — its action-axis
+ * columns, eligibility, trust, and chain position (`prev_id`) — completely intact. This is
+ * deliberately a different axis from `sweepExperiential`'s dead-row deletion: that function never
+ * touches a LIVE episode, however old, because age says nothing about whether work-memory is
+ * finished with it; this one touches every episode past the window, live or dead, because the
+ * question it answers is narrower — not "is this row still needed" but "does the raw argument
+ * payload still need to exist" (EDPB Art. 5(1)(e) storage-limitation, applied to a field rather
+ * than a record). A row whose content aged out is still a fully readable episode: tool, status,
+ * duration, sizes, hashes, and attribution all survive, only the raw parsed arguments do not.
+ *
+ * `retentionDays <= 0` is the explicit power-user unlimited-retention opt-out (schema default is
+ * 30) and skips the sweep entirely, matching `sweepTraceFiles`'s already-established "0/absent
+ * means don't touch anything" idiom elsewhere in this file.
+ *
+ * Guarded on table existence exactly like every other experiential arm — an experiential.db
+ * predating THE-228's agent_episodes migration must still get the rest of the sweep.
+ */
+export function redactAgedEpisodeContent(
+  edb: Database,
+  opts: { now: number; retentionDays: number },
+): number {
+  if (!tableExists(edb, "agent_episodes")) return 0;
+  if (opts.retentionDays <= 0) return 0;
+  const cutoff = opts.now - opts.retentionDays * 86_400_000;
+  return edb
+    .prepare("UPDATE agent_episodes SET args_json = NULL WHERE args_json IS NOT NULL AND ts < ?")
+    .run(cutoff).changes;
+}
+
 export function runMaintenanceSweep(
   db: Database,
   opts: {
@@ -198,6 +237,9 @@ export function runMaintenanceSweep(
     edb?: Database;
     episodesDays?: number;
     retrievalsDays?: number;
+    /** THE-891 item 1: experiential.captureRetentionDays. Omitted (same guard as edb above) ->
+     *  the redaction arm is skipped and `episode_content_redacted` is 0. */
+    captureRetentionDays?: number;
     /** THE-610: count what would be pruned without deleting. Applies to the trace arm only —
      *  the row deletes above predate it and are not made conditional here. */
     dryRun?: boolean;
@@ -225,6 +267,10 @@ export function runMaintenanceSweep(
           retrievalsDays: opts.retrievalsDays,
         })
       : { episodes: 0, chunk_retrievals: 0 };
+  const episodeContentRedacted =
+    opts.edb !== undefined && opts.captureRetentionDays !== undefined
+      ? redactAgedEpisodeContent(opts.edb, { now: t, retentionDays: opts.captureRetentionDays })
+      : 0;
   const traceFiles =
     opts.traceDirs && opts.traceDirs.length > 0 && opts.tracesDays !== undefined
       ? sweepTraceFiles(opts.traceDirs, {
@@ -270,6 +316,7 @@ export function runMaintenanceSweep(
     episodes: exp.episodes,
     chunk_retrievals: exp.chunk_retrievals,
     trace_files: traceFiles,
+    episode_content_redacted: episodeContentRedacted,
     sessions_closed: sessionsClosed,
     orphan_schedule_rows: orphanScheduleRows,
   };
@@ -289,6 +336,8 @@ export interface MaintenanceDeps {
   edb?: Database;
   episodesDays?: number;
   retrievalsDays?: number;
+  /** THE-891 item 1: see runMaintenanceSweep's option of the same name. */
+  captureRetentionDays?: number;
   /** THE-726: see runMaintenanceSweep's option of the same name. */
   sessionWindowSeconds?: number;
   now?: () => number;
@@ -315,6 +364,9 @@ export function registerMaintenanceSweep(scheduler: Scheduler, deps: Maintenance
         ...(deps.edb !== undefined ? { edb: deps.edb } : {}),
         ...(deps.episodesDays !== undefined ? { episodesDays: deps.episodesDays } : {}),
         ...(deps.retrievalsDays !== undefined ? { retrievalsDays: deps.retrievalsDays } : {}),
+        ...(deps.captureRetentionDays !== undefined
+          ? { captureRetentionDays: deps.captureRetentionDays }
+          : {}),
         ...(deps.sessionWindowSeconds !== undefined
           ? { sessionWindowSeconds: deps.sessionWindowSeconds }
           : {}),

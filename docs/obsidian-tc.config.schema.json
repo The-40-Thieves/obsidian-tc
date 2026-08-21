@@ -1074,8 +1074,15 @@
         },
         "captureContent": {
           "default": true,
-          "description": "Also persist each episode's raw parsed arguments, secret-scanned and size-capped, so work-memory carries what a call actually did rather than only that it happened. On under the trusted-local posture; `securityProfile: \"hardened\"` turns it off, as does setting it false explicitly.",
+          "description": "Also persist each episode's raw parsed arguments, secret-scanned and size-capped, so work-memory carries what a call actually did rather than only that it happened. On under the trusted-local posture, paired with bounded retention (captureRetentionDays), a one-time boot notice, and a doctor check against vault-adjacent storage — the mitigation set every accepted local-persistence precedent (VS Code/JetBrains Local History, Go local-mode telemetry) ships together. `securityProfile: \"hardened\"` turns it off, as does setting it false explicitly.",
           "type": "boolean"
+        },
+        "captureRetentionDays": {
+          "default": 30,
+          "description": "Days a captured episode's raw args_json is kept before the maintenance sweep redacts it to NULL. The episode ROW is never deleted by this — only the content axis ages out, matching agent_episodes' action-axis history staying complete. 0 disables the sweep (unlimited retention). Independent of maintenance.episodesRetentionDays, which governs row deletion for already-dead episodes only.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         },
         "activationDecay": {
           "default": 0.5,

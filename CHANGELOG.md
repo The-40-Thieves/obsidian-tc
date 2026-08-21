@@ -8,6 +8,48 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **THE-891 item 2 (#845) — the capture mitigation profile every accepted local-persistence
+  precedent ships (bounded retention + first-run notice + location guard),
+  `experiential.captureContent` stays on (behavior change: retention).** Researched what
+  separates an accepted on-by-default local capture default (VS Code Local History, JetBrains
+  Local History, Go's telemetry-in-local-mode) from a scandalous one, and it is never the
+  default itself — it is three structural
+  properties shipped together. `captureContent`'s own default is unchanged (still `true`); what
+  changed is the mitigation set around it:
+  - **Bounded retention on the raw content (behavior change).** New
+    `experiential.captureRetentionDays` (default **30**, `0` = unlimited). The maintenance sweep
+    now **redacts** `args_json` to `NULL` on every `agent_episodes` row older than the window —
+    live or dead — rather than deleting the row: action-axis history (tool, status, duration,
+    sizes, hashes, attribution, eligibility) survives untouched, only the raw parsed arguments age
+    out (`redactAgedEpisodeContent`, `packages/server/src/db/maintenance.ts`, wired into the
+    existing hourly sweep via `runtime/maintenance-wiring.ts` and `scheduler-wiring.ts`).
+    Deliberately independent of `maintenance.episodesRetentionDays`, which governs row *deletion*
+    for already-dead episodes only — this is a content-axis, EDPB storage-limitation question, not
+    a work-memory one. Session trace files (`sessions.traceContent`) were checked and need no
+    equivalent change: `observability.retention.tracesDays` (default 30, already wired into the
+    same sweep) already deletes the whole trace file past its window, which already bounds any
+    captured content inside it — redacting only the content portion of a JSONL trace would mean
+    parsing and rewriting every line, which is not the "cheap plumbing" this item scoped in.
+  - **A one-time boot notice, per install rather than per boot** (`runtime/capture-first-run-
+    notice.ts`): the first boot with `captureContent` on writes one stderr line naming the storage
+    path, the retention window, and the two ways to turn it off
+    (`experiential.captureContent=false` or `securityProfile: "hardened"`), then records a marker
+    file (`<cacheDir>/capture-notice-shown`) so restarts stay silent — deliberately the opposite of
+    `plane-opt-in-notice.ts`'s every-boot repeat, since re-nagging an operator who already saw the
+    notice trains "skip the boot banner."
+  - **A doctor check against vault-adjacent storage** (new `experiential.capture-location` check,
+    `packages/server/src/doctor/capture-location.ts`): warns when `cacheDir` resolves inside a
+    configured vault root, since a vault commonly lives inside a synced folder (iCloud Drive,
+    Dropbox, Syncthing) that would silently replicate captured content off the machine. The
+    **shipped default is already safe** — `config/load.ts`'s `finalizeConfig` anchors a relative
+    `cacheDir` (the schema default, `.obsidian-tc`) to `homedir()`, resolving to `~/.obsidian-tc`,
+    which sits outside every vault by construction — so this check exists for the *misconfigured*
+    case (an explicit `cacheDir` override), not the default install.
+
+  `retrieval.schema.ts`'s `captureContent` comment is rewritten accordingly: the old justification
+  ("the deployment is single-principal" — an owner, not a control) is replaced with the precedent-
+  class argument above. Deliberately **out of scope**: a metadata-only capture mode (real schema
+  churn, not attempted here) and changing `captureContent`'s own default value.
 - **THE-707 — experiential-tier benchmark applicability assessment (no adapter built).**
   Researched the three public "experiential memory" benchmarks named in the ticket
   (LongMemEval, LongMemEval-V2, BEAM) against what obsidian-tc's experiential tier

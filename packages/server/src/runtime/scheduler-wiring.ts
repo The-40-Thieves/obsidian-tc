@@ -77,6 +77,9 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     cacheDir: config.cacheDir,
     maintenance: config.maintenance,
     retention: config.observability.retention,
+    // THE-891 item 1: content-axis retention on captured episode args, threaded alongside the
+    // existing maintenance/retention blocks.
+    experiential: config.experiential,
     sessions: config.sessions,
     vaults: deps.vaults,
     defaultTraceFolder: DEFAULT_TRACE_FOLDER,
