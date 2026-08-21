@@ -40,18 +40,10 @@ export interface CallerContext {
    *  gate still binds it to this call. Absent for 2025 callers, who use `elicitToken`. */
   elicitState?: ElicitRequestState;
   acl?: FolderAcl;
-  /**
-   * SEP-2577 client features. Deprecated by the 2026-07-28 revision but functional for at least a
-   * twelve-month window, so a client mid-migration still uses them.
-   *
-   * Surfaced HERE, on the context every tool receives, rather than consumed by any tool we happen to
-   * ship. This is a public server: the useful thing is that a downstream tool author can reach the
-   * calling client's roots and model at all. Both are `undefined` when the client did not advertise
-   * the capability — an absent optional feature is a normal state, not an error.
-   *
-   * `roots` is ADVISORY. Vaults come from config; a client naming a root does not grant access to
-   * it, which is exactly what makes consuming it safe.
-   */
+  /** SEP-2577 client features (roots/sampling), deprecated but functional through the revision's
+   *  migration window — see docs/design/mcp-registry-context-types.md. `undefined` when the client
+   *  did not advertise the capability (the normal case, not an error). `roots` is ADVISORY: vaults
+   *  come from config, so a client naming a root does not grant access to it. */
   roots?: () => Promise<Array<{ uri: string; name?: string }> | undefined>;
   /** Ask the CLIENT's model for a completion. Undefined unless the client advertised `sampling`. */
   sample?: (params: {
@@ -144,51 +136,31 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   name: string;
   /** THE-583: runnable as a background TASK on `params.task`; opt-in. See mcp/tasks.ts. */
   taskAugmentable?: boolean;
-  /** THE-513: which facade domain (see TOOL_DOMAINS) this capability groups under in "domain" mode.
-   *  Optional here (the sink type) so fixtures unrelated to the facade — dispatch/throttle/HITL
-   *  unit tests build bare ToolDefinition literals to exercise the pipeline — don't need to fabricate
-   *  one; `domainTools()` falls back to "other" for a tool with none. It is REQUIRED on `ToolSpec`
-   *  (m1/define.ts), which is what every real definition goes through, so a production tool cannot
-   *  ship without one — the failure mode that let the old hand-kept facade map fall 38 tools behind
-   *  in THE-577 is now a type error at the definition site, not a silent "other" bucket. */
+  /** THE-513: facade domain (see TOOL_DOMAINS) this capability groups under in "domain" mode.
+   *  Optional here (the sink type) for facade-unrelated test fixtures; REQUIRED on `ToolSpec`
+   *  (m1/define.ts) so a production tool cannot ship without one. See
+   *  docs/design/mcp-registry-context-types.md. */
   domain?: ToolDomain;
-  /** THE-513 Part 2: the input field name that carries this tool's target vault id, when it has
-   *  one — default "vault", the name every tool used before this field existed. The four
-   *  `vaultArgOf` call sites below (vault-binding, per-vault ACL swap, vault-kind gate, central
-   *  pathAcl) read THIS instead of hardcoding "vault", so a tool naming the field anything else
-   *  is still bound/ACL-swapped/gated correctly. Before this field, a capability naming its vault
-   *  argument anything other than "vault" silently escaped all four of those checks — they simply
-   *  saw `undefined` and skipped. Optional here (the sink type, same reasoning as `domain`); every
-   *  MUTATING tool whose schema has a vault-shaped field MUST declare it via `vault-arg-coverage
-   *  .test.ts`, mirroring `acl-extraction-coverage.test.ts`'s mutating derivation. */
+  /** THE-513 Part 2: input field name carrying this tool's target vault id (default "vault"). The
+   *  four `vaultArgOf` call sites (vault-binding, per-vault ACL swap, vault-kind gate, central
+   *  pathAcl) read THIS instead of hardcoding "vault". Every MUTATING tool with a vault-shaped
+   *  schema field MUST declare it (`vault-arg-coverage.test.ts`). See
+   *  docs/design/mcp-registry-context-types.md. */
   vaultArg?: string;
   /** THE-513 Part 2: declares that this tool's input schema exposes a whole-operation idempotency
-   *  key recognized by `extractIdempotencyKey` (top-level `idempotency_key` / `bulk_idempotency_key`,
-   *  or nested `options.idempotency_key`) — never a per-item `items[].idempotency_key`. Before this
-   *  field, extractIdempotencyKey sniffed the input shape at runtime for every one of the ~150
-   *  tools and nothing declared which ones actually accept a key, so a capability that SHOULD be
-   *  idempotent and isn't (or vice versa) went unnoticed. `idempotency-declaration-coverage.test.ts`
-   *  cross-checks this against the schema in both directions: declared-but-schema-silent and
-   *  schema-exposes-a-key-but-undeclared both fail. */
+   *  key recognized by `extractIdempotencyKey` (top-level `idempotency_key` /
+   *  `bulk_idempotency_key`, or nested `options.idempotency_key` — never a per-item
+   *  `items[].idempotency_key`). Cross-checked against the schema both directions by
+   *  `idempotency-declaration-coverage.test.ts`. See docs/design/mcp-registry-context-types.md. */
   acceptsIdempotencyKey?: boolean;
   /** THE-743: the MCP spec's `ToolAnnotations.idempotentHint` — "calling the tool repeatedly with
    *  the same arguments will have no additional effect on its environment", default false,
    *  meaningful ONLY when `readOnlyHint == false`. Advisory metadata; dispatch authorizes on
-   *  `requiredScopes` / `destructive` and MUST NOT start enforcing on this.
-   *
-   *  DELIBERATELY NOT DERIVED FROM `acceptsIdempotencyKey` ABOVE. Those are different claims and
-   *  conflating them would advertise something false: accepting a key means a retry is safe WHEN
-   *  THE CALLER SUPPLIES ONE, and the key is optional — a repeat without it still has an effect.
-   *  `idempotentHint` is unconditional, about the arguments alone.
-   *
-   *  NO TOOL DECLARES THIS TODAY, and that is a finding rather than an omission. Every mutating
-   *  call on this server leaves a durable record by construction: `forget_log` is an append-only
-   *  hash-chained audit (one INSERT per call), and destructive note writes capture a snapshot for
-   *  `restore_note` (THE-648, on by default under `trusted-local`). A second identical call
-   *  therefore appends a second audit row or a second snapshot version — an additional effect on
-   *  the environment, which is exactly what the hint denies. So `false` is the honest value for all
-   *  60 mutating tools, and it is also the spec default; the value of declaring the field is that
-   *  the next tool to be genuinely idempotent has somewhere to say so, and a gate that checks it. */
+   *  `requiredScopes` / `destructive` and MUST NOT start enforcing on this. Deliberately NOT
+   *  derived from `acceptsIdempotencyKey` above — different claims (see design note). No tool
+   *  declares this today: every mutating call leaves a durable audit/snapshot record by
+   *  construction, so `false` is the honest value for all of them, and also the spec default. See
+   *  docs/design/mcp-registry-context-types.md. */
   idempotent?: boolean;
   description: string;
   inputSchema: z.ZodType<I>;
@@ -204,20 +176,13 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   /** Optional MCP 2025-11-25 icons metadata (THE-278). Boundary-only; never read by dispatch. */
   icons?: ToolIcon[];
   destructive?: boolean;
-  /** THE-824: this tool calls `requireConfirmation` — it demands its elicit token
-   *  CONDITIONALLY (crossing a folder boundary, an overwrite, a bulk-cost floor, ...), decided at
-   *  runtime by the handler, so `destructive` above (which also drives the dispatch-time
-   *  isMutatingCall/hitlRequired gates via policy-gates.ts) MUST stay unset/false for it — setting
-   *  it would make dispatch demand a token on EVERY call, not just the ones the handler's own
-   *  check flags, which is a real behavior change this field must never cause.
-   *
-   *  It exists purely so the WIRE annotation can stop lying: the MCP spec's own default for
-   *  `destructiveHint` is `true` ("cautious"), so a mutating tool that CAN demand confirmation and
-   *  declares neither `destructive` nor this flag ends up advertising `destructive: false` — a
-   *  false statement, not a conservative one. `mcp/facade.ts`'s `isAdvertisedDestructive` and
-   *  `mcp/server.ts`'s `toolAnnotations` OR this in alongside `destructive` when rendering the wire
-   *  annotation; every authorization/HITL/read-only gate in mcp/registry/policy-gates.ts reads ONLY
-   *  the real `destructive` field above and must go on doing so. */
+  /** THE-824: this tool calls `requireConfirmation` conditionally (folder-boundary crossing,
+   *  overwrite, bulk-cost floor, ...), decided at runtime by the handler — so `destructive` above
+   *  MUST stay unset/false for it (setting it would demand a token on EVERY call). Exists purely so
+   *  the WIRE annotation stops lying about the spec's `destructiveHint: true` default; ORed in
+   *  alongside `destructive` only for the wire annotation (`mcp/facade.ts`, `mcp/server.ts`) — every
+   *  authorization/HITL/read-only gate reads ONLY the real `destructive` field. See
+   *  docs/design/mcp-registry-context-types.md. */
   conditionallyDestructive?: boolean;
   /** Tool-specific precondition gate. Runs AFTER scope+ACL and BEFORE the HITL/elicit
    *  stage, so a rejection never consumes the single-use elicit token (D5). Throw an
@@ -228,31 +193,18 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   /** THE-414: declarative folder-ACL path extraction. Returns the vault-relative paths this tool
    *  touches, tagged by op, so runDispatch enforces the folder ACL centrally (right before the
    *  handler) instead of trusting each handler to call enforcePathAcl. Handler-side calls stay as
-   *  defense-in-depth. Every path-touching tool MUST declare this (or sit in the guarantee test's
-   *  documented exemption set); a mutating tool with neither fails the acl-extraction-coverage
-   *  guarantee test. Extractors must mirror the handler's own enforcePathAcl calls exactly (same
-   *  ops, same paths, same conditionals) so central enforcement never denies a call the handler
-   *  would have allowed. */
+   *  defense-in-depth. Every path-touching tool MUST declare this (or sit in the
+   *  acl-extraction-coverage guarantee test's documented exemption set). Extractors must mirror the
+   *  handler's own enforcePathAcl calls exactly so central enforcement never denies a call the
+   *  handler would have allowed. */
   pathAcl?: (input: I) => ReadonlyArray<{ op: AclOp; path: string }>;
-  /** THE-727: resolve authorization policy from the CALL rather than the definition.
-   *
-   *  A tool that dispatches on an `action` argument cannot honestly declare one static scope set:
-   *  unioning makes a harmless read demand delete privileges, intersecting leaves a destructive
-   *  action under-governed. Neither is acceptable, which is why read+write consolidation is blocked
-   *  on this.
-   *
-   *  Same shape as `pathAcl` above and for the same reason — that field is already a function of
-   *  the input, enforced centrally in runDispatch, so this generalizes a signature the pipeline
-   *  already proves out rather than inventing one.
-   *
-   *  ABSENT -> the static `requiredScopes` / `destructive` / `scopeClass` are used verbatim, so
-   *  every existing tool is untouched. This is purely additive.
-   *
-   *  `requiredScopes` here MUST be a SUBSET of the static `requiredScopes`, which stays the
-   *  declared MAXIMUM the tool advertises. `resolveOperationPolicy` enforces that at runtime and
-   *  refuses the call otherwise: a resolver returning a scope the tool never declared is an
-   *  under-declaration, and the advertised surface would be lying about what the tool can do.
-   *  Narrowing is the whole point; widening is a defect. */
+  /** THE-727: resolve authorization policy from the CALL rather than the definition — a tool that
+   *  dispatches on an `action` argument cannot honestly declare one static scope set (unioning
+   *  over-grants, intersecting under-governs). Same shape as `pathAcl` above, for the same reason.
+   *  ABSENT -> static `requiredScopes`/`destructive`/`scopeClass` used verbatim (purely additive).
+   *  `requiredScopes` here MUST be a SUBSET of the static `requiredScopes`; enforced at runtime, not
+   *  just documented — narrowing is the point, widening is a defect. See
+   *  docs/design/mcp-registry-context-types.md. */
   resolvePolicy?: (input: I) => OperationPolicy;
   handler: (input: I, ctx: CallerContext) => Promise<O> | O;
 }
@@ -274,30 +226,13 @@ export type VerifyElicit = (token: string, expectedHash: string, ctx: CallerCont
 export type Status = "ok" | "error" | "skipped";
 
 /** THE-839: what KIND of operation produced an episode, decided by the registry at the dispatch
- *  site and never re-inferred downstream.
- *
- *  This exists because `episode_type` was a literal. `episodes.ts` hardcoded `'tool_call'` for
- *  every captured operation, so 192 of 630 live rows (30.5%) were MCP protocol methods labelled as
- *  tool calls, and the column carried no information at all. A consumer asking "was this real
- *  work?" had nothing structural to ask, and the only available proxy — the shape of the tool's
- *  NAME — is not a contract: SEP-986 permits `/` in tool names precisely so they can be
- *  hierarchical (`user-profile/update` is a documented valid example), so a name test would
- *  misclassify a spec-conforming tool and keep doing it silently.
- *
- *  The registry already knows which is which, because the two kinds arrive through two different
- *  entry points: `dispatch()` (tools/call) and `dispatchResource()` (the resources/* and prompts/*
- *  surfaces, THE-415). This type just stops throwing that knowledge away.
- *
- *  - `tool_call`  a registered tool, through `dispatch()`. UNCHANGED spelling: this was already
- *                 the right value for a real tool call, and renaming it would churn 438 live rows
- *                 and ten test fixtures for no gain. The defect was protocol methods borrowing
- *                 this value, not the value itself.
- *  - `protocol`   an MCP protocol method, through `dispatchResource()`. Governed and audited like
- *                 a tool, but it is not work anyone can render a verdict on.
- *  - `verdict`    a registered tool tagged `verdict` — one whose whole job is to record a judgement
- *                 about other episodes. Has NO producer in this codebase yet; it is defined here so
- *                 THE-726 does not have to change the producer a second time, and so a verdict verb
- *                 cannot become its own evidence. */
+ *  site (never re-inferred downstream) and never sniffed from the tool NAME — SEP-986 permits `/`
+ *  in tool names for hierarchy, so a name-shape test would silently misclassify a spec-conforming
+ *  tool. The two kinds arrive through two different entry points: `dispatch()` (tools/call) yields
+ *  `tool_call`, spelling unchanged from before this type existed; `dispatchResource()` (resources/*
+ *  and prompts/*, THE-415) yields `protocol`. `verdict` (a tool tagged `VERDICT_TOOL_TAG`) has no
+ *  producer yet — defined ahead of need so a verdict verb cannot become its own evidence. See
+ *  docs/design/mcp-registry-context-types.md for the measured drift this closes. */
 export type EpisodeKind = "tool_call" | "protocol" | "verdict";
 
 /** The registry tag marking a tool as a verdict verb (see EpisodeKind). Derived from the tool's own

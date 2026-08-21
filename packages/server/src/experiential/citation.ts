@@ -1,26 +1,17 @@
-// THE-170 — citation inference: the AUTOMATIC outcome writer over chunk_retrievals. Given a
-// session transcript, infer per retrieved chunk whether it was actually USED in the response
-// and stamp cited_in_response / citation_score (record_retrieval_feedback is the manual
-// counterpart).
+// Citation inference: the automatic outcome writer over chunk_retrievals. Given a session
+// transcript, infers per retrieved chunk whether it was actually used in the response and stamps
+// cited_in_response / citation_score (record_retrieval_feedback is the manual counterpart). THE-170.
 //
-// THE-717/THE-675 — WHERE THE TRANSCRIPT COMES FROM, because this comment got it wrong for
-// months. It used to read "assistant-side text the MCP server itself never sees", and that
-// sentence was quoted forward as proof the whole feature was unbuildable. It is true of the
-// MCP PROTOCOL and says nothing about the HOST: a client is free to ship its own transcripts
-// somewhere the server can read, and on at least one deployment it already was. The premise
-// was never re-tested because it looked authoritative.
-// The seam is therefore a plain JSONL index file — `experiential.citationInfer.transcriptIndex`,
-// one object per retrieval — with the producer OUT of tree. Any client and any log store can
-// fill it. Do not derive a blocker here from a fact about the protocol.
-// Two-stage per the 2026-05-16 design anchors, de-vendored onto local seams:
-//   Stage 1 (cheap filter): ROUGE-L F of chunk content vs the transcript, OR max cosine of
-//   the chunk's STORED embedding against embedded transcript blocks. Thresholds 0.05 / 0.30
-//   carried from the design; the DoD's hand-labeled validation runs at data maturity.
-//   Stage 2 (judge): the gateway `judge` role, strict-JSON entailment per stage-1 survivor,
-//   with the DoD kill switch — >5% parse failures aborts stage-2 stamping (survivor rows stay
-//   NULL for a clean rerun). Stage-1 NEGATIVES are always safe to stamp cited=0.
-// Correlation: session_id (threaded from ctx into every retrieval-log call) or a
-// retrieved_at window — the join the THE-228 capture bus made trivial.
+// The transcript source is a plain JSONL index file (`experiential.citationInfer.transcriptIndex`,
+// one object per retrieval), with the producer out of tree — any client and any log store can fill
+// it. The MCP protocol itself makes no such promise, but a host is free to expose one; do not derive
+// a blocker here from a fact about the protocol alone. THE-717/THE-675. See
+// docs/design/experiential-citation-inference.md.
+//
+// Two-stage: stage 1 is a cheap ROUGE-L / cosine filter (thresholds 0.05 / 0.30); stage 2 is a
+// gateway judge call per stage-1 survivor, with a >5% parse-failure kill switch that leaves
+// survivor rows NULL for a clean rerun. Stage-1 negatives are always safe to stamp cited=0.
+// Correlation is by session_id or a retrieved_at window (THE-228's capture bus).
 import type { Database } from "../db/types";
 import type { GatewayRoles } from "../plane/gateway";
 import { prompt } from "../plane/gateway";
@@ -48,12 +39,9 @@ function tokenize(text: string, cap: number): string[] {
 /**
  * A transcript tokenized and interned ONCE, so the per-chunk loop below does not redo it.
  *
- * `inferCitations` scores every retrieved chunk against the SAME transcript. The previous
- * `rougeL(chunk, transcript)` signature forced `tokenize(transcript, 6000)` — a lowercase pass
- * plus a global regex match over the whole transcript — to run again for every chunk, and the DP
- * then compared JS STRINGS in its innermost cell. Measured at the module's own bounds
- * (512 x 6000 = 3,072,000 cells): 62.6 ns/cell with string compares, 40.1 ns/cell over interned
- * ints, for an identical score. Hoisting the tokenize is pure removed work on top of that.
+ * `inferCitations` scores every retrieved chunk against the SAME transcript; hoisting the tokenize
+ * out of that loop and comparing interned ints instead of JS strings in the LCS DP is a measured
+ * win — see docs/design/experiential-citation-inference.md for the numbers.
  */
 export interface PreparedTranscript {
   /** Interned transcript token ids, in order. Ids are dense, `0 .. index.size - 1`. */
@@ -117,11 +105,9 @@ export function rougeL(a: string, b: string): number {
 
 /**
  * Transcript block vectors flattened once into a row-major f32 buffer, so each chunk costs ONE
- * `cosineBatch` crossing instead of one `cosineSimilarity` call per (block, chunk) pair.
- *
- * The pairwise form is the shape THE-420 measured as 13-22x SLOWER than the JS fallback: with up
- * to MAX_BLOCKS (48) blocks it crossed the boundary 48 times per chunk, and `cosineSimilarity`'s
- * `a: number[]` parameter marshals a fresh `Vec<f64>` on every one of them.
+ * `cosineBatch` crossing instead of one `cosineSimilarity` call per (block, chunk) pair — the
+ * pairwise form was measured significantly slower (THE-420); see
+ * docs/design/experiential-citation-inference.md for the number and why.
  */
 export interface PreparedBlocks {
   readonly flat: Float32Array;
@@ -151,8 +137,8 @@ export function prepareBlocks(blockVecs: number[][]): PreparedBlocks | null {
  * all-zero is 0. Preserving that keeps `cosine` a number wherever it was one before.
  *
  * Numeric note: blocks arrive as `number[]` (f64) and are narrowed to f32 by the flat buffer, so
- * scores can differ from the old f64-query path in the last bits. THE-504 measured that same
- * narrowing at < 1e-6 absolute, against a stage-1 threshold of 0.30.
+ * scores can differ from the old f64-query path in the last bits — negligible against the stage-1
+ * threshold (THE-504; see docs/design/experiential-citation-inference.md for the measured bound).
  */
 export function maxBlockCosine(vec: Float32Array, prepared: PreparedBlocks): number {
   // Early-out, NOT a correctness gate: cosineBatch already returns an empty result on a width
@@ -257,12 +243,9 @@ export interface InferCitationsOptions {
   allowUncertain?: boolean;
   thresholds?: { rouge?: number; cosine?: number; killSwitch?: number };
   /** THE-617 item 3 — cap on how many stage-1 survivors get judged per run (bounded judge
-   *  cost). Override via --max-judged on the citation-infer CLI. Default 25.
-   *
-   *  THE-747: this used to be documented as the counterpart to an identically-named MAX_JUDGED in
-   *  reflect.ts, kept separate because citation-inference and episode-evaluation were independent
-   *  workloads. THE-701 deleted the episode judge, so reflect.ts has no such constant and there is
-   *  no longer a second workload to stay tunable apart from. This is the only MAX_JUDGED left. */
+   *  cost). Override via --max-judged on the citation-infer CLI. Default 25. The only MAX_JUDGED
+   *  left in the codebase since THE-701 deleted the episode judge (THE-747); see
+   *  docs/design/experiential-citation-inference.md. */
   maxJudged?: number;
   /** THE-621 item 1 — how many judge calls may be in flight at once. The stage-2 loop was serial,
    *  so a full pass spent most of a minute awaiting one verdict at a time before anything was

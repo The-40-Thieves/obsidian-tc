@@ -1,16 +1,13 @@
-// WP5.2 (issue 16): run_serve's job-queue / job-handler / reconcile-runner / plane-schedule wiring,
-// extracted verbatim out of cli.ts. Several pieces here are deliberately constructed AHEAD of their
-// conceptual home:
+// run_serve's job-queue / job-handler / reconcile-runner / plane-schedule wiring.
 //
-//   * `createJobQueue` is called before tool-wiring.ts's health tool is registered, because
-//     server_health's getJobQueueStats accessor closes over the SAME jobQueue instance — see
-//     server-runtime.ts's composition order.
-//   * `createOnIndexedHook` is a factory (not a single closure) because indexing-wiring.ts's
-//     wireIndexCoordinator, M1's indexVault, and this file's own createReconcileRunner all need the
-//     SAME `(vaultId) => IndexHook | undefined` shape, bound to the one jobQueue/roles pair.
+// Composition order is load-bearing (do not reorder without checking server-runtime.ts):
+//   * createJobQueue runs before tool-wiring.ts's health tool registers — server_health's
+//     getJobQueueStats accessor closes over this SAME jobQueue instance.
+//   * createOnIndexedHook is a factory, not a single closure: indexing-wiring.ts's
+//     wireIndexCoordinator, M1's indexVault, and this file's createReconcileRunner all share the
+//     SAME `(vaultId) => IndexHook | undefined` shape, bound to one jobQueue/roles pair.
 //
-// #14: durable contradiction/synthesis/audit jobs (was an in-memory queue that dropped under
-// backpressure). THE-643: note-quality reuses the maintenance cadence, no gateway dependency.
+// See docs/design/runtime-job-wiring.md for the extraction/durability history behind this shape.
 import type { ServerConfig, VaultConfigInput } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
 import type { WriteTxnHooks } from "../db/txn";
@@ -42,14 +39,14 @@ import { type Observability, wireActivationRecompute } from "./observability";
 import { applyReconcileOutcome } from "./reconcile-outcome";
 import { planeRoles } from "./tool-wiring";
 
-// #14 (contradiction handler): a completed/dead-lettered job for a given key must not permanently
-// block re-judging recurring identical content — see EnqueueOptions.replaceIfTerminal.
+// Content-derived key, deliberately: a completed/dead-lettered job for a given key must not
+// permanently block re-judging recurring identical content — see EnqueueOptions.replaceIfTerminal.
 const CONTRADICTION_MAX_ATTEMPTS = 3;
 /** Interval for the unconditional job-queue-runner scheduler tick (scheduler-wiring.ts). */
 export const CONTRADICTION_DRAIN_MS = 15_000;
 
-/** THE-585 (#5): the job queue claims across every vault from one process-wide connection, so it
- *  has no vault id to report; "scheduler" is the bounded subsystem name. Hoisted ahead of
+/** The job queue claims across every vault from one process-wide connection, so it has no vault id
+ *  to report; "scheduler" is the bounded subsystem name (THE-585, #5). Hoisted ahead of
  *  tool-wiring.ts's health-tool registration so its stats accessor can close over it. */
 export function createJobQueue(
   db: Database,
@@ -58,12 +55,11 @@ export function createJobQueue(
   return new JobQueue(db, { now: Date.now, sql: sqlHooksFor("scheduler") });
 }
 
-/** THE-822: the one gate for every plane-scoped (contradiction/synthesis/audit) consumer of
- *  `roles` in this file — `registerPlaneSchedule` above already required BOTH `plane.enabled` and
- *  `roles`; this makes `createOnIndexedHook` and `wireJobHandlers` match instead of reading
- *  `deps.roles` alone. `plane` is a REQUIRED dep on both, not optional, so a caller cannot forget
- *  to state the plane's status. Module-private: `wireDomainTools` (tool-wiring.ts) must keep the
- *  full, ungated `roles` for `reflect` and friends, which stay live with the plane off — it must
+/** The one gate every plane-scoped (contradiction/synthesis/audit) consumer of `roles` in this file
+ *  must route through, rather than reading `deps.roles` alone (THE-822, #788 — see
+ *  docs/design/runtime-job-wiring.md). `plane` is a REQUIRED dep, not optional, so no call site can
+ *  forget to state the plane's status. Module-private: `wireDomainTools` (tool-wiring.ts) must keep
+ *  the full, ungated `roles` for `reflect` and friends, which stay live with the plane off — it must
  *  NOT call this helper. */
 function planeGatedRoles(deps: {
   plane: { enabled: boolean };
@@ -79,10 +75,8 @@ function planeGatedRoles(deps: {
  * completed job's row forever (jobs are never pruned) — folding in the content hash makes an edit
  * (new content) a distinct key, re-judged, while an identical-content rapid re-index still dedups.
  *
- * THE-822: also requires `plane.enabled` (see planeGatedRoles) — `plane.enabled: false` must stop
- * this per-index-write enqueue, not just the scheduled consolidation pass. With any gateway
- * configured, a disabled plane was still enqueuing (and running) unattended per-chunk LLM calls on
- * every index write across the whole vault.
+ * Also gated on `plane.enabled` via planeGatedRoles — `plane.enabled: false` must stop this
+ * per-index-write enqueue, not just the scheduled consolidation pass (THE-822, #788).
  */
 export function createOnIndexedHook(deps: {
   jobQueue: JobQueue;
@@ -98,9 +92,8 @@ export function createOnIndexedHook(deps: {
               payload: { vaultId, chunkId: c.id },
               idempotencyKey: `${vaultId}:${c.id}:${contentHash(c.content)}`,
               maxAttempts: CONTRADICTION_MAX_ATTEMPTS,
-              // #14: a completed or dead-lettered job for this exact key must not permanently
-              // block re-judging recurring identical content (revert, or re-index after
-              // dead-letter).
+              // A completed or dead-lettered job for this exact key must not permanently block
+              // re-judging recurring identical content (revert, or re-index after dead-letter).
               replaceIfTerminal: true,
             });
           }
@@ -177,18 +170,14 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
       // IGNORE on a content-derived id).
       if (r.unjudged > 0) throw new Error(`contradiction: ${r.unjudged}/${r.checked} unjudged`);
     });
-    // #14: synthesis/audit are durable jobs; wrapPlaneJob turns their ok:false into the THROW its
+    // synthesis/audit are durable jobs; wrapPlaneJob turns their ok:false into the THROW its
     // dead-letter/retry needs.
-    // THE-700: the SCHEDULED jobs get their own longer-budget client. The Modal endpoints scale
-    // to zero and a cold start measured >180s, past the interactive 3x60s. Falls back to the
-    // interactive roles when unconfigured, so behaviour is unchanged without the knob.
     //
-    // THE-709: attempts alone were NOT enough, and the two knobs cover different failures. Attempts
-    // rescue a TRANSIENT failure (cold start, 5xx, dropped connection). A request that is merely
-    // SLOW exceeds the per-attempt timeout identically on every attempt — measured at 370.4s twice,
-    // 45 minutes apart and 12ms from each other, which is 6 x 60s expiring on schedule rather than
-    // a cold start varying. The endpoint answered a small completion in 360ms throughout, so there
-    // was nothing to wait out. gatewayTimeoutMs is the knob for that case.
+    // Scheduled jobs get their own longer-budget client (attempts AND per-attempt timeout are
+    // separate knobs, rescuing a transient vs. a deterministically-slow failure respectively).
+    // Falls back to the interactive roles when unconfigured, so behaviour is unchanged without the
+    // knob. History and measurements: CHANGELOG.md THE-700 (#659) and THE-709; see also
+    // docs/design/runtime-gateway-seams.md.
     const bgRoles =
       (deps.gatewayMaxAttempts !== undefined
         ? planeRoles(deps.gatewayMaxAttempts, deps.gatewayTimeoutMs)
@@ -204,7 +193,7 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
     jobHandlers.set("synthesis", synthesisJob);
     jobHandlers.set("audit", auditPassJob);
   }
-  // THE-643: note_quality was write-only (an unused CLI command); no gateway dependency here.
+  // No gateway dependency here (THE-643, #813).
   if (deps.experientialOpen) {
     const vaultIds = deps.vaults.map((v) => v.id);
     const noteQualityJob = wrapPlaneJob(
@@ -221,21 +210,20 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
     );
     jobHandlers.set("note-quality", noteQualityJob);
   }
-  // THE-717: the citation pass finally gets a scheduled caller. It had exactly one — the offline
-  // CLI — so every citation column was NULL on 105 of 105 live rows.
-  //
-  // FOUR conditions, and each rules out a job that would look scheduled while doing nothing:
+  // Citation job: FOUR conditions gate registration, each ruling out a job that would look
+  // scheduled while doing nothing or doing active harm:
   //   experientialOpen  — chunk_retrievals is where it reads and writes
   //   enabled           — opt-in, per the config block
-  //   transcriptIndex   — THE REAL GATE. Without a producer there is no input, and a handler with
-  //                       no possible input is worse than an absent one: it reports success with
-  //                       zero work forever, which is the exact shape THE-716/THE-717 kept finding.
+  //   transcriptIndex   — THE REAL GATE. No producer means no input; a handler with no possible
+  //                       input is worse than an absent one, reporting success with zero work.
   //   roles (gateway)   — NOT merely "matching the contradiction job". Without a judge the pass
   //                       runs stage-1-only and stamps every survivor cited_in_response = 1 with
-  //                       state `candidate`. That COUNTS as a citation in chunk_access_stats, and
-  //                       note_quality weights citation rate at 0.6 — so an unattended stage-1-only
-  //                       schedule would inflate 60% of every quality score with rows no judge ever
-  //                       read. A human can still choose that mode at the CLI, deliberately.
+  //                       state `candidate`, which COUNTS toward note_quality's 0.6-weighted
+  //                       citation rate — an unattended stage-1-only schedule would inflate 60% of
+  //                       every score with rows no judge ever read. A human can still choose that
+  //                       mode at the CLI, deliberately.
+  // History (THE-717, #708/#709/#707) and the 105-of-105-NULL measurement:
+  // docs/design/runtime-job-wiring.md.
   const citationIndexPath = deps.citationInfer?.transcriptIndex;
   if (
     deps.experientialOpen &&
@@ -380,18 +368,13 @@ export function registerPlaneSchedule(
     intervalMs: deps.plane.intervalMinutes * 60_000,
     run: () => {
       const iso = isoWeek(new Date());
-      // THE-700: a failure must not cost the WHOLE period. enqueue() dedups against a terminal
-      // row, so a `failed` synthesis would keep `synthesis:<iso-week>` and every later enqueue
-      // that week became a silent no-op — one cold-start timeout locked out the entire week's
-      // consolidation until the row was deleted by hand. maxAttempts stays 1: the gateway client
-      // owns the retry budget (plane.gatewayMaxAttempts), and a job-level retry of a genuine 4xx
-      // would only repeat the same mistake.
-      //
-      // THE-723: `replaceIfFailed`, NOT `replaceIfTerminal`. These keys name a PERIOD, and
-      // `replaceIfTerminal` also replaces `complete` — so the plane deleted and re-ran its own
-      // SUCCESSFUL work every tick and the period key throttled nothing. `audit` succeeds every
-      // run and still went from 2 writes/day to 243. The narrow flag keeps THE-700's guarantee
-      // (a failed period is re-enqueueable) while restoring "once per period" for a period key.
+      // `replaceIfFailed`, NOT `replaceIfTerminal`: these keys name a PERIOD, and
+      // `replaceIfTerminal` also replaces `complete`, so it would delete and re-run already
+      // SUCCESSFUL work every tick. The narrow flag keeps the guarantee that a failed period is
+      // re-enqueueable while still throttling a period key to once-per-period. maxAttempts stays 1:
+      // the gateway client owns the retry budget (plane.gatewayMaxAttempts), and a job-level retry
+      // of a genuine 4xx would only repeat the same mistake. History and measurements (THE-700
+      // #659, THE-723 #687): CHANGELOG.md.
       deps.jobQueue.enqueue("synthesis", {
         class: "plane",
         idempotencyKey: `synthesis:${iso.year}-${iso.week}`,
@@ -440,11 +423,8 @@ export function registerNoteQualitySchedule(
     intervalMs: deps.intervalMs,
     ...(deps.activationDecay !== undefined ? { decay: deps.activationDecay } : {}),
   });
-  // THE-698: the evaluator pass that promotes pending -> eligible. It had NO scheduled caller —
-  // only the manual `obsidian-tc reflect` CLI — so on the live deployment 337 of 337 episodes sat
-  // `pending` across seventeen days and `work_search`, which serves eligible rows only by contract,
-  // returned zero rows every time. The capture half of the experiential tier worked; the recall
-  // half was dark, and an honest-empty result is indistinguishable from "nothing matched".
+  // The evaluator pass that promotes pending -> eligible (THE-698, #648 — history and the
+  // 337-of-337-pending measurement in docs/design/runtime-job-wiring.md).
   //
   // No judge is passed, deliberately, and this is not a degraded mode: the judge can only LOWER a
   // deterministic promotion, never raise one, so the deterministic layer is the whole job. Same
@@ -491,12 +471,9 @@ export function registerNoteQualitySchedule(
       onError: stderrOnError("citation-enqueue"),
     });
   }
-  // THE-633: the goal expiry sweep. Registered HERE, in the same change that adds the table, and
-  // deliberately so — an expiry function with no scheduled caller is precisely the shape this
-  // codebase keeps producing (THE-698's evaluator, THE-717's citation pass, THE-719's gaps pass:
-  // correct code, complete tests, no caller, invisible from inside the repo). A goals table whose
-  // sweep never ran would silently become a list of things the user gave up on, biasing every
-  // downstream read toward stale intent — which is the exact failure the migration header calls out.
+  // The goal expiry sweep (THE-633, #675). Registered here, in the same change that adds the
+  // table, deliberately — see docs/design/runtime-job-wiring.md for why an unscheduled sweep is a
+  // recurring failure shape in this codebase, not a one-off.
   //
   // Direct, not enqueued: this is a single bounded UPDATE over one indexed predicate, with no
   // gateway dependency and nothing to retry. The durable job queue is for work that can fail

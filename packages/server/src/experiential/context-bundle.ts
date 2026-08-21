@@ -1,62 +1,24 @@
-// THE-636 — context portability: export/import the derived plane (experiential.db) as a
-// vendor-neutral bundle. CLI-only (cli/commands/context-export.ts, context-import.ts) — see the
-// verified design note for why this is a CLI command and not a new MCP tool: the MCP surface is
-// itself the exfiltration/attack surface item 2 of the ticket warns about, and this repo already
-// has an established precedent (forget.ts) for admin/operator-only, filesystem-touching commands
-// that read or write the experiential store directly, outside `registry.dispatch`.
+// Context portability: export/import the derived plane (experiential.db) as a vendor-neutral
+// bundle. CLI-only (cli/commands/context-export.ts, context-import.ts), never dispatched through
+// `registry.dispatch` or exposed as an MCP tool — mirrors the `forget.ts` precedent for
+// admin/operator-only, filesystem-touching commands. THE-636. See
+// docs/design/experiential-context-bundle.md.
 //
-// TWO DIRECTIONS OF "FORGET WINS OVER IMPORT" (ticket item 3, THE-239/THE-605/THE-609's audit
-// story):
+// "Forget wins over import" holds in both directions: an episode the TARGET has already forgotten
+// is never resurrected by an import naming it (existence check against the target's own
+// forget_log, no timestamp comparison — a timestamp gate is wrong across machines with independent
+// clocks), and an imported forget_log entry retroactively blocks/scrubs any matching episode
+// already in the target, including ones a different, earlier import brought in.
 //
-//   (a) IMPORTED-FORGOTTEN STAYS FORGOTTEN. `agent_episodes` rows are only ever exported with
-//       `blocked = 0` (see context-bundle-schema.ts's row schema, which hard-pins `blocked:
-//       z.literal(0)`) — a tombstoned episode never leaves the source install in the first place.
-//       The harder case is the RECEIVING install: it may have forgotten an episode the bundle
-//       still carries as live, because a DIFFERENT install forgot it independently — at ANY time,
-//       before or after the bundle's `exported_at`. `importContextBundle` reconciles against the
-//       TARGET's own forget_log before inserting any `agent_episodes` row — never against the
-//       bundle's — and the check is EXISTENCE ONLY, with no timestamp comparison: an earlier
-//       version gated on `forget_log.ts >= bundle.exported_at`, reasoning "only a forget that
-//       happened after this bundle was made can be resurrecting something new". That reasoning is
-//       wrong across machines with independent clocks and independent forget histories — the
-//       primary migration case is a bundle exported NOW from install A, carrying an episode that
-//       install B (the target) forgot LONG AGO (ts < exported_at). Under the timestamp-gated
-//       check that forget is invisible (its ts is always < exported_at) and the episode gets
-//       re-written, unblocked, resurrecting exactly what B tombstoned. Wall-clock comparison
-//       across machines is not a safety primitive here: if the target's forget_log names a target
-//       id AT ALL, that id is never resurrected by import — full stop, regardless of when.
-//   (b) IMPORTED forget_log ENTRIES APPLY TO TARGET CONTENT. A forget_log entry is audit history,
-//       not inert metadata — importing one must have the same real effect appending it locally
-//       would have. So forget_log rows import FIRST (before agent_episodes), and each new
-//       'episode'-kind entry immediately blocks (and, for 'erase', scrubs) any MATCHING episode
-//       already in the target — whether that episode is native to the target or arrived via a
-//       DIFFERENT, earlier import. A forget event travelling in the bundle must be able to
-//       retroactively forget content the bundle itself never carried.
+// Vault ids have no cross-install identity, and derived chunk ids are a hash of that bare label —
+// two installs each with a vault called "main" hash identically. `remapBundleVault` (`--vault`)
+// remaps vault-scoped rows to a named target vault and refuses a bundle naming more than one source
+// vault; `chunk_retrievals`/`vault_object_state` carry no vault_id at all, so those are ground-
+// truthed against the target's own indexed `cache.db.chunks` instead (`skipped_unmatched` when
+// absent).
 //
-// IDEMPOTENCY: every table dedups on a NATURAL KEY before writing (never a bare "run it twice and
-// hope autoincrement doesn't collide") — see the header note on `importDeduped`. Re-importing the
-// same bundle a second time writes nothing new anywhere.
-//
-// CROSS-INSTALL VAULT IDENTITY (THE-636 review fix, BLOCKER 2): a vault id is a bare operator
-// label ("main" everywhere) with no cross-install identity, and `vault_object_state.object_id` /
-// `chunk_retrievals.chunk_id` are `chunkId(vaultId, path, index)` — a hash of that SAME label, not
-// of anything globally unique. Two unrelated installs each running a vault called "main" produce
-// IDENTICAL chunk ids for same-path notes. Importing verbatim would silently merge two unrelated
-// vaults' derived state under a shared label. Two mechanisms close this:
-//   - `remapBundleVault` makes `--vault` LOAD-BEARING: when the operator names a target vault, every
-//     vault-SCOPED row (the 6 tables that carry `vault_id`) is remapped from the bundle's actual
-//     source vault to that target, and a bundle whose vault-scoped rows name more than one source
-//     vault is refused outright — "the" source vault would be undefined. Omitting `--vault` keeps
-//     rows verbatim, which is the OTHER legitimate case this ticket names: migrating a whole
-//     deployment to a new machine, where source and target are the SAME logical vault under the
-//     SAME id, not two vaults merging.
-//   - `chunk_retrievals`/`vault_object_state` have NO `vault_id` column at all, so there is nothing
-//     to remap. Instead, `importContextBundle` verifies each row's chunk id GROUND-TRUTH against the
-//     TARGET's own `cache.db` `chunks` table: a row whose id the target has never indexed is not
-//     imported (`skipped_unmatched`), because there is no local evidence it belongs to a vault this
-//     install actually has. This is best-effort and index-dependent — importing before the target
-//     vault has been indexed matches nothing; re-running the import after `index_vault`/`obsidian-tc
-//     index` picks up what an earlier pass skipped (idempotent dedup means a re-run costs nothing).
+// Idempotency: every table dedups on a natural key before writing, never a bare insert-and-hope —
+// see `importDeduped`. Re-importing the same bundle a second time writes nothing new anywhere.
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import {
@@ -114,15 +76,12 @@ const GOAL_COLS = "id, vault_id, text, status, source, created_at, target_date, 
  *  `blocked = 0` UNCONDITIONALLY (no `--include-blocked` escape hatch — see context-bundle-schema
  *  and the ticket's item 3): a tombstoned episode never enters a bundle in the first place.
  *
- *  THE-891: `preference_profile`/`preference_deltas` now carry `scope_caller`, so a bundle exports
- *  learned state that CROSSES caller partitions within the vault(s) it covers — a human-scoped row
- *  alongside every caller-scoped one, unfiltered. That is intentional here, not an oversight this
- *  ticket left open: this module is the same admin/operator-only, CLI-only, `registry.dispatch`-
- *  bypassing surface the module header already establishes (mirroring `forget.ts`'s precedent) —
- *  reachable only by an operator running `obsidian-tc context-export` directly on the box, never
- *  through the MCP tool surface partition-scoped reads (`preferenceProfile`'s own `admin:workspace`
- *  gate) protect against. The existing CLI-command elevation already covers a cross-caller export;
- *  it does not need — and deliberately does not get — a second, redundant scope check here. */
+ *  `preference_profile`/`preference_deltas` carry `scope_caller` (THE-891), so a bundle exports
+ *  learned state that CROSSES caller partitions within the vault(s) it covers, unfiltered — human-
+ *  scoped and caller-scoped rows alike. Deliberate, not a gap: this is the same admin/operator-only,
+ *  CLI-only, `registry.dispatch`-bypassing surface the module header establishes, reachable only by
+ *  an operator running `obsidian-tc context-export` on the box — never through the MCP tool surface
+ *  `preferenceProfile`'s own `admin:workspace` gate protects. No second, redundant scope check here. */
 export function exportContextBundle(edb: Database, opts: ExportOptions): ContextBundle {
   const v = opts.vaultId;
 
