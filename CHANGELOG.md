@@ -51,7 +51,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   class argument above. Deliberately **out of scope**: a metadata-only capture mode (real schema
   churn, not attempted here) and changing `captureContent`'s own default value.
 - **`obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable
-  (THE-891 item 3, #PRNUM).** The filter itself has been unconditionally on since v1.22.0
+  (THE-891 item 3, #847).** The filter itself has been unconditionally on since v1.22.0
   (THE-695/THE-852): an ACL-denied note can never serve as a bridge between two readable ones, for
   every caller, with no config flag to disable it. What was missing was a way to SEE what it costs —
   a restricted caller's search silently returning fewer notes than an unrestricted caller's would,
