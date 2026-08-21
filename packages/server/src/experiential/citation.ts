@@ -266,8 +266,15 @@ export interface InferCitationsOptions {
   maxJudged?: number;
   /** THE-621 item 1 — how many judge calls may be in flight at once. The stage-2 loop was serial,
    *  so a full pass spent most of a minute awaiting one verdict at a time before anything was
-   *  stamped. Bounded rather than unbounded on purpose: 25 simultaneous completions is a burst
-   *  this deployment has no reason to send. Default 3. */
+   *  stamped. Bounded rather than unbounded on purpose: an unbounded fan-out sends every stage-1
+   *  survivor (up to maxJudged, default 25) to the judge role at once, and the judge role's
+   *  serving capacity is not something this side can discover any more than the synthesis job can
+   *  discover its serving window (see DEFAULT_MAX_PROMPT_CHARS in plane/jobs/synthesis.ts) — the
+   *  model behind a gateway role is swappable at the gateway, and a burst sized to the WEAKEST
+   *  plausible gateway is the safe default. THE-891 item 9: 3 is that conservative floor, not a
+   *  measurement of any one deployment's traffic — a deployment with real inference capacity behind
+   *  its judge role should raise it via `--judge-concurrency` (see cli/usage.ts) rather than treat 3
+   *  as a ceiling. Default 3. */
   judgeConcurrency?: number;
   /** THE-621 item 2 — minimum judgements before the kill-switch RATIO is allowed to trip. Default
    *  10. Set to 1 to restore the pre-THE-621 behaviour where any single parse failure in a small

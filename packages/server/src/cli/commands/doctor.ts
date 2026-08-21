@@ -18,6 +18,7 @@ import {
   renderText,
 } from "../../doctor";
 import { experientialColumnSpec } from "../../doctor/column-spec";
+import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { experientialTableSpec } from "../../doctor/table-spec";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
@@ -663,6 +664,14 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     : undefined;
   // THE-722: the reader audit_reports never had.
   const kbHealth = cmd.probe ? await probeKbHealth(config.cacheDir) : undefined;
+  // THE-891 item 5: per-vault note-summary scan size, only under --probe (same contract as every
+  // other store-touching probe above).
+  const noteSummariesScale = cmd.probe
+    ? await probeNoteSummariesScale(
+        config.cacheDir,
+        config.vaults.map((v) => v.id),
+      )
+    : undefined;
 
   const report = await assembleDoctorReport({
     config: {
@@ -715,6 +724,12 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
       kbHealth: {
         ...(kbHealth !== undefined ? { probe: () => kbHealth } : {}),
+      },
+      // THE-891 item 5: `enabled` reflects whether the summary candidate stream can even run; the
+      // per-vault counts only when --probe looked, same reasoning as notesFts above.
+      noteSummariesScale: {
+        enabled: config.retrieval.summaries?.enabled ?? false,
+        ...(noteSummariesScale !== undefined ? { probe: () => noteSummariesScale } : {}),
       },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {

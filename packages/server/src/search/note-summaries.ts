@@ -2,10 +2,12 @@
 // (migration 20260819_001) — the row-level CRUD the index-time summarizer needs, plus a brute-force
 // semantic search over summary embeddings for the DARK retrieval candidate stream
 // (graph_search_stages/candidate_assembly.ts). "Brute-force" is deliberate, not a shortcut: one row
-// per NOTE (not per chunk) means this scan is proportional to note count, which stays small enough
-// that a dedicated vec0 partition (mirroring vec_chunks in search/vec.ts) is unwarranted complexity
-// for a first, dark PR — see the research brief's cost/throughput analysis. A vec0-backed variant is
-// a natural follow-up if a vault's note count ever makes the brute-force scan the bottleneck.
+// per NOTE (not per chunk) means this scan is proportional to note count, which is cheap up to a
+// concrete ceiling rather than "small enough" left unstated — see NOTE_SUMMARY_SCAN_CEILING below
+// for the cost model and the measurement it is derived from. A vec0-backed variant (mirroring
+// vec_chunks in search/vec.ts) is a natural follow-up if a vault's note count ever crosses it; THE-891
+// item 5 added the constant plus a doctor check (search.note_summaries_scale) so that crossing is
+// OBSERVABLE instead of a silent latency creep.
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import { contentHash } from "../vault/paths";
@@ -70,6 +72,37 @@ export function upsertNoteSummary(db: Database, vaultId: string, rec: NoteSummar
     rec.embeddingModel ?? null,
     rec.createdAt,
   );
+}
+
+/**
+ * Where a per-note brute-force cosine scan stops being "cheap enough to ignore."
+ *
+ * Cost model: `searchNoteSummaries` scores every embedded note once per query, each score a
+ * ~1024-dim cosine (dot product + two norms, `cosineBatch`'s JS fallback in search/native.ts — the
+ * path a deployment without the optional native build actually runs). Measured on a representative
+ * host: ~1.7-2.2us/row at dim=1024, roughly flat across row count (1k-50k rows benchmarked). At
+ * 2us/row, 5,000 rows costs ~10ms added to a search request — the point picked here as "no longer a
+ * few ms." A deployment with the native SIMD build runs faster than this; the ceiling is
+ * deliberately sized off the SLOWER fallback path so it does not under-warn where the native module
+ * failed to load.
+ *
+ * This is a DERIVED estimate from a stated cost model, not a per-deployment measurement — hardware
+ * varies. It exists so a vault's scan cost is OBSERVABLE (doctor's search.note_summaries_scale
+ * check) rather than asserted-and-forgotten, the gap THE-891 item 5 flagged.
+ */
+export const NOTE_SUMMARY_SCAN_CEILING = 5000;
+
+/** Rows `searchNoteSummaries` would actually scan for `vaultId` — embedded summaries only, same
+ *  filter the scan itself applies. The doctor probe's cheap read: an indexed COUNT, not a table
+ *  scan, so it is safe to run outside `--probe`'s "touches nothing" guarantee if a caller wants to. */
+export function noteSummaryScanCount(db: Database, vaultId: string): number {
+  if (!hasNoteSummaries(db)) return 0;
+  const row = db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM note_summaries WHERE vault_id = ? AND embedding IS NOT NULL",
+    )
+    .get(vaultId) as { n: number } | undefined;
+  return row?.n ?? 0;
 }
 
 export interface SummaryHit {

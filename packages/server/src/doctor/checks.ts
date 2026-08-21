@@ -705,3 +705,8 @@ export {
   type KbHealthView,
   kbHealthCheck,
 } from "./kb-health";
+export {
+  type NoteSummaryScaleState,
+  type NoteSummaryScaleView,
+  noteSummaryScaleCheck,
+} from "./note-summary-scale";

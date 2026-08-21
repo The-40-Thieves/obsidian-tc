@@ -16,6 +16,9 @@ export type {
   ToolCensus,
 } from "./entrypoints";
 export { entryPointsCheck } from "./entrypoints";
+// THE-891 item 5: search.note-summaries-scale's probe result type, same reasoning as the
+// derived-table/column probes above — the CLI builds its probe without importing through checks.ts.
+export type { NoteSummaryScaleState } from "./note-summary-scale";
 export { renderText, runDoctor } from "./report";
 // THE-837: DenseProbeResult moved to ./retrieval-heads when retrievalHeadsCheck was extracted
 // (checks.ts had crossed biome's 700-line ceiling). Re-exported from this barrel exactly as before,

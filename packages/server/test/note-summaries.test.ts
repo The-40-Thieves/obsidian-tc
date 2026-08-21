@@ -17,7 +17,9 @@ import { assembleCandidates } from "../src/search/graph_search_stages/candidate_
 import { maybeSummarizeVault, summarizeNotes } from "../src/search/indexing/summarize-notes";
 import {
   existingSummaryHash,
+  NOTE_SUMMARY_SCAN_CEILING,
   noteSummaryId,
+  noteSummaryScanCount,
   searchNoteSummaries,
   upsertNoteSummary,
 } from "../src/search/note-summaries";
@@ -125,6 +127,52 @@ describe("note-summaries store", () => {
       isReadable: (p) => p !== "denied.md",
     });
     expect(hits.map((h) => h.path)).toEqual(["readable.md"]); // denied + unembedded both excluded
+  });
+
+  // THE-891 item 5 — the doctor probe's cheap read: exactly the rows searchNoteSummaries would
+  // actually scan (embedded only), scoped by vault.
+  it("noteSummaryScanCount counts only embedded rows, scoped by vault", () => {
+    const db = makeDb();
+    upsertNoteSummary(db, "v1", {
+      path: "embedded.md",
+      contentHash: "h1",
+      summary: "s",
+      model: "m",
+      embedding: [1, 0, 0, 0],
+      embeddingModel: "e",
+      createdAt: 1,
+    });
+    upsertNoteSummary(db, "v1", {
+      path: "unembedded.md",
+      contentHash: "h2",
+      summary: "s",
+      model: "m",
+      createdAt: 1,
+    });
+    upsertNoteSummary(db, "other-vault", {
+      path: "embedded.md",
+      contentHash: "h3",
+      summary: "s",
+      model: "m",
+      embedding: [1, 0, 0, 0],
+      embeddingModel: "e",
+      createdAt: 1,
+    });
+    expect(noteSummaryScanCount(db, "v1")).toBe(1);
+    expect(noteSummaryScanCount(db, "other-vault")).toBe(1);
+    expect(noteSummaryScanCount(db, "no-such-vault")).toBe(0);
+  });
+
+  it("noteSummaryScanCount is 0 on a store that predates the note_summaries migration", () => {
+    const bare = openMemoryDb();
+    expect(noteSummaryScanCount(bare as unknown as Database, "v1")).toBe(0);
+  });
+
+  it("NOTE_SUMMARY_SCAN_CEILING is a positive, sane bound (sanity, not a behavior pin)", () => {
+    // Not a magic-number pin — the derivation lives in the module header. This guards against a
+    // future edit silently making the constant 0, negative, or non-numeric.
+    expect(Number.isFinite(NOTE_SUMMARY_SCAN_CEILING)).toBe(true);
+    expect(NOTE_SUMMARY_SCAN_CEILING).toBeGreaterThan(0);
   });
 });
 

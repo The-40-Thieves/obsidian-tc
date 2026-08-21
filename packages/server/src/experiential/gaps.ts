@@ -1,5 +1,6 @@
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
+import { MIN_CALIBRATION_N, readLatestCalibration } from "./calibration";
 
 // THE-48 (local re-scope, 2026-07-11 flywheel decision) — the gap detector, batch-in-cycle-close
 // instead of a Linear-webhook worker. The server DETECTS (this module + the `gaps` CLI); the
@@ -50,13 +51,58 @@ export interface GapReport {
   items: GapItem[];
 }
 
-/** Calibrated 2026-07-12 against the n=136 golden set on the live nomic-768 enriched index:
- *  top-1 fused scores ran min=0.1154 / p5=0.1389 / p10=0.1497 / median=0.1833. Shipped default
- *  = p5 rounded down — an answerable query essentially never scores below this (~5% false-flag
- *  rate on answerable-like queries by construction). Override per run with --threshold;
- *  re-calibrate with --calibrate after engine changes. */
+/**
+ * THE-891 item 4 — what this constant honestly IS, not what it was first documented as.
+ *
+ * Calibrated 2026-07-12 against the n=136 golden set on the live nomic-768 enriched index: top-1
+ * fused scores ran min=0.1154 / p5=0.1389 / p10=0.1497 / median=0.1833 (shipped default = p5
+ * rounded down). That is ONE vault's score distribution, on a representation (nomic-768) DELETED
+ * 2026-07-31 (docs/EVALUATION.md — the store now runs BAAI/bge-m3) — so this number is doubly
+ * stale: wrong engine, and never more than a single-vault sample to begin with.
+ *
+ * A fused RRF score is not comparable across vaults or engines (THE-733's score_calibration
+ * migration explains why at length), which is exactly why it should never be the primary threshold
+ * source. `resolveGapThreshold` below prefers a PER-VAULT calibration (`gaps --calibrate`,
+ * persisted to `score_calibration`) whenever one exists with enough samples; this constant is the
+ * LAST-RESORT fallback for a vault that has never been calibrated, kept only because "no threshold
+ * at all" is worse than a documented-imperfect one. Every caller that falls back to it logs that it
+ * did, so running uncalibrated is observable rather than silent.
+ */
 export const DEFAULT_GAP_THRESHOLD = 0.138;
 export const DEFAULT_GAP_MIN_RESULTS = 2;
+
+export interface ResolvedGapThreshold {
+  threshold: number;
+  /** "calibration" — a per-vault score_calibration row with enough samples was used.
+   *  "fallback" — DEFAULT_GAP_THRESHOLD was used instead; `reason` says why. */
+  source: "calibration" | "fallback";
+  reason?: "not_calibrated" | "not_enough_samples";
+}
+
+/**
+ * THE-891 item 4 — the threshold a caller should actually detect gaps with: the vault's own
+ * calibration when one exists and is trustworthy, DEFAULT_GAP_THRESHOLD only as a last resort.
+ *
+ * Mirrors `confidenceFor`'s reasoning in calibration.ts (MIN_CALIBRATION_N floor: a percentile from
+ * too few queries is an artifact of the sample, not a property of the vault) without depending on
+ * a live top score — a threshold is chosen once per pass, before any query has been scored.
+ *
+ * `tableExists` guards a store that predates the score_calibration migration (20260805_002): it
+ * degrades to the fallback rather than throwing "no such table" from inside a gap-detection pass.
+ */
+export function resolveGapThreshold(edb: Database, vaultId: string): ResolvedGapThreshold {
+  if (!tableExists(edb, "score_calibration")) {
+    return { threshold: DEFAULT_GAP_THRESHOLD, source: "fallback", reason: "not_calibrated" };
+  }
+  const calibration = readLatestCalibration(edb, vaultId);
+  if (calibration === null) {
+    return { threshold: DEFAULT_GAP_THRESHOLD, source: "fallback", reason: "not_calibrated" };
+  }
+  if (calibration.n < MIN_CALIBRATION_N) {
+    return { threshold: DEFAULT_GAP_THRESHOLD, source: "fallback", reason: "not_enough_samples" };
+  }
+  return { threshold: calibration.p5, source: "calibration" };
+}
 
 export async function detectGaps(
   queries: GapQuery[],
