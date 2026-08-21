@@ -88,23 +88,26 @@ per-principal, what is content-level, and what is shared runtime-wide.
 | `workspace_sessions` (session rows + JSONL traces) | `vault_id` + `principal` (server-observed) | **Per-principal for writes; metadata readable in-vault** | A session id is the correlation key for a principal's retrieval history, so `activeSessionFor` resolves a session ONLY on the server-observed `principal`, never on the caller-declared `caller` column (PR #691). **THE-838 applied the same rule to `end_session`**, which had validated only the vault: any principal with `write:workspace` could close another's session and, because the handler appends a `session_end` record carrying unconstrained `end_metadata`, write attacker-controlled JSON into that principal's trace — an input to `inferCitations` and to replay. A **NULL** `principal` means UNOWNED and anyone may close it: an unauthenticated transport writes NULL rather than fabricating a value, `closeStaleImplicitSessions` skips such rows (`principal IS NOT NULL`), and strict equality would leak them open forever. **Reads are a separate, narrower posture:** `get_session_traces` is `read:workspace`-scoped and deliberately does NOT filter by principal, so trace *metadata* (tool, timing, status) is visible in-vault; it mitigates the content axis instead, stripping captured `args` so cross-principal note bodies cannot leave through it (THE-736/THE-737). |
 | `vault_object_state` (ACT-R activation: strengths / frequency / hits) | `object_id` = chunk id (no `vault_id`/`caller`) | **Corpus-global** | A chunk's activation is a property of the *content*, learned from aggregate access. Per-caller activation would defeat the ACT-R model (a chunk many retrieve is important regardless of who). |
 | `activation_state` (recompute watermark) | singleton (`id = 1`) | **Global** | One incremental-recompute cursor for the store. |
-| `preference_profile` / `preference_deltas` | `vault_id` + `key` (no `caller`) | **Per-vault, caller-shared** | One learned preference profile *per vault*. THE-710 (migration `20260803_001`) added the `vault_id` partition, revising the earlier global scope: "correct for the single-user model" did not extend to a single-*vault* assumption, and with two vaults configured one vault's learned preference silently overwrote the other's under the same key, with no column to filter on. The `caller` axis remains shared **by design** — see the residual below. |
+| `preference_profile` / `preference_deltas` | `vault_id` + `scope_caller` + `key` | **Per-vault; per-key scope (human-shared or per-principal)** | One learned preference profile *per vault*, further partitioned by `scope_caller` on a PER-KEY basis (THE-891, migration `20260820_001`). THE-710 (migration `20260803_001`) first added the `vault_id` partition, revising the earlier global scope: "correct for the single-user model" did not extend to a single-*vault* assumption, and with two vaults configured one vault's learned preference silently overwrote the other's under the same key, with no column to filter on. THE-891 narrowed the remaining `caller` residual: each registered key (`PREFERENCE_KEYS` in `reflect.ts`) now declares whether it is `"human"`-scoped (`scope_caller = ''`, shared by every caller of the vault) or `"caller"`-scoped (partitioned per principal). Caller-scoped reads are authorization-enforced, not filtered — see the residual below and the `agent_episodes` row above for the P1.7 pattern it mirrors. |
 
 The per-principal / content-level split is deliberate: **episodes** are private to the agent that
 produced them, while **retrieval and activation state** are corpus-level signals about content, so they
 are intentionally *not* per-caller scoped for reading or aggregation. The one exception is *writing*
 feedback onto a retrieval event: that is an act attributable to a principal, so it is caller-owned
-(THE-568) even though the retrieval event it targets is not. The one store whose remaining shared
-scope is a genuine multi-principal consideration is `preference_profile` — documented under *Known
-limitations and accepted residuals*.
+(THE-568) even though the retrieval event it targets is not. `preference_profile` sits between the
+two: it is neither fully corpus-level nor uniformly per-principal, because *which* it is depends on
+the individual key — documented under *Known limitations and accepted residuals*.
 
-That residual is now narrower than it was. THE-710 partitioned the preference plane by `vault_id`
-(migration `20260803_001`), so preferences no longer blend **across vaults**; what remains shared is
-the `caller` axis **within** a vault. The two are different concerns and were conflated by the
-earlier wording: a vault is a *corpus*, a caller is a *principal*, and only the second is a
-multi-principal question. Closing the caller axis as well would make every preference read
-caller-scoped and needs the same authorization treatment `agent_episodes` got under P1.7, so it
-stays deliberately open rather than half-done.
+That axis has narrowed twice. THE-710 partitioned the preference plane by `vault_id` (migration
+`20260803_001`), so preferences no longer blend **across vaults**. THE-891 partitioned it again, this
+time **within** a vault, but only per-key rather than uniformly: each registered key now declares a
+`"human"` or `"caller"` scope, and only `"caller"`-scoped keys are principal-partitioned — a
+telemetry-derived key like `preferred.search_mode` encodes the *observing agent's* workload, not the
+human's intent, so sharing it across callers would let one agent's revealed tool choice steer a
+different agent's retrieval. A `"human"`-scoped key stays deliberately shared: the human's stated or
+inferred preference is the same fact regardless of which agent is asking, and partitioning it would
+just mean re-teaching every new agent something already learned. New keys default to `"caller"` —
+sharing is a per-key opt-in, reviewed at registration, not a fallback.
 
 ## Write safety (concurrent modification)
 
@@ -230,14 +233,20 @@ so operators can reason about them rather than discover them.
   treat captured episodes as **partially-trusted input** and keep `include_pending` off for
   untrusted callers; do not treat a clean layer-1 scan — or promotion to `eligible` — as proof an
   episode is safe.
-- **The learned `preference_profile` is shared across callers within a vault (P1.8, narrowed by
-  THE-710).** The versioned preference profile (and its `preference_deltas` log) is keyed by
-  `(vault_id, key)`: preferences are partitioned per vault, but every caller of a given vault reads
-  and writes the same learned row, so one agent's preferences shape another's grounded-synthesis
-  pass. This is intentional for the trusted single-user runtime obsidian-tc targets (all callers are
-  the same person); per-caller preference isolation is a tracked follow-up for a genuine multi-tenant
-  service, and closing it needs the authorization treatment `agent_episodes` got under P1.7 rather
-  than a filter alone.
+- **The learned `preference_profile` is scoped per key (P1.8, narrowed by THE-710 and THE-891).**
+  Each registered preference key declares its scope: **human-scoped** keys are shared by every
+  caller of a vault (correct for context-free, intent-derived preferences — the human's preference,
+  whichever agent is asking), while **caller-scoped** keys are partitioned by principal, because a
+  telemetry-derived preference encodes the observing agent's workload, and one agent's learned
+  behavior must not steer another agent's retrieval. The earlier wording justified full sharing as
+  "all callers are the same person"; that conflated *one human* with *one working context*. The
+  supported topology is one human running many agents through one server, and cross-caller
+  preference bleed is a real contamination channel (and a poisoning amplifier) even with a single
+  trusted human. New keys default to caller-scoped; sharing is a per-key declaration, reviewed at
+  registration. Caller-scoped reads are authorization-enforced (the P1.7 treatment `agent_episodes`
+  got), not filtered. `preferred.search_mode` is caller-scoped; rows predating the partition were
+  purged and re-extracted rather than backfilled (no caller was ever recorded; the extractor is
+  deterministic over retained episodes).
 
   **Corrected 2026-08-03.** This bullet previously said the store had "no `vault_id`/`caller`
   partition" and called that intentional in full. The `caller` half was and remains intentional. The
@@ -250,3 +259,12 @@ so operators can reason about them rather than discover them.
   originating vault was never recorded and inventing one would be indistinguishable downstream from
   a real attribution. The full per-store namespace model is documented under *Learned-state
   namespaces* above.
+
+  **Corrected 2026-08-21 (THE-891).** The `caller` half above is no longer fully intentional either
+  — it was narrowed, not closed. `preference_profile`/`preference_deltas` gained `scope_caller`
+  (migration `20260820_001`), and every registered key now declares whether it is human-shared or
+  caller-partitioned; see the bullet above for the current posture. The one registered key,
+  `preferred.search_mode`, is caller-scoped. Existing rows were **purged and re-extracted**, the same
+  disposition the `vault_id` fix used above and for the same reason: no row ever recorded a caller,
+  so backfilling one would invent an attribution the deterministic extractor can instead reproduce
+  correctly from retained episodes.

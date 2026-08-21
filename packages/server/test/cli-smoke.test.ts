@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { BUNDLE_FORMAT_VERSION } from "../src/experiential/context-bundle-schema";
 import { rmTemp } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -195,7 +196,7 @@ describe.skipIf(!bunAvailable)(
           expect(exportRun.stderr).toMatch(/derived personal data/i);
 
           const bundle = JSON.parse(readFileSync(outPath, "utf8"));
-          expect(bundle.format_version).toBe(1);
+          expect(bundle.format_version).toBe(BUNDLE_FORMAT_VERSION);
           expect(Object.keys(bundle.tables).sort()).toEqual(
             [
               "agent_episodes",
@@ -262,7 +263,7 @@ describe.skipIf(!bunAvailable)(
         writeFileSync(
           multiVaultPath,
           JSON.stringify({
-            format_version: 1,
+            format_version: BUNDLE_FORMAT_VERSION,
             exported_at: 0,
             server_version: "0.0.0",
             vault: "*",
@@ -271,6 +272,7 @@ describe.skipIf(!bunAvailable)(
               preference_profile: [
                 {
                   vault_id: "vault-a",
+                  scope_caller: "",
                   key: "k",
                   value: "v",
                   weight: 1,
@@ -280,6 +282,7 @@ describe.skipIf(!bunAvailable)(
                 },
                 {
                   vault_id: "vault-b",
+                  scope_caller: "",
                   key: "k",
                   value: "v",
                   weight: 1,

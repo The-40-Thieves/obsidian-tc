@@ -203,6 +203,14 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // silently bumping access_count/last_accessed_at, clearing note_quality's stale_access flag and
   // inflating metrics.ts's knowledge-health scorecard. Fixed at the view, not at each reader.
   "20260818_002_chunk_access_stats_excludes_advisory.sql",
+  // THE-891 item 6: 20260820_001 adds `scope_caller` to preference_profile (rebuilt, PK now
+  // `(vault_id, scope_caller, key)`) and preference_deltas (added in place). PREFERENCE_KEYS
+  // (reflect.ts) now declares a per-key scope — human-shared (`''`) or caller-partitioned — so a
+  // telemetry-derived key like `preferred.search_mode` can no longer bleed one agent's learned
+  // behavior into another's retrieval. Purges rather than backfills, same 20260724_001/20260803_001
+  // precedent; the migration header carries the full reasoning, including why a NULL caller maps to
+  // `''` without repeating the NULL-vault_id invented-attribution mistake.
+  "20260820_001_preference_scope_caller.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

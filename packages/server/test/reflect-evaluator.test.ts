@@ -59,6 +59,9 @@ function edb0(): Database {
     // THE-710: the vault partition. Included here rather than in a separate fixture so every
     // existing assertion below runs against the PARTITIONED schema, not the pre-migration one.
     { version: "20260803_001", sql: sql("20260803_001_preference_vault_id.sql") },
+    // THE-891: the per-key caller partition. Same reasoning as THE-710 above — every assertion
+    // below runs against the fully-partitioned schema, not an intermediate one.
+    { version: "20260820_001", sql: sql("20260820_001_preference_scope_caller.sql") },
   ]);
   return db;
 }
@@ -70,7 +73,10 @@ function seed(
     status: string;
     eligibility: string;
     args_hash: string | null;
-    caller: string;
+    // THE-891: `undefined` -> the default seeded caller ("alice"); `null` -> an explicit
+    // NULL-caller episode (the unauthenticated-stdio-transport case scopeCallerFor maps to '').
+    // Same undefined-vs-null distinction `vault_id` already needs below, for the same reason.
+    caller: string | null;
     tool: string;
     task_result: number | null;
     blocked: number;
@@ -88,7 +94,7 @@ function seed(
   ).run(
     id,
     NOW,
-    over.caller ?? "alice",
+    over.caller === undefined ? "alice" : over.caller,
     over.tool ?? "read_note",
     over.status ?? "ok",
     over.args_hash ?? null,
@@ -405,8 +411,14 @@ describe("preference profile (ACE typed deltas)", () => {
       db,
       V1,
       [
-        { key: "prefers-tables", op: "add", value: "answers as tables", evidence: "e1" },
-        { key: "dark-mode", op: "add", value: "dark themes" },
+        {
+          key: "prefers-tables",
+          op: "add",
+          value: "answers as tables",
+          evidence: "e1",
+          scopeCaller: "",
+        },
+        { key: "dark-mode", op: "add", value: "dark themes", scopeCaller: "" },
       ],
       NOW,
     );
@@ -415,13 +427,13 @@ describe("preference profile (ACE typed deltas)", () => {
       db,
       V1,
       [
-        { key: "prefers-tables", op: "strengthen" },
-        { key: "dark-mode", op: "weaken" },
+        { key: "prefers-tables", op: "strengthen", scopeCaller: "" },
+        { key: "dark-mode", op: "weaken", scopeCaller: "" },
       ],
       NOW + 10,
     );
     expect(b2.version).toBe(2);
-    const p = preferenceProfile(db, V1);
+    const p = preferenceProfile(db, V1, null);
     expect(p.version).toBe(2);
     const tables = p.entries.find((e) => e.key === "prefers-tables");
     expect(tables?.weight).toBe(1.5);
@@ -434,17 +446,19 @@ describe("preference profile (ACE typed deltas)", () => {
 
   it("retract zeroes the weight but keeps the row; add on an existing key strengthens", () => {
     const db = edb0();
-    applyPreferenceDeltas(db, V1, [{ key: "k", op: "add", value: "v" }], NOW);
-    applyPreferenceDeltas(db, V1, [{ key: "k", op: "retract" }], NOW + 1);
-    expect(preferenceProfile(db, V1).entries).toHaveLength(0); // weight 0 filtered
+    applyPreferenceDeltas(db, V1, [{ key: "k", op: "add", value: "v", scopeCaller: "" }], NOW);
+    applyPreferenceDeltas(db, V1, [{ key: "k", op: "retract", scopeCaller: "" }], NOW + 1);
+    expect(preferenceProfile(db, V1, null).entries).toHaveLength(0); // weight 0 filtered
     const raw = db
-      .prepare(`SELECT weight AS w FROM preference_profile WHERE vault_id='${V1}' AND key='k'`)
+      .prepare(
+        `SELECT weight AS w FROM preference_profile WHERE vault_id='${V1}' AND scope_caller='' AND key='k'`,
+      )
       .get() as {
       w: number;
     };
     expect(raw.w).toBe(0); // row survives retraction
-    applyPreferenceDeltas(db, V1, [{ key: "k", op: "add", value: "v2" }], NOW + 2);
-    const back = preferenceProfile(db, V1).entries.find((e) => e.key === "k");
+    applyPreferenceDeltas(db, V1, [{ key: "k", op: "add", value: "v2", scopeCaller: "" }], NOW + 2);
+    const back = preferenceProfile(db, V1, null).entries.find((e) => e.key === "k");
     expect(back?.weight).toBe(0.5); // re-add climbs from the counter, not a fresh row
     expect(back?.value).toBe("v2");
   });
@@ -454,18 +468,28 @@ describe("preference profile (ACE typed deltas)", () => {
   // These are the tests the migration exists for. Before it, `key` was the entire primary key, so
   // the first assertion below was FALSE: vault-two's `add` silently overwrote vault-one's row and
   // there was no column to tell them apart. The rebuild reverses a P1.8-audited decision on the
-  // vault axis only, so the caller axis is pinned as still-shared further down — a test that would
-  // have to change if anyone closes that residual, which is the point of writing it.
+  // vault axis only. Every delta below is human-scoped (`scopeCaller: ""`) — these tests are about
+  // the VAULT axis, and the caller axis is pinned separately below (THE-891).
 
   it("two vaults hold the same key independently — no blending", () => {
     const db = edb0();
-    applyPreferenceDeltas(db, V1, [{ key: "tone", op: "add", value: "terse" }], NOW);
-    applyPreferenceDeltas(db, V2, [{ key: "tone", op: "add", value: "verbose" }], NOW + 1);
+    applyPreferenceDeltas(
+      db,
+      V1,
+      [{ key: "tone", op: "add", value: "terse", scopeCaller: "" }],
+      NOW,
+    );
+    applyPreferenceDeltas(
+      db,
+      V2,
+      [{ key: "tone", op: "add", value: "verbose", scopeCaller: "" }],
+      NOW + 1,
+    );
 
-    expect(preferenceProfile(db, V1).entries).toEqual([
+    expect(preferenceProfile(db, V1, null).entries).toEqual([
       expect.objectContaining({ key: "tone", value: "terse", weight: 1 }),
     ]);
-    expect(preferenceProfile(db, V2).entries).toEqual([
+    expect(preferenceProfile(db, V2, null).entries).toEqual([
       expect.objectContaining({ key: "tone", value: "verbose", weight: 1 }),
     ]);
     // Two rows, not one overwritten row — assert the stored identity, not just the read-back.
@@ -479,13 +503,23 @@ describe("preference profile (ACE typed deltas)", () => {
 
   it("a delta cannot reach across the partition", () => {
     const db = edb0();
-    applyPreferenceDeltas(db, V1, [{ key: "tone", op: "add", value: "terse" }], NOW);
+    applyPreferenceDeltas(
+      db,
+      V1,
+      [{ key: "tone", op: "add", value: "terse", scopeCaller: "" }],
+      NOW,
+    );
     // `strengthen` on a key that exists only in the OTHER vault must change nothing, and must not
     // log a phantom audit row — the same C4 guard as above, now on the vault axis.
-    const r = applyPreferenceDeltas(db, V2, [{ key: "tone", op: "strengthen" }], NOW + 1);
+    const r = applyPreferenceDeltas(
+      db,
+      V2,
+      [{ key: "tone", op: "strengthen", scopeCaller: "" }],
+      NOW + 1,
+    );
     expect(r.applied).toBe(0);
-    expect(preferenceProfile(db, V1).entries[0]?.weight).toBe(1); // untouched
-    expect(preferenceProfile(db, V2).entries).toHaveLength(0);
+    expect(preferenceProfile(db, V1, null).entries[0]?.weight).toBe(1); // untouched
+    expect(preferenceProfile(db, V2, null).entries).toHaveLength(0);
     const n = (
       db.prepare("SELECT COUNT(*) AS n FROM preference_deltas WHERE vault_id = ?").get(V2) as {
         n: number;
@@ -496,19 +530,24 @@ describe("preference profile (ACE typed deltas)", () => {
 
   it("version is per-vault, so one vault's batch does not bump the other's", () => {
     const db = edb0();
-    applyPreferenceDeltas(db, V1, [{ key: "a", op: "add", value: "x" }], NOW);
-    applyPreferenceDeltas(db, V1, [{ key: "a", op: "strengthen" }], NOW + 1);
+    applyPreferenceDeltas(db, V1, [{ key: "a", op: "add", value: "x", scopeCaller: "" }], NOW);
+    applyPreferenceDeltas(db, V1, [{ key: "a", op: "strengthen", scopeCaller: "" }], NOW + 1);
     // V1 is at version 2. A first write to V2 must start at 1, not continue from 3.
-    const first = applyPreferenceDeltas(db, V2, [{ key: "b", op: "add", value: "y" }], NOW + 2);
+    const first = applyPreferenceDeltas(
+      db,
+      V2,
+      [{ key: "b", op: "add", value: "y", scopeCaller: "" }],
+      NOW + 2,
+    );
     expect(first.version).toBe(1);
-    expect(preferenceProfile(db, V1).version).toBe(2);
-    expect(preferenceProfile(db, V2).version).toBe(1);
+    expect(preferenceProfile(db, V1, null).version).toBe(2);
+    expect(preferenceProfile(db, V2, null).version).toBe(1);
   });
 
   it("the audit log carries the vault, so a delta is attributable after the fact", () => {
     const db = edb0();
-    applyPreferenceDeltas(db, V1, [{ key: "a", op: "add", value: "x" }], NOW);
-    applyPreferenceDeltas(db, V2, [{ key: "a", op: "add", value: "y" }], NOW + 1);
+    applyPreferenceDeltas(db, V1, [{ key: "a", op: "add", value: "x", scopeCaller: "" }], NOW);
+    applyPreferenceDeltas(db, V2, [{ key: "a", op: "add", value: "y", scopeCaller: "" }], NOW + 1);
     const rows = db
       .prepare("SELECT vault_id, key FROM preference_deltas ORDER BY vault_id")
       .all() as Array<{ vault_id: string; key: string }>;
@@ -518,25 +557,132 @@ describe("preference profile (ACE typed deltas)", () => {
     ]);
   });
 
-  it("the CALLER axis is still shared within a vault — the accepted residual, pinned", () => {
-    // Not an oversight and not a TODO: SECURITY.md documents per-caller preference isolation as an
-    // accepted residual, and THE-710 closed the vault axis only.
-    //
-    // BE HONEST ABOUT WHAT THIS PINS. It cannot vary the caller, because neither
-    // applyPreferenceDeltas nor preferenceProfile takes one — the residual is STRUCTURAL, not a
-    // filter someone forgot to write. So what this asserts is that successive deltas in one vault
-    // land on ONE row regardless of origin. It is a decision anchor: closing the residual means
-    // adding a caller parameter, which makes this test stop compiling rather than quietly pass.
+  // ---- THE-891: the per-key caller partition ----
+  //
+  // These replace the old "CALLER axis is still shared" pin, which THE-891 makes false: the axis is
+  // now per-key. Two tests, mirroring the vault-partition shape above: same scopeCaller merges onto
+  // one row (the human-scoped case, and the mechanics `applyPreferenceDeltas` shares with it), and
+  // different scopeCaller values partition independently within ONE vault (the closed residual).
+  //
+  // WATCHED FAILURE (per the ticket): temporarily make `preferenceProfile`'s read ignore
+  // `scope_caller` (e.g. drop the `AND (scope_caller = '' OR scope_caller = ?)` clause) and the
+  // isolation test below fails with the leak signature — caller B's row appears in caller A's read.
+
+  it("same scopeCaller merges onto one row — the human-scoped / shared-partition mechanics", () => {
     const db = edb0();
-    applyPreferenceDeltas(db, V1, [{ key: "tone", op: "add", value: "terse" }], NOW);
-    applyPreferenceDeltas(db, V1, [{ key: "tone", op: "strengthen" }], NOW + 1);
-    expect(preferenceProfile(db, V1).entries[0]?.weight).toBe(1.5);
+    applyPreferenceDeltas(
+      db,
+      V1,
+      [{ key: "tone", op: "add", value: "terse", scopeCaller: "" }],
+      NOW,
+    );
+    applyPreferenceDeltas(db, V1, [{ key: "tone", op: "strengthen", scopeCaller: "" }], NOW + 1);
+    expect(preferenceProfile(db, V1, null).entries[0]?.weight).toBe(1.5);
     const n = (
       db.prepare("SELECT COUNT(*) AS n FROM preference_profile WHERE vault_id = ?").get(V1) as {
         n: number;
       }
     ).n;
     expect(n).toBe(1);
+  });
+
+  it("cross-caller isolation: caller A's deltas never appear in caller B's read; both see human-scoped rows", () => {
+    const db = edb0();
+    // A human-scoped delta — every caller in the vault sees this one.
+    applyPreferenceDeltas(
+      db,
+      V1,
+      [{ key: "shared-key", op: "add", value: "shared-value", scopeCaller: "" }],
+      NOW,
+    );
+    // Two DIFFERENT callers' own partitions, same vault, same key name.
+    applyPreferenceDeltas(
+      db,
+      V1,
+      [{ key: "caller-key", op: "add", value: "alice-value", scopeCaller: "alice" }],
+      NOW + 1,
+    );
+    applyPreferenceDeltas(
+      db,
+      V1,
+      [{ key: "caller-key", op: "add", value: "bob-value", scopeCaller: "bob" }],
+      NOW + 2,
+    );
+
+    const aliceView = preferenceProfile(db, V1, "alice").entries;
+    const bobView = preferenceProfile(db, V1, "bob").entries;
+
+    // Both see the human-scoped row.
+    expect(aliceView.find((e) => e.key === "shared-key")?.value).toBe("shared-value");
+    expect(bobView.find((e) => e.key === "shared-key")?.value).toBe("shared-value");
+
+    // Neither sees the OTHER caller's own partition — the leak this migration exists to close.
+    expect(aliceView.find((e) => e.key === "caller-key")?.value).toBe("alice-value");
+    expect(bobView.find((e) => e.key === "caller-key")?.value).toBe("bob-value");
+    expect(aliceView.some((e) => e.value === "bob-value")).toBe(false);
+    expect(bobView.some((e) => e.value === "alice-value")).toBe(false);
+
+    // Stored identity, not just the read-back: two distinct rows under the same (vault, key).
+    const rows = db
+      .prepare(
+        "SELECT scope_caller, value FROM preference_profile WHERE vault_id = ? AND key = 'caller-key' ORDER BY scope_caller",
+      )
+      .all(V1) as Array<{ scope_caller: string; value: string }>;
+    expect(rows).toEqual([
+      { scope_caller: "alice", value: "alice-value" },
+      { scope_caller: "bob", value: "bob-value" },
+    ]);
+  });
+
+  it("NULL-caller episodes land in the '' partition and are visible to every caller", async () => {
+    const db = edb0();
+    // The single trusted local principal on an unauthenticated transport — caller: null, exercised
+    // through the REAL producer (extractPreferences -> scopeCallerFor), not a direct write.
+    seed(db, "local", {
+      task_result: 1,
+      eligibility: "eligible",
+      tool: "search_text",
+      caller: null,
+    });
+    const r = await extractPreferences(db, V1, { nowMs: NOW });
+    expect(r.applied).toBe(1);
+    const raw = db
+      .prepare("SELECT scope_caller FROM preference_profile WHERE vault_id = ? AND key = ?")
+      .get(V1, "preferred.search_mode") as { scope_caller: string };
+    expect(raw.scope_caller).toBe(""); // NULL caller mapped to the shared partition, not invented
+    // Visible to the unauthenticated read (null) AND to any other caller — it is human-scoped by
+    // virtue of landing in '', not because the key itself is human-scoped.
+    expect(preferenceProfile(db, V1, null).entries[0]?.value).toBe("search_text");
+    expect(preferenceProfile(db, V1, "someone-else").entries[0]?.value).toBe("search_text");
+  });
+
+  it("admin:workspace (crossPrincipal) crosses partitions; a non-elevated read does not", () => {
+    const db = edb0();
+    applyPreferenceDeltas(
+      db,
+      V1,
+      [{ key: "caller-key", op: "add", value: "alice-value", scopeCaller: "alice" }],
+      NOW,
+    );
+    applyPreferenceDeltas(
+      db,
+      V1,
+      [{ key: "caller-key", op: "add", value: "bob-value", scopeCaller: "bob" }],
+      NOW + 1,
+    );
+
+    // Non-elevated: anyCaller requested but crossPrincipal not proven -> refused, not narrowed.
+    expect(() => preferenceProfile(db, V1, "alice", { anyCaller: true })).toThrow();
+    expect(() =>
+      preferenceProfile(db, V1, "alice", { anyCaller: true, crossPrincipal: false }),
+    ).toThrow();
+
+    // Elevated: crosses every partition in the vault.
+    const crossed = preferenceProfile(db, V1, "alice", {
+      anyCaller: true,
+      crossPrincipal: true,
+    }).entries;
+    expect(crossed.map((e) => e.value).sort()).toEqual(["alice-value", "bob-value"]);
   });
 
   it("extractPreferences EXCLUDES a null-vault episode rather than attributing it", async () => {
@@ -552,7 +698,7 @@ describe("preference profile (ACE typed deltas)", () => {
     // No evidence reached the counter at all, so the pass reports skipped rather than applying zero.
     const r = await extractPreferences(db, V1, { nowMs: NOW });
     expect(r).toMatchObject({ skipped: true, applied: 0 });
-    expect(preferenceProfile(db, V1).entries).toHaveLength(0);
+    expect(preferenceProfile(db, V1, "alice").entries).toHaveLength(0);
   });
 
   it("extractPreferences only sees ITS OWN vault's episodes", async () => {
@@ -571,12 +717,12 @@ describe("preference profile (ACE typed deltas)", () => {
     });
     const r = await extractPreferences(db, V1, { nowMs: NOW });
     expect(r.applied).toBe(1);
-    expect(preferenceProfile(db, V1).entries).toEqual([
+    expect(preferenceProfile(db, V1, "alice").entries).toEqual([
       expect.objectContaining({ key: "preferred.search_mode", value: "search_text" }),
     ]);
     // V2's episode never reached this call — a separate extractPreferences(db, V2, ...) call would
     // need to run for it to produce anything, and this call didn't make one.
-    expect(preferenceProfile(db, V2).entries).toHaveLength(0);
+    expect(preferenceProfile(db, V2, "alice").entries).toHaveLength(0);
   });
 
   it("does not log a phantom audit row for a delta on a non-existent key (C4)", () => {
@@ -585,8 +731,8 @@ describe("preference profile (ACE typed deltas)", () => {
       db,
       V1,
       [
-        { key: "never-added", op: "strengthen" },
-        { key: "also-missing", op: "retract" },
+        { key: "never-added", op: "strengthen", scopeCaller: "" },
+        { key: "also-missing", op: "retract", scopeCaller: "" },
       ],
       NOW,
     );
@@ -608,13 +754,13 @@ describe("preference profile (ACE typed deltas)", () => {
     seed(db, "neutral", { task_result: 0, eligibility: "eligible", tool: "search_text" });
     const neutral = await extractPreferences(db, V1, { nowMs: NOW });
     expect(neutral).toMatchObject({ skipped: false, aborted: false, applied: 0 });
-    expect(preferenceProfile(db, V1).entries).toHaveLength(0);
+    expect(preferenceProfile(db, V1, "alice").entries).toHaveLength(0);
 
     seed(db, "good", { task_result: 1, eligibility: "eligible", tool: "search_text" });
     const ok = await extractPreferences(db, V1, { nowMs: NOW });
     expect(ok).toMatchObject({ skipped: false, aborted: false, applied: 1 });
-    expect(preferenceProfile(db, V1).entries[0]?.key).toBe("preferred.search_mode");
-    expect(preferenceProfile(db, V1).entries[0]?.value).toBe("search_text");
+    expect(preferenceProfile(db, V1, "alice").entries[0]?.key).toBe("preferred.search_mode");
+    expect(preferenceProfile(db, V1, "alice").entries[0]?.value).toBe("search_text");
   });
 
   it("excludes ineligible episodes from the deterministic counter even when they carry a task_result (A3)", async () => {
@@ -625,7 +771,7 @@ describe("preference profile (ACE typed deltas)", () => {
     const r = await extractPreferences(db, V1, { nowMs: NOW });
     // If the ineligible row had leaked in, this would be 2 applied deltas (two distinct tools).
     expect(r.applied).toBe(1);
-    expect(preferenceProfile(db, V1).entries[0]?.value).toBe("search_text");
+    expect(preferenceProfile(db, V1, "alice").entries[0]?.value).toBe("search_text");
   });
 
   // ---- THE-673: deterministic counters over typed evidence ----
@@ -675,7 +821,7 @@ describe("preference profile (ACE typed deltas)", () => {
     });
     const r = await extractPreferences(db, V1, { nowMs: NOW });
     expect(r.applied).toBe(1); // one window, one observation — not one per distinct tool
-    expect(preferenceProfile(db, V1).entries).toEqual([
+    expect(preferenceProfile(db, V1, "alice").entries).toEqual([
       expect.objectContaining({ key: "preferred.search_mode", value: "search_text", weight: 1 }),
     ]);
     const ev = db.prepare("SELECT evidence FROM preference_deltas WHERE vault_id = ?").get(V1) as {
@@ -757,13 +903,15 @@ describe("preference profile (ACE typed deltas)", () => {
     // call re-derives — extractPreferences has no "already processed" state, so a second call
     // re-reads every eligible episode in scope, and mixing that re-read into the same DB as more
     // +1 evidence would confound what this assertion is checking).
+    // scopeCaller: "alice" — must match the -1 window's own caller below (seed()'s default), so
+    // the extraction's weaken lands on this SAME partition row rather than a phantom '' one.
     applyPreferenceDeltas(
       db,
       V1,
-      [{ key: "preferred.search_mode", op: "add", value: "search_text" }],
+      [{ key: "preferred.search_mode", op: "add", value: "search_text", scopeCaller: "alice" }],
       NOW,
     );
-    const before = preferenceProfile(db, V1).entries[0]?.weight as number;
+    const before = preferenceProfile(db, V1, "alice").entries[0]?.weight as number;
 
     seed(db, "neg", {
       task_result: -1,
@@ -774,7 +922,7 @@ describe("preference profile (ACE typed deltas)", () => {
     });
     const r = await extractPreferences(db, V1, { nowMs: NOW + 1 });
     expect(r.applied).toBe(1);
-    const after = preferenceProfile(db, V1).entries[0]?.weight as number;
+    const after = preferenceProfile(db, V1, "alice").entries[0]?.weight as number;
     expect(after).toBeLessThan(before);
   });
 
@@ -789,7 +937,7 @@ describe("preference profile (ACE typed deltas)", () => {
     });
     const r = await extractPreferences(db, V1, { nowMs: NOW });
     expect(r.applied).toBe(0);
-    expect(preferenceProfile(db, V1).entries).toHaveLength(0);
+    expect(preferenceProfile(db, V1, "alice").entries).toHaveLength(0);
     const n = (
       db.prepare("SELECT COUNT(*) AS n FROM preference_deltas WHERE vault_id = ?").get(V1) as {
         n: number;
@@ -799,32 +947,40 @@ describe("preference profile (ACE typed deltas)", () => {
   });
 });
 
-describe("PREFERENCE_KEYS registry (THE-673)", () => {
+describe("PREFERENCE_KEYS registry (THE-673, THE-891)", () => {
   it("contains exactly the one key with a real, derivable producer today", () => {
-    expect([...PREFERENCE_KEYS]).toEqual(["preferred.search_mode"]);
+    expect([...PREFERENCE_KEYS.keys()]).toEqual(["preferred.search_mode"]);
+  });
+
+  it("preferred.search_mode is caller-scoped — dispatch telemetry, not human intent", () => {
+    expect(PREFERENCE_KEYS.get("preferred.search_mode")).toEqual({ scope: "caller" });
   });
 
   it("rejects a delta for an unregistered key before it reaches applyPreferenceDeltas", () => {
     const deltas: PreferenceDelta[] = [
-      { key: "preferred.search_mode", op: "add", value: "search_text" },
+      { key: "preferred.search_mode", op: "add", value: "search_text", scopeCaller: "alice" },
       // None of these have a producer yet (captureContent off, THE-675 open, no HITL producer) —
       // a deterministic extractor proposing one of them would be exactly the "impossible state"
       // this registry exists to make unreachable.
-      { key: "preferred.output_format", op: "add", value: "table" },
-      { key: "response.detail", op: "add", value: "verbose" },
+      { key: "preferred.output_format", op: "add", value: "table", scopeCaller: "alice" },
+      { key: "response.detail", op: "add", value: "verbose", scopeCaller: "alice" },
     ];
     const filtered = filterRegisteredDeltas(deltas);
-    expect(filtered).toEqual([{ key: "preferred.search_mode", op: "add", value: "search_text" }]);
+    expect(filtered).toEqual([
+      { key: "preferred.search_mode", op: "add", value: "search_text", scopeCaller: "alice" },
+    ]);
   });
 
   it("applying a filtered batch never writes the rejected keys", () => {
     const db = edb0();
     const deltas: PreferenceDelta[] = [
-      { key: "preferred.search_mode", op: "add", value: "search_text" },
-      { key: "workflow.confirmation_level", op: "add", value: "always" },
+      { key: "preferred.search_mode", op: "add", value: "search_text", scopeCaller: "alice" },
+      { key: "workflow.confirmation_level", op: "add", value: "always", scopeCaller: "alice" },
     ];
     const { applied } = applyPreferenceDeltas(db, V1, filterRegisteredDeltas(deltas), NOW);
     expect(applied).toBe(1);
-    expect(preferenceProfile(db, V1).entries.map((e) => e.key)).toEqual(["preferred.search_mode"]);
+    expect(preferenceProfile(db, V1, "alice").entries.map((e) => e.key)).toEqual([
+      "preferred.search_mode",
+    ]);
   });
 });
