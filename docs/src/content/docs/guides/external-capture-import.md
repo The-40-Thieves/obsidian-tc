@@ -282,7 +282,7 @@ source-agnostic shape, `CanonicalAmbientObservation` (`source`, `machine`, `app`
 logic in the server package's `capture/ambient-import.ts`. Pensieve's adapter
 (`capture/pensieve.ts`) is just the first thing that produces this shape from a
 real backend's API — a new one needs only a function that fetches from some other
-source and maps its results onto the same fields, the way `pensieve.ts` does for
+source and maps its results onto the same fields, the way `capture/pensieve.ts` does for
 Pensieve's `/api/search` endpoint. This is the extension point if you want
 obsidian-tc to pull ambient observations from a different backend: implement the
 mapping, wire it into a CLI entry point the same way, and you get redaction,
