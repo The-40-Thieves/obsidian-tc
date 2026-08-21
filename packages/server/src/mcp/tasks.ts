@@ -268,7 +268,7 @@ export function toCreateTaskResult(job: Job): Record<string, unknown> {
 }
 
 /**
- * The subscription key a client uses to opt into task notifications.
+ * Did this `subscriptions/listen` ask for task notifications?
  *
  * The extension spec routes these through `subscriptions/listen`, but the SDK's `SubscriptionFilter`
  * is a strict four-key object (`toolsListChanged`, `promptsListChanged`, `resourcesListChanged`,
@@ -276,14 +276,13 @@ export function toCreateTaskResult(job: Job): Record<string, unknown> {
  * a client could send through it and no event a server could publish, so the extension's own stream
  * is served HERE, in front of the SDK handler — the same reason and the same seam `tasks/get` uses.
  *
- * Namespaced by the extension identifier so it cannot collide with a core key the SDK later adds.
+ * The notification key reuses `TASKS_EXTENSION` itself rather than a second exported constant —
+ * namespaced by the extension identifier so it cannot collide with a core key the SDK later adds,
+ * with no separate name to keep in sync with it.
  */
-export const TASKS_SUBSCRIPTION_KEY = TASKS_EXTENSION;
-
-/** Did this `subscriptions/listen` ask for task notifications? */
 export function subscribesToTasks(body: unknown): boolean {
   const params = (body as { params?: { notifications?: Record<string, unknown> } } | null)?.params;
-  return params?.notifications?.[TASKS_SUBSCRIPTION_KEY] === true;
+  return params?.notifications?.[TASKS_EXTENSION] === true;
 }
 
 /**
@@ -318,7 +317,7 @@ export function serveTaskSubscription(
         jsonrpc: "2.0",
         method: "notifications/subscriptions/acknowledged",
         params: {
-          notifications: { [TASKS_SUBSCRIPTION_KEY]: true },
+          notifications: { [TASKS_EXTENSION]: true },
           _meta: { "io.modelcontextprotocol/subscriptionId": id },
         },
       });

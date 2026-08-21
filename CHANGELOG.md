@@ -93,6 +93,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   silent wrong-value result. The routes stay in place (dropping them is a product decision, not a
   correctness fix) with a comment documenting the finding.
 
+### Security
+
+- **`sentence-transformers`'s floor bounded below its new major (#840).** The bge-m3 service's
+  `>=5` floor admitted the just-released v6.0.0 (2026-08-18, requires `transformers>=5,<6`) on any
+  pyproject-only install — unvalidated against this service, the same unbounded-`>=X`-forces-a-major
+  class the `sharp` override was bounded against in #750. Now `>=5,<6`; the compiled
+  `requirements.txt` already pins deployments and is unaffected.
+
 ## [1.22.0] - 2026-08-20
 
 ### Added
