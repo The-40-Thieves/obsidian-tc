@@ -368,6 +368,62 @@ jobs:
         run: bun run test:acl-audit
         working-directory: packages/server
 
+  native-contract:
+    # THE-905: every OTHER server test lane runs without the compiled addon --  build-test above
+    # installs `--ignore-scripts`, and ci-native.yml's `fallback-test` job forces the JS path on
+    # purpose. search/native.ts's JS fallback is lenient about types where the Rust binding is
+    # strict (e.g. `cosineSimilarity`'s `(Vec<f64>, Float32Array)`), so a caller that violates the
+    # native signature passes every one of those lanes on the fallback and crashes on every real
+    # install, which ships the prebuilt addon (#855). This job builds the addon for real, asserts
+    # it actually LOADED -- a lane that silently degrades back to the fallback would verify
+    # nothing -- then runs the server suites that reach loadNative()-backed code paths plus
+    # native-contract.test.ts, which calls the compiled binding directly with the exact types
+    # NativeOps declares.
+    #
+    # Lives in ci-server.yml, not ci-native.yml: that workflow triggers only on
+    # `packages/native/**` (+ a short allowlist), and #855's two violating callers were
+    # packages/server/src changes such a filter would never have run on. ci-server.yml is
+    # deliberately unfiltered (see this workflow's `pull_request:` trigger comment) for exactly
+    # this class of gap.
+    #
+    # The load-assertion below reads packages/native's OWN `nativeLoaded` export (index.js), not
+    # search/native.ts's -- discovered running this job for real: `search/native.ts`'s
+    # `loadNative()` only checks that the required package exposes the right function *names*,
+    # and packages/native/index.js itself falls back to its bundled fallback.js (same names,
+    # lenient types) whenever no local `.node` and no published platform prebuild resolve --
+    # which is every `--ignore-scripts` checkout, including build-test above. Checking
+    # search/native.ts's flag here would have made this assertion pass on the silent fallback it
+    # exists to catch.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: packages/native
+      - name: build native addon (release; host platform)
+        working-directory: packages/native
+        run: bun run build
+      - name: assert the addon actually loaded (a silent JS fallback here defeats the lane)
+        working-directory: packages/server
+        run: |
+          set -euo pipefail
+          bun -e '
+            import { createRequire } from "node:module";
+            const mod = createRequire(import.meta.url)("@the-40-thieves/obsidian-tc-native");
+            if (mod.nativeLoaded !== true) {
+              console.error("native-contract: compiled addon did NOT load -- silently on the JS fallback");
+              process.exit(1);
+            }
+            console.log("native-contract: addon loaded");
+          '
+      - name: native-touching server tests (native.ts-backed code paths; THE-905)
+        working-directory: packages/server
+        run: node ./node_modules/vitest/vitest.mjs run test/native-contract.test.ts test/advisory-sweep.test.ts test/m8-experiential-tools.test.ts test/graph-*.test.ts test/citation*.test.ts
+
   perf:
     runs-on: ubuntu-latest
     # THE-503: the motivating incident was a perf run overlapping the Vitest suite -- index/embed
