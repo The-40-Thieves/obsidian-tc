@@ -6,11 +6,20 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.23.1] - 2026-08-21
+
 ### Fixed
 
 - **Semantic `work_search` and the advisory sweep crashed on any install with the prebuilt native addon** — both passed a plain `number[]` where the native `cosineSimilarity` binding requires a `Float32Array` (#855). The JS fallback tolerated the wrong type, so the defect was invisible wherever the addon wasn't built — including the CI test lane. Callers fixed, and the `NativeOps` interface tightened to `b: Float32Array` so the compiler now rejects this class.
 
 ### Added
+
+- **`check:comment-style` CI gate enforcing the inline-commentary policy** (#854). Dated
+  ticket-thread banners and first-person narrative in `packages/*/src` comments are now hard CI
+  errors, and a comment-density ratchet (`scripts/comment-style-baseline.json`, 33 files ≥120
+  comment lines at introduction) prevents regression toward the old register without failing
+  history. String literals are stripped before matching, so code that merely mentions a banner
+  keyword cannot false-positive.
 
 - **Inline commentary policy + a generated, drift-gated decisions index** (#850). Ticket-thread-
   register comments (dated `CORRECTED`/`VERIFIED`/`MEASURED` banners, first-person narrative,
