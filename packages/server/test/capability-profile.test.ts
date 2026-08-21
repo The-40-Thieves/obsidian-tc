@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveCapabilityProfile } from "../src/capability/profile";
+import { nativeBindingActive } from "../src/search/native";
 import { rmTemp } from "./tmp";
 
 let root: string;
@@ -132,5 +133,17 @@ describe("THE-522 capability profile", () => {
     expect(typeof profile.runtime.nativeModule).toBe("boolean");
     expect(profile.hardware.cpuBrand).toBe("Test CPU");
     expect(profile.serverVersion.length).toBeGreaterThan(0);
+  });
+
+  it("THE-906: runtime.nativeModule is sourced from nativeBindingActive, not mere module resolution", async () => {
+    const profile = await resolveCapabilityProfile({
+      registryPath: join(root, "none.json"),
+      enrich: async () => ({ cpuBrand: "Test CPU", gpus: [] }),
+    });
+    // Pins the threading doctor's native.availability check relies on: `nativeModule` must track
+    // the real napi binding being active, not `nativeResolved`'s "the package required successfully"
+    // — see search/native.ts's own THE-906 note for why those two diverge on an --ignore-scripts
+    // checkout (#857).
+    expect(profile.runtime.nativeModule).toBe(nativeBindingActive);
   });
 });

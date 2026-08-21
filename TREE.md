@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,228 tracked code files · 198,570 lines.
+**Scale:** 1,228 tracked code files · 198,705 lines.
 
-TypeScript 183,326 · JavaScript 10,605 · SQL 1,897 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 183,461 · JavaScript 10,605 · SQL 1,897 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -87,11 +87,11 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
 | `tools/` | 90 | 17,999 | domains m1–m8 + admin. The MCP tool surface |
-| `search/` | 61 | 12,135 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `search/` | 61 | 12,156 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 25 | 6,321 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 18 | 4,715 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 35 | 4,273 | arg parsing + subcommands |
-| `runtime/` | 19 | 3,937 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 19 | 3,948 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 13 | 2,147 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 1,954 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `migrations/` | 51 | 1,897 | hand-registered SQL. **Two chains** — see below |
@@ -107,7 +107,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `transports/` | 3 | 704 | stdio, HTTP and the shared serve loop |
 | `embeddings/` | 6 | 695 | providers incl. the deterministic fake used in tests |
 | `model/` | 7 | 646 | model-service clients |
-| `capability/` | 6 | 605 | `defineTool` and the capability registry |
+| `capability/` | 6 | 610 | `defineTool` and the capability registry |
 | `memory/` | 2 | 544 | entity extraction and materialization for the memory folder |
 | `auth/` | 4 | 485 | JWT verification, JWKS, RFC 9728 protected-resource metadata |
 | `graph/` | 1 | 381 | graph analytics (centrality, components) behind the health tools |
@@ -144,8 +144,8 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 712 | `packages/server/src/doctor/checks.ts` |
 | 711 | `packages/shared/src/config/retrieval.schema.ts` |
 | 697 | `packages/server/src/cli/args.ts` |
+| 682 | `packages/server/src/runtime/server-runtime.ts` |
 | 677 | `packages/server/src/experiential/context-bundle.ts` |
-| 674 | `packages/server/src/runtime/server-runtime.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
@@ -156,7 +156,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 587 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 584 | `packages/server/src/transports/http.ts` |
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
-| 536 | `packages/server/src/runtime/tool-wiring.ts` |
+| 539 | `packages/server/src/runtime/tool-wiring.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
 | 522 | `packages/server/src/providers/registry.ts` |

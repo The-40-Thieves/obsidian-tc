@@ -23,7 +23,7 @@ import { resolveReranker } from "../providers/registry";
 import { rerankerBuildBlocker } from "../providers/reranker-preflight";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
-import { nativeLoaded } from "../search/native";
+import { nativeBindingActive } from "../search/native";
 import type { RetrievalCaches } from "../search/query_cache";
 import type { RepresentationManifest } from "../search/representation";
 import type { Reranker, RerankOutcome } from "../search/rerank";
@@ -78,7 +78,10 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
       version: deps.version,
       vaults: deps.vaults.map((v) => v.id),
       startedAt: deps.startedAt,
-      nativeLoaded,
+      // THE-906: `nativeBindingActive`, not merely `nativeResolved` — server_health's
+      // `native_loaded` is an operator-facing claim about the real napi binding SERVING, and
+      // `nativeResolved` stays true even on packages/native's own internal JS fallback (#857).
+      nativeLoaded: nativeBindingActive,
       vecEnabled: deps.hasVec,
       ftsEnabled: deps.hasFts,
       getIndexHealth: (authenticated) => ({

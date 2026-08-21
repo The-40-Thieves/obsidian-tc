@@ -3,6 +3,7 @@ import {
   bm25Score,
   cosineBatch,
   cosineSimilarity,
+  deriveNativeBindingActive,
   jsBm25Score,
   jsCosineBatch,
   jsCosineSimilarity,
@@ -10,7 +11,8 @@ import {
   jsTokenize,
   loadNative,
   type NativeOps,
-  nativeLoaded,
+  nativeBindingActive,
+  nativeResolved,
   rougeLLcs,
   tokenize,
 } from "../src/search/native";
@@ -49,8 +51,12 @@ describe("vector/lexical primitives — JS fallbacks", () => {
 });
 
 describe("active backend (native when built, else JS) matches the JS reference", () => {
-  it("exposes a boolean nativeLoaded flag", () => {
-    expect(typeof nativeLoaded).toBe("boolean");
+  it("exposes boolean nativeResolved and nativeBindingActive flags", () => {
+    expect(typeof nativeResolved).toBe("boolean");
+    expect(typeof nativeBindingActive).toBe("boolean");
+    // The real binding being active implies the module resolved; the converse does not hold
+    // (THE-906 — a resolved module can be packages/native's own internal JS fallback, #857).
+    if (nativeBindingActive) expect(nativeResolved).toBe(true);
   });
 
   it("cosine/tokenize/bm25 agree with the JS reference", () => {
@@ -120,6 +126,71 @@ describe("loadNative selector — OBSIDIAN_TC_FORCE_JS_FALLBACK escape hatch", (
       }),
     ).toBeNull();
     expect(loadNative({}, () => ({ cosineSimilarity: () => 0 }))).toBeNull();
+  });
+});
+
+describe("deriveNativeBindingActive — THE-906 honest-signal derivation", () => {
+  // packages/native/index.js resolves successfully (same NativeOps function names) whether it is
+  // backed by the real .node OR its own bundled fallback.js — the #857 trap every
+  // `--ignore-scripts` checkout hits. Its own `nativeLoaded` export is the only thing that tells
+  // the two apart, so this is the exact case a threading regression (reporting `nativeResolved`
+  // where `nativeBindingActive` belongs) would silently paper over.
+  const shape = {
+    cosineSimilarity: () => 1,
+    cosineBatch: () => new Float64Array(),
+    tokenize: () => ["x"],
+    bm25Score: () => 1,
+  };
+
+  it("a resolved module whose OWN nativeLoaded is false is NOT reported active (the #857 trap)", () => {
+    const resolvedButFallback = { ...shape, nativeLoaded: false } as unknown as NativeOps;
+    expect(deriveNativeBindingActive(resolvedButFallback)).toBe(false);
+  });
+
+  it("a resolved module whose OWN nativeLoaded is true IS reported active", () => {
+    const resolvedAndReal = { ...shape, nativeLoaded: true } as unknown as NativeOps;
+    expect(deriveNativeBindingActive(resolvedAndReal)).toBe(true);
+  });
+
+  it("null (nothing resolved) is not active", () => {
+    expect(deriveNativeBindingActive(null)).toBe(false);
+  });
+});
+
+// THE-906: a fallback-serving process must never claim `nativeBindingActive` — i.e. it must never
+// print `native=on` (server-runtime.ts), report `native.availability: ok` (doctor), or return
+// `native_loaded: true` (server_health). This suite pins that at the source-of-truth level: every
+// operator-facing consumer imports `nativeBindingActive` (not `nativeResolved`) from this module,
+// so pinning it here transitively covers all of them without duplicating the assertion at each
+// call site. See capability-profile.test.ts and server-runtime.test.ts for the threading pins.
+describe("THE-906: nativeBindingActive is the honest gate for reporting surfaces", () => {
+  it("real .node built on this host (bun run test:local) — nativeBindingActive matches the package's own nativeLoaded", () => {
+    const req = loadNative({} as NodeJS.ProcessEnv); // empty env: ignores an ambient FORCE_JS_FALLBACK
+    const isRealNative =
+      (req as unknown as { nativeLoaded?: boolean } | null)?.nativeLoaded === true;
+    expect(nativeBindingActive).toBe(isRealNative);
+    // On this box the addon is built (see repo gates), so this is a real, non-vacuous assertion —
+    // not just "both false".
+    expect(nativeResolved).toBe(true);
+  });
+
+  it("WATCHED FAILURE: reporting nativeResolved instead of nativeBindingActive fails this pin whenever the two diverge", () => {
+    // Simulates the exact regression this ticket closes: a resolved module (function names present)
+    // backed by packages/native's internal fallback.js (own nativeLoaded === false). If some
+    // surface threaded `nativeResolved` where `nativeBindingActive` belongs, THIS assertion is the
+    // one that would have caught it — deriveNativeBindingActive must disagree with mere resolution.
+    const resolvedButFallback = {
+      cosineSimilarity: () => 1,
+      cosineBatch: () => new Float64Array(),
+      tokenize: () => ["x"],
+      bm25Score: () => 1,
+      nativeLoaded: false,
+    } as unknown as NativeOps;
+    const wronglyReportedActive = resolvedButFallback !== null; // the nativeResolved-shaped bug
+    const honestlyReportedActive = deriveNativeBindingActive(resolvedButFallback);
+    expect(wronglyReportedActive).toBe(true);
+    expect(honestlyReportedActive).toBe(false);
+    expect(honestlyReportedActive).not.toBe(wronglyReportedActive);
   });
 });
 
