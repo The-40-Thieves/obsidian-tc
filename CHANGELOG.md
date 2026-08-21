@@ -8,11 +8,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
-- **THE-891 item 2 — the capture mitigation profile every accepted local-persistence precedent
-  ships (bounded retention + first-run notice + location guard), `experiential.captureContent`
-  stays on (behavior change: retention).** Researched what separates an accepted on-by-default
-  local capture default (VS Code Local History, JetBrains Local History, Go's telemetry-in-local-
-  mode) from a scandalous one, and it is never the default itself — it is three structural
+- **THE-891 item 2 (#845) — the capture mitigation profile every accepted local-persistence
+  precedent ships (bounded retention + first-run notice + location guard),
+  `experiential.captureContent` stays on (behavior change: retention).** Researched what
+  separates an accepted on-by-default local capture default (VS Code Local History, JetBrains
+  Local History, Go's telemetry-in-local-mode) from a scandalous one, and it is never the
+  default itself — it is three structural
   properties shipped together. `captureContent`'s own default is unchanged (still `true`); what
   changed is the mitigation set around it:
   - **Bounded retention on the raw content (behavior change).** New
