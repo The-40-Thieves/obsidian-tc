@@ -58,6 +58,9 @@ const COUNTERS = [
   // gatedRerank's policy gate — this is the counter that tells those apart. `outcome` is the
   // closed 7-value RerankOutcome union, bounded by construction like `stage` above.
   "obsidian_tc_rerank_outcome_total",
+  // THE-891 item 3: the graph-walk ACL filter's (THE-695/THE-852) recall cost. Zero for an
+  // unrestricted caller by construction — see the counter's own help text.
+  "obsidian_tc_acl_walk_pruned_total",
 ];
 const HISTOGRAMS = [
   "obsidian_tc_tool_duration_seconds",
@@ -97,14 +100,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 26 counters, 4 histograms, 16 gauges", async () => {
+  it("registers the full catalog: 27 counters, 4 histograms, 16 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(46);
+    expect(new Set(declared).size).toBe(47);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
@@ -276,6 +279,16 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     // different fixes, so collapsing them would report a number nobody can act on.
     expect(text).toContain('obsidian_tc_vec_fallback_total{vault="main",reason="error"} 2');
     expect(text).toContain('obsidian_tc_vec_fallback_total{vault="main",reason="underfill"} 1');
+  });
+
+  it("counts graph-walk ACL prunes, by vault, and never creates a zero series (THE-891 item 3)", async () => {
+    const r = new MetricsRecorder();
+    r.incAclWalkPruned("main", 2);
+    r.incAclWalkPruned("main", 1);
+    r.incAclWalkPruned("other", 0); // an unrestricted or bridge-free call — must not move the series
+    const text = await r.metrics();
+    expect(text).toContain('obsidian_tc_acl_walk_pruned_total{vault="main"} 3');
+    expect(text).not.toContain('obsidian_tc_acl_walk_pruned_total{vault="other"}');
   });
 
   // THE-507: the gauge must reflect the CACHE's own counters, not a value the recorder invented.

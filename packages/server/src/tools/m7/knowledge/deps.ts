@@ -96,6 +96,11 @@ export interface M7Deps {
    *  shape as onVecFallback/onStageMetric above — wired from the composition root so this module
    *  never learns about the metrics recorder. Absent -> inert. */
   onRerankOutcome?: (vault: string, outcome: RerankOutcome) => void;
+  /** THE-891 item 3: paths the graph-walk ACL filter pruned that an unfiltered walk over the same
+   *  seed frontier would have reached, by vault. Same seam shape as onVecFallback/onStageMetric
+   *  above — wired from the composition root so this module never learns about the metrics
+   *  recorder. Absent -> inert; fired only for a RESTRICTED caller (see resolveAclWalkFilter). */
+  onAclWalkPruned?: (vault: string, count: number) => void;
   /** THE-187/193: cached_activation_score lookup for the graph bubble pass; absent -> inert
    *  (the config-gated dark default until the A/B passes the ship rule). */
   activationFor?: (chunkId: string) => number | null;

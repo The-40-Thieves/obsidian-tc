@@ -76,12 +76,35 @@ export function expandGraph(input: GraphExpansionInput): GraphExpansionResult {
     );
     return { expansionChunks: [], expSimById: new Map(), truncated: false };
   }
-  const nodes = expandGraphLiteral(db, expandFrom, {
+  const walkOpts = {
     vaultId: opts.vaultId,
     hopLimit,
     includeDerived: opts.densify?.includeInWalk ?? false,
+  };
+  const nodes = expandGraphLiteral(db, expandFrom, {
+    ...walkOpts,
     ...(aclSetId !== undefined ? { aclSetId } : {}),
   });
+  // THE-891 item 3 (additive-only observability): count paths the ACL join excluded from THIS
+  // walk that an UNFILTERED walk over the same frontier/hopLimit/edge-types would have reached —
+  // the filter's actual recall cost, made visible per THE-891's fail-safe-defaults argument (a
+  // recall miss is detectable; the inference leak it replaces was not). Reuses expandGraphLiteral
+  // verbatim rather than re-deriving its undirected-edge/join logic, so this can never drift from
+  // what the filter actually does; removing aclJoin can only WIDEN what the walk reaches, so the
+  // unfiltered path set is always a superset and the diff below is well-defined.
+  //
+  // Gated on `opts.aclWalkFilter?.restricted` (resolveAclWalkFilter, retrieval-runtime.ts): for an
+  // UNRESTRICTED caller the join is already a proven structural no-op (their permitted set is the
+  // whole universe — see that function's header), so re-walking unfiltered to confirm it on every
+  // call would add unconditional cost to exactly the deployment THE-852 was measured to leave
+  // untouched. This file, and THE-852's join above, are UNCHANGED for an unrestricted caller — the
+  // re-walk below runs only for a caller who can genuinely lose recall to the filter.
+  if (aclSetId !== undefined && opts.aclWalkFilter?.restricted === true && opts.onAclWalkPruned) {
+    const unfiltered = expandGraphLiteral(db, expandFrom, walkOpts);
+    const reached = new Set(nodes.map((n) => n.path));
+    const pruned = new Set(unfiltered.map((n) => n.path).filter((p) => !reached.has(p)));
+    if (pruned.size > 0) opts.onAclWalkPruned(pruned.size);
+  }
   const nodeByPath = new Map(nodes.map((n) => [n.path, n]));
   const paths = [...nodeByPath.keys()];
   // Hub suppression: a node with pathological degree (vault audits, index/dashboard pages)

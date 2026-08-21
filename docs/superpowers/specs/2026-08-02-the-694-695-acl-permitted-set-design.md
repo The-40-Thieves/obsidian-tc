@@ -1,5 +1,23 @@
 # An ACL predicate SQLite can see
 
+> **UPDATE (2026-08-21, THE-891 item 3):** the "Rollout" step 4 disposition below — the walk filter
+> "ships dark" behind a config flag — was SUPERSEDED by THE-852 (#815, v1.22.0, 2026-08-19/20):
+> `resolveAclWalkFilter` (retrieval-runtime.ts) now wires the filter into every M7 surface and
+> defaults it **unconditionally on**, with no config gate at all. Two live P0s (`via_edge.source_path`
+> leaking a denied predecessor path; an unreadable bridge note acting as a membership/rank oracle)
+> made the caller-conditional dark-flag design untenable — see SECURITY.md's "Graph-walk ACL filter"
+> entry for the closed defects and the fail-safe-defaults argument for uniform application.
+>
+> That also means the "inert in this deployment by construction" analysis two sections down (under
+> "Measured after implementation") now needs a precision the original text didn't: it describes
+> OUTPUT-equivalence for an unrestricted caller (the join returns the identical node set, because
+> their permitted set is the whole corpus), not ZERO WORK — `resolveAclWalkFilter` builds/attaches a
+> real `acl_path_set` and `graph_expand.ts`'s join always runs, for every caller, restricted or not.
+> The doc's refusal to report the inert arm as a measured null (rather than a design argument) STANDS
+> — nothing below was re-measured, and this banner does not attempt to. `obsidian_tc_acl_walk_pruned_total`
+> (THE-891 item 3) now makes the filter's actual recall cost, for a genuinely restricted caller,
+> observable — see MetricsRecorder.incAclWalkPruned. The body below is otherwise unchanged.
+
 **Date:** 2026-08-02
 **Status:** design approved, not yet implemented
 **Tickets:** THE-694 (router timing residual), THE-695 (graph-walk bridges, BM25 over-fetch boundary), THE-693 (hub defence, shares the eval)

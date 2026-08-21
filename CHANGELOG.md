@@ -50,6 +50,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   ("the deployment is single-principal" — an owner, not a control) is replaced with the precedent-
   class argument above. Deliberately **out of scope**: a metadata-only capture mode (real schema
   churn, not attempted here) and changing `captureContent`'s own default value.
+- **`obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable
+  (THE-891 item 3, #PRNUM).** The filter itself has been unconditionally on since v1.22.0
+  (THE-695/THE-852): an ACL-denied note can never serve as a bridge between two readable ones, for
+  every caller, with no config flag to disable it. What was missing was a way to SEE what it costs —
+  a restricted caller's search silently returning fewer notes than an unrestricted caller's would,
+  with nothing distinguishing "the walk found less" from "the filter pruned a path." The new counter
+  fires once per graph-expansion call that excluded at least one path a caller's own re-walk (over
+  the same seed frontier, unfiltered) would otherwise have reached, labeled by `vault` only. It is
+  zero by construction for an unrestricted caller — their permitted set is the whole corpus, so the
+  join is a proven structural no-op and the prune-detection re-walk never even runs for them, which
+  keeps the common single-principal deployment exactly as cheap as before this ticket. SECURITY.md
+  gained a "Graph-walk ACL filter" entry explaining why the filter applies uniformly rather than
+  conditionally (fail-safe defaults: a recall miss is detectable, a bridge-inference leak is not),
+  and the THE-694/695 design doc that originally proposed shipping this dark now carries a dated
+  banner pointing at THE-852's supersession.
 - **THE-707 — experiential-tier benchmark applicability assessment (no adapter built).**
   Researched the three public "experiential memory" benchmarks named in the ticket
   (LongMemEval, LongMemEval-V2, BEAM) against what obsidian-tc's experiential tier

@@ -92,7 +92,11 @@ interface Harness {
   ctx: (over?: Partial<CallerContext>) => CallerContext;
 }
 
-function harness(db: Database, acl: FolderAcl | undefined): Harness {
+function harness(
+  db: Database,
+  acl: FolderAcl | undefined,
+  onAclWalkPruned?: (vault: string, count: number) => void,
+): Harness {
   const vaultRegistry = new VaultRegistry([
     { id: VAULT, path: "/nonexistent/does-not-need-to-exist" },
   ]);
@@ -103,6 +107,8 @@ function harness(db: Database, acl: FolderAcl | undefined): Harness {
     reranker: null,
     roles: null,
     acl,
+    // THE-891 item 3: optional, mirrors every other observability seam on M7Deps.
+    ...(onAclWalkPruned ? { onAclWalkPruned } : {}),
   });
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
     caller: "tester",
@@ -137,6 +143,20 @@ describe("THE-852 wiring — resolveAclWalkFilter", () => {
     expect(result.aclWalkFilter?.enabled).toBe(true);
     expect(result.aclWalkFilter?.blocked).toBeUndefined();
     expect(typeof result.aclSetId).toBe("number");
+    // THE-891 item 3: `restricted` is the metrics-only gate graph_expansion.ts reads to decide
+    // whether it may re-walk unfiltered for the prune count — set here because this caller
+    // genuinely can lose recall to the filter.
+    expect(result.aclWalkFilter?.restricted).toBe(true);
+  });
+
+  it("unrestricted caller + resolvable substrate -> filter enabled WITHOUT `restricted` (THE-891 item 3)", () => {
+    const db = buildFixture();
+    const result = resolveAclWalkFilter(db, VAULT, undefined, GRANTED, () => true);
+    expect(result.aclWalkFilter?.enabled).toBe(true);
+    expect(typeof result.aclSetId).toBe("number");
+    // Unset, not false: an unrestricted caller's join is a proven structural no-op, so the
+    // prune-count re-walk must never even be attempted for them.
+    expect(result.aclWalkFilter?.restricted).toBeUndefined();
   });
 
   it("unrestricted caller + missing substrate -> no-op ({}), byte-identical to before this ticket", () => {
@@ -297,5 +317,97 @@ describe("THE-852 wiring — real vault_graph_search dispatch", () => {
     const h = harness(db, undefined);
     const results = await search(h);
     expect(results.some((r) => r.path === "public/b.md")).toBe(true);
+  });
+});
+
+// THE-891 item 3: the walk filter's recall cost, made measurable. Same fixture as above
+// (public/a.md -> secret/s.md -> public/b.md) so a "pruned" count has a known right answer: 2
+// (secret/s.md itself, plus public/b.md — reachable only THROUGH it).
+describe("THE-891 item 3 — onAclWalkPruned prune counter", () => {
+  it("restricted caller with a bridge: fires once with the count of paths the join excluded", () => {
+    const db = buildFixture();
+    const isReadable = (p: string) => !p.startsWith("secret/");
+    const walkFilter = resolveAclWalkFilter(
+      db,
+      VAULT,
+      new FolderAcl(RESTRICTED_ACL),
+      GRANTED,
+      isReadable,
+    );
+    // Non-vacuous: the gate this test exercises is actually open.
+    expect(walkFilter.aclWalkFilter?.restricted).toBe(true);
+
+    const pruned = vi.fn();
+    const result = expandGraph({
+      db,
+      opts: {
+        query: "q",
+        queryVec: QUERY_VEC,
+        vaultId: VAULT,
+        isReadable,
+        ...walkFilter,
+        onAclWalkPruned: pruned,
+      } as GraphSearchOptions,
+      seedPaths: ["public/a.md"],
+      seedChunkIds: new Set(),
+      hopLimit: 2,
+      similarityThreshold: 0.2,
+      maxExpansionChunks: 50,
+      decayEnabled: false,
+      decayLambda: 0,
+      decayNowMs: 0,
+    });
+
+    expect(pruned).toHaveBeenCalledTimes(1);
+    expect(pruned).toHaveBeenCalledWith(2);
+    // Non-vacuous the other way: the bridge really is gone from the returned results.
+    expect(result.expansionChunks.some((c) => c.path === "public/b.md")).toBe(false);
+  });
+
+  it("unrestricted caller: never fires — the structural-no-op claim, checked empirically", () => {
+    const db = buildFixture();
+    const walkFilter = resolveAclWalkFilter(db, VAULT, undefined, GRANTED, () => true);
+    // Non-vacuous: the gate stays closed for this caller.
+    expect(walkFilter.aclWalkFilter?.restricted).toBeUndefined();
+
+    const pruned = vi.fn();
+    const result = expandGraph({
+      db,
+      opts: {
+        query: "q",
+        queryVec: QUERY_VEC,
+        vaultId: VAULT,
+        isReadable: () => true,
+        ...walkFilter,
+        onAclWalkPruned: pruned,
+      } as GraphSearchOptions,
+      seedPaths: ["public/a.md"],
+      seedChunkIds: new Set(),
+      hopLimit: 2,
+      similarityThreshold: 0.2,
+      maxExpansionChunks: 50,
+      decayEnabled: false,
+      decayLambda: 0,
+      decayNowMs: 0,
+    });
+
+    expect(pruned).not.toHaveBeenCalled();
+    // Non-vacuous: the bridge IS reached for this caller — nothing to prune, not a broken walk.
+    expect(result.expansionChunks.some((c) => c.path === "public/b.md")).toBe(true);
+  });
+
+  it("real vault_graph_search dispatch: restricted caller's counter fires, unrestricted caller's never does", async () => {
+    const events: Array<{ vault: string; count: number }> = [];
+    const onAclWalkPruned = (vault: string, count: number) => events.push({ vault, count });
+
+    const restricted = harness(buildFixture(), new FolderAcl(RESTRICTED_ACL), onAclWalkPruned);
+    await search(restricted);
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.every((e) => e.vault === VAULT && e.count > 0)).toBe(true);
+
+    events.length = 0;
+    const unrestricted = harness(buildFixture(), undefined, onAclWalkPruned);
+    await search(unrestricted);
+    expect(events).toEqual([]);
   });
 });

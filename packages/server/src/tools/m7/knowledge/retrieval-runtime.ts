@@ -243,6 +243,13 @@ export function prewarmBundlePaths(bundle: Record<string, unknown>): string[] {
  *     THE-852 defects; `blocked` is the distinct signal graph_expansion.ts's expandGraph reads to
  *     skip the walk entirely instead (seeds/lexical/sparse arms are unaffected).
  *   - any caller + resolved set -> `{ aclWalkFilter: { enabled: true }, aclSetId }`, the normal fix.
+ *
+ * THE-891 item 3: a resolved set additionally carries `restricted: true` when the caller is NOT
+ * `readEnumerationUnrestricted` — i.e. exactly the population that can ever lose recall to the
+ * filter. This is metrics-only metadata (see `aclWalkFilter.restricted`'s own doc in types.ts): it
+ * does not change `aclSetId` or which join runs, both already unconditional per THE-852 above. An
+ * unrestricted caller never gets the flag, so graph_expansion.ts's prune-count re-walk never runs
+ * for them — their proven structural no-op stays exactly as cheap as before this ticket.
  */
 export function resolveAclWalkFilter(
   db: Database,
@@ -255,6 +262,7 @@ export function resolveAclWalkFilter(
   // graph_expansion.ts's own `isReadable && !isReadable(...)` guard) — matched here rather than
   // treated as restricted, since there is genuinely nothing to build a permitted set FROM.
   if (!isReadable) return {};
+  const unrestricted = readEnumerationUnrestricted(acl);
   const aclSetId = ensureAclPathSet(db, {
     vaultId,
     aclFingerprint: callerAclFingerprint(acl, grantedScopes),
@@ -263,8 +271,12 @@ export function resolveAclWalkFilter(
     isReadable,
     nowMs: Date.now(),
   });
-  if (aclSetId != null) return { aclWalkFilter: { enabled: true }, aclSetId };
-  if (readEnumerationUnrestricted(acl)) return {};
+  if (aclSetId != null) {
+    return unrestricted
+      ? { aclWalkFilter: { enabled: true }, aclSetId }
+      : { aclWalkFilter: { enabled: true, restricted: true }, aclSetId };
+  }
+  if (unrestricted) return {};
   return { aclWalkFilter: { enabled: true, blocked: true } };
 }
 
@@ -413,6 +425,12 @@ export function buildGraphSearchOptions(
           onVecFallback: (reason: "error" | "underfill") =>
             deps.onVecFallback?.(site.vaultId, reason),
         }
+      : {}),
+    // THE-891 item 3: graph-walk ACL prune counter, bound to this vault. Same options-builder
+    // placement as onVecFallback above, same reason — a per-call-site wiring is how a counter ends
+    // up covering some M7 surfaces and silently missing others.
+    ...(deps.onAclWalkPruned
+      ? { onAclWalkPruned: (count: number) => deps.onAclWalkPruned?.(site.vaultId, count) }
       : {}),
     // THE-585 (#6): same options-builder placement, same reason — a per-call-site wiring would
     // cover some retrieval paths and silently miss others, which is the failure mode a funnel

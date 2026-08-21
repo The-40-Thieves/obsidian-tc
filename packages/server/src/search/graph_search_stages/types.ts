@@ -191,11 +191,27 @@ export interface GraphSearchOptions {
      *  is harmless (there is nothing to filter), so the walk proceeds unfiltered exactly as it did
      *  before this ticket. */
     blocked?: boolean;
+    /** THE-891 item 3: true when the caller is RESTRICTED (readEnumerationUnrestricted is false)
+     *  AND a real `aclSetId` resolved — i.e. exactly the population that can ever lose recall to
+     *  this filter. Metrics-only metadata: it never changes which set_id is requested or how the
+     *  join runs (both are unconditional per THE-852 regardless of this flag). It exists so
+     *  graph_expansion.ts can gate the prune-count re-walk (`onAclWalkPruned`) to callers who can
+     *  produce a non-zero count, leaving an unrestricted caller's proven structural no-op exactly
+     *  as cheap as it was before this ticket. Never set for an unrestricted caller or for the
+     *  `blocked` case above (see resolveAclWalkFilter, retrieval-runtime.ts). */
+    restricted?: boolean;
   };
   /** THE-695: the resolved `acl_path_members` set_id for THIS caller, from ensureAclPathSet.
    *  Absent means the substrate was unavailable (pre-migration db, read-only handle, empty set) and
    *  the existing hydrated-row filter remains the only ACL applied — i.e. today's behaviour. */
   aclSetId?: number;
+  /** THE-891 item 3 (additive, observability-only): fired once per graph-expansion call for a
+   *  RESTRICTED caller (`aclWalkFilter.restricted`) with the count of distinct paths the walk
+   *  filter excluded that an unfiltered walk over the same seed frontier would have reached. Never
+   *  fired for an unrestricted caller, and never fired with a zero count — same "guard at n > 0"
+   *  convention as MetricsRecorder.incAclWalkPruned. Default undefined -> no behavior change, same
+   *  seam shape as onVecFallback/onStageMetric above. */
+  onAclWalkPruned?: (count: number) => void;
   /** THE-393: post-fusion diversification (graph_rrf mode only — the reranker modes own their
    *  final order). `maxPerNote` collapses the fused list to at most that many chunks per note
    *  BEFORE the final cut, so one long note cannot fill the top-K (results are path-grained
