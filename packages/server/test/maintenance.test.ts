@@ -56,6 +56,9 @@ describe("cache.db maintenance sweep (THE-292)", () => {
       episodes: 0,
       chunk_retrievals: 0,
       trace_files: 0,
+      // THE-891 item 1: same skip reasoning as the two experiential arms above — no `edb`, so the
+      // redaction arm never runs. Its own coverage is in maintenance-experiential.test.ts.
+      episode_content_redacted: 0,
     });
     expect(db.prepare("SELECT COUNT(*) AS n FROM idempotency_keys").get()).toMatchObject({
       n: 2,

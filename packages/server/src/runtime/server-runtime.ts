@@ -44,6 +44,7 @@ import { createRetrievalCaches } from "../search/query_cache";
 import type { VecRebuildEvent } from "../search/vec";
 import type { ThrottleTiers } from "../throttle";
 import { connectStdio } from "../transports/stdio";
+import { emitBootNotices } from "./boot-notices";
 import { wireBridges } from "./bridge-wiring";
 import { type Governance, wireGovernance } from "./governance";
 import {
@@ -53,7 +54,6 @@ import {
   wireIndexResources,
 } from "./indexing-wiring";
 import { createObservability } from "./observability";
-import { formatPlaneOptInNotice } from "./plane-opt-in-notice";
 import {
   createJobQueue,
   createOnIndexedHook,
@@ -655,36 +655,9 @@ export async function buildServerRuntime(
 
     scheduler.start();
 
-    // Security posture summary (audit #268 P1): make the active profile obvious at startup, and
-    // warn when the permissive trusted-local defaults are active — governed by default is not
-    // least-privilege by default. stderr only (the stdio MCP protocol owns stdout).
-    {
-      const rootAcl = config.acl;
-      // THE-526: name the active profile so it is a stated fact, not something inferred from six
-      // fields.
-      const profile = config.securityProfile ?? "trusted-local";
-      process.stderr.write(
-        `security: profile=${profile} auth=${config.auth.mode} readOnly=${rootAcl.readOnly} strictRead=${rootAcl.strictReadDefault} requireCas=${config.writes.requireCas} http=${config.transports.http.enabled ? "on" : "off"}\n`,
-      );
-      if (
-        config.auth.mode === "none" &&
-        !rootAcl.readOnly &&
-        !rootAcl.strictReadDefault &&
-        !config.writes.requireCas
-      ) {
-        process.stderr.write(
-          "security: running with trusted-local defaults (auth=none, no strict-read, no CAS). For a " +
-            'shared or multi-caller deployment set securityProfile: "hardened" (strictReadDefault, ' +
-            "requireCas, snapshots, HTTP off) plus your read/write paths, or copy " +
-            "examples/config.hardened.json.\n",
-        );
-      }
-    }
-
-    // THE-825: plane opt-in boot notice — silent by default is the failure mode this closes.
-    // See plane-opt-in-notice.ts.
-    const notice = formatPlaneOptInNotice({ gatewayConfigured, planeEnabledExplicit });
-    if (notice) process.stderr.write(notice);
+    // Security posture summary, THE-825 plane opt-in notice, THE-891 capture first-run notice —
+    // all three folded into one call; see boot-notices.ts's header for why they moved out of here.
+    emitBootNotices({ config, gatewayConfigured, planeEnabledExplicit });
 
     // THE-288: honor transports.stdio. Default (true) connects the stdio MCP transport; when
     // false the server serves HTTP-only (the listening socket keeps the process alive), and if

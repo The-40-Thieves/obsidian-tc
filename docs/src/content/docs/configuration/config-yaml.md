@@ -123,6 +123,7 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "logRetrievals": true,
     "captureEpisodes": true,
     "captureContent": true,
+    "captureRetentionDays": 30,
     "activationDecay": 0.5,
     "activationRerank": false,
     "citationPreferences": false,

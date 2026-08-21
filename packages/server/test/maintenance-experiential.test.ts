@@ -12,7 +12,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { sweepExperiential } from "../src/db/maintenance";
+import { redactAgedEpisodeContent, sweepExperiential } from "../src/db/maintenance";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
@@ -36,16 +36,18 @@ function freshEdb(): Database {
   return db;
 }
 
-/** Insert an episode. `validUntil` null = live forever; `blocked` = a forget tombstone. */
+/** Insert an episode. `validUntil` null = live forever; `blocked` = a forget tombstone.
+ *  `argsJson` (THE-891 item 1) seeds the content-axis column redactAgedEpisodeContent targets —
+ *  absent means "captureContent was off for this row", same as production. */
 function insertEpisode(
   db: Database,
   id: string,
-  opts: { ts: number; validUntil?: number | null; blocked?: 0 | 1 },
+  opts: { ts: number; validUntil?: number | null; blocked?: 0 | 1; argsJson?: string | null },
 ): void {
   db.prepare(
-    `INSERT INTO agent_episodes (id, ts, vault_id, channel, episode_type, status, eligibility, blocked, valid_until)
-     VALUES (?, ?, 'v1', 'dispatch', 'tool_call', 'ok', 'eligible', ?, ?)`,
-  ).run(id, opts.ts, opts.blocked ?? 0, opts.validUntil ?? null);
+    `INSERT INTO agent_episodes (id, ts, vault_id, channel, episode_type, status, eligibility, blocked, valid_until, args_json)
+     VALUES (?, ?, 'v1', 'dispatch', 'tool_call', 'ok', 'eligible', ?, ?, ?)`,
+  ).run(id, opts.ts, opts.blocked ?? 0, opts.validUntil ?? null, opts.argsJson ?? null);
 }
 
 const sweep = (db: Database, o?: { episodesDays?: number; retrievalsDays?: number }) =>
@@ -170,5 +172,90 @@ describe("sweepExperiential — degradation", () => {
       out = sweep(db);
     }).not.toThrow();
     expect(out).toEqual({ episodes: 0, chunk_retrievals: 0 });
+  });
+});
+
+// THE-891 item 1: redactAgedEpisodeContent — the CONTENT-axis retention arm, independent of
+// sweepExperiential's row-deletion arm above. The load-bearing distinction: this touches LIVE
+// episodes (sweepExperiential above never does), but only ever nulls args_json, never the row.
+describe("redactAgedEpisodeContent", () => {
+  const redact = (db: Database, retentionDays: number) =>
+    redactAgedEpisodeContent(db, { now: NOW, retentionDays });
+
+  it("redacts args_json on a row past the window, and leaves the rest of the row intact", () => {
+    const db = freshEdb();
+    insertEpisode(db, "aged", { ts: NOW - 40 * DAY, argsJson: '{"path":"secret.md"}' });
+    const n = redact(db, 30);
+    expect(n).toBe(1);
+    const row = db
+      .prepare("SELECT args_json, eligibility, blocked, status FROM agent_episodes WHERE id = ?")
+      .get("aged") as {
+      args_json: string | null;
+      eligibility: string;
+      blocked: number;
+      status: string;
+    };
+    expect(row.args_json).toBeNull();
+    // The row itself — action-axis history — survives untouched.
+    expect(row.eligibility).toBe("eligible");
+    expect(row.blocked).toBe(0);
+    expect(row.status).toBe("ok");
+  });
+
+  it("keeps args_json on a row still INSIDE the window", () => {
+    const db = freshEdb();
+    insertEpisode(db, "recent", { ts: NOW - 2 * DAY, argsJson: '{"path":"secret.md"}' });
+    expect(redact(db, 30)).toBe(0);
+    const row = db.prepare("SELECT args_json FROM agent_episodes WHERE id = ?").get("recent") as {
+      args_json: string | null;
+    };
+    expect(row.args_json).toBe('{"path":"secret.md"}');
+  });
+
+  it("touches a LIVE episode's content — unlike sweepExperiential's row-deletion arm", () => {
+    // The deliberate asymmetry this file's header explains: sweepExperiential NEVER deletes a
+    // live row, however old, because age says nothing about whether work-memory is finished with
+    // it. redactAgedEpisodeContent answers a narrower question (does the raw payload still need
+    // to exist) and applies to every episode past the window regardless of liveness.
+    const db = freshEdb();
+    insertEpisode(db, "ancient-live", { ts: NOW - 730 * DAY, argsJson: "{}" });
+    expect(redact(db, 30)).toBe(1);
+    expect(sweep(db).episodes).toBe(0); // the row itself is still there — sweepExperiential agrees
+    const row = db
+      .prepare("SELECT args_json FROM agent_episodes WHERE id = ?")
+      .get("ancient-live") as { args_json: string | null };
+    expect(row.args_json).toBeNull();
+  });
+
+  it("is a no-op on a row that never had content (args_json already NULL)", () => {
+    const db = freshEdb();
+    insertEpisode(db, "no-content", { ts: NOW - 400 * DAY }); // captureContent was off
+    expect(redact(db, 30)).toBe(0);
+  });
+
+  it("retentionDays: 0 disables the sweep entirely — the power-user unlimited opt-out", () => {
+    const db = freshEdb();
+    insertEpisode(db, "very-old", { ts: NOW - 3650 * DAY, argsJson: "{}" });
+    expect(redact(db, 0)).toBe(0);
+    const row = db.prepare("SELECT args_json FROM agent_episodes WHERE id = ?").get("very-old") as {
+      args_json: string | null;
+    };
+    expect(row.args_json).toBe("{}");
+  });
+
+  it("BREAKS if the age predicate regresses to <= instead of <, or drops the ts cutoff", () => {
+    // Watched-failure signature the task asked for: mutate the boundary and this must fail loud.
+    const db = freshEdb();
+    insertEpisode(db, "exactly-at-boundary", { ts: NOW - 30 * DAY, argsJson: "{}" });
+    // At exactly the 30-day boundary, ts < cutoff is false (cutoff === ts), so this row is NOT
+    // yet redacted — it becomes eligible only once it is OLDER than the window.
+    expect(redact(db, 30)).toBe(0);
+  });
+
+  it("is a no-op on a db predating agent_episodes, rather than throwing", () => {
+    const db = freshEdb();
+    db.exec("DROP TABLE agent_episodes");
+    expect(() => redact(db, 30)).not.toThrow();
+    expect(redact(db, 30)).toBe(0);
   });
 });

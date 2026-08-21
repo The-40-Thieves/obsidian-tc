@@ -446,20 +446,61 @@ export const ExperientialConfigSchema = z.object({
   /** THE-228 content axis: also persist the raw parsed args (secret-scanned + size-capped)
    *  on each episode.
    *
-   *  ON under trusted-local as of 2026-08-07. The capture-posture decision this had been deferring
-   *  to was taken rather than discovered: the poisoning defence shipped 2026-07-11, its layer-1
-   *  scan runs on every capture, args are secret-scanned and size-capped before storage, and the
-   *  deployment is single-principal. What the default was actually resting on was an owner, not a
-   *  control.
+   *  THE-891 item 2 (researched): ON-by-default local persistence with no egress is an accepted
+   *  norm for a developer tool, not something that needs its own justification — VS Code's Local
+   *  History, JetBrains' Local History, and Go's telemetry-in-local-mode all default to capturing
+   *  locally without asking first. What separates that accepted class from the scandal class (a
+   *  tool that turned out to be phoning captured content home, or capturing indefinitely with no
+   *  visible off switch) is never the on/off default — it is three structural properties every
+   *  precedent in the accepted class ships together:
    *
-   *  `securityProfile: "hardened"` sets this back to false — retaining raw arguments is the
-   *  opposite of least-privilege, and a posture named for restraint should not inherit a capture
-   *  default from the permissive one. Same call as `sessions.traceContent`, decided together. */
+   *    1. Bounded retention on the captured content itself, not just "the feature can be turned
+   *       off" — `captureRetentionDays` (default 30) below; the maintenance sweep redacts
+   *       `args_json` on episodes past the window rather than leaving it to accumulate forever.
+   *    2. A visible notice stating what is captured, where it lives, and how to turn it off —
+   *       the one-time boot line in runtime/capture-first-run-notice.ts.
+   *    3. A guard against the content silently leaving the machine through a channel the operator
+   *       did not choose — doctor's `experiential.capture-location` check, which warns when
+   *       cacheDir (where this content actually lives) resolves inside a vault root a sync client
+   *       (iCloud Drive, Dropbox, Syncthing) might be watching.
+   *
+   *  Egress — sending captured content anywhere over the network — is what would need an opt-in
+   *  gate; nothing in this codebase does that. `captureContent` only ever writes to a local
+   *  SQLite file the poisoning defence's layer-1 scan already runs against on every capture
+   *  (shipped 2026-07-11) and that is secret-scanned and size-capped before storage.
+   *
+   *  `securityProfile: "hardened"` sets this back to false anyway — retaining raw arguments is
+   *  still the opposite of least-privilege, and a posture named for restraint should not inherit
+   *  a capture default from the permissive one, mitigations or not. Same call as
+   *  `sessions.traceContent`, decided together. */
   captureContent: z
     .boolean()
     .default(true)
     .describe(
-      'Also persist each episode\'s raw parsed arguments, secret-scanned and size-capped, so work-memory carries what a call actually did rather than only that it happened. On under the trusted-local posture; `securityProfile: "hardened"` turns it off, as does setting it false explicitly.',
+      'Also persist each episode\'s raw parsed arguments, secret-scanned and size-capped, so work-memory carries what a call actually did rather than only that it happened. On under the trusted-local posture, paired with bounded retention (captureRetentionDays), a one-time boot notice, and a doctor check against vault-adjacent storage — the mitigation set every accepted local-persistence precedent (VS Code/JetBrains Local History, Go local-mode telemetry) ships together. `securityProfile: "hardened"` turns it off, as does setting it false explicitly.',
+    ),
+  /** THE-891 item 1: bounded retention on the raw content `captureContent` writes.
+   *
+   *  Redaction, not deletion: the maintenance sweep sets `args_json` (and nothing else — the
+   *  episode row, its action-axis columns, and eligibility/trust stay intact) to NULL on every
+   *  episode older than this window, live or dead. Counters, corpus size, and episode history all
+   *  survive; only the raw tool-call arguments age out. This is deliberately narrower than
+   *  `maintenance.episodesRetentionDays`, which governs whether the ROW itself is ever deleted (and
+   *  only for already-dead rows) — that is a work-memory retention question, this is a
+   *  storage-limitation question about the CONTENT axis specifically, EDPB Art. 5(1)(e)'s "kept no
+   *  longer than necessary" principle applied to a field rather than a record: how long a captured
+   *  argument stays useful for "what did this call actually do" is a much shorter horizon than how
+   *  long the fact that a call happened stays useful.
+   *
+   *  0 disables the sweep entirely (unlimited retention) — an explicit power-user opt-out, not a
+   *  degraded state; the same vocabulary `securityProfile`'s other numeric floors use for "off". */
+  captureRetentionDays: z
+    .number()
+    .int()
+    .min(0)
+    .default(30)
+    .describe(
+      "Days a captured episode's raw args_json is kept before the maintenance sweep redacts it to NULL. The episode ROW is never deleted by this — only the content axis ages out, matching agent_episodes' action-axis history staying complete. 0 disables the sweep (unlimited retention). Independent of maintenance.episodesRetentionDays, which governs row deletion for already-dead episodes only.",
     ),
   /** THE-644 item 3: the ACT-R decay exponent, finally reachable from configuration.
    *

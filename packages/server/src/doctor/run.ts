@@ -2,6 +2,9 @@
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import { embeddingsProviderNames, rerankerProviderNames } from "../providers/registry";
+// THE-891 item 3: capture-location lives in its own module (checks.ts is already at biome's
+// 700-line ceiling), same reasoning as note-summary-scale/retrieval-heads below.
+import { type CaptureLocationView, captureLocationCheck } from "./capture-location";
 import type {
   DerivedColumnsView,
   DerivedTablesView,
@@ -91,6 +94,10 @@ export interface DoctorConfigView {
    *  present (mirrors notesFts); the per-vault row counts only under `--probe`, same reasoning as
    *  every other store-touching check. */
   noteSummariesScale?: NoteSummaryScaleView;
+  /** THE-891 item 3: does cacheDir resolve inside a configured vault root? Always present when
+   *  supplied — no `--probe` gate, unlike the store-touching views above, since this reads only
+   *  two already-resolved config values. */
+  captureLocation?: CaptureLocationView;
 }
 
 export interface AssembleOptions {
@@ -165,6 +172,10 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // small enough" with no bound and no way to tell from inside the system when a vault outgrew that
   // assumption. Same optional-view reasoning as retrieval/snapshots above.
   if (config.noteSummariesScale) checks.push(noteSummaryScaleCheck(config.noteSummariesScale));
+  // THE-891 item 3: does cacheDir — where captured episode content and session traces live —
+  // resolve inside a vault a sync client might be watching? Same optional-view reasoning as
+  // retrieval/snapshots above.
+  if (config.captureLocation) checks.push(captureLocationCheck(config.captureLocation));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

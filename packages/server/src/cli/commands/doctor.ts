@@ -731,6 +731,12 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         enabled: config.retrieval.summaries?.enabled ?? false,
         ...(noteSummariesScale !== undefined ? { probe: () => noteSummariesScale } : {}),
       },
+      // THE-891 item 3: cacheDir-vs-vault-root check. Always present, no --probe gate — this is
+      // a pure path comparison over already-resolved config, not a store touch.
+      captureLocation: {
+        cacheDir: config.cacheDir,
+        vaults: config.vaults.map((v) => ({ id: v.id, path: v.path })),
+      },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,
