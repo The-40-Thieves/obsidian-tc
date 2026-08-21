@@ -9,7 +9,11 @@
 import { createRequire } from "node:module";
 
 export interface NativeOps {
-  cosineSimilarity(a: number[], b: Float32Array | number[]): number;
+  /** `b` MUST be a Float32Array: the native binding's signature is (Vec<f64>, Float32Array)
+   *  and rejects a plain array at the boundary ("Get TypedArray info failed"). The JS fallback
+   *  tolerates number[] — which is exactly how a native-crashing caller passes CI when the test
+   *  lane runs without the built addon. Keep this type strict so the compiler catches it. */
+  cosineSimilarity(a: number[], b: Float32Array): number;
   cosineBatch(query: Float32Array, docsFlat: Float32Array, dim: number): Float64Array;
   tokenize(text: string): string[];
   bm25Score(
