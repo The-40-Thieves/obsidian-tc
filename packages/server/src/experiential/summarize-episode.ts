@@ -11,8 +11,10 @@
 // model in the loop to collapse.
 //
 // The Tier 1 LLM reflection layer this ticket explicitly EXCLUDES stays gated behind THE-707 (a
-// scorable benchmark does not exist yet) and a corpus threshold neither half of which is met on
-// the live store today. Building it is out of scope here — see THE-752's own body.
+// scorable benchmark does not exist yet) and a PER-INSTALL corpus threshold — the gate is a
+// property of each deployment's own store, not of any one deployment's size (THE-891 item 8:
+// an install whose corpus already clears the threshold is not waiting on anyone else's).
+// Building it is out of scope here — see THE-752's own body.
 //
 // Idempotency: `buildEpisodeSummary` is a PURE function of its inputs. Re-running the evaluator
 // pass over an already-summarized (but still `pending`, i.e. held) row reproduces byte-identical
